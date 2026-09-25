@@ -26,10 +26,7 @@
                     <MudNavLink Href="@OverviewHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dashboard" Class="business-nav-link">
                         Overview
                     </MudNavLink>
-                    <MudNavLink Href="@WorkHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.ViewKanban" Class="business-nav-link">
-                        Work
-                    </MudNavLink>
-                    <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
+                    <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="@ProjectsClass">
                         Projects
                     </MudNavLink>
                     <MudNavLink Href="@SourceControlHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
@@ -76,7 +73,6 @@
                 else
                 {
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dashboard" /> Overview</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" /> Work</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Projects</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Source Control</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dns" /> Compute</div>
@@ -121,10 +117,6 @@
         ? $"/organizations/{business.Id}/employees"
         : null;
 
-    private string? WorkHref => BusinessContext.SelectedBusiness is { } business
-        ? $"/organizations/{business.Id}/work"
-        : null;
-
     private string? ProjectsHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/projects"
         : null;
@@ -156,6 +148,8 @@
     private string? SecurityHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/security"
         : null;
+
+    private string ProjectsClass => CurrentPath().Split('?')[0].Contains("/work", StringComparison.OrdinalIgnoreCase) ? "business-nav-link active" : "business-nav-link";
 
     private string EmployeesClass => BusinessNavigation.IsEmployeePath(CurrentPath())
         ? "business-nav-link active"

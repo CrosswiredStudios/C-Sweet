@@ -140,6 +140,58 @@ public sealed class WorkBoardWorkspaceTests
         Assert.DoesNotContain("<script>", html);
     }
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public async Task PlannedSprintActionsRespectScopeStartAndArchivePermissions(bool granted, bool archived, bool visible)
+    {
+        var sprint = Sprint("Planned");
+        var actions = granted ? new[] { WorkSprintActions.Read, WorkSprintActions.ManageScope, WorkOrchestrationActions.Start } : new[] { WorkSprintActions.Read };
+        var board = Detail([], actions);
+        var (html, requests) = await Render(board with { Board = board.Board with { IsArchived = archived } }, [sprint], initialSprintId: sprint.Id);
+        Assert.Equal(visible, html.Contains("Add tickets"));
+        Assert.Equal(visible, html.Contains("Preflight &amp; start"));
+        Assert.Empty(requests);
+    }
+
+    [Fact]
+    public async Task ExistingActiveSprintPreventsStartingAnotherSprint()
+    {
+        var planned = Sprint("Planned");
+        var board = Detail([], [WorkSprintActions.Read, WorkSprintActions.ManageScope, WorkOrchestrationActions.Start]);
+        var (html, _) = await Render(board, [planned, Sprint("Active")], initialSprintId: planned.Id);
+        Assert.Contains("Add tickets", html);
+        Assert.DoesNotContain("Preflight &amp; start", html);
+    }
+
+    [Fact]
+    public async Task SprintScopeSeparatesCurrentAndEligibleBacklogTickets()
+    {
+        var sprint = Sprint("Planned");
+        WorkBoardItemResponse[] items = [Item("Current commitment", sprint.Id), Item("Available backlog"),
+            Item("Another sprint", Guid.NewGuid()), Item("Finished backlog") with { Status = "Completed" },
+            Item("Cancelled backlog") with { Status = "Cancelled" }];
+        var services = new ServiceCollection().AddLogging();
+        services.AddMudServices();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<SprintScopeEditor>(ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                [nameof(SprintScopeEditor.Sprint)] = sprint,
+                [nameof(SprintScopeEditor.Items)] = items
+            }))).ToHtmlString());
+        Assert.Contains("Current commitment", html);
+        Assert.Contains("Return to backlog", html);
+        Assert.Contains("Available backlog", html);
+        Assert.Contains("Add to sprint", html);
+        Assert.DoesNotContain("Another sprint", html);
+        Assert.DoesNotContain("Finished backlog", html);
+        Assert.DoesNotContain("Cancelled backlog", html);
+    }
+
     private static WorkSprintResponse Sprint(string status) => new(Guid.NewGuid(), BoardId, $"Sprint {status}", "Deliver the core loop", status,
         null, null, null, null, null, 8, 2, 20, 5, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     private static WorkBoardItemResponse Item(string title, Guid? sprint = null) => new(Guid.NewGuid(), BoardId, ColumnId, null, sprint, "Task", title,
@@ -150,7 +202,7 @@ public sealed class WorkBoardWorkspaceTests
     private static Wire.WorkItemExecutionResponse ExecutionItem(WorkBoardItemResponse item, string reason) => new(Guid.NewGuid(), item.Id, item.Identifier!, "Build", 1, "Blocked", reason, [], DateTimeOffset.UtcNow);
 
     private static async Task<(string Html, List<string> Requests)> Render(WorkBoardDetailResponse board, IReadOnlyList<WorkSprintResponse> sprints,
-        HttpStatusCode response = HttpStatusCode.NotFound, Wire.WorkSprintExecutionResponse? execution = null)
+        HttpStatusCode response = HttpStatusCode.NotFound, Wire.WorkSprintExecutionResponse? execution = null, Guid? initialSprintId = null)
     {
         var requests = new List<string>();
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
@@ -161,7 +213,7 @@ public sealed class WorkBoardWorkspaceTests
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
         {
             var component = await renderer.RenderComponentAsync<WorkBoardWorkspace>(ParameterView.FromDictionary(new Dictionary<string, object?>
-            { [nameof(WorkBoardWorkspace.Detail)] = board, [nameof(WorkBoardWorkspace.Sprints)] = sprints }));
+            { [nameof(WorkBoardWorkspace.Detail)] = board, [nameof(WorkBoardWorkspace.Sprints)] = sprints, [nameof(WorkBoardWorkspace.InitialSprintId)] = initialSprintId }));
             return component.ToHtmlString();
         });
         return (html, requests);

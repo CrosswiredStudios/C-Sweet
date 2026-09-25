@@ -1,5 +1,8 @@
 # Universal work management
 
+See [Projects workspace](projects-workspace.md) for the consolidated portfolio,
+board directories, project sections, and sprint planning UI.
+
 ## Code map
 
 - `src/CSweet.Domain/Core/WorkTask.cs` - canonical work-item entity. Named `WorkTask`

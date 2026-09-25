@@ -8,9 +8,12 @@
 
 <main class="work-board @(_compact ? "is-compact" : "")" aria-label="@Detail.Board.Name">
     <header class="board-header">
+        @if (!Embedded)
+        {
         <button type="button" class="back-link" @onclick="OnBack"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" Size="Size.Small" />All boards</button>
+        }
         <div class="board-title-row">
-            <div><div class="board-eyebrow">Company work / Board</div><h1>@Detail.Board.Name</h1></div>
+            <div><div class="board-eyebrow">@(Embedded ? "Project board" : "Projects / Board")</div><h2>@Detail.Board.Name</h2></div>
             <div class="board-title-actions">
                 @if (Detail.Board.IsArchived) { <span class="status-label">Archived · read only</span> }
                 <button type="button" class="icon-button" aria-label="Board information" aria-expanded="@_showInfo" @onclick="@(() => _showInfo = !_showInfo)"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /></button>
@@ -37,7 +40,7 @@
     <div class="board-content">
         @if (CanReadSprints && !string.IsNullOrWhiteSpace(SprintError))
         {
-            <div class="board-error" role="alert">Sprint information could not be loaded. <button type="button" @onclick="OnRefresh">Retry</button></div>
+            <div class="board-error" role="alert">@SprintError <button type="button" @onclick="OnRefresh">Refresh board</button></div>
         }
         @if (_view == WorkBoardView.Sprint)
         {
@@ -88,6 +91,11 @@
                 <details class="display-options"><summary>Display</summary><div class="display-options-panel"><label><input type="checkbox" @bind="_compact" />Compact cards</label><label><input type="checkbox" @bind="_showDescriptions" />Show descriptions</label></div></details>
             }
             <div class="board-actions">
+                @if (_view == WorkBoardView.Sprint && SelectedSprint is { } planningSprint)
+                {
+                    @if (CanPlan(planningSprint)) { <button type="button" class="quiet-button" disabled="@Busy" @onclick="@(() => OnAddTickets.InvokeAsync(planningSprint))">Add tickets</button> }
+                    @if (CanStart(planningSprint)) { <button type="button" class="primary-button" disabled="@Busy" @onclick="@(() => OnStartSprint.InvokeAsync(planningSprint))">Preflight &amp; start</button> }
+                }
                 @if (_view == WorkBoardView.Sprints || (_view == WorkBoardView.Sprint && SelectedSprint is null))
                 {
                     @if (CanReadSprints) { <button type="button" class="quiet-button" @onclick="OnManageSprints">Manage sprints</button> }
@@ -115,7 +123,10 @@
             <div class="sprint-directory">
                 @foreach (var sprint in OrderedSprints)
                 {
-                    <article class="sprint-directory-row" @key="sprint.Id"><div><h3>@sprint.Name</h3><p>@sprint.Goal</p><small>@SprintDates(sprint) · @sprint.CompletedItemCount / @sprint.ItemCount complete</small></div><span class="status-label @StatusClass(sprint.Status)">@sprint.Status</span><button type="button" class="quiet-button" @onclick="@(() => OpenSprintAsync(sprint.Id))">View sprint</button></article>
+                    <article class="sprint-directory-row" @key="sprint.Id"><div><h3>@sprint.Name</h3><p>@sprint.Goal</p><small>@SprintDates(sprint) · @sprint.CompletedItemCount / @sprint.ItemCount complete</small></div><span class="status-label @StatusClass(sprint.Status)">@sprint.Status</span><div class="board-actions"><button type="button" class="quiet-button" @onclick="@(() => OpenSprintAsync(sprint.Id))">View sprint</button>
+                        @if (CanPlan(sprint)) { <button type="button" class="quiet-button" disabled="@Busy" @onclick="@(() => OnAddTickets.InvokeAsync(sprint))">Add tickets</button> }
+                        @if (CanStart(sprint)) { <button type="button" class="primary-button" disabled="@Busy" @onclick="@(() => OnStartSprint.InvokeAsync(sprint))">Preflight &amp; start</button> }
+                        </div></article>
                 }
                 @if (Sprints.Count == 0 && string.IsNullOrWhiteSpace(SprintError)) { <p class="workspace-empty">No sprints have been planned.</p> }
             </div>
@@ -184,6 +195,10 @@
     [Parameter] public string? SprintError { get; set; }
     [Parameter] public string? MoveError { get; set; }
     [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [Parameter] public Guid? InitialSprintId { get; set; }
+    [Parameter] public EventCallback<WorkSprintResponse> OnAddTickets { get; set; }
+    [Parameter] public EventCallback<WorkSprintResponse> OnStartSprint { get; set; }
     [Parameter] public RenderFragment? BoardActions { get; set; }
     [Parameter] public RenderFragment? ContextContent { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
@@ -203,10 +218,13 @@
     private WorkBoardItemResponse? _draggedItem;
     private WorkBoardDetailResponse? _loadedDetail;
     private Guid? _loadedSprintId;
+    private Guid? _requestedSprintId;
     private int _executionRequest;
     private IReadOnlyDictionary<Guid, Wire.WorkItemExecutionResponse> _executionItems = new Dictionary<Guid, Wire.WorkItemExecutionResponse>();
     private ElementReference _columns;
     private IJSObjectReference? _module;
+    private bool CanPlan(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status is "Planned" or "Active" && Detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope);
+    private bool CanStart(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status == "Planned" && !Sprints.Any(x => x.Status is "Active" or "Paused") && Detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Start);
     private bool CanReadSprints => Detail.Board.AllowedActions.Contains(WorkSprintActions.Read);
     private bool CanReadExecution => Detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read);
     private WorkSprintResponse? SelectedSprint => Sprints.FirstOrDefault(x => x.Id == _sprintId);
@@ -222,10 +240,11 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (_boardId != Detail.Board.Id)
+        if (_boardId != Detail.Board.Id || _requestedSprintId != InitialSprintId)
         {
             _boardId = Detail.Board.Id;
-            _sprintId = null;
+            _requestedSprintId = InitialSprintId;
+            _sprintId = InitialSprintId;
             _view = CanReadSprints ? WorkBoardView.Sprint : WorkBoardView.All;
             ClearFilters();
         }

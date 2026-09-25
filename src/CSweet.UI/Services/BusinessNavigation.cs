@@ -39,6 +39,8 @@ public static class BusinessNavigation
         if (segments.Length >= 3 &&
             string.Equals(segments[0], "organizations", StringComparison.OrdinalIgnoreCase))
         {
+            if (string.Equals(segments[2], "projects", StringComparison.OrdinalIgnoreCase)) return $"/organizations/{businessId}/projects";
+            if (string.Equals(segments[2], "work", StringComparison.OrdinalIgnoreCase)) return $"/organizations/{businessId}/projects?view=boards";
             if (string.Equals(segments[2], "compute", StringComparison.OrdinalIgnoreCase)) return $"/organizations/{businessId}/compute";
             if (string.Equals(segments[2], "calendar", StringComparison.OrdinalIgnoreCase))
             {

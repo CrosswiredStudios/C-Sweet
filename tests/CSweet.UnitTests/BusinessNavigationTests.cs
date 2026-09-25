@@ -35,6 +35,8 @@ public sealed class BusinessNavigationTests
     [InlineData("organizations/{0}/communications/00000000-0000-0000-0000-000000000001", "communications")]
     [InlineData("organizations/{0}/analytics", "analytics")]
     [InlineData("organizations/{0}/compute", "compute")]
+    [InlineData("organizations/{0}/projects/00000000-0000-0000-0000-000000000001", "projects")]
+    [InlineData("organizations/{0}/work/boards/00000000-0000-0000-0000-000000000001", "projects?view=boards")]
     [InlineData("settings/security", "command-center")]
     public void SwitchDestination_PreservesSafeBusinessSection(string pathTemplate, string expectedSection)
     {

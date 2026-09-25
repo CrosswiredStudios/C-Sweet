@@ -51,6 +51,12 @@ public static class WorkstreamInspectionEndpoints
                 x.Id, x.Name, x.Outcome, Status = x.Status.ToString(), x.LifecycleStage,
                 x.ProfileKey, x.ProfileVersion, x.AccountableManagerOrganizationUserId,
                 x.TargetDate, x.BudgetAmount, x.BudgetCurrency, x.Revision, x.UpdatedAt,
+                AccountableManagerName = db.CoreOrganizationUsers.Where(user => user.OrganizationId == organizationId && user.Id == x.AccountableManagerOrganizationUserId).Select(user => user.DisplayName).FirstOrDefault(),
+                BlockedItems = db.CoreWorkTasks.Count(item => item.OrganizationId == organizationId && item.BoardId.HasValue &&
+                    db.WorkBoards.Any(board => board.Id == item.BoardId && board.WorkstreamId == x.Id) &&
+                    item.Status != WorkTaskStatus.Completed && item.Status != WorkTaskStatus.Cancelled &&
+                    (item.Status == WorkTaskStatus.Blocked || item.BlockReason != null && item.BlockReason != "")),
+                ReleaseReady = db.ReleaseReadinessRecords.Any(readiness => readiness.WorkstreamId == x.Id && readiness.Status == "Ready"),
                 ActiveTeams = db.WorkstreamTeamAssignments.Count(team => team.WorkstreamId == x.Id && team.EndsAt == null),
                 Boards = db.WorkBoards.Count(board => board.OrganizationId == organizationId && board.WorkstreamId == x.Id),
                 OpenItems = db.CoreWorkTasks.Count(item => item.OrganizationId == organizationId &&
@@ -83,7 +89,7 @@ public static class WorkstreamInspectionEndpoints
                 x.Id, x.Name, x.Outcome, x.Status, x.LifecycleStage, x.ProfileKey, x.ProfileVersion,
                 x.AccountableManagerOrganizationUserId, x.TargetDate, x.BudgetAmount, x.BudgetCurrency,
                 x.Revision, x.UpdatedAt, x.ActiveTeams, x.Boards, x.OpenItems, x.PendingGates,
-                x.OpenDecisions, x.LatestBuildStatus) { LatestLeadUpdate = updates.GetValueOrDefault(x.Id) }).ToList()));
+                x.OpenDecisions, x.LatestBuildStatus) { LatestLeadUpdate = updates.GetValueOrDefault(x.Id), AccountableManagerName = x.AccountableManagerName, BlockedItems = x.BlockedItems, ReleaseReady = x.ReleaseReady }).ToList()));
     }
 
     private static async Task<IResult> DecideGateAsync(

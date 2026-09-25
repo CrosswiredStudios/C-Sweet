@@ -1,0 +1,3 @@
+.scope-ticket { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:12px 0; border-bottom:1px solid var(--mud-palette-divider); }
+.scope-ticket span { min-width:0; overflow-wrap:anywhere; }
+@media(max-width:600px) { .scope-ticket { align-items:flex-start; flex-direction:column; } }

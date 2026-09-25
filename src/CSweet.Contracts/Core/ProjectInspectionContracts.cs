@@ -29,6 +29,9 @@ public sealed record ProjectPortfolioItem(
     int OpenDecisions,
     string? LatestBuildStatus)
 {
+    public string? AccountableManagerName { get; init; }
+    public int BlockedItems { get; init; }
+    public bool ReleaseReady { get; init; }
     public DashboardReport<ProjectLeadUpdate>? LatestLeadUpdate { get; init; }
 }
 

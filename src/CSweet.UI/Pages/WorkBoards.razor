@@ -1,5 +1,6 @@
 @page "/organizations/{OrganizationId:guid}/work"
 @page "/organizations/{OrganizationId:guid}/work/boards/{BoardId:guid}"
+@page "/organizations/{OrganizationId:guid}/projects/boards/{BoardId:guid}"
 @using System.Net
 @using System.Net.Http.Json
 @using System.Text.Json
@@ -27,16 +28,22 @@
 @inject AppRealtimeState Realtime
 @inject NavigationManager Navigation
 
-<PageTitle>Work - C-Sweet</PageTitle>
+@if (!Embedded)
+{
+    <PageTitle>Boards - Projects - C-Sweet</PageTitle>
+    <MudButton Href="@($"/organizations/{OrganizationId:D}/projects?view=boards")" StartIcon="@Icons.Material.Outlined.ArrowBack">Projects</MudButton>
+}
 
 @if (!BoardId.HasValue)
 {
 <MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
-<MudPaper Elevation="1" Class="surface-panel">
+@if (DirectoryView != "personal")
+{
+<MudPaper Elevation="0" Class="surface-panel">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Company work</MudText>
-            <MudText Typo="Typo.h4">Boards</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">Projects workspace</MudText>
+            <MudText Typo="Typo.h4">All boards</MudText>
             <MudText Color="Color.Secondary">
                 Find and manage the operational boards you are granted to access.
             </MudText>
@@ -112,6 +119,7 @@
                             </CardHeaderActions>
                         </MudCardHeader>
                         <MudCardContent>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@(board.WorkstreamId.HasValue ? "Project board" : "Company-wide · No project")</MudText>
                             <MudText Typo="Typo.body2">@Description(board)</MudText>
                             <MudStack Row="true" Spacing="1" Class="mt-4" Style="flex-wrap: wrap;">
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
@@ -165,7 +173,8 @@
     }
 </MudPaper>
 
-@if (_personalTodos?.Boards.Count > 0 || !string.IsNullOrWhiteSpace(_personalTodoError))
+}
+@if (DirectoryView != "boards" && (_personalTodos?.Boards.Count > 0 || !string.IsNullOrWhiteSpace(_personalTodoError) || DirectoryView == "personal"))
 {
     <MudPaper Elevation="1" Class="surface-panel mt-5">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
@@ -173,12 +182,13 @@
                 <MudText Typo="Typo.overline" Color="Color.Primary">Protected work</MudText>
                 <MudText Typo="Typo.h5">Personal boards</MudText>
                 <MudText Color="Color.Secondary">
-                    Your direct reports' priorities, progress, and blocked work.
+                    Your priorities and your direct reports' work.
                 </MudText>
             </div>
             <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
                            OnClick="LoadPersonalTodosAsync" aria-label="Refresh personal boards" />
         </MudStack>
+        @if (_personalTodos?.Boards.Count == 0 && string.IsNullOrWhiteSpace(_personalTodoError)) { <MudText Class="pa-4">No personal boards are available to you.</MudText> }
         @if (_personalTodos?.Boards.Count > 0)
         {
             <EmployeePortraitScope OrganizationId="OrganizationId">
@@ -256,7 +266,8 @@
     else if (_detail is not null)
     {
         <WorkBoardWorkspace @ref="_boardWorkspace" @key="_detail.Board.Id" Detail="_detail" Sprints="_sprints" SprintError="@_sprintError"
-                            Busy="_movePending" MoveError="@_moveError" OnBack="BackToBoards"
+                            Busy="@(_movePending || _saving)" MoveError="@_moveError" OnBack="BackToBoards" Embedded="Embedded" InitialSprintId="@(RequestedSprintId ?? SprintQuery)"
+                            OnAddTickets="OpenSprintScopeAsync" OnStartSprint="StartOrchestratedSprintAsync"
                             OnFavorite="@(() => SetFavoriteAsync(_detail.Board))" OnRefresh="RefreshBoardViewAsync"
                             OnCreate="OpenItemCreator" OnManageSprints="@(() => _sprintsOpen = true)"
                             OnExecution="OpenExecutionAsync" OnOpenItem="OpenItemDetailsAsync"
@@ -398,7 +409,16 @@
                     <MudText Typo="Typo.subtitle1"><b>Delivery</b></MudText>
                     <MudText Typo="Typo.body2">Status: @detailItem.Status</MudText>
                     <MudText Typo="Typo.body2">Priority: @detailItem.Priority</MudText>
-                    <MudText Typo="Typo.body2">Sprint: @(SprintFor(detailItem.SprintId)?.Name ?? "Backlog")</MudText>
+                    @if (CanManageSprintScope)
+                    {
+                        <MudSelect T="Guid?" Label="Sprint" Value="detailItem.SprintId" ValueChanged="@(id => SetItemSprintAsync(detailItem, id))" Disabled="_saving" Variant="Variant.Outlined" HelperText="Choose a sprint or return this ticket to the backlog.">
+                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Backlog</MudSelectItem>
+                            @foreach (var sprint in AssignableSprints) { <MudSelectItem T="Guid?" Value="@((Guid?)sprint.Id)">@sprint.Name · @sprint.Status</MudSelectItem> }
+                            @if (detailItem.SprintId.HasValue && !AssignableSprints.Any(x => x.Id == detailItem.SprintId)) { <MudSelectItem T="Guid?" Value="detailItem.SprintId" Disabled="true">@(SprintFor(detailItem.SprintId)?.Name ?? "Unavailable sprint")</MudSelectItem> }
+                        </MudSelect>
+                        @if (!string.IsNullOrWhiteSpace(_scopeError)) { <MudAlert Severity="Severity.Error">@_scopeError</MudAlert> }
+                    }
+                    else { <MudText Typo="Typo.body2">Sprint: @(SprintFor(detailItem.SprintId)?.Name ?? "Backlog")</MudText> }
                     <MudText Typo="Typo.body2">Estimate: @(detailItem.EstimatePoints?.ToString("0.##") ?? "Not set")</MudText>
                     <MudText Typo="Typo.body2">Assigned: @(detailItem.AssignedDisplayName ?? "Unassigned")</MudText>
                     <MudText Typo="Typo.subtitle1" Class="mt-4"><b>Approvals</b></MudText>
@@ -426,10 +446,6 @@
                             {
                                 <MudMenuItem Disabled="@(!CanMoveTo(detailItem, targetColumn))"
                                              OnClick="@(() => MoveFromDetailsAsync(detailItem, targetColumn))">Move to @targetColumn.Name</MudMenuItem>
-                            }
-                            @foreach (var sprintOption in AssignableSprints.Where(_ => _detail?.Board.IsArchived == false && _detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope)))
-                            {
-                                <MudMenuItem OnClick="@(() => SetItemSprintAsync(detailItem, sprintOption.Id))">Assign @sprintOption.Name</MudMenuItem>
                             }
                         </MudMenu>
                     </MudStack>
@@ -677,8 +693,9 @@
                     </MudChip>
                 </MudStack>
                 <MudStack Row="true" Class="mt-2">
-                    @if (sprint.Status == "Planned" &&
-                         _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Start) == true)
+                    @if (CanManageSprintScope && sprint.Status is "Planned" or "Active")
+                    { <MudButton OnClick="@(() => OpenSprintScopeAsync(sprint))" Disabled="_saving">Add tickets</MudButton> }
+                    @if (CanStartSprint(sprint))
                     {
                         <MudButton Variant="Variant.Text" Color="Color.Success"
                                    Disabled="_saving"
@@ -1136,13 +1153,13 @@
     <DialogContent>
         <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">New items are added to the backlog. Assign them to a sprint from their details.</MudText>
         <div class="mt-2">
-            <StructuredMentionTextField Label="Title" Value="_itemTitle"
+            <StructuredMentionTextField Label="Title" Value="@_itemTitle"
                 ValueChanged="@(value => _itemTitle = value)" Mentions="_itemTitleMentions"
                 MentionsChanged="@(value => _itemTitleMentions = value)" People="_organizationUsers"
                 Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Title" />
         </div>
         <div class="mt-3">
-            <StructuredMentionTextField Label="Description" Value="_itemDescription"
+            <StructuredMentionTextField Label="Description" Value="@_itemDescription"
                 ValueChanged="@(value => _itemDescription = value)" Mentions="_itemDescriptionMentions"
                 MentionsChanged="@(value => _itemDescriptionMentions = value)" People="_organizationUsers"
                 Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Description" Lines="3" />
@@ -1328,9 +1345,29 @@
     </DialogActions>
 </MudDialog>
 
+<MudDialog @bind-Visible="_scopeOpen" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Sprint tickets</MudText></TitleContent>
+    <DialogContent>
+        @if (SprintFor(_scopeSprintId) is { Status: "Planned" or "Active" } scopeSprint && _detail is not null && CanManageSprintScope)
+        {
+            <SprintScopeEditor Sprint="scopeSprint" Items="_detail.Items" Busy="_saving" Error="@_scopeError" OnAssign="@(change => SetItemSprintAsync(change.Item, change.SprintId))" />
+        }
+        else { <MudAlert Severity="Severity.Info">This sprint is no longer available for planning.</MudAlert> }
+    </DialogContent>
+    <DialogActions><MudButton OnClick="@(() => _scopeOpen = false)">Close</MudButton></DialogActions>
+</MudDialog>
+
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid? BoardId { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [Parameter] public string? DirectoryView { get; set; }
+    [Parameter] public Guid? RequestedItemId { get; set; }
+    [Parameter] public Guid? RequestedSprintId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "item")] public Guid? ItemQuery { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "sprint")] public Guid? SprintQuery { get; set; }
+    private (Guid Organization, Guid? Board, string? View)? _loadedScope;
+    private Guid? _requestedItemId;
 
     private WorkBoardDirectoryResponse? _directory;
     private PersonalTodoDirectory? _personalTodos;
@@ -1490,6 +1527,27 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        var scope = (OrganizationId, BoardId, DirectoryView);
+        var requestedItemId = RequestedItemId ?? ItemQuery;
+        if (_loadedScope == scope)
+        {
+            if (_requestedItemId != requestedItemId)
+            {
+                _requestedItemId = requestedItemId;
+                if (_detail?.Items.FirstOrDefault(x => x.Id == requestedItemId) is { } item)
+                    await OpenItemDetailsAsync(item);
+                else _itemDetailsOpen = false;
+            }
+            return;
+        }
+        _requestedItemId = requestedItemId;
+        _detail = null;
+        _directory = null;
+        _personalTodos = null;
+        _itemDetailsOpen = false;
+        _scopeOpen = false;
+        _loadedScope = scope;
+        if (DirectoryView == "personal" && !BoardId.HasValue) { await LoadPersonalTodosAsync(); return; }
         await ReloadAsync();
         if (BoardId.HasValue)
         {
@@ -1500,6 +1558,7 @@
 
     private async Task ReloadAsync()
     {
+        if (DirectoryView == "personal" && !BoardId.HasValue) { await LoadPersonalTodosAsync(); return; }
         _loading = true;
         _error = null;
         _forbidden = false;
@@ -1521,7 +1580,6 @@
             }
             response.EnsureSuccessStatusCode();
             _directory = await response.Content.ReadFromJsonAsync<WorkBoardDirectoryResponse>();
-            await LoadPersonalTodosAsync();
         }
         catch (Exception exception)
         {
@@ -1530,6 +1588,7 @@
         finally
         {
             _loading = false;
+            if (!BoardId.HasValue && DirectoryView != "boards") await LoadPersonalTodosAsync();
         }
     }
 
@@ -1654,11 +1713,11 @@
     private async Task OpenBoardAsync(WorkBoardSummaryResponse board)
     {
         await Task.CompletedTask;
-        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/work/boards/{board.Id:D}");
+        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/projects/boards/{board.Id:D}");
     }
 
     private void BackToBoards() =>
-        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/work");
+        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/projects?view=boards");
 
     private Task RetryBoardAsync() => LoadBoardAsync();
 
@@ -1701,6 +1760,12 @@
                 return;
             }
 
+            var requestedItem = RequestedItemId ?? ItemQuery;
+            if (requestedItem.HasValue)
+            {
+                _detailItem = _detail.Items.FirstOrDefault(x => x.Id == requestedItem);
+                _itemDetailsOpen = _detailItem is not null;
+            }
             await LoadSprintsAsync();
             await LoadOrchestrationAsync();
             await ReloadAsync();
@@ -2220,9 +2285,13 @@
         }
     }
 
+    private bool CanStartSprint(WorkSprintResponse sprint) => _detail?.Board is { IsArchived: false } board
+        && sprint.Status == "Planned" && !_sprints.Any(x => x.Status is "Active" or "Paused")
+        && board.AllowedActions.Contains(WorkOrchestrationActions.Start);
+
     private async Task StartOrchestratedSprintAsync(WorkSprintResponse sprint)
     {
-        if (_detail is null) return;
+        if (_detail is null || _saving || !CanStartSprint(sprint)) return;
         _saving = true;
         _sprintError = null;
         try
@@ -2246,6 +2315,8 @@
             }
             await LoadSprintsAsync();
         }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        { _sprintError = "Sprint start could not be confirmed. Refresh the board before trying again."; }
         finally
         {
             _saving = false;
@@ -2348,22 +2419,35 @@
         _ => Color.Default
     };
 
+    private bool _scopeOpen;
+    private Guid? _scopeSprintId;
+    private string? _scopeError;
+    private bool CanManageSprintScope => _detail?.Board is { IsArchived: false } board && board.AllowedActions.Contains(WorkSprintActions.ManageScope);
+    private Task OpenSprintScopeAsync(WorkSprintResponse sprint)
+    {
+        if (!CanManageSprintScope || sprint.Status is not ("Planned" or "Active")) return Task.CompletedTask;
+        _scopeSprintId = sprint.Id; _scopeError = null; _scopeOpen = true;
+        return Task.CompletedTask;
+    }
+
     private async Task SetItemSprintAsync(
         WorkBoardItemResponse item,
         Guid? sprintId)
     {
-        if (_detail is null) return;
-        _detailError = null;
-        var response = await Http.PutAsJsonAsync(
-            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/sprint",
-            new SetWorkItemSprintRequest(
-                sprintId, item.Revision, Guid.NewGuid().ToString("N")));
-        if (!response.IsSuccessStatusCode)
+        if (_detail is null || !CanManageSprintScope || _saving) return;
+        _saving = true;
+        _scopeError = null;
+        try
         {
-            _detailError = await response.Content.ReadAsStringAsync();
-            return;
+            using var response = await Http.PutAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/sprint",
+                new SetWorkItemSprintRequest(sprintId, item.Revision, Guid.NewGuid().ToString("N")));
+            if (!response.IsSuccessStatusCode) { _scopeError = await ApiErrorAsync(response); return; }
+            await RefreshDetailAsync();
         }
-        await RefreshDetailAsync();
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        { _scopeError = "The assignment could not be confirmed. Refresh the board before trying again."; }
+        finally { _saving = false; }
     }
 
     private void OpenEstimate(WorkBoardItemResponse item)

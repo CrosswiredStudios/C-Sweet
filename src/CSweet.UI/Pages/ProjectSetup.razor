@@ -21,7 +21,7 @@ else
             <MudSelectItem T="Guid?" Value="@((Guid?)null)">Reuse the agents' team, or create a team if needed</MudSelectItem>
             @foreach (var team in _options.Teams) { <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem> }
         </MudSelect>
-        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_members" Label="Project members" Required="true" HelperText="Only selected people will participate in this project; the manager is included automatically.">
+        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_members" ToStringFunc="MemberName" Label="Project members" Required="true" HelperText="Only selected people will participate in this project; the manager is included automatically.">
             @foreach (var person in _options.People) { <MudSelectItem Value="person.Id">@person.Name (@person.EmployeeType)</MudSelectItem> }
         </MudSelect>
         @if (!ProjectId.HasValue)
@@ -33,7 +33,7 @@ else
             <MudText Typo="Typo.body2" Class="my-4">This software prototype project supports a human manager and developer. QA and an architect are optional. Tasks still go through Testing and merge review.</MudText>
         }
         <MudButton OnClick="SaveAsync" Disabled="@(_saving || !_loaded || (!ProjectId.HasValue && !_options.CanCreate))" Color="Color.Primary" Variant="Variant.Filled" Class="mt-4">@(ProjectId.HasValue ? "Save members" : "Create project")</MudButton>
-        <MudButton Href="@($"/organizations/{OrganizationId}/projects")" Class="mt-4 ml-2">Cancel</MudButton>
+        <MudButton Href="@(ProjectId.HasValue ? $"/organizations/{OrganizationId}/projects/{ProjectId}" : $"/organizations/{OrganizationId}/projects")" Class="mt-4 ml-2">Cancel</MudButton>
     </MudPaper>
 }
 @code {
@@ -41,6 +41,7 @@ else
     [Parameter] public Guid? ProjectId { get; set; }
     [SupplyParameterFromQuery(Name = "intake")] public Guid? IntakeId { get; set; }
     private ProjectSetupOptions? _options;
+    private string MemberName(Guid id) => _options?.People.FirstOrDefault(x => x.Id == id)?.Name ?? "Unavailable member";
     private string _name = "", _goal = "";
     private Guid _manager;
     private Guid? _team, _repository;

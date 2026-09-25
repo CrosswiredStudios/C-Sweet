@@ -1,0 +1,72 @@
+@using CSweet.Contracts.Core
+@using CSweet.UI.Components.Projects
+
+<article class="resource-section" aria-label="@Title">
+    <header><div><h2>@Title</h2><p>@Description</p></div><span>@Visible.Count() records</span></header>
+    @if (Groups.Length > 1)
+    {
+        <nav aria-label="@($"{Title} sections")" class="resource-filters">
+            @foreach (var group in Groups)
+            {
+                <button type="button" aria-pressed="@(_selected == group)" @onclick="@(() => _selected = group)">@group</button>
+            }
+        </nav>
+    }
+    @if (ShowPreviews && (_selected is "All" or "Previews")) { <ProjectPreviewLinks Resources="@Visible.ToList()" /> }
+    @if (!Visible.Any())
+    {
+        <div class="resource-empty"><MudIcon Icon="@Icon" Size="Size.Large" /><h3>No @EmptyLabel yet</h3><p>@EmptyText</p></div>
+    }
+    else
+    {
+        @foreach (var resource in Visible)
+        {
+            <article class="resource-row" @key="resource.Id">
+                <div class="resource-heading"><div><small>@resource.ResourceType</small><h3><a href="@resource.DeepLink">@resource.Title</a></h3></div><span class="resource-status">@resource.Status</span></div>
+                <div class="resource-summary">
+                    @foreach (var field in SummaryFields(resource)) { <span>@field.Label · @field.Value</span> }
+                    @if (resource.OccurredAt.HasValue) { <time datetime="@resource.OccurredAt.Value.ToString("O")">@resource.OccurredAt.Value.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</time> }
+                </div>
+                <details><summary>Record details</summary><dl>
+                    <dt>Type</dt><dd>@resource.TypeKey</dd><dt>Revision</dt><dd>@(resource.Revision?.ToString() ?? "Not provided")</dd>
+                    <dt>Hash</dt><dd>@(resource.Sha256 ?? "Not provided")</dd><dt>Provider</dt><dd>@(resource.ProviderPackageId is null ? "Not provided" : $"{resource.ProviderPackageId} · {resource.ProviderPackageVersion}")</dd>
+                    <dt>Resource ID</dt><dd>@resource.Id</dd>
+                </dl></details>
+            </article>
+        }
+    }
+</article>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Resources";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public string EmptyText { get; set; } = "Linked records will appear here when available.";
+    [Parameter] public string Icon { get; set; } = Icons.Material.Outlined.FolderOpen;
+    [Parameter] public IReadOnlyList<ProjectInspectionResource> Resources { get; set; } = [];
+    [Parameter] public string[] Groups { get; set; } = ["All"];
+    [Parameter] public bool ShowPreviews { get; set; }
+    private string _selected = "All";
+    private string? _loadedTitle;
+    protected override void OnParametersSet()
+    {
+        if (_loadedTitle != Title || !Groups.Contains(_selected)) _selected = Groups.FirstOrDefault() ?? "All";
+        _loadedTitle = Title;
+    }
+    private string EmptyLabel => (_selected == "All" ? Title : _selected).ToLowerInvariant();
+    private IEnumerable<ProjectInspectionResource> Visible => Resources.Where(x => _selected == "All" || Group(x.ResourceType) == _selected);
+    private static string Group(string type) => type switch
+    {
+        "Team" => "Teams", "Supervision" => "Supervision", "Document" => "Documents", "DocumentReview" => "Reviews",
+        "Decision" => "Decisions", "Milestone" => "Milestones", "Gate" => "Gates", "Authority" => "Authority",
+        "Build" => "Builds", "Preview" => "Previews", "Media" => "Media", "Evaluation" or "Validation" => "Evaluations", "ReleaseReadiness" => "Release",
+        _ => type
+    };
+    private static IEnumerable<(string Label, string Value)> SummaryFields(ProjectInspectionResource resource)
+    {
+        foreach (var (key, label) in new[] { ("TargetDate", "Target"), ("DueAt", "Due"), ("ParticipantCount", "Participants"), ("MessageCount", "Messages"), ("Disposition", "Outcome"), ("ContentType", "Format"), ("TargetKey", "Target"), ("StartsAt", "Starts") })
+        {
+            var value = ProjectPresentation.Metadata(resource, key, "");
+            if (value.Length > 0) yield return (label, value);
+        }
+    }
+}
