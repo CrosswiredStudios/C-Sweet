@@ -747,14 +747,21 @@ public sealed class WorkOrchestrationService(
                 x.TeamId == board.TeamId && x.OrganizationUserId == employee.Id && x.EndedAt == null,
                 cancellationToken))
             return "Assigned installation is not an active member of the board team.";
+        return ValidateManifestAssignmentPolicy(installation.PackageVersion!.ManifestJson, requirements, selection);
+    }
+
+    internal static string? ValidateManifestAssignmentPolicy(string manifestJson,
+        Shared.WorkAssignmentRequirements requirements, Shared.WorkAssignmentSelectionEvidence selection)
+    {
         try
         {
-            using var manifest = JsonDocument.Parse(installation.PackageVersion!.ManifestJson);
+            using var manifest = JsonDocument.Parse(manifestJson);
             var rolePolicy = manifest.RootElement.GetProperty("rolePolicy");
             var roles = rolePolicy.GetProperty("declaredRoleKeys").EnumerateArray()
                 .Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
-            var skills = rolePolicy.GetProperty("specializationKeys").EnumerateArray()
-                .Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal);
+            var skills = rolePolicy.TryGetProperty("specializationKeys", out var declaredSkills)
+                ? declaredSkills.EnumerateArray().Select(x => x.GetString()).Where(x => x is not null).ToHashSet(StringComparer.Ordinal)
+                : new HashSet<string?>(StringComparer.Ordinal);
             if (!CSweet.Agent.SDK.RoleTaxonomy.SatisfiesRole(roles, requirements.RequiredRoleKey))
                 return "Assigned installation no longer declares a compatible core role.";
             if (requirements.RequiredSpecializationKeys.Any(x => !skills.Contains(x)))

@@ -224,6 +224,8 @@ public sealed partial class WorkOrchestrator(
         attempt.ResultJson = JsonSerializer.Serialize(outcome, JsonOptions);
         await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
         stage.LastOutcomeCode = outcome!.OutcomeCode; stage.LastSummary = outcome.Summary; stage.UpdatedAt = now;
+        stage.LastError = outcome.Disposition is Shared.WorkExecutionDispositions.Blocked or Shared.WorkExecutionDispositions.Failed
+            ? outcome.Summary : null;
         if (outcome.Disposition is Shared.WorkExecutionDispositions.Blocked or Shared.WorkExecutionDispositions.Failed &&
             stage.AgentInstallationId is { } installationId &&
             await AgentTicketFeedback.RecordFailureAsync(db, stage.ItemExecution!.WorkItem!, installationId,
@@ -239,6 +241,7 @@ public sealed partial class WorkOrchestrator(
                 stage.ItemExecution!.Status = WorkItemExecutionStatus.Blocked;
                 stage.ItemExecution.BlockedReason = outcome.Summary;
                 stage.ItemExecution.WorkItem!.Status = WorkTaskStatus.Blocked;
+                stage.ItemExecution.WorkItem.BlockReason = outcome.Summary;
                 break;
             case Shared.WorkExecutionDispositions.Failed:
                 FailStage(stage, outcome.Summary, now); break;
@@ -382,17 +385,28 @@ public sealed partial class WorkOrchestrator(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
         var installationId = stage.AgentInstallationId
             ?? throw new InvalidOperationException("Agent stage lacks an exact installation assignment.");
         var attemptNumber = stage.Attempts.Count + 1;
+        var key = $"orchestration:{execution.Id:N}:{stage.ItemExecutionId:N}:{stage.StageKey}:{stage.Traversal}:{attemptNumber}";
+        if (await RecoverDetachedAttemptAsync(execution, stage, installationId, attemptNumber, key, cancellationToken))
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return;
+        }
         var attempt = new WorkExecutionAttempt
         {
             Id = Guid.NewGuid(), StageExecutionId = stage.Id, Attempt = attemptNumber,
-            IdempotencyKey = $"orchestration:{execution.Id:N}:{stage.ItemExecutionId:N}:{stage.StageKey}:{stage.Traversal}:{attemptNumber}",
+            IdempotencyKey = key,
             Status = WorkExecutionAttemptStatus.Pending, CreatedAt = now
         };
         var item = stage.ItemExecution!.WorkItem!;
+        // Canonical board assignment does not pass through the legacy development assigner.
+        // Keep its revision stable through review and merge stages.
+        if (item.AssignmentRevision == 0) item.AssignmentRevision = 1;
         var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, timeProvider);
         if (await projectPolicy.RequiresProjectAsync(execution.OrganizationId, installationId, cancellationToken) && !await db.LegacyDevelopmentAuthorizations.AnyAsync(x => x.OrganizationId == execution.OrganizationId && x.WorkItemId == item.Id, cancellationToken))
         {
@@ -452,7 +466,7 @@ public sealed partial class WorkOrchestrator(
             "WorkStageExecution", stage.Id.ToString("D"), maximumAttempts: 1,
             cancellationToken: cancellationToken);
         attempt.AgentWorkItemId = work.Id;
-        stage.Attempts.Add(attempt); stage.Status = WorkStageExecutionStatus.Running;
+        stage.Attempts.Add(attempt); db.Entry(attempt).State = EntityState.Added; stage.Status = WorkStageExecutionStatus.Running;
         stage.UpdatedAt = now; stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
         stage.ItemExecution.UpdatedAt = now; item.Status = WorkTaskStatus.Running; item.UpdatedAt = now; item.Revision++;
         var workspaceActions = Array.Empty<string>();
@@ -470,6 +484,7 @@ public sealed partial class WorkOrchestrator(
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.dispatched", new { workId = work.Id, installationId, attempt = attemptNumber });
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         await runtimes.EnsureRuntimeQueuedAsync(installationId,
             $"Board orchestration {item.Identifier} stage {stage.StageKey}", cancellationToken: cancellationToken);
     }
@@ -889,6 +904,7 @@ public sealed partial class WorkOrchestrator(
         stage.ItemExecution!.Status = WorkItemExecutionStatus.Blocked;
         stage.ItemExecution.BlockedReason = reason; stage.ItemExecution.UpdatedAt = now;
         stage.ItemExecution.WorkItem!.Status = WorkTaskStatus.Blocked;
+        stage.ItemExecution.WorkItem.BlockReason = reason;
     }
 
     private static void FailStage(WorkStageExecution stage, string error, DateTimeOffset now)

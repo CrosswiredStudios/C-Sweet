@@ -217,8 +217,10 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         Assert.Contains(audit.Events, x => x.EventType == WorkBoardActions.Create);
     }
 
-    [Fact]
-    public async Task PlanningTicket_IsFinalizedInPlaceIdempotentlyAfterRepositoryApproval()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PlanningTicket_IsFinalizedInPlaceIdempotentlyAfterRepositoryApproval(bool projectBoard)
     {
         await using var db = CreateDb();
         var setup = SeedInstallation(db);
@@ -227,6 +229,7 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         {
             Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
             Name = "Delivery", Description = string.Empty,
+            WorkstreamId = projectBoard ? Guid.NewGuid() : null,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
             Columns = [Column("Backlog", WorkBoardColumnCategory.ToDo, 0)]
         };
@@ -342,6 +345,19 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         Assert.Equal(2, persistedItems.Count);
         Assert.Contains(persistedItems, x => x.Id == itemId && x.ParentWorkTaskId == parentItemId);
         Assert.Single(await db.WorkItemStageAssignments.ToListAsync());
+        var wakes = await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == SharedWork.WorkstreamEventNames.WorkItemChangedV1).ToListAsync();
+        if (projectBoard)
+        {
+            var wake = Assert.Single(wakes); // Replay must not publish a duplicate wake.
+            using var payload = JsonDocument.Parse(wake.DataJson);
+            Assert.Equal(itemId, payload.RootElement.GetProperty("aggregateId").GetGuid());
+            Assert.Equal(board.Id, payload.RootElement.GetProperty("context").GetProperty("boardId").GetGuid());
+            Assert.Equal("delivery.finalized", payload.RootElement.GetProperty("action").GetString());
+            Assert.Equal(finalizedJson.RootElement.GetProperty("revision").GetInt64(),
+                payload.RootElement.GetProperty("revision").GetInt64());
+        }
+        else Assert.Empty(wakes);
     }
 
     [Fact(Skip = "Replaced by durable orchestration execution tests.")]

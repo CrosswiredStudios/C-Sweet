@@ -46,7 +46,7 @@ public sealed class ApprovalDashboardService(
             ? "Organization owner"
             : string.Join(", ", ownerNames);
         var managersByInstallation = people
-            .Where(x => x.AgentInstallationId.HasValue && x.ReportsToOrganizationUserId.HasValue)
+            .Where(x => x.IsActive && x.AgentInstallationId.HasValue && x.ReportsToOrganizationUserId.HasValue)
             .GroupBy(x => x.AgentInstallationId!.Value)
             .ToDictionary(x => x.Key, x => x.First().ReportsToOrganizationUserId!.Value);
 
@@ -81,9 +81,14 @@ public sealed class ApprovalDashboardService(
             .OrderByDescending(x => x.CreatedAt)
             .Take(250)
             .ToListAsync(cancellationToken);
+        var installationIds = agentActions.Select(x => x.AgentInstallationId).Distinct().ToList();
+        var configurations = await db.AgentInstallationConfigurations.AsNoTracking()
+            .Where(x => installationIds.Contains(x.AgentInstallationId))
+            .ToDictionaryAsync(x => x.AgentInstallationId, x => x.SettingsJson, cancellationToken);
         items.AddRange(agentActions.Select(proposal =>
         {
             var managerId = managersByInstallation.GetValueOrDefault(proposal.AgentInstallationId);
+            var configurationJson = configurations.GetValueOrDefault(proposal.AgentInstallationId);
             var connectorBinding = proposal.ActionType == ConnectorActionApprovalService.ActionType
                 ? ConnectorActionApprovalService.Parse(proposal) : null;
             return new ApprovalDashboardItemResponse(
@@ -94,14 +99,14 @@ public sealed class ApprovalDashboardService(
                 proposal.Status.ToString(),
                 Name(installationNames, proposal.AgentInstallationId, "Agent employee"),
                 connectorBinding is not null ? Name(names, connectorBinding.ApproverOrganizationUserId, "Assigned approver") :
-                    managerId == Guid.Empty ? ownerLabel : Name(names, managerId, ownerLabel),
+                    ManagedActionApprovalAuthority.RequiresManager(configurationJson) ? Name(names, managerId, "Assigned manager") : ownerLabel,
                 proposal.CreatedAt,
                 proposal.DecidedAt,
                 $"/organizations/{organizationId:D}/approvals",
                 proposal.Status == ProposalStatus.Pending &&
                 (connectorBinding is not null ? actor.Id == connectorBinding.ApproverOrganizationUserId &&
                     connectorBinding.ExpiresAt > DateTimeOffset.UtcNow :
-                    actor.PermissionLevel == OrganizationPermissionLevel.Owner || actor.Id == managerId))
+                    ManagedActionApprovalAuthority.CanDecide(actor, managerId, configurationJson)))
             {
                 AgentAction = ReadManagedAction(proposal),
                 CanManageStandingPolicy = (connectorBinding?.Effect == "write") && actor.EmployeeType == EmployeeType.Human &&
@@ -297,12 +302,13 @@ public sealed class ApprovalDashboardService(
         }));
 
         var ordered = items
+            .Where(x => !IsPending(x.Status) || x.CanDecide)
             .OrderBy(x => IsPending(x.Status) ? 0 : 1)
             .ThenByDescending(x => x.CreatedAt)
             .ToList();
         return new ApprovalDashboardResponse(
             actor.Id,
-            ordered.Count(x => IsPending(x.Status)),
+            ordered.Count(x => IsPending(x.Status) && x.CanDecide),
             ordered);
     }
 

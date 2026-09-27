@@ -404,3 +404,164 @@ Office source path (or start AppHost without the sibling checkout), create a fre
 and verify download, Hyper-V certification, enrollment, approval/heartbeat, and readiness.
 A fresh database does not remove an installed Office: use the existing explicit reconnect/remove
 recovery flow when setup detects retained services or identity.
+
+## Producer created tickets but its draft sprint never starts
+
+Inspect the Producer runtime's retained failure before treating a generic connection message as
+an infrastructure outage. `SpecialistAgent.PublishCanonicalBacklogAsync` in Producer 2.9.0
+combined the 64-character planning fingerprint, 64-character artifact digest, and proposal key
+in a `producer-hierarchy` mutation key. Normal proposal keys such as `NC-T-CONTENT-ENG`
+exceed the broker's 160-character limit, so updating an already-published backlog fails with
+`JSON Schema validation failed: $.idempotencyKey is too long`. The runtime classified this
+HTTP request failure as `runtime.transport`; repeated failures blocked the planning commitment.
+The sprint remains `Planned`, although ticket stage assignments may already be populated.
+
+Producer 2.9.1 uses `BoundedMutationKey` for ticket creation and planning revision. It retains
+valid legacy keys and hashes the complete oversized identity, preserving retry stability and
+separating different proposals and revisions. `BacklogRevisionRecoveryTests` exercises a
+previously published ticket with full digests, verifies the request fits the broker limit,
+and confirms a second reconciliation keeps the same ticket without another revision.
+
+Deploy the corrected Producer package to the existing installation, then requeue its blocked
+planning commitment through the personal board. The Producer must still collect role estimates,
+obtain QA readiness, pass sprint preflight, and start orchestration. Do not manually mark the
+sprint active or bypass those checks. Package test success is not project completion evidence.
+
+## Technical planning repeats already-decided questions
+
+Producer 2.9.1 may finish backlog publication recovery yet remain in planning because Technical
+Director 2.11.0 omitted the current coordination request from its model messages. Producer
+`EnsurePlanningSessionAsync` correctly included recorded manager decisions in `InitialMessage`,
+but Technical Director `HandleCoordinationTurnAsync` supplied only repository facts, canonical
+identities, roles, skills, and accepted documents to inference. The model reopened delegated
+engine/performance/tuning questions and produced a new proposal instead of consuming the answers.
+
+Technical Director 2.11.1 includes `PlanningCoordinationMessage` in every generation attempt,
+including bounded correction and compact retries. Only the authenticated counterpart's request
+matching the exact planning cycle is included. Delegated technical investigations are planned as
+research tasks; genuine external-authority questions retain their escalation path. Producer 2.9.2
+uses the `directions-v2` recovery key to avoid replaying the completed legacy proposal. Deploy the
+Technical Director update before the Producer update so that this recovery runs the corrected
+planner. Both retain the existing project, accepted brief, ticket identities, and approvals.
+
+Regression coverage: `ProductionPlanningTests.Current_manager_direction_survives_every_generation_attempt`
+and `PlanningDirectionRecoveryTests.Direction_recovery_is_distinct_from_legacy_but_stable_across_retries`.
+Live sprint execution and outcome acceptance must still be verified after rollout.
+
+## Corrected planning fails assignment validation or leaves stale criteria
+
+Producer `PublishCanonicalBacklogAsync` through 2.9.2 updated a ticket's delegation recommendation
+but submitted its old stage-assignment requirements in the same revision. A corrected proposal
+that changed required skills could therefore fail with `Assignment must satisfy the ticket's
+explicit delegation requirements` before `BindAvailableWorkAsync` could repair the assignment.
+The prior reconciliation also retained old descriptions, acceptance criteria and dependencies.
+
+Producer 2.9.3 refreshes assignments against the corrected specification within the same mutation.
+It retains eligible owners, clears ineligible assignments, and applies current title, description,
+requirements, criteria, constraints, dependencies and accepted-package evidence. Completed and
+in-progress work remains immutable. A `planning-v2` mutation identity recovers older partial
+reconciliations; matching content and assignment evidence avoid repeated revisions.
+`BacklogRevisionRecoveryTests` covers changed skills, retained and ineligible owners, updated
+specifications, completed dependencies and retry stability against the published SDK.
+
+## A general Software Developer rejects the Producer's estimation session
+
+`DevelopmentCoordinationService.HandleAsync` through Software Developer 1.11.11 accepted only
+project-intake assistance and work-item architecture support. A `game-engineer` assignment to
+that core-role agent was eligible, but the Producer's board-scoped
+`video-game.production.role-estimate-request.v1` request was rejected before estimation.
+
+Software Developer 1.12.0 adds `ProductionEstimation.TryHandle` for the existing production wire
+protocol. It validates counterpart authorship, project/board context, request fingerprint,
+planning revision, developer-role ownership and per-item evidence. It returns an exact-batch
+estimate proposal using the specialist kit's initial sizing policy with explicit conditional
+capacity assumptions. It performs no ticket mutation, QA approval or sprint activation and adds
+no grants. `ProductionEstimationTests` covers both developer role labels, malformed and
+uncorrelated requests, stable replay, and cancellation. Existing architecture-support tests
+continue to cover the prior coordination path.
+
+## Producer rejects estimation or preflight priority
+
+Producer 2.9.3 could successfully reconcile the technical proposal, then fail creating its next
+personal commitment with `JSON Schema validation failed: $.priority is not an allowed value`.
+`ReconcilePlanningAsync`, `ReconcileEstimatesAndQaReadinessAsync`, and both attention-recovery
+branches used the unsupported literal `Urgent`. Producer 2.9.4 uses `WorkPriorities.Critical`
+at all four call sites, matching `McpToolCatalog`'s personal-todo schema. The planning state was
+already saved before the rejection, so the next attention review can reuse it to request role
+estimates without repeating Technical Director inference.
+
+## Producer estimates rejected before provenance reaches the handler
+
+`McpToolCatalog.InputSchemaFor` omitted `EstimateWorkItemRequest.Provenance` from the strict
+`work.item.estimate` schema even though `WorkManagementCapabilityHandler.EstimateItemAsync`
+already persists that typed evidence. The Producer completed role-estimation collaborations but
+both its original and attention-recovery commitments failed with
+`JSON Schema validation failed: $.provenance is not allowed`.
+
+The broker schema now accepts nullable typed provenance with bounded source digest, source and
+session UUIDs, positive coordination revision, and confidence between zero and one. It still
+rejects unknown nested fields. `McpSprintPlanningSchemaTests` validates actual serialized wire
+requests, legacy estimates without provenance, malformed evidence, and the subsequent comment,
+move, scope, capacity, preflight and start requests. Restart AgentHost after rebuilding this
+platform change; no agent-package update or grant change is needed. Saved estimates and
+coordination artifacts remain available to the Producer's next recovery review.
+
+## Sprint preflight rejects generalists or unfinalized specialist work
+
+`WorkOrchestrationService.ValidateAssignmentEvidenceAsync` formerly read optional
+`rolePolicy.specializationKeys` with `GetProperty`. Valid generalist manifests that omitted the
+array failed with a generic invalid-policy message. `ValidateManifestAssignmentPolicy` now
+interprets absence as an empty set while rejecting malformed present values and retaining all
+core-role, required-skill and selection-evidence checks. `WorkAssignmentManifestPolicyTests`
+covers optional metadata, same-core assignment, required skills, wrong roles and invalid data.
+
+Technical Director `FinalizeEngineeringTicketsAsync` formerly finalized only engineering tickets.
+Research, audio and QA tickets remained planning-only, preventing the entire sprint from starting.
+Technical Director 2.11.2 uses `FinalizeExecutableTicketsAsync` and `DeliveryFinalizationRequest`
+for staffed executable work on unscheduled/planned scope. Engineering retains its technical,
+QA and governed-merge stages; document specialists retain Producer review. The finalizer also
+refreshes stale delivery instructions to match later approved planning, retaining existing owners
+and additional delivery metadata. Matching delivery specifications, terminal/running tickets and
+active/closed sprint membership remain untouched. `EngineeringDeliveryTests` covers scope and
+identity preservation, specialist routes, revised scope and replay stability.
+
+## Sprint starts but its first execution never advances
+
+`WorkOrchestrator.DispatchAsync` initializes a canonical ticket's assignment revision before
+building the assignment envelope. This path does not call the legacy software-development
+assigner. Review and merge stages retain the initialized revision. Workflow traversal counts
+start at zero; attempt numbers and assignment revisions start at one. Technical Director 2.11.3,
+Audio Designer 2.3.3 and QA 2.4.4 accept the initial zero traversal while rejecting negative
+values. Audio Designer also uses web JSON options for canonical execution inputs.
+
+Dispatch now commits the inbox message, explicitly-added execution attempt, stage state and
+attempt grants in one transaction before requesting a runtime wake. Previously an attempt-save
+failure could leave an inbox message behind; subsequent reconciliation generated a different
+attempt UUID under the same idempotency key and failed indefinitely. `RecoverDetachedAttemptAsync`
+reconnects matching historical inbox work to its original attempt after validating the complete
+execution identity. It does not resend work or discard failure history. Normal retry policy
+then consumes its actual result. `WorkDispatchRecoveryTests` verifies this recovery, revision
+preservation, mismatched identity rejection, and relational commit/rollback with an injected
+failure after the inbox save. Restart the API to load the orchestration worker changes.
+
+`WorkManagementCapabilityHandler.FinalizeItemDeliveryAsync` also persists a project-bound
+`WorkItemChangedV1` wake event with the finalized ticket. Agents re-read current state after
+this hint; replaying finalization does not emit another event. This closes the notification gap
+that otherwise leaves sprint preflight waiting for the next scheduled attention review.
+Restart AgentHost to load this broker change.
+
+### Specialist document generation and current execution blockers
+
+`VideoGameSpecialistAgentBase.ExecuteCapabilityCoreAsync` in the Technical Director package validates role-specific sections after inference. `SpecialistDocumentPrompt.Create` must include the same section names in the generation prompt; otherwise a substantive response can fail on a requirement it was never given. Technical Director 2.11.4 also requires the response to distinguish design proposals from measured execution and committed repository evidence.
+
+`WorkOrchestrator.ReconcileAttemptAsync` updates `WorkStageExecution.LastError` from the current blocked/failed outcome and clears it for completed outcomes. Its blocked branch also updates the canonical ticket's `BlockReason`; an earlier infrastructure error must not obscure a later specialist diagnosis. `WorkDispatchRecoveryTests.Blocked_result_replaces_previous_attempt_error_on_stage_and_ticket` covers this sequence.
+
+`WorkManagementCapabilityHandler.ReadLatestOutcome` exposes the exact validated latest blocked or failed agent result, including its diagnosis, to authorized orchestration readers. It checks stage/attempt identity, disposition, outcome code, and completed attempt status. Failed trusted-platform actions remain excluded from completion evidence. Producer 2.9.5 uses these reads and its existing `work.orchestration.retry` authority to retry missing-section failures once per stage and error digest, retaining the observed assignment revision and host retry budget.
+
+### Technical planning versus implementation recovery
+
+`SpecialistAgent.RolePrompt` and `ProductionPlanning.cs` in the Technical Director agent keep the role responsible for plans and reviews; engineers own code, prototypes, package locks and commits, and QA owns independent validation. `EngineeringPlanningRequest` and `DeliveryFinalizationRequest` also retain review and governed-merge requirements when an already-finalized ticket is reassigned to engineering.
+
+The Producer's `DeliveryAcceptance.cs` assesses mixed-role criteria in blocked Technical Director assignments and submitted documents. `RoleReplanning.cs` persists the original scope and creates a durable personal planning commitment. `ValidateRoleRepairCoverage` rejects lost requirements/criteria/constraints, unrelated scope changes, missing identities, invalid dependencies and execution criteria left with the Technical Director. `ReconcilePlanningAsync` requests a corrected technical proposal before `PrepareRoleRepairSprintAsync` cancels the incompatible execution and carries unfinished work to a planned replacement. Cancellation uses the Producer's separately declared, host-authorized `work.orchestration.cancel` capability; no database repair or role impersonation is required. The old sprint and attempts remain auditable, and fresh estimates/readiness/preflight still gate execution.
+
+`EnsurePlanningSessionAsync` keeps the objective within the host's 4,096-character field and carries bounded detailed evidence in the initial message. Full original scope comes from the canonical board, including dependency identities. An invalid corrected proposal remains blocked before cancellation; an infrastructure failure alone is not treated as a role conflict.

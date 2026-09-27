@@ -1,6 +1,7 @@
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -35,7 +36,14 @@ public sealed class ApprovalDashboardServiceTests
         await db.SaveChangesAsync();
         var service = new ApprovalDashboardService(db, new StubResourceChangeService([]), new HiringService(db, null!, null!));
         var result = await service.GetAsync(organizationId, (assigned ? manager : owner).ApplicationUserId!.Value);
+        if (!assigned)
+        {
+            Assert.Empty(result.Items);
+            Assert.Equal(0, result.PendingCount);
+            return;
+        }
         var item = Assert.Single(result.Items);
+        Assert.Equal(assigned ? 1 : 0, result.PendingCount);
         Assert.Equal(assigned, item.CanDecide); Assert.Equal(manager.DisplayName, item.AssignedTo);
         Assert.Equal(!assigned, item.CanManageStandingPolicy);
         Assert.Equal("Company channel", item.AgentAction!.AccountName);
@@ -157,9 +165,22 @@ public sealed class ApprovalDashboardServiceTests
                 UpdatedAt = createdAt
             });
         await db.SaveChangesAsync();
+        var agentManagedRequest = resourceChange with
+        {
+            Id = Guid.NewGuid(),
+            ManagerOrganizationUserId = productManager.Id,
+            ProductGoal = "Producer hiring plan"
+        };
+        var approvedRequest = agentManagedRequest with
+        {
+            Id = Guid.NewGuid(),
+            Status = "Approved",
+            DecidedAt = createdAt,
+            DecidedByOrganizationUserId = productManager.Id
+        };
         var service = new ApprovalDashboardService(
             db,
-            new StubResourceChangeService([resourceChange]),
+            new StubResourceChangeService([resourceChange, agentManagedRequest, approvedRequest]),
             new HiringService(db, null!, null!));
 
         var result = await service.GetAsync(
@@ -167,11 +188,16 @@ public sealed class ApprovalDashboardServiceTests
             applicationUserId);
 
         Assert.Equal(4, result.PendingCount);
-        Assert.Equal(4, result.Items.Count);
+        Assert.Equal(5, result.Items.Count);
+        Assert.DoesNotContain(result.Items, x => x.Id == agentManagedRequest.Id);
+        var decidedApproval = Assert.Single(result.Items, x => x.Id == approvedRequest.Id);
+        Assert.False(decidedApproval.CanDecide);
+        Assert.Equal("Approved", decidedApproval.Status);
+        Assert.Equal(productManager.DisplayName, decidedApproval.ActualDecisionMaker);
         Assert.DoesNotContain(result.Items, item => item.Summary.Contains("draft", StringComparison.OrdinalIgnoreCase));
         var teamApproval = Assert.Single(
             result.Items,
-            x => x.Kind == ApprovalDashboardKinds.ResourceChange);
+            x => x.Id == resourceChange.Id);
         Assert.True(teamApproval.CanDecide);
         Assert.Equal("Owner", teamApproval.AssignedTo);
         Assert.Contains(
@@ -189,6 +215,53 @@ public sealed class ApprovalDashboardServiceTests
             artifactApproval.ActionUri);
     }
 
+    [Theory]
+    [InlineData(null, false, true, false)]
+    [InlineData(null, true, true, true)]
+    [InlineData("{}", false, true, false)]
+    [InlineData("{\"approvalMode\":\"Manager Approval\"}", false, true, false)]
+    [InlineData("{\"approvalMode\":\"Manager Approval\"}", true, true, true)]
+    [InlineData("{\"approvalMode\":\"CEO Approval\"}", false, true, true)]
+    [InlineData("{\"approvalMode\":\"CEO Approval\"}", true, true, false)]
+    [InlineData("{\"approvalMode\":\"Fully Autonomous\"}", false, true, true)]
+    [InlineData(null, true, false, false)]
+    public async Task ManagedActionsOnlyAppearForAuthorizedActor(
+        string? settings, bool asManager, bool requesterActive, bool expected)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organizationId = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "Owner", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner };
+        var manager = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "Manager", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Manager };
+        var requester = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = Guid.NewGuid(), DisplayName = "Requester", EmployeeType = EmployeeType.Agent,
+            ReportsToOrganizationUserId = manager.Id, IsActive = requesterActive };
+        var proposal = new ActionProposal { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = requester.AgentInstallationId!.Value, ActionType = "workstream.create.v2",
+            PayloadJson = "{}", Summary = "Create Workstream", IdempotencyKey = "create" };
+        db.AddRange(owner, manager, requester, proposal);
+        if (settings is not null)
+            db.Add(new AgentInstallationConfiguration { Id = Guid.NewGuid(),
+                AgentInstallationId = requester.AgentInstallationId.Value, SettingsJson = settings });
+        await db.SaveChangesAsync();
+        var service = new ApprovalDashboardService(db, new StubResourceChangeService([]), new HiringService(db, null!, null!));
+        var actor = asManager ? manager : owner;
+        var result = await service.GetAsync(organizationId, actor.ApplicationUserId!.Value);
+        Assert.Equal(expected, ManagedActionApprovalAuthority.CanDecide(actor,
+            requesterActive ? manager.Id : null, settings));
+        Assert.Equal(expected ? 1 : 0, result.PendingCount);
+        if (expected)
+        {
+            var item = Assert.Single(result.Items);
+            Assert.True(item.CanDecide);
+            Assert.Equal(asManager ? manager.DisplayName : owner.DisplayName, item.AssignedTo);
+        }
+        else Assert.Empty(result.Items);
+    }
     private sealed class StubResourceChangeService(
         IReadOnlyList<ResourceChangeRequestResponse> requests) : IResourceChangeService
     {

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.Core;
 
 namespace CSweet.Api.Core;
 
@@ -103,10 +104,7 @@ public static class ApprovalEndpoints
                 var configurationJson = await db.AgentInstallationConfigurations.AsNoTracking()
                     .Where(x => x.AgentInstallationId == proposal.AgentInstallationId)
                     .Select(x => x.SettingsJson).SingleOrDefaultAsync(cancellationToken);
-                var approvalMode = ReadApprovalMode(configurationJson);
-                var authorized = approvalMode == "Manager Approval"
-                    ? agent?.ReportsToOrganizationUserId == actor.Id
-                    : actor.PermissionLevel == OrganizationPermissionLevel.Owner;
+                var authorized = ManagedActionApprovalAuthority.CanDecide(actor, agent?.ReportsToOrganizationUserId, configurationJson);
                 if (!authorized) return Results.Forbid();
                 if (proposal.Status != ProposalStatus.Pending)
                     return Results.Conflict(new { error = "stale_decision", message = "The action is no longer pending." });
@@ -184,16 +182,5 @@ public static class ApprovalEndpoints
                 return Results.Ok(new { proposal.Id, status = proposal.Status.ToString(), proposal.DecidedAt, execution });
             });
         return endpoints;
-    }
-
-    private static string ReadApprovalMode(string? configurationJson)
-    {
-        try
-        {
-            using var configuration = JsonDocument.Parse(configurationJson ?? "{}");
-            return configuration.RootElement.TryGetProperty("approvalMode", out var value)
-                ? value.GetString() ?? "Manager Approval" : "Manager Approval";
-        }
-        catch (JsonException) { return "Manager Approval"; }
     }
 }

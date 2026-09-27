@@ -117,3 +117,18 @@ covers configuration retention through deferred build completion.
 `OrganizationUserService.ConfigureHiredInstallationAsync` before saving the Chief's
 installation. `BusinessOnboardingServiceTests.DurableOperation_ContinuesAfterHandoffAndCreatesOneBusiness`
 also verifies that onboarding another company preserves the first Chief's settings.
+
+## Approvals inbox and manager review
+
+Hiring suggestions and team-design approvals have separate lifecycles.
+`ResourceChangeService.DecideAsync` records the assigned manager's decision on
+`ResourceChangeRequestRecord`; completing a hire does not decide that request.
+
+`ApprovalDashboardService.GetAsync` excludes pending requests the signed-in user cannot
+decide, including from **All activity**. Its `PendingCount` and the sidebar's
+`ApprovalState.PendingCount` count only actionable pending items. Completed decisions
+remain available in **All activity**. `ManagedActionApprovalAuthority` shares the
+manager-versus-owner policy between the dashboard and `ApprovalEndpoints`: owner status
+does not override Manager Approval. Missing configuration defaults to Manager Approval;
+inactive requesters do not supply manager authority. Connector requests retain their
+exact assigned-approver binding and expiry checks.

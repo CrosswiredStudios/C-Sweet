@@ -644,6 +644,12 @@ public sealed class AgentWorkInbox(
             .ToList();
     }
 
+    internal JsonElement ReadPayload(AgentWorkItem item)
+    {
+        using var payload = JsonDocument.Parse(_protector.Unprotect(item.ProtectedPayload));
+        return payload.RootElement.Clone();
+    }
+
     public async Task<AgentWorkState> ReadStateAsync(
         Guid workId,
         CancellationToken cancellationToken)

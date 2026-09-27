@@ -45,7 +45,7 @@
         <MudStack Row="true" Spacing="1" Class="approval-filters">
             <MudButton Variant="@(!_showHistory ? Variant.Filled : Variant.Text)"
                        Color="Color.Primary" OnClick="@(() => _showHistory = false)">
-                Pending (@_dashboard.PendingCount)
+                Awaiting you (@_dashboard.PendingCount)
             </MudButton>
             <MudButton Variant="@(_showHistory ? Variant.Filled : Variant.Text)"
                        Color="Color.Primary" OnClick="@(() => _showHistory = true)">
@@ -57,11 +57,11 @@
         {
             <MudPaper Elevation="0" Outlined="true" Class="approval-empty">
                 <MudIcon Icon="@Icons.Material.Outlined.TaskAlt" Color="Color.Success" Size="Size.Large" />
-                <MudText Typo="Typo.h5">@(_showHistory ? "No approval activity yet" : "No pending approvals")</MudText>
+                <MudText Typo="Typo.h5">@(_showHistory ? "No approval activity yet" : "No approvals awaiting you")</MudText>
                 <MudText Color="Color.Secondary">
                     @(_showHistory
                         ? "Durable approval requests will appear here when an agent or workflow creates them."
-                        : "There are no pending approvals in this company.")
+                        : "You have no approvals to decide. All activity includes past decisions.")
                 </MudText>
             </MudPaper>
         }
@@ -332,7 +332,7 @@
 
     private IReadOnlyList<ApprovalDashboardItemResponse> VisibleItems =>
         (_dashboard?.Items ?? [])
-        .Where(x => _showHistory || x.Status == "Pending")
+        .Where(x => _showHistory || (x.Status == "Pending" && x.CanDecide))
         .ToList();
 
     protected override void OnInitialized()

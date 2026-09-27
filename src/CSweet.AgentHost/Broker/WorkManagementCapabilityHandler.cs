@@ -400,21 +400,21 @@ public sealed class WorkManagementCapabilityHandler(
                 {
                     AssignmentRevision = revisions.GetValueOrDefault(item.WorkItemId),
                     MaximumAttempts = maximumAttempts.GetValueOrDefault(stage.StageKey),
-                    LatestOutcome = ReadCompletedOutcome(stage, latest.GetValueOrDefault(stage.Id))
+                    LatestOutcome = ReadLatestOutcome(stage, latest.GetValueOrDefault(stage.Id))
                 }).ToList(),
                 item.UpdatedAt)).ToList());
     }
 
-    private static Wire.WorkExecutionOutcomeV1? ReadCompletedOutcome(
+    internal static Wire.WorkExecutionOutcomeV1? ReadLatestOutcome(
         Wire.WorkStageExecutionResponse stage, WorkExecutionAttempt? attempt)
     {
-        if (stage.Status != "Completed" || attempt?.Status != WorkExecutionAttemptStatus.Completed ||
+        if ((stage.Status != "Completed" && !(stage.StageType == "AgentExecution" && stage.Status is "Blocked" or "Failed")) || attempt?.Status != WorkExecutionAttemptStatus.Completed ||
             string.IsNullOrWhiteSpace(attempt.ResultJson)) return null;
         try
         {
             var outcome = JsonSerializer.Deserialize<Wire.WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions);
             return outcome?.StageExecutionId == stage.Id && outcome.AttemptId == attempt.Id &&
-                outcome.Disposition == Wire.WorkExecutionDispositions.Completed &&
+                outcome.Disposition == stage.Status &&
                 outcome.OutcomeCode == stage.LastOutcomeCode ? outcome : null;
         }
         catch (JsonException) { return null; }
@@ -1972,6 +1972,24 @@ public sealed class WorkManagementCapabilityHandler(
         await QueueRealtimeAsync(
             organizationId, board.Id, item.Id, "item.delivery.finalized",
             item.Revision, cancellationToken);
+        if (board.WorkstreamId is { } workstreamId)
+        {
+            // Persist the wake hint atomically with delivery; consumers re-read current state.
+            var wake = new Wire.GenericResourceEvent(Guid.NewGuid(), item.UpdatedAt,
+                new(organizationId, workstreamId, board.TeamId, board.Id, item.Id,
+                    null, null, Guid.NewGuid(), null, null),
+                "WorkItem", item.Id, item.Revision, item.TypeKey, "delivery.finalized",
+                JsonSerializer.SerializeToElement(new { boardId = board.Id, itemId = item.Id }, JsonOptions));
+            db.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
+            {
+                Id = Guid.NewGuid(), OrganizationId = organizationId,
+                EventType = Wire.WorkstreamEventNames.WorkItemChangedV1,
+                DataJson = JsonSerializer.Serialize(wake, JsonOptions),
+                IdempotencyKey = $"delivery-finalized:{item.Id:N}:{item.Revision}",
+                Status = AgentPlatformEventOutboxStatus.Pending,
+                NextAttemptAt = item.UpdatedAt, OccurredAt = item.UpdatedAt
+            });
+        }
         await db.SaveChangesAsync(cancellationToken);
         await WriteAuditAsync(
             organizationId, installation.Id, board.Id,
