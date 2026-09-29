@@ -115,12 +115,12 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
             throw new ArgumentException("Provide a name (up to 160 characters), goal (up to 6000), at least one member, and a stable submission key.");
     }
 
-    private async Task<List<OrganizationUser>> ValidatePeopleAsync(Guid org, Guid[] ids, Guid manager, CancellationToken ct)
+    private async Task<List<OrganizationUser>> ValidatePeopleAsync(Guid org, Guid[] ids, Guid manager, CancellationToken ct, Guid? existingManager = null)
     {
         var people = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == org && ids.Contains(x.Id) && x.IsActive && x.ArchivedAt == null).ToListAsync(ct);
         if (people.Count != ids.Length) throw new ArgumentException("All selected participants must be active members of this organization.");
         var lead = people.Single(x => x.Id == manager);
-        if (lead.EmployeeType != EmployeeType.Human && !await HasRoleAsync(lead, "software-product-manager", ct))
+        if (manager != existingManager && lead.EmployeeType != EmployeeType.Human && !await HasRoleAsync(lead, "software-product-manager", ct))
             throw new ArgumentException("Select a human manager or an active software product manager.");
         return people;
     }

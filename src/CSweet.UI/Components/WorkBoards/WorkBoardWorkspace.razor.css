@@ -80,7 +80,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .ticket-description { display: block; color: var(--board-muted); font-size: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
 .ticket-footer { display: flex; justify-content: space-between; align-items: center; gap: 7px; color: var(--board-muted); font-size: 12px; }
 .ticket-owner { display: inline-flex; align-items: center; gap: 6px; overflow-wrap: anywhere; min-width: 0; }
-.owner-avatar { width: 24px; height: 24px; flex-shrink: 0; display: inline-grid; place-items: center; border-radius: 50%; font-size: 10px; background: var(--board-soft); }
+.owner-avatar { overflow: hidden; width: 24px; height: 24px; flex-shrink: 0; display: inline-grid; place-items: center; border-radius: 50%; font-size: 10px; background: var(--board-soft); }
 .ticket-priority { font-size: 11px; }
 .ticket-drag { position: absolute; right: 2px; top: 6px; padding: 2px; display: grid; place-items: center; background: transparent; border: 0; color: var(--board-muted); cursor: grab; }
 .ticket-drag:active { cursor: grabbing; }

@@ -87,6 +87,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         await RecoverAgentUpdatedBlockedWorkAsync(now, cancellationToken);
         await RecoverProviderBlockedWorkAsync(now, cancellationToken);
         await RecoverAgentFailureWithBackoffAsync(now, cancellationToken);
+        await RecoverCoordinationWaitsAsync(cancellationToken);
         var dueReviews = await db.CoreWorkTasks
             .Include(x => x.Board)
             .Where(x => x.Board != null && (x.Board.Kind == WorkBoardKind.Personal || x.Board.WorkstreamId != null && x.PersonalWorkContextJson != null) &&

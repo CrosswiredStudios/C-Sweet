@@ -108,6 +108,49 @@ public sealed class ComputeCapabilityTests
         Assert.Equal("compute_request_invalid", (await Invoke(handler, Session(f), InfrastructureActions.Read,
             JsonSerializer.SerializeToElement(new { defaults = true, environmentId = Guid.NewGuid() }))).FailureCode);
     }
+    [Fact]
+    public async Task Project_defaults_accept_the_sdk_request_and_use_authenticated_scope()
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        var defaults = new CapturingDefaults();
+        var handler = new ComputeCapabilityHandler(f.Broker, defaults);
+        var input = JsonSerializer.SerializeToElement(new { defaults = true, workstreamId = f.Workstream });
+        var tool = new McpToolCatalog([handler]).List(Capabilities).Single(x => x.Capability == InfrastructureActions.Read);
+        JsonSchemaValidator.ValidateSchema(tool.InputSchema);
+        JsonSchemaValidator.Validate(input, tool.InputSchema);
+        var result = await Invoke(handler, Session(f), InfrastructureActions.Read, input);
+        Assert.True(result.Succeeded, result.Error);
+        Assert.Equal((f.Organization, f.Installation, f.Workstream), defaults.Scope);
+        Assert.Equal(f.Workstream, result.Payload.ToElement().GetProperty("workstreamId").GetGuid());
+    }
+
+    [Theory]
+    [InlineData("{\"workstreamId\":\"11111111-1111-1111-1111-111111111111\"}")]
+    [InlineData("{\"workstreamId\":\"11111111-1111-1111-1111-111111111111\",\"environmentId\":\"22222222-2222-2222-2222-222222222222\"}")]
+    [InlineData("{\"workstreamId\":\"11111111-1111-1111-1111-111111111111\",\"operationId\":\"22222222-2222-2222-2222-222222222222\"}")]
+    [InlineData("{\"environmentId\":\"11111111-1111-1111-1111-111111111111\",\"operationId\":\"22222222-2222-2222-2222-222222222222\"}")]
+    [InlineData("{\"defaults\":true,\"operationId\":\"22222222-2222-2222-2222-222222222222\"}")]
+    public async Task Read_rejects_mixed_selectors_and_project_scope_without_defaults(string json)
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        var defaults = new CapturingDefaults();
+        var result = await Invoke(new(f.Broker, defaults), Session(f), InfrastructureActions.Read,
+            JsonSerializer.Deserialize<JsonElement>(json));
+        Assert.Equal("compute_request_invalid", result.FailureCode);
+        Assert.Null(defaults.Scope);
+    }
+
+    private sealed class CapturingDefaults : CSweet.Application.Compute.IComputeDefaults
+    {
+        internal (Guid Organization, Guid Installation, Guid Project)? Scope;
+        public Task<CSweet.Application.Compute.ComputeDefaults> ReadAsync(Guid organizationId, Guid installationId, CancellationToken token) =>
+            throw new InvalidOperationException("Project request must not fall back to personal defaults.");
+        public Task<CSweet.Application.Compute.ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
+        {
+            Scope = (organizationId, installationId, projectId);
+            return Task.FromResult(new CSweet.Application.Compute.ComputeDefaults("Ready", projectId, "project-template", null));
+        }
+    }
     private static AgentSession Session(ComputeBrokerTests.Fixture f) => new("session", "compute-agent", f.Installation.ToString("D"),
         f.Organization.ToString("D"), "runtime", "tick", new(new HashSet<string>(), new HashSet<string>(), Capabilities, 1));
 

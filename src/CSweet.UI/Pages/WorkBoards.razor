@@ -265,6 +265,7 @@
     }
     else if (_detail is not null)
     {
+        <EmployeePortraitScope OrganizationId="OrganizationId">
         <WorkBoardWorkspace @ref="_boardWorkspace" @key="_detail.Board.Id" Detail="_detail" Sprints="_sprints" SprintError="@_sprintError"
                             Busy="@(_movePending || _saving)" MoveError="@_moveError" OnBack="BackToBoards" Embedded="Embedded" InitialSprintId="@(RequestedSprintId ?? SprintQuery)"
                             OnAddTickets="OpenSprintScopeAsync" OnStartSprint="StartOrchestratedSprintAsync"
@@ -345,6 +346,7 @@
             }
             </ContextContent>
         </WorkBoardWorkspace>
+        </EmployeePortraitScope>
     }
 }
 

@@ -36,8 +36,8 @@ public sealed partial class WorkOrchestrator
         };
         stage.Attempts.Add(attempt);
         db.Entry(attempt).State = EntityState.Added;
-        stage.Status = WorkStageExecutionStatus.Running;
-        stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
+        stage.Status = WorkStageExecutionStatus.Dispatching;
+        stage.ItemExecution.Status = WorkItemExecutionStatus.Pending;
         stage.UpdatedAt = timeProvider.GetUtcNow();
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.dispatch.recovered", new { workId = work.Id, installationId });

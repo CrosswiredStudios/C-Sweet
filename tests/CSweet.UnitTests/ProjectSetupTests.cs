@@ -18,6 +18,41 @@ public sealed class ProjectSetupTests
         var developer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, AgentInstallationId = Guid.NewGuid(), DisplayName = "Developer", EmployeeType = EmployeeType.Agent };
         db.CoreOrganizationUsers.AddRange(human, developer); return (human, developer);
     }
+    [Fact]
+    public async Task Existing_profile_manager_can_be_retained_when_explicit_participants_are_added()
+    {
+        await using var db = Db(); var (human, developer) = Seed(db);
+        var producer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            DisplayName = "Producer", EmployeeType = EmployeeType.Agent, AgentInstallationId = Guid.NewGuid() };
+        var team = new OrganizationTeam { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            Name = "Game team", LeadOrganizationUserId = producer.Id };
+        var project = new Workstream { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            Name = "Game", Status = WorkstreamStatus.Approved, AccountableManagerOrganizationUserId = producer.Id };
+        var board = new CSweet.Domain.WorkManagement.WorkBoard { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            WorkstreamId = project.Id, TeamId = team.Id, ManagerOrganizationUserId = producer.Id };
+        db.AddRange(producer, team, project, board);
+        db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            WorkstreamId = project.Id, TeamId = team.Id });
+        foreach (var person in new[] { producer, developer })
+            db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId, TeamId = team.Id,
+                OrganizationUserId = person.Id, ExclusiveAgentEmployeeId = person.Id });
+        await db.SaveChangesAsync();
+        var service = Service(db);
+        // Preserving a previously governed manager does not make arbitrary agents eligible for new projects.
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(human,
+            Request(human, developer) with { ManagerId = producer.Id }, default));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.UpdateMembersAsync(human, project.Id,
+            new(developer.Id, [producer.Id, developer.Id], project.Revision), default));
+        var updated = await service.UpdateMembersAsync(human, project.Id,
+            new(producer.Id, [producer.Id, developer.Id], project.Revision), default);
+        Assert.Equal(producer.Id, project.AccountableManagerOrganizationUserId);
+        Assert.Equal(producer.Id, board.ManagerOrganizationUserId);
+        Assert.Equal(board.Id, updated.BoardId);
+        Assert.Single(db.WorkBoards); Assert.Single(db.OrganizationTeams);
+        Assert.Equal(2, await db.ProjectParticipants.CountAsync(x => x.WorkstreamId == project.Id && x.RemovedAt == null));
+        Assert.Null(developer.ReportsToOrganizationUserId);
+        await new ProjectWorkPolicy(db, TimeProvider.System).RequireAsync(human.OrganizationId, developer.Id, board.Id, default);
+    }
     private static ProjectSetupService Service(CSweetDbContext db) => new(db, TimeProvider.System, new(db, TimeProvider.System));
     private static CreateProjectRequest Request(OrganizationUser human, OrganizationUser developer, string key = "request") =>
         new("Prototype", "Build a working prototype", human.Id, null, [developer.Id], null, null, null, key);

@@ -31,7 +31,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
                     response = input.WorkstreamId is { } projectId
                         ? await (defaults ?? throw new InvalidOperationException()).ReadProjectAsync(organizationId, installationId, projectId, token)
                         : await (defaults ?? throw new InvalidOperationException()).ReadAsync(organizationId, installationId, token);
-                else if (input.Defaults is not null) throw new ArgumentException();
+                else if (input.Defaults is not null || input.WorkstreamId is not null) throw new ArgumentException();
                 else if (input.OperationId is { } operationId && input.EnvironmentId is null)
                     response = await broker.ReadOperationAsync(organizationId, installationId, operationId, token);
                 else if (input.EnvironmentId is { } environmentId && input.OperationId is null)

@@ -1,0 +1,110 @@
+using System.Text.Json;
+using CSweet.Contracts.Realtime;
+using CSweet.Contracts.WorkManagement;
+using CSweet.Domain.Core;
+using CSweet.Domain.Notifications;
+using CSweet.Domain.Security;
+using CSweet.Domain.WorkManagement;
+using Microsoft.EntityFrameworkCore;
+using CSweet.Infrastructure.Persistence;
+using CSweet.Domain.Setup;
+
+namespace CSweet.Infrastructure.WorkManagement;
+
+internal static class WorkOrchestrationBoardState
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    // Called inside the inbox lease transaction, before the worker receives its payload.
+    // Execution authorization must not wait for the next scheduler reconciliation.
+    internal static async Task RecordClaimAsync(CSweetDbContext db, AgentWorkItem work,
+        DateTimeOffset now, CancellationToken token)
+    {
+        if (work.SourceType != "WorkStageExecution") return;
+        var attempt = await db.WorkExecutionAttempts
+            .Include(x => x.StageExecution)!.ThenInclude(x => x!.ItemExecution)!.ThenInclude(x => x!.WorkItem)
+            .Include(x => x.StageExecution)!.ThenInclude(x => x!.ItemExecution)!.ThenInclude(x => x!.SprintExecution)
+            .SingleOrDefaultAsync(x => x.AgentWorkItemId == work.Id, token);
+        if (attempt?.StageExecution is not { } stage) return;
+        var execution = stage.ItemExecution!.SprintExecution!;
+        if (execution.OrganizationId.ToString() != work.OrganizationId ||
+            execution.Status != WorkSprintExecutionStatus.Active || stage.AgentInstallationId != work.AgentInstallationId ||
+            stage.StageKey != stage.ItemExecution.CurrentStageKey ||
+            stage.Status is not (WorkStageExecutionStatus.Dispatching or WorkStageExecutionStatus.Running)) return;
+        attempt.Status = WorkExecutionAttemptStatus.Running;
+        attempt.StartedAt ??= now;
+        stage.Status = WorkStageExecutionStatus.Running;
+        stage.UpdatedAt = now;
+        stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
+        stage.ItemExecution.UpdatedAt = now;
+        var policy = await db.WorkOrchestrationPolicyRevisions.AsNoTracking()
+            .Include(x => x.Stages).Include(x => x.Transitions)
+            .SingleAsync(x => x.Id == execution.PolicyRevisionId, token);
+        SynchronizeAgentCard(policy, stage, now);
+        await SaveBoardChangesAsync(db, execution, now, token);
+    }
+
+    internal static void SynchronizeAgentCard(
+        WorkOrchestrationPolicyRevision policy, WorkStageExecution stage, DateTimeOffset now)
+    {
+        if (stage.StageType != WorkOrchestrationStageType.AgentExecution &&
+            !(stage.StageType == WorkOrchestrationStageType.MemberExecution &&
+              stage.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)) return;
+        if (stage.Status is not (WorkStageExecutionStatus.Pending or WorkStageExecutionStatus.Dispatching or
+            WorkStageExecutionStatus.Backoff or WorkStageExecutionStatus.Running)) return;
+
+        var item = stage.ItemExecution!.WorkItem!;
+        var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
+        var running = stage.Status == WorkStageExecutionStatus.Running;
+        // Queue successors stay queued until claimed. Later review stages retain their
+        // own columns, so waiting for QA does not look like new development.
+        var queueColumn = policy.Stages
+            .Where(x => x.Type == WorkOrchestrationStageType.Queue && x.ColumnId.HasValue &&
+                policy.Transitions.Any(t => t.FromStageKey == x.Key && t.ToStageKey == stage.StageKey))
+            .OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => x.ColumnId).FirstOrDefault();
+        var column = (running ? definition.ColumnId : queueColumn ?? definition.ColumnId) ?? item.BoardColumnId;
+        var status = running ? WorkTaskStatus.Running : WorkTaskStatus.Ready;
+        if (item.BoardColumnId == column && item.Status == status) return;
+        item.BoardColumnId = column;
+        item.Status = status;
+        item.UpdatedAt = now;
+        item.Revision++;
+    }
+
+    internal static async Task SaveBoardChangesAsync(CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken token)
+    {
+        db.ChangeTracker.DetectChanges();
+        var changed = db.ChangeTracker.Entries<WorkTask>().Where(x =>
+            x.Entity.BoardId == execution.BoardId && x.State == EntityState.Modified &&
+            (x.Property(p => p.Status).IsModified || x.Property(p => p.BoardColumnId).IsModified || x.Property(p => p.Revision).IsModified))
+            .Select(x => x.Entity).ToList();
+        if (changed.Count > 0)
+        {
+
+            var grants = await db.ScopedActionGrants.AsNoTracking().Where(x =>
+                x.OrganizationId == execution.OrganizationId && x.SubjectKind == GrantSubjectKind.OrganizationUser &&
+                x.RevokedAt == null &&
+                (x.ScopeKind == GrantScopeKind.Organization ||
+                 (x.ScopeKind == GrantScopeKind.Board && x.ScopeId == execution.BoardId)) &&
+                (x.Action == WorkBoardActions.Read || x.Action == WorkItemActions.Read))
+                .Select(x => new { x.SubjectId, x.Action, x.ExpiresAt }).ToListAsync(token);
+            grants = grants.Where(x => !x.ExpiresAt.HasValue || x.ExpiresAt > now).ToList();
+            var readers = grants.Where(x => x.Action == WorkBoardActions.Read).Select(x => x.SubjectId)
+                .Intersect(grants.Where(x => x.Action == WorkItemActions.Read).Select(x => x.SubjectId)).ToList();
+            var recipients = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                readers.Contains(x.Id) && x.OrganizationId == execution.OrganizationId &&
+                x.EmployeeType == EmployeeType.Human && x.IsActive).Select(x => x.Id).ToListAsync(token);
+            foreach (var item in changed)
+                db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
+                {
+                    Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
+                    RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(recipients, JsonOptions),
+                    EventType = AppRealtimeEvents.WorkBoardChanged,
+                    Subject = $"organizations/{execution.OrganizationId:D}/work/boards/{execution.BoardId:D}",
+                    DataJson = JsonSerializer.Serialize(new { boardId = execution.BoardId, itemId = item.Id,
+                        changeType = "item.updated", revision = item.Revision }, JsonOptions),
+                    Status = ApplicationRealtimeOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+                });
+        }
+        await db.SaveChangesAsync(token);
+    }
+}

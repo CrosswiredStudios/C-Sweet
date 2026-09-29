@@ -7,7 +7,6 @@ using CSweet.Infrastructure;
 using CSweet.Infrastructure.Agents;
 using CSweet.Memory;
 using Microsoft.AspNetCore.RateLimiting;
-using System.Threading.RateLimiting;
 using CSweet.TrustedServices;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -126,29 +125,23 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = (context, _) =>
     {
-        // The session limiter replenishes in ten-second sliding-window segments. Give SDK
-        // clients an authoritative delay so they back off instead of reconnecting and
-        // immediately consuming another session's allowance.
+        // Anonymous ingress replenishes in ten-second segments. Authenticated work is
+        // governed by its grants and provider admission, not this request counter.
         context.HttpContext.Response.Headers.RetryAfter = "10";
         return ValueTask.CompletedTask;
     };
-    options.AddPolicy("mcp-session", httpContext =>
-        RateLimitPartition.GetSlidingWindowLimiter(
-            httpContext.Request.Headers["Mcp-Session-Id"].FirstOrDefault()
-            ?? httpContext.Connection.RemoteIpAddress?.ToString()
-            ?? "unknown",
-            _ => new SlidingWindowRateLimiterOptions
-            {
-                PermitLimit = 240,
-                Window = TimeSpan.FromMinutes(1),
-                SegmentsPerWindow = 6,
-                QueueLimit = 0,
-                AutoReplenishment = true
-            }));
+    options.AddPolicy("mcp-session", new McpIngressPolicy());
 });
 
 var app = builder.Build();
 
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path == "/mcp" && HttpMethods.IsPost(context.Request.Method))
+        await McpIngressPolicy.AuthenticateAsync(context,
+            context.RequestServices.GetRequiredService<McpAgentSessionService>());
+    await next(context);
+});
 app.UseRateLimiter();
 app.MapCSweetMcpGateway();
 app.MapHealthChecks("/health");

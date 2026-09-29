@@ -19,11 +19,29 @@ public sealed class ManagementReviewScheduler(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1), clock);
-        do
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await DispatchDueReviewsAsync(stoppingToken);
+            try
+            {
+                await DispatchDueReviewsAsync(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "The management review scheduler iteration failed; retrying on the next scheduled pass.");
+            }
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(stoppingToken)) break;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
     internal async Task DispatchDueReviewsAsync(CancellationToken cancellationToken)

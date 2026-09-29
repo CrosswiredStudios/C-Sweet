@@ -23,30 +23,15 @@ public static class AgentWorkspaceBrokerEndpoints
         endpoints.MapPost("/agent-broker/v2/workspaces/prepare", async (
                 AgentBrokerWorkspacePrepareRequest request,
                 IAgentWorkspaceBroker broker,
+                ILogger<AgentWorkspaceBroker> logger,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
                     return Results.Ok(await broker.PrepareAsync(request, cancellationToken));
                 }
-                catch (UnauthorizedAccessException)
-                {
-                    return Results.Json(
-                        new { error = "workspace_assignment_rejected" },
-                        statusCode: StatusCodes.Status403Forbidden);
-                }
-                catch (ArgumentException)
-                {
-                    return Results.BadRequest(new { error = "workspace_request_invalid" });
-                }
-                catch (InvalidDataException)
-                {
-                    return Results.UnprocessableEntity(new { error = "workspace_artifact_rejected" });
-                }
-                catch (InvalidOperationException)
-                {
-                    return Results.Conflict(new { error = "workspace_prepare_unavailable" });
-                }
+                catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
+                { return WorkspaceOperationErrors.Result(error, logger); }
             })
             .AllowAnonymous();
         endpoints.MapPost("/agent-broker/v2/workspaces/operate", async (

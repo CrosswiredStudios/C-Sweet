@@ -63,6 +63,7 @@ public sealed partial class AgentWorkspaceBroker(
             x.TaskId == request.WorkItemId && x.QaInstallationId == request.AgentInstallationId && x.RepositoryId == request.RepositoryId &&
             x.Status == "Testing" && x.CommitSha == request.ExpectedCommitSha, cancellationToken) &&
             await db.CoreWorkTasks.AnyAsync(x => x.Id == request.WorkItemId && x.OrganizationId == request.OrganizationId && x.AssignmentRevision == request.AssignmentRevision && x.ArchivedAt == null, cancellationToken);
+        assignmentIsCurrent |= await new CanonicalWorkspaceAuthorization(db).AuthorizeAsync(workspace, CSweet.Agent.SDK.GitWorkspaceCapabilities.Prepare, request.ExpectedCommitSha, cancellationToken);
         var installationIsCurrent = await db.AgentInstallations.AsNoTracking().AnyAsync(candidate =>
             candidate.Id == request.AgentInstallationId &&
             candidate.IsEnabled &&
@@ -122,7 +123,7 @@ public sealed partial class AgentWorkspaceBroker(
                 request.AgentInstallationId,
                 request.WorkspaceId,
                 request.WorkItemId,
-                request.AssignmentRevision),
+                request.AssignmentRevision) { ExpectedCommitSha = request.ExpectedCommitSha },
             archive,
             expectedManifest,
             cancellationToken);

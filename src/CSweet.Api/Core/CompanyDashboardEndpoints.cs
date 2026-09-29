@@ -11,6 +11,53 @@ public static class CompanyDashboardEndpoints
     public static IEndpointRouteBuilder MapCompanyDashboardEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/core/organizations/{organizationId:guid}/dashboard").RequireAuthorization();
+        group.MapGet("/activity", async (Guid organizationId, HttpContext http, CurrentActivityService activity,
+            int? offset, bool? projectsOnly, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (user is null) return Results.Unauthorized();
+            if (offset is < 0) return Results.BadRequest();
+            try { return Results.Ok(await activity.ReadAsync(organizationId, user.Value, offset ?? 0, projectsOnly ?? false, token)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+        group.MapGet("/activity/{employeeId:guid}/{attemptId:guid}/feed", async (Guid organizationId, Guid employeeId,
+            Guid attemptId, Guid? workItemId, long? afterSequence, HttpContext http, CurrentActivityService activity,
+            CSweet.Application.Setup.IAuditEventWriter audit, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (user is null) return Results.Unauthorized();
+            if (afterSequence is < 0) return Results.BadRequest();
+            try
+            {
+                var result = await activity.FeedAsync(organizationId, user.Value, employeeId, attemptId, workItemId, afterSequence ?? 0, token);
+                await audit.AppendAsync(new CSweet.Application.Setup.AuditEventWriteRequest("security.activity-diagnostics.read", "SecurityAccess",
+                    OrganizationId: organizationId, EntityType: "AgentWorkAttempt", EntityId: attemptId,
+                    Actor: new CSweet.Application.Setup.AuditActor("Human", ApplicationUserId: user),
+                    Summary: "Current activity diagnostic evidence inspected."), token);
+                return Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+        });
+        group.MapGet("/activity/{employeeId:guid}/models/{runId:guid}/feed", async (Guid organizationId, Guid employeeId,
+            Guid runId, long? afterSequence, HttpContext http, CurrentActivityService activity,
+            CSweet.Application.Setup.IAuditEventWriter audit, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (user is null) return Results.Unauthorized();
+            if (afterSequence is < 0) return Results.BadRequest();
+            try
+            {
+                var result = await activity.ModelFeedAsync(organizationId, user.Value, employeeId, runId, afterSequence ?? 0, token);
+                await audit.AppendAsync(new CSweet.Application.Setup.AuditEventWriteRequest("security.activity-diagnostics.read", "SecurityAccess",
+                    OrganizationId: organizationId, EntityType: "AgentRunLog", EntityId: runId,
+                    Actor: new CSweet.Application.Setup.AuditActor("Human", ApplicationUserId: user),
+                    Summary: "Current activity model evidence inspected."), token);
+                return Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+        });
         group.MapGet("", async (Guid organizationId, HttpContext http, CSweetDbContext db, CompanyDashboardService service, CancellationToken token) =>
         {
             var actor = await ActorAsync(organizationId, http, db, token);

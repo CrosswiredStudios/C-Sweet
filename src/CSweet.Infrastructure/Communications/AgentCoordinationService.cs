@@ -228,16 +228,16 @@ public sealed class AgentCoordinationService(
         var target = participants.Single(x => x.Id == request.TargetOrganizationUserId);
         if (initiator.AgentInstallationId != initiatorInstallationId)
             throw new UnauthorizedAccessException("The initiating installation does not match the employee identity.");
-        var initiatorIsDeveloper = RoleContains(initiator.Role, "Developer") &&
+        var initiatorIsDeveloper = IsImplementerRole(initiator.Role) &&
             stage.AgentInstallationId == initiatorInstallationId;
-        var targetIsDeveloper = RoleContains(target.Role, "Developer") &&
+        var targetIsDeveloper = IsImplementerRole(target.Role) &&
             stage.AgentInstallationId == target.AgentInstallationId;
-        var initiatorIsArchitect = RoleContains(initiator.Role, "Architect");
-        var targetIsArchitect = RoleContains(target.Role, "Architect");
+        var initiatorIsArchitect = IsTechnicalLeadRole(initiator.Role);
+        var targetIsArchitect = IsTechnicalLeadRole(target.Role);
         if (!((initiatorIsDeveloper && targetIsArchitect) ||
               (initiatorIsArchitect && targetIsDeveloper)))
             throw new UnauthorizedAccessException(
-                "Work support is limited to the exact assigned Developer and a designated team Architect.");
+                "Work support is limited to the exact assigned Developer and the team's technical lead (Architect or Technical Director).");
 
         var targetInstallationId = await ResolveParticipantsAsync(
             organizationId, initiatorOrganizationUserId, initiatorInstallationId,
@@ -498,6 +498,7 @@ public sealed class AgentCoordinationService(
             responseTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
         }
 
+        await new WorkItemMutationEngine(db, TimeProvider.System).WakeCoordinationWaitsAsync(session, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
@@ -939,6 +940,14 @@ public sealed class AgentCoordinationService(
             IdempotencyKey = $"coordination:{session.Id:N}:{kind}", CreatedAt = DateTimeOffset.UtcNow
         });
     }
+
+    /// <summary>The team member who gives design guidance: Architect on software teams, Technical Director on game teams.</summary>
+    internal static bool IsTechnicalLeadRole(string role) =>
+        RoleContains(role, "Architect") || RoleContains(role, "Technical Director");
+
+    /// <summary>The implementing role; the caller still requires the exact stage assignee.</summary>
+    internal static bool IsImplementerRole(string role) =>
+        RoleContains(role, "Developer") || RoleContains(role, "Engineer");
 
     private static bool RoleContains(string role, string value) =>
         role.Contains(value, StringComparison.OrdinalIgnoreCase);

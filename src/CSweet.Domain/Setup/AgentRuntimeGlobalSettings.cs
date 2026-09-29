@@ -13,8 +13,9 @@ public sealed class AgentRuntimeGlobalSettings
     public OverlapPolicy DefaultOverlapPolicy { get; set; }
     public bool AllowAlwaysOnCommunityAgents { get; set; }
     public RestartPolicy DefaultRestartPolicy { get; set; }
-    public int GlobalMaxActiveWorkloads { get; set; } = 10;
-    public int PerBusinessMaxActiveWorkloads { get; set; } = 5;
+    // Zero means no administrative cap; actual Office resource admission still applies.
+    public int GlobalMaxActiveWorkloads { get; set; }
+    public int PerBusinessMaxActiveWorkloads { get; set; }
     public int PerInstallationMaxActiveWorkloads { get; set; } = 1;
     public int DefaultWorkloadMemoryMb { get; set; } = 1024;
     public int MaximumWorkloadMemoryMb { get; set; } = 2048;

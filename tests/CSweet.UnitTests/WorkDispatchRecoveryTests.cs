@@ -15,7 +15,7 @@ using Shared = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
-public sealed class WorkDispatchRecoveryTests
+public sealed partial class WorkDispatchRecoveryTests
 {
     [Theory]
     [InlineData(0, 1)]
@@ -39,7 +39,7 @@ public sealed class WorkDispatchRecoveryTests
         Assert.Equal(expected, (await db.CoreWorkTasks.SingleAsync()).AssignmentRevision);
         Assert.Equal(0, assignment.Traversal); // Initial traversal is zero; attempts are one-based.
         Assert.Equal(1, assignment.Attempt);
-        Assert.Equal(WorkStageExecutionStatus.Running, (await db.WorkStageExecutions.SingleAsync()).Status);
+        Assert.Equal(WorkStageExecutionStatus.Dispatching, (await db.WorkStageExecutions.SingleAsync()).Status);
         Assert.Equal(1, runtime.Wakes);
     }
 
@@ -107,8 +107,38 @@ public sealed class WorkDispatchRecoveryTests
         Assert.Equal(failAfterEnqueue ? 0 : 1, await db.AgentWorkItems.CountAsync());
         Assert.Equal(failAfterEnqueue ? 0 : 1, await db.WorkExecutionAttempts.CountAsync());
         Assert.Equal(!failAfterEnqueue, await db.ScopedActionGrants.AnyAsync());
+        Assert.Equal(failAfterEnqueue ? 0 : 1, await db.ApplicationRealtimeOutbox.CountAsync());
         Assert.Equal(failAfterEnqueue ? 0 : 1, (await db.CoreWorkTasks.SingleAsync()).AssignmentRevision);
         Assert.Equal(failAfterEnqueue ? 0 : 1, runtime.Wakes);
+    }
+
+    [Fact]
+    public async Task Retried_stage_carries_the_managers_direction_to_the_worker()
+    {
+        // A worker asked to try again must hear why, as a teammate would.
+        await using var db = CreateDb();
+        var state = await Seed(db, 1);
+        var managerId = Guid.NewGuid();
+        (await db.WorkBoards.SingleAsync()).ManagerOrganizationUserId = managerId;
+        foreach (var (actor, reason, at) in new[]
+        {
+            (managerId, "Report unavailable desktop measurements honestly.", DateTimeOffset.UtcNow.AddMinutes(-2)),
+            (Guid.NewGuid(), "Architect guidance was linked and consumed.", DateTimeOffset.UtcNow.AddMinutes(-1))
+        })
+            db.WorkOrchestrationEvents.Add(new WorkOrchestrationEvent
+            {
+                Id = Guid.NewGuid(), OrganizationId = state.Execution.OrganizationId, BoardId = state.Execution.BoardId,
+                SprintExecutionId = state.Execution.Id, ItemExecutionId = state.Stage.ItemExecutionId, StageExecutionId = state.Stage.Id,
+                EventType = "stage.retry.requested", OccurredAt = at,
+                DataJson = JsonSerializer.Serialize(new { id = actor, reason, idempotencyKey = reason })
+            });
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var orchestrator = new WorkOrchestrator(db, inbox, null!, new Runtime(db), [], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
+        await Dispatch(orchestrator, state);
+        var assignment = inbox.ReadPayload(Assert.Single(db.AgentWorkItems)).Deserialize<Shared.WorkExecutionAssignmentV1>(JsonOptions)!;
+        var direction = Assert.Single(assignment.Evidence, x => x.Kind == "manager-direction");
+        Assert.Equal("Report unavailable desktop measurements honestly.", direction.Value);
     }
 
     [Fact]
@@ -137,13 +167,106 @@ public sealed class WorkDispatchRecoveryTests
         Assert.Equal(currentError, state.Stage.ItemExecution!.BlockedReason);
         Assert.Equal(currentError, state.Stage.ItemExecution.WorkItem!.BlockReason);
     }
+    [Fact]
+    public async Task Completed_worker_result_advances_once_and_survives_a_fresh_reconciliation()
+    {
+        await using var db = CreateDb();
+        var state = await Seed(db, 1);
+        state.Policy.Stages.Add(new WorkOrchestrationStage
+        {
+            Id = Guid.NewGuid(), PolicyRevisionId = state.Policy.Id,
+            Key = "producer-review", Name = "Review", Type = WorkOrchestrationStageType.ManagerApproval
+        });
+        state.Policy.Transitions.Add(new WorkOrchestrationTransition
+        {
+            Id = Guid.NewGuid(), PolicyRevisionId = state.Policy.Id,
+            FromStageKey = state.Stage.StageKey, OutcomeCode = "completed", ToStageKey = "producer-review"
+        });
+        db.Add(state.Policy.Stages.Last());
+        db.Add(state.Policy.Transitions.Last());
+        await db.SaveChangesAsync();
+        var protection = new EphemeralDataProtectionProvider();
+        var inbox = new AgentWorkInbox(db, protection, TimeProvider.System);
+        var runtime = new Runtime(db);
+        var orchestrator = new WorkOrchestrator(db, inbox, null!, runtime, [], TimeProvider.System,
+            NullLogger<WorkOrchestrator>.Instance);
+        await Dispatch(orchestrator, state);
+        var attempt = Assert.Single(db.WorkExecutionAttempts);
+        var work = Assert.Single(db.AgentWorkItems);
+        var outcome = new Shared.WorkExecutionOutcomeV1(state.Stage.Id, attempt.Id,
+            Shared.WorkExecutionDispositions.Completed, "completed", "Plan submitted.",
+            JsonSerializer.SerializeToElement(new { artifactId = Guid.NewGuid() }), [], []);
+        work.Status = AgentWorkStatus.Completed;
+        work.ProtectedResult = protection.CreateProtector("CSweet.AgentWorkInbox.v1").Protect(
+            JsonSerializer.SerializeToUtf8Bytes(new AgentWorkCompletion(true,
+                JsonSerializer.SerializeToElement(outcome, JsonOptions), null)));
+        await db.SaveChangesAsync();
+
+        // Pulse catches reconciliation errors: verify persisted state, not only tracked mutations.
+        await orchestrator.PulseAsync();
+        db.ChangeTracker.Clear();
+        var persisted = await db.WorkExecutionAttempts.SingleAsync();
+        Assert.Equal(WorkExecutionAttemptStatus.Completed, persisted.Status);
+        Assert.NotNull(persisted.CompletedAt);
+        Assert.Equal(outcome.Summary, JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(persisted.ResultJson!, JsonOptions)!.Summary);
+        Assert.Equal(WorkStageExecutionStatus.Completed,
+            (await db.WorkStageExecutions.SingleAsync(x => x.Id == state.Stage.Id)).Status);
+        var review = await db.WorkStageExecutions.SingleAsync(x => x.StageKey == "producer-review");
+        Assert.Equal(WorkStageExecutionStatus.WaitingForApproval, review.Status);
+        Assert.Equal("producer-review", (await db.WorkItemExecutions.SingleAsync()).CurrentStageKey);
+
+        await orchestrator.PulseAsync();
+        db.ChangeTracker.Clear();
+        Assert.Equal(review.Id, (await db.WorkStageExecutions.SingleAsync(x => x.StageKey == "producer-review")).Id);
+        Assert.Equal(2, await db.WorkStageExecutions.CountAsync());
+        Assert.Single(await db.WorkOrchestrationEvents.Where(x => x.EventType == "attempt.result.accepted").ToListAsync());
+        Assert.Single(await db.AgentWorkItems.ToListAsync());
+        Assert.Equal(1, runtime.Wakes);
+    }
+    [Fact]
+    public async Task Terminal_completion_is_durable_even_when_a_dependent_dispatch_fails()
+    {
+        await using var db = CreateDb();
+        var state = await Seed(db, 1);
+        state.Stage.StageType = WorkOrchestrationStageType.Terminal;
+        state.Policy.Stages.Single().Type = WorkOrchestrationStageType.Terminal;
+        state.Policy.Stages.Single().IsSuccessfulTerminal = true;
+        var definition = new WorkOrchestrationStage { Id = Guid.NewGuid(), PolicyRevisionId = state.Policy.Id,
+            Key = "dependent-work", Name = "Dependent work", Type = WorkOrchestrationStageType.AgentExecution };
+        state.Policy.Stages.Add(definition); db.Add(definition);
+        var dependent = new WorkTask { Id = Guid.NewGuid(), OrganizationId = state.Execution.OrganizationId,
+            BoardId = state.Execution.BoardId, Identifier = "GAME-2" };
+        dependent.Dependencies.Add(new WorkItemDependency { WorkItemId = dependent.Id,
+            DependsOnWorkItemId = state.Stage.ItemExecution!.WorkItemId });
+        var next = new WorkItemExecution { Id = Guid.NewGuid(), SprintExecutionId = state.Execution.Id,
+            WorkItemId = dependent.Id, WorkItem = dependent, Status = WorkItemExecutionStatus.Pending };
+        next.Stages.Add(new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = next.Id,
+            StageKey = definition.Key, StageType = definition.Type, Status = WorkStageExecutionStatus.Pending });
+        state.Execution.Items.Add(next); db.Add(next); db.Add(dependent);
+        await db.SaveChangesAsync();
+        var orchestrator = new WorkOrchestrator(db, new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System),
+            null!, new Runtime(db), [], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
+        // The dependent deliberately has no installation, so dispatch fails after its dependency completes.
+        await orchestrator.PulseAsync();
+        db.ChangeTracker.Clear();
+        Assert.Equal(WorkItemExecutionStatus.Completed,
+            (await db.WorkItemExecutions.SingleAsync(x => x.Id == state.Stage.ItemExecutionId)).Status);
+        Assert.Equal(WorkTaskStatus.Completed,
+            (await db.CoreWorkTasks.SingleAsync(x => x.Id == state.Stage.ItemExecution!.WorkItemId)).Status);
+        Assert.Empty(await db.AgentWorkItems.ToListAsync());
+    }
     private sealed class FailSecondSave : SaveChangesInterceptor
     {
         public bool Armed { get; set; }
         private int calls;
+        private long sequence;
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
+            // SQLite cannot generate the PostgreSQL outbox identity column.
+            foreach (var entry in eventData.Context!.ChangeTracker.Entries<CSweet.Domain.Notifications.ApplicationRealtimeOutboxItem>()
+                         .Where(x => x.State == EntityState.Added && x.Entity.Sequence == 0))
+                entry.Entity.Sequence = ++sequence;
             if (Armed && ++calls == 2) throw new InvalidOperationException("Injected failure after inbox save.");
             return ValueTask.FromResult(result);
         }

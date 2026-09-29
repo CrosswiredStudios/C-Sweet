@@ -35,6 +35,17 @@ public sealed class WorkspaceOperationDiagnosticsTests
         Assert.Equal(409, failure.StatusCode);
     }
 
+    [Fact]
+    public async Task Preparation_keeps_the_snapshot_authorization_cause_and_status()
+    {
+        var original = WorkspaceOperationErrors.Describe(new UnauthorizedAccessException("The workspace lease is stale or assigned to another agent."));
+        using var http = Client(new Transport((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)
+            { Content = JsonContent.Create(original.Failure) })));
+        var failure = await Assert.ThrowsAsync<WorkspaceOperationException>(() => new CoreWorkspaceBrokerClient(http).PrepareAsync(
+            new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, "work/test", null, "prepare-test"), default));
+        Assert.Equal(original.Failure, failure.Failure);
+        Assert.Equal(403, failure.StatusCode);
+    }
     [Theory]
     [InlineData(403)]
     [InlineData(409)]

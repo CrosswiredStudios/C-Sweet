@@ -95,7 +95,7 @@ public sealed partial class AgentWorkspaceBroker
             : null;
         return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, githubReviewUrl ?? url, Provider: repository.Connection!.Provider.ToString());
     }
-    private async Task<SourceControlWorkspace> AuthorizeWorkspaceOperationAsync(AgentBrokerWorkspaceOperationRequest request, CancellationToken cancellationToken)
+    private async Task<SourceControlWorkspace> AuthorizeWorkspaceOperationAsync(AgentBrokerWorkspaceOperationRequest request, CancellationToken cancellationToken, string? action = null)
     {
         var workspace = await db.SourceControlWorkspaces.AsNoTracking().Include(w => w.Repository!).ThenInclude(r => r.Connection)
             .SingleOrDefaultAsync(w => w.OrganizationId == request.OrganizationId && w.Id == request.WorkspaceId &&
@@ -112,7 +112,8 @@ public sealed partial class AgentWorkspaceBroker
             x.TaskId == workspace.WorkItemId && x.QaInstallationId == workspace.AgentInstallationId && x.Status == "Testing" &&
             x.CommitSha == workspace.BaseCommitSha && x.RepositoryId == workspace.RepositoryId, cancellationToken);
         if (qaReview && request.Operation == "publish") throw new UnauthorizedAccessException("QA cannot publish source changes.");
-        if ((!qaReview && !await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
+        var canonical = await new CanonicalWorkspaceAuthorization(db).AuthorizeAsync(workspace, action ?? WorkspaceAction(request.Operation), workspace.BaseCommitSha, cancellationToken);
+        if ((!qaReview && !canonical && !await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
             w.AssignmentRevision == workspace.AssignmentRevision && w.AssignedAgentInstallationId == workspace.AgentInstallationId, cancellationToken)) ||
             !await db.AgentInstallations.AsNoTracking().AnyAsync(i => i.Id == workspace.AgentInstallationId && i.IsEnabled &&
                 i.BusinessId == workspace.OrganizationId.ToString("D"), cancellationToken))

@@ -14,7 +14,7 @@ using System.Text.RegularExpressions;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-public sealed class WorkBoardService(
+public sealed partial class WorkBoardService(
     CSweetDbContext db,
     IScopedActionAuthorizationService authorization,
     IAuditEventWriter audit) : IWorkBoardService
@@ -557,7 +557,7 @@ public sealed class WorkBoardService(
             organizationId, member, WorkItemActions.Create, boardId,
             decision.GrantId!.Value,
             new { boardId, item.Id, item.Kind, item.BoardColumnId }, cancellationToken);
-        return ToItemResponse(item);
+        return (await ResolveCardOwnersAsync(organizationId, boardId, [ToItemResponse(item)], cancellationToken))[0];
     }
 
     public async Task<WorkBoardItemResponse?> MoveItemAsync(
@@ -643,7 +643,7 @@ public sealed class WorkBoardService(
             organizationId, member, action, boardId, decision.GrantId!.Value,
             new { boardId, item.Id, targetColumnId = target.Id, item.BoardRank, item.Revision },
             cancellationToken);
-        return ToItemResponse(item);
+        return (await ResolveCardOwnersAsync(organizationId, boardId, [ToItemResponse(item)], cancellationToken))[0];
     }
 
     private async Task<WorkBoardDetailResponse> GetDetailWithoutVisitAsync(
@@ -732,7 +732,12 @@ public sealed class WorkBoardService(
         item.Revision,
         item.DueDate,
         item.CreatedAt,
-        item.UpdatedAt)
+        item.UpdatedAt,
+        AssignedWorkerId: item.AssignedWorkerId,
+        AssignedEmployeeId: item.AssignedEmployeeId,
+        AssignedInstallationId: item.AssignedAgentInstallationId,
+        AssignedDisplayName: item.AssignedEmployee?.DisplayName ?? item.AssignedWorker?.Name,
+        AssignmentRevision: item.AssignmentRevision)
     {
         TypeKey = item.TypeKey,
         ExecutionMode = item.IsExecutable
@@ -1099,9 +1104,8 @@ public sealed class WorkBoardService(
                 .ThenBy(x => x.BoardRank)
                 .ToListAsync(cancellationToken)
             : [];
-        var items = itemRows
-            .Select(ToItemResponse)
-            .ToList();
+        var items = await ResolveCardOwnersAsync(board.OrganizationId, board.Id,
+            itemRows.Select(ToItemResponse).ToList(), cancellationToken);
         return new WorkBoardDetailResponse(
             ToSummary(board, memberId, grants, all, preference?.IsFavorite ?? false,
                 preference?.LastVisitedAt, count),

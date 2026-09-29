@@ -318,6 +318,7 @@ public sealed class AgentWorkInbox(
             LeaseExpiresAt = now.Add(LeaseDuration)
         };
         db.AgentWorkAttempts.Add(attempt);
+        await CSweet.Infrastructure.WorkManagement.WorkOrchestrationBoardState.RecordClaimAsync(db, item, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         AgentRuntimeMetrics.WorkClaimed(item.Kind, now - item.CreatedAt);

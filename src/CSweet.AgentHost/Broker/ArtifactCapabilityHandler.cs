@@ -15,7 +15,7 @@ using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.AgentHost.Broker;
 
-public sealed class ArtifactCapabilityHandler(
+public sealed partial class ArtifactCapabilityHandler(
     CSweetDbContext db,
     IArtifactDocumentService documents,
     IAuditEventWriter audit,
@@ -189,15 +189,22 @@ public sealed class ArtifactCapabilityHandler(
     {
         if (request.ArtifactId.HasValue)
         {
-            await RequireFileGrantAsync(organizationId, request.ArtifactId.Value, actor, ArtifactActions.Read, token);
-            var latest = await db.ArtifactRevisions.AsNoTracking().Where(x =>
+            Guid? reviewRevisionId = null;
+            if (!await HasFileGrantAsync(organizationId, request.ArtifactId.Value, actor, ArtifactActions.Read, token))
+            {
+                reviewRevisionId = await AssignedReviewRevisionAsync(organizationId, request.ArtifactId.Value, actor, token);
+                if (!reviewRevisionId.HasValue)
+                    await RequireFileGrantAsync(organizationId, request.ArtifactId.Value, actor, ArtifactActions.Read, token);
+            }
+            var readable = await db.ArtifactRevisions.AsNoTracking().Where(x =>
                     x.OrganizationId == organizationId && x.ArtifactId == request.ArtifactId.Value &&
-                    x.Artifact!.LatestRevisionId == x.Id)
+                    (reviewRevisionId.HasValue ? x.Id == reviewRevisionId.Value : x.Artifact!.LatestRevisionId == x.Id))
                 .SingleAsync(token);
             await AuditAsync("artifact.read", "Completed", organizationId, request.ArtifactId, actor,
-                new { revisionId = latest.Id, latest.ContentSha256,
-                    contentBytes = Encoding.UTF8.GetByteCount(latest.Content) }, token);
-            return await AgentDetailAsync(organizationId, request.ArtifactId.Value, token);
+                new { revisionId = readable.Id, readable.ContentSha256,
+                    accessSource = reviewRevisionId.HasValue ? "assigned-delivery-review" : "document-grant",
+                    contentBytes = Encoding.UTF8.GetByteCount(readable.Content) }, token);
+            return await AgentDetailAsync(organizationId, request.ArtifactId.Value, token, reviewRevisionId);
         }
         var ids = await GrantedArtifactIdsAsync(organizationId, actor.InstallationId, ArtifactActions.Read, token);
         var list = await db.CoreArtifacts.AsNoTracking().Where(x => x.OrganizationId == organizationId && ids.Contains(x.Id) &&
@@ -501,14 +508,19 @@ public sealed class ArtifactCapabilityHandler(
 
     private async Task RequireFileGrantAsync(Guid organizationId, Guid artifactId, ArtifactAgentActor actor, string action, CancellationToken token)
     {
-        var now = clock.GetUtcNow();
-        var allowed = await db.ScopedActionGrants.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
-            x.SubjectKind == GrantSubjectKind.AgentInstallation && x.SubjectId == actor.InstallationId &&
-            x.ScopeKind == GrantScopeKind.Artifact && x.ScopeId == artifactId && x.Action == action &&
-            x.RevokedAt == null && (!x.ExpiresAt.HasValue || x.ExpiresAt > now), token);
+        var allowed = await HasFileGrantAsync(organizationId, artifactId, actor, action, token);
         if (allowed) return;
         await DeniedAsync(organizationId, artifactId, actor, action, token);
         throw new UnauthorizedAccessException("The agent has no grant for this action on this exact document.");
+    }
+
+    private async Task<bool> HasFileGrantAsync(Guid organizationId, Guid artifactId, ArtifactAgentActor actor, string action, CancellationToken token)
+    {
+        var now = clock.GetUtcNow();
+        return await db.ScopedActionGrants.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
+            x.SubjectKind == GrantSubjectKind.AgentInstallation && x.SubjectId == actor.InstallationId &&
+            x.ScopeKind == GrantScopeKind.Artifact && x.ScopeId == artifactId && x.Action == action &&
+            x.RevokedAt == null && (!x.ExpiresAt.HasValue || x.ExpiresAt > now), token);
     }
 
     private async Task<bool> HasOrganizationCreateAsync(Guid organizationId, Guid installationId, CancellationToken token)
@@ -529,13 +541,13 @@ public sealed class ArtifactCapabilityHandler(
             (!x.ExpiresAt.HasValue || x.ExpiresAt > now)).Select(x => x.ScopeId!.Value).Distinct().ToListAsync(token);
     }
 
-    private async Task<object> AgentDetailAsync(Guid organizationId, Guid artifactId, CancellationToken token)
+    private async Task<object> AgentDetailAsync(Guid organizationId, Guid artifactId, CancellationToken token, Guid? readableRevisionId = null)
     {
         var item = await db.CoreArtifacts.AsNoTracking().Include(x => x.Revisions).SingleOrDefaultAsync(x => x.Id == artifactId && x.OrganizationId == organizationId, token) ?? throw new KeyNotFoundException();
         return new { item.Id, item.Title, item.DocumentType, Status = item.DocumentStatus.ToString(), item.LatestRevisionId,
             item.SubmittedRevisionId, item.AcceptedRevisionId, item.OriginConversationId, item.OriginWorkItemId,
             item.WorkstreamId, item.TeamId,
-            Revisions = item.Revisions.OrderByDescending(x => x.Number).Select(MapRevision).ToList() };
+            Revisions = item.Revisions.Where(x => !readableRevisionId.HasValue || x.Id == readableRevisionId.Value).OrderByDescending(x => x.Number).Select(MapRevision).ToList() };
     }
 
     private static object MapRevision(ArtifactRevision x) => new { x.Id, x.Number, x.BaseRevisionId, x.Content, x.ContentSha256, Status = x.Status.ToString(), x.CreatedAt, x.SubmittedAt, x.DecidedAt };

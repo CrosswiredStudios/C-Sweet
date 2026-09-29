@@ -11,7 +11,7 @@ public sealed partial class AgentWorkspaceBroker
     {
         if (request.Operation is not ("list" or "create" or "unlock") || string.IsNullOrWhiteSpace(request.Workspace.IdempotencyKey) || request.Workspace.IdempotencyKey.Length > 160)
             throw new ArgumentException("Invalid workspace lock operation.");
-        var workspace = await AuthorizeWorkspaceOperationAsync(request.Workspace, ct);
+        var workspace = await AuthorizeWorkspaceOperationAsync(request.Workspace, ct, request.Operation switch { "list" => CSweet.Agent.SDK.GitWorkspaceCapabilities.ListLocks, "create" => CSweet.Agent.SDK.GitWorkspaceCapabilities.LockFile, _ => CSweet.Agent.SDK.GitWorkspaceCapabilities.UnlockFile });
         if (workspace.Repository!.Connection!.Provider != SourceControlProvider.InternalGit)
             throw new InvalidOperationException("Agent-owned file locks currently require an internal repository.");
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(u => u.OrganizationId == workspace.OrganizationId &&

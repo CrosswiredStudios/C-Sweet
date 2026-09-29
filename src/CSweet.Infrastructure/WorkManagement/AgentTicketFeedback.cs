@@ -19,6 +19,13 @@ public static class AgentTicketFeedback
 {
     public const string RepeatedIssueError = "agent-failure:v1;code=task.repeated_issue;retryable=false";
     public const string RepeatedIssuePrefix = "Repeated issue: ";
+    /// <summary>
+    /// Cross-agent convention: a Blocked outcome whose diagnostics carry this token needs a management decision
+    /// (scope, acceptance criteria, environment or tooling) rather than a retry or a code change.
+    /// </summary>
+    public const string DecisionRequiredDiagnostic = "decision-required:v1";
+    private const string RepeatKeyPrefix = "ticket-repeat:";
+    private const string BlockedKeyPrefix = "ticket-blocked:";
 
     public static void RecordClaim(CSweetDbContext db, WorkTask item, Guid installationId, Guid eventId, DateTimeOffset now)
     {
@@ -95,7 +102,8 @@ public static class AgentTicketFeedback
     }
 
     private static async Task<Guid> QueueManagerMessageAsync(CSweetDbContext db, WorkTask root, OrganizationUser owner,
-        OrganizationUser manager, WorkTask ticket, string deliveryKey, DateTimeOffset now, CancellationToken ct)
+        OrganizationUser manager, WorkTask ticket, string deliveryKey, DateTimeOffset now, CancellationToken ct,
+        string? blockedContent = null)
     {
         // Reuse the latest private escalation for this root ticket and manager. Older channels
         // have no ticket metadata, so identify them by the message key already persisted there.
@@ -105,7 +113,8 @@ public static class AgentTicketFeedback
                 x.IsPrivate && x.ArchivedAt == null && x.InitiatedByOrganizationUserId == owner.Id &&
                 x.Participants.Any(p => p.OrganizationUserId == manager.Id && p.LeftAt == null) &&
                 x.Messages.Any(m => m.SenderOrganizationUserId == owner.Id && m.IdempotencyKey != null &&
-                    m.IdempotencyKey.StartsWith("ticket-repeat:") && m.IdempotencyKey.EndsWith(ticketSuffix)))
+                    (m.IdempotencyKey.StartsWith(RepeatKeyPrefix) || m.IdempotencyKey.StartsWith(BlockedKeyPrefix)) &&
+                    m.IdempotencyKey.EndsWith(ticketSuffix)))
             .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
             .FirstOrDefaultAsync(ct);
         if (chat is null)
@@ -127,14 +136,17 @@ public static class AgentTicketFeedback
         else if (chat.UpdatedAt < now)
             chat.UpdatedAt = now;
         var mention = "@" + manager.DisplayName;
-        var content = $"{mention}, I hit the same issue twice on “{ticket.Title}” and blocked it. " +
-            $"Could you help resolve it? The details are in the ticket comments. " +
-            $"/organizations/{root.OrganizationId:D}/work (ticket {ticket.Id:D}).";
+        var content = blockedContent is null
+            ? $"{mention}, I hit the same issue twice on “{ticket.Title}” and blocked it. " +
+              $"Could you help resolve it? The details are in the ticket comments. " +
+              $"/organizations/{root.OrganizationId:D}/work (ticket {ticket.Id:D})."
+            : $"{mention}, {blockedContent} /organizations/{root.OrganizationId:D}/work (ticket {ticket.Id:D}).";
         var message = new ConversationMessage
         {
             Id = Guid.NewGuid(), ConversationId = chat.Id, Role = ConversationRole.Assistant,
             SenderOrganizationUserId = owner.Id, Content = content, CreatedAt = now,
-            CorrelationId = Guid.NewGuid(), IdempotencyKey = $"ticket-repeat:{deliveryKey}:{root.Id:N}"
+            CorrelationId = Guid.NewGuid(),
+            IdempotencyKey = $"{(blockedContent is null ? RepeatKeyPrefix : BlockedKeyPrefix)}{deliveryKey}:{root.Id:N}"
         };
         db.CoreConversationMessages.Add(message);
         db.ConversationMessageMentions.Add(new ConversationMessageMention
@@ -158,6 +170,40 @@ public static class AgentTicketFeedback
             });
         }
         return chat.Id;
+    }
+
+    /// <summary>
+    /// A first-time Blocked stage waits for its board manager (who alone may retry or cancel it), so tell that manager
+    /// now, like a teammate raising a blocker at stand-up. Falls back to the agent's own manager when the agent manages
+    /// the board itself or the board has no manager.
+    /// </summary>
+    private static async Task EscalateBlockedAsync(CSweetDbContext db, WorkTask root, OrganizationUser owner, WorkTask ticket,
+        string deliveryKey, string error, bool decisionRequired, DateTimeOffset now, CancellationToken ct)
+    {
+        var boardManager = root.Board?.Kind == WorkBoardKind.Personal ? null : root.Board?.ManagerOrganizationUserId;
+        var managerId = boardManager is { } id && id != owner.Id ? id : owner.ReportsToOrganizationUserId;
+        if (managerId is null || managerId == owner.Id) return;
+        var manager = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x => x.Id == managerId &&
+            x.OrganizationId == root.OrganizationId && x.IsActive, ct);
+        if (manager is null) return;
+        var reason = error.StartsWith("reported:", StringComparison.Ordinal) ? error["reported:".Length..].Trim() : FailureSentence(error);
+        if (reason.Length > 1500) reason = reason[..1497] + "...";
+        var content = decisionRequired
+            ? $"“{ticket.Title}” needs your decision before work can continue. {reason}"
+            : $"I’m blocked on “{ticket.Title}” and the stage is waiting for you to retry or cancel it. {reason}";
+        var chatId = await QueueManagerMessageAsync(db, root, owner, manager, ticket, deliveryKey, now, ct, content);
+        db.UserNotifications.Add(new UserNotification
+        {
+            Id = Guid.NewGuid(), OrganizationId = root.OrganizationId, RecipientOrganizationUserId = manager.Id,
+            OriginatingAgentOrganizationUserId = owner.Id, Severity = NotificationSeverity.Important,
+            Category = decisionRequired ? "AgentTicketDecisionRequired" : "AgentTicketBlocked",
+            Title = ShortTitle((decisionRequired ? "Decision needed: " : "Blocked: ") + ticket.Title),
+            Body = decisionRequired
+                ? $"{owner.DisplayName} needs a decision on “{ticket.Title}”. The work is parked until you decide and retry or cancel the stage."
+                : $"{owner.DisplayName} is blocked on “{ticket.Title}”. The stage will not retry automatically; review the ticket, then retry or cancel it.",
+            ActionUri = $"/organizations/{root.OrganizationId:D}/communications/{chatId:D}", CreatedAt = now,
+            DeduplicationKey = $"{BlockedKeyPrefix}{deliveryKey}:{root.Id:N}"
+        });
     }
 
     public static string Fingerprint(string error)
@@ -193,8 +239,14 @@ public static class AgentTicketFeedback
         return reason.Length <= 6000 ? reason : reason[..6000] + "\n\nSee the ticket blocker for the remaining details.";
     }
 
+    /// <param name="awaitingManager">
+    /// The failure leaves work parked until a manager acts (an orchestrated stage returned Blocked). Escalate on the
+    /// first occurrence: waiting for a repeat would deadlock, because a Blocked stage is never retried automatically.
+    /// </param>
+    /// <param name="decisionRequired">The blocker carries <see cref="DecisionRequiredDiagnostic"/>.</param>
     public static async Task<bool> RecordFailureAsync(CSweetDbContext db, WorkTask root, Guid installationId,
-        string deliveryKey, string error, bool willRetry, DateTimeOffset now, CancellationToken ct, bool queueRealtime = true)
+        string deliveryKey, string error, bool willRetry, DateTimeOffset now, CancellationToken ct, bool queueRealtime = true,
+        bool awaitingManager = false, bool decisionRequired = false)
     {
         if (root.Status == WorkTaskStatus.Blocked && root.BlockReason?.StartsWith(RepeatedIssuePrefix, StringComparison.Ordinal) == true)
             return true;
@@ -216,10 +268,16 @@ public static class AgentTicketFeedback
             using var prior = previous is null ? null : JsonDocument.Parse(previous);
             var sameIssue = prior?.RootElement.GetProperty("fingerprint").GetString() == fingerprint;
             added = true;
-            repeated |= sameIssue;
-            var body = FailureSentence(error) + (sameIssue
+            // Each decision request goes to the decision maker; a repeat is not a failure to block again.
+            repeated |= sameIssue && !(decisionRequired && awaitingManager);
+            // A decision request is not a failure: keep the specialist's own words instead of "I couldn't finish".
+            var body = decisionRequired && awaitingManager && error.StartsWith("reported:", StringComparison.Ordinal)
+                ? ReportedReason(error["reported:".Length..]) + " This is now waiting for a manager decision."
+                : FailureSentence(error) + (sameIssue
                 ? " The same issue happened again, so I’ve blocked the ticket until we resolve it."
-                : willRetry ? " I’ll retry from the saved work." : " This needs attention before I can continue.");
+                : willRetry ? " I’ll retry from the saved work."
+                : awaitingManager ? " This is now waiting for a manager to decide how to proceed."
+                : " This needs attention before I can continue.");
             db.WorkItemComments.Add(new WorkItemComment
             {
                 Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId, WorkItemId = ticket.Id,
@@ -271,6 +329,8 @@ public static class AgentTicketFeedback
                 });
             }
         }
+        else if (awaitingManager && owner is not null)
+            await EscalateBlockedAsync(db, root, owner, targets[0], deliveryKey, error, decisionRequired, now, ct);
         if (!queueRealtime) return repeated;
         // Wake hints contain identifiers only; the UI re-reads through board authorization.
         var readers = await db.ScopedActionGrants.Where(x => x.OrganizationId == root.OrganizationId &&

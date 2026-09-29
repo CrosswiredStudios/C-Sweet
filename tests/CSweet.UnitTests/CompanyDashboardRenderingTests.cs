@@ -21,7 +21,9 @@ public sealed class CompanyDashboardRenderingTests
         Assert.Contains("Hire a legal agent", html);
         Assert.Contains("No approvals need your action", html);
         Assert.Contains("No projects yet", html);
-        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget").Count);
+        Assert.Equal(6, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget").Count);
+        Assert.Contains("Move Current Activity up", html);
+        Assert.Contains("No active agent work", html);
         Assert.Contains("Move Pending Decisions up", html);
         Assert.Contains("No decisions need your response", html);
         Assert.True(html.IndexOf("aria-label=\"Legal\"", StringComparison.Ordinal) < html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal));
@@ -70,6 +72,7 @@ public sealed class CompanyDashboardRenderingTests
             var path = request.RequestUri!.AbsolutePath;
             object result;
             if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(["legal", "approvals", "finance", "projects"]);
+            else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
             else if (path.EndsWith("/dashboard"))
             {
                 if (failReports) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));

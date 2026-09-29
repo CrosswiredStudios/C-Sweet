@@ -61,6 +61,19 @@ A restarted C-Sweet run still needs to verify installation, enrollment, approval
 readiness together. Clearing the database does not remove Office services or their former identity;
 retain the explicit reconnect/remove recovery flow.
 
+## Update dialog completion (2026-09-28)
+
+`LocalOfficeUpgrade.BeginUpdate` suppresses a previous completed session while the user prepares
+a new update. `LocalOfficeUpgrade.Accept` clears that suppression when it accepts the new session,
+then retains its `ready` response so the dialog displays success and **Resume work**. Keeping the
+suppression set discarded every subsequent completion and left the dialog at **Checking the connection**
+even after `ExecutionFleetService.GetLocalSetupSessionAsync` persisted `Ready`.
+
+For an already stuck browser, reload the page and use **Allow new work** after confirming the Office's
+new version and healthy provider. Reinstallation is unnecessary when the setup session is `Ready` and
+the Office is sending fresh heartbeats. `OfficeUpgradeCompletionTests` covers the pending-to-ready
+transition, stale fleet heartbeat data, ignoring an old completion, and unrelated Office sessions.
+
 ## Summary
 
 Give the two choices on the Agent Execution setup step meaningfully different experiences:

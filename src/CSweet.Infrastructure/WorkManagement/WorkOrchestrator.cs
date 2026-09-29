@@ -53,8 +53,9 @@ public sealed partial class WorkOrchestrator(
             .SingleAsync(x => x.Id == execution.PolicyRevisionId, cancellationToken);
         var now = timeProvider.GetUtcNow();
 
+        // Accepting a result appends its successor stage; reconcile a stable set of attempts.
         foreach (var stage in execution.Items.SelectMany(x => x.Stages)
-                     .Where(x => x.Attempts.Any(a => a.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running)))
+                     .Where(x => x.Attempts.Any(a => a.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running)).ToList())
             await ReconcileAttemptAsync(execution, policy, stage, now, cancellationToken);
 
         foreach (var stage in execution.Items.SelectMany(x => x.Stages)
@@ -82,6 +83,10 @@ public sealed partial class WorkOrchestrator(
                                  x.StageType == WorkOrchestrationStageType.TrustedPlatformAction).ToList())
             await ExecuteTrustedActionAsync(execution, policy, stage, now, cancellationToken);
 
+        // Repair cards placed in execution columns by older scheduler versions as well.
+        foreach (var item in execution.Items)
+            WorkOrchestrationBoardState.SynchronizeAgentCard(policy, item.Stages.OrderByDescending(x => x.CreatedAt).First(), now);
+
         if (execution.Items.All(x => x.Status is WorkItemExecutionStatus.Completed or WorkItemExecutionStatus.Cancelled))
         {
             execution.Status = WorkSprintExecutionStatus.Completed;
@@ -101,9 +106,13 @@ public sealed partial class WorkOrchestrator(
                     EventType = Shared.WorkstreamEventNames.SprintChangedV1, DataJson = JsonSerializer.Serialize(wake, JsonOptions),
                     IdempotencyKey = $"sprint-completed:{sprint.Id:N}:{sprint.Revision}", OccurredAt = now, NextAttemptAt = now });
             }
-            await db.SaveChangesAsync(cancellationToken);
+            await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, cancellationToken);
             return;
         }
+
+        // Dispatch reads committed dependency evidence and may fail independently of completed work.
+        // Persist completion and its outbox records before entering a new dispatch transaction.
+        await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, cancellationToken);
 
         var candidates = execution.Items
             .Where(item => item.Status == WorkItemExecutionStatus.Pending && DependenciesComplete(item, execution.Items))
@@ -122,7 +131,7 @@ public sealed partial class WorkOrchestrator(
             if (!await HasCapacityAsync(execution, policy, stage, cancellationToken)) continue;
             await DispatchAsync(execution, policy, stage, now, cancellationToken);
         }
-        await db.SaveChangesAsync(cancellationToken);
+        await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, cancellationToken);
         foreach (var stage in execution.Items.SelectMany(x => x.Stages).Where(x =>
                      x.UpdatedAt == now &&
                      x.StageKey.Contains("development", StringComparison.OrdinalIgnoreCase) &&
@@ -175,7 +184,13 @@ public sealed partial class WorkOrchestrator(
             stage.ItemExecution!.Status = WorkItemExecutionStatus.Running;
             return;
         }
-        if (state.Status == AgentWorkStatus.Pending) return;
+        if (state.Status == AgentWorkStatus.Pending)
+        {
+            attempt.Status = WorkExecutionAttemptStatus.Pending;
+            stage.Status = WorkStageExecutionStatus.Dispatching;
+            stage.ItemExecution!.Status = WorkItemExecutionStatus.Pending;
+            return;
+        }
         if (state.Status == AgentWorkStatus.Cancelled)
         {
             attempt.Status = WorkExecutionAttemptStatus.Cancelled; attempt.CompletedAt = now;
@@ -229,7 +244,11 @@ public sealed partial class WorkOrchestrator(
         if (outcome.Disposition is Shared.WorkExecutionDispositions.Blocked or Shared.WorkExecutionDispositions.Failed &&
             stage.AgentInstallationId is { } installationId &&
             await AgentTicketFeedback.RecordFailureAsync(db, stage.ItemExecution!.WorkItem!, installationId,
-                $"outcome:{attempt.Id:N}", "reported:" + outcome.Summary, false, now, cancellationToken))
+                $"outcome:{attempt.Id:N}", "reported:" + outcome.Summary, false, now, cancellationToken,
+                // A Blocked stage is never retried automatically (spec section 8), so its manager must hear now.
+                awaitingManager: outcome.Disposition == Shared.WorkExecutionDispositions.Blocked,
+                decisionRequired: (outcome.Diagnostics ?? []).Contains(
+                    AgentTicketFeedback.DecisionRequiredDiagnostic, StringComparer.Ordinal)))
         {
             ScheduleRetryOrFail(execution, policy, stage, AgentTicketFeedback.RepeatedIssueError, now);
             return;
@@ -251,6 +270,42 @@ public sealed partial class WorkOrchestrator(
         }
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
+    }
+
+    /// <summary>
+    /// Manager directions given when retrying this exact stage. A worker must hear why it is being asked to try again,
+    /// just as a teammate would; directions are project data for the worker, never authority beyond its grants.
+    /// </summary>
+    internal async Task<IReadOnlyList<Shared.WorkExecutionEvidence>> ManagerDirectionsAsync(
+        Guid stageExecutionId, Guid? managerOrganizationUserId, CancellationToken cancellationToken)
+    {
+        if (managerOrganizationUserId is not { } managerId) return [];
+        // Retry events are few (bounded by the attempt budget); order in memory for provider portability.
+        var events = (await db.WorkOrchestrationEvents.AsNoTracking()
+                .Where(x => x.StageExecutionId == stageExecutionId && x.EventType == "stage.retry.requested")
+                .Select(x => new { x.OccurredAt, x.DataJson }).ToListAsync(cancellationToken))
+            .OrderByDescending(x => x.OccurredAt).Take(3).Select(x => x.DataJson).Reverse().ToList();
+        var directions = new List<Shared.WorkExecutionEvidence>();
+        foreach (var data in events)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(data);
+                // Only the board manager's retries are directions; an assignee's own retry is not.
+                if (!(document.RootElement.TryGetProperty("id", out var actor) || document.RootElement.TryGetProperty("Id", out actor)) ||
+                    actor.ValueKind != JsonValueKind.String || !actor.TryGetGuid(out var actorId) || actorId != managerId)
+                    continue;
+                if (!document.RootElement.TryGetProperty("Reason", out var reason) &&
+                    !document.RootElement.TryGetProperty("reason", out reason) || reason.ValueKind != JsonValueKind.String)
+                    continue;
+                var text = reason.GetString()!.Trim();
+                if (text.Length == 0) continue;
+                directions.Add(new Shared.WorkExecutionEvidence("manager-direction", "Manager retry direction",
+                    text.Length <= 1000 ? text : text[..997] + "..."));
+            }
+            catch (JsonException) { }
+        }
+        return directions;
     }
 
     private async Task RecordInvalidResultAsync(WorkStageExecution stage, WorkExecutionAttempt attempt,
@@ -393,7 +448,7 @@ public sealed partial class WorkOrchestrator(
         var key = $"orchestration:{execution.Id:N}:{stage.ItemExecutionId:N}:{stage.StageKey}:{stage.Traversal}:{attemptNumber}";
         if (await RecoverDetachedAttemptAsync(execution, stage, installationId, attemptNumber, key, cancellationToken))
         {
-            await db.SaveChangesAsync(cancellationToken);
+            await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return;
         }
@@ -420,6 +475,8 @@ public sealed partial class WorkOrchestrator(
             : JsonSerializer.Deserialize<Shared.WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions);
         var evidence = await ValidatePlanningPackageAsync(
             execution.OrganizationId, board, planning?.ArtifactPackageDigest, cancellationToken);
+        var dependencyDocuments = await DependencyDocumentsAsync(execution.OrganizationId, board, item, cancellationToken);
+        evidence = evidence.Concat(dependencyDocuments).Concat(await ManagerDirectionsAsync(stage.Id, board.ManagerOrganizationUserId, cancellationToken)).ToArray();
         var assignmentSnapshot = JsonSerializer.Deserialize<List<AssignmentSnapshot>>(
                 execution.AssignmentSnapshotJson, JsonOptions)?.SingleOrDefault(x =>
                 x.WorkItemId == item.Id && x.StageKey == stage.StageKey)
@@ -466,9 +523,9 @@ public sealed partial class WorkOrchestrator(
             "WorkStageExecution", stage.Id.ToString("D"), maximumAttempts: 1,
             cancellationToken: cancellationToken);
         attempt.AgentWorkItemId = work.Id;
-        stage.Attempts.Add(attempt); db.Entry(attempt).State = EntityState.Added; stage.Status = WorkStageExecutionStatus.Running;
-        stage.UpdatedAt = now; stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
-        stage.ItemExecution.UpdatedAt = now; item.Status = WorkTaskStatus.Running; item.UpdatedAt = now; item.Revision++;
+        stage.Attempts.Add(attempt); db.Entry(attempt).State = EntityState.Added; stage.Status = WorkStageExecutionStatus.Dispatching;
+        stage.UpdatedAt = now; stage.ItemExecution.Status = WorkItemExecutionStatus.Pending;
+        stage.ItemExecution.UpdatedAt = now; WorkOrchestrationBoardState.SynchronizeAgentCard(policy, stage, now);
         var workspaceActions = Array.Empty<string>();
         if (!string.IsNullOrWhiteSpace(item.DeliverySpecificationJson))
         {
@@ -483,7 +540,7 @@ public sealed partial class WorkOrchestrator(
             execution, item.Id, installationId, attempt.Id, stage.StageKey, now, workspaceActions);
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.dispatched", new { workId = work.Id, installationId, attempt = attemptNumber });
-        await db.SaveChangesAsync(cancellationToken);
+        await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         await runtimes.EnsureRuntimeQueuedAsync(installationId,
             $"Board orchestration {item.Identifier} stage {stage.StageKey}", cancellationToken: cancellationToken);
@@ -620,6 +677,7 @@ public sealed partial class WorkOrchestrator(
             _ => WorkTaskStatus.Assigned
         };
         item.WorkItem.UpdatedAt = now; item.WorkItem.Revision++;
+        WorkOrchestrationBoardState.SynchronizeAgentCard(policy, nextExecution, now);
         execution.UpdatedAt = now; execution.Revision++;
         _ = outputJson;
     }
@@ -748,9 +806,11 @@ public sealed partial class WorkOrchestrator(
                 x => x.Id == definition.ColumnId.Value, cancellationToken);
             if (column.WipPolicy == WorkBoardWipPolicy.HardLimit && column.WipLimit.HasValue)
             {
+                var columnStageKeys = policy.Stages.Where(x => x.ColumnId == column.Id).Select(x => x.Key).ToArray();
                 var inColumn = await db.WorkItemExecutions.CountAsync(x =>
                     x.SprintExecution!.BoardId == execution.BoardId &&
-                    x.WorkItem!.BoardColumnId == column.Id &&
+                    (x.WorkItem!.BoardColumnId == column.Id ||
+                     x.Stages.Any(s => s.Status == WorkStageExecutionStatus.Dispatching && columnStageKeys.Contains(s.StageKey))) &&
                     x.Id != stage.ItemExecutionId &&
                     x.Status != WorkItemExecutionStatus.Completed &&
                     x.Status != WorkItemExecutionStatus.Cancelled,

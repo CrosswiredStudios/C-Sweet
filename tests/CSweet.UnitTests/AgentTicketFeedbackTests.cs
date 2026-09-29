@@ -296,6 +296,103 @@ public sealed class AgentTicketFeedbackTests
         Assert.Null(await AgentTicketFeedback.ReadContextAsync(db, work, default));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FirstBlockedStageEscalatesToTheBoardManagerImmediately(bool decisionRequired)
+    {
+        // Reproduces VG4CC32F61E0-22: a Blocked stage waits for its manager, so waiting for a repeat deadlocks.
+        await using var db = CreateDb();
+        var (ticket, owner, manager) = Seed(db, true);
+        ticket.Board!.Kind = WorkBoardKind.Standard;
+        await db.SaveChangesAsync();
+        const string reason = "Decision needed on VG-22: AC-2 desktop fps cannot be measured by any role. Options: defer it or provide a browser.";
+        var now = DateTimeOffset.UtcNow;
+
+        Assert.False(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "outcome:one", "reported:" + reason, false, now, default,
+            awaitingManager: true, decisionRequired: decisionRequired));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(WorkTaskStatus.Running, ticket.Status); // The orchestrator owns the Blocked transition.
+        Assert.Contains("waiting for a manager", Assert.Single(db.WorkItemComments).Body);
+        var notification = Assert.Single(db.UserNotifications);
+        Assert.Equal(manager.Id, notification.RecipientOrganizationUserId);
+        Assert.Equal(decisionRequired ? "AgentTicketDecisionRequired" : "AgentTicketBlocked", notification.Category);
+        Assert.StartsWith(decisionRequired ? "Decision needed: " : "Blocked: ", notification.Title);
+        var message = Assert.Single(db.CoreConversationMessages);
+        Assert.StartsWith("@Manager, ", message.Content);
+        Assert.Contains(reason, message.Content);
+        Assert.Contains(decisionRequired ? "needs your decision" : "waiting for you to retry or cancel", message.Content);
+        Assert.StartsWith("ticket-blocked:", message.IdempotencyKey);
+        Assert.Single(db.AgentPlatformEventOutbox); // The agent manager is woken by the mention.
+
+        // Duplicate delivery of the same result must not escalate twice.
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "outcome:one", "reported:" + reason, false, now, default, awaitingManager: true, decisionRequired: decisionRequired);
+        await db.SaveChangesAsync();
+        Assert.Single(db.UserNotifications);
+        Assert.Single(db.CoreConversationMessages);
+    }
+
+    [Fact]
+    public async Task RepeatedDecisionRequestIsEscalatedAgainAsADecisionNotBlockedAsAFailure()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, manager) = Seed(db, false);
+        ticket.Board!.Kind = WorkBoardKind.Standard;
+        await db.SaveChangesAsync();
+        const string error = "reported:Decision needed on VG-22: defer AC-2 or provide a browser.";
+        foreach (var (key, offset) in new[] { ("outcome:one", 0), ("outcome:two", 1) })
+            Assert.False(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+                key, error, false, DateTimeOffset.UtcNow.AddMinutes(offset), default, awaitingManager: true, decisionRequired: true));
+        await db.SaveChangesAsync();
+        Assert.Null(ticket.BlockReason);
+        Assert.Equal(2, await db.UserNotifications.CountAsync(x => x.Category == "AgentTicketDecisionRequired" && x.RecipientOrganizationUserId == manager.Id));
+        Assert.DoesNotContain(db.UserNotifications, x => x.Category == "AgentTicketRepeatedFailure");
+    }
+
+    [Fact]
+    public async Task BlockedEscalationPrefersTheBoardManagerAndNeverTheBlockedAgentItself()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, manager) = Seed(db, false);
+        var producer = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId, IsActive = true, DisplayName = "Producer",
+            EmployeeType = EmployeeType.Agent, AgentInstallationId = Guid.NewGuid()
+        };
+        db.CoreOrganizationUsers.Add(producer);
+        ticket.Board!.Kind = WorkBoardKind.Standard;
+        ticket.Board.ManagerOrganizationUserId = producer.Id;
+        await db.SaveChangesAsync();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "outcome:one", "reported:Blocked.", false, DateTimeOffset.UtcNow, default, awaitingManager: true);
+        await db.SaveChangesAsync();
+        Assert.Equal(producer.Id, Assert.Single(db.UserNotifications).RecipientOrganizationUserId);
+
+        // When the blocked agent manages the board itself, its own manager decides.
+        ticket.Board.ManagerOrganizationUserId = owner.Id;
+        await db.SaveChangesAsync();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value,
+            "outcome:two", "reported:Blocked again differently.", false, DateTimeOffset.UtcNow.AddMinutes(1), default, awaitingManager: true);
+        await db.SaveChangesAsync();
+        Assert.Contains(db.UserNotifications, x => x.RecipientOrganizationUserId == manager.Id);
+        Assert.DoesNotContain(db.UserNotifications, x => x.RecipientOrganizationUserId == owner.Id);
+    }
+
+    [Fact]
+    public async Task NonBlockingFailureWithoutRepeatStillDoesNotEscalate()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "one", "reported:Failed once.", false, DateTimeOffset.UtcNow, default);
+        await db.SaveChangesAsync();
+        Assert.Empty(db.UserNotifications);
+        Assert.Empty(db.CoreConversationMessages);
+    }
+
     private static (WorkTask, OrganizationUser, OrganizationUser) Seed(CSweetDbContext db, bool agentManager)
     {
         var org = Guid.NewGuid();

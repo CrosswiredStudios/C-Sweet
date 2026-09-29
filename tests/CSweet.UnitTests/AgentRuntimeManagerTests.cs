@@ -553,6 +553,31 @@ public sealed class AgentRuntimeManagerTests
         Assert.Empty(containers.Starts);
     }
 
+    [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(0, 5, false)]
+    [InlineData(5, 0, false)]
+    public async Task OptionalConcurrencyCaps_AdmitBeyondOldDefaultsOnlyWhenDisabled(int global, int business, bool admitted)
+    {
+        await using var db = CreateDb();
+        var installation = await SeedAsync(db, globalLimit: global);
+        var settings = await db.AgentRuntimeGlobalSettings.SingleAsync();
+        settings.PerBusinessMaxActiveWorkloads = business;
+        for (var i = 0; i < 11; i++)
+        {
+            var other = await SeedAsync(db, due: false);
+            db.AgentRuntimeInstances.Add(RunningInstance(other.Id));
+        }
+        await db.SaveChangesAsync();
+        var runner = new FakeRunner();
+        var manager = CreateManager(db, runner);
+        await manager.ProcessDueSchedulesAsync();
+        await manager.ReconcileAsync();
+        Assert.Equal(admitted ? 1 : 0, runner.Starts.Count);
+        var runtime = await db.AgentRuntimeInstances.SingleAsync(x => x.AgentInstallationId == installation.Id);
+        Assert.Equal(admitted ? AgentRuntimeStatus.WaitingForMcpSession : AgentRuntimeStatus.Queued, runtime.Status);
+    }
+
     [Fact]
     public async Task ApprovedPackageBuild_KeepsRuntimeQueuedUntilBuildSucceeds()
     {

@@ -51,6 +51,10 @@
                 {
                     <MudAlert Severity="Severity.Warning">@error Use Refresh to try again.</MudAlert>
                 }
+                else if (widget == "activity")
+                {
+                    <CurrentActivity OrganizationId="OrganizationId" RefreshVersion="_activityRefreshVersion" />
+                }
                 else if (widget == "decisions")
                 {
                     <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" />
@@ -155,6 +159,7 @@
     private string? _dragging, _layoutMessage;
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
+    private int _activityRefreshVersion;
     private string ApprovalsHref => $"/organizations/{OrganizationId}/approvals";
     private IEnumerable<ApprovalDashboardItemResponse> PendingApprovals => (_approvals?.Items ?? [])
         .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
@@ -171,6 +176,7 @@
     }
     private async Task RefreshAsync()
     {
+        _activityRefreshVersion++;
         _loadCancellation?.Cancel();
         _loadCancellation?.Dispose();
         var cancellation = _loadCancellation = new();
@@ -247,7 +253,7 @@
         if (envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
             _ = InvokeAsync(async () => { if (!_disposed) { await RefreshAsync(); StateHasChanged(); } });
     }
-    private static string Title(string key) => key switch { "decisions" => "Pending Decisions", "approvals" => "CEO approvals", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
+    private static string Title(string key) => key switch { "decisions" => "Pending Decisions", "approvals" => "CEO approvals", "activity" => "Current Activity", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
     private static string Money(decimal? value) => value?.ToString("N2") ?? "Not reported";
     private static string DueLabel(DateOnly date)
     {

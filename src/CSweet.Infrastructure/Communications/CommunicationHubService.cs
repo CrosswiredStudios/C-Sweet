@@ -29,6 +29,7 @@ public sealed class CommunicationHubService(
     IArtifactDocumentService? artifactDocuments = null,
     IOptions<MediaAssetStorageOptions>? mediaOptions = null) : ICommunicationHubService
 {
+    private static string CapacityLimit(int limit) => limit == 0 ? "unlimited" : limit.ToString();
 
     private async Task<Guid> ResolveMergedChatAsync(Guid organizationId, Guid chatId, CancellationToken token) =>
         await db.CoreConversations.Where(x => x.OrganizationId == organizationId && x.Id == chatId)
@@ -114,8 +115,8 @@ public sealed class CommunicationHubService(
                                  x.AgentInstallation!.BusinessId == businessId, cancellationToken);
         var capacityDetail = runtimeSettings is null
             ? null
-            : $"Runtime capacity: {globalActiveRuntimeCount}/{runtimeSettings.GlobalMaxActiveWorkloads} globally; " +
-              $"{businessActiveRuntimeCount}/{runtimeSettings.PerBusinessMaxActiveWorkloads} for this business.";
+            : $"Runtime capacity: {globalActiveRuntimeCount}/{CapacityLimit(runtimeSettings.GlobalMaxActiveWorkloads)} globally; " +
+              $"{businessActiveRuntimeCount}/{CapacityLimit(runtimeSettings.PerBusinessMaxActiveWorkloads)} for this business.";
         var presences = people.ToDictionary(
             x => x.Id,
             x => ResolvePresence(

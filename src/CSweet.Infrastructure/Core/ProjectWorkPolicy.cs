@@ -27,6 +27,11 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
             !await RequiresProjectAsync(org, installation, ct)) return;
         var employee = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == org && x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null)
             .Select(x => x.Id).SingleAsync(ct);
+        if (capability == CSweet.WorkManagement.Contracts.WorkManagementCapabilityNames.ExecutionRunV1)
+        {
+            await RequireStageAssignmentAsync(org, installation, employee, payload, ct);
+            return;
+        }
         Guid? Id(string name) => payload.ValueKind == System.Text.Json.JsonValueKind.Object && payload.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String && value.TryGetGuid(out var id) ? id : null;
         if ((Id("itemId") ?? Id("workItemId")) is { } itemId)
         {
@@ -41,6 +46,52 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
         throw new InvalidOperationException("project.required: Delivery requires an assigned project and its delivery ticket. Retain the request through project intake before dispatching work.");
     }
 
+    private async Task RequireStageAssignmentAsync(Guid org, Guid installation, Guid employee,
+        System.Text.Json.JsonElement payload, CancellationToken ct)
+    {
+        CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV1? assignment;
+        try
+        {
+            assignment = System.Text.Json.JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV1>(
+                payload.GetRawText(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            throw new UnauthorizedAccessException("project.assignment_required: The stage assignment is invalid.");
+        }
+        var stage = assignment is null ? null : await db.WorkStageExecutions.AsNoTracking()
+            .Include(x => x.Attempts).Include(x => x.ItemExecution)!.ThenInclude(x => x!.SprintExecution)
+            .SingleOrDefaultAsync(x => x.Id == assignment.StageExecutionId, ct);
+        var item = stage?.ItemExecution;
+        var sprint = item?.SprintExecution;
+        var newDispatch = assignment is not null && stage is not null && item is not null &&
+            stage.Status == WorkStageExecutionStatus.Pending && item.Status == WorkItemExecutionStatus.Pending &&
+            assignment.Attempt == stage.Attempts.Count + 1 && !stage.Attempts.Any(x => x.Id == assignment.AttemptId);
+        var queuedDispatch = assignment is not null && stage is not null && item is not null &&
+            (stage.Status == WorkStageExecutionStatus.Running && item.Status == WorkItemExecutionStatus.Running ||
+             stage.Status == WorkStageExecutionStatus.Dispatching && item.Status == WorkItemExecutionStatus.Pending) &&
+            stage.Attempts.Any(x => x.Id == assignment.AttemptId && x.Attempt == assignment.Attempt &&
+                x.AgentWorkItemId.HasValue && x.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running);
+        if (assignment is null || stage is null || item is null || sprint is null ||
+            assignment.OrganizationId != org || sprint.OrganizationId != org ||
+            assignment.SprintExecutionId != sprint.Id || assignment.SprintId != sprint.SprintId ||
+            assignment.BoardId != sprint.BoardId || assignment.PolicyRevisionId != sprint.PolicyRevisionId ||
+            assignment.ItemExecutionId != item.Id || assignment.ItemId != item.WorkItemId ||
+            assignment.StageKey != stage.StageKey || item.CurrentStageKey != stage.StageKey ||
+            assignment.Traversal != stage.Traversal || item.Traversal != stage.Traversal ||
+            assignment.AttemptId == Guid.Empty || (!newDispatch && !queuedDispatch) ||
+            sprint.Status != WorkSprintExecutionStatus.Active || stage.AgentInstallationId != installation ||
+            stage.OrganizationUserId != employee || stage.PrincipalKind != WorkOrchestrationPrincipalKind.AgentInstallation ||
+            stage.StageType is not (WorkOrchestrationStageType.AgentExecution or WorkOrchestrationStageType.MemberExecution))
+            throw new UnauthorizedAccessException("project.assignment_required: The active workflow stage is not assigned to the requesting agent.");
+        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(x => x.Id == item.WorkItemId &&
+            x.OrganizationId == org && x.BoardId == sprint.BoardId && x.ArchivedAt == null &&
+            x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled, ct))
+            throw new UnauthorizedAccessException("project.assignment_required: The stage delivery ticket is unavailable.");
+        // Canonical stage staffing owns orchestration work, including independent reviews.
+        // A legacy ticket owner is not the execution principal for every stage.
+        await RequireAsync(org, employee, sprint.BoardId, ct);
+    }
     public async Task RequireIfConfiguredAsync(WorkTask item, CancellationToken ct)
     {
         if (item.AssignedAgentInstallationId is { } agent && await RequiresProjectAsync(item.OrganizationId, agent, ct) &&

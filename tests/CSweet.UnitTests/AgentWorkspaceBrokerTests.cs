@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentWorkspaceBrokerTests
+public sealed partial class AgentWorkspaceBrokerTests
 {
     [Theory]
     [InlineData("")]

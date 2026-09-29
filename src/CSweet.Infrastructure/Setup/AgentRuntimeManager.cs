@@ -736,9 +736,13 @@ public sealed class AgentRuntimeManager(
         var globalCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status), cancellationToken);
         var businessCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status) && x.AgentInstallation!.BusinessId == installation.BusinessId, cancellationToken);
         var installationCount = await dbContext.AgentRuntimeInstances.CountAsync(x => WorkloadActiveStatuses.Contains(x.Status) && x.AgentInstallationId == installation.Id, cancellationToken);
-        if (globalCount >= settings.GlobalMaxActiveWorkloads || businessCount >= settings.PerBusinessMaxActiveWorkloads || installationCount >= settings.PerInstallationMaxActiveWorkloads)
+        if ((settings.GlobalMaxActiveWorkloads > 0 && globalCount >= settings.GlobalMaxActiveWorkloads) ||
+            (settings.PerBusinessMaxActiveWorkloads > 0 && businessCount >= settings.PerBusinessMaxActiveWorkloads) ||
+            installationCount >= settings.PerInstallationMaxActiveWorkloads)
         {
-            var capacityReason = $"Waiting for isolated workload capacity: global {globalCount}/{settings.GlobalMaxActiveWorkloads}, business {businessCount}/{settings.PerBusinessMaxActiveWorkloads}, installation {installationCount}/{settings.PerInstallationMaxActiveWorkloads}.";
+            var globalLimit = settings.GlobalMaxActiveWorkloads == 0 ? "unlimited" : settings.GlobalMaxActiveWorkloads.ToString();
+            var businessLimit = settings.PerBusinessMaxActiveWorkloads == 0 ? "unlimited" : settings.PerBusinessMaxActiveWorkloads.ToString();
+            var capacityReason = $"Waiting for isolated workload capacity: global {globalCount}/{globalLimit}, business {businessCount}/{businessLimit}, installation {installationCount}/{settings.PerInstallationMaxActiveWorkloads}.";
             if (!string.Equals(instance.Reason, capacityReason, StringComparison.Ordinal))
             {
                 Transition(instance, AgentRuntimeStatus.Queued, now, capacityReason);

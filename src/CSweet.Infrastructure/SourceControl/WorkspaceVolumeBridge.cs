@@ -12,7 +12,7 @@ public sealed record WorkspaceVolumeLease(
     Guid AgentInstallationId,
     Guid WorkspaceId,
     Guid WorkItemId,
-    long AssignmentRevision);
+    long AssignmentRevision) { public string? ExpectedCommitSha { get; init; } }
 
 public sealed record WorkspaceVolumeExport(
     byte[] Archive,
@@ -55,7 +55,7 @@ public sealed class WorkspaceVolumeBridge(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(archive);
-        await AuthorizeAsync(lease, allowPreparing: true, cancellationToken);
+        await AuthorizeAsync(lease, allowPreparing: true, cancellationToken, CSweet.Agent.SDK.GitWorkspaceCapabilities.Publish);
         var temporaryRoot = CreateTemporaryRoot();
         var extracted = Path.Combine(temporaryRoot, "snapshot");
         var quarantine = Path.Combine(temporaryRoot, "snapshot.zip");
@@ -93,7 +93,7 @@ public sealed class WorkspaceVolumeBridge(
         WorkspaceVolumeLease lease,
         CancellationToken cancellationToken = default)
     {
-        await AuthorizeAsync(lease, allowPreparing: false, cancellationToken);
+        await AuthorizeAsync(lease, allowPreparing: false, cancellationToken, CSweet.Agent.SDK.GitWorkspaceCapabilities.Inspect);
         var path = SnapshotPath(lease);
         if (!File.Exists(path)) throw new WorkspaceSnapshotUnavailableException();
         var manifest = await ReadManifestAsync(path, cancellationToken);
@@ -103,7 +103,7 @@ public sealed class WorkspaceVolumeBridge(
 
     public async Task RemoveAsync(WorkspaceVolumeLease lease, CancellationToken cancellationToken = default)
     {
-        await AuthorizeAsync(lease, allowPreparing: false, cancellationToken);
+        await AuthorizeAsync(lease, allowPreparing: false, cancellationToken, CSweet.Agent.SDK.GitWorkspaceCapabilities.Cleanup);
         var path = SnapshotPath(lease);
         File.Delete(path);
         File.Delete(path + ".manifest.json");
@@ -112,7 +112,7 @@ public sealed class WorkspaceVolumeBridge(
     private async Task AuthorizeAsync(
         WorkspaceVolumeLease lease,
         bool allowPreparing,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string action)
     {
         if (lease.AssignmentRevision < 1)
             throw new ArgumentOutOfRangeException(nameof(lease), "An active assignment revision is required.");
@@ -127,7 +127,10 @@ public sealed class WorkspaceVolumeBridge(
         if (workspace.Status != SourceControlWorkspaceStatus.Ready && workspace.Status != SourceControlWorkspaceStatus.Published &&
             !(allowPreparing && workspace.Status == SourceControlWorkspaceStatus.Preparing))
             throw new InvalidOperationException("The source-control workspace is not available for this operation.");
-        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>
+        var canonical = await new CanonicalWorkspaceAuthorization(db).AuthorizeAsync(workspace,
+            workspace.Status == SourceControlWorkspaceStatus.Preparing ? CSweet.Agent.SDK.GitWorkspaceCapabilities.Prepare : action,
+            lease.ExpectedCommitSha ?? (string.IsNullOrEmpty(workspace.BaseCommitSha) ? null : workspace.BaseCommitSha), cancellationToken);
+        if (!canonical && !await db.CoreWorkTasks.AsNoTracking().AnyAsync(x =>
                 x.Id == lease.WorkItemId && x.OrganizationId == lease.OrganizationId &&
                 x.AssignedAgentInstallationId == lease.AgentInstallationId &&
                 x.AssignmentRevision == lease.AssignmentRevision,

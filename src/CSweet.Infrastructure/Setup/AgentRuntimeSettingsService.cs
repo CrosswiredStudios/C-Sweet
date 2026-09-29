@@ -133,14 +133,14 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             errors.Add("Default restart policy is invalid.");
         }
 
-        if (request.GlobalMaxActiveWorkloads is int g && g <= 0)
+        if (request.GlobalMaxActiveWorkloads is int g && g < 0)
         {
-            errors.Add("Global max active workloads must be positive.");
+            errors.Add("Global max active workloads must be zero (unlimited) or positive.");
         }
 
-        if (request.PerBusinessMaxActiveWorkloads is int p && p <= 0)
+        if (request.PerBusinessMaxActiveWorkloads is int p && p < 0)
         {
-            errors.Add("Per-business max active workloads must be positive.");
+            errors.Add("Per-business max active workloads must be zero (unlimited) or positive.");
         }
 
         if (request.PerInstallationMaxActiveWorkloads is int pi && pi <= 0)

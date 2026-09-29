@@ -8,6 +8,27 @@ namespace CSweet.UnitTests;
 
 public class AgentRuntimeSettingsServiceTests
 {
+    [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(-1, 0, false)]
+    [InlineData(0, -1, false)]
+    public async Task UpdateAsync_AllowsDisablingAdministrativeCaps(int global, int business, bool succeeds)
+    {
+        await using var db = CreateDbContext();
+        var settings = CreateSettings();
+        settings.GlobalMaxActiveWorkloads = 10;
+        settings.PerBusinessMaxActiveWorkloads = 5;
+        db.AgentRuntimeGlobalSettings.Add(settings);
+        await db.SaveChangesAsync();
+        var result = await new AgentRuntimeSettingsService(db, new TestAuditEventWriter())
+            .UpdateAsync(new UpdateAgentRuntimeSettingsRequest(
+                GlobalMaxActiveWorkloads: global, PerBusinessMaxActiveWorkloads: business));
+        Assert.Equal(succeeds, result.Succeeded);
+        Assert.Equal(succeeds ? global : 10, settings.GlobalMaxActiveWorkloads);
+        Assert.Equal(succeeds ? business : 5, settings.PerBusinessMaxActiveWorkloads);
+        Assert.Equal(1, settings.PerInstallationMaxActiveWorkloads);
+    }
+
     [Fact]
     public async Task UpdateAsync_RejectsMinimumTickAboveStoredDefault()
     {

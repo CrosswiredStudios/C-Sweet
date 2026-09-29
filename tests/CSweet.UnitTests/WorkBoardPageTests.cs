@@ -50,6 +50,7 @@ public sealed class WorkBoardPageTests
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new BoardApi(sprintRequestFails)) { BaseAddress = new Uri("http://localhost/") });
+        services.AddScoped<IAgentApiClient, AgentApiClient>();
         services.AddScoped<AppRealtimeState>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

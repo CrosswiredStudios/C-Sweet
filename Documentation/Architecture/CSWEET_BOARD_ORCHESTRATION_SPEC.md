@@ -109,7 +109,7 @@ and MUST enter the authorized manual-work state when its assignee is human.
 
 ## 7. Execution contract
 
-Each attempt MUST use an idempotency key derived from sprint execution, item execution, stage, traversal, and attempt number. The assignment envelope MUST include those identifiers, the board and card identifiers, pinned policy revision, stage, attempt, deadline, instructions, item snapshot, validated stage input, prior outcomes, and evidence.
+Each attempt MUST use an idempotency key derived from sprint execution, item execution, stage, traversal, and attempt number. The assignment envelope MUST include those identifiers, the board and card identifiers, pinned policy revision, stage, attempt, deadline, instructions, item snapshot, validated stage input, prior outcomes, and evidence. Evidence MUST include the board manager's retry directions for the exact stage as `manager-direction` entries (the latest three), so a retried worker knows why it is being asked to try again. An assignee's own retry is not a manager direction.
 
 The result envelope contains:
 
@@ -126,7 +126,7 @@ The orchestrator MUST reject unknown outcomes, invalid schemas, and mismatched e
 
 Lease, runtime, transport, and other transient infrastructure failures MUST retry at most five times. Delay is `min(10 seconds * 2^(attempt-1), 5 minutes)` plus bounded jitter. Deterministic validation, authorization, business, and worker failures MUST NOT retry automatically.
 
-`Blocked` MUST leave the item visibly blocked until the manager retries or cancels it. Cancellation MUST make outstanding inbox work ineligible, revoke attempt-scoped grants, and prevent late completion from advancing the item. Reassignment of an Active snapshot is forbidden.
+`Blocked` MUST leave the item visibly blocked until the manager retries or cancels it. Because a Blocked stage is never retried automatically, the platform MUST notify the accountable manager on the first Blocked result instead of waiting for a repeated failure. The accountable manager is the board manager, or the agent's own manager when the agent manages the board itself (`AgentTicketFeedback.RecordFailureAsync` with `awaitingManager`). A worker whose blocker needs a management decision (scope, acceptance criteria, environment or tooling) rather than a retry or code change SHOULD include the diagnostic `decision-required:v1`. The escalation is then labelled as a decision. QA MUST NOT return `failed`, which routes work back to engineering, when its only gaps are criteria that no available role can verify. Cancellation MUST make outstanding inbox work ineligible, revoke attempt-scoped grants, and prevent late completion from advancing the item. Reassignment of an Active snapshot is forbidden.
 
 All scheduler state MUST be reconstructable from the database after process restart. Duplicate scheduler ticks, work claims, results, and manager commands MUST be idempotent.
 

@@ -223,14 +223,12 @@ else
         if (result.Session is { } session && session.UpgradeOfficeId == Office.Id)
         {
             if (_ignoreCompleted && session.State == "ready") return;
+            // Only hide the previous completion while choosing a new update. Once
+            // its session is accepted, its eventual completion must reach the UI.
+            _ignoreCompleted = false;
             _error = null;
-            if (session.State == "ready" && (session.ConnectedOfficeId is null || session.ConnectedOfficeId == Office.Id) &&
-                !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))
-            {
-                _session = null;
-                _diagnostic = null;
-                return;
-            }
+            // Retain completion even if the separately refreshed fleet snapshot
+            // still has an old heartbeat; do not offer installation again.
             _session = session;
             if (session.RecoveryAction == "upgrade") _operation = "upgrade";
             _diagnostic = session.ErrorMessage;

@@ -15,7 +15,7 @@ else
         <MudTextField @bind-Value="_name" Label="Project name" Required="true" MaxLength="160" Disabled="ProjectId.HasValue" />
         <MudTextField @bind-Value="_goal" Label="Goal" Required="true" Lines="3" MaxLength="6000" Disabled="ProjectId.HasValue" />
         <MudSelect T="Guid" @bind-Value="_manager" Label="Manager" Required="true">
-            @foreach (var person in _options.People.Where(x => x.CanManageProject)) { <MudSelectItem Value="person.Id">@person.Name (@person.EmployeeType)</MudSelectItem> }
+            @foreach (var person in _options.People.Where(x => x.CanManageProject || ProjectId.HasValue && x.Id == _existingManager)) { <MudSelectItem Value="person.Id">@person.Name (@person.EmployeeType)</MudSelectItem> }
         </MudSelect>
         <MudSelect T="Guid?" @bind-Value="_team" Label="Team" Disabled="ProjectId.HasValue" HelperText="Existing agent teams are reused. A new team is created only when selected agents have never belonged to a team.">
             <MudSelectItem T="Guid?" Value="@((Guid?)null)">Reuse the agents' team, or create a team if needed</MudSelectItem>
@@ -44,6 +44,7 @@ else
     private string MemberName(Guid id) => _options?.People.FirstOrDefault(x => x.Id == id)?.Name ?? "Unavailable member";
     private string _name = "", _goal = "";
     private Guid _manager;
+    private Guid? _existingManager;
     private Guid? _team, _repository;
     private IReadOnlyCollection<Guid> _members = [];
     private long _revision, _intakeRevision;
@@ -53,7 +54,7 @@ else
     private string Api => $"api/core/organizations/{OrganizationId}/project-setup";
     protected override async Task OnParametersSetAsync()
     {
-        _loaded = false; _error = null;
+        _loaded = false; _error = null; _existingManager = null;
         try
         {
             _options = await Http.GetFromJsonAsync<ProjectSetupOptions>($"{Api}/options");
@@ -61,7 +62,7 @@ else
             if (ProjectId.HasValue)
             {
                 var current = (await Http.GetFromJsonAsync<ProjectMembersDetail>($"{Api}/projects/{ProjectId}/members"))!;
-                _name = current.Name; _manager = current.ManagerId; _team = current.TeamId; _members = current.MemberIds.ToArray(); _revision = current.Revision;
+                _name = current.Name; _manager = current.ManagerId; _existingManager = current.ManagerId; _team = current.TeamId; _members = current.MemberIds.ToArray(); _revision = current.Revision;
             }
             if (IntakeId.HasValue)
             {

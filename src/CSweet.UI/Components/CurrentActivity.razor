@@ -1,0 +1,87 @@
+@using CSweet.Contracts.Core
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@inject IJSRuntime JavaScript
+
+<div class="current-activity" @ref="_root">
+    <div class="activity-toolbar">
+        <div class="activity-counts">
+            @if (_page is not null)
+            {
+                <span><strong>@_page.Total</strong> active work items</span>
+                <span class="activity-connection @(_connected ? "connected" : "")">@(_connected ? "Live" : "Connection interrupted")</span>
+            }
+        </div>
+        <div class="activity-filters" role="group" aria-label="Activity scope">
+            <button type="button" aria-pressed="@(!_projectsOnly ? "true" : "false")" @onclick="() => FilterAsync(false)">All work</button>
+            <button type="button" aria-pressed="@(_projectsOnly ? "true" : "false")" @onclick="() => FilterAsync(true)">Projects</button>
+            <button type="button" class="activity-refresh" aria-label="Refresh current activity" @onclick="RefreshAsync" disabled="@_loading"><MudIcon Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" /></button>
+        </div>
+    </div>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert> }
+    @if (_loading && _page is null) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_page is not null && _rows.Count == 0)
+    {
+        <div class="activity-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /><span>No active agent work is visible in this scope.</span></div>
+    }
+    <div class="activity-rows @(_expanded ? "expanded" : "")">
+        @foreach (var item in VisibleRows)
+        {
+            <article class="activity-row" @key="item.Key">
+                <span class="activity-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="item.EmployeeId" IsAgent="true" Initials="@Initials(item.EmployeeName)" /></span>
+                <div class="activity-main">
+                    <div class="activity-title-line"><strong>@item.Title</strong><span class="activity-status @StateClass(item)">@DisplayState(item)</span></div>
+                    <div class="activity-meta"><span>@(item.Identifier ?? item.Category) · @item.Context</span><span>·</span><a href="@($"/organizations/{OrganizationId}/employees/{item.EmployeeId}")">@item.EmployeeName</a></div>
+                    <div class="activity-now"><MudIcon Icon="@StateIcon(item)" Size="Size.Small" /><span>@DisplayAction(item)</span><time title="@item.StartedAt.ToLocalTime().ToString("g")">@Age(item.StartedAt)</time></div>
+                    @if (item.PreviousSteps.Count > 0)
+                    {
+                        <div class="activity-previous" aria-label="Previous activities">@foreach (var step in item.PreviousSteps) { <span>@step.Text</span> }</div>
+                    }
+                </div>
+                <button type="button" class="activity-icon-button" data-current-activity-open="@item.Key" aria-label="@($"Inspect {item.Title}")" aria-expanded="@(_selected?.Key == item.Key ? "true" : "false")" @onclick="() => OpenAsync(item)"><MudIcon Icon="@Icons.Material.Outlined.MoreHoriz" /></button>
+            </article>
+        }
+    </div>
+    @if (_page is not null && _rows.Count > 0)
+    {
+        <footer class="activity-footer">
+            <span>Checked @Age(_page.CheckedAt) ago · @(VisibleRows.Count()) of @_page.Total</span>
+            @if (!_expanded && _page.Total > 3) { <button type="button" @onclick="() => _expanded = true">Show all @_page.Total</button> }
+            else if (_expanded) { <button type="button" @onclick="() => _expanded = false">Show fewer</button> }
+            @if (_expanded && _page.NextOffset.HasValue) { <button type="button" disabled="@_loading" @onclick="LoadMoreAsync">Load more work</button> }
+        </footer>
+    }
+    @if (_selected is { } selected)
+    {
+        <section class="activity-popover @(_wide ? "wide" : "")" role="dialog" aria-label="Activity details" data-activity-popover>
+            <header class="activity-popover-header"><div><div class="activity-meta">@(selected.Identifier ?? selected.Category) · @selected.Context</div><h3>@selected.Title</h3></div><button type="button" class="activity-icon-button" data-activity-close aria-label="Close activity details" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
+            <div class="activity-person"><span class="activity-avatar"><PersonAvatarContent EmployeeId="selected.EmployeeId" IsAgent="true" Initials="@Initials(selected.EmployeeName)" /></span><a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">@selected.EmployeeName</a><span class="activity-status @StateClass(selected)">@DisplayState(selected)</span></div>
+            <p class="activity-current-detail">@DisplayAction(selected)</p>
+            <div class="activity-feed-header"><h4>Reasoning &amp; actions</h4><button type="button" aria-expanded="@(_wide ? "true" : "false")" @onclick="() => _wide = !_wide">@(_wide ? "Compact" : "Expand")</button></div>
+            @if (!selected.CanInspect) { <p class="activity-notice">You can see this work item, but do not have access to this employee's diagnostics.</p> }
+            else if (selected.AttemptId is null && selected.ModelRunId is null) { <p class="activity-notice">No current execution attempt is available. Work may be waiting for an agent claim or recovery.</p> }
+            else
+            {
+                @if (_feedError is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_feedError</MudAlert> }
+                @if (_feedLoading && _feed.Count == 0) { <MudProgressLinear Indeterminate="true" /> }
+                <div class="activity-feed" data-activity-feed role="log" aria-label="Reasoning and actions feed" aria-live="@(_follow ? "polite" : "off")" aria-relevant="additions text">
+                    @foreach (var entry in FeedRows)
+                    {
+                        <article class="activity-feed-entry" @key="entry.Key"><div><span>@entry.Label</span><time title="@entry.OccurredAt.ToLocalTime().ToString("g")">@entry.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time></div><p>@entry.Text</p></article>
+                    }
+                    @if (!_feedLoading && _feed.Count == 0) { <p class="activity-notice">No captured activity for this attempt yet.</p> }
+                </div>
+                <div class="activity-feed-controls"><label><input type="checkbox" checked="@_follow" @onchange="FollowChanged" />Follow latest</label><button type="button" @onclick="RefreshFeedAsync" disabled="@_feedLoading">@(_feedHasMore ? "Load newer activity" : "Refresh feed")</button></div>
+                @if (!_feed.Any(x => x.Kind == "Reasoning")) { <p class="activity-notice">No readable provider reasoning has been reported. Agent progress and observed actions appear as available.</p> }
+                @if (_feedOmitted) { <p class="activity-notice">Showing a bounded recent feed. Earlier content is available in the employee timeline.</p> }
+                @if (_evidenceUnavailable) { <p class="activity-notice">Some captured evidence is unavailable or could not be verified.</p> }
+            }
+            <footer class="activity-details-footer"><div>Provider / model<strong>@(selected.Provider ?? "No correlated model call")</strong><span>@selected.Model</span></div><div>Execution<strong>@(selected.Attempt > 0 ? $"Attempt {selected.Attempt}" : "Not claimed")</strong><span>Last progress: @(selected.LastProgressAt.HasValue ? Age(selected.LastProgressAt.Value) + " ago" : "Not reported")</span></div></footer>
+            <div class="activity-detail-links">
+                @if (selected.BoardId.HasValue) { <a href="@($"/organizations/{OrganizationId}/work/boards/{selected.BoardId}?item={selected.WorkItemId}")">Open work item</a> }
+                <a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">Employee details</a>
+            </div>
+        </section>
+    }
+</div>

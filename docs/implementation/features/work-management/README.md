@@ -203,3 +203,26 @@ claims, retries eligible work, and enforces soft/hard open-item limits.
   acquire revisions.
 - Allowed and denied operations retain the authorizing grant revision in the
   security audit trail.
+
+## Active work and card assignees
+
+For agent stages, entering a workflow stage is eligibility, not worker pickup.
+`WorkOrchestrationBoardState.SynchronizeAgentCard` keeps a queue successor in
+its queue column (for example, Ready) while dependencies, capacity, an inbox
+claim, or retry backoff are pending. Later review stages retain their review
+columns. `WorkOrchestrator.DispatchAsync` reserves capacity using Dispatching;
+hard column limits include these reservations even while cards remain in Ready.
+
+`AgentWorkInbox.ClaimCoreAsync` calls
+`WorkOrchestrationBoardState.RecordClaimAsync` inside the lease transaction.
+The claim marks the attempt/stage/item running, moves the card to its execution
+column, and persists a grant-filtered board realtime outbox record before
+returning work. Scheduler reconciliation repairs older premature placements
+and recovers lease-state changes idempotently.
+
+`WorkBoardService.ResolveCardOwnersAsync` resolves card owners from the current
+stage of an active or paused sprint, including human work and manager approval.
+It uses organization-scoped employee records for display names and falls back
+to the ticket's direct assignment when no current execution exists. The
+accountable owner is separate from the person or agent assigned to execute the
+current stage.

@@ -1,0 +1,37 @@
+C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj : warning NU1902: Package 'Microsoft.Build.Tasks.Git' 10.0.102 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-23fw-v26w-5fgq
+  CSweet.Isolation.Security -> C:\Users\PC\Documents\GitHub\CSweet.Isolation\src\CSweet.Isolation.Security\bin\BoardState\Debug\net10.0\CSweet.Isolation.Security.dll
+  CSweet.Isolation.HyperV -> C:\Users\PC\Documents\GitHub\CSweet.Isolation\src\CSweet.Isolation.HyperV\bin\BoardState\Debug\net10.0\CSweet.Isolation.HyperV.dll
+  CSweet.WorkManagement.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.WorkManagement.Contracts\src\CSweet.WorkManagement.Contracts\bin\BoardState\Debug\net8.0\CSweet.WorkManagement.Contracts.dll
+  CSweet.Communications.Abstractions -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Communications.Abstractions\bin\BoardState\Debug\net10.0\CSweet.Communications.Abstractions.dll
+  CSweet.Memory.Abstractions -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Abstractions\bin\BoardState\Debug\net8.0\CSweet.Memory.Abstractions.dll
+  CSweet.Domain -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Domain\bin\BoardState\Debug\net10.0\CSweet.Domain.dll
+  CSweet.ServiceDefaults -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ServiceDefaults\bin\BoardState\Debug\net10.0\CSweet.ServiceDefaults.dll
+  CSweet.Office.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\bin\BoardState\Debug\net10.0\CSweet.Office.Contracts.dll
+  CSweet.Agent.SDK -> C:\Users\PC\Documents\GitHub\CSweet.Agent.Sdk\src\CSweet.Agent.SDK\bin\BoardState\Debug\net10.0\CSweet.Agent.SDK.dll
+  CSweet.Compute.Contracts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.Contracts\bin\BoardState\Debug\net10.0\CSweet.Compute.Contracts.dll
+  CSweet.Memory -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory\bin\BoardState\Debug\net8.0\CSweet.Memory.dll
+  CSweet.Contracts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Contracts\bin\BoardState\Debug\net10.0\CSweet.Contracts.dll
+  CSweet.AgentBroker -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AgentBroker\bin\BoardState\Debug\net10.0\CSweet.AgentBroker.dll
+  CSweet.Compute.Guest -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.Guest\bin\BoardState\Debug\net10.0\CSweet.Compute.Guest.dll
+  CSweet.Compute.Runtime -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.Runtime\bin\BoardState\Debug\net10.0\CSweet.Compute.Runtime.dll
+  CSweet.Memory.Broker -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Broker\bin\BoardState\Debug\net10.0\CSweet.Memory.Broker.dll
+  CSweet.Memory.Sqlite -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Sqlite\bin\BoardState\Debug\net8.0\CSweet.Memory.Sqlite.dll
+  CSweet.Memory.PostgreSql -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.PostgreSql\bin\BoardState\Debug\net8.0\CSweet.Memory.PostgreSql.dll
+  CSweet.Application -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Application\bin\BoardState\Debug\net10.0\CSweet.Application.dll
+  CSweet.TrustedServices -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.TrustedServices\bin\BoardState\Debug\net10.0\CSweet.TrustedServices.dll
+  CSweet.Compute.HyperV -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.HyperV\bin\BoardState\Debug\net10.0\CSweet.Compute.HyperV.dll
+  CSweet.AI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AI\bin\BoardState\Debug\net10.0\CSweet.AI.dll
+  CSweet.ExecutionArtifacts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ExecutionArtifacts\bin\BoardState\Debug\net10.0\CSweet.ExecutionArtifacts.dll
+  CSweet.UI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\bin\BoardState\Debug\net10.0\CSweet.UI.dll
+  CSweet.Infrastructure -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\bin\BoardState\Debug\net10.0\CSweet.Infrastructure.dll
+  CSweet.ExecutionGateway -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ExecutionGateway\bin\BoardState\Debug\net10.0\CSweet.ExecutionGateway.dll
+  CSweet.AgentHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AgentHost\bin\BoardState\Debug\net10.0\CSweet.AgentHost.dll
+  CSweet.Api -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Api\bin\BoardState\Debug\net10.0\CSweet.Api.dll
+  CSweet.Compute.GuestFixture -> C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.Compute.GuestFixture\bin\BoardState\Debug\net10.0\CSweet.Compute.GuestFixture.dll
+  CSweet.UnitTests -> C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\BoardState\Debug\net10.0\CSweet.UnitTests.dll
+Test run for C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\BoardState\Debug\net10.0\CSweet.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:03.95]     CSweet.UnitTests.WorkBoardServiceTests.OwnerCanConfigureWorkflowCreateStoryCompleteAndReopenIt [SKIP]
+  Skipped CSweet.UnitTests.WorkBoardServiceTests.OwnerCanConfigureWorkflowCreateStoryCompleteAndReopenIt [1 ms]
+
+Passed!  - Failed:     0, Passed:    79, Skipped:     1, Total:    80, Duration: 3 s - CSweet.UnitTests.dll (net10.0)

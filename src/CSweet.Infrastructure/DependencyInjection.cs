@@ -479,6 +479,8 @@ public static class DependencyInjection
         builder.Services.AddScoped<ITeamService, TeamService>();
         builder.Services.AddScoped<IExecutiveBriefingService, ExecutiveBriefingService>();
         builder.Services.AddScoped<CompanyDashboardService>();
+        builder.Services.AddScoped<CurrentActivityService>();
+        builder.Services.AddScoped<CurrentActivityFeedReader>();
         builder.Services.AddScoped<IConversationService, ConversationService>();
         builder.Services.AddScoped<IChatTurnService, ChatTurnService>();
         builder.Services.AddScoped<HiringService>();

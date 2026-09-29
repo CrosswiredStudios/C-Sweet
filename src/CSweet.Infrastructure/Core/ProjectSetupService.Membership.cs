@@ -53,7 +53,7 @@ public sealed partial class ProjectSetupService
                 throw new DbUpdateConcurrencyException("The membership link is no longer current. Open the latest project request.");
         }
         var ids = request.MemberIds.Append(request.ManagerId).Distinct().ToArray();
-        var people = await ValidatePeopleAsync(actor.OrganizationId, ids, request.ManagerId, ct);
+        var people = await ValidatePeopleAsync(actor.OrganizationId, ids, request.ManagerId, ct, project.AccountableManagerOrganizationUserId);
         var binding = await db.ProjectDeliveryBindings.SingleOrDefaultAsync(x => x.WorkstreamId == id, ct);
         if (binding is null)
         {

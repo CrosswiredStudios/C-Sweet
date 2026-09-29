@@ -18,6 +18,7 @@ public sealed class AppRealtimeState(HttpClient http) : IAsyncDisposable
     public event Action? Connected;
     public event Action? Reconnected;
     public event Action? Disconnected;
+    public bool IsConnected => _connection?.State == HubConnectionState.Connected;
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {

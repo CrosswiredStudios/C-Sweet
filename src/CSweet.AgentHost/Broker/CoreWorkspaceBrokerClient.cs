@@ -73,9 +73,7 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
         }
         using (response)
         {
-            if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(
-                    "Core rejected or could not materialize the authorized workspace.");
+            await WorkspaceOperationErrors.EnsureSuccessAsync(response, "Core", "prepare", cancellationToken);
         var result = await response.Content.ReadFromJsonAsync<AgentBrokerWorkspacePrepareResult>(cancellationToken)
             ?? throw new InvalidOperationException("Core returned an empty workspace response.");
         return new TrustedWorkspaceMaterialization(

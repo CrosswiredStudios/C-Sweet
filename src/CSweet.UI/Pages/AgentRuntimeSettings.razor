@@ -71,8 +71,8 @@
 
                 <MudExpansionPanel Text="Isolated workload limits" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudNumericField T="int" Label="Global active workloads" @bind-Value="_globalMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Active workloads per business" @bind-Value="_perBusinessMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Global active workloads" HelperText="0 = unlimited; Office capacity still applies." Min="0" @bind-Value="_globalMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Active workloads per business" HelperText="0 = unlimited; Office capacity still applies." Min="0" @bind-Value="_perBusinessMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Active workloads per installation" @bind-Value="_perInstallationMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Default memory (MB)" @bind-Value="_defaultWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Maximum memory (MB)" @bind-Value="_maximumWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />

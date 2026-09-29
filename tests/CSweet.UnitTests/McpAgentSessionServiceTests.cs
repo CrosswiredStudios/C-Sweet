@@ -12,6 +12,46 @@ namespace CSweet.UnitTests;
 
 public sealed class McpAgentSessionServiceTests
 {
+    [Theory]
+    [InlineData("valid", true)]
+    [InlineData("wrong-token", false)]
+    [InlineData("revoked", false)]
+    [InlineData("expired", false)]
+    [InlineData("changed-grant", false)]
+    [InlineData("header-only", false)]
+    public async Task IngressLimit_ExemptsOnlyAuthenticatedCurrentSessions(string scenario, bool exempt)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var issue = await fixture.EstablishAsync();
+        if (scenario == "revoked")
+            (await fixture.Db.McpAgentSessions.SingleAsync()).RevokedAt = fixture.Clock.GetUtcNow();
+        if (scenario == "expired") fixture.Clock.Advance(TimeSpan.FromDays(1));
+        if (scenario == "changed-grant") fixture.Installation.Grant!.GrantRevision++;
+        await fixture.Db.SaveChangesAsync();
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.Request.Headers["Mcp-Session-Id"] = issue.Session.SessionId;
+        if (scenario != "header-only")
+            http.Request.Headers.Authorization = "Bearer " + (scenario == "wrong-token" ? "invalid" : issue.AccessToken);
+        await McpIngressPolicy.AuthenticateAsync(http, fixture.Service);
+        using var limiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<Microsoft.AspNetCore.Http.HttpContext, string>(
+            new McpIngressPolicy().GetPartition);
+        for (var i = 0; i < 240; i++)
+        {
+            using var lease = limiter.AttemptAcquire(http);
+            Assert.True(lease.IsAcquired);
+        }
+        using var overflow = limiter.AttemptAcquire(http);
+        Assert.Equal(exempt, overflow.IsAcquired);
+        // Forging a different header cannot reset anonymous ingress accounting.
+        http.Request.Headers["Mcp-Session-Id"] = Guid.NewGuid().ToString();
+        await McpIngressPolicy.AuthenticateAsync(http, fixture.Service);
+        if (!exempt)
+        {
+            using var forged = limiter.AttemptAcquire(http);
+            Assert.False(forged.IsAcquired);
+        }
+    }
+
     [Fact]
     public async Task EstablishAndRotate_StoreOnlyHashesAndExpireTheOverlapToken()
     {

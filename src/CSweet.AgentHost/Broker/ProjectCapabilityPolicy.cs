@@ -1,6 +1,7 @@
 using CSweet.Agent.SDK;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Infrastructure.Core;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -23,7 +24,27 @@ public sealed class ProjectCapabilityPolicy(CSweetDbContext db, ProjectWorkPolic
             var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == org && x.Id == work, ct)
                 ?? throw new InvalidOperationException("project.work_not_found: The delivery ticket is unavailable.");
             if (item.AssignedAgentInstallationId != installation)
-                throw new UnauthorizedAccessException("This delivery ticket is not assigned to this agent.");
+            {
+                // Workspace handlers still enforce exact revision, repository policy and attempt-scoped actions.
+                // This prerequisite must recognize canonical stage ownership as well as legacy ticket ownership.
+                var assignedStage = capability.StartsWith("git.workspace.", StringComparison.Ordinal) &&
+                    item.ArchivedAt is null && item.BoardId.HasValue &&
+                    await db.WorkStageExecutions.AsNoTracking().AnyAsync(x =>
+                        x.AgentInstallationId == installation && x.OrganizationUserId == actor.Id &&
+                        x.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation &&
+                        (x.StageType == WorkOrchestrationStageType.AgentExecution || x.StageType == WorkOrchestrationStageType.MemberExecution) &&
+                        x.Status == WorkStageExecutionStatus.Running &&
+                        x.ItemExecution!.WorkItemId == item.Id && x.ItemExecution.Status == WorkItemExecutionStatus.Running &&
+                        x.ItemExecution.CurrentStageKey == x.StageKey && x.ItemExecution.Traversal == x.Traversal &&
+                        x.ItemExecution.SprintExecution!.OrganizationId == org && x.ItemExecution.SprintExecution.BoardId == item.BoardId &&
+                        x.ItemExecution.SprintExecution.Status == WorkSprintExecutionStatus.Active &&
+                        x.Attempts.Any(a => a.AgentWorkItemId != null &&
+                            (a.Status == WorkExecutionAttemptStatus.Pending || a.Status == WorkExecutionAttemptStatus.Running)), ct);
+                if (!assignedStage)
+                    throw new UnauthorizedAccessException("This delivery ticket is not assigned to this agent.");
+                await policy.RequireAsync(org, actor.Id, item.BoardId!.Value, ct);
+                return;
+            }
             await policy.RequireWorkAsync(item, ct); return;
         }
         if (Id(input, "boardId") is { } board) { await policy.RequireAsync(org, actor.Id, board, ct); return; }

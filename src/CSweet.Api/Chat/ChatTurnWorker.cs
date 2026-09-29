@@ -194,6 +194,11 @@ public sealed class ChatTurnWorker(
                 eventContext[AgentChatContextKeys.SenderEmployeeType] = senderContext.EmployeeType;
                 eventContext[AgentChatContextKeys.SenderRole] = senderContext.Role ?? string.Empty;
             }
+            // These values come only from the persisted sender/message and current reporting graph.
+            eventContext[ChatReportingAuthority.CurrentMessageKey] = userMessage.Content;
+            eventContext[ChatReportingAuthority.AncestorKey] = (await ChatReportingAuthority.IsAncestorAsync(
+                db, conversation.OrganizationId, turn.TargetAgentOrganizationUserId,
+                senderOrganizationUserId, hardTimeout.Token)) ? "true" : "false";
             var recentConversation = await LoadRecentConversationAsync(db, userMessage, hardTimeout.Token);
             var conversationPrompt = ChatPromptPolicy.BuildConversationPrompt(
                 recalledMemory,

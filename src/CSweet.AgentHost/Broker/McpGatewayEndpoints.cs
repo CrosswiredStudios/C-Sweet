@@ -77,7 +77,8 @@ public static class McpGatewayEndpoints
                         cancellationToken);
 
                 var token = ReadBearerToken(http.Request.Headers.Authorization);
-                var session = token is null
+                var authenticated = http.Features.Get<McpIngressPolicy.Authentication>();
+                var session = authenticated is not null ? authenticated.Session : token is null
                     ? null
                     : await sessions.AuthenticateAsync(
                         token,
