@@ -3,6 +3,8 @@
 @inject HttpClient Http
 @inject IAuthenticationApiClient AuthenticationApi
 @inject NavigationManager Navigation
+@inject AuthSessionStore Session
+@implements IDisposable
 
 <Router AppAssembly="@SharedUiAssembly.Value" NotFoundPage="typeof(Pages.NotFound)" OnNavigateAsync="GuardNavigationAsync">
     <Found Context="routeData">
@@ -13,53 +15,81 @@
 </Router>
 
 @code {
-    private static readonly string[] PublicAccountRoutes =
-    [
-        "login", "confirm-email", "forgot-password", "reset-password", "recover-root"
-    ];
+    protected override void OnInitialized() => Session.SessionEnded += OnSessionEnded;
+
+    public void Dispose() => Session.SessionEnded -= OnSessionEnded;
+
+    // An API call returned 401 mid-session (cookie expired or signed out elsewhere).
+    private void OnSessionEnded() => _ = InvokeAsync(() =>
+    {
+        var current = Navigation.ToBaseRelativePath(Navigation.Uri);
+        if (!LoginRedirect.IsPublicAccountRoute(current) &&
+            !current.StartsWith("register", StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo(LoginRedirect.LoginUri(current, LoginRedirect.ReasonExpired));
+        }
+    });
 
     private async Task GuardNavigationAsync(Microsoft.AspNetCore.Components.Routing.NavigationContext context)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var cancellationToken = timeout.Token;
+        var path = context.Path.Trim('/');
+        var isPublicAccountRoute = LoginRedirect.IsPublicAccountRoute(path);
+
+        CSweet.Contracts.Auth.AuthStatusResponse auth;
         try
         {
-            var path = context.Path.Trim('/');
-            var auth = await AuthenticationApi.GetStatusAsync(cancellationToken);
-
-            if (auth.RegistrationOpen)
+            auth = await AuthenticationApi.GetStatusAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
+        {
+            return; // A newer navigation superseded this one; its own guard decides.
+        }
+        catch
+        {
+            // Fail closed. If the session cannot be confirmed (API unreachable, timeout, bad
+            // response) the user is treated as signed out; the login page explains the outage.
+            if (!isPublicAccountRoute)
             {
-                RedirectUnless(path, "register", "/register");
-                return;
+                Navigation.NavigateTo(LoginRedirect.LoginUri(path, LoginRedirect.ReasonUnavailable));
             }
+            return;
+        }
 
-            if (!auth.IsAuthenticated)
+        if (auth.RegistrationOpen)
+        {
+            RedirectUnless(path, "register", "/register");
+            return;
+        }
+
+        if (!auth.IsAuthenticated)
+        {
+            if (!isPublicAccountRoute)
             {
-                if (!PublicAccountRoutes.Any(x => path.StartsWith(x, StringComparison.OrdinalIgnoreCase)))
-                {
-                    Navigation.NavigateTo("/login");
-                }
-                return;
+                Navigation.NavigateTo(LoginRedirect.LoginUri(path));
             }
+            return;
+        }
 
+        if (path.Equals("register", StringComparison.OrdinalIgnoreCase) || isPublicAccountRoute)
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        try
+        {
             var status = await Http.GetFromJsonAsync<SetupStatusResponse>("api/setup/status", cancellationToken);
-
             if (status is { IsFirstRunComplete: false })
             {
                 RedirectUnless(path, "setup", "/setup");
-                return;
-            }
-
-            if (path.Equals("register", StringComparison.OrdinalIgnoreCase) ||
-                PublicAccountRoutes.Any(x => path.StartsWith(x, StringComparison.OrdinalIgnoreCase)))
-            {
-                Navigation.NavigateTo("/");
             }
         }
         catch
         {
-            // Keep rendering the current route if the API is unavailable; pages can show connectivity state.
+            // Signed in, but setup state is unavailable: keep the route; pages show connectivity state.
         }
     }
 

@@ -36,6 +36,11 @@ Read these files in order:
 
 ## Feature plans
 
+- [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - null work-context
+  crash in health capture, and the next-step/escalation convention for waiting agents.
+- [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
+  durable incidents, management escalation and rollout.
+
 Cross-cutting features are documented as a phased series in their own folder:
 
 - [Work efficiency and business benchmarks](./features/work-efficiency-and-benchmarks.md) -

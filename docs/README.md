@@ -33,6 +33,7 @@ The normative plugin contract, grant lifecycle, proxy policy, administrator runb
 - [Implementation plans](implementation/README.md)
 - [Legacy and dead-code audit](analysis/legacy-and-dead-code-audit.md)
 - [RoboCo comparison and prioritized improvements](analysis/roboco-comparative-analysis.md)
+- [Paperclip comparison and prioritized improvements](analysis/paperclip-comparison/README.md)
 
 ## Agent runtime, security, and operations
 

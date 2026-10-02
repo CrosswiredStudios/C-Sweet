@@ -318,7 +318,6 @@ public static class McpGatewayEndpoints
         var arguments = parameters.TryGetProperty("arguments", out var value)
             ? value
             : JsonDocument.Parse("{}").RootElement.Clone();
-        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
 
         var request = new RequestCapability
         {
@@ -329,12 +328,14 @@ public static class McpGatewayEndpoints
         var startedEventId = await audit.AppendAsync(new AuditEventWriteRequest(
             "agent.capability.started", "AgentCapability", Outcome: "Running",
             OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
+            EntityId: await CurrentCapabilityAttemptAsync(db, session, cancellationToken),
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
             MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
+        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
         CapabilityResult? terminal;
         if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
                 x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
@@ -481,7 +482,6 @@ public static class McpGatewayEndpoints
         var arguments = parameters.TryGetProperty("arguments", out var value)
             ? value
             : JsonDocument.Parse("{}").RootElement.Clone();
-        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
         var request = new RequestCapability
         {
             RequestId = Guid.NewGuid().ToString("N"),
@@ -492,12 +492,14 @@ public static class McpGatewayEndpoints
         var startedEventId = await audit.AppendAsync(new AuditEventWriteRequest(
             "agent.capability.started", "AgentCapability", Outcome: "Running",
             OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
+            EntityId: await CurrentCapabilityAttemptAsync(db, session, cancellationToken),
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
             MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
+        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
         http.Response.ContentType = "text/event-stream";
         http.Response.Headers.CacheControl = "no-cache, no-transform";
         http.Response.Headers["X-Accel-Buffering"] = "no";
@@ -920,6 +922,17 @@ public static class McpGatewayEndpoints
             ErrorCode: error is null ? null : "operation_failed",
             ErrorMessage: error),
             cancellationToken);
+    }
+
+    private static async Task<Guid?> CurrentCapabilityAttemptAsync(CSweetDbContext db, AgentSession session, CancellationToken token)
+    {
+        if (!Guid.TryParse(session.RuntimeInstanceId, out var runtime) || !Guid.TryParse(session.InstallationId, out var installation)) return null;
+        var now = DateTimeOffset.UtcNow;
+        var active = await db.AgentWorkAttempts.AsNoTracking().Where(x => x.RuntimeInstanceId == runtime &&
+            x.FinishedAt == null && x.LeaseExpiresAt > now && x.AgentWorkItem!.AgentInstallationId == installation &&
+            x.AgentWorkItem.OrganizationId == session.BusinessId).Select(x => x.Id).Take(2).ToArrayAsync(token);
+        // Ambiguous concurrent execution is explicitly uncorrelated, never attributed by employee or proximity.
+        return active.Length == 1 ? active[0] : null;
     }
 
     private static Task<Guid> WriteCapabilityAuditAsync(

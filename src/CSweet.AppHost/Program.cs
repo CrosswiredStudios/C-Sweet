@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 var builder = DistributedApplication.CreateBuilder(args);
 
 // Visual Studio can start the AppHost debug session without providing the
@@ -34,6 +35,9 @@ var localStateDirectory = string.IsNullOrWhiteSpace(localAppData)
     ? Path.Combine(repositoryRoot, ".csweet")
     : Path.Combine(localAppData, "CSweet");
 Directory.CreateDirectory(localStateDirectory);
+var crashDirectory = Path.Combine(localStateDirectory, "crashes");
+var dumpDirectory = Path.Combine(crashDirectory, "dumps");
+Directory.CreateDirectory(dumpDirectory);
 var executionGatewayCertificate = EnsureDevelopmentExecutionGatewayCertificate(localStateDirectory);
 var appLaunchProfile = builder.Configuration["CSweet:App:LaunchProfile"]
     ?? "http-no-wasm-debug";
@@ -72,7 +76,8 @@ var agentHost = builder.AddProject<Projects.CSweet_AgentHost>("agenthost")
     .WithEnvironment("CSweet__Marketplace__TimeoutSeconds", marketplaceTimeoutSeconds)
     .WithReference(postgres)
     .WaitFor(postgres)
-    .WaitForCompletion(migrator);
+    .WaitForCompletion(migrator)
+    .WithCrashDumps(dumpDirectory);
 var agentHostEndpoint = agentHost.GetEndpoint("mcp");
 agentHost.WithEnvironment("Mcp__PublicEndpoint", agentHostEndpoint);
 
@@ -204,6 +209,17 @@ builder.AddProject<Projects.CSweet_App>("app", launchProfileName: appLaunchProfi
     .WithHttpEndpoint(port: 5097, name: "http")
     .WithReference(api)
     .WaitFor(api);
+
+foreach (var supervised in new[] { api, workerHost, executionGateway, gitHost, provisionerHost })
+    supervised.WithCrashDumps(dumpDirectory);
+// Crashed long-running services are restarted with bounded backoff, and every crash leaves a report
+// under %LOCALAPPDATA%\CSweet\crashes. A dashboard Stop is never overridden.
+builder.Services.AddSingleton(new CrashSupervisionOptions(
+    new HashSet<string>(["agenthost", "api", "workerhost", "executiongateway", "githost", "provisionerhost"],
+        StringComparer.Ordinal),
+    crashDirectory,
+    dumpDirectory));
+builder.Services.AddHostedService<ResourceCrashSupervisor>();
 
 builder.Build().Run();
 

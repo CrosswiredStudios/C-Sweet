@@ -237,6 +237,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        CaptureCoordinationWakesAsync().GetAwaiter().GetResult();
         CaptureWorkLifecycle();
         CaptureWorkExecutionAsync().GetAwaiter().GetResult();
         CaptureBenchmarkWakes();
@@ -251,11 +252,13 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
+        CaptureProjectHealthSignals();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        await CaptureCoordinationWakesAsync(cancellationToken);
         CaptureWorkLifecycle();
         await CaptureWorkExecutionAsync(cancellationToken);
         CaptureBenchmarkWakes();
@@ -270,6 +273,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
+        CaptureProjectHealthSignals();
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -671,6 +675,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ConfigureProjectHealth(modelBuilder);
         ConfigureEfficiency(modelBuilder);
         ConfigureBenchmarks(modelBuilder);
         ComputeConfigurations.Apply(modelBuilder);

@@ -108,12 +108,17 @@
         cancelled || superseded ? Icons.Material.Outlined.Block :
         Icons.Material.Outlined.RocketLaunch;
 
-    private static string ReplacementRole(SuggestedUserActionResponse action) =>
-        string.IsNullOrWhiteSpace(action.SupersededByRole) ? "another role" : action.SupersededByRole;
+    [CascadingParameter] public CSweet.UI.Services.EmployeePortraits? Portraits { get; set; }
 
-    private static string RoleName(SuggestedUserActionResponse action) =>
+    // Agents suggest catalog role keys (game-engineer); show the catalog name when one is known.
+    private string DisplayRole(string role) => Portraits?.RoleTitle(role, role) ?? role;
+
+    private string ReplacementRole(SuggestedUserActionResponse action) =>
+        string.IsNullOrWhiteSpace(action.SupersededByRole) ? "another role" : DisplayRole(action.SupersededByRole);
+
+    private string RoleName(SuggestedUserActionResponse action) =>
         !string.IsNullOrWhiteSpace(action.HiringRole)
-            ? action.HiringRole
+            ? DisplayRole(action.HiringRole)
             : !string.IsNullOrWhiteSpace(action.Description)
                 ? action.Description
                 : action.Label;

@@ -432,6 +432,80 @@ public sealed class UserActionServiceTests
     }
 
     [Fact]
+    public async Task MultiRolePlanForOneSourceMessage_KeepsEveryRoleActionable()
+    {
+        // Regression: each immediately materialized role gets its own SystemAction message, so the
+        // batch check must use the source message (causation), not the materialized message id.
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", CreatedAt = now, UpdatedAt = now };
+        var installationId = Guid.NewGuid();
+        var agent = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentInstallationId = installationId,
+            DisplayName = "Chief", EmployeeType = EmployeeType.Agent,
+            PermissionLevel = OrganizationPermissionLevel.Manager, CreatedAt = now
+        };
+        var owner = new OrganizationUser
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, DisplayName = "Owner",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, CreatedAt = now
+        };
+        var conversation = new Conversation
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentOrganizationUserId = agent.Id,
+            InitiatedByOrganizationUserId = owner.Id, Kind = ConversationKind.DirectHumanAgent,
+            CreatedAt = now, UpdatedAt = now
+        };
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = agent.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        conversation.Participants.Add(new ConversationParticipant
+        {
+            Id = Guid.NewGuid(), OrganizationUserId = owner.Id, Role = ConversationParticipantRole.Member, JoinedAt = now
+        });
+        var planMessage = Message(conversation.Id, agent.Id, "Hiring suggestions for the Producer's plan", now, 1);
+        var laterMessage = Message(conversation.Id, agent.Id, "A later, different plan", now.AddMinutes(5), 2);
+        db.AddRange(organization, agent, owner, conversation, planMessage, laterMessage);
+        await db.SaveChangesAsync();
+        var service = new UserActionService(
+            db,
+            new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
+
+        async Task<SuggestedUserActionResponse> Suggest(Guid messageId, string role) =>
+            await service.SuggestAsync(organization.Id, installationId,
+                new SuggestUserActionRequest(
+                    messageId, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
+                    "Browse candidates", $"Review Marketplace candidates for the {role} role.",
+                    JsonSerializer.SerializeToElement(new { role, recommendationId = Guid.NewGuid() }),
+                    $"{role}-action"));
+
+        var director = await Suggest(planMessage.Id, "game-technical-director");
+        var engineer = await Suggest(planMessage.Id, "game-engineer");
+        var qa = await Suggest(planMessage.Id, "game-quality-assurance");
+
+        var statuses = await db.SuggestedUserActions.AsNoTracking()
+            .ToDictionaryAsync(x => x.Id, x => x.Status);
+        Assert.Equal("Pending", statuses[director.Id]);
+        Assert.Equal("Pending", statuses[engineer.Id]);
+        Assert.Equal("Pending", statuses[qa.Id]);
+
+        var hub = new CommunicationHubService(
+            db,
+            new TestAuditEventWriter(),
+            new CSweet.Infrastructure.Core.ChatTurnService(db));
+        var carousel = (await hub.ListMessagesAsync(organization.Id, conversation.Id, owner.Id))!
+            .Single(x => x.Actions?.Count == 3);
+        Assert.All(carousel.Actions!, action => Assert.Equal("Pending", action.Status));
+
+        // A suggestion from a different source still replaces the earlier plan.
+        var replacement = await Suggest(laterMessage.Id, "game-producer");
+        Assert.Equal("Superseded", (await db.SuggestedUserActions.AsNoTracking().SingleAsync(x => x.Id == qa.Id)).Status);
+        Assert.Equal("Pending", (await db.SuggestedUserActions.AsNoTracking().SingleAsync(x => x.Id == replacement.Id)).Status);
+    }
+
+    [Fact]
     public async Task ReplacementSuggestion_ForTheSameRecommendation_ReturnsTheExistingWidget()
     {
         await using var db = CreateDb();

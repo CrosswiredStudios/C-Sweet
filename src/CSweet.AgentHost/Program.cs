@@ -28,6 +28,8 @@ builder.Services.AddOptions<McpGatewayOptions>()
         "MCP gateway limits must be positive.")
     .ValidateOnStart();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ConnectorActionCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ProjectHealthCapabilityHandler>();
+builder.Services.AddHostedService<ProjectHealthWorker>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<AgentWorkInbox>();
 builder.Services.AddScoped<AgentWorkRouter>();

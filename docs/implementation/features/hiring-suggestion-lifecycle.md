@@ -31,8 +31,12 @@ Rules:
 - One actionable suggestion per conversation. `UserActionService.SuggestAsync` returns the existing
   `Pending` action when the same conversation + recommendation is requested again, and marks earlier
   `Pending`/`Cancelled` suggestions in that conversation `Superseded` with lineage.
-- Suggestions created by the same source (same `ConversationMessageId` or `ChatTurnId`) are one
-  multi-role batch and are never superseded by each other.
+- Suggestions created by the same source (the request's `MessageId` or `ChatTurnId`) are one
+  multi-role batch and are never superseded by each other. Materialization gives every action its own
+  SystemAction message and clears `ChatTurnId`, so `SupersedeEarlierSuggestionsAsync` identifies the batch
+  by the materialized message's `CausationId` (the source id), the same key that groups the carousel.
+  Migration `RestoreSameBatchHiringSuggestions` returns roles that were wrongly superseded by a sibling in
+  the same batch to `Pending` when their recommendation is still pending.
 - Withdrawing a hiring recommendation cancels its `Pending` suggestions even when no replacement
   exists, so a stale "Browse candidates" button cannot survive into a dead Marketplace route.
 

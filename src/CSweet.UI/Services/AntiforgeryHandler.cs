@@ -6,7 +6,7 @@ public sealed class AntiforgeryHandler : DelegatingHandler
 
     public AntiforgeryHandler(AuthSessionStore session) => _session = session;
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (request.Method != HttpMethod.Get &&
             request.Method != HttpMethod.Head &&
@@ -15,6 +15,8 @@ public sealed class AntiforgeryHandler : DelegatingHandler
         {
             request.Headers.TryAddWithoutValidation("X-CSWEET-CSRF", _session.AntiforgeryToken);
         }
-        return base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+        if (AuthSessionStore.EndsSession(request, response)) _session.ReportUnauthenticated();
+        return response;
     }
 }

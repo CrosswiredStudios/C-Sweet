@@ -658,3 +658,34 @@ At 10:07 Pacific, quality attempt `0a859ad6-055a-4a17-b204-744f76447559` complet
 ### Development profile does not supply executable test tools
 
 `AgentRuntimeManager.TryStartAsync` recognizes `software-development-polyglot-v1` to require writable workspace access, but resolves the same `RuntimeGuestImageId`/digest as ordinary agents through `FleetGuestImageRegistry.ResolveAsync`. It does not select the image described in `runtime/software-development-polyglot-v1/README.md`; that Docker-era document refers to an option absent from the current runtime options. The current launch path uses a certified Office guest VM. Thus the profile declaration alone does not establish Node/npm/browser availability. Live developer and QA reports lacked those tools and could not produce required desktop performance and bundle measurements. Repair must supply and verify appropriate tools through the current certified guest or authorized toolchain execution path. Do not switch agents to Docker, grant host tool access, or substitute static checks for the missing measurements. The existing Node TypeScript toolchain service executes managed build recipes, but is not automatically invoked by the assigned QA harness.
+
+## Service crashes: automatic restart and crash capture
+
+`CSweet.AppHost` registers `ResourceCrashSupervisor` (`src/CSweet.AppHost/ResourceCrashSupervisor.cs`) for
+`agenthost`, `api`, `workerhost`, `executiongateway`, `githost` and `provisionerhost`. When one of them
+exits with a non-zero code that was not requested from the dashboard (a dashboard **Stop** is never
+overridden), the supervisor:
+
+- writes `%LOCALAPPDATA%\CSweet\crashes\<resource>-<UTC time>Z.log` with the exit code (decimal and hex,
+  for example `0xC0000005` = access violation), start/crash times and the last 400 console lines;
+- restarts the resource after 5s, 10s, 20s ... (capped at 2 minutes), at most 5 times per 30 minutes,
+  then pauses automatic restarts and logs that it gave up.
+
+Durable work leases recover on their own once AgentHost is back; the interrupted attempt is retried.
+
+The supervised projects also get `DOTNET_DbgEnableMiniDump=1` and `DOTNET_DbgMiniDumpType=2` (minidump with
+heap) via `WithCrashDumps`, writing `%LOCALAPPDATA%\CSweet\crashes\dumps\<resource>-<pid>-<time>.dmp`. The three
+newest dumps are kept. Analyse one with `dotnet-dump analyze <file>` (`clrstack -all`, `pe`) or WinDbg (`!analyze -v`).
+If no `.dmp` appears for a native crash, enable Windows Error Reporting local dumps once from an elevated
+PowerShell:
+
+```powershell
+$key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\CSweet.AgentHost.exe'
+New-Item -Path $key -Force | Out-Null
+Set-ItemProperty $key DumpFolder "$env:LOCALAPPDATA\CSweet\crashes\dumps" -Type ExpandString
+Set-ItemProperty $key DumpType 1 -Type DWord   # 1 = mini, 2 = full
+Set-ItemProperty $key DumpCount 3 -Type DWord
+```
+
+Event Viewer > Windows Logs > Application also records the faulting module for native crashes
+("Application Error" and ".NET Runtime" entries at the crash time).

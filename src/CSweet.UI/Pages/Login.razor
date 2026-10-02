@@ -10,6 +10,14 @@
 <MudPaper Elevation="0" Class="auth-card">
     <MudText Typo="Typo.h4">Welcome back</MudText>
     <MudText Color="Color.Secondary">Sign in to your C-Sweet command center.</MudText>
+    @if (Reason == LoginRedirect.ReasonUnavailable)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">C-Sweet can't reach its server, so your sign-in couldn't be confirmed. Check that the API is running, then sign in.</MudAlert>
+    }
+    else if (Reason == LoginRedirect.ReasonExpired)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Your session has ended. Sign in again to continue.</MudAlert>
+    }
     <EditForm Model="_model" OnValidSubmit="LoginAsync" Class="auth-form">
         <DataAnnotationsValidator />
         <MudTextField Label="Email" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
@@ -30,34 +38,58 @@
 </MudPaper>
 
 @code {
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "reason")] public string? Reason { get; set; }
+
     private readonly LoginModel _model = new();
     private bool _saving;
     private bool _needsConfirmation;
     private bool _success;
     private string? _message;
 
+    private const string UnreachableMessage =
+        "C-Sweet can't reach its server right now. Check that the API is running, then try again.";
+
     private async Task LoginAsync()
     {
         _saving = true;
         _needsConfirmation = false;
-        var result = await AuthenticationApi.LoginAsync(new LoginRequest(_model.Email, _model.Password, _model.RememberMe));
-        if (result.Succeeded)
+        _success = false;
+        try
         {
-            Navigation.NavigateTo("/", forceLoad: true);
-        }
-        else
-        {
+            var result = await AuthenticationApi.LoginAsync(new LoginRequest(_model.Email, _model.Password, _model.RememberMe));
+            if (result.Succeeded)
+            {
+                Navigation.NavigateTo(LoginRedirect.SafeReturnUrl(ReturnUrl), forceLoad: true);
+                return;
+            }
             _message = result.Message;
             _needsConfirmation = result.ErrorCode == "email_not_confirmed";
         }
-        _saving = false;
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            // Network failure or a non-JSON reply: report it instead of crashing the page.
+            _message = UnreachableMessage;
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
     private async Task ResendAsync()
     {
-        var result = await AuthenticationApi.ResendConfirmationAsync(_model.Email);
-        _success = result.Succeeded;
-        _message = result.Message;
+        try
+        {
+            var result = await AuthenticationApi.ResendConfirmationAsync(_model.Email);
+            _success = result.Succeeded;
+            _message = result.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _success = false;
+            _message = UnreachableMessage;
+        }
     }
 
     private sealed class LoginModel

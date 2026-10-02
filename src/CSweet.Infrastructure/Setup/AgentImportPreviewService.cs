@@ -282,6 +282,8 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             if (!CSweet.Agent.SDK.AgentRolePolicyProfiles.All.Contains(rolePolicy.Profile))
                 errors.Add("rolePolicy.profile must name a supported platform policy profile.");
+            if (rolePolicy.BaseType is { } baseType && baseType != CSweet.Agent.SDK.AgentBaseTypes.FromPolicyProfile(rolePolicy.Profile))
+                errors.Add("rolePolicy.baseType must match the behavioral family of rolePolicy.profile.");
             if (rolePolicy.DeclaredRoleKeys.Count == 0 ||
                 rolePolicy.DeclaredRoleKeys.Any(x => !CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(x)) ||
                 rolePolicy.DeclaredRoleKeys.Distinct(StringComparer.Ordinal).Count() != rolePolicy.DeclaredRoleKeys.Count)

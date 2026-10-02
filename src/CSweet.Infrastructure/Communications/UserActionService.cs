@@ -128,7 +128,8 @@ public sealed class UserActionService(
                 cancellationToken);
         }
         if (isHiringWorkflow)
-            await SupersedeEarlierSuggestionsAsync(action, hiringRole, now, cancellationToken);
+            await SupersedeEarlierSuggestionsAsync(action, hiringRole,
+                request.MessageId ?? request.ChatTurnId!.Value, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return ToResponse(action);
     }
@@ -141,6 +142,7 @@ public sealed class UserActionService(
     private async Task SupersedeEarlierSuggestionsAsync(
         SuggestedUserAction replacement,
         string? replacementRole,
+        Guid replacementSourceId,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -152,11 +154,24 @@ public sealed class UserActionService(
                          x.Status == SuggestedUserActionStatuses.Cancelled))
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
+        // A multi-role plan is one batch: every role suggested for the same source message or chat turn
+        // stays actionable. Materialization gives each action its own SystemAction message and clears
+        // ChatTurnId, so the batch is identified by that message's CausationId (the source id), the same
+        // key that groups the carousel.
+        var materializedIds = earlier.Where(x => x.ConversationMessageId.HasValue)
+            .Select(x => x.ConversationMessageId!.Value).ToList();
+        var sourceByMessage = materializedIds.Count == 0
+            ? new Dictionary<Guid, Guid?>()
+            : await db.CoreConversationMessages.AsNoTracking()
+                .Where(x => materializedIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, x => x.CausationId, cancellationToken);
         foreach (var candidate in earlier)
         {
-            if ((replacement.ChatTurnId.HasValue && candidate.ChatTurnId == replacement.ChatTurnId) ||
-                (replacement.ConversationMessageId.HasValue &&
-                 candidate.ConversationMessageId == replacement.ConversationMessageId))
+            var candidateSourceId = candidate.ChatTurnId ??
+                (candidate.ConversationMessageId is { } messageId
+                    ? sourceByMessage.GetValueOrDefault(messageId)
+                    : null);
+            if (candidateSourceId == replacementSourceId)
                 continue;
             candidate.Status = SuggestedUserActionStatuses.Superseded;
             candidate.SupersededAt = now;

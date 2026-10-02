@@ -12,6 +12,23 @@ namespace CSweet.UnitTests;
 public class AgentImportPreviewServiceTests
 {
     [Theory]
+    [InlineData("manager", true)]
+    [InlineData("individual-contributor", false)]
+    public async Task ManagerBaseTypeMustMatchTheDeclaredPolicyInImportedJson(string baseType, bool valid)
+    {
+        await using var db = CreateDbContext();
+        var json = System.Text.Json.Nodes.JsonNode.Parse(ValidManifest())!.AsObject();
+        json["rolePolicy"] = System.Text.Json.Nodes.JsonNode.Parse($$"""{"baseType":"{{baseType}}","profile":"manager.v1","declaredRoleKeys":["manager","product-manager"]}""");
+        var service = new AgentImportPreviewService(db, new FakeGitHubAgentRepositoryClient(json.ToJsonString()), new TestAuditEventWriter());
+        if (valid)
+        {
+            await service.PreviewAsync(new PreviewAgentImportRequest("https://github.com/example/research-agent"));
+            Assert.Contains("manager", (await db.AgentPackageVersions.SingleAsync()).ManifestJson);
+        }
+        else await Assert.ThrowsAsync<AgentImportPreviewException>(() => service.PreviewAsync(new PreviewAgentImportRequest("https://github.com/example/research-agent")));
+    }
+
+    [Theory]
     [InlineData("https://github.com/example/research-agent", "https://github.com/example/research-agent")]
     [InlineData("https://github.com/example/research-agent.git/", "https://github.com/example/research-agent")]
     public void Normalize_AcceptsRepositoryUrls(string input, string expected)

@@ -8,7 +8,7 @@ public sealed class CookieAndAntiforgeryHandler : DelegatingHandler
 
     public CookieAndAntiforgeryHandler(AuthSessionStore session) => _session = session;
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
         if (request.Method != HttpMethod.Get &&
@@ -19,6 +19,8 @@ public sealed class CookieAndAntiforgeryHandler : DelegatingHandler
             request.Headers.TryAddWithoutValidation("X-CSWEET-CSRF", _session.AntiforgeryToken);
         }
 
-        return base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+        if (AuthSessionStore.EndsSession(request, response)) _session.ReportUnauthenticated();
+        return response;
     }
 }

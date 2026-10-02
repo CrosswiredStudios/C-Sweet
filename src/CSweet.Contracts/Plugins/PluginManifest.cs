@@ -66,6 +66,15 @@ public sealed record PluginToolchainAdapterContribution
 
 public sealed record PluginRolePolicy
 {
+    /// <summary>Common behavioral family; job-specific categories stay in DeclaredRoleKeys.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? BaseType { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? EffectiveBaseType => BaseType ?? (Profile switch
+    {
+        "manager.v1" => "manager", "individual-contributor.v1" => "individual-contributor",
+        "independent-reviewer.v1" => "independent-reviewer", "executive-advisor.v1" => "executive-advisor", _ => null
+    });
     /// <summary>Delivery requires an active project, explicit participation and scoped grants. Setup and clarification remain available.</summary>
     public bool RequiresProject { get; init; }
     public string Profile { get; init; } = string.Empty;
