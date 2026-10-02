@@ -365,9 +365,10 @@ public static class WorkBoardEndpoints
             var userId = http.User.GetApplicationUserId();
             if (!userId.HasValue) return Results.Unauthorized();
             try { return Results.Ok(await service.RetryAsync(organizationId, boardId, stageExecutionId, userId.Value, request, cancellationToken)); }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (UnauthorizedAccessException exception) { return Results.Json(new { error = "forbidden", message = exception.Message }, statusCode: StatusCodes.Status403Forbidden); }
             catch (KeyNotFoundException) { return Results.NotFound(); }
             catch (InvalidOperationException exception) { return Results.Conflict(new { error = "orchestration_conflict", message = exception.Message }); }
+            catch (DbUpdateConcurrencyException exception) { return Results.Conflict(new { error = "revision_conflict", message = exception.Message }); }
         });
 
         orchestrationGroup.MapPost("/stages/{stageExecutionId:guid}/manual-completion", async (
@@ -671,7 +672,10 @@ public static class WorkBoardEndpoints
                     organizationId, boardId, itemId, userId.Value, request, cancellationToken);
                 return result is null ? Results.NotFound() : Results.Ok(result);
             }
-            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "forbidden", message = exception.Message }, statusCode: StatusCodes.Status403Forbidden);
+            }
             catch (ArgumentException exception)
             {
                 return Results.BadRequest(new { error = "invalid_move", message = exception.Message });
@@ -679,6 +683,33 @@ public static class WorkBoardEndpoints
             catch (InvalidOperationException exception)
             {
                 return Results.Conflict(new { error = "wip_limit", message = exception.Message });
+            }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "revision_conflict", message = exception.Message });
+            }
+        });
+
+        group.MapPost("/{boardId:guid}/items/{itemId:guid}/retry", async (
+            Guid organizationId, Guid boardId, Guid itemId, RetryBoardWorkItemRequest request,
+            HttpContext http, IWorkBoardService service, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                var result = await service.RetryItemAsync(
+                    organizationId, boardId, itemId, userId.Value, request.ExpectedRevision, cancellationToken);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            // An explicit body: a bare Forbid becomes a cookie redirect and the button would appear to do nothing.
+            catch (UnauthorizedAccessException exception)
+            {
+                return Results.Json(new { error = "forbidden", message = exception.Message }, statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "retry_conflict", message = exception.Message });
             }
             catch (DbUpdateConcurrencyException exception)
             {

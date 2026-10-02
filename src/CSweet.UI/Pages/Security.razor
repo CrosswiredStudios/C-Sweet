@@ -39,6 +39,8 @@
         <MudTextField Label="Search" @bind-Value="_search" Variant="Variant.Outlined"
                       Placeholder="Event, actor, correlation…" Adornment="Adornment.End"
                       AdornmentIcon="@Icons.Material.Outlined.Search" OnKeyDown="OnSearchKeyDown" />
+        <MudSwitch T="bool" Value="_groupModelResponses" ValueChanged="OnGroupModelResponsesChanged" Color="Color.Primary"
+                   Label="Group model response chunks" />
     </div>
 
     @if (_forbidden)
@@ -66,10 +68,10 @@
                 <MudTh>Time</MudTh><MudTh>Activity</MudTh><MudTh>Actor</MudTh><MudTh>Target</MudTh><MudTh>Direction</MudTh><MudTh>Outcome</MudTh><MudTh>Integrity</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Time"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id))">@FormatTime(context.OccurredAt)</button></MudTd>
+                <MudTd DataLabel="Time"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id, _groupModelResponses))">@FormatTime(context.OccurredAt)</button></MudTd>
                 <MudTd DataLabel="Activity">
                     <MudText Typo="Typo.body2"><strong>@ActivityLabel(context)</strong></MudText>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.EventType · @context.Category</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@ActivityMeta(context)</MudText>
                     @if (context.Category == "DocumentAccess" && context.EntityId.HasValue)
                     {
                         @if (context.EventType.Contains(".package.", StringComparison.Ordinal))
@@ -118,10 +120,10 @@
     private static readonly string[] ActorKinds = ["Human", "Agent", "Platform", "Unknown"];
     private readonly List<SecurityEventSummaryResponse> _items = [];
     private string _range = "24h", _category = "", _outcome = "", _actorKind = "", _search = "";
-    private string? _nextCursor, _error; private bool _loading, _loadingMore, _forbidden, _detailOpen, _detailLoading;
+    private string? _nextCursor, _error; private bool _groupModelResponses = true, _loading, _loadingMore, _forbidden, _detailOpen, _detailLoading;
     private SecurityEventDetailResponse? _detail;
 
-    protected override async Task OnParametersSetAsync() { await ReloadAsync(); if (EventId is Guid id) await OpenDetailAsync(id); }
+    protected override async Task OnParametersSetAsync() { await ReloadAsync(); if (EventId is Guid id) await OpenDetailAsync(id, false); }
     private async Task ReloadAsync() { _items.Clear(); _nextCursor = null; await LoadAsync(false); }
     private Task LoadMoreAsync() => LoadAsync(true);
     private async Task LoadAsync(bool append)
@@ -147,18 +149,22 @@
         var from = _range switch { "24h" => DateTimeOffset.UtcNow.AddHours(-24), "7d" => DateTimeOffset.UtcNow.AddDays(-7), "30d" => DateTimeOffset.UtcNow.AddDays(-30), _ => (DateTimeOffset?)null };
         if (from.HasValue) query.Add($"from={Uri.EscapeDataString(from.Value.ToString("O"))}");
         Add(query, "category", _category); Add(query, "outcome", _outcome); Add(query, "actorKind", _actorKind); Add(query, "search", _search); Add(query, "cursor", cursor);
+        query.Add($"groupModelResponses={(_groupModelResponses ? "true" : "false")}");
         return $"api/organizations/{OrganizationId:D}/security/events?{string.Join('&', query)}";
     }
     private static void Add(List<string> query, string key, string? value) { if (!string.IsNullOrWhiteSpace(value)) query.Add($"{key}={Uri.EscapeDataString(value.Trim())}"); }
-    private async Task OpenDetailAsync(Guid id) { _detailOpen = true; _detailLoading = true; _detail = null; try { _detail = await Http.GetFromJsonAsync<SecurityEventDetailResponse>($"api/organizations/{OrganizationId:D}/security/events/{id:D}"); } finally { _detailLoading = false; } }
+    private async Task OpenDetailAsync(Guid id, bool groupModelResponse) { _detailOpen = true; _detailLoading = true; _detail = null; try { _detail = await Http.GetFromJsonAsync<SecurityEventDetailResponse>($"api/organizations/{OrganizationId:D}/security/events/{id:D}?groupModelResponse={(groupModelResponse ? "true" : "false")}"); } finally { _detailLoading = false; } }
     private Task OnRangeChanged(string value) { _range = value; return ReloadAsync(); }
     private Task OnCategoryChanged(string value) { _category = value; return ReloadAsync(); }
     private Task OnOutcomeChanged(string value) { _outcome = value; return ReloadAsync(); }
     private Task OnActorChanged(string value) { _actorKind = value; return ReloadAsync(); }
+    private Task OnGroupModelResponsesChanged(bool value) { _groupModelResponses = value; return ReloadAsync(); }
     private async Task OnSearchKeyDown(KeyboardEventArgs args) { if (args.Key == "Enter") await ReloadAsync(); }
     private static string FormatTime(DateTimeOffset value) => value.ToLocalTime().ToString("g");
     private static string ActivityLabel(SecurityEventSummaryResponse value) =>
         string.IsNullOrWhiteSpace(value.Summary) ? value.EventType : value.Summary;
+    private static string ActivityMeta(SecurityEventSummaryResponse value) =>
+        value.ModelResponseChunkCount is int chunks ? $"{value.EventType} · {value.Category} · {chunks} chunk{(chunks == 1 ? "" : "s")}" : $"{value.EventType} · {value.Category}";
     private static string ActorLabel(SecurityEventDetailResponse value) => value.ActorDisplayName ?? value.ActorAgentId ?? value.ActorApplicationUserId?.ToString("D") ?? value.ActorKind;
     private static string Value(object? value) => value?.ToString() ?? "—";
     private static Color OutcomeColor(string value) => value is "Denied" or "Rejected" or "Failed" or "Dropped" ? Color.Error : value is "Received" or "Authorized" ? Color.Info : Color.Success;

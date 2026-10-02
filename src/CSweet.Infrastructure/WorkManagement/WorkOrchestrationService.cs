@@ -1,8 +1,10 @@
 using System.Data;
 using System.Text.Json;
+using CSweet.Application.Security;
 using CSweet.Application.WorkManagement;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
@@ -13,7 +15,8 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed class WorkOrchestrationService(
     CSweetDbContext db,
-    TimeProvider timeProvider) : IWorkOrchestrationService
+    TimeProvider timeProvider,
+    IScopedActionAuthorizationService? authorization = null) : IWorkOrchestrationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -298,9 +301,13 @@ public sealed class WorkOrchestrationService(
             WorkOrchestrationPrincipalKind.Human => stage.OrganizationUserId == member.Id,
             _ => false
         };
-        if (!isManager && !isAssigned)
+        // A person holding the board's retry grant (the CEO, or whoever runs the board) may restart blocked
+        // work as well. Agents stay limited to their own stage or the board they manage.
+        var isGrantedPerson = !isManager && !isAssigned && member.EmployeeType == EmployeeType.Human &&
+            await HoldsBoardGrantAsync(organizationId, member, WorkOrchestrationActions.Retry, boardId, cancellationToken);
+        if (!isManager && !isAssigned && !isGrantedPerson)
             throw new UnauthorizedAccessException(
-                "Only the exact stage assignee or accountable board manager may request a retry.");
+                "Only the stage assignee, the board manager, or a person with the board's retry grant may request a retry.");
         var replay = await db.WorkOrchestrationEvents.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.EventType == "stage.retry.requested" &&
             x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
@@ -313,14 +320,13 @@ public sealed class WorkOrchestrationService(
         }
         var workItem = stage.ItemExecution!.WorkItem!;
         if (workItem.AssignmentRevision != request.ExpectedRevision)
-            throw new DbUpdateConcurrencyException("The work assignment changed since the blocker was observed.");
+            throw new DbUpdateConcurrencyException(
+                "The ticket's assignment changed since this blocker was shown. Refresh the board and retry.");
         if (stage.Status is not (WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed))
             throw new InvalidOperationException("Only blocked or failed stages may be retried.");
-        var policyStage = await db.WorkOrchestrationStages.AsNoTracking().SingleAsync(x =>
-            x.PolicyRevisionId == stage.ItemExecution.SprintExecution!.PolicyRevisionId &&
-            x.Key == stage.StageKey, cancellationToken);
-        if (stage.Attempts.Count >= policyStage.MaximumAttempts)
-            throw new InvalidOperationException("The stage attempt budget is exhausted.");
+        // The attempt budget bounds automatic retries. A person asking for a retry has made the decision the
+        // budget was waiting for, so every manual retry grants one further attempt; if that attempt fails the
+        // stage stops again and waits for the next decision.
         if (board.TeamId is { } teamId)
         {
             // Retry authority follows the actual board/stage assignment, not display role names.
@@ -328,19 +334,79 @@ public sealed class WorkOrchestrationService(
             if (!await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
                     x.Id == teamId && x.OrganizationId == organizationId && x.ArchivedAt == null, cancellationToken))
                 throw new InvalidOperationException("An archived or missing team cannot retry work.");
-            if (!isManager && !await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
+            // The assignee must still be on the team. When the assignee asks, that is the caller; when a person
+            // with the board's retry grant asks (the CEO is usually not a team member), it is the stage's assignee.
+            var assigneeId = isAssigned ? member.Id : stage.PrincipalKind switch
+            {
+                WorkOrchestrationPrincipalKind.AgentInstallation => await db.CoreOrganizationUsers.AsNoTracking()
+                    .Where(x => x.OrganizationId == organizationId && x.AgentInstallationId == stage.AgentInstallationId && x.IsActive)
+                    .Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken),
+                WorkOrchestrationPrincipalKind.Human => stage.OrganizationUserId,
+                _ => null
+            };
+            if (!isManager && assigneeId is not null && !await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
                     x.TeamId == teamId && x.OrganizationId == organizationId &&
-                    x.OrganizationUserId == member.Id && x.EndedAt == null, cancellationToken))
-                throw new UnauthorizedAccessException("The stage assignee is no longer an active member of the board team.");
+                    x.OrganizationUserId == assigneeId && x.EndedAt == null, cancellationToken))
+                throw new UnauthorizedAccessException(
+                    "The stage assignee is no longer an active member of the board team. Reassign the ticket, then retry.");
         }
         var now = timeProvider.GetUtcNow();
         stage.Status = WorkStageExecutionStatus.Pending; stage.LastError = null; stage.RetryAt = now; stage.UpdatedAt = now;
         stage.ItemExecution!.Status = WorkItemExecutionStatus.Pending;
         stage.ItemExecution.BlockedReason = null; stage.ItemExecution.UpdatedAt = now;
+        // The card leaves Blocked with the retry so the board matches what the orchestrator does next.
+        workItem.Status = WorkTaskStatus.Ready; workItem.BlockReason = null;
+        workItem.ClaimEventId = null; workItem.ClaimExpiresAt = null; workItem.NextReviewAt = null;
+        workItem.WaitingReason = null; workItem.WaitingOnOrganizationUserId = null;
+        workItem.UpdatedAt = now; workItem.Revision++;
+        var execution = stage.ItemExecution.SprintExecution!;
+        var policy = await db.WorkOrchestrationPolicyRevisions.AsNoTracking()
+            .Include(x => x.Stages).Include(x => x.Transitions)
+            .SingleOrDefaultAsync(x => x.Id == execution.PolicyRevisionId, cancellationToken);
+        if (policy is not null) WorkOrchestrationBoardState.SynchronizeAgentCard(policy, stage, now);
+        if (await db.WorkBoardColumns.AnyAsync(x => x.Id == workItem.BoardColumnId &&
+                x.Category == WorkBoardColumnCategory.Blocked, cancellationToken))
+            workItem.BoardColumnId = policy?.Stages.SingleOrDefault(x => x.Key == stage.StageKey)?.ColumnId
+                ?? await db.WorkBoardColumns.Where(x => x.BoardId == boardId && x.Category == WorkBoardColumnCategory.ToDo)
+                    .OrderByDescending(x => x.Position).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken)
+                ?? workItem.BoardColumnId;
         AddEvent(organizationId, boardId, stage.ItemExecution.SprintExecutionId, stage.ItemExecutionId, stage.Id, null,
             "stage.retry.requested", new { member.Id, request.Reason, request.IdempotencyKey }, request.IdempotencyKey);
-        await db.SaveChangesAsync(cancellationToken);
+        await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, cancellationToken);
         return ToResponse(stage);
+    }
+
+    public async Task<Shared.WorkStageExecutionResponse?> RetryItemAsync(
+        Guid organizationId, Guid boardId, Guid workItemId, Guid applicationUserId,
+        WorkOrchestrationControlRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        // A ticket's retry targets the stage it is stopped at; the caller sees only the card and its revision.
+        var item = await db.WorkItemExecutions.AsNoTracking()
+            .Include(x => x.WorkItem).Include(x => x.Stages)
+            .Where(x => x.WorkItemId == workItemId &&
+                x.SprintExecution!.OrganizationId == organizationId && x.SprintExecution.BoardId == boardId &&
+                (x.SprintExecution.Status == WorkSprintExecutionStatus.Active ||
+                 x.SprintExecution.Status == WorkSprintExecutionStatus.Paused))
+            .OrderByDescending(x => x.UpdatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (item?.WorkItem is null || item.Stages.Count == 0) return null;
+        if (item.WorkItem.Revision != request.ExpectedRevision)
+            throw new DbUpdateConcurrencyException("The ticket changed since it was loaded. Refresh the board and retry.");
+        var stage = item.Stages.OrderByDescending(x => x.CreatedAt).First();
+        if (stage.Status is not (WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed))
+            throw new InvalidOperationException("This ticket is not blocked, so there is nothing to retry.");
+        return await RetryAsync(organizationId, boardId, stage.Id, applicationUserId,
+            request with { ExpectedRevision = item.WorkItem.AssignmentRevision }, cancellationToken);
+    }
+
+    private async Task<bool> HoldsBoardGrantAsync(
+        Guid organizationId, OrganizationUser member, string action, Guid boardId, CancellationToken cancellationToken)
+    {
+        if (authorization is null) return false;
+        var decision = await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.OrganizationUser,
+            member.Id, action, GrantScopeKind.Board, boardId, cancellationToken);
+        return decision.Allowed;
     }
 
     public async Task<Shared.WorkStageExecutionResponse> CompleteManualAsync(
@@ -824,7 +890,11 @@ public sealed class WorkOrchestrationService(
         stage.Id, stage.StageKey, stage.StageType.ToString(), stage.Traversal, stage.Status.ToString(),
         stage.PrincipalKind.ToString(), stage.OrganizationUserId, stage.AgentInstallationId,
         stage.PlatformAction, stage.Attempts.Count, stage.LastOutcomeCode, stage.LastSummary,
-        stage.LastError, stage.RetryAt, stage.UpdatedAt);
+        stage.LastError, stage.RetryAt, stage.UpdatedAt)
+    {
+        // Retry requests echo the ticket's assignment revision, so the client must be able to read it.
+        AssignmentRevision = stage.ItemExecution?.WorkItem?.AssignmentRevision ?? 0
+    };
 
     private void AddEvent(
         Guid organizationId, Guid boardId, Guid sprintExecutionId,

@@ -50,6 +50,11 @@ public static class WorkBoardWorkspacePresentation
         return item.Status == "Blocked" ? "Work is blocked" : null;
     }
 
+    /// <summary>A blocked or failed ticket can be returned to work by anyone allowed to move it or retry stages.</summary>
+    public static bool CanRetry(WorkBoardItemResponse item, IReadOnlyCollection<string> allowedActions) =>
+        item.Status is "Blocked" or "Failed" &&
+        (allowedActions.Contains(WorkItemActions.Move) || allowedActions.Contains(WorkOrchestrationActions.Retry));
+
     public static bool Matches(WorkBoardItemResponse item, string? search) =>
         WorkBoardPresentation.Matches(item, search) ||
         (!string.IsNullOrWhiteSpace(search) && item.AssignedDisplayName?.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) == true);

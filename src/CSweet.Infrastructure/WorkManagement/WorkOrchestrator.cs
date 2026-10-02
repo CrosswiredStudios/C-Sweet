@@ -86,6 +86,7 @@ public sealed partial class WorkOrchestrator(
         // Repair cards placed in execution columns by older scheduler versions as well.
         foreach (var item in execution.Items)
             WorkOrchestrationBoardState.SynchronizeAgentCard(policy, item.Stages.OrderByDescending(x => x.CreatedAt).First(), now);
+        await WorkOrchestrationBoardState.ParkBlockedCardsAsync(db, execution, now, cancellationToken);
 
         if (execution.Items.All(x => x.Status is WorkItemExecutionStatus.Completed or WorkItemExecutionStatus.Cancelled))
         {
@@ -126,8 +127,16 @@ public sealed partial class WorkOrchestrator(
             .ThenBy(stage => stage.ItemExecution!.WorkItem!.CreatedAt)
             .ThenBy(stage => stage.ItemExecution!.ItemIdentifier, StringComparer.Ordinal)
             .ToList();
+        var blockers = await ProjectAssignmentBlockersAsync(execution, candidates, cancellationToken);
         foreach (var stage in candidates)
         {
+            if (blockers.TryGetValue(stage.Id, out var blocker))
+            {
+                // Park it with the reason; WakeDecisionMakersAsync wakes the board manager for it below.
+                Block(stage, blocker, now);
+                AddEvent(execution, stage.ItemExecutionId, stage.Id, null, "stage.dispatch.blocked", new { reason = blocker });
+                continue;
+            }
             if (!await HasCapacityAsync(execution, policy, stage, cancellationToken)) continue;
             await DispatchAsync(execution, policy, stage, now, cancellationToken);
         }
@@ -144,6 +153,40 @@ public sealed partial class WorkOrchestrator(
                          s.StageKey.Contains("quality", StringComparison.OrdinalIgnoreCase))))
             await InvalidateArchitectsAsync(
                 execution, "work.qa-rework-repeated", item.Id, cancellationToken);
+        await WakeDecisionMakersAsync(execution, now, cancellationToken);
+    }
+
+    /// <summary>
+    /// Work that just stopped on an agent's decision wakes that agent now instead of waiting for its next
+    /// periodic attention review (five minutes by default), so a finished ticket reaches review, and the
+    /// tickets that depend on it reach their owners, without idle gaps. A new manager-approval stage wakes its
+    /// approver; a stage that became Blocked or Failed wakes the board manager, who decides how to proceed.
+    /// </summary>
+    private async Task WakeDecisionMakersAsync(
+        WorkSprintExecution execution, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var stages = execution.Items.SelectMany(x => x.Stages).ToList();
+        var approvers = stages.Where(x => x.CreatedAt == now &&
+                x.StageType == WorkOrchestrationStageType.ManagerApproval && x.OrganizationUserId.HasValue)
+            .Select(x => (UserId: x.OrganizationUserId!.Value, StageId: x.Id)).ToList();
+        var stopped = stages.Where(x => x.UpdatedAt == now &&
+            x.Status is WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed).Select(x => x.Id).ToList();
+        if (approvers.Count == 0 && stopped.Count == 0) return;
+        var managerId = stopped.Count == 0 ? null : await db.WorkBoards.AsNoTracking()
+            .Where(x => x.Id == execution.BoardId && x.OrganizationId == execution.OrganizationId)
+            .Select(x => x.ManagerOrganizationUserId).SingleOrDefaultAsync(cancellationToken);
+        var wakes = approvers.Select(x => (x.UserId, Category: "work.approval-requested", Correlation: x.StageId))
+            .Concat(managerId is { } manager
+                ? stopped.Select(id => (UserId: manager, Category: "work.stage-stopped", Correlation: id))
+                : []).ToList();
+        var userIds = wakes.Select(x => x.UserId).Distinct().ToList();
+        var installations = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => userIds.Contains(x.Id) && x.OrganizationId == execution.OrganizationId &&
+                x.IsActive && x.AgentInstallationId != null)
+            .ToDictionaryAsync(x => x.Id, x => x.AgentInstallationId!.Value, cancellationToken);
+        foreach (var wake in wakes.Where(x => installations.ContainsKey(x.UserId))
+                     .DistinctBy(x => (x.UserId, x.Category)))
+            await attention.InvalidateAsync([installations[wake.UserId]], wake.Category, wake.Correlation, cancellationToken);
     }
 
     private async Task InvalidateArchitectsAsync(

@@ -42,6 +42,15 @@ public interface IWorkOrchestrationService
         WorkOrchestrationControlRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Retries the stage a blocked or failed sprint ticket is stopped at. <c>ExpectedRevision</c> is the ticket's
+    /// revision. Returns null when the ticket is not part of a running sprint.
+    /// </summary>
+    Task<WorkStageExecutionResponse?> RetryItemAsync(
+        Guid organizationId, Guid boardId, Guid workItemId, Guid applicationUserId,
+        WorkOrchestrationControlRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<WorkStageExecutionResponse> CompleteManualAsync(
         Guid organizationId, Guid boardId, Guid stageExecutionId, Guid applicationUserId,
         CompleteManualWorkStageRequest request,

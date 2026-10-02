@@ -18,31 +18,33 @@ public static class SecurityAuditEndpoints
         group.MapGet("", async (
             Guid organizationId, string? cursor, int? limit, DateTimeOffset? from, DateTimeOffset? to,
             string? category, string? direction, string? outcome, string? actorKind, string? search,
-            HttpContext http, CSweetDbContext db, IAuditEventWriter audit,
+            bool? groupModelResponses, HttpContext http, CSweetDbContext db, IAuditEventWriter audit,
             ISecurityAuditService service, CancellationToken cancellationToken) =>
         {
             var access = await AuthorizeAsync(organizationId, http, db, cancellationToken);
             if (!await RecordAccessAsync(audit, organizationId, access, "security.timeline.viewed",
-                    access.Allowed ? "Accepted" : "Denied", new { cursor, limit, from, to, category, direction, outcome, actorKind, search }, cancellationToken))
+                    access.Allowed ? "Accepted" : "Denied", new { cursor, limit, from, to, category, direction, outcome, actorKind, search, groupModelResponses }, cancellationToken))
                 return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
             if (!access.Authenticated) return Results.Unauthorized();
             if (!access.Allowed) return Results.Forbid();
             return Results.Ok(await service.BrowseAsync(organizationId,
-                new SecurityEventQuery(cursor, limit ?? 50, from, to, category, direction, outcome, actorKind, search),
+                new SecurityEventQuery(cursor, limit ?? 50, from, to, category, direction, outcome, actorKind, search,
+                    GroupModelResponses: groupModelResponses ?? true),
                 cancellationToken));
         });
 
         group.MapGet("/{eventId:guid}", async (
-            Guid organizationId, Guid eventId, HttpContext http, CSweetDbContext db,
+            Guid organizationId, Guid eventId, bool? groupModelResponse, HttpContext http, CSweetDbContext db,
             IAuditEventWriter audit, ISecurityAuditService service, CancellationToken cancellationToken) =>
         {
             var access = await AuthorizeAsync(organizationId, http, db, cancellationToken);
             if (!await RecordAccessAsync(audit, organizationId, access, "security.event.viewed",
-                    access.Allowed ? "Accepted" : "Denied", new { eventId }, cancellationToken))
+                    access.Allowed ? "Accepted" : "Denied", new { eventId, groupModelResponse }, cancellationToken))
                 return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
             if (!access.Authenticated) return Results.Unauthorized();
             if (!access.Allowed) return Results.Forbid();
-            var item = await service.GetAsync(organizationId, eventId, cancellationToken);
+            var item = await service.GetAsync(organizationId, eventId, cancellationToken,
+                groupModelResponse: groupModelResponse ?? false);
             return item is null ? Results.NotFound() : Results.Ok(item);
         });
 

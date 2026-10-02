@@ -297,8 +297,10 @@ public static class AgentTicketFeedback
         if (!added) return root.BlockReason?.StartsWith(RepeatedIssuePrefix, StringComparison.Ordinal) == true;
         if (repeated)
         {
-            var blockedColumn = await db.WorkBoardColumns.Where(x => x.BoardId == root.BoardId &&
-                x.Category == WorkBoardColumnCategory.Blocked).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+            // A blocked ticket must look blocked; boards created without a Blocked column get one now.
+            Guid? blockedColumn = root.BoardId is { } blockedBoardId
+                ? (await WorkBoardBlockedColumn.EnsureAsync(db, blockedBoardId, now, ct)).Id
+                : null;
             foreach (var ticket in tickets)
             {
                 ticket.Status = WorkTaskStatus.Blocked;

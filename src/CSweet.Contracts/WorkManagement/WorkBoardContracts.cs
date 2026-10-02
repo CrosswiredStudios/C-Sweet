@@ -277,6 +277,9 @@ public sealed record MoveBoardWorkItemRequest(
     Guid? BeforeItemId,
     long ExpectedRevision);
 
+/// <summary>Returns a blocked or failed ticket to work. <c>ExpectedRevision</c> is the ticket's revision.</summary>
+public sealed record RetryBoardWorkItemRequest(long ExpectedRevision);
+
 public sealed record WorkBoardGrantResponse(
     Guid Id,
     string SubjectKind,

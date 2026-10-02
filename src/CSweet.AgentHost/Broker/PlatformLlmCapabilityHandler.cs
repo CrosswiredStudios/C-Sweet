@@ -48,7 +48,10 @@ public sealed class PlatformLlmCapabilityHandler
         _mediaAssets = mediaAssets;
         _logger = logger;
         _options = jobOptions ?? new PlatformLlmJobOptions();
-        _generationTimeout = TimeSpan.FromSeconds(_options.GenerationTimeoutSeconds);
+        // Zero means no generation time limit (see PlatformLlmJobOptions.GenerationTimeoutSeconds).
+        _generationTimeout = _options.GenerationTimeoutSeconds > 0
+            ? TimeSpan.FromSeconds(_options.GenerationTimeoutSeconds)
+            : Timeout.InfiniteTimeSpan;
         _jobs = jobs;
     }
 

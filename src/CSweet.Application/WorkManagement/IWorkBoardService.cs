@@ -69,4 +69,13 @@ public interface IWorkBoardService
         Guid applicationUserId,
         MoveBoardWorkItemRequest request,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a blocked or failed ticket to work: equivalent to moving it to the board's ready column.</summary>
+    Task<WorkBoardItemResponse?> RetryItemAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid applicationUserId,
+        long expectedRevision,
+        CancellationToken cancellationToken = default);
 }

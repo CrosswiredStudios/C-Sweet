@@ -17,7 +17,12 @@ public sealed class PlatformLlmJobOptions
     public const string SectionName = "CSweet:Llm:Queue";
     public int MaximumConcurrentRequests { get; set; } = 1;
     public int MaximumQueuedRequests { get; set; } = 256;
-    public int GenerationTimeoutSeconds { get; set; } = 900;
+    /// <summary>
+    /// Optional wall-clock cap on a single generation. Zero (the default) means no limit: long generations,
+    /// such as large outputs from local models, are legitimate. Liveness comes from the caller instead: an
+    /// unpolled request is cancelled after 60 seconds, and work leases, user cancellation and shutdown still apply.
+    /// </summary>
+    public int GenerationTimeoutSeconds { get; set; }
     /// <summary>Maximum serialized inference bytes; zero disables this limit.</summary>
     public int MaximumRequestBytes { get; set; }
     public int MaximumMessageCount { get; set; } = 512;
@@ -182,7 +187,8 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             using var permit = await AcquireProviderAsync(job.Provider, token);
             await AccountWaitAsync(job, token);
             await SetStateAsync(job, "Generating", token);
-            cancellation.CancelAfter(TimeSpan.FromSeconds(options.GenerationTimeoutSeconds));
+            if (options.GenerationTimeoutSeconds > 0)
+                cancellation.CancelAfter(TimeSpan.FromSeconds(options.GenerationTimeoutSeconds));
             await using var scope = scopes.CreateAsyncScope();
             var handler = scope.ServiceProvider.GetRequiredService<IPlatformLlmJobExecutor>();
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
@@ -313,9 +319,39 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         catch (Exception exception) { logger.LogWarning(exception, "Could not persist inference status for {JobId}.", job.Id); }
     }
 
+    // Jobs live in memory. Rows left open by a previous AgentHost process (crash or restart) can never
+    // complete, and activity views would show them as phantom "waiting for model capacity" work. The
+    // owning agent work recovers through its durable lease, so the stale rows are only closed here.
+    private async Task CloseOrphanedJobsAsync(CancellationToken token)
+    {
+        try
+        {
+            var startedAt = clock.GetUtcNow();
+            await using var scope = scopes.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var open = await db.AgentRunLogs.Where(x => x.InvocationKind == "llm-queue" &&
+                x.CompletedAt == null && x.StartedAt < startedAt).ToListAsync(token);
+            var orphans = open.Where(x => !jobs.ContainsKey(x.Id)).ToList();
+            if (orphans.Count == 0) return;
+            foreach (var row in orphans)
+            {
+                row.Status = "Cancelled";
+                row.FailureMessage ??= "AgentHost restarted before this inference finished; the owning work retries through its durable lease.";
+                row.CompletedAt = startedAt;
+            }
+            await db.SaveChangesAsync(token);
+            logger.LogInformation("Closed {Count} inference job record(s) orphaned by a previous AgentHost process.", orphans.Count);
+        }
+        catch (Exception exception) when (!token.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Could not close inference job records orphaned by a previous AgentHost process.");
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         shutdown = stoppingToken;
+        await CloseOrphanedJobsAsync(stoppingToken);
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5), clock);
         try
         {

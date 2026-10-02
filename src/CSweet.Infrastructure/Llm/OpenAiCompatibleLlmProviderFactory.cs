@@ -31,8 +31,12 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         _secretStore = secretStore;
         _logger = logger;
         _configuration = configuration;
-        _networkTimeout = TimeSpan.FromSeconds(Math.Clamp(
-            configuration?.GetValue<int?>("CSweet:Llm:Queue:GenerationTimeoutSeconds") ?? 900, 1, 86400));
+        // The provider connection never imposes its own generation limit; a configured positive
+        // CSweet:Llm:Queue:GenerationTimeoutSeconds is the only optional cap.
+        var generationTimeoutSeconds = configuration?.GetValue<int?>("CSweet:Llm:Queue:GenerationTimeoutSeconds") ?? 0;
+        _networkTimeout = generationTimeoutSeconds > 0
+            ? TimeSpan.FromSeconds(Math.Min(generationTimeoutSeconds, 86400))
+            : Timeout.InfiniteTimeSpan;
     }
 
     public async Task<IChatClient> CreateChatClientAsync(

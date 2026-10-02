@@ -37,6 +37,7 @@ Read these files in order:
 ## Feature plans
 
 - [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - null work-context
+- [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them
   crash in health capture, and the next-step/escalation convention for waiting agents.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.

@@ -178,6 +178,7 @@
                                     @if (_view == WorkBoardView.All && Sprints.FirstOrDefault(x => x.Id == item.SprintId) is { } sprint) { <span class="ticket-sprint">@sprint.Name</span> }
                                     @if (Attention(item) is { } attention) { <span class="ticket-attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@attention</span> }
                                 </button>
+                                @if (CanRetry(item)) { <button type="button" class="ticket-retry" disabled="@Busy" @onclick="@(() => OnRetryItem.InvokeAsync(item))" aria-label="Retry @item.Identifier"><MudIcon Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" />Retry</button> }
                                 @if (CanDrag(item)) { <button type="button" class="ticket-drag" draggable="true" @ondragstart="@(() => _draggedItem = item)" @ondragend="EndDrag" aria-label="Drag @item.Identifier; open item for Move or assign actions"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button> }
                             </article>
                         }
@@ -208,6 +209,8 @@
     [Parameter] public EventCallback OnManageSprints { get; set; }
     [Parameter] public EventCallback<WorkSprintResponse> OnExecution { get; set; }
     [Parameter] public EventCallback<WorkBoardItemResponse> OnOpenItem { get; set; }
+    /// <summary>Returns a blocked ticket to work (the same as moving it to Ready).</summary>
+    [Parameter] public EventCallback<WorkBoardItemResponse> OnRetryItem { get; set; }
     [Parameter] public EventCallback<WorkBoardDropRequest> OnDrop { get; set; }
 
     private WorkBoardView _view = WorkBoardView.Sprint;
@@ -302,6 +305,8 @@
         var days = (sprint.EndsAt.Value.ToLocalTime().Date - DateTimeOffset.Now.Date).Days;
         return $"{dates} · {(days < 0 ? $"{Math.Abs(days)} days overdue" : days == 0 ? "Ends today" : $"{days} days remaining")}";
     }
+    private bool CanRetry(WorkBoardItemResponse item) => OnRetryItem.HasDelegate && !Detail.Board.IsArchived &&
+        Present.CanRetry(item, Detail.Board.AllowedActions);
     private bool CanDrag(WorkBoardItemResponse item) => !Busy && Detail.Columns.Any(column => WorkBoardPresentation.CanMove(Detail, item, column));
     private void EndDrag() { _draggedItem = null; _dropTarget = null; }
     private async Task DropAsync(WorkBoardColumnResponse column, Guid? beforeId)

@@ -46,6 +46,13 @@ public sealed class PlatformLlmQueueTests
     }
 
     [Fact]
+    public void GenerationHasNoTimeLimitByDefault()
+    {
+        // Long generations (for example local models producing large documents) are legitimate.
+        Assert.Equal(0, new PlatformLlmJobOptions().GenerationTimeoutSeconds);
+    }
+
+    [Fact]
     public async Task GenerationTimeoutPersistsFailureAndReleasesProviderForQueuedWork()
     {
         await using var fixture = await Fixture.CreateAsync(new() { GenerationTimeoutSeconds = 1 });

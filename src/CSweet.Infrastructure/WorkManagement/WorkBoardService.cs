@@ -17,7 +17,8 @@ namespace CSweet.Infrastructure.WorkManagement;
 public sealed partial class WorkBoardService(
     CSweetDbContext db,
     IScopedActionAuthorizationService authorization,
-    IAuditEventWriter audit) : IWorkBoardService
+    IAuditEventWriter audit,
+    IWorkOrchestrationService? orchestration = null) : IWorkBoardService
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
@@ -560,6 +561,29 @@ public sealed partial class WorkBoardService(
         return (await ResolveCardOwnersAsync(organizationId, boardId, [ToItemResponse(item)], cancellationToken))[0];
     }
 
+    public async Task<WorkBoardItemResponse?> RetryItemAsync(
+        Guid organizationId,
+        Guid boardId,
+        Guid itemId,
+        Guid applicationUserId,
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        // Retry is "move the blocked card back to Ready": sprint cards retry their stopped stage, other cards
+        // return to the board's ready column with their blocker cleared.
+        var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId, cancellationToken);
+        if (item is null) return null;
+        if (item.Status is not (WorkTaskStatus.Blocked or WorkTaskStatus.Failed))
+            throw new InvalidOperationException("This ticket is not blocked, so there is nothing to retry.");
+        var ready = await db.WorkBoardColumns.AsNoTracking()
+            .Where(x => x.BoardId == boardId && x.Category == WorkBoardColumnCategory.ToDo)
+            .OrderByDescending(x => x.Position).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("This board has no ready column to return the ticket to.");
+        return await MoveItemAsync(organizationId, boardId, itemId, applicationUserId,
+            new MoveBoardWorkItemRequest(ready, null, expectedRevision), cancellationToken);
+    }
+
     public async Task<WorkBoardItemResponse?> MoveItemAsync(
         Guid organizationId,
         Guid boardId,
@@ -584,8 +608,23 @@ public sealed partial class WorkBoardService(
                 (x.SprintExecution!.Status == WorkSprintExecutionStatus.Active ||
                  x.SprintExecution.Status == WorkSprintExecutionStatus.Paused),
                 cancellationToken))
+        {
+            // Moving a blocked sprint card back to a ready or working column is how a person says
+            // "try again": the orchestrator retries the stage the ticket stopped at.
+            var retryTarget = await db.WorkBoardColumns.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == request.TargetColumnId && x.BoardId == boardId, cancellationToken);
+            if (orchestration is not null &&
+                item.Status is WorkTaskStatus.Blocked or WorkTaskStatus.Failed &&
+                retryTarget?.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress)
+            {
+                await orchestration.RetryItemAsync(organizationId, boardId, itemId, applicationUserId,
+                    new WorkOrchestrationControlRequest(request.ExpectedRevision,
+                        $"board-move:{itemId:N}:{item.Revision}"), cancellationToken);
+                return (await ResolveCardOwnersAsync(organizationId, boardId, [ToItemResponse(item)], cancellationToken))[0];
+            }
             throw new InvalidOperationException(
-                "Automated sprint cards are transitioned only by the work orchestrator.");
+                "Sprint cards are moved by the work orchestrator. To retry a blocked card, move it to a ready column or use Retry.");
+        }
 
         var target = await db.WorkBoardColumns.SingleOrDefaultAsync(x =>
             x.Id == request.TargetColumnId && x.BoardId == boardId, cancellationToken)
@@ -622,9 +661,16 @@ public sealed partial class WorkBoardService(
             .OrderBy(x => x.BoardRank)
             .ToListAsync(cancellationToken);
         var sourceColumnId = item.BoardColumnId;
+        var wasStopped = item.Status is WorkTaskStatus.Blocked or WorkTaskStatus.Failed;
         item.BoardRank = RankBefore(targetItems, request.BeforeItemId);
         item.BoardColumnId = target.Id;
         item.Status = StatusFor(target.Category);
+        if (wasStopped && target.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress)
+        {
+            // Leaving Blocked clears the blocker so the owner treats the ticket as fresh, claimable work.
+            item.BlockReason = null; item.ClaimEventId = null; item.ClaimExpiresAt = null;
+            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingOnOrganizationUserId = null;
+        }
         item.Revision++;
         item.UpdatedAt = DateTimeOffset.UtcNow;
         AddActivity(
@@ -713,6 +759,7 @@ public sealed partial class WorkBoardService(
         WorkBoardColumnCategory.InProgress => WorkTaskStatus.Running,
         WorkBoardColumnCategory.Done => WorkTaskStatus.Completed,
         WorkBoardColumnCategory.Cancelled => WorkTaskStatus.Cancelled,
+        WorkBoardColumnCategory.Blocked => WorkTaskStatus.Blocked,
         _ => WorkTaskStatus.Ready
     };
 

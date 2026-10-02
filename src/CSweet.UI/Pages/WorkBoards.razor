@@ -271,7 +271,7 @@
                             OnAddTickets="OpenSprintScopeAsync" OnStartSprint="StartOrchestratedSprintAsync"
                             OnFavorite="@(() => SetFavoriteAsync(_detail.Board))" OnRefresh="RefreshBoardViewAsync"
                             OnCreate="OpenItemCreator" OnManageSprints="@(() => _sprintsOpen = true)"
-                            OnExecution="OpenExecutionAsync" OnOpenItem="OpenItemDetailsAsync"
+                            OnExecution="OpenExecutionAsync" OnOpenItem="OpenItemDetailsAsync" OnRetryItem="RetryItemAsync"
                             OnDrop="@((WorkBoardDropRequest request) => MoveItemAsync(request.Item, request.Column, request.BeforeItemId))">
             <BoardActions>
                 <MudMenu Icon="@Icons.Material.Outlined.MoreVert" AriaLabel="Board settings">
@@ -361,6 +361,20 @@
     <div class="work-item-drawer-content">
         @if (_detailItem is { } detailItem)
         {
+            @if (detailItem.Status is "Blocked" or "Failed")
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.body2">This ticket is blocked and waiting for a decision. Check its comments, then retry it to send it back to Ready.</MudText>
+                        @if (_detail is not null && WorkBoardWorkspacePresentation.CanRetry(detailItem, _detail.Board.AllowedActions))
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="_retryPending"
+                                       StartIcon="@Icons.Material.Outlined.Replay" OnClick="@(() => RetryItemAsync(detailItem))">Retry</MudButton>
+                        }
+                    </MudStack>
+                    @if (!string.IsNullOrWhiteSpace(_retryError)) { <MudText Typo="Typo.caption" Color="Color.Error">@_retryError</MudText> }
+                </MudAlert>
+            }
             <div class="ticket-detail-grid">
                 <section>
                     <MudText Typo="Typo.overline">@TypeLabel(detailItem) · planning revision @detailItem.PlanningRevision</MudText>
@@ -2152,9 +2166,19 @@
     private static async Task<string> ApiErrorAsync(HttpResponseMessage response)
     {
         var body = await response.Content.ReadAsStringAsync();
-        return string.IsNullOrWhiteSpace(body)
-            ? $"The server returned HTTP {(int)response.StatusCode}."
-            : body;
+        if (string.IsNullOrWhiteSpace(body)) return $"The server returned HTTP {(int)response.StatusCode}.";
+        try
+        {
+            // Show the server's sentence rather than its JSON envelope.
+            using var document = JsonDocument.Parse(body);
+            foreach (var name in new[] { "message", "detail", "title" })
+                if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                    document.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(value.GetString()))
+                    return value.GetString()!;
+        }
+        catch (JsonException) { }
+        return body;
     }
 
     private void SelectDeveloperConnection(Guid? connectionId)
@@ -2380,11 +2404,52 @@
     private async Task RetryStageAsync(WorkStageExecutionResponse stage)
     {
         if (_detail is null) return;
+        _executionError = null;
+        // The server guards a retry with the ticket's assignment revision, not the sprint execution revision.
         var response = await Http.PostAsJsonAsync(
             $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/stages/{stage.Id:D}/retry",
-            new WorkOrchestrationControlRequest(_execution?.Revision ?? 1, Guid.NewGuid().ToString("N")));
+            new WorkOrchestrationControlRequest(stage.AssignmentRevision, Guid.NewGuid().ToString("N")));
         if (!response.IsSuccessStatusCode) _executionError = await ApiErrorAsync(response);
-        else await ReloadExecutionAsync();
+        else
+        {
+            await ReloadExecutionAsync();
+            await RefreshDetailAsync();
+        }
+    }
+
+    private bool _retryPending;
+    private string? _retryError;
+
+    private async Task RetryItemAsync(WorkBoardItemResponse item)
+    {
+        if (_detail is null || _retryPending) return;
+        _retryPending = true;
+        _retryError = null;
+        _moveError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/retry",
+                new RetryBoardWorkItemRequest(item.Revision));
+            if (!response.IsSuccessStatusCode)
+            {
+                _retryError = await ApiErrorAsync(response);
+                _moveError = _retryError;
+                return;
+            }
+            await RefreshDetailAsync();
+            if (_detail is not null && _detailItem?.Id == item.Id)
+                _detailItem = _detail.Items.FirstOrDefault(x => x.Id == item.Id) ?? _detailItem;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            _retryError = exception.Message;
+            _moveError = exception.Message;
+        }
+        finally
+        {
+            _retryPending = false;
+        }
     }
 
     private async Task CompleteManualStageAsync(WorkStageExecutionResponse stage)

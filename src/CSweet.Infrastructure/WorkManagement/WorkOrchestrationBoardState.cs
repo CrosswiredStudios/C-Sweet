@@ -70,6 +70,32 @@ internal static class WorkOrchestrationBoardState
         item.Revision++;
     }
 
+    /// <summary>
+    /// A stage that needs a person (Blocked, or Failed with its automatic retries spent) parks its card in the
+    /// board's Blocked column, creating the column when the board has none. The board then shows what the
+    /// ticket needs, and moving the card back to a ready column retries it.
+    /// </summary>
+    internal static async Task ParkBlockedCardsAsync(
+        CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken token)
+    {
+        var parked = execution.Items.Where(x => x.WorkItem is not null &&
+                x.Stages.OrderByDescending(s => s.CreatedAt).FirstOrDefault() is
+                    { Status: WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed })
+            .ToList();
+        if (parked.Count == 0) return;
+        var column = await WorkBoardBlockedColumn.EnsureAsync(db, execution.BoardId, now, token);
+        foreach (var item in parked)
+        {
+            var card = item.WorkItem!;
+            if (card.BoardColumnId == column.Id) continue;
+            card.BoardColumnId = column.Id;
+            if (card.Status is not (WorkTaskStatus.Blocked or WorkTaskStatus.Failed)) card.Status = WorkTaskStatus.Blocked;
+            card.BlockReason ??= item.BlockedReason;
+            card.UpdatedAt = now;
+            card.Revision++;
+        }
+    }
+
     internal static async Task SaveBoardChangesAsync(CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken token)
     {
         db.ChangeTracker.DetectChanges();

@@ -414,6 +414,10 @@ public sealed class TeamService(
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await BeginMutationTransactionAsync(cancellationToken);
+        var enrollsInProject = ProjectSetupService.HireMembershipSources.Contains(sourceType);
+        var projectPolicy = new ProjectWorkPolicy(db, timeProvider);
+        // Take the organization project lock first, as project membership changes do, to keep lock order stable.
+        if (enrollsInProject) await projectPolicy.LockAsync(organizationId, cancellationToken);
         var team = await RequireActiveTeamAsync(organizationId, teamId, cancellationToken);
         var employee = await RequireActiveEmployeeAsync(organizationId, organizationUserId, cancellationToken);
         await ValidateRolesAsync(
@@ -433,6 +437,13 @@ public sealed class TeamService(
             timeProvider.GetUtcNow(), cancellationToken);
         Touch(team, timeProvider.GetUtcNow());
         await SaveWithConcurrencyAsync(cancellationToken);
+        if (enrollsInProject)
+        {
+            // A staffing hire joins the team to deliver its project, so it joins that project too.
+            if (await new ProjectSetupService(db, timeProvider, projectPolicy).EnrollHiredTeamMemberAsync(
+                    organizationId, team.Id, employee.Id, projectId: null, cancellationToken))
+                await SaveWithConcurrencyAsync(cancellationToken);
+        }
         await CommitAsync(transaction, cancellationToken);
     }
 

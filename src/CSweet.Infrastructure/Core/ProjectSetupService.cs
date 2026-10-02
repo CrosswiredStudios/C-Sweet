@@ -165,6 +165,16 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
         else { reservation.WorkstreamId = project; reservation.IntakeId = intake; reservation.Revision++; }
     }
 
+    internal static string[] ParticipantBoardActions(Workstream project, OrganizationUser person)
+    {
+        var manager = person.Id == project.AccountableManagerOrganizationUserId;
+        var itemActions = manager || person.EmployeeType == EmployeeType.Human
+            ? WorkItemActions.All
+            : new[] { WorkItemActions.Read, WorkItemActions.ReadTypes, WorkItemActions.ReadComments, WorkItemActions.Comment,
+                WorkItemActions.Create, WorkItemActions.RevisePlanning, WorkItemActions.Estimate };
+        return itemActions.Concat(PersonalTodoActions.All.Where(x => x != PersonalTodoActions.Add)).Append(WorkBoardActions.Read).Distinct().ToArray();
+    }
+
     private async Task<List<OrganizationUser>> ApplyParticipantsAsync(Workstream project, WorkBoard board, List<OrganizationUser> people, OrganizationUser actor, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
@@ -184,13 +194,7 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
             }
             var subject = person.AgentInstallationId ?? person.Id;
             var kind = person.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser;
-            var manager = person.Id == project.AccountableManagerOrganizationUserId;
-            var itemActions = manager || person.EmployeeType == EmployeeType.Human
-                ? WorkItemActions.All
-                : new[] { WorkItemActions.Read, WorkItemActions.ReadTypes, WorkItemActions.ReadComments, WorkItemActions.Comment,
-                    WorkItemActions.Create, WorkItemActions.RevisePlanning, WorkItemActions.Estimate };
-            var actions = itemActions.Concat(PersonalTodoActions.All.Where(x => x != PersonalTodoActions.Add)).Append(WorkBoardActions.Read).Distinct().ToArray();
-            foreach (var action in actions)
+            foreach (var action in ParticipantBoardActions(project, person))
             {
                 var grant = await db.ScopedActionGrants.SingleOrDefaultAsync(x => x.OrganizationId == project.OrganizationId && x.SubjectId == subject && x.SubjectKind == kind && x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id && x.Action == action, ct);
                 if (grant is null) db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = project.OrganizationId, SubjectKind = kind, SubjectId = subject, Action = action,

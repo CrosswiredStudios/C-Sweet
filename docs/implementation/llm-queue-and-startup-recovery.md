@@ -17,8 +17,9 @@ agent run diagnostics. Processing indicates dispatch, not provider-confirmed GPU
 
 Authenticated waiting extends only the owning live work attempt and runtime budget. The SDK
 callback deadline and chat turn follow that authoritative deadline. Queue time does not count
-toward the separate generation limit (`CSweet:Llm:Queue:GenerationTimeoutSeconds`, default
-900). Cancellation, grant revocation, lease expiration, and infrastructure limits remain
+toward the optional generation limit (`CSweet:Llm:Queue:GenerationTimeoutSeconds`). The default is 0,
+meaning no limit: long generations (for example large outputs from local models) are legitimate, and a
+positive value is only an explicit operator choice. The provider connection timeout follows the same setting. Cancellation, grant revocation, lease expiration, and infrastructure limits remain
 effective. Unpolled requests are cancelled after 60 seconds. The runtime launcher reserves
 up to 24 hours of inference waiting through `CSweet:AgentRuntime:InferenceWaitAllowanceSeconds`.
 Configure that value consistently in AgentHost and the runtime launcher.
