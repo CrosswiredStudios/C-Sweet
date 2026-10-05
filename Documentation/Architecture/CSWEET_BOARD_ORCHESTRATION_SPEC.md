@@ -47,7 +47,7 @@ Stage types are:
 
 Every stage key and outcome code MUST be a lowercase token matching `^[a-z][a-z0-9._-]{0,63}$`. A policy MUST have at least one Terminal stage, every reachable non-terminal stage MUST reach a Terminal stage, and every graph cycle MUST declare a maximum traversal count. The maximum traversal count MUST be between 1 and 10.
 
-Publishing a changed policy MUST create a new revision. An Active or Paused sprint MUST remain pinned to the complete policy and assignment snapshot captured at start. A manager MUST cancel and replan the sprint to change that snapshot.
+Publishing a changed policy MUST create a new revision. An Active or Paused sprint MUST remain pinned to its policy and approved delivery scope. Its board manager MAY revise assignments for stages that have never been dispatched, using current eligibility evidence, optimistic concurrency and an audited assignment-snapshot revision. Started and completed assignments MUST be retained. Changing a started assignment requires cancellation and replanning; it MUST NOT transfer an existing execution lease.
 
 ## 4. Assignments
 
@@ -126,9 +126,9 @@ The orchestrator MUST reject unknown outcomes, invalid schemas, and mismatched e
 
 Lease, runtime, transport, and other transient infrastructure failures MUST retry at most five times. Delay is `min(10 seconds * 2^(attempt-1), 5 minutes)` plus bounded jitter. Deterministic validation, authorization, business, and worker failures MUST NOT retry automatically.
 
-`Blocked` MUST leave the item visibly blocked until the manager retries or cancels it. Because a Blocked stage is never retried automatically, the platform MUST notify the accountable manager on the first Blocked result instead of waiting for a repeated failure. The accountable manager is the board manager, or the agent's own manager when the agent manages the board itself (`AgentTicketFeedback.RecordFailureAsync` with `awaitingManager`). A worker whose blocker needs a management decision (scope, acceptance criteria, environment or tooling) rather than a retry or code change SHOULD include the diagnostic `decision-required:v1`. The escalation is then labelled as a decision. QA MUST NOT return `failed`, which routes work back to engineering, when its only gaps are criteria that no available role can verify. Cancellation MUST make outstanding inbox work ineligible, revoke attempt-scoped grants, and prevent late completion from advancing the item. Reassignment of an Active snapshot is forbidden.
+`Blocked` MUST leave the item visibly blocked until the manager retries or cancels it. Because a Blocked stage is never retried automatically, the platform MUST notify the accountable manager on the first Blocked result instead of waiting for a repeated failure. The accountable manager is the board manager, or the agent's own manager when the agent manages the board itself (`AgentTicketFeedback.RecordFailureAsync` with `awaitingManager`). A worker whose blocker needs a management decision (scope, acceptance criteria, environment or tooling) rather than a retry or code change SHOULD include the diagnostic `decision-required:v1`. The escalation is then labelled as a decision. QA MUST NOT return `failed`, which routes work back to engineering, when its only gaps are criteria that no available role can verify. Cancellation MUST make outstanding inbox work ineligible, revoke attempt-scoped grants, and prevent late completion from advancing the item. Started assignments are immutable; future assignments use the manager-authorized revision path in section 3.
 
-All scheduler state MUST be reconstructable from the database after process restart. Duplicate scheduler ticks, work claims, results, and manager commands MUST be idempotent.
+All scheduler state MUST be reconstructable from the database after process restart. Duplicate scheduler ticks, work claims, results, and manager commands MUST be idempotent. A stopped project stage MUST persist a recovery wake in the same transaction as its state change. The manager MUST re-read authoritative state before recovery; reconnect discovery MUST recover a missed wake. Missing staffing MAY be cleared after an authorized assignment repair without rerunning completed work. Other blockers MUST retain their evidence and use explicit retry, decision or replanning operations.
 
 ## 9. Software delivery profile
 
@@ -164,6 +164,6 @@ An implementation conforms only if it proves through automated tests that:
 - agents cannot mutate automated transitions;
 - retries distinguish transient from deterministic failures;
 - cancellation, late results, duplicate ticks, lease expiry, and restarts are safe;
-- policy and assignment snapshots are immutable while active;
+- policy and started assignments are immutable while active; future assignment edits are manager-authorized, audited, and race safely with dispatch;
 - both merge modes verify the exact QA-approved commit;
 - tenant, grant, encryption, and workspace boundaries remain enforced.

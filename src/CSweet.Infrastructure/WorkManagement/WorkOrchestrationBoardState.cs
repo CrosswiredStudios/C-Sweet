@@ -99,6 +99,32 @@ internal static class WorkOrchestrationBoardState
     internal static async Task SaveBoardChangesAsync(CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken token)
     {
         db.ChangeTracker.DetectChanges();
+        var stopped = db.ChangeTracker.Entries<WorkStageExecution>().Where(x =>
+            x.Entity.ItemExecution?.SprintExecutionId == execution.Id &&
+            x.Entity.Status is WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed &&
+            (x.State == EntityState.Added || x.Property(s => s.Status).IsModified)).Select(x => x.Entity).ToList();
+        if (stopped.Count > 0)
+        {
+            var board = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == execution.BoardId, token);
+            foreach (var stage in stopped)
+            {
+                if (board.WorkstreamId is not { } projectId) continue;
+                var wake = new CSweet.WorkManagement.Contracts.GenericResourceEvent(Guid.NewGuid(), now,
+                    new(execution.OrganizationId, projectId, board.TeamId, board.Id,
+                        stage.ItemExecution!.WorkItemId, null, null, execution.Id, null, null),
+                    "WorkItem", stage.ItemExecution.WorkItemId, stage.ItemExecution.WorkItem!.Revision,
+                    stage.ItemExecution.WorkItem.TypeKey, "stage.recovery-required",
+                    JsonSerializer.SerializeToElement(new { stageId = stage.Id, stage.StageKey, stage.LastError }, JsonOptions));
+                db.AgentPlatformEventOutbox.Add(new()
+                {
+                    Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
+                    EventType = CSweet.WorkManagement.Contracts.WorkstreamEventNames.WorkItemChangedV1,
+                    DataJson = JsonSerializer.Serialize(wake, JsonOptions),
+                    IdempotencyKey = $"stage-recovery:{stage.Id:N}:{stage.Attempts.Count}:{stage.UpdatedAt.UtcTicks}",
+                    OccurredAt = now, NextAttemptAt = now
+                });
+            }
+        }
         var changed = db.ChangeTracker.Entries<WorkTask>().Where(x =>
             x.Entity.BoardId == execution.BoardId && x.State == EntityState.Modified &&
             (x.Property(p => p.Status).IsModified || x.Property(p => p.BoardColumnId).IsModified || x.Property(p => p.Revision).IsModified))

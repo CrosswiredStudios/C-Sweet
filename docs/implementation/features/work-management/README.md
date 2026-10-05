@@ -230,6 +230,42 @@ does not create another availability notification. A durable `WorkItemMutationRe
 for the session completion prevents it from waking a later wait for another role
 in the same planning cycle; that other role's completion can still wake the owner.
 
+## Producer staffing and recovery
+
+`WorkOrchestrationService.PreflightCoreAsync` requires an assignment for every
+reachable agent, human or member stage, including stages reached after a Queue.
+ManagerApproval and trusted platform stages retain their policy-owned principals.
+`WorkAssignmentIndependence` rejects assigning code authors to technical review,
+QA or merge decision in both preflight and broker assignment validation, matching
+installation or employee identity.
+
+Producer `WorkflowStaffing.cs` derives delivery-stage requirements from the
+configured workflow, selects eligible team installations and preserves started
+assignments. `ReconcileSprintReadinessAsync` staffs the workflow before preflight.
+Attention reviews discover changed board/roster state and create durable personal
+recovery commitments for both project kickoff paths. Those commitments re-read
+current state, repair missing assignments, request uncovered staffing through
+existing approval paths, and use bounded retry or decision escalation for other
+blockers. Unknown stage-role mappings fail closed for manager review.
+
+`WorkManagementCapabilityHandler.FinalizeItemDeliveryAsync` also accepts an
+authorized board manager's assignment-only repair of Active or Paused execution.
+`ValidateActiveAssignmentRepair` preserves delivery scope, repository, accountable
+owner and all started assignments. `ReconcileAssignmentRepair` updates the future
+snapshot and an existing unstarted stage, clears only `staffing.assignment_missing`,
+and retains attempts and publication evidence. The execution revision arbitrates
+concurrent dispatch and assignment edits; the ticket's source assignment revision
+stays stable so staffing repair does not invalidate an already published commit.
+The audit event contains previous/current snapshots and the manager installation.
+
+`WorkOrchestrationBoardState.SaveBoardChangesAsync` atomically persists a
+`WorkItemChangedV1` recovery hint when a project stage becomes Blocked or Failed.
+The hint grants no execution authority. Inbox leases still choose exactly one
+assigned installation; duplicate hints and finalization receipts are idempotent.
+
+Regression coverage: `WorkManagementCapabilityHandlerAssignmentRecoveryTests`,
+`WorkDispatchRecoveryTests`, and Producer `WorkflowStaffingTests`.
+
 ## Security invariants
 
 - Humans, contractors, agents, and automation identities use the same explicit

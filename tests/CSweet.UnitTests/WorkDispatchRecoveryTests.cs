@@ -146,6 +146,8 @@ public sealed partial class WorkDispatchRecoveryTests
     {
         await using var db = CreateDb();
         var state = await Seed(db, 1);
+        (await db.WorkBoards.SingleAsync()).WorkstreamId = Guid.NewGuid();
+        await db.SaveChangesAsync();
         var protection = new EphemeralDataProtectionProvider();
         var inbox = new AgentWorkInbox(db, protection, TimeProvider.System);
         var orchestrator = new WorkOrchestrator(db, inbox, null!, new Runtime(db), [], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
@@ -166,6 +168,12 @@ public sealed partial class WorkDispatchRecoveryTests
         Assert.Equal(currentError, state.Stage.LastError);
         Assert.Equal(currentError, state.Stage.ItemExecution!.BlockedReason);
         Assert.Equal(currentError, state.Stage.ItemExecution.WorkItem!.BlockReason);
+        var wake = Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == Shared.WorkstreamEventNames.WorkItemChangedV1).ToListAsync());
+        Assert.Contains("stage.recovery-required", wake.DataJson);
+        await orchestrator.PulseAsync();
+        Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
+            x.EventType == Shared.WorkstreamEventNames.WorkItemChangedV1).ToListAsync());
     }
     [Fact]
     public async Task Completed_worker_result_advances_once_and_survives_a_fresh_reconciliation()

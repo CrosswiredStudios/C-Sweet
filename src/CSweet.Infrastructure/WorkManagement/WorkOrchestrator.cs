@@ -484,6 +484,9 @@ public sealed partial class WorkOrchestrator(
         CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Compete with manager assignment edits on the same concurrency token.
+        // A stale dispatch rolls back its inbox work and grants with the transaction.
+        execution.Revision++;
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
         var installationId = stage.AgentInstallationId
             ?? throw new InvalidOperationException("Agent stage lacks an exact installation assignment.");
