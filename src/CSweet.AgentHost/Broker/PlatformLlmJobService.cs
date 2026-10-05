@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CSweet.Infrastructure.WorkManagement;
-using System.Threading.RateLimiting;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -48,22 +47,16 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
     TimeProvider clock, ILogger<PlatformLlmJobService> logger) : BackgroundService
 {
     private readonly ConcurrentDictionary<Guid, Job> jobs = new();
-    private readonly ConcurrentDictionary<Guid, ConcurrencyLimiter> providers = new();
+    private readonly ConcurrentDictionary<Guid, ProviderInferenceGate> providers = new();
     private readonly SemaphoreSlim budgetGate = new(1, 1);
     private readonly Dictionary<Guid, DateTimeOffset> runtimeAccounted = new();
     private CancellationToken shutdown;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    internal async Task<RateLimitLease> AcquireProviderAsync(Guid provider, CancellationToken token)
+    internal Task<IDisposable> AcquireProviderAsync(Guid provider, CancellationToken token, bool delivery = false)
     {
-        var gate = providers.GetOrAdd(provider, _ => new ConcurrencyLimiter(new()
-        {
-            PermitLimit = options.MaximumConcurrentRequests, QueueLimit = options.MaximumQueuedRequests,
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
-        }));
-        var permit = await gate.AcquireAsync(1, token);
-        if (!permit.IsAcquired) { permit.Dispose(); throw new InvalidOperationException("The provider queue is full."); }
-        return permit;
+        var gate = providers.GetOrAdd(provider, _ => new(options.MaximumConcurrentRequests, options.MaximumQueuedRequests));
+        return gate.AcquireAsync(delivery, token);
     }
 
     internal sealed class Job
@@ -78,6 +71,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         public required Guid Provider { get; init; }
         public required RequestCapability Request { get; init; }
         public required DateTimeOffset CreatedAt { get; init; }
+        public bool IsDelivery { get; init; }
         public DateTimeOffset LastPoll { get; set; }
         public DateTimeOffset AccountedAt { get; set; }
         public DateTimeOffset? FinishedAt { get; set; }
@@ -106,6 +100,9 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             await using var scope = scopes.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<AgentWorkInbox>().ReadDeadlineAsync(
                 Persisted(session), workId, attempt, leaseToken, token);
+            // Priority is derived from authenticated durable work, never caller telemetry.
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var work = await db.AgentWorkItems.SingleAsync(x => x.Id == workId, token);
             var existing = jobs.Values.SingleOrDefault(x => x.Session.RuntimeInstanceId == session.RuntimeInstanceId && x.Key == key);
             if (existing is not null)
             {
@@ -120,6 +117,8 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             var job = new Job { Id = Guid.NewGuid(), Session = session, WorkId = workId, Attempt = attempt,
                 LeaseToken = leaseToken, Key = key, Hash = hash, Provider = provider, CreatedAt = now,
                 LastPoll = now, AccountedAt = now,
+                IsDelivery = work.SourceType == "WorkStageExecution" ||
+                    work.Name is "com.csweet.agent.coordination.turn-requested.v1" or "com.csweet.work.personal-todo.available.v1",
                 Request = new() { RequestId = Guid.NewGuid().ToString("N"), Capability = PlatformCapabilities.LlmChatStream,
                     Payload = JsonPayload.From(bytes) } };
             jobs[job.Id] = job;
@@ -184,7 +183,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         try
         {
             await SetStateAsync(job, "Queued", token);
-            using var permit = await AcquireProviderAsync(job.Provider, token);
+            using var permit = await AcquireProviderAsync(job.Provider, token, job.IsDelivery);
             await AccountWaitAsync(job, token);
             await SetStateAsync(job, "Generating", token);
             if (options.GenerationTimeoutSeconds > 0)
@@ -308,6 +307,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                         ProviderProfileId = job.Provider, StartedAt = job.CreatedAt, PromptHash = job.Hash,
                         InvocationKind = "llm-queue", MeasurementKind = "Queue", AgentWorkItemId = job.WorkId };
                     db.AgentRunLogs.Add(row);
+                    await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(db, row, job.WorkId, token, job.Attempt);
                 }
                 row.Status = state;
                 row.FailureMessage = job.Error;

@@ -166,6 +166,25 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             _ => inspect ? recent.FirstOrDefault()?.Text ?? (c.Stage is null ? "Executing work" : $"Executing {c.Stage}") : "Executing work"
         };
         var provider = inspect && run is not null ? await db.LlmProviderProfiles.AsNoTracking().Where(x => x.Id == run.ProviderProfileId).Select(x => x.Name).SingleOrDefaultAsync(token) : null;
+        if (inspect && state == "Waiting" && run?.Status == "Queued")
+        {
+            var active = await db.AgentRunLogs.AsNoTracking().Where(x => x.OrganizationId == actor.OrganizationId &&
+                x.ProviderProfileId == run.ProviderProfileId && x.CompletedAt == null && x.Status == "Running" &&
+                x.AgentInstallationId != null && x.AgentWorkItemId != run.AgentWorkItemId)
+                .OrderBy(x => x.StartedAt).Take(8).ToListAsync(token);
+            var visible = active.FirstOrDefault(x => people.Any(p => p.AgentInstallationId == x.AgentInstallationId &&
+                EmployeeAuditAccess.CanRead(people, p.Id, actor.Id)));
+            // A task's title still requires board access; describe only the authorized
+            // employee and model activity, without reading another task's content.
+            var blocker = people.FirstOrDefault(x => x.AgentInstallationId == visible?.AgentInstallationId);
+            action = blocker is null ? "Waiting for model capacity" : $"Waiting for model capacity; {blocker.DisplayName} is generating a response";
+        }
+        else if (inspect && c.Work?.Status == AgentWorkStatus.Pending)
+        {
+            var busy = await db.AgentWorkItems.AsNoTracking().AnyAsync(x => x.OrganizationId == actor.OrganizationId.ToString() &&
+                x.AgentInstallationId == c.Employee.AgentInstallationId && x.Status == AgentWorkStatus.Leased && x.Id != c.Work.Id, token);
+            if (busy) action = "Queued while this employee handles another request";
+        }
         return new(c.Key, c.Ticket?.Id, c.Ticket?.BoardId, c.Work?.Id, c.Attempt?.Id, c.Attempt?.Attempt ?? 0,
             c.Employee.Id, c.Employee.DisplayName, c.Ticket?.Title ?? (c.Category == "Chat" ? "Responding in Communications" : c.Work?.Name ?? "Agent model activity"),
             c.Ticket?.Identifier, c.Category, c.Context, state, action, c.Attempt?.ClaimedAt ?? c.StandaloneRun?.StartedAt ?? c.Ticket?.UpdatedAt ?? c.Work!.CreatedAt,

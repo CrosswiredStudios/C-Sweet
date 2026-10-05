@@ -16,6 +16,39 @@ namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Queue_explains_provider_blocker_only_when_audit_access_allows_it(bool canInspect)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var queuedId = await f.RunAsync(f.Attempt.Id, f.Ticket.Id);
+        var queued = await f.Db.AgentRunLogs.SingleAsync(x => x.Id == queuedId);
+        queued.Status = "Queued"; queued.AgentWorkItemId = f.Attempt.AgentWorkItemId;
+        var blocker = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Org, EmployeeType = EmployeeType.Agent,
+            AgentInstallationId = Guid.NewGuid(), DisplayName = "Producer" };
+        f.Db.Add(blocker); f.Db.Add(new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            AgentInstallationId = blocker.AgentInstallationId, EmployeeId = blocker.Id, StartedAt = DateTimeOffset.UtcNow,
+            Status = "Running", ProviderProfileId = queued.ProviderProfileId, AgentWorkItemId = Guid.NewGuid() });
+        if (!canInspect) f.Owner.PermissionLevel = OrganizationPermissionLevel.Contributor;
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.WorkItemId == f.Ticket.Id);
+        Assert.Equal("Waiting", row.State);
+        if (canInspect) Assert.Contains("Producer is generating a response", row.CurrentAction);
+        else Assert.DoesNotContain("Producer", row.CurrentAction);
+    }
+
+    [Fact]
+    public async Task Pending_inbox_work_explains_busy_employee()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var pending = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+            AgentInstallationId = f.Agent.AgentInstallationId!.Value, Status = AgentWorkStatus.Pending, Name = "Planning" };
+        f.Db.Add(pending); await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.AgentWorkItemId == pending.Id);
+        Assert.Equal("Queued while this employee handles another request", row.CurrentAction);
+    }
+
     [Fact]
     public async Task CurrentExecutorWinsOverDirectAssignmentAndRowsAreNotDuplicated()
     {

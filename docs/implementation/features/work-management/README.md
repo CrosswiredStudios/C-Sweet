@@ -189,6 +189,20 @@ grants. Reconciliation (`ReconcileAsync`, plus `PersonalTodoReconciliationWorker
 ensures boards for active owners, revokes grants for inactive owners, expires
 claims, retries eligible work, and enforces soft/hard open-item limits.
 
+`WorkItemMutationEngine.WakeCoordinationWaitsAsync` in
+`WorkItemMutationEngine.CoordinationWake.cs` wakes an unclaimed waiting commitment
+on terminal coordination, saving availability in the same notification outbox
+transaction. `BindCoordinationWaitAsync` repairs a pre-board planning context or
+completed intake-session reference only when the initiating employee, installation,
+project, team, and initiator turn's artifact key match its `SourceFingerprint`.
+Ambiguous boards and explicit board-session references are preserved. Completion
+before `DeferAsync` is recoverable for that exact cycle; old unrelated completion
+cannot release a newer wait. `RecoverCoordinationWaitsAsync` provides bounded
+reconnect discovery, and `DeferAsync` checks the newly deferred owner's cycle
+before saving. A wake releases no execution authority: the agent still claims
+the commitment and re-reads current proposals and permissions. Duplicate delivery
+does not create another availability notification.
+
 ## Security invariants
 
 - Humans, contractors, agents, and automation identities use the same explicit

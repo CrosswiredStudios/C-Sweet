@@ -44,6 +44,26 @@ Endpoint equivalents: `GET /communications/hub/chats/{chatId}/turns[/{turnId}[/t
 
 ## Recovery
 
+`PlatformLlmJobService.StartAsync` records queued calls against their authenticated
+work attempt through `InferenceAttribution.CaptureAsync`. `CurrentActivityService.MapAsync`
+distinguishes provider-capacity waits from an employee's inbox backlog. With employee
+audit access it can name the employee occupying the same provider, without exposing
+another board's task content.
+
+`ProviderInferenceGate` admits durable coordination turns, personal commitments,
+and stage execution ahead of conversational requests. Priority comes from stored
+work, never request telemetry. Admission is FIFO within each class, non-preemptive,
+bounded by the configured concurrency/queue limits, and admits one waiting
+conversational request after three delivery admissions. A running generation still
+occupies its slot until completion or cancellation.
+
+`PlatformLlmCapabilityHandler.StreamAsync` uses `ModelStreamCoalescer.ReadAsync`
+to combine ordinary text fragments before audit writes and forwarding. The first
+update is immediate; accumulated text flushes on the next update after 500 ms,
+32 fragments, 4096 characters, or a message/nontext/terminal boundary. Reasoning,
+tools, usage and terminal updates keep their boundaries. Buffered text is retained
+before a stream failure, and every forwarded chunk is persisted first.
+
 - Retry a failed turn from the turn dialog; the durable work item allows 3 attempts.
 - Cancel a running turn. Pending unmaterialized suggested actions are cancelled with it.
 - Agent-side failures (`platform.capability.denied`, `unavailable`, `validation_failed`) usually mean

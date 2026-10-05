@@ -17,6 +17,42 @@ namespace CSweet.UnitTests;
 public sealed class PlatformLlmQueueTests
 {
     [Theory]
+    [InlineData("WorkStageExecution", "", true)]
+    [InlineData("", "com.csweet.agent.coordination.turn-requested.v1", true)]
+    [InlineData("", "com.csweet.work.personal-todo.available.v1", true)]
+    [InlineData("chat-turn", "communication", false)]
+    public async Task Durable_delivery_work_overtakes_chat_and_queued_audit_keeps_exact_attempt(string source, string name, bool delivery)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var work = await db.AgentWorkItems.SingleAsync(x => x.Id == fixture.Third.WorkId);
+            work.SourceType = source; work.Name = name; await db.SaveChangesAsync();
+        }
+        var first = await fixture.StartAsync(fixture.First);
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var second = await fixture.StartAsync(fixture.Second);
+        // Read waits for queue persistence/admission, keeping the order deterministic.
+        Assert.Equal("Queued", (await fixture.ReadAsync(fixture.Second, second)).GetProperty("state").GetString());
+        var third = await fixture.StartAsync(fixture.Third);
+        Assert.Equal("Queued", (await fixture.ReadAsync(fixture.Third, third)).GetProperty("state").GetString());
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var queued = await db.AgentRunLogs.SingleAsync(x => x.Id == third);
+            Assert.Equal((await db.AgentWorkAttempts.SingleAsync(x => x.AgentWorkItemId == fixture.Third.WorkId)).Id, queued.AgentWorkAttemptId);
+            Assert.Equal(fixture.Third.WorkId, queued.AgentWorkItemId);
+        }
+        fixture.Executor.ReleaseFirst.TrySetResult();
+        await fixture.WaitCompletedAsync(fixture.Second, second); await fixture.WaitCompletedAsync(fixture.Third, third);
+        Assert.Equal(new[] { fixture.First.Session.InstallationId,
+            delivery ? fixture.Third.Session.InstallationId : fixture.Second.Session.InstallationId,
+            delivery ? fixture.Second.Session.InstallationId : fixture.Third.Session.InstallationId }, fixture.Executor.StartedInstallations);
+        Assert.Equal(1, fixture.Executor.MaximumActive);
+    }
+
+    [Theory]
     [InlineData(0, false)]
     [InlineData(1024, true)]
     public async Task RequestByteLimitIsOptional(int limit, bool rejected)
@@ -202,12 +238,14 @@ public sealed class PlatformLlmQueueTests
         public TaskCompletionSource ReleaseFirst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string? LastRequestJson;
         public int Started;
+        public System.Collections.Concurrent.ConcurrentQueue<string> StartedInstallations { get; } = new();
         private int active;
         public int MaximumActive;
         public async IAsyncEnumerable<CapabilityResult> ExecuteAsync(AgentSession session, RequestCapability request,
             [EnumeratorCancellation] CancellationToken token)
         {
             LastRequestJson = request.Payload.ToStringUtf8();
+            StartedInstallations.Enqueue(session.InstallationId);
             var count = Interlocked.Increment(ref Started);
             MaximumActive = Math.Max(MaximumActive, Interlocked.Increment(ref active));
             try
@@ -234,6 +272,7 @@ public sealed class PlatformLlmQueueTests
         public required ControlledExecutor Executor { get; init; }
         public required TestWork First { get; init; }
         public required TestWork Second { get; init; }
+        public required TestWork Third { get; init; }
         public JsonElement Arguments { get; } = JsonSerializer.SerializeToElement(new { providerProfileId = Guid.NewGuid(), messages = new[] { new { role = "user", text = "Hi" } } });
 
         public static async Task<Fixture> CreateAsync(PlatformLlmJobOptions? options = null)
@@ -273,10 +312,10 @@ public sealed class PlatformLlmQueueTests
                     Guid.NewGuid().ToString(), new(new HashSet<string>(), new HashSet<string>(),
                         new HashSet<string> { PlatformCapabilities.LlmChatStream }, 1)), work);
             }
-            var first = Seed(); var second = Seed();
+            var first = Seed(); var second = Seed(); var third = Seed();
             await db.SaveChangesAsync();
             await ((Microsoft.Extensions.Hosting.IHostedService)queue).StartAsync(default);
-            return new() { Services = provider, Service = queue, Clock = clock, Executor = executor, First = first, Second = second };
+            return new() { Services = provider, Service = queue, Clock = clock, Executor = executor, First = first, Second = second, Third = third };
         }
         public Task<Guid> StartAsync(TestWork work) => Service.StartAsync(work.Session, work.Work, 1, "lease", "request", Arguments, default);
         public async Task<JsonElement> ReadAsync(TestWork work, Guid id) => JsonSerializer.SerializeToElement(await Service.ReadAsync(work.Session, id, 0, default));

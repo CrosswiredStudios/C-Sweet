@@ -312,10 +312,10 @@ public sealed class PlatformLlmCapabilityHandler
                 requestToken);
             await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
                 InferenceExecutionAttribution.Current?.WorkId, requestToken, InferenceExecutionAttribution.Current?.Attempt);
-            updates = chatClient.GetStreamingResponseAsync(
+            updates = ModelStreamCoalescer.ReadAsync(chatClient.GetStreamingResponseAsync(
                 messages,
                 options,
-                requestToken).GetAsyncEnumerator(requestToken);
+                requestToken), requestToken).GetAsyncEnumerator(requestToken);
             runLog.ProviderStartedAt = DateTimeOffset.UtcNow;
             await TryPersistRunLogAsync(runLog, CancellationToken.None);
         }

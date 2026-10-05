@@ -970,6 +970,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.WaitingOnOrganizationUserId = request.WaitingOnOrganizationUserId;
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
+        await RecoverCoordinationWaitsAsync(cancellationToken, item);
         await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
