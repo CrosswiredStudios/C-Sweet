@@ -152,6 +152,23 @@ internal static class AgentConfigurationRules
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
     }
 
+    // Package availability depends on local configuration compatibility, not the
+    // model server's uptime. Live catalog checks belong to explicit model edits.
+    public static async Task<bool> IsLocallyReadyAsync(
+        CSweetDbContext db, PluginManifest manifest, IReadOnlyDictionary<string, JsonElement> settings,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ValidateAsync(db, manifest, settings, requireRequired: true, cancellationToken);
+            return true;
+        }
+        catch (AgentInstallationException)
+        {
+            return false;
+        }
+    }
+
     public static bool HasAllRequired(PluginManifest manifest, IReadOnlyDictionary<string, JsonElement> settings) =>
         manifest.Configuration.Where(x => !x.Secret && x.Required)
             .All(field => !IsVisible(field, settings) ||

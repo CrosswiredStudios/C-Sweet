@@ -44,6 +44,13 @@ Endpoint equivalents: `GET /communications/hub/chats/{chatId}/turns[/{turnId}[/t
 
 ## Recovery
 
+All supported provider types use the shared response contract described in
+[Uniform provider responses](features/provider-response-compatibility.md).
+The adapter makes one corrective request for reasoning-only or empty responses,
+never replays usable answers or tool calls, and preserves reported usage. A
+persistent failure reaches agents as `llm.tool_protocol` or `llm.response_invalid`
+with a configuration/retry explanation; it is not a transient provider outage.
+
 `PlatformLlmJobService.StartAsync` records queued calls against their authenticated
 work attempt through `InferenceAttribution.CaptureAsync`. `CurrentActivityService.MapAsync`
 distinguishes provider-capacity waits from an employee's inbox backlog. With employee

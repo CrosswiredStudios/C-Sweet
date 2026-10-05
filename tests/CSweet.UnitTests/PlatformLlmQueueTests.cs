@@ -11,24 +11,46 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using AgentWorkKind = CSweet.Domain.Setup.AgentWorkKind;
 
 namespace CSweet.UnitTests;
 
 public sealed class PlatformLlmQueueTests
 {
     [Theory]
-    [InlineData("WorkStageExecution", "", true)]
-    [InlineData("", "com.csweet.agent.coordination.turn-requested.v1", true)]
-    [InlineData("", "com.csweet.work.personal-todo.available.v1", true)]
-    [InlineData("chat-turn", "communication", false)]
-    public async Task Durable_delivery_work_overtakes_chat_and_queued_audit_keeps_exact_attempt(string source, string name, bool delivery)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Response_contract_failure_codes_survive_queue_polling_without_generic_retries(bool thrown)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Executor.ContractFailure = true;
+        fixture.Executor.ThrowContractFailure = thrown;
+        var id = await fixture.StartAsync(fixture.First);
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.Executor.ReleaseFirst.TrySetResult();
+        var result = await fixture.WaitCompletedAsync(fixture.First, id);
+        Assert.Equal("Failed", result.GetProperty("state").GetString());
+        Assert.Equal("llm.tool_protocol", result.GetProperty("failureCode").GetString());
+        Assert.False(result.GetProperty("retryable").GetBoolean());
+        Assert.Equal(1, fixture.Executor.Started);
+        if (!thrown)
+            Assert.Equal("llm.tool_protocol", result.GetProperty("chunks")[0].GetProperty("FailureCode").GetString());
+    }
+    [Theory]
+    [InlineData("WorkStageExecution", "", AgentWorkKind.Capability, true)]
+    [InlineData("agent-coordination", "com.csweet.agent.coordination.turn-requested.v1", AgentWorkKind.Event, true)]
+    [InlineData("platform-event", "com.csweet.work.personal-todo.available.v1", AgentWorkKind.Event, true)]
+    [InlineData("chat-turn", "communication", AgentWorkKind.Event, false)]
+    [InlineData("chat-turn", "com.csweet.agent.coordination.turn-requested.v1", AgentWorkKind.Event, false)]
+    [InlineData("agent-coordination", "com.csweet.agent.coordination.turn-requested.v1", AgentWorkKind.Capability, false)]
+    public async Task Durable_delivery_work_overtakes_chat_and_queued_audit_keeps_exact_attempt(string source, string name, AgentWorkKind kind, bool delivery)
     {
         await using var fixture = await Fixture.CreateAsync();
         await using (var scope = fixture.Services.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             var work = await db.AgentWorkItems.SingleAsync(x => x.Id == fixture.Third.WorkId);
-            work.SourceType = source; work.Name = name; await db.SaveChangesAsync();
+            work.SourceType = source; work.Name = name; work.Kind = kind; await db.SaveChangesAsync();
         }
         var first = await fixture.StartAsync(fixture.First);
         await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
@@ -241,6 +263,7 @@ public sealed class PlatformLlmQueueTests
         public System.Collections.Concurrent.ConcurrentQueue<string> StartedInstallations { get; } = new();
         private int active;
         public int MaximumActive;
+        public bool ContractFailure, ThrowContractFailure;
         public async IAsyncEnumerable<CapabilityResult> ExecuteAsync(AgentSession session, RequestCapability request,
             [EnumeratorCancellation] CancellationToken token)
         {
@@ -252,6 +275,13 @@ public sealed class PlatformLlmQueueTests
             {
                 if (count == 1) { FirstStarted.TrySetResult(); await ReleaseFirst.Task.WaitAsync(token); }
                 else SecondStarted.TrySetResult();
+                if (ContractFailure)
+                {
+                    if (ThrowContractFailure) throw new CSweet.Infrastructure.Llm.LlmResponseContractException("llm.tool_protocol");
+                    yield return new() { RequestId = request.RequestId, Succeeded = false, Sequence = 0,
+                        Error = "Correct the provider format", FailureCode = "llm.tool_protocol", Retryable = false };
+                    yield break;
+                }
                 yield return new() { RequestId = request.RequestId, Succeeded = true, Sequence = 0,
                     Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new { text = "Done" })) };
             }

@@ -2,6 +2,16 @@ using CSweet.AgentHost.Broker;
 namespace CSweet.UnitTests;
 public sealed class LlmProviderFailureMessageTests
 {
+    [Theory]
+    [InlineData("llm.tool_protocol")]
+    [InlineData("llm.response_invalid")]
+    public void Response_contract_failures_preserve_the_shared_code_and_stop_generic_retries(string code)
+    {
+        var error = new CSweet.Infrastructure.Llm.LlmResponseContractException(code);
+        Assert.Equal(code, LlmProviderFailureMessage.CodeFrom(error));
+        Assert.Equal(error.Message, LlmProviderFailureMessage.From(error));
+        Assert.False(LlmProviderFailureMessage.IsTransient(error));
+    }
     [Fact]
     public void MissingReasoningExplainsCompatibilityFixWithoutProviderDetails()
     {

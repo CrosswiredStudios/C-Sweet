@@ -62,53 +62,23 @@
     </section>
 </article>
 
-<MudDialog @bind-Visible="_profileOpen" Options="_profileOptions">
-    <TitleContent>
-        <MudText Typo="Typo.h5">Meet @Agent.Name</MudText>
-    </TitleContent>
+<MudDialog @bind-Visible="_profileOpen" Options="_profileOptions" ContentClass="pa-0" Gutters="false" aria-label="@($"Meet {Agent.Name}")">
     <DialogContent>
-        <MudText Typo="Typo.subtitle2">@RoleLabel · @Agent.Publisher</MudText>
-        <MudText Class="my-4" Style="white-space: pre-line; overflow-wrap: anywhere;">@LongDescription</MudText>
-        <MudText Typo="Typo.subtitle2">Capabilities</MudText>
-        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="my-3">
-            @foreach (var capability in Agent.Capabilities)
-            {
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@capability</MudChip>
-            }
-        </MudStack>
-        <MudText Typo="Typo.body2">@AvailabilityLabel · @PriceLabel · @Agent.Trust</MudText>
-        @if (!string.IsNullOrWhiteSpace(Agent.LicenseSpdxId))
+        @if (_profileOpen)
         {
-            <MudText Typo="Typo.caption">License: @Agent.LicenseSpdxId</MudText>
-        }
-        @if (Agent.Rating is { } rating)
-        {
-            <MudText Typo="Typo.caption">@($"{rating:0.0}/10 · {Agent.RatingCount} reviews")</MudText>
+            <MarketplaceAgentProfile Agent="Agent" OrganizationId="OrganizationId" CloseRequested="CloseProfile"
+                                     ReviewHireRequested="@(ReviewHireRequested.HasDelegate ? EventCallback.Factory.Create(this, ReviewHireAsync) : default)" />
         }
     </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="CloseProfile">Close</MudButton>
-        @if (DetailsHref is { } details)
-        {
-            <MudButton Href="@details" Target="_blank" EndIcon="@Icons.Material.Outlined.OpenInNew">Documentation</MudButton>
-        }
-        @if (CanReviewHire && ReviewHireRequested.HasDelegate)
-        {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ReviewHireAsync">Review and hire</MudButton>
-        }
-        else if (!CanReviewHire)
-        {
-            <MudText Typo="Typo.caption">Not currently hireable</MudText>
-        }
-    </DialogActions>
 </MudDialog>
 
 @code {
     [Parameter, EditorRequired] public AvailableAgent Agent { get; set; } = default!;
+    [Parameter] public Guid? OrganizationId { get; set; }
     [Parameter] public EventCallback<AvailableAgent> ReviewHireRequested { get; set; }
 
     private readonly string _detailsId = $"agent-details-{Guid.NewGuid():N}";
-    private readonly DialogOptions _profileOptions = new() { FullWidth = true, MaxWidth = MaxWidth.Small, CloseButton = true };
+    private readonly DialogOptions _profileOptions = new() { FullWidth = true, MaxWidth = MaxWidth.Medium, NoHeader = true, CloseOnEscapeKey = true };
     private ElementReference _card;
     private IJSObjectReference? _module;
     private IJSObjectReference? _interaction;
@@ -126,8 +96,6 @@
     private string AccentStyle => MarketplaceAgentPresentation.AccentStyle(Agent.AccentColor);
     private string LongDescription => string.IsNullOrWhiteSpace(Agent.LongDescription) ? Agent.Summary : Agent.LongDescription;
     private string RoleLabel => string.IsNullOrWhiteSpace(Agent.RoleName) ? Agent.Category : Agent.RoleName;
-    private string? DetailsHref => AgentCatalogBranding.IsImageUrl(Agent.DocumentationUrl) ? Agent.DocumentationUrl
-        : AgentCatalogBranding.IsImageUrl(Agent.RepositoryUrl) ? Agent.RepositoryUrl : null;
     private string AvailabilityLabel => Agent.Availability switch
     {
         AgentAvailabilityState.InstalledEnabled => "Installed · enabled",
@@ -136,10 +104,7 @@
         AgentAvailabilityState.AvailableToInstall => "Available to hire",
         _ => "Unavailable"
     };
-    private bool CanReviewHire =>
-        (Agent.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled) &&
-        (Agent.Source is AgentCatalogSource.Installed or AgentCatalogSource.LocalDirectory || !string.IsNullOrWhiteSpace(Agent.RepositoryUrl));
-    private string PriceLabel => Agent.Price is null ? "Open source / free" : $"{Agent.Price:0.##} {Agent.Currency}";
+    private string PriceLabel => Agent.Price is null ? "No listed cost" : $"{Agent.Price:0.##} {Agent.Currency}";
 
     protected override void OnParametersSet()
     {

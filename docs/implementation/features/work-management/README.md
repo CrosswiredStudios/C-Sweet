@@ -189,6 +189,31 @@ grants. Reconciliation (`ReconcileAsync`, plus `PersonalTodoReconciliationWorker
 ensures boards for active owners, revokes grants for inactive owners, expires
 claims, retries eligible work, and enforces soft/hard open-item limits.
 
+`WorkItemMutationEngine.ClaimAsync` atomically clears `NextReviewAt`,
+`WaitingReason` and `WaitingOnOrganizationUserId` when Ready work is claimed.
+`ReconcileAsync` processes due reviews only when both claim fields are empty;
+an active execution lease cannot be taken by timed wait recovery.
+`CSweetDbContext.CaptureCoordinationWakesAsync` rechecks tracked work state after
+querying persisted waits. EF identity resolution can return work already moved
+to Ready or claimed in the current transaction, so the save hook must not
+restore its review deadline. Regression coverage lives in
+`PersonalTodoClaimRecoveryTests.cs` and `PersonalTodoPostgresTests`.
+
+The Video Game Producer's `ReconcileSprintReadinessAsync` calls
+`FinalizeSprintDeliveriesAsync` before preflight for the formal creative-handoff
+flow. Selected executable leaves receive delivery specifications using their
+current planning and assignments plus an unambiguous approved team repository.
+The `WorkManagementCapabilityHandler` finalization checks and sprint preflight
+remain authoritative. A Ready planning ticket alone cannot start execution.
+
+The Software Developer's `SoftwareDeveloperHarness.RunImplementationAsync`
+reports `ModelToolProtocolException` (`model.tool_protocol`) when the final
+assistant response contains tool-call syntax only in reasoning. It checkpoints
+source before stopping, leaves execution of structured tool calls to the harness,
+and classifies the failure as operational through `DevelopmentFailurePolicy`.
+Correct the selected model provider's tool-call/reasoning format before retrying
+the blocked ticket; repeating planning or hiring cannot resolve that failure.
+
 `WorkItemMutationEngine.WakeCoordinationWaitsAsync` in
 `WorkItemMutationEngine.CoordinationWake.cs` wakes an unclaimed waiting commitment
 on terminal coordination, saving availability in the same notification outbox
@@ -201,7 +226,9 @@ cannot release a newer wait. `RecoverCoordinationWaitsAsync` provides bounded
 reconnect discovery, and `DeferAsync` checks the newly deferred owner's cycle
 before saving. A wake releases no execution authority: the agent still claims
 the commitment and re-reads current proposals and permissions. Duplicate delivery
-does not create another availability notification.
+does not create another availability notification. A durable `WorkItemMutationReceipt`
+for the session completion prevents it from waking a later wait for another role
+in the same planning cycle; that other role's completion can still wake the owner.
 
 ## Security invariants
 

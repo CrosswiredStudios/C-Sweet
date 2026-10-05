@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.IO.Compression;
 using CSweet.Agent.SDK;
 using CSweet.Application.Agents;
+using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Agents;
 using CSweet.Infrastructure.Persistence;
@@ -16,6 +17,73 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCatalogServiceTests
 {
+    [Fact]
+    public async Task ProfileReadsRemoteDeclarationsWithoutImportingOrGrantingAccess()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var agent = Agent("first-party:profile", AgentCatalogSource.FirstPartyCatalog);
+        var catalog = new AgentCatalogService([new StubProvider(agent.Source, agent)], NullLogger<AgentCatalogService>.Instance);
+        var manifest = JsonSerializer.Deserialize<CSweet.Contracts.Plugins.PluginManifest>(Manifest(), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        manifest = manifest with
+        {
+            Requires = [new() { Name = "platform.organization.snapshot.read.v1", Scope = "organization", Purpose = "Inspect reporting lines" }],
+            Events = new() { Subscribes = ["com.csweet.workforce.changed.v1"] },
+            WebAccess = new() { Mode = CSweet.Contracts.Plugins.PluginWebAccessMode.AllPublic, Purpose = "Research" }
+        };
+        var repository = new ProfileRepository(JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var local = new LocalDirectoryAgentCatalogProvider(new TestEnvironment(Path.GetTempPath()), Options.Create(new AgentCatalogOptions()), new PluginManifestReader());
+        var service = new AgentCatalogProfileService(catalog, db, local, repository, new PluginManifestReader());
+
+        var profile = Assert.IsType<CSweet.Contracts.Agents.AgentCatalogProfileResponse>(await service.GetAsync(null, agent.AgentReference));
+        Assert.Equal("Inspect reporting lines", Assert.Single(profile.RequestedGrants).Purpose);
+        Assert.Equal("organization", profile.RequestedGrants[0].Scope);
+        Assert.Equal("Create product strategy", profile.Capabilities[0].Description);
+        Assert.Single(profile.Subscriptions);
+        Assert.Equal(CSweet.Contracts.Plugins.PluginWebAccessMode.AllPublic, profile.WebAccess.Mode);
+        Assert.Equal(new string('a', 40), repository.ReadCommit);
+        Assert.Empty(db.ChangeTracker.Entries());
+        Assert.Empty(await db.AgentPackageVersions.ToListAsync());
+        Assert.Empty(await db.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task InstalledProfileUsesPinnedPackageAndDoesNotExposeAnotherBusiness()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var businessId = Guid.NewGuid();
+        var installation = Installation(businessId, "Pinned agent");
+        db.AgentInstallations.Add(installation);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var catalog = new AgentCatalogService([new InstalledAgentCatalogProvider(db)], NullLogger<AgentCatalogService>.Instance);
+        var local = new LocalDirectoryAgentCatalogProvider(new TestEnvironment(Path.GetTempPath()), Options.Create(new AgentCatalogOptions()), new PluginManifestReader());
+        var repository = new ProfileRepository([]);
+        var service = new AgentCatalogProfileService(catalog, db, local, repository, new PluginManifestReader());
+        var reference = $"installed:{installation.Id:N}";
+
+        Assert.Null(await service.GetAsync(null, reference));
+        Assert.Null(await service.GetAsync(Guid.NewGuid(), reference));
+        var profile = Assert.IsType<CSweet.Contracts.Agents.AgentCatalogProfileResponse>(await service.GetAsync(businessId, reference));
+        Assert.Equal("1.0.0", profile.Version);
+        Assert.Equal(2, profile.Capabilities.Count);
+        Assert.Null(repository.ReadCommit);
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task ProfileRejectsMismatchedRepositoryIdentity()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var agent = Agent("first-party:profile", AgentCatalogSource.FirstPartyCatalog) with { AgentId = "com.example.different" };
+        var catalog = new AgentCatalogService([new StubProvider(agent.Source, agent)], NullLogger<AgentCatalogService>.Instance);
+        var local = new LocalDirectoryAgentCatalogProvider(new TestEnvironment(Path.GetTempPath()), Options.Create(new AgentCatalogOptions()), new PluginManifestReader());
+        var service = new AgentCatalogProfileService(catalog, db, local, new ProfileRepository(System.Text.Encoding.UTF8.GetBytes(Manifest())), new PluginManifestReader());
+        await Assert.ThrowsAsync<AgentImportPreviewException>(() => service.GetAsync(null, agent.AgentReference));
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
     [Fact]
     public async Task Aggregate_DeduplicatesByAgentIdAndPrefersFirstPartyRepositorySource()
     {
@@ -213,12 +281,18 @@ public sealed class AgentCatalogServiceTests
             Assert.Equal("MIT", agent.LicenseSpdxId);
             Assert.Contains("https://example.com/product-manager.png", agent.IconUrls!);
 
+            var profileManifest = Assert.IsType<CSweet.Contracts.Plugins.PluginManifest>(
+                await provider.ReadProfileManifestAsync(agent.AgentReference, CancellationToken.None));
+            Assert.Equal("Create product strategy", profileManifest.Provides[0].Description);
+
             var snapshot = await provider.CreateArchiveAsync(agent.AgentReference);
             using var stream = new MemoryStream(snapshot.Content);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
             Assert.Contains(archive.Entries, x => x.FullName == "csweet-plugin.json");
             Assert.DoesNotContain(archive.Entries, x => x.FullName.Contains(".env", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(archive.Entries, x => x.FullName.StartsWith("bin/", StringComparison.OrdinalIgnoreCase));
+            await File.WriteAllTextAsync(Path.Combine(folder, "csweet-plugin.json"), Manifest("Changed Agent"));
+            Assert.Null(await provider.ReadProfileManifestAsync(agent.AgentReference, CancellationToken.None));
         }
         finally
         {
@@ -392,5 +466,17 @@ public sealed class AgentCatalogServiceTests
         public string ApplicationName { get; set; } = "Tests";
         public string ContentRootPath { get; set; } = root;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class ProfileRepository(byte[] manifest) : IGitHubAgentRepositoryClient
+    {
+        public string? ReadCommit { get; private set; }
+        public Task<string> GetDefaultBranchAsync(string owner, string name, CancellationToken token) => Task.FromResult("main");
+        public Task<string> ResolveCommitShaAsync(string owner, string name, string reference, CancellationToken token) => Task.FromResult(new string('a', 40));
+        public Task<byte[]> GetRootManifestAsync(string owner, string name, string commit, CancellationToken token)
+        {
+            ReadCommit = commit;
+            return Task.FromResult(manifest);
+        }
     }
 }

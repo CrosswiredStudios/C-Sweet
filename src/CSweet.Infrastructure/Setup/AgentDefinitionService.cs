@@ -256,8 +256,11 @@ public sealed class AgentDefinitionService(
         {
             settings[pair.Key] = pair.Value.Clone();
         }
-        await AgentConfigurationRules.ValidateAsync(db, manifest, settings, requireRequired: false,
-            cancellationToken, modelCatalog, validateSupportedModels: true);
+        // An upgrade does not select a new inference provider/model. Retain the
+        // saved values and flag incompatible settings for review without contacting
+        // that provider or blocking installation of the verified package.
+        var configurationComplete = await AgentConfigurationRules.IsLocallyReadyAsync(
+            db, manifest, settings, cancellationToken);
 
         var provided = manifest.Provides.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
         var required = AgentImportPreviewService.GrantRequiredCapabilities(manifest).ToHashSet(StringComparer.Ordinal);
@@ -301,7 +304,6 @@ public sealed class AgentDefinitionService(
         definition.Configuration.SettingsJson = JsonSerializer.Serialize(settings, JsonOptions);
         definition.Configuration.UpdatedAt = now;
 
-        var configurationComplete = AgentConfigurationRules.HasAllRequired(manifest, settings);
         var builtAndSigned = nextPackage.Status == AgentPackageVersionStatus.Built &&
                              !string.IsNullOrWhiteSpace(nextPackage.PackageDigest) &&
                              !string.IsNullOrWhiteSpace(nextPackage.ArtifactSignature);
@@ -440,6 +442,7 @@ public sealed class AgentDefinitionService(
         CancellationToken cancellationToken = default)
     {
         var definition = await db.AgentDefinitions
+            .Include(x => x.Configuration)
             .Include(x => x.PackageVersion).ThenInclude(x => x!.BuildJobs)
             .SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken)
             ?? throw new AgentInstallationException("The agent definition was not found.");
@@ -452,7 +455,8 @@ public sealed class AgentDefinitionService(
             await db.Entry(package).ReloadAsync(cancellationToken);
             var manifest = AgentConfigurationRules.DeserializeManifest(package.ManifestJson);
             var settings = DeserializeSettings(definition.Configuration?.SettingsJson ?? "{}");
-            var configurationComplete = AgentConfigurationRules.HasAllRequired(manifest, settings);
+            var configurationComplete = await AgentConfigurationRules.IsLocallyReadyAsync(
+                db, manifest, settings, cancellationToken);
             var builtAndSigned = package.Status == AgentPackageVersionStatus.Built &&
                                  !string.IsNullOrWhiteSpace(package.PackageDigest) &&
                                  !string.IsNullOrWhiteSpace(package.ArtifactSignature);

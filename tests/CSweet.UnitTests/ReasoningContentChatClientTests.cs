@@ -12,6 +12,47 @@ namespace CSweet.UnitTests;
 public sealed class ReasoningContentChatClientTests
 {
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task Compatible_wire_responses_recover_once_and_nonstreaming_servers_keep_the_agent_contract(bool streaming, bool supportsStreaming)
+    {
+        var requests = new List<JsonElement>();
+        var wireStreaming = streaming && supportsStreaming;
+        using var transport = new HttpClient(new RecordingHandler(async request =>
+        {
+            var body = JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync());
+            requests.Add(body);
+            Assert.Equal(wireStreaming, body.TryGetProperty("stream", out var flag) && flag.GetBoolean());
+            if (requests.Count > 1) return Reply(wireStreaming);
+            const string completion = """
+                {"id":"bad","object":"chat.completion","created":1,"model":"model","choices":[{"index":0,"message":{"role":"assistant","content":null,"reasoning_content":"<tool_call|>inspect"},"finish_reason":"stop"}]}
+                """;
+            const string events = """
+                data: {"id":"bad","object":"chat.completion.chunk","created":1,"model":"model","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"<tool_"}}]}
+
+                data: {"id":"bad","object":"chat.completion.chunk","created":1,"model":"model","choices":[{"index":0,"delta":{"reasoning_content":"call|>inspect"},"finish_reason":"stop"}]}
+
+                data: [DONE]
+
+                """;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(wireStreaming ? events : completion,
+                Encoding.UTF8, wireStreaming ? "text/event-stream" : "application/json") };
+        }));
+        var sdkClient = new OpenAI.Chat.ChatClient("model", new ApiKeyCredential("test"),
+            new OpenAIClientOptions { Endpoint = new Uri("https://provider.invalid/v1/"), Transport = new HttpClientPipelineTransport(transport) });
+        using var client = OpenAiCompatibleLlmProviderFactory.AdaptChatClient(sdkClient, supportsStreaming);
+        var options = new ChatOptions { Instructions = "Keep approved scope", Tools = [AIFunctionFactory.Create(() => "ok", "inspect")] };
+        ChatMessage[] history = [new(ChatRole.User, "Inspect the project")];
+        var response = streaming ? await client.GetStreamingResponseAsync(history, options).ToChatResponseAsync()
+            : await client.GetResponseAsync(history, options);
+        Assert.Equal(2, requests.Count);
+        Assert.Equal("inspect", Assert.Single(response.Messages.SelectMany(x => x.Contents).OfType<FunctionCallContent>()).Name);
+        Assert.Contains("structured tools", requests[1].GetProperty("messages").EnumerateArray().Last().GetProperty("content").GetString());
+        Assert.Single(history);
+        Assert.Equal("Keep approved scope", options.Instructions);
+    }
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Provider_reasoning_survives_tool_and_final_answer_history(bool streaming)

@@ -23,6 +23,28 @@ namespace CSweet.UnitTests;
 
 public sealed class PlatformLlmCapabilityHandlerTests
 {
+    [Theory]
+    [InlineData("llm.tool_protocol")]
+    [InlineData("llm.response_invalid")]
+    public async Task Shared_response_contract_failure_keeps_its_code_and_usage_at_the_agent_boundary(string code)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var providerId = await AddProviderAsync(db);
+        var handler = new PlatformLlmCapabilityHandler(db,
+            new StreamingProviderFactory(new ThrowingAfterUsageChatClient(false, new CSweet.Infrastructure.Llm.LlmResponseContractException(code))),
+            new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance);
+        var results = await ReadAsync(handler, providerId);
+        var failure = Assert.Single(results, x => !x.Succeeded);
+        Assert.Equal(code, failure.FailureCode);
+        Assert.False(failure.Retryable);
+        Assert.Contains("one corrective request", failure.Error);
+        var log = await db.AgentRunLogs.SingleAsync();
+        Assert.Equal("Failed", log.Status);
+        Assert.Equal(8, log.ReportedInputTokens);
+        Assert.Equal(3, log.ReportedOutputTokens);
+    }
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Theory]
@@ -613,7 +635,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         }
     }
 
-    private sealed class ThrowingAfterUsageChatClient(bool temporary) : IChatClient
+    private sealed class ThrowingAfterUsageChatClient(bool temporary, Exception? failure = null) : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
@@ -629,6 +651,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             await Task.Yield();
             yield return new ChatResponseUpdate(ChatRole.Assistant,
                 [new UsageContent(new UsageDetails { InputTokenCount = 8, OutputTokenCount = 3 })]);
+            if (failure is not null) throw failure;
             if (temporary) throw new HttpRequestException("Provider disconnected.");
             throw new InvalidOperationException("Provider stream failed.");
         }

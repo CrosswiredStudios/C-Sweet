@@ -16,6 +16,7 @@ public sealed partial class PersonalTodoServiceTests
     [InlineData("legacy-event", true)]
     [InlineData("pre-board", true)]
     [InlineData("late-wait", true)]
+    [InlineData("repeat-wait", true)]
     [InlineData("defer-race", true)]
     [InlineData("wrong-key", false)]
     [InlineData("wrong-speaker", false)]
@@ -25,6 +26,7 @@ public sealed partial class PersonalTodoServiceTests
     [InlineData("ambiguous-board", false)]
     [InlineData("explicit-session", false)]
     [InlineData("cancelled-session", false)]
+    [InlineData("failed-session", false)]
     public async Task Planning_cycle_recovers_intake_context_and_completion_before_deferral_only_with_exact_provenance(string scenario, bool wakes)
     {
         await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
@@ -54,7 +56,10 @@ public sealed partial class PersonalTodoServiceTests
             case "wrong-team": session.TeamId = Guid.NewGuid(); break;
             case "explicit-session": context = context with { BoardId = board, CoordinationSessionId = Guid.NewGuid() }; break;
             case "cancelled-session": session.Status = AgentCoordinationStatus.Cancelled; break;
+            case "failed-session": session.Status = AgentCoordinationStatus.Failed; break;
         }
+        if (scenario == "repeat-wait")
+            session.CompletedAt = new DateTimeOffset(session.CompletedAt!.Value.UtcTicks / 10 * 10 + 7, TimeSpan.Zero);
         task.PersonalWorkContextJson = JsonSerializer.Serialize(context, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         db.AddRange(intake, session);
         db.AgentCoordinationTurns.Add(new() { Id = Guid.NewGuid(), SessionId = session.Id, Ordinal = 0,
@@ -93,6 +98,34 @@ public sealed partial class PersonalTodoServiceTests
             Assert.Equal(board, bound.BoardId); Assert.Null(bound.CoordinationSessionId);
         }
         else Assert.Empty(pending);
+        if (scenario == "repeat-wait")
+        {
+            Assert.Single(await db.WorkItemMutationReceipts.Where(x => x.Action == "personal-todo.coordination-wake").ToListAsync());
+            // The owner consumed the wake, checked both authorities, and deferred
+            // again because the second proposal is still pending.
+            foreach (var wake in db.AgentPlatformEventOutbox) wake.Status = AgentPlatformEventOutboxStatus.Published;
+            task.Status = WorkTaskStatus.Running; task.NextReviewAt = DateTimeOffset.UtcNow.AddMinutes(30);
+            task.UpdatedAt = DateTimeOffset.UtcNow; task.Revision++;
+            // Simulate PostgreSQL's microsecond precision on a reconnect read.
+            var persistedSession = await db.AgentCoordinationSessions.SingleAsync(x => x.Id == session.Id);
+            persistedSession.CompletedAt = new DateTimeOffset(persistedSession.CompletedAt!.Value.UtcTicks / 10 * 10, TimeSpan.Zero);
+            await db.SaveChangesAsync();
+            var secondWaitRevision = task.Revision;
+            await service.ReconcileAsync();
+            Assert.Equal(WorkTaskStatus.Running, task.Status); Assert.Equal(secondWaitRevision, task.Revision);
+            Assert.False(await db.AgentPlatformEventOutbox.AnyAsync(x => x.Status == AgentPlatformEventOutboxStatus.Pending));
+            // A different authority's completion in the same cycle still wakes it.
+            var second = new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id,
+                InitiatorOrganizationUserId = setup.Agent.Id, InitiatorInstallationId = setup.Agent.AgentInstallationId.Value,
+                SourceBoardId = board, WorkstreamId = project, TeamId = team, SourceKind = "Board",
+                Status = AgentCoordinationStatus.Completed, CompletedAt = DateTimeOffset.UtcNow };
+            db.Add(second); db.AgentCoordinationTurns.Add(new() { Id = Guid.NewGuid(), SessionId = second.Id,
+                SpeakerOrganizationUserId = setup.Agent.Id, ArtifactKey = context.SourceFingerprint });
+            await db.SaveChangesAsync(); await service.ReconcileAsync(); await service.ReconcileAsync();
+            Assert.Equal(WorkTaskStatus.Ready, task.Status); Assert.Equal(secondWaitRevision + 1, task.Revision);
+            Assert.Equal(2, await db.WorkItemMutationReceipts.CountAsync(x => x.Action == "personal-todo.coordination-wake"));
+            Assert.Single(await db.AgentPlatformEventOutbox.Where(x => x.Status == AgentPlatformEventOutboxStatus.Pending).ToListAsync());
+        }
     }
 
     [Theory]

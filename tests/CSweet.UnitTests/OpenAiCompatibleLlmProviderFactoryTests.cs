@@ -9,6 +9,28 @@ namespace CSweet.UnitTests;
 
 public sealed class OpenAiCompatibleLlmProviderFactoryTests
 {
+    public static IEnumerable<object[]> SupportedProviders => Enum.GetValues<LlmProviderType>()
+        .Where(x => x.UsesOpenAiCompatibleApi()).Select(x => new object[] { x });
+
+    [Theory]
+    [MemberData(nameof(SupportedProviders))]
+    public async Task Every_supported_provider_uses_the_same_response_contract(LlmProviderType providerType)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var secrets = new InMemoryLlmProviderSecretStore();
+        await secrets.StoreAsync("test-key", "test-value");
+        var profile = new LlmProviderProfile
+        {
+            Id = Guid.NewGuid(), Name = "Provider contract test", ProviderType = providerType,
+            BaseUrl = "https://provider.invalid/v1/", DefaultChatModel = "model",
+            ApiKeySecretName = "test-key", IsEnabled = true
+        };
+        db.LlmProviderProfiles.Add(profile); await db.SaveChangesAsync();
+        var factory = new OpenAiCompatibleLlmProviderFactory(db, secrets, NullLogger<OpenAiCompatibleLlmProviderFactory>.Instance);
+        using var client = await factory.CreateChatClientAsync(profile.Id);
+        Assert.NotNull(client.GetService<ProviderResponseContractChatClient>());
+    }
     [Theory]
     [InlineData(false, null, 128000)]
     [InlineData(true, null, 128000)]

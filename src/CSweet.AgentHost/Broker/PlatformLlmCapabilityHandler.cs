@@ -293,6 +293,7 @@ public sealed class PlatformLlmCapabilityHandler
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;
+        string? providerFailureCode = null;
         var providerRetryable = false;
         try
         {
@@ -349,6 +350,7 @@ public sealed class PlatformLlmCapabilityHandler
                 selectedModel);
             providerError = LlmProviderFailureMessage.From(exception);
             providerRetryable = LlmProviderFailureMessage.IsTransient(exception);
+            providerFailureCode = LlmProviderFailureMessage.CodeFrom(exception);
         }
 
         if (providerError is not null || updates is null)
@@ -362,7 +364,7 @@ public sealed class PlatformLlmCapabilityHandler
                 responseText,
                 providerError);
             await TryPersistRunLogAsync(runLog, CancellationToken.None);
-            yield return Failure(request.RequestId, providerError ?? "The platform LLM provider could not start the request.", providerRetryable);
+            yield return Failure(request.RequestId, providerError ?? "The platform LLM provider could not start the request.", providerRetryable, providerFailureCode);
             yield break;
         }
 
@@ -410,6 +412,7 @@ public sealed class PlatformLlmCapabilityHandler
                         selectedModel);
                     providerError = LlmProviderFailureMessage.From(exception);
                     providerRetryable = LlmProviderFailureMessage.IsTransient(exception);
+                    providerFailureCode = LlmProviderFailureMessage.CodeFrom(exception);
                 }
 
                 if (providerError is not null)
@@ -423,7 +426,7 @@ public sealed class PlatformLlmCapabilityHandler
                         responseText,
                         providerError);
                     await TryPersistRunLogAsync(runLog, CancellationToken.None);
-                    yield return Failure(request.RequestId, providerError, providerRetryable);
+                    yield return Failure(request.RequestId, providerError, providerRetryable, providerFailureCode);
                     yield break;
                 }
 
@@ -932,13 +935,13 @@ public sealed class PlatformLlmCapabilityHandler
         HasMore = hasMore
     };
 
-    private static CapabilityResult Failure(string requestId, string error, bool retryable = false) => new()
+    private static CapabilityResult Failure(string requestId, string error, bool retryable = false, string? failureCode = null) => new()
     {
         RequestId = requestId,
         Succeeded = false,
         ContentType = "application/json",
         Error = error,
-        FailureCode = retryable ? "llm.provider_unavailable" : "llm.request_failed",
+        FailureCode = failureCode ?? (retryable ? "llm.provider_unavailable" : "llm.request_failed"),
         Retryable = retryable,
         HasMore = false
     };

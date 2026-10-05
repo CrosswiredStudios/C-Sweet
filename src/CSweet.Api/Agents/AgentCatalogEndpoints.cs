@@ -1,6 +1,7 @@
 using CSweet.Agent.SDK;
 using CSweet.Api.Auth;
 using CSweet.Application.Agents;
+using CSweet.Application.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,21 @@ public static class AgentCatalogEndpoints
 {
     public static IEndpointRouteBuilder MapAgentCatalogEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet("/api/agents/catalog-profile", (
+            string agentReference, IAgentCatalogProfileService profiles, CancellationToken cancellationToken) =>
+            ReadProfileAsync(null, agentReference, profiles, cancellationToken));
+
+        endpoints.MapGet("/api/core/organizations/{organizationId:guid}/agents/catalog-profile", async (
+            Guid organizationId, string agentReference, HttpContext http, CSweetDbContext db,
+            IAgentCatalogProfileService profiles, CancellationToken cancellationToken) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue || !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.ApplicationUserId == userId && x.IsActive, cancellationToken))
+                return Results.Forbid();
+            return await ReadProfileAsync(organizationId, agentReference, profiles, cancellationToken);
+        });
+
         endpoints.MapGet("/api/agents/available", (
             string? role,
             string? q,
@@ -61,6 +77,20 @@ public static class AgentCatalogEndpoints
         });
 
         return endpoints;
+    }
+
+    private static async Task<IResult> ReadProfileAsync(Guid? organizationId, string agentReference,
+        IAgentCatalogProfileService profiles, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var profile = await profiles.GetAsync(organizationId, agentReference, cancellationToken);
+            return profile is null ? Results.NotFound() : Results.Ok(profile);
+        }
+        catch (Exception exception) when (exception is AgentImportPreviewException or ArgumentException or System.Text.Json.JsonException or HttpRequestException or IOException)
+        {
+            return Results.Problem("The agent's access details could not be loaded. Try again or continue to the hire review.", statusCode: 502);
+        }
     }
 
     private static AvailableAgentSearchQuery Query(

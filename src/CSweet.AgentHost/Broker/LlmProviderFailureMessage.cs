@@ -13,6 +13,8 @@ internal static class LlmProviderFailureMessage
     // Return approved explanations, never raw provider bodies, endpoints, credentials or prompts.
     internal static string From(Exception exception)
     {
+        if (exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract)
+            return contract.Message;
         var text = exception.Message;
         if (text.Contains("reasoning_content", StringComparison.OrdinalIgnoreCase))
             return "The model requires reasoning content to be preserved between tool calls. Update the platform's OpenAI-compatible adapter to retain reasoning history, then retry the blocked ticket.";
@@ -25,4 +27,7 @@ internal static class LlmProviderFailureMessage
             return "The request exceeds the model's context capacity. Reduce the supplied context or configure a model with sufficient capacity, then retry.";
         return "The platform LLM provider could not complete the request. Review the provider diagnostics before retrying.";
     }
+
+    internal static string CodeFrom(Exception exception) => exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract
+        ? contract.FailureCode : IsTransient(exception) ? "llm.provider_unavailable" : "llm.request_failed";
 }

@@ -147,6 +147,45 @@ public sealed class PrebuiltBundleInstallServiceTests
             AgentBuildStepStore.Read(job).Select(x => x.Key).ToArray());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DefinitionRetry_PrebuildUsesPersistedLocalConfigurationReadiness(bool validSettings)
+    {
+        await using var db = CreateDbContext();
+        var package = NewImportablePackage();
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(package.ManifestJson)!;
+        manifest["configuration"] = new[]
+        {
+            new { key = "limit", type = "number", label = "Limit", required = true, maximum = 10 }
+        };
+        package.ManifestJson = System.Text.Json.JsonSerializer.Serialize(manifest);
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(), PackageSourceId = package.PackageSourceId, AgentId = package.AgentId,
+            PackageVersionId = package.Id, Status = AgentDefinitionStatus.BuildFailed,
+            Configuration = new AgentDefinitionConfiguration
+            {
+                Id = Guid.NewGuid(), SchemaVersion = "1", Revision = 1,
+                SettingsJson = validSettings ? "{\"limit\":5}" : "{\"limit\":50}"
+            }
+        };
+        db.AddRange(package.PackageSource!, package, definition);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var handler = new BundleHandler(BundleBytes, $"{BundleDigest}  {package.ReleaseAssetName}\n");
+        var builds = new RecordingBuildService();
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), builds,
+            prebuiltInstallService: CreateService(db, handler, new FakeArtifactStore()));
+
+        var result = await service.RetryBuildAsync(definition.Id);
+
+        Assert.Equal(validSettings ? "Available" : "NeedsConfiguration", result.Status);
+        Assert.Equal(validSettings, result.IsAvailableForHire);
+        Assert.Null(builds.QueuedPackageVersionId);
+        Assert.Equal(AgentPackageVersionStatus.Built, (await db.AgentPackageVersions.SingleAsync()).Status);
+    }
+
     [Fact]
     public async Task InstallAsync_DownloadsVerifiesAndMarksBuilt()
     {

@@ -326,6 +326,38 @@ public sealed class AgentBuildJobTests
         Assert.Equal(AgentBuildStatus.Queued, job.Status);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ProcessNextAsync_CompletedBuildUsesLocalConfigurationReadiness(bool validSettings)
+    {
+        await using var db = CreateDbContext();
+        var (package, job) = await SeedAsync(db);
+        package.ManifestJson = """
+            {"configuration":[{"key":"limit","type":"number","label":"Limit","required":true,"maximum":10}]}
+            """;
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(), PackageSourceId = package.PackageSourceId, AgentId = package.AgentId,
+            PackageVersionId = package.Id, Status = AgentDefinitionStatus.Building,
+            Configuration = new AgentDefinitionConfiguration
+            {
+                Id = Guid.NewGuid(), SchemaVersion = "1", Revision = 1,
+                SettingsJson = validSettings ? "{\"limit\":5}" : "{\"limit\":50}"
+            }
+        };
+        db.Add(definition);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        Assert.True(await CreateService(db, new FakeBuildExecutor { ArtifactSignature = "verified-signature" }).ProcessNextAsync());
+
+        var saved = await db.AgentDefinitions.SingleAsync();
+        Assert.Equal(validSettings ? AgentDefinitionStatus.Available : AgentDefinitionStatus.NeedsConfiguration, saved.Status);
+        Assert.Equal(validSettings, saved.IsAvailableForHire);
+        Assert.Equal(AgentBuildStatus.Succeeded, (await db.AgentBuildJobs.SingleAsync(x => x.Id == job.Id)).Status);
+    }
+
     private static AgentBuildService CreateService(
         CSweetDbContext dbContext,
         IAgentBuildExecutor executor,
@@ -407,6 +439,7 @@ public sealed class AgentBuildJobTests
         public const string Digest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         public const string PackagePath = "/packages/version/digest";
         public Exception? BuildFailure { get; init; }
+        public string? ArtifactSignature { get; init; }
         public Queue<Exception> CloneFailures { get; } = new();
         public bool CleanupCalled { get; private set; }
         public bool CloneCalled { get; private set; }
@@ -456,7 +489,7 @@ public sealed class AgentBuildJobTests
                     AgentBuildStepKeys.Publish,
                     AgentBuildStepStatuses.Succeeded),
                 cancellationToken);
-            return new AgentBuildExecutionResult(PackagePath, Digest, workspace.LogPath);
+            return new AgentBuildExecutionResult(PackagePath, Digest, workspace.LogPath, ArtifactSignature);
         }
 
         public Task CleanupWorkspaceAsync(

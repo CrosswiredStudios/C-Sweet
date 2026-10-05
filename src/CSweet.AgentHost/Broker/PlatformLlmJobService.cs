@@ -8,6 +8,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using AgentWorkKind = CSweet.Domain.Setup.AgentWorkKind;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -77,6 +78,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         public DateTimeOffset? FinishedAt { get; set; }
         public string State { get; set; } = "Received";
         public string? Error { get; set; }
+        public string? FailureCode { get; set; }
         public bool Retryable { get; set; }
         public PlatformLlmResultBuffer Results { get; } = new();
         public CancellationTokenSource Cancellation { get; } = new();
@@ -117,8 +119,10 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             var job = new Job { Id = Guid.NewGuid(), Session = session, WorkId = workId, Attempt = attempt,
                 LeaseToken = leaseToken, Key = key, Hash = hash, Provider = provider, CreatedAt = now,
                 LastPoll = now, AccountedAt = now,
-                IsDelivery = work.SourceType == "WorkStageExecution" ||
-                    work.Name is "com.csweet.agent.coordination.turn-requested.v1" or "com.csweet.work.personal-todo.available.v1",
+                IsDelivery = work.Kind == AgentWorkKind.Capability && work.SourceType == "WorkStageExecution" ||
+                    work.Kind == AgentWorkKind.Event && (
+                        work.SourceType == "agent-coordination" && work.Name == AgentCoordinationEvents.TurnRequested ||
+                        work.SourceType == "platform-event" && work.Name == CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available),
                 Request = new() { RequestId = Guid.NewGuid().ToString("N"), Capability = PlatformCapabilities.LlmChatStream,
                     Payload = JsonPayload.From(bytes) } };
             jobs[job.Id] = job;
@@ -145,7 +149,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             return new { jobId = id, state = job.State, workId = job.WorkId, workDeadline = deadline,
                 next = after + page.Length, completed = job.FinishedAt.HasValue && after + page.Length == job.Results.End,
                 error = job.Error, retryable = job.Retryable,
-                failureCode = job.Error is null ? null : job.Retryable ? "llm.provider_unavailable" : "llm.request_failed",
+                failureCode = job.Error is null ? null : job.FailureCode ?? (job.Retryable ? "llm.provider_unavailable" : "llm.request_failed"),
                 chunks = page.Select(x => new { x.Succeeded, x.HasMore, x.Sequence, x.Error, x.FailureCode, x.Retryable,
                     payload = x.Payload.IsEmpty ? (JsonElement?)null : JsonSerializer.Deserialize<JsonElement>(x.Payload.Span) }) };
         }
@@ -218,6 +222,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                     {
                         job.Error = result.Error ?? "The provider request failed.";
                         job.Retryable = result.Retryable == true;
+                        job.FailureCode = result.FailureCode;
                     }
                 }
             }
@@ -238,8 +243,9 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Inference job {JobId} failed.", job.Id);
-            job.Error = "The inference request failed. Review the provider/runtime diagnostics.";
+            job.Error = LlmProviderFailureMessage.From(exception);
             job.Retryable = LlmProviderFailureMessage.IsTransient(exception);
+            job.FailureCode = LlmProviderFailureMessage.CodeFrom(exception);
             await SetStateAsync(job, "Failed", CancellationToken.None);
         }
         finally { lock (job.Sync) job.FinishedAt = clock.GetUtcNow(); }

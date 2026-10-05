@@ -323,7 +323,7 @@ public sealed class AgentBuildService : IAgentBuildService
             var settings = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(
                                definition.Configuration?.SettingsJson ?? "{}")
                            ?? new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal);
-            var complete = AgentConfigurationRules.HasAllRequired(manifest, settings) &&
+            var complete = await AgentConfigurationRules.IsLocallyReadyAsync(_dbContext, manifest, settings, cancellationToken) &&
                            !string.IsNullOrWhiteSpace(package.PackageDigest) &&
                            !string.IsNullOrWhiteSpace(package.ArtifactSignature);
             definition.Status = complete ? AgentDefinitionStatus.Available : AgentDefinitionStatus.NeedsConfiguration;

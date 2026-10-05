@@ -91,12 +91,14 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         var dueReviews = await db.CoreWorkTasks
             .Include(x => x.Board)
             .Where(x => x.Board != null && (x.Board.Kind == WorkBoardKind.Personal || x.Board.WorkstreamId != null && x.PersonalWorkContextJson != null) &&
-                x.Status == WorkTaskStatus.Running && x.NextReviewAt != null &&
+                x.Status == WorkTaskStatus.Running && x.ClaimEventId == null && x.ClaimExpiresAt == null && x.NextReviewAt != null &&
                 x.NextReviewAt <= now)
             .ToListAsync(cancellationToken);
         var replacementWakeItemIds = new HashSet<Guid>();
         foreach (var item in dueReviews)
         {
+            if (item.Status != WorkTaskStatus.Running || item.ClaimEventId is not null || item.ClaimExpiresAt is not null)
+                continue;
             var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
                 x.Id == item.AssignedEmployeeId && x.IsActive &&
                 x.AgentInstallationId != null, cancellationToken);
@@ -904,6 +906,9 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                         columns[WorkBoardColumnCategory.InProgress].Id)
                     .SetProperty(x => x.ClaimEventId, request.EventId)
                     .SetProperty(x => x.ClaimExpiresAt, now.Add(ClaimDuration))
+                    .SetProperty(x => x.NextReviewAt, (DateTimeOffset?)null)
+                    .SetProperty(x => x.WaitingReason, (string?)null)
+                    .SetProperty(x => x.WaitingOnOrganizationUserId, (Guid?)null)
                     .SetProperty(x => x.Revision, x => x.Revision + 1)
                     .SetProperty(x => x.UpdatedAt, now), cancellationToken);
             if (updated == 1)

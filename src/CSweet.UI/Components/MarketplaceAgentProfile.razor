@@ -1,0 +1,263 @@
+@using CSweet.Agent.SDK
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Plugins
+@implements IDisposable
+@inject HttpClient Http
+
+<section class="agent-profile" style="@MarketplaceAgentPresentation.AccentStyle(Agent.AccentColor)" aria-labelledby="@_titleId">
+    <header class="profile-header">
+        <img class="profile-portrait" src="@PortraitUrl" alt="@Agent.Name" referrerpolicy="no-referrer" @onerror="() => _portraitFailed = true" />
+        <div class="profile-identity">
+            <span class="profile-kicker">Meet your next teammate</span>
+            <h2 id="@_titleId">@Agent.Name</h2>
+            <p>@RoleLabel <span aria-hidden="true">&middot;</span> @Agent.Publisher</p>
+            <div class="profile-badges">
+                <span class="profile-availability">@AvailabilityLabel</span>
+                <span>@Agent.Trust</span>
+                @if (_profile is not null) { <span>v@_profile.Version</span> }
+            </div>
+        </div>
+        <button type="button" class="profile-close" aria-label="Close agent profile" @onclick="CloseRequested"><MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" /></button>
+    </header>
+
+    <div class="profile-scroll">
+        <p class="profile-intro">@(string.IsNullOrWhiteSpace(Agent.LongDescription) ? Agent.Summary : Agent.LongDescription)</p>
+        <div class="profile-columns">
+            <section class="profile-capabilities" aria-labelledby="@(_titleId + "-capabilities")">
+                <div class="profile-section-heading">
+                    <span class="profile-section-icon"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" Size="Size.Small" /></span>
+                    <h3 id="@(_titleId + "-capabilities")">What this agent can do</h3>
+                    <span class="profile-count">@Capabilities.Count</span>
+                </div>
+                <p class="profile-section-note">Capabilities offered by this agent.</p>
+                <div class="profile-capability-list">
+                    @foreach (var capability in Capabilities.Take(4))
+                    {
+                        <div class="profile-capability">
+                            <span class="profile-capability-mark" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.Check" Size="Size.Small" /></span>
+                            <div>
+                                <h4>@DisplayName(capability.Name)</h4>
+                                @if (!string.IsNullOrWhiteSpace(capability.Description)) { <p>@capability.Description</p> }
+                                <code>@capability.Name</code>
+                            </div>
+                        </div>
+                    }
+                    @if (Capabilities.Count == 0) { <p class="profile-empty">No capabilities listed in the catalog.</p> }
+                </div>
+                @if (Capabilities.Count > 4)
+                {
+                    <details class="profile-disclosure profile-more-capabilities">
+                        <summary><span class="profile-disclosure-copy"><strong>@(Capabilities.Count - 4) more capabilities</strong><small>Explore the full capability list</small></span><span class="profile-chevron" aria-hidden="true">⌄</span></summary>
+                        <ul class="profile-grant-list">
+                            @foreach (var capability in Capabilities.Skip(4))
+                            {
+                                <li><h4>@DisplayName(capability.Name)</h4>
+                                    @if (!string.IsNullOrWhiteSpace(capability.Description)) { <p>@capability.Description</p> }
+                                    <code>@capability.Name</code>
+                                </li>
+                            }
+                        </ul>
+                    </details>
+                }
+                <div class="profile-package-facts">
+                    <dl>
+                        <div><dt>Listed price</dt><dd>@PriceLabel</dd></div>
+                        @if (!string.IsNullOrWhiteSpace(Agent.LicenseSpdxId)) { <div><dt>License</dt><dd>@Agent.LicenseSpdxId</dd></div> }
+                        @if (Agent.Rating is { } rating) { <div><dt>Rating</dt><dd>@($"{rating:0.0}/10 · {Agent.RatingCount} reviews")</dd></div> }
+                    </dl>
+                </div>
+            </section>
+
+            <section class="profile-access" aria-labelledby="@(_titleId + "-access")" aria-busy="@_loading.ToString().ToLowerInvariant()">
+                <div class="profile-section-heading">
+                    <span class="profile-section-icon"><MudIcon Icon="@Icons.Material.Outlined.Security" Size="Size.Small" /></span>
+                    <h3 id="@(_titleId + "-access")">Access it will request</h3>
+                    @if (_profile is not null) { <span class="profile-count">@_profile.RequestedGrants.Count</span> }
+                </div>
+                <p class="profile-section-note">Declared by the agent. Confirm access in the hire review.</p>
+                @if (_loading)
+                {
+                    <div class="profile-loading" role="status"><MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" /><span>Reading requested access&hellip;</span></div>
+                }
+                else if (_profile is null)
+                {
+                    <div class="profile-unavailable" role="status">
+                        <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" />
+                        <p>Access details are unavailable. Review the package requests before approving a hire.</p>
+                        <button type="button" class="profile-retry" @onclick="LoadProfileAsync">Try again</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="profile-grant-groups">
+                        @foreach (var group in _profile.RequestedGrants.GroupBy(grant => GrantGroup(grant.Name)))
+                        {
+                            <details class="profile-disclosure">
+                                <summary>
+                                    <span class="profile-disclosure-copy"><strong>@group.Key</strong><small>@string.Join(" · ", group.Take(3).Select(grant => DisplayName(grant.Name, omitDomain: true)))@(group.Count() > 3 ? " …" : "")</small></span>
+                                    <span class="profile-count">@group.Count()</span><span class="profile-chevron" aria-hidden="true">⌄</span>
+                                </summary>
+                                <ul class="profile-grant-list profile-scrollable-grants" tabindex="@(group.Count() > 6 ? "0" : null)" aria-label="@($"{group.Key} requested grants")">
+                                    @foreach (var grant in group)
+                                    {
+                                        <li>
+                                            <div class="profile-grant-heading"><h4>@DisplayName(grant.Name, omitDomain: true)</h4><span class="profile-scope">@grant.Scope</span></div>
+                                            @if (!string.IsNullOrWhiteSpace(grant.Purpose)) { <p>@grant.Purpose</p> }
+                                            <code>@grant.Name</code>
+                                        </li>
+                                    }
+                                </ul>
+                            </details>
+                        }
+                        @if (_profile.RequestedGrants.Count == 0) { <p class="profile-empty">No platform grants requested.</p> }
+                    </div>
+                    <details class="profile-disclosure profile-secondary-disclosure">
+                        <summary><span class="profile-disclosure-copy"><strong>Events</strong><small>@_profile.Subscriptions.Count subscriptions &middot; @_profile.Publications.Count publications</small></span><span class="profile-chevron" aria-hidden="true">⌄</span></summary>
+                        <div class="profile-disclosure-body">
+                            <h4>Subscriptions</h4>
+                            @foreach (var item in _profile.Subscriptions) { <code>@item</code> }
+                            @if (_profile.Subscriptions.Count == 0) { <p>None requested.</p> }
+                            <h4>Publications</h4>
+                            @foreach (var item in _profile.Publications) { <code>@item</code> }
+                            @if (_profile.Publications.Count == 0) { <p>None declared.</p> }
+                        </div>
+                    </details>
+                    <details class="profile-disclosure profile-secondary-disclosure">
+                        <summary><span class="profile-disclosure-copy"><strong>Web &amp; connections</strong><small>@WebAccessLabel &middot; @_profile.Credentials.Count credentials &middot; @_profile.Connections.Count connections</small></span><span class="profile-chevron" aria-hidden="true">⌄</span></summary>
+                        <div class="profile-disclosure-body">
+                            <h4>Web access</h4><p>@WebAccessLabel</p>
+                            @if (!string.IsNullOrWhiteSpace(_profile.WebAccess.Purpose)) { <p>@_profile.WebAccess.Purpose</p> }
+                            @foreach (var rule in _profile.WebAccess.Rules)
+                            {
+                                <div class="profile-web-rule"><code>@($"{rule.Scheme}://{rule.Host}{(rule.Port.HasValue ? $":{rule.Port}" : "")}{rule.PathPrefix}")</code><p>@string.Join(", ", rule.Methods) &middot; @rule.Purpose</p></div>
+                            }
+                            <h4>Credentials</h4>
+                            @foreach (var credential in _profile.Credentials) { <p><strong>@credential.Name</strong> &middot; @credential.Type</p><code>@string.Join(", ", credential.AllowedOrigins)</code> }
+                            @if (_profile.Credentials.Count == 0) { <p>None requested.</p> }
+                            <h4>Connections</h4>
+                            @foreach (var connection in _profile.Connections)
+                            {
+                                <p><strong>@connection.Id</strong> &middot; @connection.Type</p><code>@string.Join(", ", connection.AllowedOrigins)</code>
+                                @foreach (var scopeSet in connection.ScopeSets)
+                                {
+                                    <p><strong>@scopeSet.Label</strong> &middot; @(scopeSet.Required ? "Required" : "Optional")</p>
+                                    <p>@scopeSet.Purpose</p><code>@string.Join(", ", scopeSet.Scopes)</code>
+                                }
+                            }
+                            @if (_profile.Connections.Count == 0) { <p>None requested.</p> }
+                        </div>
+                    </details>
+                }
+                <div class="profile-consent-note"><MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" /><p>Viewing this profile grants no access. The next step reviews the package and hire settings.</p></div>
+            </section>
+        </div>
+    </div>
+
+    <footer class="profile-footer">
+        @if (DetailsHref is { } details) { <a href="@details" target="_blank" rel="noopener noreferrer" class="profile-documentation">Documentation <MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" /></a> }
+        <div class="profile-footer-actions">
+            <MudButton OnClick="CloseRequested">Close</MudButton>
+            @if (CanReviewHire && ReviewHireRequested.HasDelegate)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward" OnClick="ReviewHireRequested">Review and hire</MudButton>
+            }
+            else if (!CanReviewHire) { <span class="profile-section-note">Not currently hireable</span> }
+        </div>
+    </footer>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public AvailableAgent Agent { get; set; } = default!;
+    [Parameter] public Guid? OrganizationId { get; set; }
+    [Parameter] public EventCallback CloseRequested { get; set; }
+    [Parameter] public EventCallback ReviewHireRequested { get; set; }
+    // Allows server-rendered previews to use the same view without an HTTP request.
+    [Parameter] public AgentCatalogProfileResponse? Profile { get; set; }
+
+    private readonly string _titleId = $"agent-profile-{Guid.NewGuid():N}";
+    private CancellationTokenSource? _loadCancellation;
+    private AgentCatalogProfileResponse? _profile;
+    private string? _loadedKey;
+    private bool _loading;
+    private bool _portraitFailed;
+    private string PortraitUrl => !_portraitFailed && MarketplaceAgentPresentation.IsAgentImageUrl(Agent.ImageUrl) ? Agent.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
+    private string RoleLabel => string.IsNullOrWhiteSpace(Agent.RoleName) ? Agent.Category : Agent.RoleName;
+    private string PriceLabel => Agent.Price is null ? "No listed cost" : $"{Agent.Price:0.##} {Agent.Currency}";
+    private string? DetailsHref => AgentCatalogBranding.IsImageUrl(Agent.DocumentationUrl) ? Agent.DocumentationUrl : AgentCatalogBranding.IsImageUrl(Agent.RepositoryUrl) ? Agent.RepositoryUrl : null;
+    private bool CanReviewHire => (Agent.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled) &&
+        (Agent.Source is AgentCatalogSource.Installed or AgentCatalogSource.LocalDirectory || !string.IsNullOrWhiteSpace(Agent.RepositoryUrl));
+    private string AvailabilityLabel => Agent.Availability switch
+    {
+        AgentAvailabilityState.AvailableToInstall => "Available to hire",
+        AgentAvailabilityState.InstalledEnabled => "Installed · enabled",
+        AgentAvailabilityState.InstalledDisabled => "Installed · disabled",
+        AgentAvailabilityState.Planned => "Coming soon",
+        _ => "Unavailable"
+    };
+    private IReadOnlyList<PluginCapabilityDeclaration> Capabilities => _profile?.Capabilities ?? Agent.Capabilities.Select(name => new PluginCapabilityDeclaration { Name = name }).ToArray();
+    private string WebAccessLabel => _profile?.WebAccess.Mode switch
+    {
+        PluginWebAccessMode.None => "No web access requested",
+        PluginWebAccessMode.AllPublic => "All public web access",
+        PluginWebAccessMode.Allowlist => $"{_profile.WebAccess.Rules.Count} web access rules",
+        _ => "Web access unavailable"
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = $"{OrganizationId}:{Agent.AgentReference}";
+        if (Profile is not null) { _loadCancellation?.Cancel(); _profile = Profile; _loadedKey = key; _loading = false; return; }
+        if (_loadedKey == key) return;
+        _loadedKey = key;
+        _portraitFailed = false;
+        await LoadProfileAsync();
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        _loadCancellation?.Cancel();
+        _loadCancellation?.Dispose();
+        var cancellation = _loadCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        _profile = null;
+        _loading = true;
+        try
+        {
+            var prefix = OrganizationId.HasValue ? $"api/core/organizations/{OrganizationId:D}/agents" : "api/agents";
+            var result = await Http.GetFromJsonAsync<AgentCatalogProfileResponse>($"{prefix}/catalog-profile?agentReference={Uri.EscapeDataString(Agent.AgentReference)}", cancellation.Token);
+            if (_loadCancellation == cancellation) _profile = result;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException) { }
+        finally { if (_loadCancellation == cancellation) _loading = false; }
+    }
+
+    private static string GrantGroup(string name) => name.Split('.')[0] switch
+    {
+        "platform" => "Business & platform",
+        "work" => "Work management",
+        "communication" => "Communications",
+        "memory" => "Memory",
+        "agent" => "Agent lifecycle",
+        _ => DisplayName(name.Split('.')[0])
+    };
+    private static string DisplayName(string name, bool omitDomain = false)
+    {
+        if (!omitDomain)
+        {
+            var label = name switch
+            {
+                "assistant.converse.v1" => "Conversations",
+                "assistant.summarize-activity.v1" => "Activity summaries",
+                "assistant.plan-work.v1" => "Work planning",
+                "management.check-in.v1" => "Management check-ins",
+                _ => null
+            };
+            if (label is not null) return label;
+        }
+        var parts = name.Split('.').ToList();
+        if (parts.Count > 1 && parts[^1].Length > 1 && parts[^1][0] == 'v' && parts[^1][1..].All(char.IsDigit)) parts.RemoveAt(parts.Count - 1);
+        if (omitDomain && parts.Count > 1) parts.RemoveAt(0);
+        var words = string.Join(" ", parts).Replace('-', ' ').Replace('_', ' ');
+        return words.Length == 0 ? name : char.ToUpperInvariant(words[0]) + words[1..];
+    }
+    public void Dispose() { _loadCancellation?.Cancel(); _loadCancellation?.Dispose(); }
+}

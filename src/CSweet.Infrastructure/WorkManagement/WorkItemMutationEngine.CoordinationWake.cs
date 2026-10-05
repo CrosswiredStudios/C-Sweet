@@ -9,6 +9,7 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed partial class WorkItemMutationEngine
 {
+    private const string CoordinationWakeReceiptAction = "personal-todo.coordination-wake";
     // A terminal collaboration is a wake hint, never delivery evidence or a new execution grant.
     // The caller saves this transition and its outbox entry with the session completion.
     internal async Task WakeCoordinationWaitsAsync(AgentCoordinationSession session, CancellationToken token, WorkTask? deferred = null)
@@ -65,10 +66,25 @@ public sealed partial class WorkItemMutationEngine
             var todoColumn = await db.WorkBoardColumns.Where(x => x.BoardId == item.BoardId &&
                 x.Category == WorkBoardColumnCategory.ToDo).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(token);
             if (todoColumn is null) continue;
+            // A cycle can await several role authorities. Once one completion has
+            // woken reconciliation, it must not wake the next wait for another role.
+            // PostgreSQL timestamps retain microseconds; keep the key identical
+            // before persistence and after reconnect reads.
+            var receiptKey = $"{item.Id:N}:{session.Id:N}:{session.CompletedAt.Value.UtcTicks / 10}";
+            if (db.WorkItemMutationReceipts.Local.Any(x => x.OrganizationId == item.OrganizationId &&
+                    x.AgentInstallationId == session.InitiatorInstallationId && x.Action == CoordinationWakeReceiptAction && x.IdempotencyKey == receiptKey) ||
+                await db.WorkItemMutationReceipts.AsNoTracking().AnyAsync(x => x.OrganizationId == item.OrganizationId &&
+                    x.AgentInstallationId == session.InitiatorInstallationId && x.Action == CoordinationWakeReceiptAction && x.IdempotencyKey == receiptKey, token)) continue;
             var now = clock.GetUtcNow();
             item.Status = WorkTaskStatus.Ready; item.BoardColumnId = todoColumn;
             item.NextReviewAt = null; item.WaitingReason = null; item.WaitingOnOrganizationUserId = null;
             item.ClaimExpiresAt = null; item.UpdatedAt = now; item.Revision++;
+            db.WorkItemMutationReceipts.Add(new()
+            {
+                Id = Guid.NewGuid(), OrganizationId = item.OrganizationId, AgentInstallationId = session.InitiatorInstallationId,
+                Action = CoordinationWakeReceiptAction, IdempotencyKey = receiptKey, ResourceId = item.Id, CreatedAt = now,
+                ResultJson = JsonSerializer.Serialize(new { coordinationSessionId = session.Id, completedAt = session.CompletedAt, revision = item.Revision }, JsonOptions)
+            });
             await QueueAvailableAsync(item.OrganizationId, owner, item.BoardId!.Value, item.Id, now, token);
         }
     }
@@ -93,14 +109,15 @@ public sealed partial class WorkItemMutationEngine
         var sessions = await db.AgentCoordinationSessions.AsNoTracking().Where(x =>
             x.OrganizationId == item.OrganizationId && x.InitiatorOrganizationUserId == owner &&
             x.InitiatorInstallationId == installation && x.SourceKind == "Board" && x.SourceBoardId != null &&
-            x.Status != AgentCoordinationStatus.Cancelled &&
+            (x.Status == AgentCoordinationStatus.Active || x.Status == AgentCoordinationStatus.Summarizing ||
+                x.Status == AgentCoordinationStatus.Completed || x.Status == AgentCoordinationStatus.Blocked) &&
             x.WorkstreamId == project && x.TeamId == context.TeamId &&
             (context.BoardId == null || x.SourceBoardId == context.BoardId) &&
             (x.SourceWorkItemId == null || x.SourceWorkItemId == context.WorkItemId) &&
             db.AgentCoordinationTurns.Any(t => t.SessionId == x.Id &&
                 t.SpeakerOrganizationUserId == owner && t.ArtifactKey == context.SourceFingerprint))
-            .OrderByDescending(x => x.CreatedAt).Take(32).ToListAsync(token);
-        if (sessions.Count == 0 || sessions.Select(x => x.SourceBoardId).Distinct().Count() != 1) return;
+            .OrderByDescending(x => x.CreatedAt).Take(33).ToListAsync(token);
+        if (sessions.Count is 0 or > 32 || sessions.Select(x => x.SourceBoardId).Distinct().Count() != 1) return;
         item.PersonalWorkContextJson = JsonSerializer.Serialize(context with
         {
             BoardId = sessions[0].SourceBoardId,

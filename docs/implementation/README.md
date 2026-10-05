@@ -36,6 +36,10 @@ Read these files in order:
 
 ## Feature plans
 
+- [Uniform provider responses](./features/provider-response-compatibility.md) - shared
+  agent response contract, bounded formatting recovery, streaming fallback and diagnostics.
+- [Agent upgrades and configuration readiness](./features/agent-upgrade-configuration.md) -
+  provider-independent package upgrades, retained settings, and local readiness checks.
 - [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - null work-context
 - [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them
   crash in health capture, and the next-step/escalation convention for waiting agents.

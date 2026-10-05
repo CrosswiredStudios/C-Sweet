@@ -1318,6 +1318,13 @@
             var build = installation.Build;
             if (build is null || string.Equals(build.Status, "Succeeded", StringComparison.Ordinal))
             {
+                if (installation.SetupState == "NeedsConfiguration")
+                {
+                    var configurationDetail = $"{installation.AgentName} {installation.AgentVersion} is installed. Review its settings to complete configuration.";
+                    SetBuildProgress(InstallationProgressKey(installation), "Needs configuration", configurationDetail, true, Severity.Warning);
+                    SetInstallationMessage(configurationDetail, true);
+                    return;
+                }
                 var completionTitle = isUpdate ? "Update complete" : "Agent ready";
                 SetBuildProgress(InstallationProgressKey(installation), completionTitle, $"{installation.AgentName} {installation.AgentVersion} is installed and ready.", true, Severity.Success);
                 SetInstallationMessage(

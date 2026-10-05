@@ -576,7 +576,27 @@ public sealed class LocalDirectoryAgentCatalogProvider(
             : Path.Combine(environment.ContentRootPath, configured));
     }
 
-    private async Task<AvailableAgent?> ReadAsync(string root, string directory, CancellationToken token)
+    public async Task<PluginManifest?> ReadProfileManifestAsync(string agentReference, CancellationToken token)
+    {
+        var root = RootPath();
+        if (!Directory.Exists(root)) return null;
+        foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly))
+        {
+            (AvailableAgent Agent, PluginManifest Manifest)? entry;
+            try { entry = await ReadEntryAsync(root, directory, token); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or AgentImportPreviewException)
+            {
+                continue;
+            }
+            if (entry?.Agent.AgentReference == agentReference) return entry.Value.Manifest;
+        }
+        return null;
+    }
+
+    private async Task<AvailableAgent?> ReadAsync(string root, string directory, CancellationToken token) =>
+        (await ReadEntryAsync(root, directory, token))?.Agent;
+
+    private async Task<(AvailableAgent Agent, PluginManifest Manifest)?> ReadEntryAsync(string root, string directory, CancellationToken token)
     {
         EnsureUnderRoot(root, directory);
         RejectReparsePoint(directory);
@@ -598,7 +618,7 @@ public sealed class LocalDirectoryAgentCatalogProvider(
         if (!File.Exists(project)) throw new AgentImportPreviewException("The declared runtime project does not exist.");
         var digest = await DigestAsync(directory, token);
         var reference = $"local:{Uri.EscapeDataString(manifest.Id)}:{digest}";
-        return new(
+        var agent = new AvailableAgent(
             reference,
             manifest.Id,
             AgentCatalogSource.LocalDirectory,
@@ -633,6 +653,7 @@ public sealed class LocalDirectoryAgentCatalogProvider(
             AccentColor = manifest.Catalog.AccentColor,
             LongDescription = manifest.Catalog.LongDescription,
         };
+        return (agent, manifest);
     }
 
     private async Task<string> DigestAsync(string directory, CancellationToken token)

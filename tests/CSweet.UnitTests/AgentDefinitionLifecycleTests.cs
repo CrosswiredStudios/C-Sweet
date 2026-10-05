@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentDefinitionLifecycleTests
+public sealed partial class AgentDefinitionLifecycleTests
 {
     [Fact]
     public async Task Import_QueuesOnlyBuilderAndCreatesNoBusinessOrRuntimeRows()

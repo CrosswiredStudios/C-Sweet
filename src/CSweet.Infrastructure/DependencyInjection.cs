@@ -351,6 +351,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentCatalogProvider, FirstPartyAgentCatalogProvider>();
         builder.Services.AddScoped<IAgentCatalogProvider, MarketplaceAgentCatalogProvider>();
         builder.Services.AddScoped<IAgentCatalogService, AgentCatalogService>();
+        builder.Services.AddScoped<IAgentCatalogProfileService, AgentCatalogProfileService>();
 
         // Planning services
         builder.Services.AddScoped<IPlanningRunService, PlanningRunService>();
