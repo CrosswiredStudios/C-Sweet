@@ -1,6 +1,7 @@
 """Verify the local handoff feed against final manifests; never publish packages."""
 import json
 import hashlib
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from zipfile import ZipFile
@@ -27,7 +28,17 @@ for agent in agents:
     assert manifest['version'] == agent['version']
     assert all(agent.get(stage) == 0 for stage in ('restore', 'test', 'self-test', 'pack')), agent
     assert any(package['version'] == manifest['version'] and package['id'].lower().endswith(agent['repository'].removeprefix('CSweet.Agent.').lower()) for package in packages), agent
-    assert manifest['version'] in (repository / 'releases' / (manifest['version'] + '.md')).read_text(encoding='utf-8-sig').splitlines()[0]
+    note = Path('releases') / (manifest['version'] + '.md')
+    assert (repository / note).read_text(encoding='utf-8-sig').splitlines()[0] == '# ' + manifest['version'], (repository, note)
+    # A local file can pass content checks while an ignore rule silently excludes
+    # it from the commit used by C-Sweet to fetch release notes. Check even tracked
+    # files so a future version cannot disappear under the same ignore rule.
+    ignored = subprocess.run(['git', 'check-ignore', '--no-index', note.as_posix()],
+                             cwd=repository, capture_output=True, text=True)
+    assert ignored.returncode == 1, (repository, note, 'Release notes must not be ignored', ignored.stdout, ignored.stderr)
+    visible = subprocess.run(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '--', note.as_posix()],
+                             cwd=repository, capture_output=True, text=True)
+    assert visible.returncode == 0 and note.as_posix() in visible.stdout.splitlines(), (repository, note, 'Release notes must be tracked or visible for addition', visible.stderr)
     provenance = repository / 'extensions/video-game/extension.json'
     if provenance.exists():
         extension = json.loads(provenance.read_text(encoding='utf-8-sig'))

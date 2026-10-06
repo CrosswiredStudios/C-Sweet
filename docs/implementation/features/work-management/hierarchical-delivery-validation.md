@@ -45,6 +45,8 @@ The local handoff feed is `artifacts/hierarchical-packages`. It contains WorkMan
 
 `artifacts/hierarchical-validation/packages.json` records package IDs, versions and SHA-256 digests. `agents.json`, `agent-test-counts.json`, `platform-package-consumers.json` and individual logs retain validation results. These generated artifacts are local; keep them with the handoff when transferring packages.
 
+Release-note Git visibility was rechecked on 2026-10-06. Ten agent repositories had a Visual Studio ignore rule excluding locally written release notes. Their ignore rules now allow root `releases/*.md` documentation. All 19 final-version notes are tracked or visible for addition; `release-note-git-audit.json` records their status. The metadata verifier now checks exact headings and Git visibility, including ignore rules affecting future versions. Pending additions still need to be included in the repository commit used for installation or updates.
+
 Reproduce package-consumer validation with `scripts/verify-hierarchical-agents.py`, `scripts/verify-hierarchical-platform-packages.py` and `scripts/verify-hierarchical-package-metadata.py`, using the built local feed and installed dependency cache. The platform script checks restored assets are packages rather than sibling project references. The SDK's `scripts/verify-authoring-template.ps1` verifies the generated agent. Database setup and the safe installation sequence are in [branch recovery and clean installation](branch-recovery-and-clean-install.md).
 
 ## Operational boundaries
