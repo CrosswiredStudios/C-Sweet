@@ -95,14 +95,14 @@ public sealed partial class AgentWorkspaceBroker(
 
         var snapshot = connection.Provider == SourceControlProvider.InternalGit
             ? await gitHost.PrepareInternalWorkspaceAsync(new(request.OrganizationId, repository.Id, workspace.Id,
-                repository.DefaultBranch, workspace.BranchName, request.ExpectedCommitSha, request.IdempotencyKey), cancellationToken)
+                (string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch), workspace.BranchName, request.ExpectedCommitSha, request.IdempotencyKey), cancellationToken)
             : await gitHost.PrepareWorkspaceAsync(
             new TrustedWorkspaceSnapshotRequest(
                 connection.SourceAccessInstallationId!.Value,
                 externalRepositoryId,
                 repository.Owner,
                 repository.Name,
-                repository.DefaultBranch,
+                (string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch),
                 workspace.Id,
                 workspace.BranchName,
                 request.ExpectedCommitSha,

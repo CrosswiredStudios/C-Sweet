@@ -137,6 +137,9 @@ public sealed class OrganizationDataPurgeService(
             .ExecuteDeleteAsync(cancellationToken);
 
         var businessId = organizationId.ToString("D");
+        await dbContext.WorkTaskIntegrationReceipts.Where(x => x.OrganizationId == organizationId).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WorkDeliveryExecutions.Where(x => dbContext.WorkDeliveryPlans.Any(p => p.Id == x.PlanId && p.OrganizationId == organizationId))
+            .ExecuteDeleteAsync(cancellationToken);
         await dbContext.WorkExecutionAttempts
             .Where(attempt => attempt.AgentWorkItemId != null &&
                 dbContext.AgentWorkItems.Any(workItem =>

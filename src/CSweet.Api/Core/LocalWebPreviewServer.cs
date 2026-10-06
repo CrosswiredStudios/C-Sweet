@@ -14,7 +14,9 @@ internal sealed class LocalWebPreviewServer(WebApplication app, string accessRef
         TimeProvider clock, CancellationToken token)
     {
         if (expiresAt <= clock.GetUtcNow()) throw new InvalidOperationException("The preview has expired.");
-        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ContentRootPath = Path.GetTempPath() });
+        // This isolated origin must never inherit the API/MCP listener configuration.
+        builder.Configuration.Sources.Clear();
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
         var app = builder.Build();

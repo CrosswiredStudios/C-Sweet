@@ -53,7 +53,7 @@ public sealed class ProjectsWorkspaceTests
         Assert.Contains(expected, html);
         Assert.Contains("Neon Bash", html);
         Assert.DoesNotContain("New project", html);
-        Assert.All(api.Methods, method => Assert.Equal(HttpMethod.Get, method));
+        Assert.All(api.Methods, method => Assert.Contains(method, tab == "delivery" ? new[] { HttpMethod.Get, HttpMethod.Post } : new[] { HttpMethod.Get }));
     }
 
     [Theory]
@@ -78,6 +78,45 @@ public sealed class ProjectsWorkspaceTests
 
     private static ProjectInspectionResource Resource() => new(Guid.NewGuid(), "Workstream", "software-prototype.v1", "Neon Bash", "Active", 1, null, null, null, null, null, DateTimeOffset.UtcNow, "/projects", JsonSerializer.SerializeToElement(new { Outcome = "Ship a prototype", LifecycleStage = "Development" }));
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeliveryRendersExactCandidateAndPartialPromotionWithoutStandaloneMergeColumns(bool partial)
+    {
+        await using var fixture = await HierarchicalDeliveryServiceTests.Fixture.Create(false, twoRepositories: true);
+        await fixture.Activate(await fixture.Configure()); await fixture.CompleteTasks(); await fixture.Service.PulseAsync();
+        if (partial)
+        {
+            for (var pass = 0; pass < 12; pass++)
+            {
+                var current = await fixture.Read();
+                var review = current.Executions.FirstOrDefault(x => x.Status == "WaitingForHuman");
+                if (review is not null) await fixture.Approve(review);
+                else if (current.Executions.FirstOrDefault(x => x.Status == "WaitingForApproval") is { } acceptance)
+                {
+                    if (acceptance.Scope == "Release") fixture.Host.FailRepository = acceptance.Candidate!.Repositories.Last().RepositoryId;
+                    await fixture.Accept(acceptance);
+                }
+                await fixture.Service.PulseAsync();
+                if ((await fixture.Read()).Executions.Any(x => x.Status == "PartiallyPromoted")) break;
+            }
+        }
+        var plan = await fixture.Read();
+        var api = new Api { DeliveryPlans = [plan] };
+        var html = await Render(api, new() { ["OrganizationId"] = api.OrganizationId, ["WorkstreamId"] = api.ProjectId, ["Tab"] = "delivery" });
+        Assert.Contains("Releases", html); Assert.Contains("Reviewed/tested candidate", html);
+        Assert.Contains(plan.Executions.Single(x => x.Scope == "Story").Candidate!.Repositories.First().CandidateCommitSha, html);
+        if (partial)
+        {
+            Assert.Contains("PartiallyPromoted", html);
+            Assert.Contains("Provider failed; retry unfinished repository", html);
+            Assert.Contains(plan.Executions.Single(x => x.Scope == "Release").Promotions.Single(x => x.Status == "Completed").MergeCommitSha!, html);
+        }
+        else Assert.Contains("Awaiting validation", html);
+        Assert.Contains("scope revision", html);
+        Assert.DoesNotContain(">Merge<", html);
+    }
+
     private static async Task<string> Render(Api api, Dictionary<string, object?> parameters)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
@@ -96,6 +135,7 @@ public sealed class ProjectsWorkspaceTests
         public Guid ProjectId { get; } = Guid.NewGuid();
         public List<string> Paths { get; } = [];
         public List<HttpMethod> Methods { get; } = [];
+        public IReadOnlyList<CSweet.WorkManagement.Contracts.WorkDeliveryPlanResponse> DeliveryPlans { get; init; } = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath; Paths.Add(path); Methods.Add(request.Method);
@@ -103,6 +143,7 @@ public sealed class ProjectsWorkspaceTests
             if (path.EndsWith($"/{ProjectId}/inspection")) result = new ProjectInspectionResponse(Resource(), new(0, 0, 0, 0, 0, 0, 0, false), [], [], [], [], [], [], [], DateTimeOffset.UtcNow);
             else if (path.EndsWith("/workstreams/inspection")) result = new ProjectPortfolioResponse(DateTimeOffset.UtcNow, 1, 1,
                 [new(ProjectId, "Neon Bash", "Ship a prototype", "Active", "Development", "software-prototype.v1", 1, Guid.NewGuid(), null, null, null, 1, DateTimeOffset.UtcNow, 1, 1, 5, 0, 0, null) { AccountableManagerName = "Matt", BlockedItems = 2, ReleaseReady = false }]);
+            else if (path.EndsWith("/work/delivery/read")) result = DeliveryPlans;
             else if (path.EndsWith("/work/boards")) result = new WorkBoardDirectoryResponse([], false);
             else if (path.EndsWith("/work/personal-todos")) result = new CSweet.WorkManagement.Contracts.PersonalTodoDirectory([]);
             else return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));

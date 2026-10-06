@@ -430,6 +430,11 @@ public sealed partial class WorkOrchestrator(
         if (!stage.AgentInstallationId.HasValue)
             return "The quality stage has no validator installation.";
 
+        var taskDelivery = string.IsNullOrWhiteSpace(stage.ItemExecution!.WorkItem!.DeliverySpecificationJson) ? null :
+            JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(stage.ItemExecution.WorkItem.DeliverySpecificationJson, JsonOptions);
+        if (taskDelivery?.DeliveryKind == "Artifact")
+            return await RecordArtifactQualityAsync(execution, stage, outcome, cancellationToken);
+
         var commitEvidence = outcome.Evidence
             .Where(x => string.Equals(x.Kind, "commit", StringComparison.Ordinal))
             .Select(x => x.Value?.Trim().ToLowerInvariant())
@@ -457,8 +462,30 @@ public sealed partial class WorkOrchestrator(
             .FirstOrDefaultAsync(cancellationToken);
         if (publication is null)
             return "QA evidence has no current source publication for this assignment revision.";
-        if (!string.Equals(publication.CommitSha, commitEvidence[0], StringComparison.OrdinalIgnoreCase))
+        var testedCommit = publication.CommitSha;
+        if (taskDelivery?.DeliveryPlanId.HasValue == true)
+            testedCommit = await db.WorkTaskIntegrationReceipts.AsNoTracking().Where(x => x.PublicationId == publication.Id && x.Status == "Completed")
+                .Select(x => x.CandidateCommitSha).SingleOrDefaultAsync(cancellationToken)
+                ?? "";
+        if (!string.Equals(testedCommit, commitEvidence[0], StringComparison.OrdinalIgnoreCase))
             return "QA evidence does not match the exact current publication SHA.";
+        if (taskDelivery?.DeliveryPlanId.HasValue == true)
+        {
+            var authors = stage.ItemExecution.Stages.Where(x => x.StageKey is "development" or "specialist-execution").ToArray();
+            if (authors.Any(x => x.OrganizationUserId == stage.OrganizationUserId || x.AgentInstallationId.HasValue && x.AgentInstallationId == stage.AgentInstallationId))
+                return "Task QA requires an independent reviewer.";
+            try
+            {
+                var quality = outcome.Output.Deserialize<Shared.WorkDeliveryReviewResult>(JsonOptions)
+                    ?? throw new InvalidOperationException("Task QA needs criterion-level evidence.");
+                if (quality.Approved != (outcome.OutcomeCode == "passed") || quality.CandidateDigest != testedCommit)
+                    return "The task QA verdict or candidate differs from its exact integrated commit.";
+                WorkDeliveryService.ValidateCriteria(taskDelivery.AcceptanceCriteria, quality.Approved, quality.Summary, quality.Criteria, quality.Findings);
+                WorkDeliveryService.ValidateQualityEvidence(new(testedCommit, 1,
+                    [new(publication.RepositoryId, publication.TicketBranch, publication.TargetBranch, publication.CommitSha, testedCommit, testedCommit)], []), quality);
+            }
+            catch (Exception error) when (error is InvalidOperationException or JsonException) { return error.Message; }
+        }
 
         var stale = await (
             from validation in db.SourceControlValidations
@@ -487,7 +514,7 @@ public sealed partial class WorkOrchestrator(
             x.OrganizationId == execution.OrganizationId &&
             x.PublicationId == publication.Id &&
             x.ValidatorAgentInstallationId == stage.AgentInstallationId.Value &&
-            x.CommitSha == publication.CommitSha,
+            x.CommitSha == testedCommit,
             cancellationToken);
         if (record is null)
         {
@@ -497,7 +524,7 @@ public sealed partial class WorkOrchestrator(
                 OrganizationId = execution.OrganizationId,
                 PublicationId = publication.Id,
                 ValidatorAgentInstallationId = stage.AgentInstallationId.Value,
-                CommitSha = publication.CommitSha,
+                CommitSha = testedCommit,
                 CreatedAt = now
             };
             db.SourceControlValidations.Add(record);
@@ -513,7 +540,7 @@ public sealed partial class WorkOrchestrator(
         record.CompletedAt = now;
         record.SupersededAt = null;
 
-        if (publication.Status != SourceControlPublicationStatus.BranchPublishedExternalMerge)
+        if (taskDelivery?.DeliveryPlanId.HasValue != true && publication.Status != SourceControlPublicationStatus.BranchPublishedExternalMerge)
         {
             publication.Status = record.Status == SourceControlValidationStatus.Passed
                 ? SourceControlPublicationStatus.AwaitingLeadAuthorization
@@ -584,7 +611,7 @@ public sealed partial class WorkOrchestrator(
             : JsonSerializer.Deserialize<Shared.WorkAssignmentSelectionEvidence>(
                 assignmentSnapshot.SelectionEvidenceJson, JsonOptions);
         var assignment = new Shared.WorkExecutionAssignmentV1(
-            execution.Id, stage.ItemExecutionId, stage.Id, attempt.Id,
+            execution.Id, stage.ItemExecutionId!.Value, stage.Id, attempt.Id,
             execution.OrganizationId, execution.BoardId, execution.SprintId, item.Id,
             item.AssignmentRevision,
             item.Identifier!.Split('-')[0], item.Identifier, execution.PolicyRevisionId,
@@ -609,10 +636,21 @@ public sealed partial class WorkOrchestrator(
                 .Where(x => !string.IsNullOrWhiteSpace(x.ResultJson))
                 .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions)!)
                 .ToList(), evidence);
+        var capability = Shared.WorkManagementCapabilityNames.ExecutionRunV1;
         var payload = JsonSerializer.SerializeToElement(assignment, JsonOptions);
+        var deliverySpecification = string.IsNullOrWhiteSpace(item.DeliverySpecificationJson) ? null :
+            JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(item.DeliverySpecificationJson, JsonOptions);
+        if (deliverySpecification?.DeliveryPlanId.HasValue == true)
+        {
+            var (deliveryPlan, _) = await WorkDeliveryTaskAuthorization.RequireAsync(db, item, cancellationToken);
+            var v2 = Shared.WorkExecutionAssignmentV2.FromTask(assignment, deliveryPlan.WorkstreamId, deliveryPlan.Id, deliveryPlan.ScopeRevision) with
+            { OrganizationUserId = stage.OrganizationUserId!.Value, AgentInstallationId = installationId,
+                PlanningRevision = item.PlanningRevision, PermittedOutcomes = policy.Transitions.Where(x => x.FromStageKey == stage.StageKey).Select(x => x.OutcomeCode).Distinct().ToArray() };
+            payload = JsonSerializer.SerializeToElement(v2, JsonOptions); capability = Shared.WorkManagementCapabilityNames.ExecutionRunV2;
+        }
         var work = await inbox.EnqueueAsync(
             execution.OrganizationId.ToString(), installationId, AgentWorkKind.Capability,
-            Shared.WorkManagementCapabilityNames.ExecutionRunV1, payload, attempt.IdempotencyKey,
+            capability, payload, attempt.IdempotencyKey,
             assignment.Deadline, execution.Id.ToString("N"), stage.Id.ToString("N"),
             "WorkStageExecution", stage.Id.ToString("D"), maximumAttempts: 1,
             cancellationToken: cancellationToken);
@@ -698,7 +736,7 @@ public sealed partial class WorkOrchestrator(
         }
         stage.Status = WorkStageExecutionStatus.Running; stage.ItemExecution!.Status = WorkItemExecutionStatus.Running;
         var result = await action.ExecuteAsync(new(
-            execution.OrganizationId, execution.BoardId, execution.Id, stage.ItemExecutionId,
+            execution.OrganizationId, execution.BoardId, execution.Id, stage.ItemExecutionId!.Value,
             stage.Id, stage.ItemExecution.WorkItemId, stage.ItemExecution.ItemIdentifier,
             stage.PlatformAction!, JsonSerializer.SerializeToElement(new { }, JsonOptions)), cancellationToken);
         var attempt = new WorkExecutionAttempt
@@ -750,6 +788,14 @@ public sealed partial class WorkOrchestrator(
         stage.Status = WorkStageExecutionStatus.Completed; stage.CompletedAt = now;
         stage.LastOutcomeCode = outcomeCode; stage.LastSummary = summary; stage.UpdatedAt = now;
         item.Traversal = nextTraversal; item.UpdatedAt = now;
+        if (transition.MaximumTraversals.HasValue && transition.ToStageKey is "development" or "specialist-execution" &&
+            item.WorkItem!.DeliverySpecificationJson is { } deliveryJson &&
+            JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(deliveryJson, JsonOptions)?.DeliveryPlanId.HasValue == true)
+        {
+            // Reviewed fixes start a fresh task branch from current story state.
+            // Keep older merged publications and QA evidence as historical records.
+            item.WorkItem.AssignmentRevision++;
+        }
         var snapshot = JsonSerializer.Deserialize<List<AssignmentSnapshot>>(execution.AssignmentSnapshotJson, JsonOptions) ?? [];
         var assignments = snapshot.Where(x => x.WorkItemId == item.WorkItemId).Select(x => new WorkItemStageAssignment
         {
@@ -887,13 +933,13 @@ public sealed partial class WorkOrchestrator(
         var active = new[] { WorkStageExecutionStatus.Dispatching, WorkStageExecutionStatus.Running };
         if (await db.WorkStageExecutions.CountAsync(x => active.Contains(x.Status), cancellationToken) >= policy.GlobalConcurrencyLimit) return false;
         if (await db.WorkStageExecutions.CountAsync(x => active.Contains(x.Status) &&
-                x.ItemExecution!.SprintExecution!.OrganizationId == execution.OrganizationId, cancellationToken) >= policy.OrganizationConcurrencyLimit) return false;
+                (x.ItemExecution!.SprintExecution!.OrganizationId == execution.OrganizationId || x.DeliveryExecution!.Plan!.OrganizationId == execution.OrganizationId), cancellationToken) >= policy.OrganizationConcurrencyLimit) return false;
         if (await db.WorkStageExecutions.CountAsync(x => active.Contains(x.Status) &&
-                x.ItemExecution!.SprintExecution!.BoardId == execution.BoardId, cancellationToken) >= policy.BoardConcurrencyLimit) return false;
+                (x.ItemExecution!.SprintExecution!.BoardId == execution.BoardId || x.DeliveryExecution!.BoardId == execution.BoardId), cancellationToken) >= policy.BoardConcurrencyLimit) return false;
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
         var stageLimit = definition.ConcurrencyLimit ?? policy.DefaultStageConcurrencyLimit;
         if (await db.WorkStageExecutions.CountAsync(x => active.Contains(x.Status) && x.StageKey == stage.StageKey &&
-                x.ItemExecution!.SprintExecution!.BoardId == execution.BoardId, cancellationToken) >= stageLimit) return false;
+                (x.ItemExecution!.SprintExecution!.BoardId == execution.BoardId || x.DeliveryExecution!.BoardId == execution.BoardId), cancellationToken) >= stageLimit) return false;
         if (definition.ColumnId.HasValue)
         {
             var column = await db.WorkBoardColumns.AsNoTracking().SingleAsync(
@@ -1018,7 +1064,7 @@ public sealed partial class WorkOrchestrator(
             ]);
         }
 
-        actions.UnionWith(finalizedWorkspaceActions);
+        if (stageKey is "development" or "specialist-execution") actions.UnionWith(finalizedWorkspaceActions);
         foreach (var action in actions)
             db.ScopedActionGrants.Add(new ScopedActionGrant
             {

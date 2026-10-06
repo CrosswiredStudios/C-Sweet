@@ -263,7 +263,7 @@ public sealed class OrganizationDeletionTests
         {
             typeof(Approval), typeof(ArtifactPackageMember), typeof(BenchmarkAssessment),
             typeof(AgentCoordinationTurn), typeof(ConversationParticipant),
-            typeof(WorkExecutionAttempt), typeof(WorkItemDependency), typeof(WorkItemExecution)
+            typeof(WorkExecutionAttempt), typeof(WorkItemDependency), typeof(WorkItemExecution), typeof(WorkDeliveryExecution)
         }.Select(type => type.FullName).OrderBy(name => name).ToList();
 
         Assert.Equal(expected, actual);

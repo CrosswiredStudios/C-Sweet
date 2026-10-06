@@ -259,6 +259,7 @@ internal static class SourceControlModelConfiguration
             entity.Property(x => x.WorkspaceKey).HasMaxLength(256).IsRequired();
             entity.Property(x => x.BaseCommitSha).HasMaxLength(64).IsRequired();
             entity.Property(x => x.BranchName).HasMaxLength(255).IsRequired();
+            entity.Property(x => x.IntegrationTargetBranch).HasMaxLength(255).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.LastError).HasMaxLength(2048);
             entity.Property(x => x.Revision).IsConcurrencyToken();

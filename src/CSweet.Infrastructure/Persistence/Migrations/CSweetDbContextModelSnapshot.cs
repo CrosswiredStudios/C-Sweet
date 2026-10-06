@@ -12124,6 +12124,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("IntegrationTargetBranch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
                     b.Property<string>("LastError")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
@@ -12537,6 +12542,280 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("WorkBoardUserPreferences");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryExecution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AcceptanceJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("BlockedReason")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<Guid>("BoardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CandidateJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentStageKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<long>("ScopeRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("WorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkItemId");
+
+                    b.HasIndex("PlanId", "ScopeRevision", "Scope", "WorkItemId")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("PlanId", "ScopeRevision", "Scope", "WorkItemId"), false);
+
+                    b.ToTable("WorkDeliveryExecutions");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryFinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CandidateDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FindingDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RemediationTaskIdsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ResolutionEvidence")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResolvedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("ExecutionId", "CandidateDigest", "FindingDigest")
+                        .IsUnique();
+
+                    b.ToTable("WorkDeliveryFinding");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryMutationReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("WorkDeliveryMutationReceipts");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BranchesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EpicItemIdsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid>("ManagerOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("ScopeRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ScopesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("WorkstreamId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ManagerOrganizationUserId");
+
+                    b.HasIndex("WorkstreamId");
+
+                    b.HasIndex("OrganizationId", "WorkstreamId");
+
+                    b.ToTable("WorkDeliveryPlans");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryPromotion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<Guid>("ExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MergeCommitSha")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SourceCommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TargetCommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExecutionId", "RepositoryId")
+                        .IsUnique();
+
+                    b.ToTable("WorkDeliveryPromotions");
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkExecutionAttempt", b =>
@@ -13634,7 +13913,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("ItemExecutionId")
+                    b.Property<Guid?>("DeliveryExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ItemExecutionId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("LastError")
@@ -13687,10 +13969,87 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("DeliveryExecutionId", "StageKey", "Traversal")
+                        .IsUnique();
+
                     b.HasIndex("ItemExecutionId", "StageKey", "Traversal")
                         .IsUnique();
 
-                    b.ToTable("WorkStageExecutions");
+                    b.ToTable("WorkStageExecutions", t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkStageExecution_OneOwner", "(\"ItemExecutionId\" IS NULL) <> (\"DeliveryExecutionId\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkTaskIntegrationReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CandidateCommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<Guid>("ItemExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PublicationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ScopeRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SourceCommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TargetCommitSha")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("WorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemExecutionId");
+
+                    b.HasIndex("PlanId");
+
+                    b.HasIndex("PublicationId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "WorkItemId", "CreatedAt");
+
+                    b.ToTable("WorkTaskIntegrationReceipts");
                 });
 
             modelBuilder.Entity("CSweet.Infrastructure.Auth.ApplicationUser", b =>
@@ -15900,6 +16259,59 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("Board");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryExecution", b =>
+                {
+                    b.HasOne("CSweet.Domain.WorkManagement.WorkDeliveryPlan", "Plan")
+                        .WithMany("Executions")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.WorkTask", null)
+                        .WithMany()
+                        .HasForeignKey("WorkItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Plan");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryFinding", b =>
+                {
+                    b.HasOne("CSweet.Domain.WorkManagement.WorkDeliveryPlan", "Plan")
+                        .WithMany("Findings")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Plan");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryPlan", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.OrganizationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ManagerOrganizationUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithMany()
+                        .HasForeignKey("WorkstreamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryPromotion", b =>
+                {
+                    b.HasOne("CSweet.Domain.WorkManagement.WorkDeliveryExecution", "Execution")
+                        .WithMany("Promotions")
+                        .HasForeignKey("ExecutionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Execution");
+                });
+
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkExecutionAttempt", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.AgentWorkItem", "AgentWorkItem")
@@ -16205,13 +16617,34 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkStageExecution", b =>
                 {
+                    b.HasOne("CSweet.Domain.WorkManagement.WorkDeliveryExecution", "DeliveryExecution")
+                        .WithMany("Stages")
+                        .HasForeignKey("DeliveryExecutionId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.HasOne("CSweet.Domain.WorkManagement.WorkItemExecution", "ItemExecution")
                         .WithMany("Stages")
                         .HasForeignKey("ItemExecutionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("DeliveryExecution");
 
                     b.Navigation("ItemExecution");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkTaskIntegrationReceipt", b =>
+                {
+                    b.HasOne("CSweet.Domain.WorkManagement.WorkItemExecution", null)
+                        .WithMany()
+                        .HasForeignKey("ItemExecutionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.WorkManagement.WorkDeliveryPlan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Infrastructure.Auth.RootRecoveryCode", b =>
@@ -16412,6 +16845,20 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("OrchestrationPolicies");
 
                     b.Navigation("Sprints");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryExecution", b =>
+                {
+                    b.Navigation("Promotions");
+
+                    b.Navigation("Stages");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkDeliveryPlan", b =>
+                {
+                    b.Navigation("Executions");
+
+                    b.Navigation("Findings");
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.WorkItemExecution", b =>

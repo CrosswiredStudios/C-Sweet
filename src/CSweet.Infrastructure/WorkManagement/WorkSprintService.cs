@@ -45,7 +45,7 @@ public sealed class WorkSprintService(
             .ThenByDescending(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var counts = await db.CoreWorkTasks.AsNoTracking()
-            .Where(x => x.BoardId == boardId && x.SprintId != null)
+            .Where(x => x.BoardId == boardId && x.SprintId != null && x.IsExecutable)
             .GroupBy(x => x.SprintId!.Value)
             .Select(x => new
             {
@@ -174,7 +174,7 @@ public sealed class WorkSprintService(
                 if (sprint.Status != WorkSprintStatus.Planned)
                     throw new InvalidOperationException("Only a planned sprint can be started.");
                 if (await db.CoreWorkTasks.AnyAsync(x =>
-                        x.SprintId == sprint.Id &&
+                        x.SprintId == sprint.Id && x.IsExecutable &&
                         x.IsExecutable &&
                         x.DeliverySpecificationJson == null, cancellationToken))
                     throw new InvalidOperationException(
@@ -691,14 +691,14 @@ public sealed class WorkSprintService(
         CancellationToken cancellationToken)
     {
         var total = await db.CoreWorkTasks.CountAsync(
-            x => x.SprintId == sprintId, cancellationToken);
+            x => x.SprintId == sprintId && x.IsExecutable, cancellationToken);
         var completed = await db.CoreWorkTasks.CountAsync(
-            x => x.SprintId == sprintId &&
+            x => x.SprintId == sprintId && x.IsExecutable &&
                  x.Status == WorkTaskStatus.Completed, cancellationToken);
-        var plannedPoints = await db.CoreWorkTasks.Where(x => x.SprintId == sprintId)
+        var plannedPoints = await db.CoreWorkTasks.Where(x => x.SprintId == sprintId && x.IsExecutable)
             .SumAsync(x => x.EstimatePoints ?? 0, cancellationToken);
         var completedPoints = await db.CoreWorkTasks.Where(x =>
-                x.SprintId == sprintId && x.Status == WorkTaskStatus.Completed)
+                x.SprintId == sprintId && x.IsExecutable && x.Status == WorkTaskStatus.Completed)
             .SumAsync(x => x.EstimatePoints ?? 0, cancellationToken);
         return (total, completed, plannedPoints, completedPoints);
     }

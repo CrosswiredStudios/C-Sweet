@@ -27,7 +27,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
     ITrustedGitHostClient gitHost,
     IScopedActionAuthorizationService authorization,
     ISourceControlDecisionSigner decisionSigner,
-    IOptions<WorkspaceSyncTransferOptions> transferOptions) : IPlatformCapabilityHandler
+    IOptions<WorkspaceSyncTransferOptions> transferOptions,
+    ITrustedSourceControlHostClient? deliveryHost = null) : IPlatformCapabilityHandler
 {
     private readonly WorkspaceSyncTransferOptions _transferLimits = transferOptions.Value;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -420,6 +421,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             WorkItemId = input.WorkItemId,
             AssignmentRevision = input.AssignmentRevision,
             BranchName = DeterministicBranch(context.Item),
+            IntegrationTargetBranch = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(context.Item.DeliverySpecificationJson ?? "null", JsonOptions)?.BaseBranch
+                is { Length: > 0 } target ? target : context.Repository.DefaultBranch,
             Status = SourceControlWorkspaceStatus.Preparing,
             CreatedAt = now
         };
@@ -604,7 +607,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             WorkspaceId = context.Workspace.Id,
             RepositoryId = context.Workspace.RepositoryId,
             CommitSha = commitSha,
-            TargetBranch = context.Repository.DefaultBranch,
+            TargetBranch = string.IsNullOrWhiteSpace(context.Workspace.IntegrationTargetBranch) ? context.Repository.DefaultBranch : context.Workspace.IntegrationTargetBranch,
             TicketBranch = context.Workspace.BranchName,
             PullRequestUrl = result.PullRequestUrl?.ToString(),
             Status = result.DeliveryKind == GitDeliveryKinds.BranchOnly
@@ -679,6 +682,21 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             input.AssignmentRevision, GitMergeCapabilities.Review, cancellationToken);
         var publication = await LatestPublicationAsync(
             organizationId, input.WorkItemId, input.AssignmentRevision, cancellationToken);
+        string? targetCommit = null;
+        var reviewedItem = await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == input.WorkItemId && x.OrganizationId == organizationId, cancellationToken);
+        var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(reviewedItem.DeliverySpecificationJson ?? "null", JsonOptions);
+        if (delivery?.DeliveryPlanId.HasValue == true)
+        {
+            var (plan, story) = await CSweet.Infrastructure.WorkManagement.WorkDeliveryTaskAuthorization.RequireAsync(db, reviewedItem, cancellationToken);
+            if (story is null || deliveryHost is null) throw new InvalidOperationException("Trusted task integration review is unavailable.");
+            var repository = await db.SourceControlRepositories.AsNoTracking().Include(x => x.Connection).SingleAsync(x => x.Id == publication.RepositoryId && x.OrganizationId == organizationId, cancellationToken);
+            var binding = new WorkDeliveryBranchBinding(repository.Id, WorkExecutionScopes.Task, reviewedItem.Id, publication.TicketBranch, publication.TargetBranch);
+            if (publication.TargetBranch != story.SourceBranch) throw new UnauthorizedAccessException("The publication is outside its story target.");
+            var refs = await deliveryHost.DeliveryBranchAsync(CSweet.Infrastructure.WorkManagement.WorkDeliveryService.Operation(plan, repository, binding,
+                "inspect", "technical-review:" + publication.Id.ToString("N")), cancellationToken);
+            if (refs.SourceCommitSha != publication.CommitSha) throw new InvalidOperationException("The task branch changed; publish and review its current commit.");
+            targetCommit = refs.TargetCommitSha;
+        }
         var evidenceJson = await db.SourceControlValidations.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId &&
                         x.PublicationId == publication.Id &&
@@ -701,7 +719,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             Uri.TryCreate(publication.PullRequestUrl, UriKind.Absolute, out var pr) ? pr : null,
             RequireReviewPatch(publication.ReviewPatch),
             evidence, ["Passing QA for the exact candidate SHA"], publication.Status.ToString())
-        { ImplementationEvidence = JsonSerializer.Deserialize<GitValidationResult[]>(publication.ValidationResultsJson, JsonOptions) ?? [] };
+        { ImplementationEvidence = JsonSerializer.Deserialize<GitValidationResult[]>(publication.ValidationResultsJson, JsonOptions) ?? [],
+          TargetCommitSha = targetCommit, TargetBranch = publication.TargetBranch };
     }
 
     private async Task<GitMergeAuthorizationResult> AuthorizeMergeAsync(
@@ -860,6 +879,9 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             organizationId, installationId, action,
             GrantScopeKind.WorkItem, workItemId, cancellationToken);
         string? expectedCommitSha = null;
+        var deliverySpec = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(item.DeliverySpecificationJson ?? "null", JsonOptions);
+        if (deliverySpec?.DeliveryPlanId.HasValue == true)
+            await CSweet.Infrastructure.WorkManagement.WorkDeliveryTaskAuthorization.RequireAsync(db, item, cancellationToken);
         if (string.Equals(activeStageKey, "quality", StringComparison.Ordinal))
         {
             expectedCommitSha = await (
@@ -877,6 +899,11 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                 ?? throw new InvalidOperationException(
                     "QA cannot prepare a workspace until an exact source publication exists.");
             expectedCommitSha = ValidateCommitSha(expectedCommitSha);
+            if (deliverySpec?.DeliveryPlanId.HasValue == true)
+                expectedCommitSha = await db.WorkTaskIntegrationReceipts.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.WorkItemId == item.Id &&
+                    x.Status == "Completed" && db.SourceControlPublications.Any(p => p.Id == x.PublicationId && p.CommitSha == expectedCommitSha))
+                    .OrderByDescending(x => x.CreatedAt).Select(x => x.CandidateCommitSha).FirstOrDefaultAsync(cancellationToken)
+                    ?? throw new InvalidOperationException("QA requires the exact story commit confirmed by trusted task integration.");
         }
         return new AssignmentContext(item, teamId, repository, policy, expectedCommitSha);
     }
@@ -1054,6 +1081,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
 
     private static string DeterministicBranch(WorkTask item)
     {
+        if (JsonSerializer.Deserialize<WorkItemDeliverySpecification>(item.DeliverySpecificationJson ?? "null", JsonOptions)?.DeliveryPlanId.HasValue == true)
+            return $"codex/task/{item.Id:N}/r{item.AssignmentRevision}";
         var slug = new string(item.Title.ToLowerInvariant()
             .Select(x => char.IsAsciiLetterOrDigit(x) ? x : '-')
             .ToArray());

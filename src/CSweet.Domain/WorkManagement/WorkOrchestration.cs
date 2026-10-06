@@ -200,7 +200,8 @@ public sealed class WorkItemExecution
 public sealed class WorkStageExecution
 {
     public Guid Id { get; set; }
-    public Guid ItemExecutionId { get; set; }
+    public Guid? ItemExecutionId { get; set; }
+    public Guid? DeliveryExecutionId { get; set; }
     public string StageKey { get; set; } = string.Empty;
     public WorkOrchestrationStageType StageType { get; set; }
     public int Traversal { get; set; }
@@ -218,6 +219,7 @@ public sealed class WorkStageExecution
     public DateTimeOffset? CompletedAt { get; set; }
 
     public WorkItemExecution? ItemExecution { get; set; }
+    public WorkDeliveryExecution? DeliveryExecution { get; set; }
     public ICollection<WorkExecutionAttempt> Attempts { get; set; } = [];
 }
 

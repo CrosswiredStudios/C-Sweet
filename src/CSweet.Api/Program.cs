@@ -228,6 +228,7 @@ app.MapSecurityAuditEndpoints();
 app.MapMarketplaceDiscoveryEndpoints();
 app.MapAgentCatalogEndpoints();
 app.MapWorkBoardEndpoints();
+app.MapWorkDeliveryEndpoints();
 app.MapSourceControlEndpoints();
 app.MapInternalGitHttpEndpoints();
 app.MapAgentWorkspaceBrokerEndpoints();

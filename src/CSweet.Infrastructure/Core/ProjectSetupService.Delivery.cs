@@ -67,7 +67,7 @@ public sealed partial class ProjectSetupService
         db.ProjectDeliveryBindings.Add(new() { WorkstreamId = project.Id, OrganizationId = org, TeamId = team.Id, BoardId = board.Id, CreationKey = request.IdempotencyKey });
         var added = await ApplyParticipantsAsync(project, board, people, manager, ct);
         // Setup confers project-scoped operating authority only; the installation still needs each capability.
-        var actions = new[] { WorkBoardActions.ConfigureColumns, WorkFlowMetricActions.Read,
+        var actions = new[] { WorkBoardActions.Configure, WorkBoardActions.ConfigureColumns, WorkFlowMetricActions.Read,
             WorkSprintActions.Read, WorkSprintActions.Create, WorkSprintActions.ManageScope,
             WorkSprintActions.ManageCapacity, WorkSprintActions.CarryOver, WorkSprintActions.ReadReports,
             WorkOrchestrationActions.ConfigureProfile, WorkOrchestrationActions.Read, WorkOrchestrationActions.Preflight,

@@ -82,7 +82,8 @@ public sealed class OfficeConnectionIdentityTests
             var node = new ExecutionNode { Id = Guid.NewGuid(), ApprovedAt = now, Status = ExecutionNodeStatus.Ready,
                 CertificateThumbprint = original.Thumbprint, CertificateSerialNumber = original.SerialNumber,
                 CertificateExpiresAt = now.AddHours(1), CertificateSigningRequestPem = "enrolled-key" };
-            var builder = WebApplication.CreateBuilder();
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], ContentRootPath = Path.GetTempPath() });
+            builder.Configuration.Sources.Clear();
             builder.Logging.ClearProviders();
             builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0, listen =>
             {

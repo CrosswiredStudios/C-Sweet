@@ -13,7 +13,7 @@ using Shared = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-public sealed class WorkOrchestrationService(
+public sealed partial class WorkOrchestrationService(
     CSweetDbContext db,
     TimeProvider timeProvider,
     IScopedActionAuthorizationService? authorization = null) : IWorkOrchestrationService
@@ -422,6 +422,29 @@ public sealed class WorkOrchestrationService(
             stage.PrincipalKind != WorkOrchestrationPrincipalKind.Human ||
             stage.OrganizationUserId != member.Id)
             throw new UnauthorizedAccessException("Only the assigned human may complete this manual stage.");
+        if (request.BoardId != boardId || request.SprintExecutionId != stage.ItemExecution!.SprintExecutionId || request.StageExecutionId != stage.Id)
+            throw new InvalidOperationException("The manual decision must reference the exact current execution scope.");
+        var replay = stage.Attempts.SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey && x.Status == WorkExecutionAttemptStatus.Completed);
+        if (replay is not null)
+        {
+            var prior = JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(replay.ResultJson!, JsonOptions)!;
+            if (prior.OutcomeCode != request.OutcomeCode || prior.Summary != request.Summary || prior.Output.GetRawText() != request.Output.GetRawText() ||
+                JsonSerializer.Serialize(prior.Evidence, JsonOptions) != JsonSerializer.Serialize(request.Evidence, JsonOptions))
+                throw new InvalidOperationException("The manual decision key was reused for different evidence.");
+            return ToResponse(stage);
+        }
+        if (stage.ItemExecution!.WorkItem!.DeliverySpecificationJson is { } deliveryJson &&
+            JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(deliveryJson, JsonOptions)?.DeliveryPlanId.HasValue == true)
+        {
+            await ValidateManualDeliveryAsync(stage, request, cancellationToken);
+            var attempt = new WorkExecutionAttempt { Id = Guid.NewGuid(), StageExecutionId = stage.Id, Attempt = stage.Attempts.Count + 1,
+                Status = WorkExecutionAttemptStatus.Completed, IdempotencyKey = request.IdempotencyKey,
+                CreatedAt = timeProvider.GetUtcNow(), CompletedAt = timeProvider.GetUtcNow() };
+            attempt.ResultJson = JsonSerializer.Serialize(new Shared.WorkExecutionOutcomeV1(stage.Id, attempt.Id, Shared.WorkExecutionDispositions.Completed,
+                request.OutcomeCode, request.Summary, request.Output, request.Evidence, []), JsonOptions);
+            stage.Attempts.Add(attempt);
+            db.WorkExecutionAttempts.Add(attempt);
+        }
         await CompleteStageAsync(stage, "Completed", request.OutcomeCode, request.Summary,
             request.Output.GetRawText(), member.Id, request.IdempotencyKey, cancellationToken);
         return ToResponse(stage);
@@ -511,9 +534,17 @@ public sealed class WorkOrchestrationService(
         foreach (var dependency in dependencies.Where(x => !sprintIds.Contains(x.DependsOnWorkItemId) &&
                      (!statuses.TryGetValue(x.DependsOnWorkItemId, out var status) || status != WorkTaskStatus.Completed)))
             errors.Add(new("item.dependency", "A dependency must be completed or included in the sprint.", dependency.WorkItemId));
-        var reachable = ReachableStageKeys(policy);
         foreach (var item in items)
         {
+            var delivery = string.IsNullOrWhiteSpace(item.DeliverySpecificationJson) ? null :
+                JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(item.DeliverySpecificationJson, JsonOptions);
+            var reachable = ReachableStageKeys(policy, delivery?.DeliveryKind);
+            if (policy.Stages.Any(x => x.Key == "task-integration"))
+            {
+                try { await WorkDeliveryTaskAuthorization.RequireAsync(db, item, cancellationToken); }
+                catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException or ArgumentException)
+                { errors.Add(new("item.delivery_plan", error.Message, item.Id)); }
+            }
             if (item.Approvals.Any(x => x.PlanningRevision != item.PlanningRevision ||
                     x.Status is not (CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Approved or
                         CSweet.WorkManagement.Contracts.WorkItemApprovalStatuses.Waived)))
@@ -633,6 +664,9 @@ public sealed class WorkOrchestrationService(
         else
         {
             stage.ItemExecution.Traversal = traversal;
+            if (transition.MaximumTraversals.HasValue && transition.ToStageKey is "development" or "specialist-execution" &&
+                JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(stage.ItemExecution.WorkItem!.DeliverySpecificationJson ?? "null", JsonOptions)?.DeliveryPlanId.HasValue == true)
+                stage.ItemExecution.WorkItem.AssignmentRevision++;
             stage.ItemExecution.CurrentStageKey = next.Key;
             var assignments = DeserializeAssignments(execution.AssignmentSnapshotJson)
                 .Where(x => x.WorkItemId == stage.ItemExecution.WorkItemId)
@@ -711,14 +745,17 @@ public sealed class WorkOrchestrationService(
         return execution;
     }
 
-    internal static HashSet<string> ReachableStageKeys(WorkOrchestrationPolicyRevision policy)
+    internal static HashSet<string> ReachableStageKeys(WorkOrchestrationPolicyRevision policy, string? deliveryKind = null)
     {
+        var hierarchical = policy.Stages.Any(x => x.PlatformAction == CSweet.WorkManagement.Contracts.HierarchicalWorkflows.TaskIntegrationAction);
         var reachable = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Stack<string>();
         pending.Push(policy.InitialStageKey);
         while (pending.TryPop(out var key))
             if (reachable.Add(key))
-                foreach (var transition in policy.Transitions.Where(x => x.FromStageKey == key))
+                foreach (var transition in policy.Transitions.Where(x => x.FromStageKey == key &&
+                    !(hierarchical && deliveryKind == "Artifact" && key is "development" or "specialist-execution" && x.ToStageKey == "technical-review") &&
+                    !(hierarchical && deliveryKind == "Code" && key is "development" or "specialist-execution" && x.ToStageKey == "quality")))
                     pending.Push(transition.ToStageKey);
         return reachable;
     }
@@ -762,6 +799,7 @@ public sealed class WorkOrchestrationService(
     private async Task<WorkStageExecution> LoadStageAsync(
         Guid organizationId, Guid boardId, Guid stageExecutionId, CancellationToken cancellationToken) =>
         await db.WorkStageExecutions.Include(x => x.Attempts)
+            .Include(x => x.ItemExecution)!.ThenInclude(x => x!.Stages).ThenInclude(x => x.Attempts)
             .Include(x => x.ItemExecution)!.ThenInclude(x => x!.WorkItem)
             .Include(x => x.ItemExecution)!.ThenInclude(x => x!.SprintExecution)
             .SingleOrDefaultAsync(x => x.Id == stageExecutionId &&
@@ -921,8 +959,22 @@ public sealed class WorkOrchestrationService(
         stage.LastError, stage.RetryAt, stage.UpdatedAt)
     {
         // Retry requests echo the ticket's assignment revision, so the client must be able to read it.
-        AssignmentRevision = stage.ItemExecution?.WorkItem?.AssignmentRevision ?? 0
+        AssignmentRevision = stage.ItemExecution?.WorkItem?.AssignmentRevision ?? 0,
+        LatestOutcome = ReadCompletedOutcome(stage)
     };
+
+    private static Shared.WorkExecutionOutcomeV1? ReadCompletedOutcome(WorkStageExecution stage)
+    {
+        var attempt = stage.Attempts.OrderByDescending(x => x.Attempt).ThenByDescending(x => x.CreatedAt).FirstOrDefault();
+        if (stage.Status != WorkStageExecutionStatus.Completed || attempt?.Status != WorkExecutionAttemptStatus.Completed || attempt.ResultJson is null) return null;
+        try
+        {
+            var result = JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions);
+            return result?.StageExecutionId == stage.Id && result.AttemptId == attempt.Id && result.Disposition == "Completed" &&
+                result.OutcomeCode == stage.LastOutcomeCode ? result : null;
+        }
+        catch (JsonException) { return null; }
+    }
 
     private void AddEvent(
         Guid organizationId, Guid boardId, Guid sprintExecutionId,

@@ -463,50 +463,9 @@ public sealed partial class WorkManagementCapabilityHandler(
             input.IdempotencyKey, cancellationToken);
         if (replay is not null) return replay;
 
-        var retry = new Wire.WorkOrchestrationRetryPolicy();
-        var stages = new List<Wire.WorkOrchestrationStageDefinition>
-        {
-            new("ready", "Ready For Development", Wire.WorkOrchestrationStageTypes.Queue,
-                input.ReadyColumnId, "Wait until dependencies are complete.", "{}", "{}", 30, null, retry),
-            new("development", "In Development", "MemberExecution",
-                input.DevelopmentColumnId,
-                "Implement the approved ticket, validate it, and publish a reviewable pull request.", "{}",
-                "{\"type\":\"object\",\"required\":[\"repositoryConnectionId\",\"sourceBranch\",\"commitSha\",\"pullRequestUrl\",\"summary\"]}",
-                3600, null, retry),
-            new("dev-complete", "Dev Complete", Wire.WorkOrchestrationStageTypes.Queue,
-                input.DevCompleteColumnId,
-                "Development is complete and ready for independent testing.", "{}", "{}", 30, null, retry),
-            new("quality", "In Testing", "MemberExecution",
-                input.QualityColumnId,
-                "Validate the exact development commit without modifying tracked source.", "{}",
-                "{\"type\":\"object\",\"required\":[\"verdict\",\"summary\",\"criteria\",\"validations\",\"findings\",\"remainingRisks\"]}",
-                1800, null, retry),
-            new("merge-decision", "Ready To Merge",
-                input.MergeMode == Wire.WorkMergeModes.Automatic
-                    ? Wire.WorkOrchestrationStageTypes.Queue
-                    : Wire.WorkOrchestrationStageTypes.ManagerApproval,
-                input.ReadyToMergeColumnId,
-                "Authorize merge of the exact QA-approved commit.", "{}", "{}", 86400, 1, retry),
-            new("governed-merge", "Governed merge", Wire.WorkOrchestrationStageTypes.TrustedPlatformAction,
-                input.ReadyToMergeColumnId,
-                "Revalidate and merge the exact QA-approved commit.", "{}", "{}", 300, 1, retry,
-                GovernedMergeWorkActionExecutor.ActionName),
-            new("done", "Done", Wire.WorkOrchestrationStageTypes.Terminal,
-                input.DoneColumnId, "Work is complete.", "{}", "{}", 30, null, retry, null, true),
-            new("cancelled", "Cancelled", Wire.WorkOrchestrationStageTypes.Terminal,
-                input.DoneColumnId, "Work was rejected.", "{}", "{}", 30, null, retry)
-        };
-        var transitions = new List<Wire.WorkOrchestrationTransitionDefinition>
-        {
-            new("ready", "ready", "development"),
-            new("development", "completed", "dev-complete"),
-            new("dev-complete", "ready", "quality"),
-            new("quality", "passed", "merge-decision"),
-            new("quality", "changes_requested", "development", input.MaximumQualityCycles),
-            new("merge-decision", input.MergeMode == Wire.WorkMergeModes.Automatic ? "ready" : "approved", "governed-merge"),
-            new("merge-decision", "rejected", "cancelled"),
-            new("governed-merge", "merged", "done")
-        };
+        var (stages, transitions) = CSweet.WorkManagement.Contracts.HierarchicalWorkflows.Software(
+            input.ReadyColumnId, input.DevelopmentColumnId, input.DevCompleteColumnId,
+            input.QualityColumnId, input.DoneColumnId, input.MaximumQualityCycles);
         var revision = await orchestration.SavePolicyRevisionAsync(
             organizationId, input.BoardId, installation.Id,
             new SaveWorkOrchestrationPolicyRequest(
@@ -837,7 +796,7 @@ public sealed partial class WorkManagementCapabilityHandler(
             .ThenByDescending(x => x.StartsAt)
             .ToListAsync(cancellationToken);
         var counts = await db.CoreWorkTasks.AsNoTracking()
-            .Where(x => x.BoardId == input.BoardId && x.SprintId != null)
+            .Where(x => x.BoardId == input.BoardId && x.SprintId != null && x.IsExecutable)
             .GroupBy(x => x.SprintId!.Value)
             .Select(x => new
             {
@@ -984,14 +943,14 @@ public sealed partial class WorkManagementCapabilityHandler(
         sprint.Revision++;
         sprint.UpdatedAt = now;
         var total = await db.CoreWorkTasks.CountAsync(
-            x => x.SprintId == sprint.Id, cancellationToken);
+            x => x.SprintId == sprint.Id && x.IsExecutable, cancellationToken);
         var completed = await db.CoreWorkTasks.CountAsync(
-            x => x.SprintId == sprint.Id &&
+            x => x.SprintId == sprint.Id && x.IsExecutable &&
                  x.Status == WorkTaskStatus.Completed, cancellationToken);
-        var plannedPoints = await db.CoreWorkTasks.Where(x => x.SprintId == sprint.Id)
+        var plannedPoints = await db.CoreWorkTasks.Where(x => x.SprintId == sprint.Id && x.IsExecutable)
             .SumAsync(x => x.EstimatePoints ?? 0, cancellationToken);
         var completedPoints = await db.CoreWorkTasks.Where(x =>
-                x.SprintId == sprint.Id && x.Status == WorkTaskStatus.Completed)
+                x.SprintId == sprint.Id && x.IsExecutable && x.Status == WorkTaskStatus.Completed)
             .SumAsync(x => x.EstimatePoints ?? 0, cancellationToken);
         if (action == WorkSprintActions.Complete)
             await WorkSprintSnapshotFactory.EnsureAsync(db, sprint, cancellationToken);
@@ -1131,7 +1090,7 @@ public sealed partial class WorkManagementCapabilityHandler(
         sprint.CapacityPoints = input.CapacityPoints;
         sprint.Revision++;
         sprint.UpdatedAt = DateTimeOffset.UtcNow;
-        var items = await db.CoreWorkTasks.Where(x => x.SprintId == sprint.Id)
+        var items = await db.CoreWorkTasks.Where(x => x.SprintId == sprint.Id && x.IsExecutable)
             .ToListAsync(cancellationToken);
         var result = ToAgentSprint(
             sprint,
@@ -1732,8 +1691,8 @@ public sealed partial class WorkManagementCapabilityHandler(
             throw new ArgumentException("The planning specification is incomplete.");
         if (input.Delivery is not null)
         {
-            if (input.Delivery.RepositoryId == Guid.Empty ||
-                string.IsNullOrWhiteSpace(input.Delivery.BaseBranch) ||
+            if ((input.Delivery.DeliveryKind == "Artifact" ? input.Delivery.RepositoryId != Guid.Empty || !string.IsNullOrEmpty(input.Delivery.BaseBranch) :
+                    input.Delivery.DeliveryKind != "Code" || input.Delivery.RepositoryId == Guid.Empty || string.IsNullOrWhiteSpace(input.Delivery.BaseBranch)) ||
                 input.Delivery.Requirements.Count == 0 ||
                 input.Delivery.AcceptanceCriteria.Count == 0)
                 throw new ArgumentException("The delivery specification is incomplete.");
@@ -1929,8 +1888,8 @@ public sealed partial class WorkManagementCapabilityHandler(
         var planning = DeserializeJson<Wire.WorkItemPlanningSpecification>(
             item.PlanningSpecificationJson)
             ?? throw new InvalidOperationException("The work item has no planning specification to finalize.");
-        if (input.Delivery.RepositoryId == Guid.Empty ||
-            string.IsNullOrWhiteSpace(input.Delivery.BaseBranch) ||
+        if ((input.Delivery.DeliveryKind == "Artifact" ? input.Delivery.RepositoryId != Guid.Empty || !string.IsNullOrEmpty(input.Delivery.BaseBranch) :
+                input.Delivery.DeliveryKind != "Code" || input.Delivery.RepositoryId == Guid.Empty || string.IsNullOrWhiteSpace(input.Delivery.BaseBranch)) ||
             input.Delivery.Requirements.Count == 0 ||
             input.Delivery.AcceptanceCriteria.Count == 0)
             throw new ArgumentException("Repository, base branch, requirements, and acceptance criteria are required.");
@@ -2514,11 +2473,15 @@ public sealed partial class WorkManagementCapabilityHandler(
         if (!string.IsNullOrWhiteSpace(input.Kind))
             query = query.Where(x => x.Kind == input.Kind);
         var total = await query.CountAsync(cancellationToken);
-        var comments = await query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
+        var rows = await query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
             .Skip((input.Page - 1) * input.PageSize).Take(input.PageSize)
+            .ToListAsync(cancellationToken);
+        var authorNames = await WorkItemCommentAuthors.ResolveAsync(
+            db, organizationId, rows, cancellationToken);
+        var comments = rows
             .Select(x => new Wire.WorkItemComment(
                 x.Id, x.WorkItemId, x.AuthorKind.ToString(), x.AuthorSubjectId,
-                x.AuthorDisplayName, x.Body, x.Revision, x.CreatedAt, x.EditedAt)
+                WorkItemCommentAuthors.DisplayName(x, authorNames), x.Body, x.Revision, x.CreatedAt, x.EditedAt)
             {
                 Kind = x.Kind,
                 CoordinationSessionId = x.CoordinationSessionId,
@@ -2528,7 +2491,7 @@ public sealed partial class WorkManagementCapabilityHandler(
                     x.AuthorSubjectId == installation.Id,
                 CanDelete = x.AuthorKind == GrantSubjectKind.AgentInstallation &&
                     x.AuthorSubjectId == installation.Id
-            }).ToListAsync(cancellationToken);
+            }).ToList();
         return new Wire.WorkItemCommentPage(
             comments, input.Page, input.PageSize,
             input.Page * input.PageSize < total,
@@ -2777,6 +2740,8 @@ public sealed partial class WorkManagementCapabilityHandler(
             .OrderBy(x => x.Position)
             .ToListAsync(cancellationToken);
         var target = ResolveTransitionColumn(action, input.TargetColumnId, item, columns);
+        if (target.Category == WorkBoardColumnCategory.Done)
+            await CSweet.Infrastructure.WorkManagement.WorkDeliveryTaskAuthorization.PreventManualCompletionAsync(db, item, cancellationToken);
         if (action == WorkItemActions.Move && !item.IsExecutable && target.Category == WorkBoardColumnCategory.Done)
         {
             var boardManager = await db.WorkBoards.Where(x => x.Id == input.BoardId && x.OrganizationId == organizationId)
@@ -3707,7 +3672,7 @@ public sealed partial class WorkManagementCapabilityHandler(
     private static Wire.SoftwareDevelopmentBrief? DeliveryDevelopmentBrief(string? json)
     {
         var delivery = DeserializeJson<Wire.WorkItemDeliverySpecification>(json);
-        return delivery is null ? null : new(delivery.RepositoryId, "software-development-polyglot-v1",
+        return delivery is null || delivery.DeliveryKind == "Artifact" ? null : new(delivery.RepositoryId, "software-development-polyglot-v1",
             delivery.Requirements, delivery.AcceptanceCriteria, delivery.Constraints) { QualityGateColumnId = delivery.QualityGateColumnId };
     }
 

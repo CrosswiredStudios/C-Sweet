@@ -30,7 +30,7 @@ public static class WorkSprintMetricsRecorder
                      x.Entity.OrganizationId == sprint.OrganizationId))
             items[entry.Entity.Id] = entry.Entity;
         var scope = items.Values.Where(x =>
-                x.BoardId == sprint.BoardId && x.SprintId == sprint.Id)
+                x.BoardId == sprint.BoardId && x.SprintId == sprint.Id && x.IsExecutable)
             .ToList();
         var completed = scope.Where(x => x.Status == WorkTaskStatus.Completed).ToList();
         var scopePoints = scope.Sum(x => x.EstimatePoints ?? 0);

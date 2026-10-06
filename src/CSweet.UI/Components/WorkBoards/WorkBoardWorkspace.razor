@@ -173,10 +173,18 @@
                                 <button type="button" class="ticket-open" @onclick="@(() => OnOpenItem.InvokeAsync(item))" aria-label="Open @item.Identifier: @item.Title">
                                     <span class="ticket-top"><span title="@item.Identifier">@Present.ShortIdentifier(item, Detail.Board.Key) · <WorkItemTypeBadge Kind="@item.Kind" /></span><span>@(item.EstimatePoints.HasValue ? $"{item.EstimatePoints:0.##} pts" : "")</span></span>
                                     <span class="ticket-title"><StructuredMentionText Text="@item.Title" Mentions="@item.Mentions" Field="@Wire.WorkItemMentionFields.Title" /></span>
+                                    @if (Detail.Items.FirstOrDefault(x => x.Id == item.ParentItemId) is { } parent)
+                                    { <span class="ticket-sprint">@parent.Kind @(parent.Identifier ?? parent.Title) · @parent.Status</span> }
                                     @if (_showDescriptions && !string.IsNullOrWhiteSpace(item.Description)) { <span class="ticket-description">@WorkBoardPresentation.DescriptionPreview(item.Description)</span> }
                                     <span class="ticket-footer"><span class="ticket-owner"><span class="owner-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="item.AssignedEmployeeId" IsAgent="@(item.AssignedInstallationId.HasValue)" Initials="@Initials(item.AssignedDisplayName)" /></span>@(item.AssignedDisplayName ?? "Unassigned")</span><span class="ticket-priority">@item.Priority</span></span>
                                     @if (_view == WorkBoardView.All && Sprints.FirstOrDefault(x => x.Id == item.SprintId) is { } sprint) { <span class="ticket-sprint">@sprint.Name</span> }
                                     @if (Attention(item) is { } attention) { <span class="ticket-attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@attention</span> }
+                                    @if (_executionItems.TryGetValue(item.Id, out var execution))
+                                    {
+                                        <span class="ticket-sprint">Next action: @execution.CurrentStageKey · @execution.Status</span>
+                                        @foreach (var evidence in execution.Stages.SelectMany(x => x.LatestOutcome?.Evidence ?? []).Where(x => x.Kind is "commit" or "artifact-revision"))
+                                        { <span class="ticket-sprint">Reviewed/tested @evidence.Kind: @evidence.Value</span> }
+                                    }
                                 </button>
                                 @if (CanRetry(item)) { <button type="button" class="ticket-retry" disabled="@Busy" @onclick="@(() => OnRetryItem.InvokeAsync(item))" aria-label="Retry @item.Identifier"><MudIcon Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" />Retry</button> }
                                 @if (CanDrag(item)) { <button type="button" class="ticket-drag" draggable="true" @ondragstart="@(() => _draggedItem = item)" @ondragend="EndDrag" aria-label="Drag @item.Identifier; open item for Move or assign actions"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button> }

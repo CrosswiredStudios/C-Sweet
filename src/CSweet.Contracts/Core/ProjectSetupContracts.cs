@@ -4,7 +4,10 @@ public sealed record CreateProjectRequest(string Name, string Goal, Guid Manager
     IReadOnlyList<Guid> MemberIds, Guid? RepositoryId, Guid? IntakeId, long? IntakeRevision, string IdempotencyKey);
 public sealed record UpdateProjectMembersRequest(Guid ManagerId, IReadOnlyList<Guid> MemberIds, long ExpectedRevision,
     Guid? IntakeId = null, long? IntakeRevision = null);
-public sealed record ProjectSetupPerson(Guid Id, string Name, string EmployeeType, Guid? TeamId, bool CanManageProject);
+public sealed record ProjectSetupPerson(Guid Id, string Name, string EmployeeType, Guid? TeamId, bool CanManageProject)
+{
+    public Guid? AgentInstallationId { get; init; }
+}
 public sealed record ProjectSetupTeam(Guid Id, string Name);
 public sealed record ProjectSetupRepository(Guid Id, string Name);
 public sealed record ProjectSetupOptions(Guid CurrentUserId, bool CanCreate, IReadOnlyList<ProjectSetupPerson> People,

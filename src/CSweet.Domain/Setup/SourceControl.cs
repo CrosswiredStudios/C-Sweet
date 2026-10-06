@@ -427,6 +427,7 @@ public sealed class SourceControlWorkspace
     public string WorkspaceKey { get; set; } = string.Empty;
     public string BaseCommitSha { get; set; } = string.Empty;
     public string BranchName { get; set; } = string.Empty;
+    public string IntegrationTargetBranch { get; set; } = string.Empty;
     public SourceControlWorkspaceStatus Status { get; set; } = SourceControlWorkspaceStatus.Pending;
     public string? LastError { get; set; }
     public long Revision { get; set; } = 1;

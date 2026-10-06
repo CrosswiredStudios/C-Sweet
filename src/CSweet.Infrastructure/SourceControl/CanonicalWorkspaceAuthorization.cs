@@ -58,6 +58,10 @@ internal sealed class CanonicalWorkspaceAuthorization(CSweet.Infrastructure.Pers
                     origin.WorkItemId == work.Id && origin.AssignmentRevision == workspace.AssignmentRevision &&
                     publication.RepositoryId == workspace.RepositoryId && publication.Status != SourceControlPublicationStatus.Superseded
                 orderby publication.CreatedAt descending select publication.CommitSha).FirstOrDefaultAsync(ct);
+            if (delivery.RootElement.TryGetProperty("deliveryPlanId", out var planId) && planId.ValueKind == JsonValueKind.String)
+                commit = await db.WorkTaskIntegrationReceipts.AsNoTracking().Where(x => x.OrganizationId == workspace.OrganizationId &&
+                    x.WorkItemId == work.Id && x.Status == "Completed" && db.SourceControlPublications.Any(p => p.Id == x.PublicationId && p.CommitSha == commit))
+                    .OrderByDescending(x => x.CreatedAt).Select(x => x.CandidateCommitSha).FirstOrDefaultAsync(ct);
             if (!string.Equals(commit, expectedCommit, StringComparison.OrdinalIgnoreCase)) return false;
         }
         await new ProjectWorkPolicy(db, TimeProvider.System).RequireAsync(workspace.OrganizationId, employee.Id, boardId, ct);

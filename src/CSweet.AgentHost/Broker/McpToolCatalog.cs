@@ -64,6 +64,13 @@ public sealed class McpToolCatalog(
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
         .. ComputeMcpTools.All,
+        Read(W.WorkDeliveryCapabilities.Read, "read_delivery_plans", "Discover bounded, authorized project releases and their exact current scope."),
+        Read(W.WorkDeliveryCapabilities.Evidence, "read_delivery_evidence", "Read exact candidate revisions or an authorized immutable repository snapshot."),
+        Write(W.WorkDeliveryCapabilities.Configure, "configure_delivery_plan", "Define or amend release scope, assignments and explicit integration branches."),
+        Write(W.WorkDeliveryCapabilities.Control, "control_delivery_plan", "Assigned manager activation, pause, resume or cancellation of a delivery plan."),
+        Write(W.WorkDeliveryCapabilities.Accept, "accept_delivery_candidate", "Assigned manager decision on the exact epic or release candidate and criteria."),
+        Write(W.WorkDeliveryCapabilities.Review, "review_delivery_candidate", "Assigned independent human review with exact candidate and criterion evidence."),
+        Write(W.WorkDeliveryCapabilities.Recover, "recover_delivery_promotion", "Resume unfinished delivery operations while preserving successful promotion receipts."),
         Read(ProjectHealthCapabilities.Read, "read_project_health", "Read current health of an authorized Producer project."),
         Read(ProjectHealthCapabilities.Diagnostics, "read_project_diagnostics", "Inspect bounded, sanitized evidence for an authorized project incident."),
         Read(ProjectHealthCapabilities.Incidents, "read_management_incidents", "Discover pending incidents or read one authorized incident by identifier."),
@@ -578,6 +585,7 @@ public sealed class McpToolCatalog(
 
     private static JsonElement InputFor(string capability)
     {
+        if (W.WorkDeliveryCapabilities.All.Contains(capability)) return WorkDeliveryToolSchemas.Input(capability);
         if (W.CalendarCapabilities.All.Contains(capability)) return CalendarToolSchemas.Input(capability);
         if (capability is CompanyReportingCapabilities.Finance or CompanyReportingCapabilities.Legal or CompanyReportingCapabilities.Project)
             return CompanyReportingSchemas.Input(capability);

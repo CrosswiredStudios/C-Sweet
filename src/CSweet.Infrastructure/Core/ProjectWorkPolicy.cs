@@ -3,6 +3,7 @@ using CSweet.Domain.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -27,6 +28,17 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
             !await RequiresProjectAsync(org, installation, ct)) return;
         var employee = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == org && x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null)
             .Select(x => x.Id).SingleAsync(ct);
+        if (capability == CSweet.WorkManagement.Contracts.WorkManagementCapabilityNames.ExecutionRunV2)
+        {
+            var assignment = payload.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV2>(
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
+                ?? throw new UnauthorizedAccessException("project.assignment_required: The V2 assignment is missing.");
+            if (assignment.Scope == CSweet.WorkManagement.Contracts.WorkExecutionScopes.Task)
+                await RequireStageAssignmentAsync(org, installation, employee, System.Text.Json.JsonSerializer.SerializeToElement(
+                    assignment.ToTaskAssignment(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)), ct);
+            else await RequireDeliveryAssignmentAsync(org, installation, employee, assignment, ct);
+            return;
+        }
         if (capability == CSweet.WorkManagement.Contracts.WorkManagementCapabilityNames.ExecutionRunV1)
         {
             await RequireStageAssignmentAsync(org, installation, employee, payload, ct);
@@ -44,6 +56,34 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
         }
         if (Id("boardId") is { } board) { await RequireAsync(org, employee, board, ct); return; }
         throw new InvalidOperationException("project.required: Delivery requires an assigned project and its delivery ticket. Retain the request through project intake before dispatching work.");
+    }
+
+    private async Task RequireDeliveryAssignmentAsync(Guid org, Guid installation, Guid employee,
+        CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV2 assignment, CancellationToken ct)
+    {
+        var stage = await db.WorkStageExecutions.AsNoTracking().Include(x => x.Attempts)
+            .Include(x => x.DeliveryExecution)!.ThenInclude(x => x!.Plan)
+            .SingleOrDefaultAsync(x => x.Id == assignment.StageExecutionId, ct);
+        var execution = stage?.DeliveryExecution;
+        var plan = execution?.Plan;
+        var newDispatch = stage?.Status == WorkStageExecutionStatus.Pending && execution?.Status == "Ready" &&
+            assignment.Attempt == stage.Attempts.Count + 1 && !stage.Attempts.Any(x => x.Id == assignment.AttemptId);
+        var queued = stage is not null && execution?.Status == "Running" &&
+            stage.Status is WorkStageExecutionStatus.Dispatching or WorkStageExecutionStatus.Running &&
+            stage.Attempts.Any(x => x.Id == assignment.AttemptId && x.Attempt == assignment.Attempt &&
+                x.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running);
+        if (plan is null || execution is null || stage is null || plan.Status != "Active" || plan.OrganizationId != org ||
+            assignment.OrganizationId != org || assignment.WorkstreamId != plan.WorkstreamId || assignment.DeliveryPlanId != plan.Id ||
+            assignment.ExecutionId != execution.Id || assignment.Scope != execution.Scope || assignment.ScopeRevision != plan.ScopeRevision ||
+            execution.ScopeRevision != plan.ScopeRevision || assignment.BoardId != execution.BoardId || assignment.ItemId != execution.WorkItemId ||
+            assignment.SprintId.HasValue || assignment.SprintExecutionId.HasValue || assignment.StageKey != execution.CurrentStageKey ||
+            assignment.StageKey != stage.StageKey || assignment.Traversal != stage.Traversal || assignment.AttemptId == Guid.Empty ||
+            assignment.Deadline <= clock.GetUtcNow() || stage.AgentInstallationId != installation || stage.OrganizationUserId != employee ||
+            assignment.OrganizationUserId != employee || assignment.AgentInstallationId != installation || (!newDispatch && !queued) ||
+            execution.CandidateJson is null || assignment.Candidate?.Digest != System.Text.Json.JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkDeliveryCandidate>(
+                execution.CandidateJson, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))?.Digest)
+            throw new UnauthorizedAccessException("project.assignment_required: The active delivery review is not assigned to this agent and candidate.");
+        await RequireAsync(org, employee, execution.BoardId, ct);
     }
 
     private async Task RequireStageAssignmentAsync(Guid org, Guid installation, Guid employee,

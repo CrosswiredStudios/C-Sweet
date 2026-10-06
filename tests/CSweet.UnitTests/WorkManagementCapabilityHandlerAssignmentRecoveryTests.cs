@@ -151,12 +151,12 @@ public sealed partial class WorkManagementCapabilityHandlerTests
     }
 
     [Theory]
-    [InlineData("development", null, true)]
-    [InlineData("specialist-execution", "game-engineer", true)]
-    [InlineData("specialist-execution", "software-developer", true)]
-    [InlineData("specialist-execution", "game-quality-assurance", false)]
-    public void Independence_applies_to_code_authors_and_matches_employee_across_installations(
-        string initialStage, string? role, bool codeAuthor)
+    [InlineData("development", null)]
+    [InlineData("specialist-execution", "game-engineer")]
+    [InlineData("specialist-execution", "software-developer")]
+    [InlineData("specialist-execution", "game-quality-assurance")]
+    public void Independence_applies_to_all_deliverable_authors_and_matches_employee_across_installations(
+        string initialStage, string? role)
     {
         var author = Guid.NewGuid();
         var other = Guid.NewGuid();
@@ -164,6 +164,6 @@ public sealed partial class WorkManagementCapabilityHandlerTests
             (initialStage, Guid.NewGuid(), author, role),
             ("technical-review", Guid.NewGuid(), author, null),
             ("quality", Guid.NewGuid(), other, null)]);
-        Assert.Equal(codeAuthor ? new[] { "technical-review" } : [], result);
+        Assert.Equal(new[] { "technical-review" }, result);
     }
 }

@@ -189,6 +189,23 @@ app.MapPost("/internal/v3/merge", async (InternalGitMergeRequest request, Intern
     catch (KeyNotFoundException) { return Results.NotFound(); }
     catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
 });
+app.MapPost("/internal/v3/delivery/branches", async (DeliveryBranchOperation request,
+    InternalGitRepositoryStore store, GitHubAppClient github, CancellationToken ct) =>
+{
+    try
+    {
+        return Results.Ok(request.Provider switch
+        {
+            "InternalGit" => await store.DeliveryBranchAsync(request, ct),
+            "GitHub" => await github.DeliveryBranchAsync(request, ct),
+            _ => throw new InvalidOperationException("The provider cannot guarantee governed delivery promotion.")
+        });
+    }
+    catch (KeyNotFoundException) { return Results.NotFound(); }
+    catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+    catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException)
+    { return Results.Conflict(new { message = error.Message }); }
+});
 app.Run();
 
 public partial class Program;

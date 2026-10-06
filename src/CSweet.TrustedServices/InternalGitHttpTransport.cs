@@ -20,7 +20,8 @@ public sealed partial class InternalGitRepositoryStore
         var hooks = Path.Combine(repository, "csweet-http-hooks");
         Directory.CreateDirectory(hooks);
         var protectedRefs = Path.Combine(hooks, "protected-refs");
-        await File.WriteAllTextAsync(protectedRefs, string.Join("\n", request.ProtectedBranches.Select(b => "refs/heads/" + b)) + "\n", new UTF8Encoding(false), ct);
+        var protectedBranches = request.ProtectedBranches.Concat(await ManagedBranchesAsync(repository, ct)).Distinct();
+        await File.WriteAllTextAsync(protectedRefs, string.Join("\n", protectedBranches.Select(b => "refs/heads/" + b)) + "\n", new UTF8Encoding(false), ct);
         var lockedPaths = Path.Combine(hooks, "locked-paths");
         var locks = request.Service == "git-receive-pack" && !request.Advertise ? await ReadFileLocksAsync(repository, ct) : [];
         await File.WriteAllTextAsync(lockedPaths, string.Join("\n", locks.Where(l => l.OwnerId != request.ActorId).Select(l => l.Path)) + "\n", new UTF8Encoding(false), ct);

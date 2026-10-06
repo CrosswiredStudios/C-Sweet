@@ -70,7 +70,7 @@ public sealed class WorkBoardServiceTests
         Assert.NotNull((await db.CoreWorkTasks.SingleAsync()).BoardColumnId);
         Assert.Equal(
             WorkBoardActions.All.Count + WorkItemActions.All.Count +
-            WorkSprintActions.All.Count + WorkOrchestrationActions.All.Count,
+            WorkSprintActions.All.Count + WorkOrchestrationActions.All.Count + CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.All.Count,
             await db.ScopedActionGrants.CountAsync());
         Assert.Contains(audit.Events, x => x.EventType == WorkBoardActions.Read);
     }
@@ -121,6 +121,7 @@ public sealed class WorkBoardServiceTests
                 .Concat(WorkItemActions.All)
                 .Concat(WorkSprintActions.All)
                 .Concat(WorkOrchestrationActions.All)
+                .Concat(CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.All)
                 .Order(),
             ownerActions.Order());
     }

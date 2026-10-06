@@ -46,8 +46,13 @@ public sealed class WorkItemCollaborationService(
             .Where(x => x.WorkItemId == itemId && x.DeletedAt == null)
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
+        var authorNames = await WorkItemCommentAuthors.ResolveAsync(
+            db, organizationId, comments, cancellationToken);
         var commentResponses = comments
-            .Select(x => ToComment(x, member.Id, permissions))
+            .Select(x => ToComment(x, member.Id, permissions) with
+            {
+                AuthorDisplayName = WorkItemCommentAuthors.DisplayName(x, authorNames)
+            })
             .ToList();
         var activity = await db.WorkItemActivities.AsNoTracking()
             .Where(x => x.WorkItemId == itemId)
@@ -291,6 +296,8 @@ public sealed class WorkItemCollaborationService(
                 .FirstOrDefault(x => x.Category == WorkBoardColumnCategory.ToDo);
         if (targetColumn is null)
             throw new ArgumentException("The target column does not belong to the target board.");
+        if (targetColumn.Category == WorkBoardColumnCategory.Done)
+            await WorkDeliveryTaskAuthorization.PreventManualCompletionAsync(db, item, cancellationToken);
         await EnforceWipAsync(targetColumn, cancellationToken);
 
         var now = DateTimeOffset.UtcNow;

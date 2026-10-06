@@ -55,7 +55,7 @@ public sealed partial class WorkDispatchRecoveryTests
         {
             OrganizationId = state.Execution.OrganizationId, BoardId = state.Execution.BoardId,
             SprintId = state.Execution.SprintId, SprintExecutionId = state.Execution.Id,
-            ItemExecutionId = state.Stage.ItemExecutionId, ItemId = state.Stage.ItemExecution!.WorkItemId,
+            ItemExecutionId = state.Stage.ItemExecutionId!.Value, ItemId = state.Stage.ItemExecution!.WorkItemId,
             StageExecutionId = mismatched ? Guid.NewGuid() : state.Stage.Id, StageKey = state.Stage.StageKey,
             Traversal = 0, Attempt = 1, AttemptId = Guid.NewGuid(), AssignmentRevision = 0,
             Deadline = DateTimeOffset.UtcNow.AddMinutes(5), Item = JsonSerializer.SerializeToElement(new {}),

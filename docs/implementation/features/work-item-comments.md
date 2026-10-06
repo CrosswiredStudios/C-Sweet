@@ -32,6 +32,11 @@ no moderation grant, so no human or agent can rewrite or erase another subject's
 - Each mutation writes work-item activity (`comment.created`, `comment.updated`, `comment.deleted`),
   a grant-filtered realtime board event, and an audit event carrying the authorizing grant revision.
 - Archived boards stay readable but accept no new comments.
+- `WorkItemCommentAuthors.ResolveAsync` resolves agent comment labels from the current active
+  employee linked to `AuthorSubjectId` in the owning organization. Human and agent reads use this
+  mapping, including historical comments stored under package IDs. Stored author names remain
+  audit snapshots and provide the fallback when no named active employee is linked; human and
+  coordination author labels retain their stored names. Ownership still uses author kind and ID.
 
 ## Automatic execution feedback
 

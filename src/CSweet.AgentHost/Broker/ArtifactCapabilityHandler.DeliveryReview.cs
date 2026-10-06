@@ -24,24 +24,27 @@ public sealed partial class ArtifactCapabilityHandler
         if (artifact?.OriginWorkItemId is not { } workItemId) return null;
         var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == workItemId && x.OrganizationId == organizationId && x.ArchivedAt == null &&
-            x.Status == WorkTaskStatus.WaitingForApproval, token);
+            (x.Status == WorkTaskStatus.WaitingForApproval || x.Status == WorkTaskStatus.Running || x.Status == WorkTaskStatus.Ready), token);
         if (item?.BoardId is not { } boardId) return null;
         var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x => x.Id == boardId &&
-            x.OrganizationId == organizationId && x.ArchivedAt == null &&
-            x.ManagerOrganizationUserId == actor.OrganizationUserId, token);
+            x.OrganizationId == organizationId && x.ArchivedAt == null, token);
         if (board is null || artifact.WorkstreamId != board.WorkstreamId || artifact.TeamId != board.TeamId) return null;
         var execution = await db.WorkItemExecutions.AsNoTracking()
             .Include(x => x.SprintExecution).Include(x => x.Stages).ThenInclude(x => x.Attempts)
             .Where(x => x.WorkItemId == workItemId && x.SprintExecution!.OrganizationId == organizationId &&
                 x.SprintExecution.BoardId == boardId)
             .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).FirstOrDefaultAsync(token);
-        if (execution?.Status != WorkItemExecutionStatus.WaitingForApproval ||
+        if (execution?.Status is not (WorkItemExecutionStatus.WaitingForApproval or WorkItemExecutionStatus.Running or WorkItemExecutionStatus.Pending) ||
             execution.SprintExecution!.Status != WorkSprintExecutionStatus.Active) return null;
-        var review = execution.Stages.SingleOrDefault(x => x.StageKey == execution.CurrentStageKey &&
-            x.Traversal == execution.Traversal && x.StageType == WorkOrchestrationStageType.ManagerApproval &&
-            x.Status == WorkStageExecutionStatus.WaitingForApproval &&
-            x.PrincipalKind == WorkOrchestrationPrincipalKind.BoardManager && x.OrganizationUserId == actor.OrganizationUserId);
+        var review = execution.Stages.SingleOrDefault(x => x.StageKey == execution.CurrentStageKey && x.Traversal == execution.Traversal &&
+            x.OrganizationUserId == actor.OrganizationUserId &&
+            (x.StageType == WorkOrchestrationStageType.ManagerApproval && x.Status == WorkStageExecutionStatus.WaitingForApproval &&
+                x.PrincipalKind == WorkOrchestrationPrincipalKind.BoardManager && board.ManagerOrganizationUserId == actor.OrganizationUserId ||
+             x.StageKey == "quality" && x.StageType == WorkOrchestrationStageType.AgentExecution &&
+                x.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation && x.AgentInstallationId == actor.InstallationId &&
+                (x.Status == WorkStageExecutionStatus.Running || x.Status == WorkStageExecutionStatus.Dispatching) && artifact.CreatedByOrganizationUserId != actor.OrganizationUserId));
         if (review is null) return null;
+        if (review.StageKey != "quality" && item.Status != WorkTaskStatus.WaitingForApproval) return null;
         var producers = execution.Stages.Where(x => x.Traversal == execution.Traversal &&
             x.Status == WorkStageExecutionStatus.Completed && x.OrganizationUserId == artifact.CreatedByOrganizationUserId &&
             x.OrganizationUserId.HasValue && x.AgentInstallationId.HasValue).Take(33).ToArray();

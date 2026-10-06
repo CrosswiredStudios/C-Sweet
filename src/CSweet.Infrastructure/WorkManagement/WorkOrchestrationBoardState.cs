@@ -11,7 +11,7 @@ using CSweet.Domain.Setup;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-internal static class WorkOrchestrationBoardState
+internal static partial class WorkOrchestrationBoardState
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     // Called inside the inbox lease transaction, before the worker receives its payload.
@@ -19,6 +19,23 @@ internal static class WorkOrchestrationBoardState
     internal static async Task RecordClaimAsync(CSweetDbContext db, AgentWorkItem work,
         DateTimeOffset now, CancellationToken token)
     {
+        if (work.SourceType == "WorkDeliveryStage")
+        {
+            var deliveryAttempt = await db.WorkExecutionAttempts.Include(x => x.StageExecution)!
+                .ThenInclude(x => x!.DeliveryExecution)!.ThenInclude(x => x!.Plan)
+                .SingleOrDefaultAsync(x => x.AgentWorkItemId == work.Id, token);
+            var deliveryStage = deliveryAttempt?.StageExecution;
+            var delivery = deliveryStage?.DeliveryExecution;
+            if (delivery?.Plan is not { Status: "Active" } plan || plan.OrganizationId.ToString() != work.OrganizationId ||
+                delivery.ScopeRevision != plan.ScopeRevision || delivery.CurrentStageKey != deliveryStage!.StageKey ||
+                deliveryStage.AgentInstallationId != work.AgentInstallationId || delivery.Status != "Running" ||
+                deliveryStage.Status is not (WorkStageExecutionStatus.Dispatching or WorkStageExecutionStatus.Running))
+                throw new UnauthorizedAccessException("The delivery plan or authoritative review assignment is no longer active.");
+            deliveryAttempt!.Status = WorkExecutionAttemptStatus.Running; deliveryAttempt.StartedAt ??= now;
+            deliveryStage.Status = WorkStageExecutionStatus.Running; deliveryStage.UpdatedAt = now;
+            await db.SaveChangesAsync(token);
+            return;
+        }
         if (work.SourceType != "WorkStageExecution") return;
         var attempt = await db.WorkExecutionAttempts
             .Include(x => x.StageExecution)!.ThenInclude(x => x!.ItemExecution)!.ThenInclude(x => x!.WorkItem)
@@ -98,7 +115,26 @@ internal static class WorkOrchestrationBoardState
 
     internal static async Task SaveBoardChangesAsync(CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken token)
     {
+        await SynchronizeTaskArtifactGrantsAsync(db, execution, now, token);
         db.ChangeTracker.DetectChanges();
+        var completedDeliveryStages = db.ChangeTracker.Entries<WorkStageExecution>().Where(x =>
+            x.Entity.ItemExecution?.SprintExecutionId == execution.Id && x.Entity.Status == WorkStageExecutionStatus.Completed &&
+            (x.State == EntityState.Added || x.Property(s => s.Status).IsModified)).Select(x => x.Entity).ToList();
+        foreach (var stage in completedDeliveryStages)
+        {
+            var task = stage.ItemExecution!.WorkItem!;
+            if (task.DeliverySpecificationJson is not { } deliveryJson ||
+                JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkItemDeliverySpecification>(deliveryJson, JsonOptions)?.DeliveryPlanId is not { } planId) continue;
+            var plan = await db.WorkDeliveryPlans.AsNoTracking().SingleOrDefaultAsync(x => x.Id == planId && x.OrganizationId == execution.OrganizationId, token);
+            if (plan is null) continue;
+            var wake = new CSweet.WorkManagement.Contracts.GenericResourceEvent(Guid.NewGuid(), now,
+                new(execution.OrganizationId, plan.WorkstreamId, null, execution.BoardId, task.Id, null, null, execution.Id, null, null),
+                "WorkDeliveryPlan", planId, plan.Revision, "project-delivery", $"task.{stage.StageKey}.{stage.LastOutcomeCode}",
+                JsonSerializer.SerializeToElement(new { stageId = stage.Id, itemId = task.Id, scopeRevision = plan.ScopeRevision }, JsonOptions));
+            db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
+                EventType = CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Changed, DataJson = JsonSerializer.Serialize(wake, JsonOptions),
+                IdempotencyKey = $"delivery-task-stage:{stage.Id:N}:{stage.Attempts.Count}:{stage.UpdatedAt.UtcTicks}", OccurredAt = now, NextAttemptAt = now });
+        }
         var stopped = db.ChangeTracker.Entries<WorkStageExecution>().Where(x =>
             x.Entity.ItemExecution?.SprintExecutionId == execution.Id &&
             x.Entity.Status is WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed &&

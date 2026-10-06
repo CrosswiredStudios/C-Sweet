@@ -424,6 +424,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<AgentWorkRouter>();
         builder.Services.AddScoped<IWorkOrchestrationService, WorkOrchestrationService>();
         builder.Services.AddScoped<IWorkOrchestrator, WorkOrchestrator>();
+        builder.Services.AddScoped<IWorkDeliveryService, WorkDeliveryService>();
         var trustedServiceKey = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyBase64"];
         var trustedServiceKeyFile = builder.Configuration["CSweet:SourceControl:TrustedServiceKeyFile"];
         if (string.IsNullOrWhiteSpace(trustedServiceKey) && !string.IsNullOrWhiteSpace(trustedServiceKeyFile))
@@ -472,6 +473,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton<ISourceControlDecisionSigner,
             DataProtectionSourceControlDecisionSigner>();
         builder.Services.AddScoped<ITrustedWorkActionExecutor, GovernedMergeWorkActionExecutor>();
+        builder.Services.AddScoped<ITrustedWorkActionExecutor, TaskIntegrationWorkActionExecutor>();
         builder.Services.AddScoped<ITaskRunService, TaskRunService>();
         builder.Services.AddScoped<IArtifactService, ArtifactService>();
         builder.Services.AddScoped<IArtifactApprovalService, ArtifactApprovalService>();

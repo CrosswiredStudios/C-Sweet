@@ -98,6 +98,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, PluginOperationsCapabilit
 builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformMediaTransferCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PersonalTodoCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, WorkDeliveryCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, CalendarCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ArtifactCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, InfrastructurePlatformCapabilityHandler>();

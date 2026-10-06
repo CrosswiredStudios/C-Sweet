@@ -257,38 +257,9 @@ public static class WorkBoardEndpoints
                 return Results.BadRequest(new { error = "invalid_quality_cycles", message = "Maximum QA cycles must be between 1 and 10." });
             try
             {
-                var retry = new CSweet.WorkManagement.Contracts.WorkOrchestrationRetryPolicy();
-                var stages = new List<CSweet.WorkManagement.Contracts.WorkOrchestrationStageDefinition>
-                {
-                    new("ready", "Ready", "Queue", request.ReadyColumnId, "Wait until dependencies are complete.", "{}", "{}", 30, null, retry),
-                    new("development", "Development", "AgentExecution", request.DevelopmentColumnId,
-                        "Implement the approved ticket, validate it, and publish a reviewable pull request.", "{}",
-                        "{\"type\":\"object\",\"required\":[\"repositoryConnectionId\",\"sourceBranch\",\"commitSha\",\"pullRequestUrl\",\"summary\"]}", 3600, null, retry),
-                    new("dev-complete", "Dev Complete", "Queue", request.DevCompleteColumnId,
-                        "Development is complete and ready for independent testing.", "{}", "{}", 30, null, retry),
-                    new("quality", "Quality", "AgentExecution", request.QualityColumnId,
-                        "Validate the exact development commit without modifying tracked source.", "{}",
-                        "{\"type\":\"object\",\"required\":[\"verdict\",\"summary\",\"criteria\",\"validations\",\"findings\",\"remainingRisks\"]}", 1800, null, retry),
-                    new("merge-decision", "Merge decision",
-                        request.MergeMode == "Automatic" ? "Queue" : "ManagerApproval", request.ReadyToMergeColumnId,
-                        "Authorize merge of the exact QA-approved commit.", "{}", "{}", 86400, 1, retry),
-                    new("governed-merge", "Governed merge", "TrustedPlatformAction", request.ReadyToMergeColumnId,
-                        "Revalidate and merge the exact QA-approved commit.", "{}", "{}", 300, 1, retry,
-                        GovernedMergeWorkActionExecutor.ActionName),
-                    new("done", "Done", "Terminal", request.DoneColumnId, "Work is complete.", "{}", "{}", 30, null, retry, null, true),
-                    new("cancelled", "Cancelled", "Terminal", request.DoneColumnId, "Work was rejected.", "{}", "{}", 30, null, retry)
-                };
-                var transitions = new List<CSweet.WorkManagement.Contracts.WorkOrchestrationTransitionDefinition>
-                {
-                    new("ready", "ready", "development"),
-                    new("development", "completed", "dev-complete"),
-                    new("dev-complete", "ready", "quality"),
-                    new("quality", "passed", "merge-decision"),
-                    new("quality", "changes_requested", "development", request.MaximumQualityCycles),
-                    new("merge-decision", request.MergeMode == "Automatic" ? "ready" : "approved", "governed-merge"),
-                    new("merge-decision", "rejected", "cancelled"),
-                    new("governed-merge", "merged", "done")
-                };
+                var (stages, transitions) = CSweet.WorkManagement.Contracts.HierarchicalWorkflows.Software(
+                    request.ReadyColumnId, request.DevelopmentColumnId, request.DevCompleteColumnId,
+                    request.QualityColumnId, request.DoneColumnId, request.MaximumQualityCycles);
                 var revision = await service.SavePolicyRevisionAsync(
                     organizationId, boardId, userId.Value,
                     new("Software delivery", "ready", request.MergeMode,

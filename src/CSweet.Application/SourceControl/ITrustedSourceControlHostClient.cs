@@ -7,6 +7,8 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<DeliveryBranchResult> DeliveryBranchAsync(DeliveryBranchOperation request, CancellationToken ct = default) =>
+        throw new InvalidOperationException("Delivery branch operations are unavailable.");
     Task<InternalGitBackupJob> QueueInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");
     Task<IReadOnlyList<InternalGitBackupJob>> ListInternalBackupJobsAsync(Guid business, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");
     Task DismissInternalBackupJobAsync(Guid business, Guid id, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");

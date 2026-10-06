@@ -1,22 +1,22 @@
 # C-Sweet Board Work Orchestration Specification
 
 Status: Normative  
-Version: 1.0  
+Version: 2.0
 Source inspiration: [OpenAI Symphony](https://github.com/openai/symphony/blob/main/SPEC.md)
 
 The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHOULD**, **SHOULD NOT**, and **MAY** in this document are to be interpreted as described by RFC 2119 and RFC 8174 when, and only when, they appear in all capitals.
 
 ## 1. Purpose
 
-C-Sweet board orchestration turns a manager-approved sprint into durable, observable work performed by explicitly assigned humans, agents, and trusted platform actions. This specification adopts Symphony's reconciliation, deterministic dispatch, bounded retry, isolation, and observability principles while using C-Sweet's protocol-v2 agent runtime and Agent Work Inbox.
+C-Sweet orchestration turns manager-approved sprints and explicitly activated project delivery plans into durable, observable work performed by assigned humans, agents, and trusted platform actions. Tasks execute within sprints; story, epic and release validation executes under delivery plans and can span sprints.
 
-This specification is the sole authority for automated board transitions. The legacy delivery pipeline, assignment-event execution, and generic move automations are not part of this model.
+This specification and its [normative hierarchical delivery extension](../../docs/implementation/features/work-management/hierarchical-delivery.md) govern automated transitions. The extension defines new game/software workflow revisions, exact candidate evidence, aggregate acceptance and release recovery. Published V1 workflow revisions retain their original behavior. Assignment-event execution and generic move automations MUST NOT bypass either authorization model.
 
 ## 2. Trust and ownership
 
 1. Every orchestrated board MUST have exactly one manager organization user. A manager MAY represent a human or installed agent.
 2. Starting a sprint MUST be an explicit, audited action by that manager. A scheduler MUST NOT start a sprint implicitly.
-3. Starting a sprint is the authorization boundary for automated work. No agent or trusted action MAY be dispatched for a Planned sprint.
+3. Starting a sprint is the authorization boundary for task work. No task agent or trusted action MAY be dispatched for a Planned sprint. Aggregate work MUST require an activated delivery plan and MUST NOT fabricate a sprint identity.
 4. Every executable leaf item MUST have an accountable organization user and an explicit principal assignment for every reachable work or approval stage before it can enter a sprint.
 5. The orchestrator MUST own all automated stage and card transitions. Agents MUST report progress and structured outcomes and MUST NOT start, move, complete, or choose the next stage of an automated card.
 6. A human assigned to a ManualWork stage MAY complete that stage through an authorized manual operation. Manual work MUST participate in dependencies and sprint completion.
@@ -61,7 +61,7 @@ Stage assignments identify exactly one of:
 
 Executable leaf items MUST be rejected at creation if any reachable work or approval stage lacks a valid assignment. Initiative and Epic container items MAY omit assignments when they are not executable.
 
-The platform MUST verify that an assigned installation belongs to the board organization, is active, and provides `work.execution.run.v1`. Assignments MUST NOT silently fall back to a role or capability pool.
+The platform MUST verify that an assigned installation belongs to the board organization, is active, and provides the published execution capability: `work.execution.run.v2` for hierarchical delivery or `work.execution.run.v1` for historical V1 policies. Assignments MUST NOT silently fall back to a role or capability pool.
 
 ## 5. Sprint lifecycle
 
@@ -103,7 +103,7 @@ Dispatch order MUST be deterministic:
 
 The scheduler MUST enforce configured global, organization, board, stage, and assignee limits plus the installation manifest's runtime concurrency. There MUST be at most one live attempt for a stage execution.
 
-AgentExecution MUST be enqueued as exact-installation capability work named `work.execution.run.v1`. Assignment events MUST NOT be used as an execution transport.
+AgentExecution MUST be enqueued as exact-installation capability work using its versioned assignment contract. V2 MUST identify Task, Story, Epic or Release scope, the authorized principal, planning/scope revisions, candidate evidence and permitted outcomes. Sprint identifiers MUST be present only for Task scope. Assignment events MUST NOT be used as an execution transport.
 MemberExecution MUST use the same exact-installation transport when its ticket assignee is an agent,
 and MUST enter the authorized manual-work state when its assignee is human.
 
@@ -130,22 +130,21 @@ Lease, runtime, transport, and other transient infrastructure failures MUST retr
 
 All scheduler state MUST be reconstructable from the database after process restart. Duplicate scheduler ticks, work claims, results, and manager commands MUST be idempotent. A stopped project stage MUST persist a recovery wake in the same transaction as its state change. The manager MUST re-read authoritative state before recovery; reconnect discovery MUST recover a missed wake. Missing staffing MAY be cleared after an authorized assignment repair without rerunning completed work. Other blockers MUST retain their evidence and use explicit retry, decision or replanning operations.
 
-## 9. Software delivery profile
+## 9. Hierarchical game and software delivery profiles
 
-The standard software profile is:
+The new code-task workflow is:
 
-`ready -> development -> quality -> merge-decision -> governed-merge -> done`
+`ready -> implementation -> technical-review -> trusted task integration -> quality -> done`
 
-Quality outcome `changes_requested` MUST return to Development. The default maximum is three development/quality traversals and MAY be configured from 1 to 10.
+Technical Review MUST independently approve the exact source and story target before trusted task integration. QA MUST test the exact integrated story commit. Failed QA MUST return the task for a new reviewed fix based on current story state; merged history MUST remain intact.
 
-Development output MUST include repository connection, source branch, pull-request URL, and exact commit SHA. Quality MUST validate that exact SHA. Governed merge MUST revalidate the QA-approved SHA, repository authorization, branch protection, and merge grant.
+Artifact tasks MUST deliver an exact artifact revision and digest and MUST receive independent criterion-level QA without requiring a Git repository. Every task MUST receive QA, including QA-authored deliverables. Accepted dependency documents MUST require task QA rather than task-level Producer acceptance.
 
-Merge mode is board-configurable:
+Stories MUST require all pinned tasks, full candidate regression and trusted integration into the configured release or optional epic branch. Epics MUST require all stories, integration evidence and assigned Producer/project-manager acceptance. Releases MUST require all scoped epics, full release regression, technical readiness and explicit release-manager acceptance before every participating repository is promoted to its default branch. Deployment and public release are separate operations.
 
-- `ManagerApproval` is the default and pauses at merge-decision;
-- `Automatic` performs the same governed checks without the approval pause.
+New workflows MUST NOT display standalone Merge or merge-decision columns. Producer Review and Manager Review MUST be epic gates. Sprint metrics and completion MUST count tasks independently of continuing parent validation.
 
-Only successful trusted merge MAY advance the card to Done.
+Promotion MUST serialize each target, revalidate both source and target and retain durable per-repository receipts. Partial promotion MUST remain incomplete and MUST resume unfinished operations without automatic reversion. Unsupported provider guarantees MUST block with an actionable reason. Scope or candidate changes MUST invalidate affected readiness and acceptance. The extension specifies the typed API, event/outbox, recovery and clean-install requirements.
 
 ## 10. Observability and security
 
@@ -165,5 +164,7 @@ An implementation conforms only if it proves through automated tests that:
 - retries distinguish transient from deterministic failures;
 - cancellation, late results, duplicate ticks, lease expiry, and restarts are safe;
 - policy and started assignments are immutable while active; future assignment edits are manager-authorized, audited, and race safely with dispatch;
-- both merge modes verify the exact QA-approved commit;
+- task integration verifies independent Technical Review and task QA verifies the resulting commit;
+- artifact, story and release QA verify every required exact revision and criterion;
+- aggregate acceptance, scope invalidation and partial multi-repository recovery follow the normative extension;
 - tenant, grant, encryption, and workspace boundaries remain enforced.

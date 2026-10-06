@@ -6,6 +6,22 @@ namespace CSweet.UnitTests;
 public sealed class PlatformWorkTypeCatalogTests
 {
     [Fact]
+    public void HierarchicalSoftwareProfileKeepsStoriesOutOfSprintExecutionAndRequiresBoardLocalHierarchy()
+    {
+        var story = PlatformWorkTypeCatalog.RequireType(WorkBoardProfileKeys.SoftwareDeliveryV2,
+            WorkItemTypeKeys.SoftwareStoryV2, WorkItemTypeKeys.SoftwareEpicV2);
+        Assert.Equal(WorkItemExecutionModes.Container, story.ExecutionMode);
+        var task = PlatformWorkTypeCatalog.RequireType(WorkBoardProfileKeys.SoftwareDeliveryV2,
+            WorkItemTypeKeys.SoftwareTaskV2, WorkItemTypeKeys.SoftwareStoryV2);
+        Assert.Equal(WorkItemExecutionModes.Executable, task.ExecutionMode);
+        Assert.Throws<ArgumentException>(() => PlatformWorkTypeCatalog.RequireType(WorkBoardProfileKeys.SoftwareDeliveryV2,
+            WorkItemTypeKeys.SoftwareTaskV2, null));
+        Assert.Throws<ArgumentException>(() => PlatformWorkTypeCatalog.RequireType(WorkBoardProfileKeys.SoftwareDeliveryV2,
+            WorkItemTypeKeys.SoftwareTaskV2, WorkItemTypeKeys.SoftwareEpicV2));
+        Assert.Equal(WorkItemExecutionModes.Executable, PlatformWorkTypeCatalog.RequireType(WorkBoardProfileKeys.SoftwareDeliveryV1,
+            WorkItemTypeKeys.SoftwareStoryV1, WorkItemTypeKeys.SoftwareEpicV1).ExecutionMode);
+    }
+    [Fact]
     public void SoftwareStoriesRequireArchitectureReviewAndExactParentType()
     {
         var type = PlatformWorkTypeCatalog.RequireType(
@@ -43,7 +59,7 @@ public sealed class PlatformWorkTypeCatalogTests
         var catalog = PlatformWorkTypeCatalog.Read();
 
         Assert.Equal(PlatformWorkTypeCatalog.Revision, catalog.Revision);
-        Assert.Equal(2, catalog.BoardProfiles.Count);
+        Assert.Equal(4, catalog.BoardProfiles.Count);
         Assert.DoesNotContain(catalog.BoardProfiles,
             profile => profile.Key.Contains("video-game", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(catalog.Types,

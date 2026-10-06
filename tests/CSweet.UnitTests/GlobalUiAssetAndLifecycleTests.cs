@@ -32,12 +32,13 @@ public sealed class GlobalUiAssetAndLifecycleTests
     }
 
     [Fact]
-    public void CommandCenter_TreatsMissingBriefingSettingsAsAnEmptyOptionalState()
+    public void CommandCenterLinksBriefingSettingsWithoutFetchingOptionalSettings()
     {
         var commandCenter = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "CommandCenter.razor"));
 
-        Assert.Contains("response.StatusCode == System.Net.HttpStatusCode.NoContent", commandCenter, StringComparison.Ordinal);
+        Assert.Contains("/executive-briefings", commandCenter, StringComparison.Ordinal);
+        Assert.DoesNotContain("/briefing-settings", commandCenter, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "") =>

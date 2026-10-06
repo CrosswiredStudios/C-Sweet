@@ -461,6 +461,82 @@ internal static class WorkManagementConfigurations
             entity.HasIndex(x => new { x.ItemExecutionId, x.StageKey, x.Traversal }).IsUnique();
             entity.HasOne(x => x.ItemExecution).WithMany(x => x.Stages)
                 .HasForeignKey(x => x.ItemExecutionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.DeliveryExecution).WithMany(x => x.Stages)
+                .HasForeignKey(x => x.DeliveryExecutionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.DeliveryExecutionId, x.StageKey, x.Traversal }).IsUnique();
+            entity.ToTable(t => t.HasCheckConstraint("CK_WorkStageExecution_OneOwner",
+                "(\"ItemExecutionId\" IS NULL) <> (\"DeliveryExecutionId\" IS NULL)"));
+        });
+
+        modelBuilder.Entity<WorkDeliveryPlan>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.Property(x => x.EpicItemIdsJson).HasColumnType("jsonb");
+            entity.Property(x => x.BranchesJson).HasColumnType("jsonb");
+            entity.Property(x => x.ScopesJson).HasColumnType("jsonb");
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId });
+            entity.HasOne<Workstream>().WithMany().HasForeignKey(x => x.WorkstreamId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.ManagerOrganizationUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<WorkTaskIntegrationReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.PublicationId).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.WorkItemId, x.CreatedAt });
+            entity.Property(x => x.SourceCommitSha).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.TargetCommitSha).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.CandidateCommitSha).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Error).HasMaxLength(4096);
+            entity.HasOne<WorkDeliveryPlan>().WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WorkItemExecution>().WithMany().HasForeignKey(x => x.ItemExecutionId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<WorkDeliveryFinding>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.CandidateDigest).HasMaxLength(64);
+            entity.Property(x => x.FindingDigest).HasMaxLength(64);
+            entity.Property(x => x.Status).HasMaxLength(24);
+            entity.Property(x => x.RemediationTaskIdsJson).HasColumnType("jsonb");
+            entity.HasOne(x => x.Plan).WithMany(x => x.Findings).HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.ExecutionId, x.CandidateDigest, x.FindingDigest }).IsUnique();
+        });
+        modelBuilder.Entity<WorkDeliveryExecution>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Scope).HasMaxLength(24);
+            entity.Property(x => x.Status).HasMaxLength(32);
+            entity.Property(x => x.CurrentStageKey).HasMaxLength(64);
+            entity.Property(x => x.BlockedReason).HasMaxLength(4096);
+            entity.Property(x => x.CandidateJson).HasColumnType("jsonb");
+            entity.Property(x => x.AcceptanceJson).HasColumnType("jsonb");
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasOne(x => x.Plan).WithMany(x => x.Executions).HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<WorkTask>().WithMany().HasForeignKey(x => x.WorkItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.PlanId, x.ScopeRevision, x.Scope, x.WorkItemId }).IsUnique().AreNullsDistinct(false);
+        });
+        modelBuilder.Entity<WorkDeliveryPromotion>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceCommitSha).HasMaxLength(64);
+            entity.Property(x => x.TargetCommitSha).HasMaxLength(64);
+            entity.Property(x => x.MergeCommitSha).HasMaxLength(64);
+            entity.Property(x => x.Status).HasMaxLength(32);
+            entity.Property(x => x.Error).HasMaxLength(4096);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasOne(x => x.Execution).WithMany(x => x.Promotions).HasForeignKey(x => x.ExecutionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.ExecutionId, x.RepositoryId }).IsUnique();
+        });
+        modelBuilder.Entity<WorkDeliveryMutationReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(200);
+            entity.Property(x => x.RequestDigest).HasMaxLength(64);
+            entity.Property(x => x.Operation).HasMaxLength(32);
+            entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
         });
 
         modelBuilder.Entity<WorkExecutionAttempt>(entity =>

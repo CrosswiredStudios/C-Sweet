@@ -20,6 +20,8 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+Current delivery: [hierarchical orchestration and release integration](features/work-management/hierarchical-delivery.md) documents V2 assignments, scope activation, branch bindings, QA, aggregate acceptance, recovery and clean installation.
+
 Read these files in order:
 
 1. [00 Architecture Baseline](./00-architecture-baseline.md)

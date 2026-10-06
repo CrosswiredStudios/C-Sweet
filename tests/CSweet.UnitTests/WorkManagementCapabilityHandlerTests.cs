@@ -100,6 +100,7 @@ public sealed partial class WorkManagementCapabilityHandlerTests
             .Append(WorkFlowMetricActions.Read)
             .Concat(PersonalTodoActions.All)
             .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRunV1)
+              .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRunV2)
             .Where(SharedWork.WorkManagementCapabilityNames.All.Contains)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -441,6 +442,48 @@ public sealed partial class WorkManagementCapabilityHandlerTests
     }
 
     [Fact]
+    public async Task AgentReadsHistoricalCommentWithEmployeeNameAndStableOwnership()
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        db.CoreOrganizationUsers.Local.Single().DisplayName = "Daniel Kim";
+        var board = new WorkBoard
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, Name = "Delivery",
+            Columns = [Column("Ready", WorkBoardColumnCategory.ToDo, 0)]
+        };
+        var item = new WorkTask
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, BoardId = board.Id,
+            BoardColumnId = board.Columns.Single().Id, Title = "Implementation"
+        };
+        var historical = new WorkItemComment
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.AgentInstallation, AuthorSubjectId = setup.InstallationId,
+            AuthorDisplayName = "com.csweet.software-developer", Body = "Implementation completed.",
+            IdempotencyKey = "historical", CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        db.WorkItemComments.Add(historical);
+        Grant(db, setup, WorkItemActions.ReadComments, GrantScopeKind.Board, board.Id);
+        await db.SaveChangesAsync();
+        var handler = CreateHandler(db, new TestAuditEventWriter());
+
+        var read = await InvokeAsync(handler, Session(setup, WorkItemActions.ReadComments),
+            WorkItemActions.ReadComments, new { boardId = board.Id, itemId = item.Id });
+
+        Assert.True(read.Succeeded, read.Error);
+        using var json = JsonDocument.Parse(read.Payload.ToByteArray());
+        var comment = Assert.Single(json.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal("Daniel Kim", comment.GetProperty("authorDisplayName").GetString());
+        Assert.Equal(setup.InstallationId, comment.GetProperty("authorSubjectId").GetGuid());
+        Assert.True(comment.GetProperty("canEdit").GetBoolean());
+        Assert.Equal("com.csweet.software-developer", (await db.WorkItemComments.FindAsync(historical.Id))!.AuthorDisplayName);
+    }
+
+    [Fact]
     public async Task AgentCanCommentIdempotentlyAndTransferWithBothBoardGrants()
     {
         await using var db = CreateDb();
@@ -521,6 +564,8 @@ public sealed partial class WorkManagementCapabilityHandlerTests
 
         Assert.True(comment.Succeeded, comment.Error);
         Assert.True(commentReplay.Succeeded, commentReplay.Error);
+        using var commentJson = JsonDocument.Parse(comment.Payload.ToByteArray());
+        Assert.Equal("Test agent", commentJson.RootElement.GetProperty("authorDisplayName").GetString());
         Assert.True(transfer.Succeeded, transfer.Error);
         using var transferJson = JsonDocument.Parse(transfer.Payload.ToByteArray());
         Assert.Equal(

@@ -139,6 +139,10 @@ internal static class WorkBoardProvisioning
                 .Concat(itemActions)
                 .Concat(sprintActions)
                 .Concat(orchestrationActions);
+            actions = actions.Concat(member.PermissionLevel >= OrganizationPermissionLevel.Manager
+                ? CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.All :
+                [CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Read, CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Evidence,
+                    CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Review]);
             foreach (var action in actions)
             {
                 if (!initializedGrants.Add((member.Id, action)))

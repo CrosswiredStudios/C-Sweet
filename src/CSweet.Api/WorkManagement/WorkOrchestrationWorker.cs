@@ -16,6 +16,8 @@ public sealed class WorkOrchestrationWorker(
                 using var scope = scopes.CreateScope();
                 await scope.ServiceProvider.GetRequiredService<IWorkOrchestrator>()
                     .PulseAsync(stoppingToken);
+                await scope.ServiceProvider.GetRequiredService<IWorkDeliveryService>()
+                    .PulseAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
             catch (Exception exception)

@@ -25,7 +25,7 @@ public static class WorkSprintSnapshotFactory
                 "A completion snapshot requires a completed sprint.");
 
         var itemRows = await db.CoreWorkTasks.AsNoTracking()
-            .Where(x => x.SprintId == sprint.Id)
+            .Where(x => x.SprintId == sprint.Id && x.IsExecutable)
             .OrderBy(x => x.BoardRank)
             .Select(x => new
             {

@@ -129,11 +129,15 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
                 break;
             case "update-ref":
                 ValidateRef(request.Ref); ValidateSha(request.TargetSha); ValidateSha(request.ExpectedSha);
+                if ((await ManagedBranchesAsync(path, cancellationToken)).Any(x => request.Ref == "refs/heads/" + x))
+                    throw new UnauthorizedAccessException("Managed integration branches require trusted delivery promotion.");
                 await EnsureRefUnlockedAsync(path, request.ExpectedSha!, request.TargetSha!, cancellationToken);
                 await RunAsync(path, ["update-ref", request.Ref!, request.TargetSha!, request.ExpectedSha!], cancellationToken);
                 break;
             case "delete-ref":
                 ValidateRef(request.Ref); ValidateSha(request.ExpectedSha);
+                if ((await ManagedBranchesAsync(path, cancellationToken)).Any(x => request.Ref == "refs/heads/" + x))
+                    throw new UnauthorizedAccessException("Managed integration branch history cannot be deleted through ordinary repository actions.");
                 var head = (await RunAsync(path, ["symbolic-ref", "HEAD"], cancellationToken)).Trim();
                 if (head == request.Ref) throw new ArgumentException("Change the default branch before deleting it.");
                 await EnsureRefUnlockedAsync(path, request.ExpectedSha!, new string('0', 40), cancellationToken);

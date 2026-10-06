@@ -13,6 +13,82 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkItemCollaborationServiceTests
 {
+    [Theory]
+    [InlineData(true, true, "Daniel Kim", "Daniel Kim")]
+    [InlineData(true, false, "Daniel Kim", "com.csweet.software-developer")]
+    [InlineData(false, true, "Other company's employee", "com.csweet.software-developer")]
+    [InlineData(true, true, " ", "com.csweet.software-developer")]
+    public async Task AgentCommentLabelsUseScopedEmployeeIdentityWithoutChangingStoredAuthors(
+        bool sameOrganization, bool active, string employeeName, string expectedName)
+    {
+        await using var db = CreateDb();
+        var setup = SeedOwner(db);
+        var board = Board(setup.OrganizationId, "Delivery");
+        var item = Item(setup.OrganizationId, board);
+        var installationId = Guid.NewGuid();
+        var producerId = Guid.NewGuid();
+        db.WorkBoards.Add(board);
+        db.CoreWorkTasks.Add(item);
+        db.CoreOrganizationUsers.AddRange(
+            new OrganizationUser
+            {
+                Id = Guid.NewGuid(), OrganizationId = sameOrganization ? setup.OrganizationId : Guid.NewGuid(),
+                AgentInstallationId = installationId, DisplayName = employeeName, IsActive = active,
+                EmployeeType = EmployeeType.Agent
+            },
+            new OrganizationUser
+            {
+                Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+                AgentInstallationId = producerId, DisplayName = "Producer's employee name",
+                EmployeeType = EmployeeType.Agent
+            });
+        var developer = new WorkItemComment
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.AgentInstallation, AuthorSubjectId = installationId,
+            AuthorDisplayName = "com.csweet.software-developer", Body = "Implementation completed.",
+            IdempotencyKey = "developer", CreatedAt = DateTimeOffset.UtcNow
+        };
+        var producer = new WorkItemComment
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.AgentInstallation, AuthorSubjectId = producerId,
+            AuthorDisplayName = "com.csweet.producer", Body = "Planning completed.",
+            IdempotencyKey = "producer", CreatedAt = DateTimeOffset.UtcNow
+        };
+        var human = new WorkItemComment
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.OrganizationUser, AuthorSubjectId = installationId,
+            AuthorDisplayName = "Human author", Body = "Human feedback.",
+            IdempotencyKey = "human", CreatedAt = DateTimeOffset.UtcNow
+        };
+        var unlinked = new WorkItemComment
+        {
+            Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.AgentInstallation, AuthorSubjectId = Guid.NewGuid(),
+            AuthorDisplayName = "Former agent", Body = "Historical feedback.",
+            IdempotencyKey = "unlinked", CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.WorkItemComments.AddRange(developer, producer, human, unlinked);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+
+        var result = await service.GetAsync(
+            setup.OrganizationId, board.Id, item.Id, setup.ApplicationUserId);
+
+        Assert.NotNull(result);
+        var displayed = result.Comments.ToDictionary(c => c.Id);
+        Assert.Equal(expectedName, displayed[developer.Id].AuthorDisplayName);
+        Assert.Equal("Producer's employee name", displayed[producer.Id].AuthorDisplayName);
+        Assert.Equal("Human author", displayed[human.Id].AuthorDisplayName);
+        Assert.Equal("Former agent", displayed[unlinked.Id].AuthorDisplayName);
+        Assert.Equal(installationId, displayed[developer.Id].AuthorSubjectId);
+        Assert.False(displayed[developer.Id].CanEdit);
+        Assert.False(displayed[developer.Id].CanDelete);
+        Assert.Equal("com.csweet.software-developer", (await db.WorkItemComments.FindAsync(developer.Id))!.AuthorDisplayName);
+    }
+
     [Fact]
     public async Task CommentIsIdempotentAndCreatesActivityAndRealtimeEvent()
     {

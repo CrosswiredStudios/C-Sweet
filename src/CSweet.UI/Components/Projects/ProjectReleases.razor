@@ -1,0 +1,257 @@
+@using System.Net.Http.Json
+@using CSweet.Contracts.Core
+@using CSweet.WorkManagement.Contracts
+@using CSweet.Contracts.WorkManagement
+@using CSweet.Contracts.Realtime
+@using CSweet.UI.Services
+@implements IDisposable
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+
+<section class="project-panel" aria-label="Project releases">
+    <div class="panel-heading"><h2>Releases</h2><button type="button" disabled="@_busy" @onclick="LoadAsync">Refresh releases</button></div>
+    @if (_error is not null) { <p role="alert" class="project-note">@_error</p> }
+    @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+    <button type="button" disabled="@_busy" @onclick="@(() => OpenConfigurationAsync(null))">Define release scope</button>
+    @if (!_loading && _plans.Count == 0) { <p>No delivery plan has been recorded. The project manager must define release scope, independent reviewers and repository branches before starting delivery.</p> }
+    @foreach (var plan in _plans)
+    {
+        <article class="mt-4" @key="plan.Id">
+            <h3>@plan.Name <span class="project-status">@plan.Status</span></h3>
+            <p>Responsible manager: @PersonName(plan.ManagerOrganizationUserId) · scope revision @plan.ScopeRevision</p>
+            <p>@plan.Scopes.Count(x => x.Scope == "Story") stories · @plan.EpicItemIds.Count epics · @plan.Branches.Select(x => x.RepositoryId).Distinct().Count() repositories</p>
+            @if (_currentUser == plan.ManagerOrganizationUserId)
+            {
+                <div class="delivery-toolbar">
+                    @if (plan.Status is "Draft" or "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => OpenConfigurationAsync(plan))">Amend scope and topology</button> }
+                    @if (plan.Status == "Draft" && _people.SingleOrDefault(x => x.Id == _currentUser)?.EmployeeType == "Human") { <button type="button" disabled="@_busy" @onclick="@(() => OpenTaskAssignmentsAsync(plan))">Staff and bind tasks</button> }
+                    @if (plan.Status == "Draft") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "activate"))">Activate approved scope</button> }
+                    @if (plan.Status == "Active") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "pause"))">Pause delivery</button> }
+                    @if (plan.Status == "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "resume"))">Resume delivery</button> }
+                    @if (plan.Status is not ("Completed" or "Cancelled"))
+                    {
+                        <details><summary>Cancel plan</summary><p>Existing Git history and evidence will be preserved.</p><button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "cancel"))">Cancel remaining delivery</button></details>
+                    }
+                </div>
+            }
+            <details><summary>Scope and branch topology</summary>
+                @foreach (var scope in plan.Scopes.Where(x => x.ItemId.HasValue))
+                {
+                    <p><a href="@ItemLink(scope.BoardId, scope.ItemId!.Value)">@scope.Scope @scope.ItemId</a> · @scope.ChildIds.Count required children · planning revision @scope.PlanningRevision</p>
+                }
+                <table><thead><tr><th>Repository</th><th>Scope</th><th>Source</th><th>Integration target</th></tr></thead><tbody>
+                @foreach (var branch in plan.Branches) { <tr><td>@branch.RepositoryId</td><td>@branch.Scope</td><td><code>@branch.SourceBranch</code></td><td><code>@branch.TargetBranch</code></td></tr> }
+                </tbody></table>
+            </details>
+            @foreach (var finding in plan.Findings)
+            {
+                <p>Remediation · @finding.Status · @finding.Summary · finding <code>@finding.Id</code></p>
+                @foreach (var task in finding.RemediationTaskIds) { <span>QA-verified task @task </span> }
+            }
+            @foreach (var execution in plan.Executions.Where(x => x.Status != "Superseded"))
+            {
+                <details class="mt-3" open="@(execution.Status is "Blocked" or "PartiallyPromoted" or "WaitingForApproval" or "WaitingForHuman")">
+                    <summary>@execution.Scope · @(execution.ItemId?.ToString() ?? plan.Name) · @execution.Status · @execution.CurrentStageKey</summary>
+                    @if (execution.ItemId is { } itemId) { <a href="@ItemLink(execution.BoardId, itemId)">Open work item</a> }
+                    @if (execution.BlockedReason is not null) { <p role="alert">@execution.BlockedReason</p> }
+                    @if (execution.Candidate is { } candidate)
+                    {
+                        <p>Reviewed/tested candidate: <code>@candidate.Digest</code> · scope revision @candidate.ScopeRevision</p>
+                        <table><thead><tr><th>Repository</th><th>Candidate commit</th><th>Promotion</th><th>Recovery state</th></tr></thead><tbody>
+                        @foreach (var repository in candidate.Repositories)
+                        {
+                            var receipt = execution.Promotions.SingleOrDefault(x => x.RepositoryId == repository.RepositoryId);
+                            <tr><td>@repository.RepositoryId</td><td><code>@repository.CandidateCommitSha</code>@if(repository.BuildId is { } buildId){<span> · build @buildId</span>}</td><td>@(receipt?.Status ?? "Awaiting validation")</td><td>@receipt?.Error</td></tr>
+                        }
+                        </tbody></table>
+                        @foreach (var document in candidate.Documents) { <p>Document @document.ArtifactId · revision <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }
+                    }
+                    @foreach (var stage in execution.Stages)
+                    {
+                        <p>@stage.StageKey · @stage.Status · @PersonName(stage.OrganizationUserId) · @stage.LastOutcomeCode</p>
+                        @if (stage.LatestOutcome is { } outcome) { <p>@outcome.Summary</p> }
+                    }
+                    @if (execution.Status is "WaitingForHuman" or "WaitingForApproval" && execution.Stages.LastOrDefault()?.OrganizationUserId == _currentUser)
+                    { <button type="button" disabled="@_busy" @onclick="@(() => OpenDecision(plan, execution))">Review exact candidate</button> }
+                    @if (execution.Status is "Blocked" or "PartiallyPromoted" && _currentUser == plan.ManagerOrganizationUserId)
+                    {
+                        <label>Recovery reason <input @bind="_recoveryReason" /></label>
+                        @foreach (var finding in plan.Findings.Where(x => x.Status == "Open"))
+                        {
+                            var resolution = Resolution(finding.Id);
+                            <label>QA-verified remediation task IDs for @finding.Summary <input @bind="resolution.Tasks" /></label>
+                            <label>Resolution evidence <textarea @bind="resolution.Evidence"></textarea></label>
+                        }
+                        <button type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_recoveryReason))" @onclick="@(() => RecoverAsync(plan, execution))">Recover unfinished operations</button>
+                    }
+                </details>
+            }
+        </article>
+    }
+    @if (_editing)
+    {
+        <fieldset class="mt-4"><legend>Approved release scope</legend>
+            <label class="d-block">Release name <input @bind="_releaseName" /></label>
+            <label class="d-block">Responsible manager <select @bind="_managerId"><option value="">Select manager</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
+            <label class="d-block">Independent QA <select @bind="_qaId"><option value="">Select reviewer</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
+            <label class="d-block">Technical reviewer <select @bind="_technicalId"><option value="">Select reviewer</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
+            @foreach (var epic in _epicInputs)
+            {
+                <label class="d-block"><input type="checkbox" @bind="epic.Selected" /> @epic.Title · @epic.BoardName</label>
+                <label class="d-block"><input type="checkbox" @bind="epic.Isolated" /> Use a separate epic integration branch</label>
+            }
+            @foreach(var branch in _branchInputs)
+            {
+                <p>@branch.Scope · @branch.RepositoryId</p>
+                <label>Source branch <input @bind="branch.Source" /></label><label>Integration target <input @bind="branch.Target" /></label>
+            }
+            <label>Story <select @bind="_bindingStory"><option value="">Select story</option>@foreach(var story in _boards.SelectMany(x => x.Items).Where(x => x.Kind == "Story")){<option value="@story.Id">@story.Title</option>}</select></label>
+            <label>Repository <select @bind="_bindingRepository"><option value="">Select repository</option>@foreach(var repo in _repositories){<option value="@repo.Id">@repo.Name</option>}</select></label>
+            <button type="button" disabled="@(!_bindingStory.HasValue || !_bindingRepository.HasValue)" @onclick="AddBinding">Add story repository</button>
+            <p>Each task keeps its assigned author and independent QA. Activation checks their finalized story or artifact bindings and blocks incomplete staffing.</p>
+            <button type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_releaseName) || !_managerId.HasValue || !_qaId.HasValue || !_technicalId.HasValue || !_epicInputs.Any(x => x.Selected))" @onclick="SaveConfigurationAsync">Save approved scope</button>
+            <button type="button" @onclick="@(() => _editing = false)">Close scope editor</button>
+        </fieldset>
+    }
+    @if(_taskPlan is { } taskPlan)
+    {
+        <fieldset><legend>Task assignments for @taskPlan.Name</legend>
+            <label>Independent QA <select @bind="_qaId"><option value="">Select QA</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
+            <label>Technical reviewer <select @bind="_technicalId"><option value="">Select reviewer</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
+            @foreach(var input in _taskInputs)
+            {
+                <h4>@input.Item.Title</h4>
+                <label>Author <select @bind="input.AuthorId"><option value="">Select author</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
+                <label>Deliverable <select @bind="input.Kind"><option value="Code">Code</option><option value="Artifact">Document or artifact</option></select></label>
+                @if(input.Kind == "Code") { <label>Story repository <select @bind="input.RepositoryId"><option value="">Select repository</option>@foreach(var branch in taskPlan.Branches.Where(x => x.Scope == "Story" && x.ItemId == input.Item.ParentItemId)){<option value="@branch.RepositoryId">@branch.RepositoryId · @branch.SourceBranch</option>}</select></label> }
+                <button type="button" disabled="@(_busy || !input.AuthorId.HasValue || !_qaId.HasValue || input.Kind == "Code" && (!input.RepositoryId.HasValue || !_technicalId.HasValue))" @onclick="@(() => FinalizeTaskAsync(input))">Finalize accepted task planning</button>
+            }
+            <button type="button" @onclick="@(() => _taskPlan = null)">Close assignments</button>
+        </fieldset>
+    }
+    @if (_decisionPlan is { } decisionPlan && _decisionExecution is { Candidate: { } decisionCandidate } decisionExecution)
+    {
+        <fieldset class="mt-4"><legend>@decisionExecution.Scope @decisionExecution.CurrentStageKey</legend>
+            <p>Decision binds candidate <code>@decisionCandidate.Digest</code>. Changed content requires another review.</p>
+            @foreach (var repository in decisionCandidate.Repositories)
+            { <p><a href="@($"{Api}/plans/{decisionPlan.Id:D}/executions/{decisionExecution.Id:D}/repositories/{repository.RepositoryId:D}/archive")" download>Download exact repository candidate @repository.RepositoryId</a> · <code>@repository.CandidateCommitSha</code></p> }
+            @foreach (var document in _decisionEvidence?.Documents ?? [])
+            { <details><summary>Document @document.ArtifactId · revision @document.RevisionId · @document.Sha256</summary><pre>@document.Content</pre></details> }
+            @foreach (var child in _decisionEvidence?.Children ?? [])
+            { <p>Task @child.ItemId · planning revision @child.PlanningRevision · QA: @child.Quality?.Summary · Technical Review: @child.TechnicalReview?.Summary · integrated commit <code>@child.IntegratedCommitSha</code></p> }
+            @foreach (var criterion in _criteria)
+            {
+                <label class="d-block"><input type="checkbox" @bind="criterion.Satisfied" /> @criterion.Criterion</label>
+                <label class="d-block">Evidence <textarea @bind="criterion.Evidence"></textarea></label>
+            }
+            @if (decisionExecution.CurrentStageKey == "quality")
+            {
+                @foreach (var validation in _validations)
+                {
+                    <p>Repository @validation.RepositoryId · tested commit <code>@validation.CommitSha</code></p>
+                    <label class="d-block">Executed command <input @bind="validation.Command" /></label>
+                    <label class="d-block">Exit code <input type="number" @bind="validation.ExitCode" /></label>
+                    <label class="d-block">Observed output <textarea @bind="validation.Output"></textarea></label>
+                }
+            }
+            <label class="d-block">Decision summary <textarea @bind="_summary"></textarea></label>
+            @if(decisionExecution.CurrentStageKey == "build-readiness") { <label class="d-block">Successful candidate build IDs (one per repository) <input @bind="_buildIds" /></label> }
+            <label class="d-block">Unresolved findings (one per line) <textarea @bind="_findings"></textarea></label>
+            <button type="button" disabled="@(_busy || !CanApprove)" @onclick="@(() => DecideAsync(true))">Accept exact candidate</button>
+            <button type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_findings) || string.IsNullOrWhiteSpace(_summary))" @onclick="@(() => DecideAsync(false))">Request remediation</button>
+            <button type="button" @onclick="CloseDecision">Close review</button>
+        </fieldset>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public Guid ProjectId { get; set; }
+    private IReadOnlyList<WorkDeliveryPlanResponse> _plans = [];
+    private IReadOnlyList<ProjectSetupPerson> _people = [];
+    private Guid? _currentUser;
+    private (Guid, Guid)? _loadedScope;
+    private bool _loading, _busy;
+    private string? _error;
+    private string _recoveryReason = "", _summary = "", _findings = "";
+    private WorkDeliveryPlanResponse? _decisionPlan;
+    private WorkDeliveryExecutionResponse? _decisionExecution;
+    private WorkDeliveryEvidenceResponse? _decisionEvidence;
+    private List<CriterionInput> _criteria = [];
+    private List<ValidationInput> _validations = [];
+    private string _buildIds = "";
+    private string Api => $"api/organizations/{OrganizationId:D}/work/delivery";
+    private string ItemLink(Guid board, Guid item) => $"/organizations/{OrganizationId:D}/work/boards/{board:D}?item={item:D}";
+    private string PersonName(Guid? id) => _people.FirstOrDefault(x => x.Id == id)?.Name ?? id?.ToString() ?? "Unassigned";
+    protected override void OnInitialized() { Realtime.EventReceived += OnRealtime; Realtime.Reconnected += OnReconnect; }
+    private void OnRealtime(AppRealtimeEventEnvelope e) { if(e.OrganizationId == OrganizationId && e.EventType == AppRealtimeEvents.WorkDeliveryChanged) _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
+    private void OnReconnect() => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    public void Dispose() { Realtime.EventReceived -= OnRealtime; Realtime.Reconnected -= OnReconnect; }
+    protected override async Task OnParametersSetAsync() { if (_loadedScope != (OrganizationId, ProjectId)) { _loadedScope = (OrganizationId, ProjectId); await LoadAsync(); } }
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"{Api}/read", new ReadWorkDeliveryPlansRequest(ProjectId));
+            await RequireSuccess(response);
+            _plans = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkDeliveryPlanResponse>>() ?? [];
+            var options = await Http.GetFromJsonAsync<ProjectSetupOptions>($"api/core/organizations/{OrganizationId:D}/project-setup/options");
+            _people = options?.People ?? []; _currentUser = options?.CurrentUserId;
+        }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { _error = error.Message; }
+        finally { _loading = false; }
+    }
+    private async Task MutateAsync<T>(string action, T request)
+    {
+        _busy = true; _error = null;
+        try { using var response = await Http.PostAsJsonAsync($"{Api}/{action}", request); await RequireSuccess(response); CloseDecision(); await LoadAsync(); }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+    private static async Task RequireSuccess(HttpResponseMessage response)
+    {
+        if (!response.IsSuccessStatusCode) throw new InvalidOperationException(response.StatusCode == System.Net.HttpStatusCode.Forbidden
+            ? "Your current assignment or scoped access does not authorize this action."
+            : "Delivery could not advance: " + await response.Content.ReadAsStringAsync());
+    }
+    private Task ControlAsync(WorkDeliveryPlanResponse plan, string action) => MutateAsync("control",
+        new ControlWorkDeliveryPlanRequest(plan.Id, plan.Revision, action, OperationKey(action, plan.Id, plan.Revision)));
+    private Task RecoverAsync(WorkDeliveryPlanResponse plan, WorkDeliveryExecutionResponse execution) => MutateAsync("recover",
+        new RecoverWorkDeliveryRequest(plan.Id, execution.Id, execution.Revision, OperationKey("recover", execution.Id, execution.Revision), _recoveryReason)
+        { Resolutions = plan.Findings.Where(x => x.Status == "Open").Select(x => new WorkDeliveryFindingResolution(x.Id, ParseIds(Resolution(x.Id).Tasks), Resolution(x.Id).Evidence)).ToArray() });
+    private async Task OpenDecision(WorkDeliveryPlanResponse plan, WorkDeliveryExecutionResponse execution)
+    {
+        _decisionPlan = plan; _decisionExecution = execution; _decisionEvidence = null; _summary = _findings = _buildIds = "";
+        _criteria = plan.Scopes.Single(x => x.Scope == execution.Scope && x.ItemId == execution.ItemId).Planning.AcceptanceCriteria
+            .Select(x => new CriterionInput { Criterion = x }).ToList();
+        _validations = execution.Candidate!.Repositories.Select(x => new ValidationInput { RepositoryId = x.RepositoryId, CommitSha = x.CandidateCommitSha }).ToList();
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"{Api}/evidence", new ReadWorkDeliveryEvidenceRequest(plan.Id, execution.Id));
+            await RequireSuccess(response);
+            _decisionEvidence = await response.Content.ReadFromJsonAsync<WorkDeliveryEvidenceResponse>();
+        }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { _error = error.Message; }
+    }
+    private bool CanApprove => !string.IsNullOrWhiteSpace(_summary) && string.IsNullOrWhiteSpace(_findings) &&
+        _criteria.All(x => x.Satisfied && !string.IsNullOrWhiteSpace(x.Evidence)) &&
+        (_decisionExecution?.CurrentStageKey != "quality" || _validations.All(x => x.ExitCode == 0 && !string.IsNullOrWhiteSpace(x.Command) && !string.IsNullOrWhiteSpace(x.Output)));
+    private Task DecideAsync(bool approved)
+    {
+        var plan = _decisionPlan!; var execution = _decisionExecution!;
+        var criteria = _criteria.Select(x => new WorkDeliveryCriterionResult(x.Criterion, x.Satisfied, x.Evidence)).ToArray();
+        var findings = _findings.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var key = OperationKey("decision:" + approved, execution.Id, execution.Revision);
+        return execution.CurrentStageKey == "manager-review"
+            ? MutateAsync("accept", new DecideWorkDeliveryAcceptanceRequest(plan.Id, execution.Id, execution.Revision,
+                execution.Candidate!.Digest, approved, _summary, criteria, findings, key))
+            : MutateAsync("review", new CompleteWorkDeliveryReviewRequest(plan.Id, execution.Id, execution.Stages.Last().Id,
+                execution.Revision, new(execution.Candidate!.Digest, approved, _summary, criteria, findings)
+                { BuildIds = ParseIds(_buildIds), Validations = _validations.Where(x => !string.IsNullOrWhiteSpace(x.Command)).Select(x => new WorkDeliveryValidationEvidence(x.RepositoryId,
+                    x.CommitSha, x.Command, x.ExitCode, x.ExitCode == 0, x.Output)).ToArray() }, key));
+    }
+    private void CloseDecision() { _decisionPlan = null; _decisionExecution = null; _decisionEvidence = null; }
+    private sealed class CriterionInput { public string Criterion { get; init; } = ""; public bool Satisfied { get; set; } public string Evidence { get; set; } = ""; }
+    private sealed class ValidationInput { public Guid RepositoryId { get; init; } public string CommitSha { get; init; } = ""; public string Command { get; set; } = ""; public int ExitCode { get; set; } public string Output { get; set; } = ""; }
+}

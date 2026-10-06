@@ -27,7 +27,7 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
         var result = new List<ProjectSetupPerson>();
         foreach (var person in people)
             result.Add(new(person.Id, person.DisplayName, person.EmployeeType.ToString(), members.FirstOrDefault(x => x.OrganizationUserId == person.Id)?.TeamId,
-                person.EmployeeType == EmployeeType.Human || await HasRoleAsync(person, "software-product-manager", ct)));
+                person.EmployeeType == EmployeeType.Human || await HasRoleAsync(person, "software-product-manager", ct)) { AgentInstallationId = person.AgentInstallationId });
         return new(actor.Id, actor.PermissionLevel >= OrganizationPermissionLevel.Manager, result,
             await db.OrganizationTeams.Where(x => x.OrganizationId == actor.OrganizationId && x.ArchivedAt == null).Select(x => new ProjectSetupTeam(x.Id, x.Name)).ToListAsync(ct),
             await db.SourceControlRepositories.Where(x => x.OrganizationId == actor.OrganizationId && x.ArchivedAt == null && x.Status == SourceControlRepositoryStatus.Ready).Select(x => new ProjectSetupRepository(x.Id, x.Name)).ToListAsync(ct));
@@ -172,7 +172,8 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
             ? WorkItemActions.All
             : new[] { WorkItemActions.Read, WorkItemActions.ReadTypes, WorkItemActions.ReadComments, WorkItemActions.Comment,
                 WorkItemActions.Create, WorkItemActions.RevisePlanning, WorkItemActions.Estimate };
-        return itemActions.Concat(PersonalTodoActions.All.Where(x => x != PersonalTodoActions.Add)).Append(WorkBoardActions.Read).Distinct().ToArray();
+        return itemActions.Concat(PersonalTodoActions.All.Where(x => x != PersonalTodoActions.Add)).Append(WorkBoardActions.Read)
+            .Concat(manager ? new[] { WorkBoardActions.Configure } : Array.Empty<string>()).Distinct().ToArray();
     }
 
     private async Task<List<OrganizationUser>> ApplyParticipantsAsync(Workstream project, WorkBoard board, List<OrganizationUser> people, OrganizationUser actor, CancellationToken ct)
@@ -199,6 +200,23 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
                 var grant = await db.ScopedActionGrants.SingleOrDefaultAsync(x => x.OrganizationId == project.OrganizationId && x.SubjectId == subject && x.SubjectKind == kind && x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id && x.Action == action, ct);
                 if (grant is null) db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = project.OrganizationId, SubjectKind = kind, SubjectId = subject, Action = action,
                     ScopeKind = GrantScopeKind.Board, ScopeId = board.Id, GrantedBySubjectKind = GrantSubjectKind.OrganizationUser, GrantedBySubjectId = actor.Id, GrantedAt = now });
+                else { grant.RevokedAt = null; grant.ExpiresAt = null; grant.Revision++; }
+            }
+            // Project setup records explicit authority independently of release membership.
+            var architect = await HasRoleAsync(person, "software-architect", ct) || await HasRoleAsync(person, "game-technical-director", ct);
+            var deliveryActions = person.Id == project.AccountableManagerOrganizationUserId
+                ? CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.All
+                : new[] { CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Read,
+                    CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Evidence,
+                    CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Review }.Concat(architect
+                        ? new[] { CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Configure } : Array.Empty<string>()).ToArray();
+            foreach (var action in deliveryActions)
+            {
+                var grant = await db.ScopedActionGrants.SingleOrDefaultAsync(x => x.OrganizationId == project.OrganizationId &&
+                    x.SubjectId == subject && x.SubjectKind == kind && x.ScopeKind == GrantScopeKind.Workstream && x.ScopeId == project.Id && x.Action == action, ct);
+                if (grant is null) db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = project.OrganizationId,
+                    SubjectKind = kind, SubjectId = subject, Action = action, ScopeKind = GrantScopeKind.Workstream, ScopeId = project.Id,
+                    GrantedBySubjectKind = GrantSubjectKind.OrganizationUser, GrantedBySubjectId = actor.Id, GrantedAt = now });
                 else { grant.RevokedAt = null; grant.ExpiresAt = null; grant.Revision++; }
             }
         }

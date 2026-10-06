@@ -18,7 +18,7 @@ public static class WorkBoardWorkspacePresentation
         IEnumerable<WorkBoardItemResponse> items, WorkBoardView view, Guid? sprintId) =>
         items.Where(item => view switch
         {
-            WorkBoardView.Sprint => sprintId.HasValue && item.SprintId == sprintId,
+            WorkBoardView.Sprint => sprintId.HasValue && item.SprintId == sprintId && item.ExecutionMode == Wire.WorkItemExecutionModes.Executable,
             WorkBoardView.Backlog => item.SprintId is null && item.Status is not ("Completed" or "Cancelled"),
             _ => true
         }).OrderBy(x => x.Rank).ToList();

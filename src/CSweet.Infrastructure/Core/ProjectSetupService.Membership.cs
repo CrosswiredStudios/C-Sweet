@@ -78,7 +78,8 @@ public sealed partial class ProjectSetupService
             var user = await db.CoreOrganizationUsers.SingleAsync(x => x.Id == removed.OrganizationUserId, ct);
             removedUsers.Add(user);
             var subject = user.AgentInstallationId ?? user.Id;
-            foreach (var grant in await db.ScopedActionGrants.Where(x => x.OrganizationId == actor.OrganizationId && x.SubjectId == subject && x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id && x.RevokedAt == null).ToListAsync(ct))
+            foreach (var grant in await db.ScopedActionGrants.Where(x => x.OrganizationId == actor.OrganizationId && x.SubjectId == subject &&
+                (x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id || x.ScopeKind == GrantScopeKind.Workstream && x.ScopeId == project.Id) && x.RevokedAt == null).ToListAsync(ct))
             { grant.RevokedAt = clock.GetUtcNow(); grant.Revision++; }
         }
         project.AccountableManagerOrganizationUserId = request.ManagerId;

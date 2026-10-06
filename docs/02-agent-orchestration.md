@@ -2,6 +2,8 @@
 
 ## Objective
 
+New project delivery follows the normative [hierarchical delivery specification](implementation/features/work-management/hierarchical-delivery.md): sprint-authorized tasks, activated-plan aggregate reviews, exact QA evidence and durable promotion recovery. Merging does not grant deployment approval.
+
 CSweet should use Microsoft Agent Framework as the initial execution runtime while keeping company state, policies, and contracts owned by the application.
 
 The runtime reasons and executes. The application authorizes, persists, budgets, audits, and presents the work.

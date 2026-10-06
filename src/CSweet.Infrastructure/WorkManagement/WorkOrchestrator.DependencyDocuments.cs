@@ -33,21 +33,25 @@ public sealed partial class WorkOrchestrator
             if (completed is null) continue; // Legacy/manual work has no orchestration document output.
             if (completed.Status != WorkItemExecutionStatus.Completed)
                 throw new InvalidOperationException("The dependency's current execution is not complete.");
-            var worker = completed.Stages.SingleOrDefault(x => x.StageKey == "specialist-execution" &&
+            var worker = completed.Stages.SingleOrDefault(x => (x.StageKey == "specialist-execution" || x.StageKey == "development") &&
                 x.Traversal == completed.Traversal && x.Status == WorkStageExecutionStatus.Completed);
             var attempt = worker?.Attempts.OrderByDescending(x => x.Attempt).FirstOrDefault();
             if (worker is null) continue;
             if (attempt?.Status != WorkExecutionAttemptStatus.Completed || string.IsNullOrWhiteSpace(attempt.ResultJson))
                 throw new InvalidOperationException("The dependency producing stage has no current completed attempt.");
             var outcome = JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions);
-            if (outcome?.Output.ValueKind != JsonValueKind.Object || !outcome.Output.TryGetProperty("artifactId", out _)) continue;
+            if (outcome is null || !WorkDeliveryService.TryDocument(outcome.Output, out _, out _, out _)) continue;
             if (outcome.StageExecutionId != worker!.Id || outcome.AttemptId != attempt.Id ||
-                outcome.Disposition != Shared.WorkExecutionDispositions.Completed || outcome.OutcomeCode != "completed" || worker.LastOutcomeCode != "completed")
+                outcome.Disposition != Shared.WorkExecutionDispositions.Completed || outcome.OutcomeCode is not ("completed" or "artifact-delivered") || worker.LastOutcomeCode != outcome.OutcomeCode)
                 throw new InvalidOperationException("The dependency document does not match its completed producing attempt.");
-            if (!completed.Stages.Any(x => x.Traversal == completed.Traversal && x.StageKey == "producer-review" &&
+            var hierarchical = dependency.DeliverySpecificationJson is { } deliveryJson &&
+                JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(deliveryJson, JsonOptions)?.DeliveryPlanId.HasValue == true;
+            if (hierarchical ? !completed.Stages.Any(x => x.Traversal == completed.Traversal && x.StageKey == "quality" &&
+                    x.Status == WorkStageExecutionStatus.Completed && x.LastOutcomeCode == "passed" && x.OrganizationUserId != worker.OrganizationUserId) :
+                !completed.Stages.Any(x => x.Traversal == completed.Traversal && x.StageKey == "producer-review" &&
                 x.Status == WorkStageExecutionStatus.Completed && x.LastOutcomeCode == "approved" &&
                 x.OrganizationUserId == board.ManagerOrganizationUserId && x.OrganizationUserId.HasValue))
-                throw new InvalidOperationException("The dependency document has not passed the assigned board manager's acceptance.");
+                throw new InvalidOperationException("The dependency document has not passed its required independent acceptance gate.");
             var reference = outcome.Output.Deserialize<DependencyDocumentReference>(JsonOptions)
                 ?? throw new InvalidOperationException("The dependency document reference is missing.");
             var revision = await db.ArtifactRevisions.AsNoTracking().Include(x => x.Artifact).SingleOrDefaultAsync(x =>
@@ -56,7 +60,9 @@ public sealed partial class WorkOrchestrator
             if (revision is null || document is null || document.OrganizationId != organizationId || document.ArchivedAt.HasValue ||
                 document.OriginWorkItemId != dependencyId || document.WorkstreamId != board.WorkstreamId || document.TeamId != board.TeamId ||
                 document.CreatedByOrganizationUserId != worker.OrganizationUserId || !worker.OrganizationUserId.HasValue ||
-                revision.CreatedByAgentInstallationId != worker.AgentInstallationId || !worker.AgentInstallationId.HasValue ||
+                hierarchical && (revision.CreatedByOrganizationUserId != worker.OrganizationUserId ||
+                    worker.PrincipalKind is not (WorkOrchestrationPrincipalKind.AgentInstallation or WorkOrchestrationPrincipalKind.Human)) ||
+                revision.CreatedByAgentInstallationId != worker.AgentInstallationId ||
                 !string.Equals(revision.ContentSha256, reference.Sha256, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(revision.Content))), reference.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The dependency document does not match its scoped author, origin, revision and content hash.");

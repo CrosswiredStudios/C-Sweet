@@ -81,6 +81,7 @@
                 case "communications": <ProjectResourceSection Title="Communications" Resources="_project.Communications" EmptyText="Conversations linked to this project will appear with their latest activity and participants." Icon="@Icons.Material.Outlined.Forum" /> break;
                 case "decisions": <ProjectResourceSection Title="Decisions & governance" Resources="_project.Governance" Groups='@(new[] { "All", "Decisions", "Milestones", "Gates", "Authority" })' EmptyText="Linked decisions, milestones, gates, and authority records will appear here. Missing records do not grant authority." Icon="@Icons.Material.Outlined.Flag" /> break;
                 case "delivery":
+                    <ProjectReleases OrganizationId="OrganizationId" ProjectId="WorkstreamId!.Value" />
                     <div class="delivery-toolbar"><MudButton OnClick="RefreshAsync" Disabled="_loading" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh">Refresh delivery status</MudButton></div>
                     <ProjectResourceSection Title="Delivery" Resources="_project.Evidence" Groups='@(new[] { "All", "Builds", "Previews", "Media", "Evaluations", "Release" })' ShowPreviews="true" EmptyText="Builds, previews, media, evaluations, and release evidence linked to this project will appear here." Icon="@Icons.Material.Outlined.Inventory2" />
                     break;

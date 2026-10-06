@@ -35,6 +35,11 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<SourceControlBusinessSettings> SourceControlBusinessSettings => Set<SourceControlBusinessSettings>();
 
     public DbSet<TaskDeliveryReview> TaskDeliveryReviews => Set<TaskDeliveryReview>();
+    public DbSet<WorkDeliveryPlan> WorkDeliveryPlans => Set<WorkDeliveryPlan>();
+    public DbSet<WorkTaskIntegrationReceipt> WorkTaskIntegrationReceipts => Set<WorkTaskIntegrationReceipt>();
+    public DbSet<WorkDeliveryExecution> WorkDeliveryExecutions => Set<WorkDeliveryExecution>();
+    public DbSet<WorkDeliveryPromotion> WorkDeliveryPromotions => Set<WorkDeliveryPromotion>();
+    public DbSet<WorkDeliveryMutationReceipt> WorkDeliveryMutationReceipts => Set<WorkDeliveryMutationReceipt>();
     public DbSet<TaskMergePreference> TaskMergePreferences => Set<TaskMergePreference>();
 
     public DbSet<ProjectIntake> ProjectIntakes => Set<ProjectIntake>();

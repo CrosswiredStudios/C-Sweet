@@ -33,6 +33,9 @@ public sealed class GovernedMergeWorkActionExecutor(
             .Include(x => x.WorkItem)
             .SingleAsync(x => x.Id == context.ItemExecutionId, cancellationToken);
         var item = itemExecution.WorkItem!;
+        if (item.DeliverySpecificationJson is { } deliveryJson &&
+            JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(deliveryJson, JsonOptions)?.DeliveryPlanId.HasValue == true)
+            return Blocked("Hierarchical code tasks require Technical Review and the trusted task integration action; aggregate promotion is authorized by the delivery plan.");
         var publication = await (
             from candidate in db.SourceControlPublications
             join workspace in db.SourceControlWorkspaces.AsNoTracking()

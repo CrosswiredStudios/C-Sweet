@@ -6,7 +6,7 @@ namespace CSweet.Infrastructure.WorkManagement;
 public static class PlatformWorkTypeCatalog
 {
     public const string ProviderKey = WorkItemTypeProviderKeys.Platform;
-    public const long Revision = 1;
+    public const long Revision = 2;
 
     private static readonly IReadOnlyList<WorkItemApprovalPolicyDefinition> Policies =
     [
@@ -16,6 +16,20 @@ public static class PlatformWorkTypeCatalog
 
     private static readonly IReadOnlyList<WorkItemTypeDefinition> Types =
     [
+        new(WorkItemTypeKeys.SoftwareEpicV2, "Software epic", WorkItemKinds.Epic,
+            [WorkBoardProfileKeys.SoftwareDeliveryV2], [], ProviderKey, []),
+        new(WorkItemTypeKeys.SoftwareStoryV2, "Software story", WorkItemKinds.Story,
+            [WorkBoardProfileKeys.SoftwareDeliveryV2], [WorkItemTypeKeys.SoftwareEpicV2], ProviderKey,
+            [WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1]) { ExecutionMode = WorkItemExecutionModes.Container },
+        new(WorkItemTypeKeys.SoftwareTaskV2, "Software task", WorkItemKinds.Task,
+            [WorkBoardProfileKeys.SoftwareDeliveryV2], [WorkItemTypeKeys.SoftwareStoryV2], ProviderKey,
+            [WorkItemApprovalPolicyKeys.SoftwareArchitectureReviewV1]),
+        new(WorkItemTypeKeys.ProjectEpicV2, "Project epic", WorkItemKinds.Epic,
+            [WorkBoardProfileKeys.ProjectDeliveryV2], [], ProviderKey, []),
+        new(WorkItemTypeKeys.ProjectStoryV2, "Project story", WorkItemKinds.Story,
+            [WorkBoardProfileKeys.ProjectDeliveryV2], [WorkItemTypeKeys.ProjectEpicV2], ProviderKey, []) { ExecutionMode = WorkItemExecutionModes.Container },
+        new(WorkItemTypeKeys.ProjectTaskV2, "Project task", WorkItemKinds.Task,
+            [WorkBoardProfileKeys.ProjectDeliveryV2], [WorkItemTypeKeys.ProjectStoryV2], ProviderKey, []),
         new(WorkItemTypeKeys.GeneralInitiativeV1, "General initiative", WorkItemKinds.Initiative,
             [WorkBoardProfileKeys.GeneralWorkV1], [], ProviderKey, []),
         new(WorkItemTypeKeys.GeneralEpicV1, "General epic", WorkItemKinds.Epic,
@@ -36,6 +50,10 @@ public static class PlatformWorkTypeCatalog
 
     private static readonly IReadOnlyList<WorkBoardProfileDefinition> Profiles =
     [
+        new(WorkBoardProfileKeys.SoftwareDeliveryV2, "Hierarchical software delivery",
+            [WorkItemTypeKeys.SoftwareEpicV2, WorkItemTypeKeys.SoftwareStoryV2, WorkItemTypeKeys.SoftwareTaskV2], "software-delivery.v4"),
+        new(WorkBoardProfileKeys.ProjectDeliveryV2, "Hierarchical project delivery",
+            [WorkItemTypeKeys.ProjectEpicV2, WorkItemTypeKeys.ProjectStoryV2, WorkItemTypeKeys.ProjectTaskV2], null),
         new(WorkBoardProfileKeys.GeneralWorkV1, "General work",
             [WorkItemTypeKeys.GeneralInitiativeV1, WorkItemTypeKeys.GeneralEpicV1,
              WorkItemTypeKeys.GeneralStoryV1, WorkItemTypeKeys.GeneralTaskV1], null),

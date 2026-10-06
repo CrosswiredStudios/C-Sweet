@@ -23,6 +23,8 @@ public sealed partial class InternalGitRepositoryStore
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        if (request.Operation == "publish" && (await ManagedBranchesAsync(repository, ct)).Contains(request.Branch, StringComparer.Ordinal))
+            throw new UnauthorizedAccessException("Managed integration branches accept only trusted delivery promotion; publish a task branch instead.");
         var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{request.WorkspaceId:N}:{request.IdempotencyKey}"))).ToLowerInvariant();
         var receiptRef = "refs/csweet/publications/" + identity;
         var refs = await RefsAsync(repository, ct);

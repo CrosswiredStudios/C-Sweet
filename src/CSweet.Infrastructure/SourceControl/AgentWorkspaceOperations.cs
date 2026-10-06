@@ -52,7 +52,7 @@ public sealed partial class AgentWorkspaceBroker
         async Task<InternalGitSnapshotResult> ApplyAsync(string verb, string baseSha)
         {
             var snapshot = new InternalGitSnapshotOperation(workspace.OrganizationId, workspace.RepositoryId, workspace.Id, verb, baseSha,
-                workspace.BranchName, repository.DefaultBranch, request.IdempotencyKey, export.Archive, export.Manifest.Sha256,
+                workspace.BranchName, (string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch), request.IdempotencyKey, export.Archive, export.Manifest.Sha256,
                 export.Manifest.FileCount, export.Manifest.TotalBytes, request.CommitMessage, LockOwnerId: lockOwner);
             if (repository.Connection!.Provider == SourceControlProvider.InternalGit) return await gitHost.ApplyInternalSnapshotAsync(snapshot, cancellationToken);
             if (repository.Connection.SourceAccessInstallationId is not > 0 || !long.TryParse(repository.ExternalRepositoryId, out var externalId) || externalId <= 0)
@@ -83,9 +83,9 @@ public sealed partial class AgentWorkspaceBroker
             }
             var snapshot = repository.Connection!.Provider == SourceControlProvider.InternalGit
                 ? await gitHost.PrepareInternalWorkspaceAsync(new(workspace.OrganizationId, repository.Id, workspace.Id,
-                    repository.DefaultBranch, workspace.BranchName, latest, request.IdempotencyKey), cancellationToken)
+                    (string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch), workspace.BranchName, latest, request.IdempotencyKey), cancellationToken)
                 : await gitHost.PrepareWorkspaceAsync(new(repository.Connection.SourceAccessInstallationId!.Value, long.Parse(repository.ExternalRepositoryId!), repository.Owner, repository.Name,
-                    repository.DefaultBranch, workspace.Id, workspace.BranchName, latest, request.IdempotencyKey), cancellationToken);
+                    (string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch), workspace.Id, workspace.BranchName, latest, request.IdempotencyKey), cancellationToken);
             await using var archive = new MemoryStream(snapshot.Archive, writable: false);
             await volumes.ImportAsync(lease, archive, new(snapshot.ArtifactSha256, snapshot.FileCount, snapshot.TotalBytes), cancellationToken);
             return new("Refreshed", latest, [], "");

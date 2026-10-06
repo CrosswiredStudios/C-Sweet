@@ -640,6 +640,8 @@ public sealed partial class WorkBoardService(
                 WorkItemActions.Reopen,
             _ => WorkItemActions.Move
         };
+        if (target.Category == WorkBoardColumnCategory.Done)
+            await WorkDeliveryTaskAuthorization.PreventManualCompletionAsync(db, item, cancellationToken);
         var decision = await RequireAsync(
             organizationId, member, action, boardId, cancellationToken);
         if (RequiresApprovedPlanning(target))
