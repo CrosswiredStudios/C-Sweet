@@ -9,6 +9,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Notifications;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
@@ -279,8 +280,88 @@ public sealed class ApplicationRealtimeEventTests
             Assert.DoesNotContain(outsider.Id, publication.RecipientOrganizationUserIds);
         }
     }
+    [Fact]
+    public async Task HiringBacklogChangesAreDurableAndScopedWithoutChatSuggestions()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var owner = User(organizationId, "Owner");
+        var outsider = User(Guid.NewGuid(), "Outsider");
+        db.AddRange(owner, outsider);
+        await db.SaveChangesAsync();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(new RecordingPublisher());
+        var plan = new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = organizationId, Title = "Developer", Headcount = 2 };
+        db.WorkforcePlans.Add(plan);
+        await CheckAsync();
+        plan.Priority = 1;
+        await CheckAsync();
+        plan.FulfilledHeadcount = 1;
+        await CheckAsync();
+        plan.Status = ProposalStatus.Cancelled;
+        await CheckAsync();
+        db.Remove(plan);
+        await CheckAsync();
+        var count = await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.HiringRecommendationsChanged);
+        await db.SaveChangesAsync();
+        Assert.Equal(count, await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.HiringRecommendationsChanged));
+
+        async Task CheckAsync()
+        {
+            await db.SaveChangesAsync();
+            var publisher = new RecordingPublisher();
+            await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+            var publication = Assert.Single(publisher.Publications, x => x.Envelope.EventType == AppRealtimeEvents.HiringRecommendationsChanged);
+            Assert.Equal(organizationId, publication.Envelope.OrganizationId);
+            Assert.Contains(owner.Id, publication.RecipientOrganizationUserIds);
+            Assert.DoesNotContain(outsider.Id, publication.RecipientOrganizationUserIds);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HiringStateAndRealtimeOutboxRollbackTogether(bool synchronous)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseSqlite("Data Source=:memory:").AddInterceptors(new SqliteRealtimeSequenceInterceptor()).Options);
+        await db.Database.OpenConnectionAsync();
+        await db.Database.EnsureCreatedAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        db.WorkforcePlans.Add(new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), Title = "Developer", IdempotencyKey = "atomic" });
+        if (synchronous) db.SaveChanges(); else await db.SaveChangesAsync();
+        Assert.Single(await db.WorkforcePlans.ToListAsync());
+        Assert.Single(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == AppRealtimeEvents.HiringRecommendationsChanged).ToListAsync());
+        await transaction.RollbackAsync();
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.WorkforcePlans.ToListAsync());
+        Assert.Empty(await db.ApplicationRealtimeOutbox.ToListAsync());
+    }
+
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    // SQLite needs an explicit sequence in place of PostgreSQL's identity column.
+    private sealed class SqliteRealtimeSequenceInterceptor : SaveChangesInterceptor
+    {
+        private long _sequence;
+        public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+        {
+            Assign(eventData.Context!);
+            return result;
+        }
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            Assign(eventData.Context!);
+            return ValueTask.FromResult(result);
+        }
+        private void Assign(DbContext context)
+        {
+            foreach (var entry in context.ChangeTracker.Entries<ApplicationRealtimeOutboxItem>()
+                .Where(x => x.State == EntityState.Added && x.Entity.Sequence == 0))
+                entry.Entity.Sequence = ++_sequence;
+        }
+    }
 
     private sealed class RecordingPublisher : IApplicationRealtimePublisher
     {

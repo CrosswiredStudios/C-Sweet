@@ -1,0 +1,5 @@
+.company-hiring-groups { display: grid; gap: 24px; }
+.hiring-group-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.hiring-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; border-bottom: 1px solid var(--mud-palette-divider); }
+.hiring-row > div { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .hiring-row { align-items: flex-start; flex-direction: column; gap: 8px; } }

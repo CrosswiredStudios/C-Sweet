@@ -1,7 +1,35 @@
 # Hiring suggestion (suggested action) lifecycle
 
 This is the authoritative reference for the "HIRING PLAN / Hiring suggestions" widget that appears in
-Communications when an agent attaches a Marketplace action to a message or chat turn.
+Communications when an agent attaches a Marketplace action to a message or chat turn, and for the
+company overview's hiring row.
+
+## Company overview hiring row
+
+`CommandCenter` renders the reorderable **Hiring** row through `CompanyHiringSummary`.
+Its **Approvals awaiting you** group contains pending, decidable `ResourceChange` and
+`HiringWorkflow` items from `ApprovalDashboardService`. Those items are excluded from
+the overview's **CEO approvals** preview and count, while the full inbox and sidebar
+retain their existing counts and authority rules. Review links supply `approvalId` to
+`Approvals`, which puts the actionable selected request first and highlights it. A
+completed, unavailable, or non-decidable request produces a notice without expanding access.
+
+The **Hiring suggestions** group reads the company's pending recommendation backlog,
+including recommendations never materialized as chat actions. `CompanyDashboardEndpoints`
+maps `GET /api/core/organizations/{organizationId}/dashboard/hiring` to
+`IHiringService.ListRecommendationsAsync` and returns `HiringBacklogResponse` only to
+active managers and owners in that organization. Suggestions with remaining headcount
+are ordered by priority, then creation date, and link to their existing `HiringUrl`.
+Both groups preview five items with independent expansion, loading, and error states.
+
+`DashboardWidgets` places Hiring after Pending Decisions for new/default layouts;
+existing four-, five-, and six-widget layouts retain their order and append Hiring.
+`CSweetDbContext.CaptureHiringRecommendationEvents` captures `WorkforcePlan` changes
+into the same save's application realtime outbox as
+`AppRealtimeEvents.HiringRecommendationsChanged`. `CommandCenter` re-reads current
+state on those events, approval changes, and connection/reconnection, and queues a
+follow-up when a relevant event arrives during loading. Approvals and recommendations
+remain independent lifecycles; dashboard navigation does not decide or complete either.
 
 ## What a suggestion is
 

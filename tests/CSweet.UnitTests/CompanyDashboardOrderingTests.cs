@@ -11,9 +11,11 @@ public sealed class CompanyDashboardOrderingTests
     public void OlderLayoutsPreserveTheirOrderAndGainDecisions()
     {
         var restored = DashboardWidgets.Restore(new[] { "legal", "projects", "finance", "approvals" });
-        Assert.Equal(new[] { "legal", "projects", "finance", "approvals", "decisions", "activity" }, restored);
-        Assert.Equal(new[] { "projects", "legal", "decisions", "finance", "approvals", "activity" },
+        Assert.Equal(new[] { "legal", "projects", "finance", "approvals", "decisions", "activity", "hiring" }, restored);
+        Assert.Equal(new[] { "projects", "legal", "decisions", "finance", "approvals", "activity", "hiring" },
             DashboardWidgets.Restore(["projects", "legal", "decisions", "finance", "approvals"]));
+        Assert.Equal(new[] { "projects", "activity", "legal", "decisions", "finance", "approvals", "hiring" },
+            DashboardWidgets.Restore(["projects", "activity", "legal", "decisions", "finance", "approvals"]));
         Assert.True(DashboardWidgets.IsValid(restored));
         Assert.Equal(DashboardWidgets.DefaultOrder, DashboardWidgets.Restore(new[] { "legal", "legal", "finance", "approvals" }));
     }
@@ -29,7 +31,7 @@ public sealed class CompanyDashboardOrderingTests
         typeof(CommandCenter).GetProperty("Http", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(component, http);
         Field("_layoutLoaded").SetValue(component, true);
         await (Task)typeof(CommandCenter).GetMethod("MoveAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, ["projects", 0])!;
-        Assert.Equal(new[] { "projects", "decisions", "approvals", "activity", "finance", "legal" }, handler.Saved!.Order);
+        Assert.Equal(new[] { "projects", "decisions", "hiring", "approvals", "activity", "finance", "legal" }, handler.Saved!.Order);
         var order = (List<string>)Field("_order").GetValue(component)!;
         Assert.Equal(succeeds ? handler.Saved.Order : DashboardWidgets.DefaultOrder, order);
         Assert.False((bool)Field("_saving").GetValue(component)!);

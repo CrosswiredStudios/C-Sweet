@@ -47,7 +47,14 @@
                 </div>
             </header>
             <div class="widget-content">
-                @if (ErrorFor(widget) is { } error)
+                @if (widget == "hiring")
+                {
+                    <CompanyHiringSummary @key="OrganizationId" OrganizationId="OrganizationId"
+                        Approvals="PendingHiringApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
+                        ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
+                        ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")" />
+                }
+                else if (ErrorFor(widget) is { } error)
                 {
                     <MudAlert Severity="Severity.Warning">@error Use Refresh to try again.</MudAlert>
                 }
@@ -151,26 +158,40 @@
     [Parameter] public Guid OrganizationId { get; set; }
     private OrganizationResponse? _organization;
     private ApprovalDashboardResponse? _approvals;
+    private HiringBacklogResponse? _hiring;
     private CompanyDashboardResponse? _dashboard;
     private ProjectPortfolioResponse? _portfolio;
     private List<string> _order = DashboardWidgets.DefaultOrder.ToList();
     private readonly Dictionary<string, string> _errors = [];
-    private bool _loading, _saving, _layoutLoaded, _disposed;
+    private bool _loading, _saving, _layoutLoaded, _disposed, _refreshQueued;
     private string? _dragging, _layoutMessage;
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
     private int _activityRefreshVersion;
     private string ApprovalsHref => $"/organizations/{OrganizationId}/approvals";
-    private IEnumerable<ApprovalDashboardItemResponse> PendingApprovals => (_approvals?.Items ?? [])
+    private IEnumerable<ApprovalDashboardItemResponse> ActionableApprovals => (_approvals?.Items ?? [])
         .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
         .OrderBy(x => x.CreatedAt);
+    private static bool IsHiringApproval(ApprovalDashboardItemResponse item) =>
+        item.Kind is ApprovalDashboardKinds.ResourceChange or ApprovalDashboardKinds.HiringWorkflow;
+    private IEnumerable<ApprovalDashboardItemResponse> PendingApprovals => ActionableApprovals.Where(x => !IsHiringApproval(x));
+    private IEnumerable<ApprovalDashboardItemResponse> PendingHiringApprovals => ActionableApprovals.Where(IsHiringApproval);
+    private IEnumerable<HiringRecommendationResponse> PendingRecommendations => (_hiring?.Recommendations ?? [])
+        .Where(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase) && x.RemainingHeadcount > 0)
+        .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt);
 
-    protected override void OnInitialized() => Realtime.EventReceived += OnRealtimeEvent;
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += OnRealtimeEvent;
+        Realtime.Connected += QueueRefresh;
+        Realtime.Reconnected += QueueRefresh;
+    }
     protected override async Task OnParametersSetAsync()
     {
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
-        _organization = null; _approvals = null; _dashboard = null; _portfolio = null;
+        _organization = null; _approvals = null; _hiring = null; _dashboard = null; _portfolio = null;
+        _refreshQueued = false;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
         await RefreshAsync();
     }
@@ -187,6 +208,7 @@
         await Task.WhenAll(
             LoadAsync<OrganizationResponse>($"api/organizations/{organizationId}", "organization", x => _organization = x, token),
             LoadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", "approvals", x => _approvals = x, token),
+            LoadAsync<HiringBacklogResponse>($"{prefix}/dashboard/hiring", "hiring", x => _hiring = x, token),
             LoadAsync<CompanyDashboardResponse>($"{prefix}/dashboard", "reports", x => _dashboard = x, token),
             LoadAsync<ProjectPortfolioResponse>($"{prefix}/workstreams/inspection", "projects", x => _portfolio = x, token),
             _layoutLoaded ? Task.CompletedTask : LoadAsync<DashboardLayoutRequest>($"{prefix}/dashboard/layout", "layout", x =>
@@ -197,6 +219,11 @@
         if (token.IsCancellationRequested) return;
         if (_errors.ContainsKey("layout")) _layoutMessage = "Could not load your saved layout. Refresh to enable reordering.";
         _loading = false;
+        if (_refreshQueued)
+        {
+            _refreshQueued = false;
+            await RefreshAsync();
+        }
     }
     private async Task LoadAsync<T>(string uri, string key, Action<T> apply, CancellationToken token)
     {
@@ -249,11 +276,18 @@
     }
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
-        if (_disposed || envelope.OrganizationId != OrganizationId || _loading) return;
-        if (envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
-            _ = InvokeAsync(async () => { if (!_disposed) { await RefreshAsync(); StateHasChanged(); } });
+        if (_disposed || envelope.OrganizationId != OrganizationId) return;
+        if (envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+            QueueRefresh();
     }
-    private static string Title(string key) => key switch { "decisions" => "Pending Decisions", "approvals" => "CEO approvals", "activity" => "Current Activity", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
+    private void QueueRefresh() => _ = InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        if (_loading) { _refreshQueued = true; return; }
+        await RefreshAsync();
+        if (!_disposed) StateHasChanged();
+    });
+    private static string Title(string key) => key switch { "decisions" => "Pending Decisions", "hiring" => "Hiring", "approvals" => "CEO approvals", "activity" => "Current Activity", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
     private static string Money(decimal? value) => value?.ToString("N2") ?? "Not reported";
     private static string DueLabel(DateOnly date)
     {
@@ -262,8 +296,11 @@
     }
     public void Dispose()
     {
+        if (_disposed) return;
         _disposed = true;
         Realtime.EventReceived -= OnRealtimeEvent;
+        Realtime.Connected -= QueueRefresh;
+        Realtime.Reconnected -= QueueRefresh;
         _loadCancellation?.Cancel(); _loadCancellation?.Dispose();
     }
 }

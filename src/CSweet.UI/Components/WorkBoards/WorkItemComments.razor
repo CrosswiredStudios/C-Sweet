@@ -127,6 +127,7 @@
             <label class="sr-only" for="@ComposerFieldId">Add a comment</label>
             <textarea id="@ComposerFieldId" class="comment-input" rows="@(Compact ? 3 : 4)" maxlength="8192"
                       placeholder="Add a comment…" @bind="_draft" @bind:event="oninput" disabled="@_busy"></textarea>
+            <div class="comment-hint">Mention a teammate with @@Full Name: followed by your question to request a response.</div>
             <div class="comment-actions">
                 <span class="comment-hint" aria-hidden="true">@(_draft.Length > 0 ? $"{_draft.Length}/8192" : "")</span>
                 <button type="button" class="submit-button"

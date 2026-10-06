@@ -1,0 +1,93 @@
+@using CSweet.Contracts.Core
+
+<div class="company-hiring-groups">
+    <section aria-label="Hiring approvals awaiting you">
+        <div class="hiring-group-heading">
+            <MudText Typo="Typo.subtitle1">Approvals awaiting you</MudText>
+            @if (ApprovalsLoaded && ApprovalError is null)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(Approvals.Count > 0 ? Color.Warning : Color.Default)">@Approvals.Count pending</MudChip>
+            }
+        </div>
+        @if (ApprovalError is not null)
+        {
+            <MudAlert Severity="Severity.Warning">@ApprovalError Use Refresh to try again.</MudAlert>
+        }
+        else if (!ApprovalsLoaded)
+        {
+            <MudText Color="Color.Secondary">Loading hiring approvals…</MudText>
+        }
+        else if (Approvals.Count == 0)
+        {
+            <MudText Color="Color.Secondary">No hiring approvals need your action.</MudText>
+        }
+        else
+        {
+            @foreach (var approval in Approvals.Take(_showAllApprovals ? Approvals.Count : 5))
+            {
+                <div @key="approval.Id" class="hiring-row">
+                    <div>
+                        <MudText Typo="Typo.subtitle2">@approval.Title</MudText>
+                        <MudText Color="Color.Secondary">@approval.Summary</MudText>
+                        <MudText Typo="Typo.caption">Requested by @approval.RequestedBy@if (!string.IsNullOrWhiteSpace(approval.RequestingTeam)) { <span> · @approval.RequestingTeam</span> } · @approval.CreatedAt.ToLocalTime().ToString("g")</MudText>
+                    </div>
+                    <MudButton Href="@($"/organizations/{OrganizationId:D}/approvals?approvalId={approval.Id:D}")" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
+                </div>
+            }
+            @if (Approvals.Count > 5)
+            {
+                <MudButton OnClick="() => _showAllApprovals = !_showAllApprovals" aria-expanded="@_showAllApprovals" Size="Size.Small">@(_showAllApprovals ? "Show fewer approvals" : $"Show all approvals ({Approvals.Count})")</MudButton>
+            }
+        }
+    </section>
+    <section aria-label="Hiring suggestions">
+        <div class="hiring-group-heading">
+            <MudText Typo="Typo.subtitle1">Hiring suggestions</MudText>
+            @if (RecommendationsLoaded && RecommendationError is null)
+            {
+                <MudChip T="string" Size="Size.Small">@Recommendations.Count suggestions</MudChip>
+            }
+        </div>
+        @if (RecommendationError is not null)
+        {
+            <MudAlert Severity="Severity.Warning">@RecommendationError Use Refresh to try again.</MudAlert>
+        }
+        else if (!RecommendationsLoaded)
+        {
+            <MudText Color="Color.Secondary">Loading hiring suggestions…</MudText>
+        }
+        else if (Recommendations.Count == 0)
+        {
+            <MudText Color="Color.Secondary">No pending hiring suggestions.</MudText>
+        }
+        else
+        {
+            @foreach (var recommendation in Recommendations.Take(_showAllRecommendations ? Recommendations.Count : 5))
+            {
+                <div @key="recommendation.Id" class="hiring-row">
+                    <div>
+                        <MudText Typo="Typo.subtitle2">@recommendation.Title</MudText>
+                        <MudText Color="Color.Secondary">@recommendation.Objective</MudText>
+                        <MudText Typo="Typo.caption">@recommendation.RemainingHeadcount of @recommendation.Headcount positions remaining@if (!string.IsNullOrWhiteSpace(recommendation.RequestingEmployee ?? recommendation.SuggestedBy)) { <span> · Suggested by @(recommendation.RequestingEmployee ?? recommendation.SuggestedBy)</span> }@if (!string.IsNullOrWhiteSpace(recommendation.RequestingTeam)) { <span> · @recommendation.RequestingTeam</span> }</MudText>
+                    </div>
+                    <MudButton Href="@recommendation.HiringUrl" Variant="Variant.Outlined" Color="Color.Primary">Browse candidates</MudButton>
+                </div>
+            }
+            @if (Recommendations.Count > 5)
+            {
+                <MudButton OnClick="() => _showAllRecommendations = !_showAllRecommendations" aria-expanded="@_showAllRecommendations" Size="Size.Small">@(_showAllRecommendations ? "Show fewer suggestions" : $"Show all suggestions ({Recommendations.Count})")</MudButton>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public IReadOnlyList<ApprovalDashboardItemResponse> Approvals { get; set; } = [];
+    [Parameter] public IReadOnlyList<HiringRecommendationResponse> Recommendations { get; set; } = [];
+    [Parameter] public bool ApprovalsLoaded { get; set; }
+    [Parameter] public bool RecommendationsLoaded { get; set; }
+    [Parameter] public string? ApprovalError { get; set; }
+    [Parameter] public string? RecommendationError { get; set; }
+    private bool _showAllApprovals, _showAllRecommendations;
+}

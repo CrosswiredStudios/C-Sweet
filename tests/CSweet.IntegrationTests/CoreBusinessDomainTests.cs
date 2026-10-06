@@ -258,6 +258,65 @@ public class CoreBusinessDomainTests
         Assert.Equal(2, approval.Status); // Approved
     }
 
+    [Theory]
+    [InlineData(OrganizationPermissionLevel.Owner, true, HttpStatusCode.OK)]
+    [InlineData(OrganizationPermissionLevel.Manager, true, HttpStatusCode.OK)]
+    [InlineData(OrganizationPermissionLevel.Owner, false, HttpStatusCode.Forbidden)]
+    [InlineData(OrganizationPermissionLevel.Contributor, true, HttpStatusCode.Forbidden)]
+    public async Task DashboardHiringRequiresAnActiveManagerOrOwner(
+        OrganizationPermissionLevel permission, bool active, HttpStatusCode expected)
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var org = await CreateOrganizationAsync(client);
+        var userId = Guid.NewGuid();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            db.Add(new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org.Id, ApplicationUserId = userId,
+                DisplayName = "Reviewer", PermissionLevel = permission, IsActive = active, EmployeeType = EmployeeType.Human });
+            await db.SaveChangesAsync();
+        }
+        client.DefaultRequestHeaders.Add("X-Core-Test-UserId", userId.ToString("D"));
+        Assert.Equal(expected, (await client.GetAsync($"/api/core/organizations/{org.Id}/dashboard/hiring")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/core/organizations/{Guid.NewGuid()}/dashboard/hiring")).StatusCode);
+        client.DefaultRequestHeaders.Remove("X-Core-Test-UserId");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"/api/core/organizations/{org.Id}/dashboard/hiring")).StatusCode);
+    }
+
+    [Fact]
+    public async Task DashboardHiringReturnsOnlyTheCompanysPendingBacklogWithPriorityAndProgress()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var org = await CreateOrganizationAsync(client);
+        await AuthorizeOwnerAsync(factory, client, org.Id);
+        var firstId = Guid.NewGuid();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            db.AddRange(
+                new WorkforcePlan { Id = firstId, OrganizationId = org.Id, Title = "Developer", Objective = "Build the product",
+                    Priority = 1, Headcount = 3, FulfilledHeadcount = 1, IdempotencyKey = "first" },
+                new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = org.Id, Title = "Designer", Priority = 50, IdempotencyKey = "second" },
+                new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = org.Id, Title = "Withdrawn", Status = ProposalStatus.Cancelled, IdempotencyKey = "withdrawn" },
+                new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = org.Id, Title = "Complete", Status = ProposalStatus.Approved, IdempotencyKey = "complete" },
+                new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), Title = "Other company", IdempotencyKey = "other" });
+            await db.SaveChangesAsync();
+        }
+        var response = await client.GetAsync($"/api/core/organizations/{org.Id}/dashboard/hiring");
+        response.EnsureSuccessStatusCode();
+        var backlog = await response.Content.ReadFromJsonAsync<HiringBacklogResponse>();
+        Assert.NotNull(backlog);
+        Assert.Equal(2, backlog.Recommendations.Count);
+        var first = backlog.Recommendations[0];
+        Assert.Equal(firstId, first.Id);
+        Assert.Equal(2, first.RemainingHeadcount);
+        Assert.Equal(1, first.Priority);
+        Assert.Contains($"recommendationId={firstId:D}", first.HiringUrl);
+        Assert.Contains($"/organizations/{org.Id:D}/marketplace", first.HiringUrl);
+    }
+
     private static async Task<OrganizationResponse> CreateOrganizationAsync(HttpClient client)
     {
         var request = new CreateOrganizationRequest(

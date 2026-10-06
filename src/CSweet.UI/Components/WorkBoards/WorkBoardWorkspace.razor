@@ -148,14 +148,14 @@
         else
         {
             <nav class="workflow-navigation" aria-label="Jump to workflow stage">
-                @foreach (var column in Detail.Columns)
+                @foreach (var column in VisibleColumns)
                 {
                     <button type="button" @onclick="@(() => JumpToColumnAsync(column.Id))">@column.Name <span>@VisibleItems.Count(x => x.ColumnId == column.Id)</span></button>
                 }
             </nav>
             @if (HasFilters && VisibleItems.Count == 0) { <p class="board-notice" role="status">No work matches these filters. <button type="button" @onclick="ClearFilters">Clear filters</button></p> }
             <div class="workflow-columns" @ref="_columns" aria-label="Work board columns">
-                @foreach (var column in Detail.Columns)
+                @foreach (var column in VisibleColumns)
                 {
                     var columnItems = VisibleItems.Where(x => x.ColumnId == column.Id).ToList();
                     var occupancy = Detail.Items.Count(x => x.ColumnId == column.Id);
@@ -233,6 +233,11 @@
     private WorkSprintResponse? SelectedSprint => Sprints.FirstOrDefault(x => x.Id == _sprintId);
     private IEnumerable<WorkSprintResponse> OrderedSprints => Sprints.OrderBy(x => x.Status switch { "Active" => 0, "Paused" => 1, "Planned" => 2, _ => 3 }).ThenByDescending(x => x.StartsAt ?? x.CreatedAt);
     private IReadOnlyList<WorkBoardItemResponse> ScopedItems => Present.ScopeItems(Detail.Items, _view, _sprintId);
+    // Use the full sprint scope so search and attention filters cannot hide an occupied backlog.
+    private IEnumerable<WorkBoardColumnResponse> VisibleColumns => Detail.Columns.Where(column =>
+        _view != WorkBoardView.Sprint || SelectedSprint?.Status is not ("Active" or "Paused") ||
+        column.Category != "ToDo" || !string.Equals(column.Name.Trim(), "Backlog", StringComparison.OrdinalIgnoreCase) ||
+        ScopedItems.Any(item => item.ColumnId == column.Id));
     private IReadOnlyList<WorkBoardItemResponse> VisibleItems => ScopedItems.Where(x => Present.Matches(x, _search) && (!_attentionOnly || Attention(x) is not null)).ToList();
     private int BacklogCount => Present.ScopeItems(Detail.Items, WorkBoardView.Backlog, null).Count;
     private int AttentionCount => ScopedItems.Count(x => Attention(x) is not null);

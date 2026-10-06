@@ -25,6 +25,11 @@ than carrying a resource ID into another organization.
 
 ## Sprint planning
 
+`WorkBoardWorkspace.VisibleColumns` omits an empty Backlog workflow column from
+active and paused sprint views, including the stage navigation. A Backlog column
+with sprint tickets remains visible; search and attention filters do not change
+this decision. Planned and historical sprints and All work retain every column.
+
 `WorkBoardWorkspace` exposes Add tickets for planned and active sprints.
 `SprintScopeEditor` lists current sprint tickets and unfinished backlog tickets.
 Users can add tickets or return them to the backlog; the ticket drawer also has

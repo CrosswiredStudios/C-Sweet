@@ -104,6 +104,7 @@ public sealed class WorkItemCollaborationService(
             CreatedAt = now
         };
         db.WorkItemComments.Add(comment);
+        await WorkItemDiscussion.QueueAsync(db, boardId, comment, "comment.created", cancellationToken);
         AddActivity(
             organizationId, boardId, itemId, member, WorkItemActions.Comment,
             "comment.created", decision, new { commentId = comment.Id }, now);
@@ -169,6 +170,7 @@ public sealed class WorkItemCollaborationService(
         await QueueRealtimeAsync(
             organizationId, boardId, itemId, "comment.updated", comment.Revision,
             cancellationToken);
+        await WorkItemDiscussion.QueueAsync(db, boardId, comment, "comment.updated", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await WriteAuditAsync(
             organizationId, boardId, itemId, member, WorkItemActions.UpdateComment,
@@ -224,6 +226,7 @@ public sealed class WorkItemCollaborationService(
         await QueueRealtimeAsync(
             organizationId, boardId, itemId, "comment.deleted", comment.Revision,
             cancellationToken);
+        await WorkItemDiscussion.QueueAsync(db, boardId, comment, "comment.deleted", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await WriteAuditAsync(
             organizationId, boardId, itemId, member, WorkItemActions.DeleteComment,

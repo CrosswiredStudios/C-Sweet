@@ -249,6 +249,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
         CaptureApprovalEvents();
+        CaptureHiringRecommendationEvents();
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
@@ -270,6 +271,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
         CaptureApprovalEvents();
+        CaptureHiringRecommendationEvents();
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
@@ -456,6 +458,21 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             QueueApplicationRealtimeEvent(item.OrganizationId, item.RecipientOrganizationUserId, null, eventType,
                 $"organizations/{item.OrganizationId:D}/notifications/{item.Id:D}",
                 JsonSerializer.Serialize(data, EventJsonOptions), DateTimeOffset.UtcNow);
+        }
+    }
+
+    private void CaptureHiringRecommendationEvents()
+    {
+        ChangeTracker.DetectChanges();
+        var organizations = ChangeTracker.Entries<WorkforcePlan>()
+            .Where(x => x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+            .Select(x => x.Entity.OrganizationId).Distinct().ToList();
+        foreach (var organizationId in organizations)
+        {
+            QueueApplicationRealtimeEvent(organizationId, null, null, AppRealtimeEvents.HiringRecommendationsChanged,
+                $"organizations/{organizationId:D}/dashboard/hiring",
+                JsonSerializer.Serialize(new { organizationId }, EventJsonOptions),
+                DateTimeOffset.UtcNow, ResolveActiveOrganizationRecipients(organizationId));
         }
     }
 

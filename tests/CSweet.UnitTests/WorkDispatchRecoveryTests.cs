@@ -175,11 +175,16 @@ public sealed partial class WorkDispatchRecoveryTests
         Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
             x.EventType == Shared.WorkstreamEventNames.WorkItemChangedV1).ToListAsync());
     }
-    [Fact]
-    public async Task Completed_worker_result_advances_once_and_survives_a_fresh_reconciliation()
+    [Theory]
+    [InlineData("specialist-execution")]
+    [InlineData("technical-review")]
+    public async Task Completed_worker_result_advances_once_and_survives_a_fresh_reconciliation(string stageKey)
     {
         await using var db = CreateDb();
         var state = await Seed(db, 1);
+        state.Stage.StageKey = stageKey;
+        state.Policy.Stages.Single().Key = stageKey;
+        state.Execution.AssignmentSnapshotJson = state.Execution.AssignmentSnapshotJson.Replace("specialist-execution", stageKey);
         state.Policy.Stages.Add(new WorkOrchestrationStage
         {
             Id = Guid.NewGuid(), PolicyRevisionId = state.Policy.Id,
@@ -203,7 +208,7 @@ public sealed partial class WorkDispatchRecoveryTests
         var work = Assert.Single(db.AgentWorkItems);
         var outcome = new Shared.WorkExecutionOutcomeV1(state.Stage.Id, attempt.Id,
             Shared.WorkExecutionDispositions.Completed, "completed", "Plan submitted.",
-            JsonSerializer.SerializeToElement(new { artifactId = Guid.NewGuid() }), [], []);
+            JsonSerializer.SerializeToElement(new { artifactId = Guid.NewGuid(), findings = new[] { "Review evidence is attached." } }), [], []);
         work.Status = AgentWorkStatus.Completed;
         work.ProtectedResult = protection.CreateProtector("CSweet.AgentWorkInbox.v1").Protect(
             JsonSerializer.SerializeToUtf8Bytes(new AgentWorkCompletion(true,
@@ -230,6 +235,16 @@ public sealed partial class WorkDispatchRecoveryTests
         Assert.Single(await db.WorkOrchestrationEvents.Where(x => x.EventType == "attempt.result.accepted").ToListAsync());
         Assert.Single(await db.AgentWorkItems.ToListAsync());
         Assert.Equal(1, runtime.Wakes);
+        if (stageKey == "technical-review")
+        {
+            var comment = Assert.Single(await db.WorkItemComments.ToListAsync());
+            Assert.Equal("review.result", comment.Kind);
+            Assert.Contains("Review evidence is attached.", comment.Body);
+            Assert.Equal(attempt.Id.ToString("D"), comment.CausationId);
+            Assert.Single(await db.WorkItemActivities.Where(x => x.EventType == "comment.created").ToListAsync());
+            Assert.Single((await db.ApplicationRealtimeOutbox.ToListAsync()).Where(e =>
+                JsonDocument.Parse(e.DataJson).RootElement.GetProperty("changeType").GetString() == "comment.created"));
+        }
     }
     [Fact]
     public async Task Terminal_completion_is_durable_even_when_a_dependent_dispatch_fails()

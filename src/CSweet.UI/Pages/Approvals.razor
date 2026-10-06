@@ -53,6 +53,11 @@
             </MudButton>
         </MudStack>
 
+        @if (SelectedApprovalId.HasValue && !HasActionableSelectedApproval)
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-3">This approval is no longer awaiting your action or is unavailable. Your current approvals are shown below.</MudAlert>
+        }
+
         @if (VisibleItems.Count == 0)
         {
             <MudPaper Elevation="0" Outlined="true" Class="approval-empty">
@@ -70,7 +75,7 @@
             <MudStack Spacing="3">
                 @foreach (var item in VisibleItems)
                 {
-                    <MudPaper Elevation="0" Outlined="true" Class="approval-card">
+                    <MudPaper @key="item.Id" Elevation="0" Outlined="true" Class="@($"approval-card {(item.Id == SelectedApprovalId && HasActionableSelectedApproval ? "selected-approval" : "")}")">
                         <div class="approval-card-heading">
                             <div>
                                 <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
@@ -318,8 +323,10 @@
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [SupplyParameterFromQuery(Name = "tab")] public string? SelectedTab { get; set; }
+    [SupplyParameterFromQuery(Name = "approvalId")] public Guid? SelectedApprovalId { get; set; }
     private int _activeTab;
     private string? _lastTab;
+    private Guid? _lastApprovalId;
     private void SelectTab(int index) => _activeTab = index;
 
     private ApprovalDashboardResponse? _dashboard;
@@ -333,7 +340,10 @@
     private IReadOnlyList<ApprovalDashboardItemResponse> VisibleItems =>
         (_dashboard?.Items ?? [])
         .Where(x => _showHistory || (x.Status == "Pending" && x.CanDecide))
+        .OrderByDescending(x => x.Id == SelectedApprovalId && x.Status == "Pending" && x.CanDecide)
         .ToList();
+    private bool HasActionableSelectedApproval => (_dashboard?.Items ?? [])
+        .Any(x => x.Id == SelectedApprovalId && x.Status == "Pending" && x.CanDecide);
 
     protected override void OnInitialized()
     {
@@ -353,6 +363,11 @@
     protected override Task OnParametersSetAsync()
     {
         if (_lastTab != SelectedTab) { _activeTab = SelectedTab == "decisions" ? 1 : 0; _lastTab = SelectedTab; }
+        if (_lastApprovalId != SelectedApprovalId)
+        {
+            _lastApprovalId = SelectedApprovalId;
+            if (SelectedApprovalId.HasValue) { _activeTab = 0; _showHistory = false; }
+        }
         return LoadAsync();
     }
 

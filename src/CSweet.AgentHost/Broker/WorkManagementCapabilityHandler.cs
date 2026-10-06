@@ -2321,6 +2321,10 @@ public sealed partial class WorkManagementCapabilityHandler(
             ArtifactDigest = comment.ArtifactDigest
         };
         db.WorkItemComments.Add(comment);
+        comment.AuthorDisplayName = await db.CoreOrganizationUsers.Where(u => u.OrganizationId == organizationId &&
+            u.AgentInstallationId == installation.Id && u.IsActive).Select(u => u.DisplayName).FirstOrDefaultAsync(cancellationToken) ?? comment.AuthorDisplayName;
+        result = result with { AuthorDisplayName = comment.AuthorDisplayName };
+        await WorkItemDiscussion.QueueAsync(db, input.BoardId, comment, "comment.created", cancellationToken);
         AddActivity(
             organizationId, input.BoardId, item.Id, installation.Id,
             comment.AuthorDisplayName, WorkItemActions.Comment, "comment.created",
@@ -2385,6 +2389,7 @@ public sealed partial class WorkManagementCapabilityHandler(
         await QueueRealtimeAsync(
             organizationId, input.BoardId, input.ItemId, "comment.updated",
             comment.Revision, cancellationToken);
+        await WorkItemDiscussion.QueueAsync(db, input.BoardId, comment, "comment.updated", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await WriteAuditAsync(
             organizationId, installation.Id, input.BoardId, WorkItemActions.UpdateComment,
@@ -2435,6 +2440,7 @@ public sealed partial class WorkManagementCapabilityHandler(
         await QueueRealtimeAsync(
             organizationId, input.BoardId, input.ItemId, "comment.deleted",
             comment.Revision, cancellationToken);
+        await WorkItemDiscussion.QueueAsync(db, input.BoardId, comment, "comment.deleted", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await WriteAuditAsync(
             organizationId, installation.Id, input.BoardId, WorkItemActions.DeleteComment,
@@ -2500,6 +2506,9 @@ public sealed partial class WorkManagementCapabilityHandler(
             input.BoardId, input.ItemId, cancellationToken);
         if (input.Page < 1 || input.PageSize is < 1 or > 200)
             throw new ArgumentException("Comment page and page size are out of range.");
+        if (!await db.CoreWorkTasks.AnyAsync(x => x.OrganizationId == organizationId &&
+            x.Id == input.ItemId && x.BoardId == input.BoardId, cancellationToken))
+            throw new KeyNotFoundException("The ticket is not on the requested board.");
         var query = db.WorkItemComments.AsNoTracking().Where(x =>
             x.OrganizationId == organizationId && x.WorkItemId == input.ItemId && x.DeletedAt == null);
         if (!string.IsNullOrWhiteSpace(input.Kind))

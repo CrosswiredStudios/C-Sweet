@@ -120,5 +120,51 @@ unwanted rather than because the action was overlooked.
 
 ## Deliberately excluded
 
-Comment reactions, attachments, mentions inside comments, threaded replies, paging beyond the existing
+Comment reactions, attachments, nested thread UI, paging beyond the existing
 bounded activity window, hard deletion, and any moderation or impersonation authority.
+
+## Directed agent discussion
+
+`WorkItemDiscussion.QueueAsync` writes `com.csweet.work.item.discussion.changed.v1` outbox rows in the
+same save as comment creation, editing, or deletion. Current stage assignees, accountable owner,
+board manager, prior commenters and explicitly mentioned teammates receive targeted wake hints if
+active and authorized to read both the item and its comments. Item, board, team and organization
+grants are supported; personal boards are excluded. The author does not notify itself.
+
+Write `@Full Name: your question` to request an agent response. Names must exactly match an active
+teammate and end with punctuation, a newline or the end of the comment; ambiguous names are rejected.
+The event contains identifiers, revision and response intent, never the comment body or execution
+authority. `AgentPlatformEventDispatcher` retains undelivered discussion hints while installations
+are offline or awaiting an approved subscription. Duplicate mutations do not create duplicate hints.
+
+`WorkOrchestrator.RecordReviewDiscussionAsync` copies completed technical, quality and merge review
+outcomes into `review.result` comments, preserving findings and the attempt reference. Runtime
+failures remain `agent.failure`; a completed rejection is a review decision, not a crashed reviewer.
+Existing historical review results remain available in execution history; they are not backfilled.
+
+The independently packaged Software Developer, Technical Director, QA and Producer contain the same
+small `TicketConversations.Discussion` protocol helper. They reread authorized current item, comments
+and relevant execution outcomes before answering. A reply has kind `discussion.reply`, a
+`CausationId` of `<question-guid>:<revision>` and a stable per-recipient idempotency key. Stale/deleted
+requests, self replies and already-answered revisions are ignored. Automatic replies never request
+another automatic reply. New questions require an explicit new request. This keeps informational
+notifications from causing agent chatter. The model decides the substance of the answer.
+
+Attention reconciliation provides bounded missed-event discovery on the current assigned project:
+five rotating nonterminal tickets and up to two unanswered requests per ticket, at most ten comment
+pages each. Revoked access does not block unrelated attention work. Event delivery is the normal
+path; discovery is a fallback, and both use the same deduplicating response path.
+
+`TicketDiscussionTools` gives the developer `read_ticket_discussion` and `request_ticket_response`
+inside its existing confined implementation harness. A request names a current ticket participant
+from the roster, is durable once per attempt, checkpoints work and returns a correlated
+`discussion.response-requested:v1` blocker. Replayed attempts recover their existing request.
+`SpecialistAgent.AnsweredDiscussionRetry` lets the board's Producer resume only that blocked stage
+when the exact question revision has a reply from the requested installation, within the existing
+attempt budget and assignment revision. A reply is input to the next work attempt: it never grants
+approval, waives evidence, transfers ownership or completes a ticket. Unanswered or exhausted waits
+remain visible to existing producer escalation. No domain-specific review finding is interpreted
+by this protocol.
+
+Deployment requires rebuilding C-Sweet and updating all four participating agent packages with their
+new approved event subscriptions/read grants. No SDK/contracts package or database migration changed.

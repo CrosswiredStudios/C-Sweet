@@ -4,6 +4,7 @@ using CSweet.Application.Setup;
 using CSweet.Application.WorkManagement;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Core;
+using CSweet.Domain.Notifications;
 using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
@@ -280,6 +281,9 @@ public sealed partial class WorkOrchestrator(
         }
         attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.CompletedAt = now;
         attempt.ResultJson = JsonSerializer.Serialize(outcome, JsonOptions);
+        if (stage.StageKey is "technical-review" or "quality" or "merge-decision" &&
+            outcome!.Disposition == Shared.WorkExecutionDispositions.Completed)
+            await RecordReviewDiscussionAsync(execution, stage, attempt, outcome, now, cancellationToken);
         await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
         stage.LastOutcomeCode = outcome!.OutcomeCode; stage.LastSummary = outcome.Summary; stage.UpdatedAt = now;
         stage.LastError = outcome.Disposition is Shared.WorkExecutionDispositions.Blocked or Shared.WorkExecutionDispositions.Failed
@@ -313,6 +317,50 @@ public sealed partial class WorkOrchestrator(
         }
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
+    }
+
+    private async Task RecordReviewDiscussionAsync(WorkSprintExecution execution, WorkStageExecution stage,
+        WorkExecutionAttempt attempt, Shared.WorkExecutionOutcomeV1 outcome, DateTimeOffset now, CancellationToken token)
+    {
+        if (stage.AgentInstallationId is not { } author) return;
+        var key = $"review-result:{attempt.Id:N}";
+        if (await db.WorkItemComments.AnyAsync(c => c.WorkItemId == stage.ItemExecution!.WorkItemId && c.IdempotencyKey == key, token)) return;
+        var body = $"{stage.StageKey}: {outcome.OutcomeCode}\n\n{outcome.Summary}";
+        var findings = outcome.Diagnostics ?? [];
+        if (outcome.Output.ValueKind == JsonValueKind.Object && outcome.Output.TryGetProperty("findings", out var entries) && entries.ValueKind == JsonValueKind.Array)
+            findings = entries.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToArray();
+        if (findings.Count > 0) body += "\n\n" + string.Join("\n\n", findings.Select((f, index) => $"{index + 1}. {f}"));
+        if (body.Length > 8100) body = body[..8000] + "\n\nFull findings are retained in this ticket's execution history.";
+        var comment = new WorkItemComment { Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
+            WorkItemId = stage.ItemExecution!.WorkItemId, AuthorKind = GrantSubjectKind.AgentInstallation,
+            AuthorSubjectId = author, AuthorDisplayName = await db.CoreOrganizationUsers.Where(u => u.AgentInstallationId == author &&
+                u.OrganizationId == execution.OrganizationId).Select(u => u.DisplayName).FirstOrDefaultAsync(token) ?? "Reviewer",
+            Body = body, Kind = "review.result", CausationId = attempt.Id.ToString("D"), IdempotencyKey = key, CreatedAt = now };
+        db.WorkItemComments.Add(comment);
+        db.WorkItemActivities.Add(new WorkItemActivity
+        {
+            Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId, BoardId = execution.BoardId,
+            WorkItemId = comment.WorkItemId, EventType = "comment.created", Action = WorkItemActions.Comment,
+            ActorKind = comment.AuthorKind, ActorSubjectId = author, ActorDisplayName = comment.AuthorDisplayName,
+            IdempotencyKey = key, DataJson = JsonSerializer.Serialize(new { commentId = comment.Id, attemptId = attempt.Id }, JsonOptions),
+            OccurredAt = now
+        });
+        var readers = await db.ScopedActionGrants.Where(g => g.OrganizationId == execution.OrganizationId &&
+            g.SubjectKind == GrantSubjectKind.OrganizationUser && g.RevokedAt == null &&
+            (g.ExpiresAt == null || g.ExpiresAt > now) &&
+            (g.ScopeKind == GrantScopeKind.Organization || g.ScopeKind == GrantScopeKind.Board && g.ScopeId == execution.BoardId) &&
+            g.Action == WorkItemActions.Read).Select(g => g.SubjectId).Distinct().ToListAsync(token);
+        db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
+            RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(readers),
+            EventType = CSweet.Contracts.Realtime.AppRealtimeEvents.WorkBoardChanged,
+            Subject = $"organizations/{execution.OrganizationId:D}/work/boards/{execution.BoardId:D}",
+            DataJson = JsonSerializer.Serialize(new { boardId = execution.BoardId, itemId = comment.WorkItemId,
+                changeType = "comment.created", revision = comment.Revision }, JsonOptions),
+            NextAttemptAt = now, OccurredAt = now
+        });
+        await WorkItemDiscussion.QueueAsync(db, execution.BoardId, comment, "comment.created", token);
     }
 
     /// <summary>
