@@ -1,0 +1,106 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudDivider Class="my-3" />
+<MudText Typo="Typo.subtitle2">Review this core memory</MudText>
+@if (_review is null)
+{
+    <MudButton OnClick="LoadAsync" Disabled="_busy">Check review access</MudButton>
+}
+else
+{
+    <MudText>@_review.Name · Version @_review.BlockRevision</MudText>
+    <MudText style="white-space:pre-wrap">@_review.Content</MudText>
+    <MudText Typo="Typo.caption">@_review.Confirmation · @_review.Sensitivity · @_review.SourceEpisodeIds.Count source records</MudText>
+    @foreach (var source in _review.SourceEpisodeIds.Take(20).Select((id, index) => (Id: id, Number: index + 1)))
+    {
+        <MudButton OnClick="@(() => InspectSource.InvokeAsync(source.Id))" Disabled="Locked">Inspect source @source.Number</MudButton>
+    }
+    @if (_review.SourceEpisodeIds.Count > 20)
+    { <MudText Typo="Typo.caption">Showing the first 20 source links. The review checks all @_review.SourceEpisodeIds.Count sources.</MudText> }
+    @if (!_review.CanConfirm)
+    { <MudAlert Severity="Severity.Warning">This core memory or its evidence is no longer current. Confirmation and correction are unavailable.</MudAlert> }
+    <MudStack Row="true" Class="my-2">
+        <MudButton OnClick='@(() => SubmitAsync("confirm"))' Disabled='@(Locked || !_review.CanConfirm || _review.Confirmation == "Confirmed")' Color="Color.Primary">Confirm core memory</MudButton>
+        <MudButton OnClick='@(() => SubmitAsync("reject"))' Disabled='@(Locked || !_review.CanReject || _review.Confirmation == "Rejected")' Color="Color.Error">Reject core memory</MudButton>
+        <MudButton OnClick="LoadAsync" Disabled="Locked">Refresh review</MudButton>
+    </MudStack>
+    @if (_review.CanCorrect)
+    {
+        <MudTextField T="string" Label="Corrected core content" @bind-Value="_content" MaxLength="16000" Lines="4" Disabled="Locked" />
+        <MudCheckBox T="bool" Label="Pin this core memory" @bind-Value="_pinned" Disabled="Locked" />
+        <MudButton OnClick='@(() => SubmitAsync("correct"))' Disabled="@(Locked || string.IsNullOrWhiteSpace(_content))">Save new version</MudButton>
+    }
+}
+@if (_pending is not null)
+{ <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same review</MudButton> }
+@if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public Guid BlockId { get; set; }
+    [Parameter] public EventCallback<Guid> Reviewed { get; set; }
+    [Parameter] public EventCallback<Guid> InspectSource { get; set; }
+    [Parameter] public EventCallback<bool> LockedChanged { get; set; }
+    private string Url => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/core/{BlockId}/review";
+    private MemoryCoreReviewResponse? _review;
+    private ReviewMemoryCoreRequest? _pending;
+    private bool _busy;
+    private bool Locked => _busy || _pending is not null;
+    private string _content = "";
+    private bool _pinned;
+    private string? _message;
+
+    private async Task LoadAsync()
+    {
+        if (Locked) return;
+        _busy = true; _review = null; _message = null; await LockedChanged.InvokeAsync(true);
+        try
+        {
+            using var response = await Http.GetAsync(Url);
+            if (!response.IsSuccessStatusCode) { _message = "This core memory is unavailable for review or your permission changed."; return; }
+            _review = await response.Content.ReadFromJsonAsync<MemoryCoreReviewResponse>();
+            if (_review is not null) { _content = _review.Content; _pinned = _review.IsPinned; }
+        }
+        catch (Exception error) when (NetworkError(error)) { _message = "Review details could not be loaded. Try again."; }
+        finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
+    }
+    private async Task SubmitAsync(string action)
+    {
+        if (Locked || _review is null) return;
+        _pending = new(Guid.NewGuid(), _review.Revision, _review.EvidenceToken, action,
+            action == "correct" ? new(_content, _pinned) : null);
+        await RetryAsync();
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || _pending is null) return;
+        _busy = true; _message = null; await LockedChanged.InvokeAsync(true);
+        Guid? updated = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Url, _pending);
+            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            {
+                _pending = null; _review = null;
+                _message = "The review was not accepted. Reload the current core memory and check your authority and source evidence before deciding again.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<ReviewMemoryCoreResponse>() ?? throw new System.Text.Json.JsonException();
+            _pending = null; _review = null; updated = result.BlockId;
+            _message = result.WasReplay ? "This review was already recorded." : "Your review was recorded.";
+        }
+        catch (Exception error) when (NetworkError(error))
+        { _message = "The result could not be confirmed. Retry the same review to check it without creating another version."; }
+        finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
+        if (updated.HasValue)
+        {
+            try { await Reviewed.InvokeAsync(updated.Value); }
+            catch (Exception error) when (NetworkError(error)) { _message = "The review was recorded. Reload the inspector to see its current state."; }
+        }
+    }
+    private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
+}

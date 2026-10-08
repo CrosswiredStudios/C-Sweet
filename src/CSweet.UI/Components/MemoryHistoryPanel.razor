@@ -1,0 +1,98 @@
+@using CSweet.Contracts.Memory
+@inject HttpClient Http
+@implements IDisposable
+
+<MudDivider Class="my-3" />
+<MudText Typo="Typo.subtitle2">Version history</MudText>
+<MudText Typo="Typo.caption">Historical snapshots may be rejected, expired or deleted. They do not indicate eligibility for current recall. Baseline entries record the migration snapshot; earlier changes are unknown.</MudText>
+<MudButton OnClick="LoadAsync" Disabled="@(_busy || Disabled)">@(_page is null ? "View history" : "Refresh history")</MudButton>
+@if (_back.Count > 0) { <MudButton OnClick="BackAsync" Disabled="@(_busy || Disabled)">Back to previous record</MudButton> }
+@if (_page is { } page)
+{
+    <MudText Typo="Typo.caption">@(page.Kind) · @(page.Scope) · Versions shown oldest first</MudText>
+    @foreach (var snapshot in page.Items)
+    {
+        <MudPaper Class="pa-3 my-2" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.subtitle2">@snapshot.Title</MudText>
+            <MudText Typo="Typo.caption">Revision @snapshot.Revision · @snapshot.Operation · Recorded @snapshot.RecordedAt.ToLocalTime().ToString("g")</MudText>
+            <MudText style="white-space:pre-wrap">@snapshot.Content</MudText>
+            @if (snapshot.Applicability is not null) { <MudText>Applies when: @snapshot.Applicability</MudText> }
+            <MudText Typo="Typo.caption">State: @(snapshot.State ?? "Not recorded") · Trust: @(snapshot.Trust ?? "Not recorded") · Recorded classification: @(snapshot.RecordedSensitivity ?? "See source evidence")</MudText>
+            @if (snapshot.ValidFrom.HasValue || snapshot.ValidTo.HasValue)
+            { <MudText Typo="Typo.caption">Valid from @(snapshot.ValidFrom?.ToLocalTime().ToString("g") ?? "Not recorded") to @(snapshot.ValidTo?.ToLocalTime().ToString("g") ?? "Open ended")</MudText> }
+            @foreach (var review in snapshot.Reviews)
+            {
+                <MudText Typo="Typo.caption">@review.Action by @review.ReviewerName at @review.ReviewedAt.ToLocalTime().ToString("g")</MudText>
+                @if (review.RelatedRecord is { } related)
+                { <MudButton OnClick="@(() => FollowAsync(related))" Disabled="@(_busy || Disabled)">@related.Label history</MudButton> }
+            }
+            @if (snapshot.Reviews.Count == 0) { <MudText Typo="Typo.caption">No recorded human review for this version.</MudText> }
+            @foreach (var link in snapshot.Sources.Take(20).Concat(snapshot.RelatedRecords))
+            { <MudButton OnClick="@(() => FollowAsync(link))" Disabled="@(_busy || Disabled)">@link.Label history</MudButton> }
+            @if (snapshot.Sources.Count > 20) { <MudText Typo="Typo.caption">Showing the first 20 of @snapshot.Sources.Count source links.</MudText> }
+        </MudPaper>
+    }
+    @if (page.Items.Count == 0) { <MudText>No further versions.</MudText> }
+    @if (_cursors.Count > 0) { <MudButton OnClick="PreviousAsync" Disabled="@(_busy || Disabled)">Previous versions</MudButton> }
+    @if (page.NextAfterRevision.HasValue) { <MudButton OnClick="NextAsync" Disabled="@(_busy || Disabled)">Next versions</MudButton> }
+}
+@if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public string Kind { get; set; } = "";
+    [Parameter] public Guid RecordId { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private MemoryHistoryPage? _page;
+    private MemoryHistoryLink? _active;
+    private readonly Stack<MemoryHistoryLink> _back = new();
+    private readonly Stack<long> _cursors = new();
+    private long _cursor, _generation;
+    private bool _busy, _disposed;
+    private string? _message;
+    private CancellationTokenSource? _cancellation;
+    private (Guid, Guid, string, Guid) _identity;
+    protected override void OnParametersSet()
+    {
+        var identity = (OrganizationId, EmployeeId, Kind, RecordId);
+        if (identity == _identity) return;
+        _identity = identity; _generation++; _cancellation?.Cancel(); _busy = false;
+        _page = null; _active = null; _back.Clear(); _cursors.Clear(); _cursor = 0; _message = null;
+    }
+    private Task LoadAsync() => ReadAsync(_active ?? new(Kind, RecordId, "Selected memory"), 0, clearCursors: true);
+    private Task FollowAsync(MemoryHistoryLink link)
+    {
+        if (_busy || Disabled) return Task.CompletedTask;
+        if (_active is { } active) _back.Push(active);
+        return ReadAsync(link, 0, clearCursors: true);
+    }
+    private Task BackAsync() => _busy || Disabled || !_back.TryPop(out var link) ? Task.CompletedTask : ReadAsync(link, 0, clearCursors: true);
+    private Task NextAsync()
+    {
+        if (_busy || Disabled || _active is null || _page?.NextAfterRevision is not { } next) return Task.CompletedTask;
+        _cursors.Push(_cursor); return ReadAsync(_active, next);
+    }
+    private Task PreviousAsync() => _busy || Disabled || _active is null || !_cursors.TryPop(out var cursor)
+        ? Task.CompletedTask : ReadAsync(_active, cursor);
+    private async Task ReadAsync(MemoryHistoryLink link, long cursor, bool clearCursors = false)
+    {
+        if (_busy || Disabled || _disposed) return;
+        if (clearCursors) _cursors.Clear();
+        _busy = true; _page = null; _message = null; _active = link; _cursor = cursor;
+        var generation = ++_generation;
+        _cancellation?.Dispose(); _cancellation = new();
+        try
+        {
+            using var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/history/{Uri.EscapeDataString(link.Kind)}/{link.Id}?afterRevision={cursor}&limit=20", _cancellation.Token);
+            if (generation != _generation || _disposed) return;
+            if (!response.IsSuccessStatusCode) { _message = "This history is unavailable or your review permission changed."; return; }
+            var page = await response.Content.ReadFromJsonAsync<MemoryHistoryPage>(_cancellation.Token);
+            if (generation == _generation && !_disposed) _page = page;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (generation == _generation && !_disposed) _message = "History could not be loaded. Try again."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+    public void Dispose() { _disposed = true; _generation++; _cancellation?.Cancel(); _cancellation?.Dispose(); }
+}

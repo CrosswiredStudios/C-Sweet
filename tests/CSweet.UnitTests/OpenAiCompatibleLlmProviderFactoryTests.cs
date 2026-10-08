@@ -9,6 +9,30 @@ namespace CSweet.UnitTests;
 
 public sealed class OpenAiCompatibleLlmProviderFactoryTests
 {
+    [Fact]
+    public async Task ClientConstructionUsesCurrentEndpointAndModelInsteadOfTrackedProfile()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new CSweetDbContext(options);
+        var profile = new LlmProviderProfile { Id = Guid.NewGuid(), Name = "Current profile", ProviderType = LlmProviderType.Custom,
+            BaseUrl = "https://old.invalid/v1/", DefaultChatModel = "old-model", IsEnabled = true };
+        db.Add(profile);
+        await db.SaveChangesAsync();
+        await using (var edited = new CSweetDbContext(options))
+        {
+            var current = await edited.LlmProviderProfiles.SingleAsync();
+            current.BaseUrl = "https://new.invalid/v1/";
+            current.DefaultChatModel = "new-model";
+            await edited.SaveChangesAsync();
+        }
+        var factory = new OpenAiCompatibleLlmProviderFactory(db, new InMemoryLlmProviderSecretStore(),
+            NullLogger<OpenAiCompatibleLlmProviderFactory>.Instance);
+        using var client = await factory.CreateChatClientAsync(profile.Id);
+        var metadata = client.GetService<ChatClientMetadata>();
+        Assert.Equal(new Uri("https://new.invalid/v1/"), metadata!.ProviderUri);
+        Assert.Equal("new-model", metadata.DefaultModelId);
+    }
+
     public static IEnumerable<object[]> SupportedProviders => Enum.GetValues<LlmProviderType>()
         .Where(x => x.UsesOpenAiCompatibleApi()).Select(x => new object[] { x });
 

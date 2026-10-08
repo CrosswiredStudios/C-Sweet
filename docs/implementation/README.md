@@ -38,6 +38,11 @@ Read these files in order:
 
 ## Feature plans
 
+- [Project approval review](features/project-approval-review.md) - human-readable project proposals, inline Communications approval tools, exact decision binding and history.
+
+- [Agent memory hardening](./features/agent-memory-hardening.md) - verified assessment, namespace
+  and recall safeguards, durable enrichment and extraction input receipts, source suppression and conversation lifecycle, historical source/read discovery and extraction/work/runtime impact preview, reviewed forgetting apply/replay/status and diagnostic cleanup, frozen chat prompt/auxiliary metadata, input retention checks and runtime reset, work audit minimization, operator recovery, migrations,
+  and staged acceptance gates. Start with its progress dashboard for the 32-milestone delivery register.
 - [Uniform provider responses](./features/provider-response-compatibility.md) - shared
   agent response contract, bounded formatting recovery, streaming fallback and diagnostics.
 - [Agent upgrades and configuration readiness](./features/agent-upgrade-configuration.md) -
@@ -117,6 +122,9 @@ Do not start by building the marketplace or a complex autonomous company brain. 
 - Normal deterministic code should still handle CRUD, validation, security, persistence, billing, and state transitions.
 
 ## Reference docs
+
+- [Windows local reset and disk reclamation](local-reset.md) — preview and reset default
+  local runtime services, Hyper-V storage, generated builds and optional user/database data.
 
 Use these official references when implementing:
 

@@ -6,6 +6,7 @@ using Microsoft.Extensions.AI;
 using OpenAI;
 using OpenAI.Chat;
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 
@@ -20,6 +21,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
     private readonly ILogger<OpenAiCompatibleLlmProviderFactory> _logger;
     private readonly TimeSpan _networkTimeout;
     private readonly IConfiguration? _configuration;
+    internal PipelineTransport? TransportOverride { get; init; }
 
     public OpenAiCompatibleLlmProviderFactory(
         CSweetDbContext dbContext,
@@ -49,7 +51,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
         string? model,
         CancellationToken cancellationToken = default)
     {
-        var profile = await _dbContext.LlmProviderProfiles
+        var profile = await _dbContext.LlmProviderProfiles.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == providerProfileId, cancellationToken);
 
         if (profile is null)
@@ -60,6 +62,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
 
             throw new InvalidOperationException("Provider profile was not found.");
         }
+        if (!profile.IsEnabled) throw new ProviderDispatchDeniedException();
 
         if (!profile.ProviderType.UsesOpenAiCompatibleApi())
         {
@@ -106,6 +109,15 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
 
         var apiKey = await ResolveApiKeyAsync(profile, cancellationToken);
         var options = new OpenAIClientOptions { Endpoint = endpoint, NetworkTimeout = _networkTimeout };
+        if (TransportOverride is not null) options.Transport = TransportOverride;
+        var expectedConfiguration = ProviderDispatchConfiguration.Fingerprint(profile);
+        options.AddPolicy(new ProviderDispatchPolicy(async token =>
+        {
+            var current = await _dbContext.LlmProviderProfiles.AsNoTracking().SingleOrDefaultAsync(x => x.Id == profile.Id, token);
+            if (current is null || !current.IsEnabled || ProviderDispatchConfiguration.Fingerprint(current) != expectedConfiguration ||
+                !string.Equals(await ResolveApiKeyAsync(current, token), apiKey, StringComparison.Ordinal))
+                throw new ProviderDispatchDeniedException();
+        }), PipelinePosition.BeforeTransport);
         var chatClient = new ChatClient(selectedModel, new ApiKeyCredential(apiKey), options);
 
         IChatClient adapted = AdaptChatClient(chatClient, profile.SupportsStreaming);
@@ -114,7 +126,7 @@ public sealed class OpenAiCompatibleLlmProviderFactory : ILlmProviderFactory
             _configuration?.GetValue<bool?>("CSweet:Llm:Compatibility:EnsureUserMessage") ??
             (profile.ProviderType.IsLocalRuntime() || profile.ProviderType is LlmProviderType.OpenAiCompatible or LlmProviderType.Custom);
         if (ensureUserQuery) adapted = new UserQueryChatClient(adapted);
-        return ApplyProviderDefaults(adapted, profile.MaxOutputTokens);
+        return new DispatchManagedChatClient(ApplyProviderDefaults(adapted, profile.MaxOutputTokens));
     }
 
     internal static IChatClient AdaptChatClient(ChatClient client, bool supportsStreaming = true) =>

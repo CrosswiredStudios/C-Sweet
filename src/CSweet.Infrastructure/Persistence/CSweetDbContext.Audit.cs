@@ -64,6 +64,7 @@ public sealed partial class CSweetDbContext
         var associations = new List<AuditEmployeeAssociation>();
         AuditActor? actor = null;
         object? extra = null;
+        var contentFreeWork = false;
         bool Changed(params string[] names) => entry.State == EntityState.Added || historical ||
             names.Any(name => entry.Property(name).IsModified && !Equals(entry.OriginalValues[name], entry.CurrentValues[name]));
         T? Find<T>(Guid key) where T : class => Set<T>().Find(key);
@@ -108,6 +109,7 @@ public sealed partial class CSweetDbContext
                 id = turn.Id; organization = turn.OrganizationId; employee = turn.TargetAgentOrganizationUserId;
                 category = "ChatTurn"; outcome = turn.Status.ToString(); eventType = "chat.turn." + outcome.ToLowerInvariant();
                 when = turn.UpdatedAt; correlation = turn.Id.ToString("D");
+                contentFreeWork = true;
                 break;
             case ChatTurnTraceEvent trace:
                 if (entry.State != EntityState.Added && !historical) return null;
@@ -116,18 +118,21 @@ public sealed partial class CSweetDbContext
                 id = trace.Id; organization = traceTurn.OrganizationId; employee = traceTurn.TargetAgentOrganizationUserId;
                 category = "ChatTrace"; eventType = trace.EventType; outcome = trace.Status;
                 when = trace.OccurredAt; correlation = trace.ChatTurnId.ToString("D");
+                contentFreeWork = true; eventType = "chat.trace.recorded"; outcome = "Recorded";
                 break;
             case AgentWorkItem work:
                 if (!Changed(nameof(work.Status), nameof(work.AttemptCount))) return null;
                 id = work.Id; ResolveWork(work); category = "AgentWork"; outcome = work.Status.ToString();
                 eventType = "agent.work." + outcome.ToLowerInvariant(); when = work.CompletedAt ?? (entry.State == EntityState.Added || historical ? work.CreatedAt : when);
-                extra = new { input = DecodeWork(work.ProtectedPayload), result = DecodeWork(work.ProtectedResult) };
+                contentFreeWork = historical || RequiresContentFreeWorkAudit(work);
+                if (!contentFreeWork) extra = new { input = DecodeWork(work.ProtectedPayload), result = DecodeWork(work.ProtectedResult) };
                 break;
             case AgentWorkAttempt attempt:
                 if (!Changed(nameof(attempt.FinishedAt))) return null;
                 id = attempt.Id; ResolveWork(Find<AgentWorkItem>(attempt.AgentWorkItemId)); category = "AgentWork";
                 eventType = attempt.FinishedAt.HasValue ? "agent.work.attempt.stopped" : "agent.work.attempt.started";
                 when = attempt.FinishedAt ?? attempt.ClaimedAt; outcome = attempt.Error is null ? (attempt.FinishedAt.HasValue ? "Completed" : "Running") : "Failed";
+                contentFreeWork = historical || RequiresContentFreeWorkAudit(Find<AgentWorkItem>(attempt.AgentWorkItemId));
                 break;
             case CSweet.Domain.Analytics.WorkLifecycleEvent lifecycle:
                 if (entry.State != EntityState.Added) return null;
@@ -144,7 +149,8 @@ public sealed partial class CSweetDbContext
                 if (entry.State != EntityState.Added && !historical) return null;
                 id = progress.Id; ResolveWork(Find<AgentWorkItem>(progress.AgentWorkItemId)); category = "AgentWork";
                 eventType = "agent.work.progress"; when = progress.OccurredAt; outcome = "Running";
-                extra = DecodeWork(progress.ProtectedValue);
+                contentFreeWork = historical || RequiresContentFreeWorkAudit(Find<AgentWorkItem>(progress.AgentWorkItemId));
+                if (!contentFreeWork) extra = DecodeWork(progress.ProtectedValue);
                 break;
             case WorkTask ticket:
                 if (!Changed(nameof(ticket.Status), nameof(ticket.AssignedEmployeeId), nameof(ticket.AssignedAgentInstallationId))) return null;
@@ -205,6 +211,16 @@ public sealed partial class CSweetDbContext
         var values = entry.Properties.Where(x => !x.Metadata.Name.StartsWith("Protected", StringComparison.Ordinal) &&
             !x.Metadata.Name.Contains("LeaseToken", StringComparison.Ordinal) && !x.Metadata.Name.Contains("BrokerToken", StringComparison.Ordinal))
             .ToDictionary(x => x.Metadata.Name, x => x.CurrentValue);
+        if (contentFreeWork)
+        {
+            // Names, errors, correlation strings and idempotency keys can echo recalled
+            // text too. A whitelist avoids copying them into an immutable second store.
+            values = values.Where(x => ContentFreeWorkAuditFields.Contains(x.Key) &&
+                (x.Value is not string text || IsAuditDigest(text) || Guid.TryParse(text, out _)))
+                .ToDictionary(x => x.Key, x => x.Value);
+            extra = new { contentPolicy = "memory-content-omitted-v1" };
+            correlation = Guid.TryParse(correlation, out var correlationId) ? correlationId.ToString("D") : null;
+        }
         var payload = JsonSerializer.SerializeToUtf8Bytes(new { source = values, evidence = extra, historical,
             historyNotice = historical ? "Imported source snapshot; missing transitions and original versions cannot be reconstructed." : null }, EventJsonOptions);
         // Sanitize before persisting even the pending outbox evidence.
@@ -214,7 +230,7 @@ public sealed partial class CSweetDbContext
         if (historical && entry.Entity is ConversationMessage or ChatTurn or AgentWorkItem or WorkTask)
             eventType = "audit.source.snapshot";
         return new(eventType, category, Outcome: outcome, OrganizationId: organization, EntityType: entry.Metadata.ClrType.Name,
-            EntityId: id, Summary: entry.Entity switch
+            EntityId: id, Summary: contentFreeWork ? eventType : entry.Entity switch
             {
                 WorkTask workTicket => workTicket.Title,
                 AgentWorkItem agentWork => agentWork.Name,

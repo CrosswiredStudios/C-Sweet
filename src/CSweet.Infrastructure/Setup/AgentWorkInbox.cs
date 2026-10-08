@@ -44,7 +44,7 @@ public sealed class AgentWorkReportedFailureException(
     public bool Retryable { get; } = retryable;
 }
 
-public sealed class AgentWorkInbox(
+public sealed partial class AgentWorkInbox(
     CSweetDbContext db,
     IDataProtectionProvider protectionProvider,
     TimeProvider timeProvider,
@@ -52,7 +52,7 @@ public sealed class AgentWorkInbox(
 {
     // The in-process gate protects concurrent request scopes; PostgreSQL's advisory lock below
     // provides the same per-installation guarantee across AgentHost replicas.
-    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ClaimLocks = new();
+    internal static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ClaimLocks = new();
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(3);
     private const int MaximumPayloadBytes = 256 * 1024;
@@ -76,10 +76,19 @@ public sealed class AgentWorkInbox(
         string? sourceType = null,
         string? sourceId = null,
         int maximumAttempts = 3,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? memoryRecallReceiptJson = null)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var payloadHash = Convert.ToHexString(SHA256.HashData(bytes));
+        if (memoryRecallReceiptJson?.Length > 131072)
+            throw new InvalidOperationException("Memory recall receipt is too large.");
+        if (memoryRecallReceiptJson is not null)
+        {
+            CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence.ValidatePromptPayload(memoryRecallReceiptJson, payload);
+            memoryRecallReceiptJson = CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence.BindPayload(
+                memoryRecallReceiptJson, payloadHash, organizationId, installationId, sourceType, sourceId);
+        }
         if (bytes.Length > MaximumPayloadBytes)
             throw new InvalidOperationException($"Agent work payloads may not exceed {MaximumPayloadBytes} bytes.");
         if (deadline <= timeProvider.GetUtcNow())
@@ -99,9 +108,13 @@ public sealed class AgentWorkInbox(
             x => x.AgentInstallationId == installationId &&
                  x.IdempotencyKey == idempotencyKey,
             cancellationToken);
+        var erasedKey = ErasedIdempotencyKey(idempotencyKey);
+        if (existing?.MemoryErasedAt is not null || await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
+            x.AgentInstallationId == installationId && x.MemoryErasedAt != null && x.IdempotencyKey == erasedKey, cancellationToken))
+            throw new InvalidOperationException("Erased work cannot be replayed. Create a new reviewed request.");
         if (existing is not null &&
             existing.OrganizationId == organizationId && existing.Kind == kind && existing.Name == name &&
-            existing.PayloadHash == payloadHash &&
+            existing.PayloadHash == payloadHash && existing.MemoryRecallReceiptJson == memoryRecallReceiptJson &&
             (kind != AgentWorkKind.Event ||
              string.Equals(existing.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)))
             return existing;
@@ -141,6 +154,7 @@ public sealed class AgentWorkInbox(
             Name = name,
             ProtectedPayload = _protector.Protect(bytes),
             PayloadHash = payloadHash,
+            MemoryRecallReceiptJson = memoryRecallReceiptJson,
             CorrelationId = correlationId ?? Guid.NewGuid().ToString("N"),
             CausationId = causationId,
             SourceType = sourceType,
@@ -207,6 +221,9 @@ public sealed class AgentWorkInbox(
                 $"SELECT pg_advisory_xact_lock(hashtextextended({lockKey}, 0))",
                 cancellationToken);
         }
+
+        if (await db.AgentRuntimeInstances.AsNoTracking().AnyAsync(x => x.Id == session.RuntimeInstanceId &&
+                x.MemoryResetRequestedAt != null, cancellationToken)) return null;
 
         var expiredPending = await db.AgentWorkItems
             .Where(x =>
@@ -303,6 +320,38 @@ public sealed class AgentWorkInbox(
             }
         }
 
+        try
+        {
+            await new CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence(db).RecordDeliveryAsync(item, session, cancellationToken);
+        }
+        catch (CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException reset)
+        {
+            await new AgentMemoryRuntimeReset(db).StageAsync(session.RuntimeInstanceId, session.TickId,
+                session.AgentInstallationId, session.OrganizationId, session.GrantRevision, reset.ReasonCode, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return null;
+        }
+        catch (CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException)
+        {
+            // A fresh runtime cannot repair the evidence bound to this immutable payload.
+            // Persist a content-free terminal result so it cannot starve subsequent work.
+            var completion = new AgentWorkCompletion(false, null,
+                CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.SafeMessage,
+                CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code, false);
+            var result = JsonSerializer.SerializeToUtf8Bytes(completion);
+            item.ProtectedResult = _protector.Protect(result);
+            item.ResultHash = Convert.ToHexString(SHA256.HashData(result));
+            item.Status = AgentWorkStatus.DeadLetter;
+            item.CompletedAt = now;
+            item.LastError = completion.Error;
+            await RecordTicketFailureAsync(item, item.AttemptCount, completion.Error!, now, cancellationToken);
+            await FailCoordinationForWorkAsync(item, completion.Error!, now, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            AgentRuntimeMetrics.Work("dead_lettered", item.Kind);
+            return null;
+        }
         var leaseToken = Base64Url(RandomNumberGenerator.GetBytes(32));
         item.Status = AgentWorkStatus.Leased;
         item.AttemptCount++;
@@ -622,7 +671,12 @@ public sealed class AgentWorkInbox(
                     : throw new InvalidOperationException("The agent work result was empty.");
             }
             if (item.Status is AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+            {
+                if (item.ProtectedResult is not null && JsonSerializer.Deserialize<AgentWorkCompletion>(
+                        _protector.Unprotect(item.ProtectedResult)) is { Succeeded: false } failure)
+                    throw new AgentWorkReportedFailureException(failure.Error ?? "Agent work failed.", failure.FailureCode, failure.Retryable == true);
                 throw new InvalidOperationException(item.LastError ?? $"Agent work ended as {item.Status}.");
+            }
             if (item.DeadlineAt <= timeProvider.GetUtcNow())
                 throw new TimeoutException("The agent work deadline elapsed.");
             await Task.Delay(pollInterval, cancellationToken);

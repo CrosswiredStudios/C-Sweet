@@ -15,6 +15,17 @@ public static class ApprovalEndpoints
 {
     public static IEndpointRouteBuilder MapApprovalEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet("/api/core/organizations/{organizationId:guid}/approvals/projects/{proposalId:guid}",
+            async (Guid organizationId, Guid proposalId, HttpContext http, CSweetDbContext db, CancellationToken ct) =>
+            {
+                var applicationUserId = http.User.GetApplicationUserId();
+                if (!applicationUserId.HasValue) return Results.Forbid();
+                var actorId = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                    x.ApplicationUserId == applicationUserId && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+                if (!actorId.HasValue) return Results.Forbid();
+                var item = await new ProjectApprovalReader(db).ReadAsync(organizationId, actorId.Value, proposalId, ct);
+                return item is null ? Results.NotFound() : Results.Ok(item);
+            });
         endpoints.MapGet(
             "/api/core/organizations/{organizationId:guid}/infrastructure/checkout-actions/{actionId:guid}",
             async (Guid organizationId, Guid actionId, HttpContext http, CSweetDbContext db,
@@ -76,6 +87,15 @@ public static class ApprovalEndpoints
             {
                 var applicationUserId = http.User.GetApplicationUserId();
                 if (!applicationUserId.HasValue || request.ProposalId != proposalId) return Results.Forbid();
+                // Serialize competing decisions before reading the pending status. Both UI surfaces
+                // use this endpoint; an old chat card must never execute the proposal twice.
+                var isProjectApproval = await db.ActionProposals.AsNoTracking().AnyAsync(x => x.Id == proposalId &&
+                    x.OrganizationId == organizationId && x.ActionType == ProjectApprovalReader.ActionType, cancellationToken);
+                await using var transaction = isProjectApproval && db.Database.IsRelational()
+                    ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+                if (isProjectApproval && db.Database.IsNpgsql())
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_xact_lock(hashtextextended({proposalId.ToString("D")}, 0))", cancellationToken);
                 var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
                     x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId.Value && x.IsActive,
                     cancellationToken);
@@ -87,6 +107,7 @@ public static class ApprovalEndpoints
                     try
                     {
                         var status = await connectorApprovals.DecideAsync(organizationId, actor.Id, request, cancellationToken);
+                        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
                         return Results.Ok(new { proposal.Id, status, proposal.DecidedAt, executionPending = status == "Approved" });
                     }
                     catch (UnauthorizedAccessException)
@@ -113,6 +134,7 @@ public static class ApprovalEndpoints
                     return Results.BadRequest(new { error = "invalid_decision" });
                 if (request.Decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(request.Comment))
                     return Results.BadRequest(new { error = "feedback_required" });
+                if (request.Comment?.Length > 4000) return Results.BadRequest(new { error = "feedback_too_long", message = "Keep feedback under 4,000 characters." });
                 using var stored = JsonDocument.Parse(proposal.PayloadJson);
                 var root = stored.RootElement;
                 if (root.TryGetProperty("change", out var boundChange) &&
@@ -122,6 +144,7 @@ public static class ApprovalEndpoints
                     proposal.Status = ProposalStatus.Cancelled;
                 proposal.DecidedAt = DateTimeOffset.UtcNow;
                     await db.SaveChangesAsync(cancellationToken);
+                    if (transaction is not null) await transaction.CommitAsync(cancellationToken);
                     return Results.Conflict(new
                     {
                         error = "approval_expired",
@@ -169,6 +192,28 @@ public static class ApprovalEndpoints
                         : ProposalStatus.Cancelled;
                 }
                 proposal.DecidedAt = DateTimeOffset.UtcNow;
+                if (proposal.ActionType == ProjectApprovalReader.ActionType)
+                {
+                    db.PluginOperationalStates.Add(new()
+                    {
+                        Id = Guid.NewGuid(), OrganizationId = organizationId, AgentInstallationId = proposal.AgentInstallationId,
+                        Kind = ProjectApprovalReader.ReceiptKind, ExternalKey = proposal.Id.ToString("N"), Revision = 1,
+                        CreatedAt = proposal.DecidedAt.Value, UpdatedAt = proposal.DecidedAt.Value,
+                        PayloadJson = JsonSerializer.Serialize(new ProjectApprovalReader.Receipt(request.Decision,
+                            request.Comment?.Trim(), actor.Id, actor.DisplayName, execution?.ResourceId),
+                            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                    });
+                    var suggestions = await db.SuggestedUserActions.Where(x => x.OrganizationId == organizationId &&
+                        x.OriginatingInstallationId == proposal.AgentInstallationId &&
+                        x.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.ReviewApproval)
+                        .ToListAsync(cancellationToken);
+                    foreach (var suggestion in suggestions.Where(x =>
+                        CSweet.Infrastructure.Communications.ApprovalUserActionWorkflowResolver.ReadId(x.ParametersJson) == proposal.Id))
+                    {
+                        suggestion.Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Completed;
+                        suggestion.CompletedAt = proposal.DecidedAt;
+                    }
+                }
                 await db.SaveChangesAsync(cancellationToken);
                 if (execution is not null)
                     await audit.WriteAsync($"{proposal.ActionType}.executed", nameof(Workstream), execution.ResourceId,
@@ -179,6 +224,7 @@ public static class ApprovalEndpoints
                     $"{request.Decision} decision recorded for {proposal.ActionType}.",
                     JsonSerializer.Serialize(new { organizationId, proposal.AgentInstallationId, payloadHash,
                         revision, actionKey, request.DecisionIdempotencyKey, actor = actor.Id }), cancellationToken);
+                if (transaction is not null) await transaction.CommitAsync(cancellationToken);
                 return Results.Ok(new { proposal.Id, status = proposal.Status.ToString(), proposal.DecidedAt, execution });
             });
         return endpoints;

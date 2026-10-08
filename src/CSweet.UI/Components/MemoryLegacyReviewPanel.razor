@@ -1,0 +1,97 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudDivider Class="my-3" />
+<MudText Typo="Typo.subtitle2">Review legacy conversation evidence</MudText>
+@if (_review is null)
+{
+    <MudButton OnClick="LoadAsync" Disabled="Locked">Check legacy evidence</MudButton>
+}
+else
+{
+    <MudText style="white-space:pre-wrap">@_review.Content</MudText>
+    <MudText Typo="Typo.caption">Source: @_review.Source · Classification: @_review.Sensitivity</MudText>
+    @if (_review.CanEstablishEvidence)
+    {
+        <MudAlert Severity="Severity.Info">This record matches its original conversation message. Establishing evidence may make it and eligible linked memories available for recall in the same audience. This does not confirm their claims.</MudAlert>
+        <MudSelect T="string" Label="Reviewed sensitivity" @bind-Value="_sensitivity" Disabled="Locked">
+            @foreach (var level in new[] { "Internal", "Personal", "Confidential", "Restricted" }.SkipWhile(x => x != _review.MinimumSensitivity))
+            { <MudSelectItem T="string" Value="@level">@level</MudSelectItem> }
+        </MudSelect>
+        <MudButton OnClick="SubmitAsync" Disabled="Locked" Color="Color.Primary">Establish source evidence</MudButton>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Warning">This record is already verified or cannot be matched safely to an eligible original conversation. Evidence cannot be established through this review.</MudAlert>
+    }
+    <MudButton OnClick="LoadAsync" Disabled="Locked">Refresh review</MudButton>
+}
+@if (_pending is not null)
+{ <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same review</MudButton> }
+@if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public Guid EpisodeId { get; set; }
+    [Parameter] public EventCallback<Guid> Reviewed { get; set; }
+    [Parameter] public EventCallback<bool> LockedChanged { get; set; }
+    private string Url => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/episodes/{EpisodeId}/legacy-review";
+    private MemoryLegacyReviewResponse? _review;
+    private ReviewMemoryLegacyRequest? _pending;
+    private bool _busy;
+    private bool Locked => _busy || _pending is not null;
+    private string _sensitivity = "Restricted";
+    private string? _message;
+
+    private async Task LoadAsync()
+    {
+        if (Locked) return;
+        _busy = true; _review = null; _message = null; await LockedChanged.InvokeAsync(true);
+        try
+        {
+            using var response = await Http.GetAsync(Url);
+            if (!response.IsSuccessStatusCode) { _message = "This episode is unavailable for review or your permission changed."; return; }
+            _review = await response.Content.ReadFromJsonAsync<MemoryLegacyReviewResponse>();
+            if (_review is not null) _sensitivity = "Restricted";
+        }
+        catch (Exception error) when (NetworkError(error)) { _message = "Review details could not be loaded. Try again."; }
+        finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
+    }
+    private async Task SubmitAsync()
+    {
+        if (Locked || _review is null || !_review.CanEstablishEvidence) return;
+        _pending = new(Guid.NewGuid(), _review.Revision, _review.EvidenceToken, _sensitivity);
+        await RetryAsync();
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || _pending is null) return;
+        _busy = true; _message = null; await LockedChanged.InvokeAsync(true);
+        Guid? updated = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Url, _pending);
+            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            {
+                _pending = null; _review = null;
+                _message = "The review was not accepted. Reload the current episode and check your authority and source evidence before deciding again.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<ReviewMemoryLegacyResponse>() ?? throw new System.Text.Json.JsonException();
+            _pending = null; _review = null; updated = result.EpisodeId;
+            _message = result.WasReplay ? "This review was already recorded." : "Your review was recorded.";
+        }
+        catch (Exception error) when (NetworkError(error))
+        { _message = "The result could not be confirmed. Retry the same review to check it without creating another review."; }
+        finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
+        if (updated.HasValue)
+        {
+            try { await Reviewed.InvokeAsync(updated.Value); }
+            catch (Exception error) when (NetworkError(error)) { _message = "The review was recorded. Reload the inspector to see its current state."; }
+        }
+    }
+    private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
+}

@@ -1270,6 +1270,8 @@ public sealed class CommunicationHubService(
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
             action.Status, action.CreatedAt)
         {
+            ApprovalId = action.WorkflowType == SuggestedUserActionWorkflows.ReviewApproval
+                ? ApprovalUserActionWorkflowResolver.ReadId(action.ParametersJson) : null,
             HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
             HiringRole = SuggestedUserActionParameters.ReadHiringRole(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,

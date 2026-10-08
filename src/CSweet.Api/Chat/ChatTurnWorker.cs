@@ -14,6 +14,7 @@ using CSweet.Domain.Communications;
 using CSweet.Domain.Setup;
 using CSweet.Communications.Abstractions;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -104,16 +105,19 @@ public sealed class ChatTurnWorker(
             await PublishTraceAsync(turns, turnId, "memory", "recall.started", "running", "Searching memory",
                 "Searching relationship, employee, and organization memory namespaces.", cancellationToken: hardTimeout.Token);
             string? recalledMemory;
+            PreparedMemoryRecall preparedRecall;
             using (var memoryTimeout = CancellationTokenSource.CreateLinkedTokenSource(hardTimeout.Token))
             {
                 memoryTimeout.CancelAfter(options.Value.MemoryOperationTimeout);
                 try
                 {
-                    recalledMemory = await memory.RecallForConversationAsync(conversation.Id, userMessage.Content, memoryTimeout.Token);
+                    preparedRecall = await memory.PrepareTurnRecallAsync(turnId, cancellationToken: memoryTimeout.Token);
+                    recalledMemory = preparedRecall.Context;
                 }
                 catch (OperationCanceledException) when (memoryTimeout.IsCancellationRequested && !hardTimeout.IsCancellationRequested)
                 {
                     recalledMemory = null;
+                    preparedRecall = await memory.PrepareTurnRecallAsync(turnId, includeMemory: false, cancellationToken: hardTimeout.Token);
                     await PublishTraceAsync(turns, turnId, "memory", "recall.bypassed", "warning", "Memory search bypassed",
                         $"Memory did not respond within {options.Value.MemoryOperationTimeout.TotalSeconds:g} seconds. Continuing with the original message.",
                         cancellationToken: hardTimeout.Token);
@@ -162,50 +166,10 @@ public sealed class ChatTurnWorker(
             var bypassMemory = false;
             string? fallbackReason = null;
             var memoryWasRecalled = !string.IsNullOrWhiteSpace(recalledMemory);
-            var senderOrganizationUserId = userMessage.SenderOrganizationUserId ??
-                                           conversation.InitiatedByOrganizationUserId;
-            var sender = await db.CoreOrganizationUsers.AsNoTracking()
-                .Include(x => x.Role)
-                .SingleOrDefaultAsync(x => x.Id == senderOrganizationUserId &&
-                    x.OrganizationId == conversation.OrganizationId, hardTimeout.Token);
-            var senderContext = sender is null
-                ? null
-                : new ChatMessageSender(
-                    sender.Id,
-                    sender.DisplayName,
-                    sender.EmployeeType.ToString(),
-                    sender.Role?.Name);
-            var mentionContext = userMessage.Mentions.OrderBy(x => x.Offset)
-                .Select(x => new ChatMessageMentionContext(
-                    x.MentionedOrganizationUserId,
-                    x.MentionedOrganizationUser?.DisplayName ?? x.DisplayText.TrimStart('@'),
-                    x.MentionedOrganizationUser?.EmployeeType.ToString() ?? "Unknown",
-                    x.Offset, x.Length))
-                .ToList();
-            var eventContext = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                [AgentChatContextKeys.MessageId] = userMessage.Id.ToString("D"),
-                [AgentChatContextKeys.MentionsJson] = JsonSerializer.Serialize(mentionContext, JsonOptions)
-            };
-            if (senderContext is not null)
-            {
-                eventContext[AgentChatContextKeys.SenderOrganizationUserId] = senderContext.OrganizationUserId.ToString("D");
-                eventContext[AgentChatContextKeys.SenderDisplayName] = senderContext.DisplayName;
-                eventContext[AgentChatContextKeys.SenderEmployeeType] = senderContext.EmployeeType;
-                eventContext[AgentChatContextKeys.SenderRole] = senderContext.Role ?? string.Empty;
-            }
-            // These values come only from the persisted sender/message and current reporting graph.
-            eventContext[ChatReportingAuthority.CurrentMessageKey] = userMessage.Content;
-            eventContext[ChatReportingAuthority.AncestorKey] = (await ChatReportingAuthority.IsAncestorAsync(
-                db, conversation.OrganizationId, turn.TargetAgentOrganizationUserId,
-                senderOrganizationUserId, hardTimeout.Token)) ? "true" : "false";
-            var recentConversation = await LoadRecentConversationAsync(db, userMessage, hardTimeout.Token);
-            var conversationPrompt = ChatPromptPolicy.BuildConversationPrompt(
-                recalledMemory,
-                userMessage.Content,
-                recentConversation);
-            var agentPrompt = ChatPromptPolicy.BuildPrimaryAgentPrompt(
-                conversation.Id, turnId, userMessage.Id, conversationPrompt, senderContext, mentionContext);
+            var metadata = preparedRecall.Metadata ?? throw new ProviderDispatchDeniedException();
+            var senderOrganizationUserId = metadata.Sender.OrganizationUserId;
+            var eventContext = metadata.Context;
+            var agentPrompt = preparedRecall.AgentPrompt;
             try
             {
                 var readiness = await WaitForRuntimeReadyAsync(
@@ -223,10 +187,6 @@ public sealed class ChatTurnWorker(
                     return;
                 outputRouter.BindAlias(conversation.Id, turnId);
                 var reader = outputRouter.Subscribe(turnId);
-                var profileKey = conversation.WorkstreamId.HasValue
-                    ? await db.Workstreams.AsNoTracking().Where(x => x.Id == conversation.WorkstreamId.Value)
-                        .Select(x => x.ProfileKey).SingleOrDefaultAsync(hardTimeout.Token)
-                    : null;
                 var payload = new UserMessageReceived(
                     providerId.Value,
                     conversation.Id.ToString(),
@@ -237,12 +197,9 @@ public sealed class ChatTurnWorker(
                     turn.Attempt,
                     turn.UserMessageId)
                 {
-                    Attachments = userMessage.Attachments.Select(x => new UserMessageAttachment(
+                    Attachments = metadata.Attachments.Select(x => new UserMessageAttachment(
                         x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
-                    WorkContext = conversation.WorkstreamId.HasValue
-                        ? new AgentWorkContext(conversation.OrganizationId, conversation.WorkstreamId.Value,
-                            conversation.TeamId, null, null, null, null, turnId, userMessage.Id, profileKey)
-                        : null
+                    WorkContext = metadata.WorkContext
                 };
 
                 await PublishTraceAsync(turns, turnId, "model", "model.dispatched", "running", "Assistant dispatched",
@@ -265,7 +222,8 @@ public sealed class ChatTurnWorker(
                     sourceType: "chat-turn",
                     sourceId: turnId.ToString("D"),
                     maximumAttempts: 3,
-                    cancellationToken: hardTimeout.Token);
+                    cancellationToken: hardTimeout.Token,
+                    memoryRecallReceiptJson: preparedRecall.ReceiptJson);
                 workPump = PumpAgentWorkAsync(work.Id, turnId, turn.Attempt, hardTimeout);
                 await turns.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString(), cancellationToken: hardTimeout.Token);
 
@@ -283,6 +241,8 @@ public sealed class ChatTurnWorker(
                         throw new AgentNoResponseException(chunk.Delta);
                     if (!string.IsNullOrWhiteSpace(chunk.Error))
                     {
+                        if (chunk.Error == CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code)
+                            throw new CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException();
                         await PublishTraceAsync(turns, turnId, "model", "agent.error", "failed", "Agent reported an error",
                             chunk.Delta,
                             new { kind = chunk.Kind, code = chunk.Error },
@@ -470,6 +430,12 @@ public sealed class ChatTurnWorker(
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId, "timeout",
                 $"I couldn't complete that request because it exceeded the {options.Value.HardTimeout.TotalMinutes:g}-minute safety limit. Please try again.", CancellationToken.None,
                 $"{exception.GetType().Name}: {exception.Message}");
+        }
+        catch (CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException)
+        {
+            await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId,
+                CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code,
+                CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.SafeMessage, CancellationToken.None);
         }
         catch (AgentNoResponseException exception)
         {
@@ -665,7 +631,7 @@ public sealed class ChatTurnWorker(
                     checked((int)sequence + 1),
                     state.Error ?? "Agent work did not complete.",
                     true,
-                    state.Status.ToString(),
+                    state.Completion?.FailureCode ?? state.Status.ToString(),
                     "error",
                     Attempt: attempt));
                 return;

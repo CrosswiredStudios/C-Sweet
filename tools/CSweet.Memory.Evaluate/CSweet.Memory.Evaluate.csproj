@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CSweet.Memory" />
+    <PackageReference Include="CSweet.Memory.PostgreSql" />
+    <PackageReference Include="CSweet.Memory.Sqlite" />
+    <Compile Include="../../src/CSweet.Infrastructure/Core/MemoryRecallPolicy.cs" Link="MemoryRecallPolicy.cs" />
+    <None Include="*.cs" CopyToOutputDirectory="PreserveNewest" TargetPath="sources/%(Filename)%(Extension)" />
+    <None Include="../../src/CSweet.Infrastructure/Core/MemoryRecallPolicy.cs" CopyToOutputDirectory="PreserveNewest" TargetPath="sources/MemoryRecallPolicy.cs" />
+  </ItemGroup>
+</Project>

@@ -41,7 +41,46 @@
             @SummaryCard("Pending", _summary.PendingCaptureCount, Icons.Material.Filled.Sync)
         </section>
 
+        <MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Memory processing recovery">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudText Typo="Typo.h6">Memory processing</MudText>
+                <MudButton OnClick="RefreshRecoveryAsync" Disabled="@_recovering" StartIcon="@Icons.Material.Filled.Refresh">Refresh</MudButton>
+            </MudStack>
+            @if (_recoveryError is not null)
+            {
+                <MudAlert Severity="Severity.Warning">@_recoveryError</MudAlert>
+            }
+            @if (_recoveryNotice is not null)
+            {
+                <MudAlert Severity="Severity.Info">@_recoveryNotice</MudAlert>
+            }
+            @if (_failures is { Items.Count: > 0 })
+            {
+                <MudText Class="mb-2">These memories need attention. After resolving the underlying issue, retry processing. Previously accepted results will be reused.</MudText>
+                @foreach (var job in _failures.Items)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" @key="job.Id">
+                        <div>
+                            <MudText>@FailureLabel(job.FailureCode)</MudText>
+                            <MudText Typo="Typo.caption">@job.CreatedAt.ToLocalTime().ToString("g") · @job.Attempts attempts · @(job.HasAcceptedExtraction ? "Saved results available" : "Extraction needed")</MudText>
+                        </div>
+                        <MudButton Color="Color.Secondary" Variant="Variant.Outlined" Disabled="@(_recovering || job.FailureCode is "memory_enrichment_source_invalidated" or "memory_enrichment_unverifiable_output" or "memory_enrichment_input_receipt_capacity" or "memory_capture_excluded" or "memory_source_changed" or "memory_source_suppressed" or "memory_source_erased")"
+                                   OnClick="@(() => RetryAsync(job))" aria-label="Retry memory processing">Retry processing</MudButton>
+                    </MudStack>
+                }
+                @if (_failures.NextCursor is not null)
+                {
+                    <MudButton OnClick="LoadMoreFailuresAsync" Disabled="@_recovering">Load more</MudButton>
+                }
+            }
+            else if (_failures is not null)
+            {
+                <MudText Color="Color.Secondary">No failed memory jobs.</MudText>
+            }
+        </MudPaper>
+
         <MudPaper Elevation="1" Class="surface-panel memory-controls">
+            <MemoryErasureStatusPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" />
             <MudTextField T="string" Label="Search memory" @bind-Value="_search" Variant="Variant.Outlined"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                           OnKeyDown="SearchKeyDown" Immediate="true" />
@@ -75,6 +114,7 @@
             <MudDatePicker Label="To" @bind-Date="_to" Variant="Variant.Outlined" Clearable="true" />
             <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="LoadItemsAsync">Search</MudButton>
         </MudPaper>
+        <MemoryTransferPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Selected="_selected" @key="EmployeeId" />
 
         <MudTabs @bind-ActivePanelIndex="_tab" Rounded="true" ApplyEffectsToContainer="true">
             <MudTabPanel Text="Timeline" Icon="@Icons.Material.Filled.Timeline">
@@ -99,11 +139,16 @@
 
     private static readonly string[] Kinds = ["Episode", "Claim", "Entity", "Relationship", "Procedure", "Core"];
     private static readonly string[] Sensitivities = ["Public", "Internal", "Personal", "Confidential", "Restricted"];
-    private static readonly string[] States = ["Recorded", "NotRequired", "Pending", "Confirmed", "Rejected", "Current", "Superseded"];
+    private static readonly string[] States = ["Recorded", "Suppressed", "NotRequired", "Pending", "Confirmed", "Rejected", "Current", "Superseded"];
     private AgentMemorySummaryResponse? _summary;
     private AgentMemoryPageResponse? _page;
     private AgentMemoryGraphResponse? _graph;
     private AgentMemoryItemResponse? _selected;
+    private MemoryEnrichmentJobPageResponse? _failures;
+    private bool _recovering;
+    private string? _recoveryError;
+    private string? _recoveryNotice;
+    private readonly Dictionary<(Guid JobId, int Generation), Guid> _retryIdentities = [];
     private bool _loading = true;
     private bool _loadingItems;
     private string? _error;
@@ -126,10 +171,14 @@
             new("Memory", null, true)
         ];
         _loading = true;
+        _failures = null;
+        _recoveryError = null;
+        _recoveryNotice = null;
+        _retryIdentities.Clear();
         try
         {
             _summary = await Http.GetFromJsonAsync<AgentMemorySummaryResponse>(BaseUrl + "/summary");
-            await Task.WhenAll(LoadItemsAsync(), LoadGraphAsync());
+            await Task.WhenAll(LoadItemsAsync(), LoadGraphAsync(), RefreshFailuresAsync());
         }
         catch (Exception exception)
         {
@@ -143,8 +192,101 @@
 
     private string BaseUrl => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory";
 
+    private async Task RefreshFailuresAsync() => await ReadFailuresAsync(null);
+    private async Task LoadMoreFailuresAsync() => await ReadFailuresAsync(_failures?.NextCursor);
+
+    private async Task RefreshRecoveryAsync()
+    {
+        var alreadyRecovering = _recovering;
+        _recovering = true;
+        try
+        {
+            await RefreshFailuresAsync();
+            _summary = await Http.GetFromJsonAsync<AgentMemorySummaryResponse>(BaseUrl + "/summary");
+        }
+        catch (Exception) { _recoveryError = "Memory processing status could not be refreshed."; }
+        finally { _recovering = alreadyRecovering; }
+    }
+
+    private async Task ReadFailuresAsync(string? cursor)
+    {
+        var alreadyRecovering = _recovering;
+        _recovering = true;
+        _recoveryError = null;
+        try
+        {
+            var suffix = cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}";
+            using var response = await Http.GetAsync($"{BaseUrl}/enrichment/failures?limit=20{suffix}");
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                _failures = null;
+                _recoveryError = "Memory recovery is available to authorized human managers in this employee's reporting hierarchy.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var page = await response.Content.ReadFromJsonAsync<MemoryEnrichmentJobPageResponse>();
+            if (page is not null)
+                _failures = cursor is null || _failures is null ? page : new(
+                    _failures.Items.Concat(page.Items).DistinctBy(x => x.Id).ToList(), page.NextCursor);
+        }
+        catch (Exception) { _recoveryError = "Failed memory jobs could not be loaded. Try refreshing."; }
+        finally { _recovering = alreadyRecovering; }
+    }
+
+    private async Task RetryAsync(MemoryEnrichmentJobResponse job)
+    {
+        _recovering = true;
+        _recoveryError = null;
+        _recoveryNotice = null;
+        var key = (job.Id, job.RetryGeneration);
+        if (!_retryIdentities.TryGetValue(key, out var operationId))
+            _retryIdentities[key] = operationId = Guid.NewGuid();
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"{BaseUrl}/enrichment/{job.Id}/retry",
+                new RetryMemoryEnrichmentRequest(operationId, job.RetryGeneration));
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                _recoveryNotice = "The job changed or its source is unavailable. Check that the employee and conversation participants are active, then refresh.";
+                await RefreshRecoveryAsync();
+                return;
+            }
+            if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
+            {
+                _failures = null;
+                _recoveryError = "You no longer have permission to retry this memory. Sign in or ask an authorized manager.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<RetryMemoryEnrichmentResponse>();
+            _recoveryNotice = result?.Job.Status switch
+            {
+                "Completed" => "This memory has already been processed.",
+                "Failed" => "This retry was already recorded, but processing failed again. Review the latest failure before requesting another retry.",
+                "Pending" or "Processing" => "Retry requested. Processing will resume when background capacity is available.",
+                _ => "Refresh to check the current processing status."
+            };
+            await RefreshRecoveryAsync();
+        }
+        catch (Exception) { _recoveryError = "The retry could not be confirmed. Try again; repeating this request will not restart the job twice."; }
+        finally { _recovering = false; }
+    }
+
+    private static string FailureLabel(string? code) => code switch
+    {
+        "memory_enrichment_timeout" => "Processing timed out",
+        "memory_enrichment_attempts_exhausted" => "Processing reached its retry limit",
+        "memory_enrichment_source_invalidated" => "The source changed or is unavailable. Retrying is disabled.",
+        "memory_enrichment_unverifiable_output" => "Saved results lack verifiable source evidence. Retrying is disabled.",
+        "memory_enrichment_input_receipt_capacity" => "This extraction has reached its input-evidence limit. An operator must review its history before further processing.",
+        "memory_capture_excluded" => "This source is excluded from memory processing. Retrying is disabled.",
+        "memory_source_erased" => "This extraction was removed by forgetting a source. Retrying is disabled.",
+        _ => "Memory processing failed"
+    };
+
     private async Task LoadItemsAsync()
     {
+        if (_reviewBusy || _pendingReview is not null || (_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked)) return;
         _loadingItems = true;
         try
         {
@@ -158,7 +300,7 @@
             if (_from.HasValue) parameters.Add($"from={Uri.EscapeDataString(_from.Value.ToString("O"))}");
             if (_to.HasValue) parameters.Add($"to={Uri.EscapeDataString(_to.Value.Date.AddDays(1).AddTicks(-1).ToString("O"))}");
             _page = await Http.GetFromJsonAsync<AgentMemoryPageResponse>($"{BaseUrl}/items?{string.Join('&', parameters)}");
-            _selected = null;
+            if (!_reviewBusy && _pendingReview is null && !(_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked)) _selected = null;
         }
         finally
         {
@@ -174,8 +316,13 @@
 
     private async Task SelectItemAsync(AgentMemoryItemResponse item)
     {
+        if (_reviewBusy || _pendingReview is not null || (_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked)) return;
+        _review = null; _pendingReview = null; _reviewMessage = null;
+        _correctionTargets = []; _selectedCorrectionTarget = null;
         _selected = item;
-        _selected = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{item.Id}") ?? item;
+        var details = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{item.Id}");
+        if (_selected?.Id == item.Id && !_reviewBusy && _pendingReview is null && !(_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked))
+            _selected = details ?? item;
     }
 
     private async Task SearchKeyDown(KeyboardEventArgs args)
@@ -253,6 +400,92 @@
                         <MudText Typo="Typo.caption"><strong>@pair.Key:</strong> @pair.Value</MudText>
                     }
                 }
+                @if (_selected.Kind == "Episode")
+                {
+                    <MemorySuppressionPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
+                        Reviewed="InspectReviewSourceAsync" LockedChanged="@((bool locked) => _sourceSuppressionLocked = locked)" @key="(typeof(MemorySuppressionPanel), _selected.Id)" />
+                    <MemoryHoldPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
+                        Reviewed="InspectReviewSourceAsync" LockedChanged="@((bool locked) => _sourceHoldLocked = locked)" @key="(typeof(MemoryHoldPanel), _selected.Id)" />
+                    <MemoryErasureImpactPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
+                        @key="(typeof(MemoryErasureImpactPanel), OrganizationId, EmployeeId, _selected.Id)" />
+                    <MemoryLegacyReviewPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
+                        Reviewed="InspectReviewSourceAsync" LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
+                }
+                @if (_selected.Kind == "Core")
+                {
+                    <MemoryCoreReviewPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" BlockId="_selected.Id"
+                        Reviewed="InspectReviewSourceAsync" InspectSource="InspectReviewSourceAsync"
+                        LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
+                }
+                @if (_selected.Kind == "Procedure")
+                {
+                    <MemoryProcedureReviewPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" ProcedureId="_selected.Id"
+                        Reviewed="InspectReviewSourceAsync" InspectSource="InspectReviewSourceAsync"
+                        LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
+                }
+                @if (_selected.Kind == "Claim")
+                {
+                    <MudDivider Class="my-3" />
+                    <MudText Typo="Typo.subtitle2">Review this claim</MudText>
+                    @if (_review is null)
+                    {
+                        <MudButton OnClick="LoadClaimReviewAsync" Disabled="_reviewBusy" Variant="Variant.Outlined">Check review access</MudButton>
+                    }
+                    else
+                    {
+                        <MudText>@_review.Content</MudText>
+                        <MudText Typo="Typo.caption">@_review.Confirmation · @_review.Sensitivity · @_review.SourceEpisodeIds.Count source records</MudText>
+                        <MudStack Row="true" Class="my-2">
+                            @foreach (var source in _review.SourceEpisodeIds.Take(20).Select((id, index) => (Id: id, Number: index + 1)))
+                            {
+                                <MudButton OnClick="@(() => InspectReviewSourceAsync(source.Id))" Disabled="@(_reviewBusy || _pendingReview is not null)">Inspect source @source.Number</MudButton>
+                            }
+                        </MudStack>
+                        @if (_review.SourceEpisodeIds.Count > 20)
+                        {
+                            <MudText Typo="Typo.caption">Showing the first 20 source links. The review checks all @_review.SourceEpisodeIds.Count sources.</MudText>
+                        }
+                        @if (!_review.CanConfirm)
+                        {
+                            <MudAlert Severity="Severity.Warning">The source evidence is unavailable or this claim is no longer current. It cannot be confirmed or corrected.</MudAlert>
+                        }
+                        <MudStack Row="true" Class="my-2">
+                            <MudButton OnClick="@(() => SubmitClaimReviewAsync("confirm"))" Disabled="@(_reviewBusy || _pendingReview is not null || !_review.CanConfirm || _review.Confirmation == "Confirmed")" Color="Color.Primary">Confirm</MudButton>
+                            <MudButton OnClick="@(() => SubmitClaimReviewAsync("reject"))" Disabled="@(_reviewBusy || _pendingReview is not null || !_review.CanReject || _review.Confirmation == "Rejected")" Color="Color.Error">Reject</MudButton>
+                        </MudStack>
+                        @if (_review.CanCorrect)
+                        {
+                            @if (_review.IsEntityValued)
+                            {
+                                <MudTextField T="string" Label="Find replacement entity by name" @bind-Value="_entitySearch" MaxLength="200" Disabled="@(_reviewBusy || _pendingReview is not null)" />
+                                <MudButton OnClick="FindCorrectionTargetsAsync" Disabled="@(_reviewBusy || _pendingReview is not null || _entitySearch.Trim().Length < 2)">Find entities</MudButton>
+                                <MudText Typo="Typo.caption">Up to 20 matching entities with current source evidence in this memory scope.</MudText>
+                                @foreach (var target in _correctionTargets)
+                                {
+                                    <MudButton OnClick="@(() => _selectedCorrectionTarget = target)" Disabled="@(_reviewBusy || _pendingReview is not null)">@target.Name (@target.Type · @target.Sensitivity)</MudButton>
+                                }
+                                @if (_selectedCorrectionTarget is { } choice)
+                                {
+                                    <MudText>Replace the relationship target with @choice.Name.</MudText>
+                                    @foreach (var source in choice.SourceEpisodeIds.Take(20).Select((id, index) => (Id: id, Number: index + 1)))
+                                    {
+                                        <MudButton OnClick="@(() => InspectReviewSourceAsync(source.Id))" Disabled="@(_reviewBusy || _pendingReview is not null)">Inspect replacement source @source.Number</MudButton>
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                <MudTextField T="string" Label="Corrected value" @bind-Value="_replacementValue" MaxLength="16000" Lines="3" Disabled="@(_reviewBusy || _pendingReview is not null)" />
+                            }
+                            <MudButton OnClick="@(() => SubmitClaimReviewAsync("correct"))" Disabled="@(_reviewBusy || _pendingReview is not null || (_review.IsEntityValued ? _selectedCorrectionTarget is null : string.IsNullOrWhiteSpace(_replacementValue)))">Save correction</MudButton>
+                        }
+                        @if (_pendingReview is not null && !_reviewBusy)
+                        {
+                            <MudButton OnClick="@(() => SubmitClaimReviewAsync(_pendingReview.Action))">Retry the same review</MudButton>
+                        }
+                    }
+                    @if (_reviewMessage is not null) { <MudAlert Severity="Severity.Info">@_reviewMessage</MudAlert> }
+                }
                 @if (_selected.RecallUses is { Count: > 0 })
                 {
                     <MudText Typo="Typo.subtitle2">Recall history</MudText>
@@ -261,6 +494,8 @@
                         <MudText Typo="Typo.caption">@use.UsedAt.ToLocalTime().ToString("g") in conversation @use.ConversationId</MudText>
                     }
                 }
+                <MemoryHistoryPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Kind="@_selected.Kind" RecordId="_selected.Id"
+                    Disabled="@(_reviewBusy || _pendingReview is not null || (_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked))" @key="(typeof(MemoryHistoryPanel), _selected.Id)" />
             }
         </aside>;
 

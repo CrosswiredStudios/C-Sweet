@@ -374,7 +374,7 @@
                                         @ThinkingButton(messageTurn)
                                     }
                                 </div>
-                                  @if (message.ResourceChange is null)
+                                  @if (message.ResourceChange is null && message.Actions?.Any(x => x.ApprovalId.HasValue) != true)
                                   {
                                       <MentionedMessageContent Content="@message.Content" Mentions="@message.Mentions" />
                                   }
@@ -478,7 +478,13 @@
                                     <div class="hub-message-actions" aria-label="Suggested actions">
                                         @foreach (var action in message.Actions)
                                         {
-                                            @if (action.Status == "Pending" && !_hub.IsReadOnlyPerspective)
+                                            @if (action.ApprovalId is { } approvalId)
+                                            {
+                                                <InlineApprovalCard @key="action.Id" OrganizationId="OrganizationId" ApprovalId="approvalId"
+                                                    CanInteract="@(!_hub.IsReadOnlyPerspective && action.Status != SuggestedUserActionStatuses.Cancelled && action.Status != SuggestedUserActionStatuses.Superseded)"
+                                                    DecisionCompleted="@(() => LoadMessagesAsync(markRead: false))" />
+                                            }
+                                            else if (action.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                             {
                                                 <MudButton Href="@action.NavigationUri"
                                                            Variant="Variant.Filled"

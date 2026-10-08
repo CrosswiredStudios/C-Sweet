@@ -14,7 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace CSweet.UnitTests;
 
-public sealed class EmployeeAuditTimelineTests
+public sealed partial class EmployeeAuditTimelineTests
 {
     [Fact]
     public async Task SingleLedgerEventAppearsForActorAndRecipientWithFullProtectedEvidence()

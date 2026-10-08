@@ -2,7 +2,11 @@
 .approvals-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .approval-filters { margin-bottom: 20px; }
 .approval-empty { display: grid; place-items: center; gap: 8px; padding: 64px 24px; text-align: center; }
-.approval-card { padding: 24px; }
+.approvals-page ::deep .approval-card { padding: 24px; border-radius: 12px; }
+.selected-project-approval { border-radius: 12px; outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+.approval-questions { margin-top: 28px; }
+.approvals-page ::deep .approvals-header { background: transparent; padding: 0; }
+.approvals-page ::deep .approval-filters { margin-bottom: 20px; }
 .selected-approval { border-color: var(--mud-palette-primary); box-shadow: 0 0 0 2px var(--mud-palette-primary); }
 .approval-card-heading { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
 .approval-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; padding: 14px 0; border-block: 1px solid var(--mud-palette-lines-default); }

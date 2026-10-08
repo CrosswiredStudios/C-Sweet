@@ -552,11 +552,11 @@ public sealed class AgentWorkInboxTests
         var item = await inbox.EnqueueAsync(
             installation.BusinessId, installation.Id, AgentWorkKind.Event, "example.event.v1",
             Json("{}"), "cancel-by-source", clock.GetUtcNow().AddMinutes(5),
-            sourceType: "chat-turn", sourceId: turnId.ToString("D"));
+            sourceType: "test-turn", sourceId: turnId.ToString("D"));
         Assert.NotNull(await inbox.ClaimAsync(session, CancellationToken.None));
 
         var cancelled = await inbox.CancelBySourceAsync(
-            "chat-turn", turnId.ToString("D"), "Stopped by user.");
+            "test-turn", turnId.ToString("D"), "Stopped by user.");
 
         Assert.Equal(1, cancelled);
         db.ChangeTracker.Clear();

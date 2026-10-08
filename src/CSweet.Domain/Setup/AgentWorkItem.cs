@@ -26,6 +26,10 @@ public sealed class AgentWorkItem
     public string Name { get; set; } = string.Empty;
     public byte[] ProtectedPayload { get; set; } = [];
     public string PayloadHash { get; set; } = string.Empty;
+    // Server-owned evidence binding; excluded from the payload delivered to agents.
+    public string? MemoryRecallReceiptJson { get; set; }
+    // Permanent tombstone: operational payloads were removed by a reviewed memory erasure.
+    public DateTimeOffset? MemoryErasedAt { get; set; }
     public byte[]? ProtectedResult { get; set; }
     public string? ResultHash { get; set; }
     public string CorrelationId { get; set; } = string.Empty;

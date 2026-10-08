@@ -41,6 +41,76 @@ internal static class CoreConfigurations
         modelBuilder.Entity<ChatTurnTraceEvent>(ConfigureChatTurnTraceEvent);
         modelBuilder.Entity<ExecutiveDecision>(ConfigureExecutiveDecision);
         modelBuilder.Entity<MemoryCaptureOutboxItem>(ConfigureMemoryCaptureOutbox);
+        modelBuilder.Entity<MemoryExtractionInputReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.EvidenceJson).IsRequired();
+            entity.Property(x => x.ReceiptHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.JobId, x.LeaseToken }).IsUnique();
+            entity.HasIndex(x => x.OrganizationId);
+            entity.HasOne(x => x.Job).WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<MemoryEnrichmentProviderLease>(entity =>
+        {
+            entity.HasKey(x => x.ProviderId);
+            entity.Property(x => x.LeaseToken).IsConcurrencyToken();
+            entity.HasIndex(x => x.ExpiresAt);
+        });
+        modelBuilder.Entity<MemoryCaptureExclusion>(entity =>
+        {
+            entity.HasKey(x => x.SourceMessageId);
+            entity.Property(x => x.ReasonCode).HasMaxLength(80).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.ExcludedAt });
+        });
+        modelBuilder.Entity<MemorySourceInvalidation>(entity =>
+        {
+            entity.HasKey(x => x.SourceMessageId);
+            entity.Property(x => x.ReasonCode).HasMaxLength(80).IsRequired();
+            entity.HasIndex(x => x.PreviousConversationId);
+        });
+        modelBuilder.Entity<MemorySourceReconciliationCheckpoint>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasMaxLength(80);
+        });
+        modelBuilder.Entity<MemoryCaptureRetryReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.JobId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => new { x.JobId, x.RetryGeneration }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.CreatedAt });
+        });
+        modelBuilder.Entity<MemoryTransferReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Action).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(24).IsRequired();
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => new { x.PackageId, x.Action }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.CreatedAt });
+        });
+        modelBuilder.Entity<MemoryReviewReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RecordKind).HasMaxLength(24).HasDefaultValue("Claim").IsRequired();
+            // Preserve established physical columns and historical claim receipts during this additive upgrade.
+            entity.Property(x => x.MemoryId).HasColumnName("ClaimId");
+            entity.Property(x => x.ResultMemoryId).HasColumnName("ResultClaimId");
+            entity.Property(x => x.Action).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => new { x.RecordKind, x.MemoryId, x.PreviousRevision }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.CreatedAt });
+        });
+        modelBuilder.Entity<MemoryErasureReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.InventoryJson).HasMaxLength(262144).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.CreatedAt });
+        });
         modelBuilder.Entity<AgentMemoryNamespaceRegistration>(ConfigureAgentMemoryNamespace);
         modelBuilder.Entity<AgentMemoryRecallUse>(ConfigureAgentMemoryRecallUse);
         modelBuilder.Entity<CommunicationConnection>(ConfigureCommunicationConnection);
@@ -1165,6 +1235,9 @@ internal static class CoreConfigurations
         entity.HasKey(x => x.Id);
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
         entity.Property(x => x.LastError).HasMaxLength(2048);
+        entity.Property(x => x.LeaseToken).IsConcurrencyToken();
+        entity.Property(x => x.RetryGeneration).HasDefaultValue(0).IsConcurrencyToken();
+        entity.Property(x => x.AcceptedExtractionJson).HasColumnType("jsonb");
         entity.HasIndex(x => x.ConversationMessageId).IsUnique();
         entity.HasIndex(x => new { x.Status, x.NextAttemptAt });
         entity.HasOne(x => x.ConversationMessage)

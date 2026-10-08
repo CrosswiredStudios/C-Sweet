@@ -81,4 +81,8 @@ public interface IExecutionWorkloadOrchestrator
         CancellationToken cancellationToken = default);
 
     Task<int> FenceExpiredAsync(CancellationToken cancellationToken = default);
+
+    Task<bool> ReportStoppedAsync(Guid nodeId, Guid assignmentId, long fencingEpoch,
+        string providerId, string providerInstanceId, bool neverCreated,
+        CancellationToken cancellationToken = default);
 }

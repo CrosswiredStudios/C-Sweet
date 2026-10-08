@@ -225,6 +225,7 @@ public static class SuggestedUserActionWorkflows
 {
     public const string BrowseHiringMarketplace = "hiring.marketplace.browse.v1";
     public const string OpenPluginSetup = "plugin.setup.open.v1";
+    public const string ReviewApproval = "approval.review.v1";
 }
 
 public sealed record SuggestUserActionRequest(
@@ -245,6 +246,7 @@ public sealed record SuggestedUserActionResponse(
     string Status,
     DateTimeOffset CreatedAt)
 {
+    public Guid? ApprovalId { get; init; }
     public Guid? HiringRecommendationId { get; init; }
     public string? HiringRole { get; init; }
     public Guid? ResultOrganizationUserId { get; init; }

@@ -37,6 +37,7 @@ public sealed class ChatTurn
     public DateTimeOffset? ResponseReadyAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset? LastActivityAt { get; set; }
+    public DateTimeOffset? MemoryErasedAt { get; set; }
 
     public Conversation? Conversation { get; set; }
     public ConversationMessage? UserMessage { get; set; }

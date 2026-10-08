@@ -1,9 +1,11 @@
 using System.Runtime.CompilerServices;
+using CSweet.Infrastructure.Llm;
 using Microsoft.Extensions.AI;
 
 namespace CSweet.Infrastructure.Core;
 
-internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapturingChatClient.UsageCall, Task>? persist = null) : IChatClient
+internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapturingChatClient.UsageCall, Task>? persist = null,
+    Func<CancellationToken, Task>? authorizeDispatch = null) : IChatClient
 {
     public List<UsageCall> Calls { get; } = [];
     public sealed class UsageCall
@@ -11,6 +13,7 @@ internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapt
         public Guid Id { get; } = Guid.NewGuid();
         public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
         public DateTimeOffset? CompletedAt { get; set; }
+        public DateTimeOffset? ProviderStartedAt { get; set; }
         public string Status { get; set; } = "Running";
         public UsageDetails? Usage { get; set; }
         public int MessageCharacters { get; init; }
@@ -30,15 +33,23 @@ internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapt
         var messageList = messages.ToList();
         var call = CapturePrompt(messageList, options); Calls.Add(call);
         if (persist is not null) await persist(call);
+        using var dispatch = DispatchScope(call);
         try
         {
+            if (authorizeDispatch is not null)
+            {
+                try { await authorizeDispatch(cancellationToken); }
+                catch { call.Status = "Denied"; throw; }
+            }
+            if (inner.GetService<IProviderDispatchTransport>() is null) call.ProviderStartedAt ??= DateTimeOffset.UtcNow;
             var response = await inner.GetResponseAsync(messageList, options, cancellationToken);
             call.Usage = response.Usage; call.Status = "Completed";
             if (response.Usage is not null) Usage.Add(response.Usage);
             return response;
         }
         catch (OperationCanceledException) { call.Status = "Cancelled"; throw; }
-        catch { call.Status = "Failed"; throw; }
+        catch (ProviderDispatchDeniedException) { call.Status = "Denied"; throw; }
+        catch { if (call.Status != "Denied") call.Status = "Failed"; throw; }
         finally { call.CompletedAt = DateTimeOffset.UtcNow; if (persist is not null) await persist(call); }
     }
 
@@ -50,8 +61,15 @@ internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapt
         var messageList = messages.ToList();
         var call = CapturePrompt(messageList, options); Calls.Add(call);
         if (persist is not null) await persist(call);
+        using var dispatch = DispatchScope(call);
         try
         {
+            if (authorizeDispatch is not null)
+            {
+                try { await authorizeDispatch(cancellationToken); }
+                catch { call.Status = "Denied"; throw; }
+            }
+            if (inner.GetService<IProviderDispatchTransport>() is null) call.ProviderStartedAt ??= DateTimeOffset.UtcNow;
             await foreach (var update in inner.GetStreamingResponseAsync(messageList, options, cancellationToken))
             {
                 // Streaming usage updates are cumulative for one response, not new invocations.
@@ -74,6 +92,12 @@ internal sealed class UsageCapturingChatClient(IChatClient inner, Func<UsageCapt
         serviceType.IsInstanceOfType(this)
             ? this
             : inner.GetService(serviceType, serviceKey);
+
+    private ProviderDispatchScope DispatchScope(UsageCall call) => new(async token =>
+    {
+        try { if (authorizeDispatch is not null) await authorizeDispatch(token); }
+        catch { call.Status = "Denied"; throw; }
+    }, () => call.ProviderStartedAt ??= DateTimeOffset.UtcNow, () => call.Status = "Denied");
 
     public void Dispose()
     {

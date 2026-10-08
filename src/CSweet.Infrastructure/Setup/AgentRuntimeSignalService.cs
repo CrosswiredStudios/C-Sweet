@@ -16,6 +16,8 @@ public sealed class AgentRuntimeSignalService(CSweetDbContext dbContext) : IAgen
             .SingleOrDefaultAsync(x => x.Id == runtimeInstanceId, cancellationToken)
             ?? throw new InvalidOperationException("The runtime instance was not found.");
         ValidateIdentity(instance, tickId, installationId);
+        if (instance.MemoryResetRequestedAt is not null)
+            throw new InvalidOperationException("The runtime is awaiting memory-context replacement.");
         var presentedHash = SHA256.HashData(Encoding.UTF8.GetBytes(workloadToken));
         var storedHash = Convert.FromHexString(instance.BrokerTokenHash);
         if (!CryptographicOperations.FixedTimeEquals(presentedHash, storedHash))
@@ -41,7 +43,7 @@ public sealed class AgentRuntimeSignalService(CSweetDbContext dbContext) : IAgen
         var instance = await dbContext.AgentRuntimeInstances.SingleOrDefaultAsync(x => x.Id == runtimeInstanceId, cancellationToken)
             ?? throw new InvalidOperationException("The runtime instance was not found.");
         ValidateIdentity(instance, tickId, installationId);
-        if (instance.Status != AgentRuntimeStatus.Running)
+        if (instance.Status != AgentRuntimeStatus.Running || instance.MemoryResetRequestedAt is not null)
             throw new InvalidOperationException("Only a running runtime instance may report completion.");
         AddTransition(instance, AgentRuntimeStatus.CompletionReported, DateTimeOffset.UtcNow, "Agent reported completion.", payloadJson);
         await dbContext.SaveChangesAsync(cancellationToken);

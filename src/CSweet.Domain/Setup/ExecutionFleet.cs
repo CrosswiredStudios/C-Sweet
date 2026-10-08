@@ -188,6 +188,8 @@ public sealed class LocalOfficeSetupSession
 
 public sealed class ExecutionWorkloadAssignment
 {
+    // Zero means historical attempts cannot be proven complete. Set only by new submission.
+    public int StopEvidenceVersion { get; set; }
     public Guid Id { get; set; }
     public Guid ExecutionPoolId { get; set; }
     public Guid? ExecutionNodeId { get; set; }

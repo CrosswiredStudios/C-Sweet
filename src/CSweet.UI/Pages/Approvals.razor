@@ -13,24 +13,16 @@
         <div>
             <MudText Typo="Typo.h3">Approvals</MudText>
             <MudText Color="Color.Secondary">
-                One inbox for approvals, agent questions, and requests for your direction.
+                Review proposals and give your team direction.
             </MudText>
         </div>
         <MudChip T="string" Color="@(_dashboard?.PendingCount > 0 ? Color.Warning : Color.Success)"
                  Variant="Variant.Filled">
-            @(_dashboard?.PendingCount ?? 0) pending approvals
+            @(_dashboard?.PendingCount ?? 0) pending @(_dashboard?.PendingCount == 1 ? "approval" : "approvals")
         </MudChip>
     </MudPaper>
 
-    <MudTabs ActivePanelIndex="@_activeTab" ActivePanelIndexChanged="SelectTab" Class="mb-4" KeepPanelsAlive="true">
-        <MudTabPanel Text="Approvals" />
-        <MudTabPanel Text="Decisions" />
-    </MudTabs>
-
-    <div hidden="@(_activeTab != 1)">
-        <PendingAgentQuestions OrganizationId="OrganizationId" />
-    </div>
-    <div hidden="@(_activeTab != 0)">
+    @if (_decisionNotice is not null) { <MudAlert Severity="Severity.Success" Class="mb-3">@_decisionNotice</MudAlert> }
 
     @if (_loading)
     {
@@ -49,11 +41,11 @@
             </MudButton>
             <MudButton Variant="@(_showHistory ? Variant.Filled : Variant.Text)"
                        Color="Color.Primary" OnClick="@(() => _showHistory = true)">
-                All activity
+                History
             </MudButton>
         </MudStack>
 
-        @if (SelectedApprovalId.HasValue && !HasActionableSelectedApproval)
+        @if (SelectedApprovalId.HasValue && !HasActionableSelectedApproval && !_showHistory)
         {
             <MudAlert Severity="Severity.Info" Class="mb-3">This approval is no longer awaiting your action or is unavailable. Your current approvals are shown below.</MudAlert>
         }
@@ -65,8 +57,8 @@
                 <MudText Typo="Typo.h5">@(_showHistory ? "No approval activity yet" : "No approvals awaiting you")</MudText>
                 <MudText Color="Color.Secondary">
                     @(_showHistory
-                        ? "Durable approval requests will appear here when an agent or workflow creates them."
-                        : "You have no approvals to decide. All activity includes past decisions.")
+                        ? "Completed decisions will appear here with their outcomes."
+                        : "You have no approvals to decide. History includes past decisions.")
                 </MudText>
             </MudPaper>
         }
@@ -75,6 +67,14 @@
             <MudStack Spacing="3">
                 @foreach (var item in VisibleItems)
                 {
+                    @if (item.ProjectCreation is not null || item.ReviewError is not null)
+                    {
+                        <div @key="item.Id" class="@(item.Id == SelectedApprovalId ? "selected-project-approval" : null)">
+                            <ProjectCreationApprovalCard OrganizationId="OrganizationId" Item="item" DecisionCompleted="ProjectDecidedAsync" />
+                        </div>
+                    }
+                    else
+                    {
                     <MudPaper @key="item.Id" Elevation="0" Outlined="true" Class="@($"approval-card {(item.Id == SelectedApprovalId && HasActionableSelectedApproval ? "selected-approval" : "")}")">
                         <div class="approval-card-heading">
                             <div>
@@ -85,15 +85,18 @@
                                 <MudText Typo="Typo.h5" Class="mt-2">@item.Title</MudText>
                                 <MudText Color="Color.Secondary">@item.Summary</MudText>
                             </div>
+                            @if (!string.IsNullOrWhiteSpace(item.ActionUri) && item.ActionUri != $"/organizations/{OrganizationId:D}/approvals")
+                            {
                             <MudButton Href="@item.ActionUri" Variant="Variant.Text"
                                        EndIcon="@Icons.Material.Outlined.OpenInNew">
-                                Open source
+                                View context
                             </MudButton>
+                            }
                         </div>
 
                         <div class="approval-meta">
                             <span><strong>Requested by</strong>@item.RequestedBy</span>
-                            <span><strong>Assigned to</strong>@item.AssignedTo</span>
+                            @if (!item.CanDecide) { <span><strong>Assigned to</strong>@item.AssignedTo</span> }
                             @if (!string.IsNullOrWhiteSpace(item.RequestingTeam))
                             {
                                 <span><strong>Requesting team</strong>@item.RequestingTeam</span>
@@ -167,17 +170,16 @@
                                 <MudText Typo="Typo.caption">Owner-only rules for future requests, separate from this action's decision.</MudText>
                             }
                             <MudGrid Class="mt-3">
-                                <MudItem xs="12" md="6"><strong>Account</strong><br />@(agentAction.AccountName ?? agentAction.ChannelId)</MudItem>
-                                <MudItem xs="12" md="6"><strong>Action</strong><br />@agentAction.ActionType</MudItem>
-                                @if (!string.IsNullOrWhiteSpace(agentAction.ResourceId))
+                                @if (!string.IsNullOrWhiteSpace(agentAction.AccountName))
                                 {
-                                    <MudItem xs="12"><strong>Resource</strong><br />@agentAction.ResourceId</MudItem>
+                                    <MudItem xs="12"><strong>Account</strong><br />@agentAction.AccountName</MudItem>
                                 }
-                                <MudItem xs="12"><strong>Payload binding</strong><br /><code>@agentAction.PayloadHash</code></MudItem>
-                                @if (!string.IsNullOrWhiteSpace(agentAction.ReviewPayloadJson))
-                                {
-                                    <MudItem xs="12"><strong>Exact proposed changes</strong><pre style="white-space: pre-wrap; overflow-wrap: anywhere">@agentAction.ReviewPayloadJson</pre></MudItem>
-                                }
+                                <MudItem xs="12"><details><summary>Technical details</summary>
+                                    <p>Channel: @agentAction.ChannelId</p><p>Action: @agentAction.ActionType</p>
+                                    @if (!string.IsNullOrWhiteSpace(agentAction.ResourceId)) { <p>Resource: @agentAction.ResourceId</p> }
+                                    <p>Payload binding: <code style="overflow-wrap:anywhere">@agentAction.PayloadHash</code></p>
+                                    @if (!string.IsNullOrWhiteSpace(agentAction.ReviewPayloadJson)) { <pre style="white-space:pre-wrap;overflow-wrap:anywhere">@agentAction.ReviewPayloadJson</pre> }
+                                </details></MudItem>
                                 @if (!string.IsNullOrWhiteSpace(agentAction.FiscalSummary))
                                 {
                                     <MudItem xs="12"><strong>Fiscal commitment</strong><br />@agentAction.FiscalSummary</MudItem>
@@ -307,15 +309,16 @@
                         else if (item.Status == "Pending")
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                                This request is observable here. Use “Open source” for its specialized review and execution flow.
+                                Use “View context” to review this request in its workflow.
                             </MudAlert>
                         }
                     </MudPaper>
+                    }
                 }
             </MudStack>
         }
     }
-    </div>
+    @if (!_showHistory) { <div class="approval-questions"><PendingAgentQuestions OrganizationId="OrganizationId" /></div> }
 </div>
 
 </EmployeePortraitScope>
@@ -324,10 +327,8 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [SupplyParameterFromQuery(Name = "tab")] public string? SelectedTab { get; set; }
     [SupplyParameterFromQuery(Name = "approvalId")] public Guid? SelectedApprovalId { get; set; }
-    private int _activeTab;
-    private string? _lastTab;
     private Guid? _lastApprovalId;
-    private void SelectTab(int index) => _activeTab = index;
+    private string? _decisionNotice;
 
     private ApprovalDashboardResponse? _dashboard;
     private bool _loading = true;
@@ -339,8 +340,8 @@
 
     private IReadOnlyList<ApprovalDashboardItemResponse> VisibleItems =>
         (_dashboard?.Items ?? [])
-        .Where(x => _showHistory || (x.Status == "Pending" && x.CanDecide))
-        .OrderByDescending(x => x.Id == SelectedApprovalId && x.Status == "Pending" && x.CanDecide)
+        .Where(x => _showHistory ? x.Status != "Pending" : (x.Status == "Pending" && x.CanDecide))
+        .OrderByDescending(x => x.Id == SelectedApprovalId && (_showHistory || (x.Status == "Pending" && x.CanDecide)))
         .ToList();
     private bool HasActionableSelectedApproval => (_dashboard?.Items ?? [])
         .Any(x => x.Id == SelectedApprovalId && x.Status == "Pending" && x.CanDecide);
@@ -351,22 +352,37 @@
         _ = ApprovalNotifications.InitializeAsync();
     }
 
-    private void OnApprovalsChanged() => _ = InvokeAsync(() =>
+    private void OnApprovalsChanged() => _ = InvokeAsync(async () =>
     {
         if (ApprovalNotifications.OrganizationId != OrganizationId) return;
-        _dashboard = ApprovalNotifications.Dashboard;
+        var organizationId = OrganizationId;
+        var dashboard = await IncludeSelectedProjectAsync(ApprovalNotifications.Dashboard, organizationId);
+        if (organizationId != OrganizationId) return;
+        _dashboard = dashboard;
         StateHasChanged();
     });
+
+    private async Task<ApprovalDashboardResponse?> IncludeSelectedProjectAsync(ApprovalDashboardResponse? dashboard, Guid organizationId)
+    {
+        if (SelectedApprovalId is not { } selected || dashboard is null || dashboard.Items.Any(x => x.Id == selected)) return dashboard;
+        try
+        {
+            using var response = await Http.GetAsync($"api/core/organizations/{organizationId:D}/approvals/projects/{selected:D}");
+            if (response.IsSuccessStatusCode && await response.Content.ReadFromJsonAsync<ApprovalDashboardItemResponse>() is { } selectedItem)
+                return dashboard with { Items = dashboard.Items.Append(selectedItem).ToList() };
+        }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException) { }
+        return dashboard;
+    }
 
     public void Dispose() => ApprovalNotifications.Changed -= OnApprovalsChanged;
 
     protected override Task OnParametersSetAsync()
     {
-        if (_lastTab != SelectedTab) { _activeTab = SelectedTab == "decisions" ? 1 : 0; _lastTab = SelectedTab; }
         if (_lastApprovalId != SelectedApprovalId)
         {
             _lastApprovalId = SelectedApprovalId;
-            if (SelectedApprovalId.HasValue) { _activeTab = 0; _showHistory = false; }
+            if (SelectedApprovalId.HasValue) _showHistory = false;
         }
         return LoadAsync();
     }
@@ -378,8 +394,13 @@
         try
         {
             var organizationId = OrganizationId;
-            var dashboard = await ApprovalNotifications.LoadAsync(organizationId);
-            if (organizationId == OrganizationId) _dashboard = dashboard;
+            var dashboard = await IncludeSelectedProjectAsync(await ApprovalNotifications.LoadAsync(organizationId), organizationId);
+            if (organizationId == OrganizationId)
+            {
+                _dashboard = dashboard;
+                if (SelectedApprovalId.HasValue && dashboard?.Items.Any(x => x.Id == SelectedApprovalId && x.Status != "Pending") == true)
+                    _showHistory = true;
+            }
         }
         catch (Exception exception)
         {
@@ -430,6 +451,13 @@
         {
             _decidingId = null;
         }
+    }
+
+    private async Task ProjectDecidedAsync(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return; // Keep the card's contextual error visible.
+        _decisionNotice = message;
+        await LoadAsync();
     }
 
     private async Task DecideSourceControlAsync(ApprovalDashboardItemResponse item, bool approved)

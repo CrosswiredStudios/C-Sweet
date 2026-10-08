@@ -213,6 +213,22 @@ public sealed class OfficeGatewayService(
                         message.LeaseRenewal.FencingEpoch, "The assignment lease is no longer active.", context.CancellationToken);
                 }
             }
+            else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.AssignmentStopped &&
+                Guid.TryParse(message.AssignmentStopped.AssignmentId, out var stoppedId))
+            {
+                var report = message.AssignmentStopped;
+                var accepted = await orchestrator.ReportStoppedAsync(nodeId, stoppedId, report.FencingEpoch,
+                    report.ProviderId, report.ProviderInstanceId, report.NeverCreated, context.CancellationToken);
+                await responseStream.WriteAsync(new HeadquartersControlMessage
+                {
+                    ProtocolVersion = "1.0", OfficeId = nodeId.ToString("D"), SessionEpoch = sessionEpoch,
+                    AssignmentStopReceipt = new AssignmentStopReceipt
+                    {
+                        AssignmentId = stoppedId.ToString("D"), FencingEpoch = report.FencingEpoch,
+                        Accepted = accepted
+                    }
+                }, context.CancellationToken);
+            }
             else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.AssignmentStatus &&
                 Guid.TryParse(message.AssignmentStatus.AssignmentId, out var statusId) &&
                 Enum.TryParse<ExecutionAssignmentStatus>(message.AssignmentStatus.Status, true, out var status))
