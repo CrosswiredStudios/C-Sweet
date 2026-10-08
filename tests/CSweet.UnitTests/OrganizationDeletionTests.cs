@@ -227,7 +227,7 @@ public sealed class OrganizationDeletionTests
         var classified = OrganizationDataPurgeService.ScopedEntityTypes(db.Model)
             .Select(x => x.ClrType)
             .ToHashSet();
-        var preserved = new[] { typeof(Organization), typeof(AuditEvent), typeof(Worker) };
+        var preserved = new[] { typeof(Organization), typeof(AuditEvent), typeof(MemoryCaptureRetryReceipt), typeof(MemoryExtractionInputReceipt), typeof(MemoryReviewReceipt), typeof(MemoryErasureReceipt), typeof(MemoryTransferReceipt), typeof(AgentMemoryReadReceipt), typeof(MemoryCaptureExclusion), typeof(Worker) };
         var expected = db.Model.GetEntityTypes()
             .Where(x => x.BaseType is null && x.FindPrimaryKey() is not null && x.GetTableName() is not null)
             .Where(x => x.FindProperty("OrganizationId") is { } property &&
@@ -241,6 +241,11 @@ public sealed class OrganizationDeletionTests
         Assert.Contains(typeof(AgentInstallation), classified);
         Assert.Contains(typeof(ExecutionWorkloadAssignment), classified);
         Assert.DoesNotContain(typeof(AuditEvent), classified);
+        Assert.DoesNotContain(typeof(MemoryCaptureRetryReceipt), classified);
+        Assert.DoesNotContain(typeof(MemoryExtractionInputReceipt), classified);
+        Assert.DoesNotContain(typeof(MemoryReviewReceipt), classified);
+        Assert.DoesNotContain(typeof(MemoryTransferReceipt), classified);
+        Assert.DoesNotContain(typeof(MemoryCaptureExclusion), classified);
         Assert.DoesNotContain(typeof(Worker), classified);
     }
 

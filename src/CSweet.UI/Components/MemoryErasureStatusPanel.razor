@@ -1,0 +1,59 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudExpansionPanels>
+    <MudExpansionPanel Text="Check a saved erasure operation">
+        <MudTextField T="string" @bind-Value="_operation" Label="Erasure operation ID" Disabled="_busy" />
+        <MudButton OnClick="LoadAsync" Disabled="_busy">Check erasure status</MudButton>
+        @if (_result is { } result)
+        {
+            <MudText>@result.ErasedRecords records erased; @result.ClearedWorks work items cleared.</MudText>
+            <MudAlert Severity="@(result.PendingRuntimes == 0 ? Severity.Success : Severity.Info)">
+                @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
+            </MudAlert>
+        }
+        @if (_message is not null) { <MudAlert Severity="Severity.Warning">@_message</MudAlert> }
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    private (Guid, Guid) _identity;
+    private long _generation;
+    private string _operation = string.Empty;
+    private bool _busy;
+    private string? _message;
+    private MemoryErasureResponse? _result;
+    protected override void OnParametersSet()
+    {
+        if (_identity == (OrganizationId, EmployeeId)) return;
+        _identity = (OrganizationId, EmployeeId); _generation++; _busy = false; _operation = string.Empty; _message = null; _result = null;
+    }
+    private async Task LoadAsync()
+    {
+        if (_busy) return;
+        _result = null; _message = null;
+        if (!Guid.TryParse(_operation, out var operation) || operation == Guid.Empty)
+        { _message = "Enter a valid erasure operation ID."; return; }
+        var generation = ++_generation; _busy = true;
+        try
+        {
+            using var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/erasure-operations/{operation}");
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
+                    ? "Current permission to every affected audience is required." : "This operation could not be found or checked. Verify its ID and try again.";
+                return;
+            }
+            var result = await response.Content.ReadFromJsonAsync<MemoryErasureResponse>();
+            if (result?.OperationId != operation || result.Status is not ("completed" or "runtime-reset-pending")) throw new System.Text.Json.JsonException();
+            if (generation == _generation) _result = result;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (generation == _generation) _message = "Status could not be loaded. Try again."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+}

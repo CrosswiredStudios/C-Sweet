@@ -211,6 +211,13 @@ them from source; conditional project references will use them automatically. Th
 paths live in [`Directory.Build.props`](Directory.Build.props). When explicitly switching between
 local and packaged dependencies, restore using the same switches before building.
 
+If Visual Studio reports `NU1105` for a detected sibling project, first run
+`dotnet restore CSweet.slnx` from this repository and reload the solution. For development with
+sibling repositories, run `powershell -File scripts/New-LocalSolution.ps1`, then open the generated
+`CSweet.Local.slnx` in Visual Studio. It includes the evaluated local dependency projects so the
+IDE can restore and build them. This machine-specific solution is ignored by Git; regenerate it
+after changing sibling checkouts or dependency switches. `CSweet.slnx` remains the portable solution.
+
 </details>
 
 ## Explore further

@@ -11,7 +11,7 @@ using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.Setup;
 
-public sealed class ExecutionWorkloadOrchestrator(
+public sealed partial class ExecutionWorkloadOrchestrator(
     CSweetDbContext dbContext,
     TimeProvider timeProvider) : IExecutionWorkloadOrchestrator
 {
@@ -60,6 +60,35 @@ public sealed class ExecutionWorkloadOrchestrator(
     {
         ArgumentNullException.ThrowIfNull(request);
         Validate(request);
+        if (request.WorkloadKind != ExecutionWorkloadKind.Runtime)
+            return await SubmitCoreAsync(request, cancellationToken);
+
+        // Serialize runtime assignment admission with the manager's Stopping transition.
+        // If submission wins, cleanup must see its durable assignment. If stopping wins,
+        // a delayed launch may not create an assignment after cleanup saw an empty set.
+        await using var transaction = dbContext.Database.IsRelational() && dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        var runtime = dbContext.Database.IsNpgsql()
+            ? await dbContext.AgentRuntimeInstances.FromSqlInterpolated(
+                $"SELECT * FROM \"AgentRuntimeInstances\" WHERE \"Id\" = {request.AgentRuntimeInstanceId!.Value} FOR UPDATE")
+                .AsNoTracking().SingleOrDefaultAsync(cancellationToken)
+            : await dbContext.AgentRuntimeInstances.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Id == request.AgentRuntimeInstanceId, cancellationToken);
+        if (runtime is null || runtime.Status != AgentRuntimeStatus.Starting || runtime.MemoryResetRequestedAt is not null ||
+            !await dbContext.AgentInstallations.AsNoTracking().AnyAsync(x => x.Id == runtime.AgentInstallationId &&
+                x.BusinessId == request.BusinessId, cancellationToken))
+            throw new AgentWorkloadException("The runtime no longer permits a startup assignment.");
+        var result = await SubmitCoreAsync(request, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<ExecutionWorkloadReference> SubmitCoreAsync(
+        ExecutionWorkloadRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Validate(request);
         var poolId = request.ExecutionPoolId ?? await DefaultPoolIdAsync(request.WorkloadKind, cancellationToken);
         var existing = request.WorkloadKind switch
         {
@@ -68,7 +97,7 @@ public sealed class ExecutionWorkloadOrchestrator(
                     (x.Status == ExecutionAssignmentStatus.Pending || ActiveStatuses.Contains(x.Status)), cancellationToken)
             ,
             ExecutionWorkloadKind.Runtime => await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
-                x => x.AgentRuntimeInstanceId == request.AgentRuntimeInstanceId &&
+                x => x.AgentRuntimeInstanceId == request.AgentRuntimeInstanceId && x.WorkloadKind == ExecutionWorkloadKind.Runtime &&
                     (x.Status == ExecutionAssignmentStatus.Pending || ActiveStatuses.Contains(x.Status)), cancellationToken),
             ExecutionWorkloadKind.ToolchainBuild => await dbContext.ExecutionWorkloadAssignments.FirstOrDefaultAsync(
                 x => x.DeliveryBuildId == request.DeliveryBuildId &&
@@ -82,6 +111,7 @@ public sealed class ExecutionWorkloadOrchestrator(
         var specificationJson = BindSecurityPolicy(request.SpecificationJson, request.AllowDevelopmentSecurityPosture);
         var assignment = new ExecutionWorkloadAssignment
         {
+            StopEvidenceVersion = 1,
             Id = Guid.NewGuid(),
             ExecutionPoolId = poolId,
             AgentBuildJobId = request.AgentBuildJobId,
@@ -176,6 +206,15 @@ public sealed class ExecutionWorkloadOrchestrator(
                 assignment.LeaseExpiresAt = now.Add(AssignmentLease);
                 assignment.FencingEpoch++;
                 assignment.AssignmentTokenHash = HashToken();
+                assignment.ProviderInstanceId = null;
+                dbContext.ExecutionAssignmentAttempts.Add(new ExecutionAssignmentAttempt
+                {
+                    AssignmentId = assignment.Id,
+                    FencingEpoch = assignment.FencingEpoch,
+                    ExecutionNodeId = node.Node.Id,
+                    ProviderId = assignment.ProviderId,
+                    AssignedAt = now
+                });
                 node.Node.LastAssignedAt = now;
                 node.Node.UpdatedAt = now;
                 await dbContext.SaveChangesAsync(cancellationToken);
@@ -296,6 +335,18 @@ public sealed class ExecutionWorkloadOrchestrator(
             if (result is not null)
             {
                 assignment.ProviderInstanceId = Bound(result.ProviderInstanceId, 256);
+                var execution = await dbContext.ExecutionAssignmentAttempts.SingleOrDefaultAsync(
+                    x => x.AssignmentId == assignmentId && x.FencingEpoch == fencingEpoch, cancellationToken);
+                if (execution is not null && !string.IsNullOrWhiteSpace(result.ProviderInstanceId))
+                {
+                    if (result.ProviderInstanceId.Length > 256 || execution.StoppedAt is not null ||
+                        execution.ProviderInstanceId is not null && execution.ProviderInstanceId != result.ProviderInstanceId)
+                    {
+                        dbContext.ChangeTracker.Clear();
+                        return false;
+                    }
+                    execution.ProviderInstanceId = result.ProviderInstanceId;
+                }
                 if (!string.IsNullOrWhiteSpace(result.LogExcerpt))
                     assignment.ResultLogExcerpt = Bound(result.LogExcerpt, 64 * 1024);
             }

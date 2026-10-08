@@ -4,6 +4,12 @@ public sealed class AgentRuntimeInstance
 {
     public Guid Id { get; set; }
     public Guid TickId { get; set; }
+    public const int CurrentMemoryReadEvidenceVersion = 3;
+    // Existing runtimes are fenced: prior direct prompt/auxiliary inputs may be unverifiable.
+    public int MemoryReadEvidenceVersion { get; set; } = CurrentMemoryReadEvidenceVersion;
+    public DateTimeOffset? MemoryResetRequestedAt { get; set; }
+    public string? MemoryResetReasonCode { get; set; }
+    public DateTimeOffset? MemoryResetCompletedAt { get; set; }
     public Guid AgentInstallationId { get; set; }
     public AgentRuntimeStatus Status { get; private set; } = AgentRuntimeStatus.Queued;
     public string BrokerTokenHash { get; set; } = string.Empty;
@@ -63,7 +69,7 @@ public sealed class AgentRuntimeInstance
             (AgentRuntimeStatus.WaitingForMcpSession, AgentRuntimeStatus.Running or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported or AgentRuntimeStatus.Stopping or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.Failed or AgentRuntimeStatus.Cancelled) => true,
             (AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping or AgentRuntimeStatus.Completed or AgentRuntimeStatus.Failed) => true,
-            (AgentRuntimeStatus.Stopping, AgentRuntimeStatus.Completed or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.Failed or AgentRuntimeStatus.PolicyDenied or AgentRuntimeStatus.Cancelled) => true,
+            (AgentRuntimeStatus.Stopping, AgentRuntimeStatus.Queued or AgentRuntimeStatus.Completed or AgentRuntimeStatus.McpSessionTimedOut or AgentRuntimeStatus.RuntimeTimedOut or AgentRuntimeStatus.ExitedWithoutCompletion or AgentRuntimeStatus.StartFailed or AgentRuntimeStatus.Failed or AgentRuntimeStatus.PolicyDenied or AgentRuntimeStatus.Cancelled) => true,
             _ => false
         };
 }

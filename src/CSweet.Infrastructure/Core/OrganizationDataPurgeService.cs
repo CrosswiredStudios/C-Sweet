@@ -19,6 +19,13 @@ public sealed class OrganizationDataPurgeService(
     private static readonly HashSet<Type> PreservedEntityTypes =
     [
         typeof(AuditEvent),
+        typeof(MemoryCaptureRetryReceipt),
+        typeof(MemoryExtractionInputReceipt), // Removed through its job/message cascade, after quiescing.
+        typeof(MemoryReviewReceipt),
+        typeof(MemoryErasureReceipt),
+        typeof(MemoryTransferReceipt),
+        typeof(AgentMemoryReadReceipt), // Removed only through runtime/installation cascade after quiescing.
+        typeof(MemoryCaptureExclusion),
         typeof(Worker)
     ];
 

@@ -12,7 +12,7 @@ using Npgsql;
 
 namespace CSweet.Infrastructure.Setup;
 
-public sealed class AgentRuntimeManager(
+public sealed partial class AgentRuntimeManager(
     CSweetDbContext dbContext,
     IAgentWorkloadRunner workloads,
     IGuestImageRegistry guestImages,
@@ -21,9 +21,11 @@ public sealed class AgentRuntimeManager(
     ILogger<AgentRuntimeManager> logger,
     IAgentRuntimeEligibilityService eligibility,
     IAgentArtifactStore artifacts,
-    CSweet.Infrastructure.Compute.ComputeDefaultsService? computeDefaults = null) : IPluginRuntimeManager
+    CSweet.Infrastructure.Compute.ComputeDefaultsService? computeDefaults = null,
+    AgentWorkInbox? workInbox = null) : IPluginRuntimeManager
 {
     private const int MaximumAlwaysOnStartupAttempts = 3;
+    private const string StartupCleanupReasonPrefix = "runtime.start_cleanup: ";
     private static readonly AgentRuntimeStatus[] WorkloadActiveStatuses =
     [AgentRuntimeStatus.Starting, AgentRuntimeStatus.WaitingForMcpSession, AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping];
 
@@ -153,6 +155,8 @@ public sealed class AgentRuntimeManager(
                 cancellationToken);
         if (activeRuntime is not null)
         {
+            // A repeated restart must not reset the recovery timer or free an occupied slot.
+            if (activeRuntime.Status == AgentRuntimeStatus.Stopping) return false;
             await StopAndFinishAsync(
                 activeRuntime,
                 AgentRuntimeStatus.Cancelled,
@@ -369,6 +373,19 @@ public sealed class AgentRuntimeManager(
                         cancellationToken);
                 if (instance is null) continue;
 
+                if (instance.MemoryResetRequestedAt is not null)
+                {
+                    if (workInbox is null) throw new InvalidOperationException("Runtime memory recovery requires the durable work inbox.");
+                    await workInbox.SettleMemoryResetAsync(instance.Id, cancellationToken);
+                    if (instance.Status != AgentRuntimeStatus.Stopping)
+                    {
+                        await StopAndFinishAsync(instance, AgentRuntimeStatus.Cancelled,
+                            CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.FailureCode, now, cancellationToken);
+                        changed++;
+                        continue;
+                    }
+                }
+
                 // A runtime that already entered Stopping must finish recovery before any
                 // eligibility decision. Re-running StopAndFinishAsync for an interrupted stop
                 // continually refreshed its stopping event and could starve every newer runtime.
@@ -377,7 +394,7 @@ public sealed class AgentRuntimeManager(
                     var settings = await SettingsAsync(cancellationToken);
                     var stoppingAt = instance.Events
                         .Where(x => x.Status == AgentRuntimeStatus.Stopping)
-                        .MinBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
+                        .MaxBy(x => x.OccurredAt)?.OccurredAt ?? instance.StartedAt ?? instance.QueuedAt;
                     if (stoppingAt.AddSeconds(settings.WorkloadStopGraceSeconds + 5) <= now)
                     {
                         await RecoverInterruptedStopAsync(instance, settings, now, cancellationToken);
@@ -508,6 +525,9 @@ public sealed class AgentRuntimeManager(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        await RevokeRuntimeSessionsAsync(instance.Id, now, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        if (!await ConfirmFleetShutdownAsync(instance, cancellationToken)) return;
         if (TryGetHandle(instance) is { } handle)
         {
             try
@@ -516,6 +536,8 @@ public sealed class AgentRuntimeManager(
                 if (status is not null)
                 {
                     await workloads.DestroyAsync(handle, cancellationToken);
+                    status = await workloads.InspectAsync(handle, cancellationToken);
+                    if (!IsStopped(status)) return;
                 }
                 instance.ProviderInstanceId = null;
                 instance.IsolationProviderId = null;
@@ -523,14 +545,19 @@ public sealed class AgentRuntimeManager(
             catch (AgentWorkloadException exception)
             {
                 logger.LogWarning(exception, "Interrupted stop cleanup failed for runtime {RuntimeInstanceId}.", instance.Id);
+                return;
             }
         }
 
         const string recoveryReason = "Recovered a runtime interrupted while stopping; a fresh attempt can now start.";
-        Transition(instance, AgentRuntimeStatus.Failed, now, recoveryReason);
-        HandleAlwaysOnTermination(instance, AgentRuntimeStatus.Failed, now, settings);
+        var outcome = instance.MemoryResetRequestedAt is not null ? AgentRuntimeStatus.Cancelled :
+            instance.Reason?.StartsWith(StartupCleanupReasonPrefix, StringComparison.Ordinal) == true
+                ? AgentRuntimeStatus.StartFailed : AgentRuntimeStatus.Failed;
+        Transition(instance, outcome, now, recoveryReason);
+        if (instance.MemoryResetRequestedAt is not null) instance.MemoryResetCompletedAt = now;
+        HandleAlwaysOnTermination(instance, outcome, now, settings);
         await dbContext.SaveChangesAsync(cancellationToken);
-        await AuditOutcomeAsync(instance, AgentRuntimeStatus.Failed, cancellationToken);
+        await AuditOutcomeAsync(instance, outcome, cancellationToken);
     }
 
     private async Task RecoverInterruptedStartAsync(
@@ -540,18 +567,9 @@ public sealed class AgentRuntimeManager(
         CancellationToken cancellationToken)
     {
         var handle = TryGetHandle(instance);
-        if (handle is null)
-        {
-            const string missingHandleReason = "Isolation startup was interrupted before a durable provider handle was returned; the boot lease will reap any partial VM.";
-            Transition(instance, AgentRuntimeStatus.StartFailed, now, missingHandleReason);
-            HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, now, settings);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await AuditOutcomeAsync(instance, AgentRuntimeStatus.StartFailed, cancellationToken);
-            return;
-        }
         try
         {
-            var status = await workloads.InspectAsync(handle, cancellationToken);
+            var status = handle is null ? null : await workloads.InspectAsync(handle, cancellationToken);
             if (status?.State == IsolationWorkloadState.Running)
             {
                 instance.RuntimeDeadlineAt = now.AddSeconds(instance.AgentInstallation!.Schedule!.MaxRuntimeSeconds);
@@ -559,17 +577,10 @@ public sealed class AgentRuntimeManager(
                     instance,
                     AgentRuntimeStatus.WaitingForMcpSession,
                     now,
-                    $"Recovered isolated workload {handle.ProviderInstanceId}; awaiting broker session establishment.");
+                    $"Recovered isolated workload {handle!.ProviderInstanceId}; awaiting broker session establishment.");
                 await dbContext.SaveChangesAsync(cancellationToken);
                 return;
             }
-
-            if (status is not null)
-            {
-                await workloads.DestroyAsync(handle, cancellationToken);
-            }
-            instance.ProviderInstanceId = null;
-            instance.IsolationProviderId = null;
         }
         catch (AgentWorkloadException exception)
         {
@@ -577,11 +588,8 @@ public sealed class AgentRuntimeManager(
             instance.LogExcerpt = $"Could not recover interrupted isolation start: {exception.Message}";
         }
 
-        const string recoveryReason = "Isolated workload startup was interrupted; retry to start a fresh disposable VM.";
-        Transition(instance, AgentRuntimeStatus.StartFailed, now, recoveryReason);
-        HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, now, settings);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await AuditOutcomeAsync(instance, AgentRuntimeStatus.StartFailed, cancellationToken);
+        await StopAndFinishAsync(instance, AgentRuntimeStatus.StartFailed,
+            StartupCleanupReasonPrefix + "Isolated workload startup was interrupted.", now, cancellationToken);
     }
 
     private async Task<bool> ClaimAndQueueAsync(Guid scheduleId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -846,6 +854,11 @@ public sealed class AgentRuntimeManager(
         catch (AgentWorkloadCapacityUnavailableException exception)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Transition(instance, AgentRuntimeStatus.Stopping, DateTimeOffset.UtcNow,
+                StartupCleanupReasonPrefix + "Fleet startup cancellation requires shutdown confirmation before requeue.");
+            await RevokeRuntimeSessionsAsync(instance.Id, DateTimeOffset.UtcNow, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            if (!await ConfirmFleetShutdownAsync(instance, cancellationToken)) return true;
             instance.BrokerTokenHash = string.Empty;
             instance.IsolationProviderId = null;
             instance.ProviderInstanceId = null;
@@ -853,16 +866,18 @@ public sealed class AgentRuntimeManager(
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            await TryRemoveFailedStartAsync(instance, cancellationToken);
             instance.LogExcerpt = "Certified VM launch timed out.";
-            Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, "Certified VM start timed out.");
+            await StopAndFinishAsync(instance, AgentRuntimeStatus.StartFailed,
+                StartupCleanupReasonPrefix + "Certified VM start timed out.", DateTimeOffset.UtcNow, cancellationToken);
+            return true;
         }
         catch (Exception exception) when (exception is AgentWorkloadException or IsolationUnavailableException or InvalidOperationException)
         {
             logger.LogError(exception, "Failed to start runtime {RuntimeInstanceId}", instance.Id);
-            await TryRemoveFailedStartAsync(instance, cancellationToken);
             instance.LogExcerpt = $"Certified VM launch failed.{Environment.NewLine}{exception.Message}";
-            Transition(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, exception.Message);
+            await StopAndFinishAsync(instance, AgentRuntimeStatus.StartFailed,
+                StartupCleanupReasonPrefix + exception.Message, DateTimeOffset.UtcNow, cancellationToken);
+            return true;
         }
         if (instance.Status == AgentRuntimeStatus.StartFailed)
             HandleAlwaysOnTermination(instance, AgentRuntimeStatus.StartFailed, DateTimeOffset.UtcNow, settings);
@@ -910,28 +925,24 @@ public sealed class AgentRuntimeManager(
         await AuditOutcomeAsync(instance, AgentRuntimeStatus.Failed, cancellationToken);
     }
 
-    private async Task TryRemoveFailedStartAsync(AgentRuntimeInstance instance, CancellationToken cancellationToken)
-    {
-        var handle = TryGetHandle(instance);
-        if (handle is null) return;
-        try
-        {
-            if (await workloads.InspectAsync(handle, cancellationToken) is not null)
-                await workloads.DestroyAsync(handle, cancellationToken);
-            instance.ProviderInstanceId = null;
-            instance.IsolationProviderId = null;
-        }
-        catch (AgentWorkloadException exception)
-        {
-            logger.LogWarning(exception, "Failed-start resource cleanup will be retried for runtime {RuntimeInstanceId}.", instance.Id);
-        }
-    }
-
     private async Task StopAndFinishAsync(AgentRuntimeInstance instance, AgentRuntimeStatus terminal, string reason, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        // Recovery owns an existing stop. Repeated cancellation must preserve its reason
+        // and timer; capacity retries can have a separate, earlier completed stop phase.
+        if (instance.Status == AgentRuntimeStatus.Stopping) return;
+        if (instance.MemoryResetRequestedAt is not null)
+        {
+            if (workInbox is null) throw new InvalidOperationException("Runtime memory recovery requires the durable work inbox.");
+            await workInbox.SettleMemoryResetAsync(instance.Id, cancellationToken);
+            terminal = AgentRuntimeStatus.Cancelled;
+            reason = CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.FailureCode;
+        }
         Transition(instance, AgentRuntimeStatus.Stopping, now, reason);
+        // Fence broker admission in the same save as Stopping, before asynchronous provider calls.
+        await RevokeRuntimeSessionsAsync(instance.Id, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         var settings = await SettingsAsync(cancellationToken);
+        if (!await ConfirmFleetShutdownAsync(instance, cancellationToken)) return;
         if (TryGetHandle(instance) is { } handle)
         {
             try
@@ -951,9 +962,11 @@ public sealed class AgentRuntimeManager(
             try
             {
                 await workloads.StopAsync(handle, TimeSpan.FromSeconds(settings.WorkloadStopGraceSeconds), cancellationToken);
+                if (!IsStopped(await workloads.InspectAsync(handle, cancellationToken))) return;
                 if (settings.RemoveWorkloadsAfterCompletion)
                 {
                     await workloads.DestroyAsync(handle, cancellationToken);
+                    if (!IsStopped(await workloads.InspectAsync(handle, cancellationToken))) return;
                     instance.ProviderInstanceId = null;
                     instance.IsolationProviderId = null;
                 }
@@ -961,9 +974,14 @@ public sealed class AgentRuntimeManager(
                 await auditWriter.WriteAsync("agent-runtime.workload.stopped", nameof(AgentRuntimeInstance), instance.Id,
                     $"Stopped isolated workload {handle.ProviderId}/{handle.ProviderInstanceId}: {reason}", cancellationToken: cancellationToken);
             }
-            catch (AgentWorkloadException exception) { logger.LogWarning(exception, "Isolated workload cleanup failed for runtime {RuntimeInstanceId}", instance.Id); }
+            catch (AgentWorkloadException exception)
+            {
+                logger.LogWarning(exception, "Isolated workload cleanup failed for runtime {RuntimeInstanceId}", instance.Id);
+                return;
+            }
         }
         Transition(instance, terminal, DateTimeOffset.UtcNow, reason);
+        if (instance.MemoryResetRequestedAt is not null) instance.MemoryResetCompletedAt = DateTimeOffset.UtcNow;
         var sessions = await dbContext.McpAgentSessions
             .Where(x => x.RuntimeInstanceId == instance.Id && x.RevokedAt == null)
             .ToListAsync(cancellationToken);
@@ -977,6 +995,19 @@ public sealed class AgentRuntimeManager(
         HandleAlwaysOnTermination(instance, terminal, DateTimeOffset.UtcNow, settings);
         await dbContext.SaveChangesAsync(cancellationToken);
         await AuditOutcomeAsync(instance, terminal, cancellationToken);
+    }
+
+    private static bool IsStopped(IsolationWorkloadStatus? status) =>
+        status is null || status.State is IsolationWorkloadState.Stopped or IsolationWorkloadState.Destroyed;
+
+    private async Task RevokeRuntimeSessionsAsync(Guid runtimeId, DateTimeOffset now, CancellationToken token)
+    {
+        var sessions = await dbContext.McpAgentSessions.Where(x => x.RuntimeInstanceId == runtimeId && x.RevokedAt == null).ToListAsync(token);
+        foreach (var session in sessions)
+        {
+            session.RevokedAt = now;
+            session.RevocationReason = "The runtime is stopping; its broker authority has been revoked.";
+        }
     }
 
     private void AddTerminalInstance(Guid installationId, AgentRuntimeStatus status, DateTimeOffset now, string reason)
@@ -1020,6 +1051,12 @@ public sealed class AgentRuntimeManager(
         var schedule = instance.AgentInstallation?.Schedule;
         if (schedule?.ActivationMode != ActivationMode.AlwaysOn || !schedule.IsEnabled || instance.AgentInstallation?.IsEnabled != true)
             return;
+
+        if (instance.MemoryResetCompletedAt is not null)
+        {
+            schedule.NextTickAt = occurredAt;
+            return;
+        }
 
         var startupFailed = instance.McpSessionEstablishedAt is null && terminal is
             AgentRuntimeStatus.StartFailed or

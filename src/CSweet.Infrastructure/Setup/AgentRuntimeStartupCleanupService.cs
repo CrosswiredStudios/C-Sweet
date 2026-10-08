@@ -34,7 +34,9 @@ public sealed class AgentRuntimeStartupCleanupService(
             {
                 if (await workloads.InspectAsync(handle, cancellationToken) is not null)
                     await workloads.DestroyAsync(handle, cancellationToken);
-                removed++;
+                var status = await workloads.InspectAsync(handle, cancellationToken);
+                if (status is null || status.State is IsolationWorkloadState.Stopped or IsolationWorkloadState.Destroyed)
+                    removed++;
             }
             catch (AgentWorkloadException exception)
             {

@@ -1,0 +1,79 @@
+name: Memory contracts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/memory-contracts.yml'
+      - 'Directory.*.props'
+      - 'src/**/*Memory*'
+      - 'tests/CSweet.UnitTests/*Memory*'
+      - 'tests/CSweet.UnitTests/*Audit*'
+      - 'src/CSweet.Infrastructure/Persistence/**'
+      - 'src/CSweet.Infrastructure/Llm/**'
+      - 'src/CSweet.Api/Chat/**'
+      - 'src/CSweet.Infrastructure/Core/UsageCapturingChatClient.cs'
+      - 'src/CSweet.AgentHost/Broker/*Llm*'
+      - 'src/CSweet.Domain/Setup/AgentWorkItem.cs'
+      - 'src/CSweet.Domain/Setup/AgentRuntimeInstance.cs'
+      - 'src/CSweet.AgentHost/Program.cs'
+      - 'src/CSweet.Infrastructure/Setup/AgentWorkInbox*.cs'
+      - 'src/CSweet.Infrastructure/Setup/AgentRuntimeManager*.cs'
+      - 'src/CSweet.Infrastructure/Setup/AgentRuntimeStartupCleanupService.cs'
+      - 'src/CSweet.Infrastructure/Setup/AgentRuntimeSignalService.cs'
+      - 'src/CSweet.Infrastructure/Setup/FleetAgentWorkloadRunner.cs'
+      - 'src/CSweet.Infrastructure/Setup/ExecutionWorkloadOrchestrator*'
+      - 'src/CSweet.Application/Setup/IExecutionWorkloadOrchestrator.cs'
+      - 'src/CSweet.Domain/Setup/ExecutionAssignmentAttempt.cs'
+      - 'src/CSweet.Domain/Setup/ExecutionFleet.cs'
+      - 'src/CSweet.ExecutionGateway/OfficeGatewayService.cs'
+      - 'tests/CSweet.UnitTests/ExecutionWorkload*Tests.cs'
+      - 'tests/CSweet.UnitTests/OfficeGateway*Tests.cs'
+      - 'tests/CSweet.UnitTests/AgentRuntimeManagerTests.cs'
+      - 'tests/CSweet.UnitTests/AgentRuntimeStartup*Tests.cs'
+      - 'src/CSweet.Application/Core/PreparedMemoryRecall.cs'
+      - 'tests/CSweet.UnitTests/*DispatchTests.cs'
+      - 'tests/CSweet.UnitTests/*Llm*Tests.cs'
+
+permissions:
+  contents: read
+
+jobs:
+  memory-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: memory-ci-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CSWEET_MEMORY_TEST_POSTGRES: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=memory-ci-only
+      CSWEET_COMPUTE_TEST_DATABASE: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=memory-ci-only
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      # All pinned dependencies must be available from the configured feed before this
+      # release gate can pass. Sibling sources must never conceal a stale package.
+      - name: Test broker, platform recall and durable worker contracts
+        run: >-
+          dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
+          --configuration Release
+          --filter 'FullyQualifiedName~Memory|FullyQualifiedName~Audit|FullyQualifiedName~AgentRuntime|FullyQualifiedName~ChatPromptPolicyTests|FullyQualifiedName~OpenAiCompatibleLlmProviderFactoryTests|FullyQualifiedName~ProviderDispatchTests|FullyQualifiedName~PlatformLlmCapabilityHandlerTests|FullyQualifiedName~AgentWorkInboxTests|FullyQualifiedName~ExecutionWorkload|FullyQualifiedName~OfficeGateway|FullyQualifiedName~OfficeConnectionIdentityTests|FullyQualifiedName~PlatformLlmQueueTests|FullyQualifiedName~PlatformLlmPagingTests|FullyQualifiedName~LlmProviderFailureMessageTests|FullyQualifiedName~ProviderResponseContractChatClientTests|FullyQualifiedName~ReasoningContentChatClientTests|FullyQualifiedName~OrganizationDeletionTests'
+          --logger 'trx;LogFileName=memory-contracts.trx' --results-directory artifacts/memory-contracts
+          -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
+          -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
+          -p:UseLocalIsolation=false -p:UseSharedCompilation=false -m:1 -nr:false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: memory-contract-results
+          path: artifacts/memory-contracts/*.trx

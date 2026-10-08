@@ -13,6 +13,8 @@ internal static class LlmProviderFailureMessage
     // Return approved explanations, never raw provider bodies, endpoints, credentials or prompts.
     internal static string From(Exception exception)
     {
+        if (exception is CSweet.Infrastructure.Llm.ProviderDispatchDeniedException)
+            return "The provider configuration or caller authorization changed before dispatch. Refresh the current work and permissions before retrying.";
         if (exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract)
             return contract.Message;
         var text = exception.Message;
@@ -28,6 +30,7 @@ internal static class LlmProviderFailureMessage
         return "The platform LLM provider could not complete the request. Review the provider diagnostics before retrying.";
     }
 
-    internal static string CodeFrom(Exception exception) => exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract
+    internal static string CodeFrom(Exception exception) => exception is CSweet.Infrastructure.Llm.ProviderDispatchDeniedException
+        ? "llm.dispatch_denied" : exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract
         ? contract.FailureCode : IsTransient(exception) ? "llm.provider_unavailable" : "llm.request_failed";
 }

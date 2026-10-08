@@ -21,7 +21,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
 
-public sealed class PlatformLlmCapabilityHandlerTests
+public sealed partial class PlatformLlmCapabilityHandlerTests
 {
     [Theory]
     [InlineData("llm.tool_protocol")]
@@ -35,7 +35,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new StreamingProviderFactory(new ThrowingAfterUsageChatClient(false, new CSweet.Infrastructure.Llm.LlmResponseContractException(code))),
             new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance);
-        var results = await ReadAsync(handler, providerId);
+        var results = await ReadAsync(db, handler, providerId);
         var failure = Assert.Single(results, x => !x.Succeeded);
         Assert.Equal(code, failure.FailureCode);
         Assert.False(failure.Retryable);
@@ -76,6 +76,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             })
         };
         var results = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, request, default)) results.Add(result);
         if (accepted)
         {
@@ -122,6 +123,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         };
 
         var results = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
 
         var failure = Assert.Single(results);
@@ -164,6 +166,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             }, JsonOptions))
         };
         var results = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
         if (effective != -1)
         {
@@ -252,12 +255,14 @@ public sealed class PlatformLlmCapabilityHandlerTests
         };
 
         var accepted = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, CreateRequest(digest), CancellationToken.None))
             accepted.Add(result);
         Assert.True(resolver.ResolutionCount > 0);
         Assert.All(accepted, result => Assert.True(result.Succeeded, result.Error));
 
         var denied = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, CreateRequest(new string('0', 64)), CancellationToken.None))
             denied.Add(result);
         var failure = Assert.Single(denied);
@@ -359,6 +364,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
                 Revision: 1));
 
         var results = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var streamedResult in handler.StreamAsync(session, request, CancellationToken.None))
             results.Add(streamedResult);
 
@@ -435,7 +441,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
-        var results = await ReadAsync(handler, providerId);
+        var results = await ReadAsync(db, handler, providerId);
 
         Assert.Equal(2, results.Count);
         Assert.True(results[0].Succeeded);
@@ -469,7 +475,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
             new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
 
-        var results = await ReadAsync(handler, providerId);
+        var results = await ReadAsync(db, handler, providerId);
 
         Assert.Equal(7, results.Count);
         Assert.All(results, result => Assert.True(result.Succeeded));
@@ -493,7 +499,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
         var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(), new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), [], new TestMediaAssetService(),
             NullLogger<PlatformLlmCapabilityHandler>.Instance);
-        var result = Assert.Single(await ReadAsync(handler, provider, org));
+        var result = Assert.Single(await ReadAsync(db, handler, provider, org));
         Assert.False(result.Succeeded);
         Assert.Contains("variant", result.Error);
         Assert.Empty(await db.AgentRunLogs.ToListAsync());
@@ -518,7 +524,7 @@ public sealed class PlatformLlmCapabilityHandlerTests
     }
 
     private static async Task<IReadOnlyList<CapabilityResult>> ReadAsync(
-        PlatformLlmCapabilityHandler handler,
+        CSweetDbContext db, PlatformLlmCapabilityHandler handler,
         Guid providerId, Guid? organizationId = null)
     {
         var request = new RequestCapability
@@ -545,9 +551,35 @@ public sealed class PlatformLlmCapabilityHandlerTests
                 new HashSet<string>([PlatformCapabilities.LlmChatStream], StringComparer.Ordinal),
                 Revision: 1));
         var results = new List<CapabilityResult>();
+        await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None))
             results.Add(result);
         return results;
+    }
+
+    private static async Task SeedDispatchAuthorityAsync(CSweetDbContext db, AgentSession session)
+    {
+        var installationId = Guid.Parse(session.InstallationId);
+        var installation = await db.AgentInstallations.Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installationId);
+        if (installation is null)
+        {
+            installation = new AgentInstallation { Id = installationId, BusinessId = session.BusinessId, IsEnabled = true };
+            db.AgentInstallations.Add(installation);
+        }
+        if (installation.Grant is null)
+            installation.Grant = new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = installationId,
+                GrantRevision = session.Grant.Revision, RequiredCapabilitiesJson = JsonSerializer.Serialize(session.Grant.RequestedCapabilities) };
+        var runtimeId = Guid.Parse(session.RuntimeInstanceId);
+        if (!await db.AgentRuntimeInstances.AnyAsync(x => x.Id == runtimeId))
+        {
+            var runtime = new AgentRuntimeInstance { Id = runtimeId, AgentInstallationId = installationId, TickId = Guid.Parse(session.TickId),
+                RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddHours(1) };
+            runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow);
+            runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow);
+            runtime.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow);
+            db.AgentRuntimeInstances.Add(runtime);
+        }
+        await db.SaveChangesAsync();
     }
 
     private sealed class StreamingProviderFactory(IChatClient? client = null) : ILlmProviderFactory

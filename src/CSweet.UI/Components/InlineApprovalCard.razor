@@ -1,0 +1,49 @@
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Realtime
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+
+@if (_item is not null)
+{
+    <ProjectCreationApprovalCard Item="_item" OrganizationId="OrganizationId" Compact="true" CanInteract="CanInteract" DecisionCompleted="DecidedAsync" />
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Warning">@_error <MudButton OnClick="LoadAsync">Refresh</MudButton></MudAlert>
+}
+else { <MudProgressLinear Indeterminate="true" aria-label="Loading approval" /> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ApprovalId { get; set; }
+    [Parameter] public bool CanInteract { get; set; } = true;
+    [Parameter] public EventCallback DecisionCompleted { get; set; }
+    private ApprovalDashboardItemResponse? _item;
+    private string? _error;
+    private bool _disposed;
+    private long _version;
+    private (Guid, Guid) _loaded;
+    protected override void OnInitialized() { Realtime.EventReceived += Changed; Realtime.Reconnected += Reconnected; }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == (OrganizationId, ApprovalId)) return;
+        _loaded = (OrganizationId, ApprovalId); _item = null;
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        var version = ++_version; _error = null;
+        try
+        {
+            var item = await Http.GetFromJsonAsync<ApprovalDashboardItemResponse>($"api/core/organizations/{OrganizationId:D}/approvals/projects/{ApprovalId:D}");
+            if (!_disposed && version == _version) { _item = item; if (item is null) _error = "Approval unavailable."; }
+        }
+        catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException)
+        { if (!_disposed && version == _version) { _item = null; _error = "This approval is unavailable or you no longer have access."; } }
+    }
+    private async Task DecidedAsync(string _) { await LoadAsync(); await DecisionCompleted.InvokeAsync(); }
+    private void Changed(AppRealtimeEventEnvelope e) { if (e.OrganizationId == OrganizationId && e.EventType == AppRealtimeEvents.ApprovalChanged) Reconnected(); }
+    private void Reconnected() => _ = InvokeAsync(async () => { if (_disposed) return; await LoadAsync(); StateHasChanged(); });
+    public void Dispose() { _disposed = true; _version++; Realtime.EventReceived -= Changed; Realtime.Reconnected -= Reconnected; }
+}

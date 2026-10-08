@@ -64,7 +64,10 @@ public sealed class FleetAgentWorkloadRunner(
             var pending = await ReadAsync(reference.AssignmentId, CancellationToken.None);
             await orchestrator.CancelAsync(reference.AssignmentId,
                 "Runtime startup was cancelled by the control plane.", CancellationToken.None);
-            if (pending.Status == ExecutionAssignmentStatus.Pending)
+            // Assignment may win between the read above and cancellation. Only confirmed
+            // shutdown permits a capacity retry; a stale Pending snapshot is not proof.
+            if (pending.Status == ExecutionAssignmentStatus.Pending &&
+                (await InspectAsync(Handle(workload, pending), CancellationToken.None))?.State == IsolationWorkloadState.Stopped)
                 throw new AgentWorkloadCapacityUnavailableException(
                     "Waiting for certified Office capacity. The agent will start automatically when a slot is available.");
             throw;
@@ -85,8 +88,9 @@ public sealed class FleetAgentWorkloadRunner(
             ExecutionAssignmentStatus.Starting => IsolationWorkloadState.Starting,
             ExecutionAssignmentStatus.Running => IsolationWorkloadState.Running,
             ExecutionAssignmentStatus.Stopping => IsolationWorkloadState.Stopping,
-            ExecutionAssignmentStatus.Completed or ExecutionAssignmentStatus.Cancelled => IsolationWorkloadState.Stopped,
-            _ => IsolationWorkloadState.Failed
+            _ => assignment.StopEvidenceVersion == 1 && !await dbContext.ExecutionAssignmentAttempts
+                .AnyAsync(x => x.AssignmentId == assignment.Id && x.StoppedAt == null, cancellationToken)
+                ? IsolationWorkloadState.Stopped : IsolationWorkloadState.Stopping
         };
         var termination = assignment.Status switch
         {

@@ -1,0 +1,164 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudDivider Class="my-3" />
+<MudText Typo="Typo.subtitle2">Forgetting impact</MudText>
+<MudText Typo="Typo.body2">Review which stored memories and audiences would be affected by forgetting this source.</MudText>
+<MudButton OnClick="LoadAsync" Disabled="@(_busy || _request is not null || _result is not null)">@(_busy ? "Checking impact..." : "Preview forgetting impact")</MudButton>
+@if (_impact is { } impact)
+{
+    <MudAlert Severity="Severity.Info">Nothing has been erased yet. Forgetting removes the verified memory records, retained history, affected work and diagnostic copies. Original conversation messages and already delivered answers remain visible; affected source messages are excluded from future memory and prompt context.</MudAlert>
+    <MudText>@impact.RecordCount distinct memory records across @impact.Audiences.Count audiences, including retained history and transferred copies. A record moved between audiences can appear in more than one row.</MudText>
+    @foreach (var audience in impact.Audiences)
+    {
+        <MudText Typo="Typo.subtitle2">@audience.AudienceName · @audience.Scope</MudText>
+        <MudText>@string.Join(", ", audience.Records.Select(x => $"{x.Kind}: {x.Count}"))</MudText>
+    }
+    @if (impact.BlockedReason is not null)
+    { <MudAlert Severity="Severity.Warning">@Blocker(impact.BlockedReason)</MudAlert> }
+    @if (impact.Execution is { } execution)
+    {
+        <MudText>@execution.CaptureSources capture sources, @execution.ExtractionJobs extraction jobs, and @execution.WorkItems work items would require cleanup. @execution.ActiveRuntimes active runtimes would need to stop; @execution.Runtimes runtimes are represented in the affected work history.</MudText>
+    }
+    <MudText>@impact.DiagnosticTurns chat turns have diagnostic copies in this review.</MudText>
+    @if (impact.ApplyBlockedReason is { } reason && reason != impact.BlockedReason)
+    { <MudAlert Severity="Severity.Warning">@Blocker(reason)</MudAlert> }
+    @if (impact.EvidenceToken is not null && _result is null && _request is null)
+    {
+        <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="_busy" Label="I reviewed the affected audiences and understand this erasure cannot be undone." />
+        <MudButton Color="Color.Error" OnClick="ApplyAsync" Disabled="@(_busy || !_confirmed)">Forget reviewed source</MudButton>
+    }
+    <MudText Typo="Typo.caption">Backups, transaction logs, replicas and previously delivered content require separate retention handling. Refresh after changes.</MudText>
+}
+@if (_request is not null && _result is null)
+{
+    <MudText Typo="Typo.caption">Operation: @_request.OperationId. Keep this ID to recover status after reopening the page.</MudText>
+    <MudButton OnClick="ApplyAsync" Disabled="_busy">Retry the same erasure</MudButton>
+}
+@if (_result is { } result)
+{
+    <MudAlert Severity="@(result.PendingRuntimes == 0 ? Severity.Success : Severity.Info)">
+        @result.ErasedRecords records and @result.ErasedRevisions historical versions erased; @result.ClearedWorks work items and @result.ClearedDiagnosticTurns diagnostic turns cleared.
+        @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
+    </MudAlert>
+    <MudText Typo="Typo.caption">Operation: @result.OperationId</MudText>
+    <MudButton OnClick="StatusAsync" Disabled="_busy">Refresh erasure status</MudButton>
+}
+@if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public Guid EpisodeId { get; set; }
+    private (Guid, Guid, Guid) _identity;
+    private long _generation;
+    private MemoryErasureImpactResponse? _impact;
+    private bool _busy;
+    private string? _message;
+    private bool _confirmed;
+    private EraseMemorySourceRequest? _request;
+    private MemoryErasureResponse? _result;
+
+    protected override void OnParametersSet()
+    {
+        var identity = (OrganizationId, EmployeeId, EpisodeId);
+        if (_identity == identity) return;
+        _identity = identity; _generation++; _impact = null; _message = null; _busy = false;
+        _confirmed = false; _request = null; _result = null;
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_busy || _request is not null || _result is not null) return;
+        var generation = ++_generation;
+        var episode = EpisodeId;
+        var url = $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/episodes/{episode}/erasure-impact";
+        _busy = true; _impact = null; _message = null; _confirmed = false;
+        try
+        {
+            using var response = await Http.GetAsync(url);
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                _message = response.StatusCode switch
+                {
+                    HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "This preview requires the top-level human manager and access to every affected audience. No partial preview is shown.",
+                    HttpStatusCode.Conflict => "The impact cannot currently be verified. Refresh and try again; evidence may be changing or need further review.",
+                    _ => "The forgetting impact is unavailable. Refresh or try again later."
+                };
+                return;
+            }
+            var impact = await response.Content.ReadFromJsonAsync<MemoryErasureImpactResponse>();
+            if (generation == _generation)
+            {
+                if (impact?.EpisodeId != episode) throw new System.Text.Json.JsonException();
+                _impact = impact;
+            }
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (generation == _generation) _message = "The forgetting impact could not be loaded. Try again."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_busy || _result is not null) return;
+        if (_request is null)
+        {
+            if (!_confirmed || _impact?.EvidenceToken is not { } evidence) return;
+            _request = new(Guid.NewGuid(), evidence);
+        }
+        var request = _request;
+        await MutationAsync($"episodes/{EpisodeId}/erase", request, request.OperationId);
+    }
+
+    private Task StatusAsync() => _result is null || _busy ? Task.CompletedTask :
+        MutationAsync($"erasure-operations/{_result.OperationId}", null, _result.OperationId);
+
+    private async Task MutationAsync(string path, EraseMemorySourceRequest? request, Guid operation)
+    {
+        var generation = ++_generation; var episode = EpisodeId;
+        var url = $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/{path}";
+        _busy = true; _message = null;
+        try
+        {
+            using var response = request is null ? await Http.GetAsync(url) : await Http.PostAsJsonAsync(url, request);
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
+                    ? "Current permission to every affected audience is required."
+                    : "The erasure could not be confirmed. Retry the same operation or refresh its status.";
+                if (request is not null && response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.BadRequest)
+                { _request = null; _impact = null; _confirmed = false; _message = "The review changed or is blocked. Preview the source again before erasing."; }
+                return;
+            }
+            var result = await response.Content.ReadFromJsonAsync<MemoryErasureResponse>();
+            if (result?.OperationId != operation || result.EpisodeId != episode || result.Status is not ("completed" or "runtime-reset-pending"))
+                throw new System.Text.Json.JsonException();
+            if (generation == _generation) { _result = result; _impact = null; _request = null; }
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (generation == _generation) _message = "The response was lost. Retry the same erasure operation to recover its receipt."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+
+    private static string Blocker(string reason) => reason switch
+    {
+        "memory_legal_hold_prevents_deletion" => "A retention hold prevents erasure. Its obligations must be reviewed before forgetting can proceed.",
+        "memory_erasure_lineage_review_required" => "Some source links cannot be verified. Their lineage must be reviewed before a complete erasure can be planned.",
+        "memory_erasure_source_review_required" => "Some historical sources cannot yet be mapped to their capture jobs. Source review is required.",
+        "memory_erasure_work_lineage_review_required" => "Some queued or delivered work has incomplete memory-read evidence. Work review is required before its impact can be verified.",
+        "memory_erasure_work_audience_review_required" => "The affected runtime also handled work whose input audience needs further review.",
+        "memory_erasure_work_retention_review_required" => "Retention for some evidence in affected work cannot yet be verified.",
+        "memory_erasure_work_prompt_review_required" => "Some affected chat prompts lack complete source evidence. Source review is required.",
+        "memory_erasure_work_attachment_review_required" => "Attached media has independent source and retention obligations. Attachment review is required before forgetting can proceed.",
+        "memory_erasure_capture_lineage_review_required" => "Some saved extraction results have incomplete input evidence. Source review is required.",
+        "memory_erasure_capture_retention_review_required" => "Retention for all extraction inputs cannot yet be verified. If extraction is running, refresh after it finishes.",
+        "memory_erasure_chat_turn_in_progress" => "An affected chat is still running. Let it finish or cancel it, then refresh this review.",
+        "memory_erasure_diagnostics_review_required" => "Older audit diagnostics may retain source content. Their retention obligations need review before forgetting can proceed.",
+        "memory_erasure_external_delivery_review_required" => "An affected answer has external delivery records. Their retention obligations need review before forgetting can proceed.",
+        _ => "Erasure is blocked pending further evidence review."
+    };
+}

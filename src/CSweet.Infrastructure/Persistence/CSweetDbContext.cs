@@ -72,6 +72,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<ExecutionNodeEnrollment> ExecutionNodeEnrollments => Set<ExecutionNodeEnrollment>();
     public DbSet<LocalOfficeSetupSession> LocalOfficeSetupSessions => Set<LocalOfficeSetupSession>();
     public DbSet<ExecutionWorkloadAssignment> ExecutionWorkloadAssignments => Set<ExecutionWorkloadAssignment>();
+    public DbSet<ExecutionAssignmentAttempt> ExecutionAssignmentAttempts => Set<ExecutionAssignmentAttempt>();
     public DbSet<AgentPackageSource> AgentPackageSources => Set<AgentPackageSource>();
     public DbSet<AgentPackageVersion> AgentPackageVersions => Set<AgentPackageVersion>();
     public DbSet<AgentDefinition> AgentDefinitions => Set<AgentDefinition>();
@@ -234,8 +235,18 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<AgentPlatformEventOutboxItem> AgentPlatformEventOutbox => Set<AgentPlatformEventOutboxItem>();
     public DbSet<ApplicationRealtimeOutboxItem> ApplicationRealtimeOutbox => Set<ApplicationRealtimeOutboxItem>();
     public DbSet<MemoryCaptureOutboxItem> MemoryCaptureOutbox => Set<MemoryCaptureOutboxItem>();
+    public DbSet<MemoryExtractionInputReceipt> MemoryExtractionInputReceipts => Set<MemoryExtractionInputReceipt>();
+    public DbSet<MemoryTransferReceipt> MemoryTransferReceipts => Set<MemoryTransferReceipt>();
+    public DbSet<MemoryReviewReceipt> MemoryReviewReceipts => Set<MemoryReviewReceipt>();
+    public DbSet<MemoryErasureReceipt> MemoryErasureReceipts => Set<MemoryErasureReceipt>();
+    public DbSet<MemoryCaptureRetryReceipt> MemoryCaptureRetryReceipts => Set<MemoryCaptureRetryReceipt>();
+    public DbSet<MemoryCaptureExclusion> MemoryCaptureExclusions => Set<MemoryCaptureExclusion>();
+    public DbSet<MemorySourceInvalidation> MemorySourceInvalidations => Set<MemorySourceInvalidation>();
+    public DbSet<MemorySourceReconciliationCheckpoint> MemorySourceReconciliationCheckpoints => Set<MemorySourceReconciliationCheckpoint>();
+    public DbSet<MemoryEnrichmentProviderLease> MemoryEnrichmentProviderLeases => Set<MemoryEnrichmentProviderLease>();
     public DbSet<AgentMemoryNamespaceRegistration> AgentMemoryNamespaces => Set<AgentMemoryNamespaceRegistration>();
     public DbSet<AgentMemoryRecallUse> AgentMemoryRecallUses => Set<AgentMemoryRecallUse>();
+    public DbSet<AgentMemoryReadReceipt> AgentMemoryReadReceipts => Set<AgentMemoryReadReceipt>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
     public DbSet<RootRecoveryCode> RootRecoveryCodes => Set<RootRecoveryCode>();
     public DbSet<EmailDeliveryProfile> EmailDeliveryProfiles => Set<EmailDeliveryProfile>();
@@ -298,9 +309,33 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     private void EnforceAppendOnlyAuditLedger()
     {
         ChangeTracker.DetectChanges();
-        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload &&
+        if (ChangeTracker.Entries<ChatTurn>().Any(x => x.State == EntityState.Added && x.Entity.MemoryErasedAt != null ||
+            x.State == EntityState.Modified && (x.Property(p => p.MemoryErasedAt).IsModified || x.Property(p => p.MemoryErasedAt).OriginalValue != null)))
+            throw new InvalidOperationException("Erased chat diagnostics are immutable.");
+        if (ChangeTracker.Entries<MemoryExtractionInputReceipt>().Any(x => x.State == EntityState.Modified ||
+            x.State == EntityState.Deleted && !ChangeTracker.Entries<MemoryCaptureOutboxItem>()
+                .Any(j => j.Entity.Id == x.Entity.JobId && j.State == EntityState.Deleted)))
+            throw new InvalidOperationException("Extraction input evidence is immutable for the lifetime of its job.");
+        if (ChangeTracker.Entries<AgentWorkItem>().Any(x =>
+            x.State == EntityState.Added && x.Entity.MemoryErasedAt is not null ||
+            x.State == EntityState.Modified && (x.Property(p => p.MemoryErasedAt).IsModified ||
+                x.Property(p => p.MemoryErasedAt).OriginalValue is not null)))
+            throw new InvalidOperationException("Erased work is immutable; only the server erasure transaction may create its tombstone.");
+        if (ChangeTracker.Entries<AgentWorkItem>().Any(x => x.State == EntityState.Modified &&
+            (x.Property(p => p.MemoryRecallReceiptJson).IsModified ||
+             (x.Property(p => p.MemoryRecallReceiptJson).OriginalValue is not null &&
+              (x.Property(p => p.PayloadHash).IsModified || x.Property(p => p.ProtectedPayload).IsModified ||
+               x.Property(p => p.SourceType).IsModified || x.Property(p => p.SourceId).IsModified ||
+               x.Property(p => p.OrganizationId).IsModified || x.Property(p => p.AgentInstallationId).IsModified)))))
+            throw new InvalidOperationException("Queued memory evidence and its work binding are immutable.");
+        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload or MemoryCaptureRetryReceipt or MemoryCaptureExclusion or MemorySourceInvalidation or MemoryReviewReceipt or MemoryTransferReceipt or MemoryErasureReceipt &&
             x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Security audit ledger records are append-only.");
+        if (ChangeTracker.Entries<AgentMemoryReadReceipt>().Any(x => x.State == EntityState.Modified ||
+            (x.State == EntityState.Deleted &&
+             !ChangeTracker.Entries<AgentRuntimeInstance>().Any(r => r.Entity.Id == x.Entity.RuntimeId && r.State == EntityState.Deleted) &&
+             !ChangeTracker.Entries<AgentInstallation>().Any(i => i.Entity.Id == x.Entity.InstallationId && i.State == EntityState.Deleted))))
+            throw new InvalidOperationException("Memory read evidence is immutable for the lifetime of its runtime.");
     }
 
     private void CaptureCommunicationEvents()
@@ -1080,6 +1115,18 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<ExecutionAssignmentAttempt>(entity =>
+        {
+            entity.HasKey(x => new { x.AssignmentId, x.FencingEpoch });
+            entity.Property(x => x.ProviderId).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.ProviderInstanceId).HasMaxLength(256).IsConcurrencyToken();
+            entity.Property(x => x.StoppedAt).IsConcurrencyToken();
+            entity.HasOne<ExecutionWorkloadAssignment>().WithMany().HasForeignKey(x => x.AssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ExecutionNode>().WithMany().HasForeignKey(x => x.ExecutionNodeId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<ExecutionWorkloadAssignment>(entity =>
         {
             entity.ToTable(table => table.HasCheckConstraint(
@@ -1398,7 +1445,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.Entity<AgentRuntimeInstance>(entity =>
         {
             entity.HasKey(x => x.Id);
-            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(48).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(48).IsRequired().IsConcurrencyToken();
+            entity.Property(x => x.MemoryResetRequestedAt).IsConcurrencyToken();
+            entity.Property(x => x.MemoryResetReasonCode).HasMaxLength(64);
             entity.Property(x => x.BrokerTokenHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.IsolationProviderId).HasMaxLength(100);
             entity.Property(x => x.ProviderInstanceId).HasMaxLength(256);
@@ -1516,7 +1565,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.HasKey(x => x.Id);
             entity.Property(x => x.OrganizationId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
-            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired().IsConcurrencyToken();
+            entity.Property(x => x.MemoryErasedAt).IsConcurrencyToken();
             entity.Property(x => x.Name).HasMaxLength(300).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.CausationId).HasMaxLength(128);
@@ -1532,9 +1582,23 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
                 .HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<AgentMemoryReadReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Capability).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.AuthorityHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ReceiptHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.EvidenceJson).IsRequired();
+            entity.HasIndex(x => new { x.RuntimeId, x.ReceiptHash }).IsUnique();
+            entity.HasIndex(x => x.OrganizationId);
+            // Work completion/deletion must not erase evidence still retained by its runtime.
+            entity.HasOne<AgentRuntimeInstance>().WithMany().HasForeignKey(x => x.RuntimeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<AgentWorkAttempt>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.FinishedAt).IsConcurrencyToken();
             entity.Property(x => x.LeaseTokenHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.CompletionHash).HasMaxLength(64);
             entity.Property(x => x.Error).HasMaxLength(2048);

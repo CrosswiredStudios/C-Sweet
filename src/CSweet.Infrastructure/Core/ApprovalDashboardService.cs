@@ -301,6 +301,12 @@ public sealed class ApprovalDashboardService(
             };
         }));
 
+        var projectReader = new ProjectApprovalReader(db);
+        foreach (var proposal in agentActions.Where(x => x.ActionType == ProjectApprovalReader.ActionType))
+        {
+            var index = items.FindIndex(x => x.Id == proposal.Id);
+            items[index] = await projectReader.EnrichAsync(items[index], proposal, cancellationToken);
+        }
         var ordered = items
             .Where(x => !IsPending(x.Status) || x.CanDecide)
             .OrderBy(x => IsPending(x.Status) ? 0 : 1)
@@ -343,7 +349,7 @@ public sealed class ApprovalDashboardService(
                 root.TryGetProperty("reviewPayload", out var preview) && preview.ValueKind != JsonValueKind.Null
                     ? JsonSerializer.Serialize(preview, new JsonSerializerOptions { WriteIndented = true }) : null);
         }
-        catch (JsonException) { return null; }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException) { return null; }
     }
 
     private static string? ReadInfrastructureFiscalSummary(JsonElement root)

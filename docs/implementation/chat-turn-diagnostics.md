@@ -12,6 +12,14 @@ error code, error message, partial response, and attempt count live on `ChatTurn
 a `ChatTurnTraceEvents` row (categories: `system`, `memory`, `model`, `reasoning`, `activity`, `draft`,
 `output`).
 
+After a reviewed memory erasure, `ChatTurn.MemoryErasedAt` marks cleared diagnostic copies:
+`PartialResponse` and error detail are removed, trace rows are deleted, and `ErrorCode` becomes
+`memory.source_erased`. Original conversation messages remain available. `ReviewedMemoryErasure`
+fences late diagnostic writes and identity recreation; the immutable erasure receipt records the
+operation and pending runtime acknowledgements. Recover its status from **Check a saved erasure
+operation** on the Memory page. New turn/trace audit records omit copied chat content; unverifiable
+older audit copies block erasure. See [memory hardening](features/agent-memory-hardening.md).
+
 ## Failure branch map
 
 | User-visible result | Code | Trigger |
@@ -19,6 +27,8 @@ a `ChatTurnTraceEvents` row (categories: `system`, `memory`, `model`, `reasoning
 | "The agent couldn't complete that request. Please try again." | `turn_failed` | Agent error chunk (`agent_error`, `agent_work_failed`, `agent_progress_unavailable`, cancelled/dead-letter work), runtime not ready, missing installation/provider, empty model response, unresolvable terminal approval message, or any infrastructure exception |
 | "...exceeded the N-minute safety limit..." | `timeout` | Turn hard timeout (`ChatTurnOptions.HardTimeout`) |
 | "The agent completed its work without providing a response." | `agent_no_response` | Work completed with no final chunk |
+| "The recalled context for this queued request is no longer valid. Please retry as a new chat turn." | `memory.recall_stale` | Queue delivery rejected missing, malformed or changed immutable recall evidence before releasing the payload |
+| "The agent's memory context changed and its runtime must be replaced." (with review-before-retry guidance) | `memory.runtime_reset` | Delivered work was fenced and settled while retained-context recovery waits for confirmed shutdown |
 
 Before the fallback is written, `ChatTurnWorker` publishes an `agent.error` trace event with the
 agent's sanitized failure text and stores `ErrorCode`/`ErrorMessage` on the turn; the final
@@ -72,6 +82,18 @@ tools, usage and terminal updates keep their boundaries. Buffered text is retain
 before a stream failure, and every forwarded chunk is persisted first.
 
 - Retry a failed turn from the turn dialog; the durable work item allows 3 attempts.
+- For `memory.runtime_reset`, the runtime retained memory that is no longer valid, lacks verifiable
+  evidence, or reached its receipt limit. `AgentMemoryRuntimeReset.RequestAsync` fences sessions and
+  attempts; `AgentWorkInbox.SettleMemoryResetAsync` records a nonretryable result for delivered work.
+  Review possible side effects before submitting a new request. Pending work waits for a fresh
+  runtime after `AgentRuntimeManager` confirms shutdown. Unknown fleet attempts keep recovery
+  blocked; a cancelled assignment alone is not proof that its workload stopped.
+- For `memory.recall_stale`, retry as a new turn to prepare current recall. `AgentWorkInbox.ClaimCoreAsync`
+  atomically dead-letters the stale work with a protected, content-free failure result and releases no
+  payload or lease. `ReadStateAsync` and `WaitForResultAsync` retain the code; `ChatTurnWorker` preserves
+  it on the visible failure. Later queued work can proceed. Database availability failures remain
+  pending, and an invalid runtime or full receipt budget requires runtime recovery rather than
+  being mislabeled as stale work. See [memory hardening](features/agent-memory-hardening.md).
 - Cancel a running turn. Pending unmaterialized suggested actions are cancelled with it.
 - Agent-side failures (`platform.capability.denied`, `unavailable`, `validation_failed`) usually mean
   the installation grant is missing or stale, or the agent called a capability it was not approved

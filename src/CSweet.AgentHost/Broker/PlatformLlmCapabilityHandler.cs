@@ -10,12 +10,13 @@ using CSweet.Application.Setup;
 using CSweet.AI.Providers;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Llm;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
 namespace CSweet.AgentHost.Broker;
 
-public sealed class PlatformLlmCapabilityHandler
+public sealed partial class PlatformLlmCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly CSweetDbContext _dbContext;
@@ -290,6 +291,9 @@ public sealed class PlatformLlmCapabilityHandler
         // short polling and acknowledged-wait deadline accounting.
         using var providerPermit = providerSlotAcquired || _jobs is null ? null :
             await _jobs.AcquireProviderAsync(input.ProviderProfileId, requestToken);
+        using var dispatch = new ProviderDispatchScope(
+            token => AuthorizeDispatchAsync(session, profile, selectedModel, identity?.EmployeeId, token),
+            () => runLog.ProviderStartedAt ??= DateTimeOffset.UtcNow);
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;
@@ -313,11 +317,11 @@ public sealed class PlatformLlmCapabilityHandler
                 requestToken);
             await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
                 InferenceExecutionAttribution.Current?.WorkId, requestToken, InferenceExecutionAttribution.Current?.Attempt);
-            updates = ModelStreamCoalescer.ReadAsync(chatClient.GetStreamingResponseAsync(
+            updates = ModelStreamCoalescer.ReadAsync(DispatchUpdatesAsync(chatClient,
                 messages,
                 options,
+                () => runLog.ProviderStartedAt ??= DateTimeOffset.UtcNow,
                 requestToken), requestToken).GetAsyncEnumerator(requestToken);
-            runLog.ProviderStartedAt = DateTimeOffset.UtcNow;
             await TryPersistRunLogAsync(runLog, CancellationToken.None);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -358,7 +362,7 @@ public sealed class PlatformLlmCapabilityHandler
             CompleteRunLog(
                 runLog,
                 runStopwatch,
-                "Failed",
+                providerFailureCode == "llm.dispatch_denied" ? "Denied" : "Failed",
                 inputTokenCount,
                 outputTokenCount,
                 responseText,
@@ -420,7 +424,7 @@ public sealed class PlatformLlmCapabilityHandler
                     CompleteRunLog(
                         runLog,
                         runStopwatch,
-                        "Failed",
+                        providerFailureCode == "llm.dispatch_denied" ? "Denied" : "Failed",
                         inputTokenCount,
                         outputTokenCount,
                         responseText,

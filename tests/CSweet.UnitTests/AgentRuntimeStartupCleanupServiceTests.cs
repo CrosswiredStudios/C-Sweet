@@ -11,6 +11,24 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentRuntimeStartupCleanupServiceTests
 {
+    [Theory]
+    [InlineData(IsolationWorkloadState.Running)]
+    [InlineData(IsolationWorkloadState.Stopping)]
+    [InlineData(IsolationWorkloadState.Failed)]
+    public async Task CleanupAsync_DoesNotReportUnconfirmedRemoval(IsolationWorkloadState state)
+    {
+        await using var db = CreateDb();
+        db.AgentRuntimeInstances.Add(new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
+            AgentInstallationId = Guid.NewGuid(), IsolationProviderId = "test-vm", ProviderInstanceId = "vm-1" });
+        await db.SaveChangesAsync();
+        var runner = new StartupCleanupRunner { State = state };
+        var service = new AgentRuntimeStartupCleanupService(db, runner, Options.Create(new AgentRuntimeManagerOptions()),
+            NullLogger<AgentRuntimeStartupCleanupService>.Instance);
+        Assert.Equal(0, await service.CleanupAsync());
+        Assert.Single(runner.Destroyed);
+        Assert.Equal("vm-1", (await db.AgentRuntimeInstances.SingleAsync()).ProviderInstanceId);
+    }
+
     [Fact]
     public async Task CleanupAsync_DestroysPersistedProviderHandles()
     {
@@ -49,10 +67,11 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
 
     private sealed class StartupCleanupRunner : IAgentWorkloadRunner
     {
+        public IsolationWorkloadState State { get; init; } = IsolationWorkloadState.Stopped;
         public List<IsolationWorkloadHandle> Destroyed { get; } = [];
         public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpecification workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IsolationWorkloadStatus?>(new(handle, IsolationWorkloadState.Stopped, IsolationTerminationReason.HostShutdown, 0, null, DateTimeOffset.UtcNow, null, null));
+            Task.FromResult<IsolationWorkloadStatus?>(new(handle, State, IsolationTerminationReason.HostShutdown, 0, null, DateTimeOffset.UtcNow, null, null));
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) { Destroyed.Add(handle); return Task.CompletedTask; }
         public Task<string> GetLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);

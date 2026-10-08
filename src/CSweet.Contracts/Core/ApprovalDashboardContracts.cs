@@ -34,7 +34,23 @@ public sealed record ApprovalDashboardItemResponse(
     public string? ActualDecisionMaker { get; init; }
     public Guid? SourceResourceChangeRequestId { get; init; }
     public bool CanManageStandingPolicy { get; init; }
+    public ProjectCreationApprovalResponse? ProjectCreation { get; init; }
+    public string? ReviewError { get; init; }
+    public string? DecisionComment { get; init; }
+    public string? DecisionKind { get; init; }
+    public Guid? CreatedProjectId { get; init; }
 }
+
+public sealed record ProjectApprovalMilestone(string Name, string Stage, DateTimeOffset? TargetDate,
+    IReadOnlyList<string> RequiredEvidence, IReadOnlyList<string> Reviewers);
+public sealed record ProjectApprovalDocument(string Name, string Uri, string Revision);
+public sealed record ProjectCreationApprovalResponse(string Name, string Outcome, string Rationale,
+    string Lead, string? Team, string Stage, decimal? Budget, string? Currency, DateTimeOffset? TargetDate,
+    IReadOnlyList<string> SuccessCriteria, IReadOnlyList<string> Supervisors,
+    IReadOnlyList<string> StaffingRoles, IReadOnlyList<string> AgentPermissions,
+    IReadOnlyList<string> HumanDecisions, decimal? BudgetVariance, int? ScheduleVarianceDays,
+    DateTimeOffset? AuthorityExpiresAt, IReadOnlyList<ProjectApprovalMilestone> Milestones,
+    IReadOnlyList<ProjectApprovalDocument> Documents, bool CreatesBoard);
 
 public sealed record ArtifactApprovalCardResponse(
     Guid ArtifactId,

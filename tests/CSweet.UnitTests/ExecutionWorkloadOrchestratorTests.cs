@@ -9,7 +9,7 @@ using W = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
-public sealed class ExecutionWorkloadOrchestratorTests
+public sealed partial class ExecutionWorkloadOrchestratorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 10, 20, 0, 0, TimeSpan.Zero);
 

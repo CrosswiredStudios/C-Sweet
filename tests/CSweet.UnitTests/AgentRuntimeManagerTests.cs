@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentRuntimeManagerTests
+public sealed partial class AgentRuntimeManagerTests
 {
     [Fact]
     public async Task InteractiveEnsure_ReusesRuntimeAndBecomesReadyAfterMcpSession()
@@ -1190,14 +1190,14 @@ public sealed class AgentRuntimeManagerTests
     private static AgentRuntimeManager CreateManager(
         CSweetDbContext db,
         FakeRunner runner,
-        IAgentRuntimeEligibilityService? eligibility = null, bool artifactExists = true)
+        IAgentRuntimeEligibilityService? eligibility = null, bool artifactExists = true, AgentWorkInbox? workInbox = null)
     {
         runner.Db = db;
         return new(db, runner, new StaticGuestImageRegistry(), new TestAuditEventWriter(), Options.Create(new AgentRuntimeManagerOptions
         {
             RuntimeGuestImageVersion = "1.0",
             RuntimeGuestImageDigest = "sha256:" + new string('d', 64)
-        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility(), new TestArtifactStore(artifactExists));
+        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility(), new TestArtifactStore(artifactExists), workInbox: workInbox);
     }
 
     private sealed class AllowAllRuntimeEligibility : IAgentRuntimeEligibilityService
@@ -1289,12 +1289,21 @@ public sealed class AgentRuntimeManagerTests
             new IsolationWorkloadHandle("test-vm", Guid.NewGuid(), "vm-1", WorkloadKind.Runtime),
             IsolationWorkloadState.Running, IsolationTerminationReason.None, null, null, null, null, null);
         public Exception? StartException { get; init; }
+        public Func<RuntimeWorkloadSpecification, Task>? BeforeStart { get; init; }
+        public Exception? StopException { get; set; }
+        public Exception? DestroyException { get; set; }
+        public Exception? InspectException { get; set; }
+        public bool ConfirmStop { get; set; } = true;
+        public bool ConfirmDestroy { get; set; } = true;
+        private readonly HashSet<string> stopped = [];
+        private readonly HashSet<string> destroyed = [];
         public string Logs { get; init; } = string.Empty;
         public List<StartedWorkload> Starts { get; } = [];
         public List<string> Stops { get; } = [];
         public List<string> Removes { get; } = [];
         public async Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpecification workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default)
         {
+            if (BeforeStart is not null) await BeforeStart(workload);
             if (StartException is not null) throw StartException;
             var runtime = await (Db ?? throw new InvalidOperationException()).AgentRuntimeInstances
                 .SingleAsync(x => x.Id == workload.WorkloadId, cancellationToken);
@@ -1302,10 +1311,27 @@ public sealed class AgentRuntimeManagerTests
                 workload, runtime.Id, runtime.TickId, runtime.AgentInstallationId, workload.BrokerLease.BootToken));
             return new IsolationWorkloadHandle("test-vm", workload.WorkloadId, "vm-1", WorkloadKind.Runtime);
         }
-        public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) { Stops.Add(handle.ProviderInstanceId); return Task.CompletedTask; }
-        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) =>
-            Task.FromResult(InspectStatus is null ? null : InspectStatus with { Handle = handle });
-        public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) { Removes.Add(handle.ProviderInstanceId); return Task.CompletedTask; }
+        public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default)
+        {
+            Stops.Add(handle.ProviderInstanceId);
+            if (StopException is not null) throw StopException;
+            if (ConfirmStop) stopped.Add(handle.ProviderInstanceId);
+            return Task.CompletedTask;
+        }
+        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
+        {
+            if (InspectException is not null) throw InspectException;
+            return Task.FromResult(InspectStatus is null ? null : InspectStatus with { Handle = handle,
+                State = destroyed.Contains(handle.ProviderInstanceId) ? IsolationWorkloadState.Destroyed :
+                    stopped.Contains(handle.ProviderInstanceId) ? IsolationWorkloadState.Stopped : InspectStatus.State });
+        }
+        public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
+        {
+            Removes.Add(handle.ProviderInstanceId);
+            if (DestroyException is not null) throw DestroyException;
+            if (ConfirmDestroy) destroyed.Add(handle.ProviderInstanceId);
+            return Task.CompletedTask;
+        }
         public Task<string> GetLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => Task.FromResult(Logs);
     }
 }

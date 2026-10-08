@@ -70,6 +70,31 @@ public sealed class UserActionService(
             ?? throw new ArgumentException("The requested workflow type is not registered.");
         var resolution = resolver.Resolve(organizationId, originatingInstallationId, request.Parameters);
 
+        if (workflowType == SuggestedUserActionWorkflows.ReviewApproval)
+        {
+            // Keep approval context in the private requester/approver conversation. A tool cannot
+            // attach another employee's proposal or disclose it into an arbitrary channel.
+            var chat = await db.CoreConversations.Include(x => x.Participants).SingleAsync(x =>
+                x.Id == conversationId && x.OrganizationId == organizationId, cancellationToken);
+            var participants = chat.Participants.Where(x => x.LeftAt == null).Select(x => x.OrganizationUserId).ToArray();
+            var approvalId = ApprovalUserActionWorkflowResolver.ReadId(resolution.NormalizedParametersJson)!.Value;
+            if (!chat.IsPrivate || participants.Length != 2 || !participants.Contains(actorId))
+                throw new UnauthorizedAccessException("Approval cards require a private conversation with the approver.");
+            var review = await new CSweet.Infrastructure.Core.ProjectApprovalReader(db).ReadAsync(organizationId,
+                participants.Single(x => x != actorId), approvalId, cancellationToken);
+            if (review is null || (review.Status == "Pending" && !review.CanDecide))
+                throw new UnauthorizedAccessException("This conversation does not include the assigned approver.");
+            var candidates = await db.SuggestedUserActions.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                x.ConversationId == conversationId && x.WorkflowType == workflowType)
+                .ToListAsync(cancellationToken);
+            var previous = candidates.Where(x => ApprovalUserActionWorkflowResolver.ReadId(x.ParametersJson) == approvalId).ToArray();
+            var duplicate = previous.FirstOrDefault(x => x.Status != SuggestedUserActionStatuses.Cancelled && x.Status != SuggestedUserActionStatuses.Superseded);
+            if (duplicate is not null) return ToResponse(duplicate);
+            // The existing unique installation/key index also prevents two concurrent callers
+            // using different caller keys from committing duplicate cards for this proposal.
+            key = $"approval-card:{conversationId:N}:{approvalId:N}:{previous.Length}";
+        }
+
         var isHiringWorkflow = string.Equals(
             workflowType,
             SuggestedUserActionWorkflows.BrowseHiringMarketplace,
@@ -198,6 +223,8 @@ public sealed class UserActionService(
         new(action.Id, action.WorkflowType, action.Label, action.Description, action.NavigationUri,
             action.Status, action.CreatedAt)
         {
+            ApprovalId = action.WorkflowType == SuggestedUserActionWorkflows.ReviewApproval
+                ? ApprovalUserActionWorkflowResolver.ReadId(action.ParametersJson) : null,
             HiringRecommendationId = SuggestedUserActionParameters.ReadHiringRecommendationId(action.ParametersJson),
             HiringRole = SuggestedUserActionParameters.ReadHiringRole(action.ParametersJson),
             ResultOrganizationUserId = action.ResultOrganizationUserId,

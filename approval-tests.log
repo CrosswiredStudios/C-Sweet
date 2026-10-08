@@ -1,0 +1,44 @@
+  CSweet.Domain -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Domain\bin\ApprovalRedesign\net10.0\CSweet.Domain.dll
+  CSweet.Compute.Contracts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.Contracts\bin\ApprovalRedesign\net10.0\CSweet.Compute.Contracts.dll
+  CSweet.Compute.Guest -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.Guest\bin\ApprovalRedesign\net10.0\CSweet.Compute.Guest.dll
+  CSweet.Compute.Runtime -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.Runtime\bin\ApprovalRedesign\net10.0\CSweet.Compute.Runtime.dll
+  CSweet.Isolation.HyperV -> C:\Users\PC\Documents\GitHub\CSweet.Isolation\src\CSweet.Isolation.HyperV\bin\ApprovalRedesign\net10.0\CSweet.Isolation.HyperV.dll
+  CSweet.Compute.HyperV -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Compute.HyperV\bin\ApprovalRedesign\net10.0\CSweet.Compute.HyperV.dll
+C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj : warning NU1902: Package 'Microsoft.Build.Tasks.Git' 10.0.102 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-23fw-v26w-5fgq
+  CSweet.Isolation.Security -> C:\Users\PC\Documents\GitHub\CSweet.Isolation\src\CSweet.Isolation.Security\bin\ApprovalRedesign\net10.0\CSweet.Isolation.Security.dll
+  CSweet.Office.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\bin\ApprovalRedesign\net10.0\CSweet.Office.Contracts.dll
+  CSweet.AgentBroker -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AgentBroker\bin\ApprovalRedesign\net10.0\CSweet.AgentBroker.dll
+  CSweet.Communications.Abstractions -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Communications.Abstractions\bin\ApprovalRedesign\net10.0\CSweet.Communications.Abstractions.dll
+  CSweet.WorkManagement.Contracts -> C:\Users\PC\Documents\GitHub\CSweet.WorkManagement.Contracts\src\CSweet.WorkManagement.Contracts\bin\ApprovalRedesign\net8.0\CSweet.WorkManagement.Contracts.dll
+  CSweet.Contracts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Contracts\bin\ApprovalRedesign\net10.0\CSweet.Contracts.dll
+  CSweet.Agent.SDK -> C:\Users\PC\Documents\GitHub\CSweet.Agent.Sdk\src\CSweet.Agent.SDK\bin\ApprovalRedesign\net10.0\CSweet.Agent.SDK.dll
+  CSweet.Application -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Application\bin\ApprovalRedesign\net10.0\CSweet.Application.dll
+  CSweet.ExecutionArtifacts -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ExecutionArtifacts\bin\ApprovalRedesign\net10.0\CSweet.ExecutionArtifacts.dll
+  CSweet.Memory.Abstractions -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Abstractions\bin\ApprovalRedesign\net8.0\CSweet.Memory.Abstractions.dll
+  CSweet.Memory -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory\bin\ApprovalRedesign\net8.0\CSweet.Memory.dll
+  CSweet.Memory.Sqlite -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Sqlite\bin\ApprovalRedesign\net8.0\CSweet.Memory.Sqlite.dll
+  CSweet.TrustedServices -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.TrustedServices\bin\ApprovalRedesign\net10.0\CSweet.TrustedServices.dll
+  CSweet.Memory.PostgreSql -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.PostgreSql\bin\ApprovalRedesign\net8.0\CSweet.Memory.PostgreSql.dll
+  CSweet.AI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AI\bin\ApprovalRedesign\net10.0\CSweet.AI.dll
+  CSweet.Infrastructure -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\bin\ApprovalRedesign\net10.0\CSweet.Infrastructure.dll
+  CSweet.ServiceDefaults -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ServiceDefaults\bin\ApprovalRedesign\net10.0\CSweet.ServiceDefaults.dll
+  CSweet.Api -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Api\bin\ApprovalRedesign\net10.0\CSweet.Api.dll
+  CSweet.Memory.Broker -> C:\Users\PC\Documents\GitHub\CSweet.Memory\src\CSweet.Memory.Broker\bin\ApprovalRedesign\net10.0\CSweet.Memory.Broker.dll
+  CSweet.AgentHost -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.AgentHost\bin\ApprovalRedesign\net10.0\CSweet.AgentHost.dll
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(241,34): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(284,69): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(328,55): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(356,199): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(642,22): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+  CSweet.UI -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\bin\ApprovalRedesign\net10.0\CSweet.UI.dll
+  CSweet.ExecutionGateway -> C:\Users\PC\Documents\GitHub\csweet\src\CSweet.ExecutionGateway\bin\ApprovalRedesign\net10.0\CSweet.ExecutionGateway.dll
+  CSweet.Compute.GuestFixture -> C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.Compute.GuestFixture\bin\ApprovalRedesign\net10.0\CSweet.Compute.GuestFixture.dll
+C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\HierarchicalDeliveryServiceTests.cs(178,9): warning xUnit2031: Do not use a Where clause to filter before calling Assert.Single. Use the overload of Assert.Single that accepts a filtering function. (https://xunit.net/xunit.analyzers/rules/xUnit2031) [C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\CSweet.UnitTests.csproj]
+C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\HierarchicalDeliveryServiceTests.cs(258,9): warning xUnit2031: Do not use a Where clause to filter before calling Assert.Single. Use the overload of Assert.Single that accepts a filtering function. (https://xunit.net/xunit.analyzers/rules/xUnit2031) [C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\CSweet.UnitTests.csproj]
+C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\WorkDispatchRecoveryTests.cs(245,13): warning xUnit2031: Do not use a Where clause to filter before calling Assert.Single. Use the overload of Assert.Single that accepts a filtering function. (https://xunit.net/xunit.analyzers/rules/xUnit2031) [C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\CSweet.UnitTests.csproj]
+  CSweet.UnitTests -> C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\ApprovalRedesign\net10.0\CSweet.UnitTests.dll
+Test run for C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\ApprovalRedesign\net10.0\CSweet.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+vstest.console process failed to connect to testhost process after 90 seconds. This may occur due to machine slowness, please set environment variable VSTEST_CONNECTION_TIMEOUT to increase timeout. The process with id 81548 was still running when this message was reported.
+
+Test Run Aborted.

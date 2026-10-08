@@ -7,6 +7,7 @@ using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.Memory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using W = CSweet.WorkManagement.Contracts;
@@ -212,7 +213,7 @@ public sealed class McpToolCatalog(
         HiddenWrite(CommunicationCapabilities.CoordinationCancel, "cancel_agent_coordination",
             "Cancel a coordination session when separately authorized."),
         Write(SuggestedUserActionCapabilities.Suggest, "suggest_user_action",
-            "Attach a safe, platform-resolved workflow action to this agent's message or chat turn. Use hiring.marketplace.browse.v1 with a role to let the user browse candidates."),
+            "Attach a safe, platform-resolved workflow action to this agent's message or chat turn. Use hiring.marketplace.browse.v1 with a role for hiring, or approval.review.v1 with parameters { approvalId } for an inline Approve / More info / Deny card for this agent's project-creation proposal in its private approver conversation. Never supply approval UI or decision authority in the parameters."),
         Read(HiringCapabilities.ListRecommendations, "list_hiring_recommendations",
             "Read this agent installation's role backlog in priority order."),
         Write(HiringCapabilities.UpsertRecommendation, "upsert_hiring_recommendation",
@@ -432,7 +433,12 @@ public sealed class McpToolCatalog(
                     ToToolName(capability),
                     $"Invoke the granted C-Sweet capability {capability}.",
                     Schema("""{"type":"object","additionalProperties":true}"""),
-                    ObjectOutput,
+                    // The store-shaped memory query protocol returns arrays, records, or null
+                    // depending on operation. An object-only fallback rejects successful search
+                    // responses at the gateway. Validate its supported result shapes instead.
+                    capability == CSweetMemoryCapabilities.Query
+                        ? Schema("""{"type":["object","array","null"],"items":{"type":"object"}}""")
+                        : ObjectOutput,
                     McpToolExecutionPolicy.PlatformOnly,
                     McpToolAvailability.GrantRequired,
                     ModelVisible: false,

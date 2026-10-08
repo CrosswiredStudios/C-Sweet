@@ -1,0 +1,94 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudDivider Class="my-3" />
+<MudText Typo="Typo.subtitle2">Retention hold</MudText>
+@if (_review is null)
+{
+    <MudButton OnClick="LoadAsync" Disabled="Locked">Review retention hold</MudButton>
+}
+else
+{
+    <MudText style="white-space:pre-wrap">@_review.Content</MudText>
+    <MudAlert Severity="Severity.Info">Retention decisions require the top-level human in this employee's reporting hierarchy and access to this audience. A hold preserves evidence; it does not authorize recall.</MudAlert>
+    @if (_review.LegalHold)
+    {
+        <MudText>This episode is held. Releasing its hold does not delete evidence, restore suppressed recall, or release holds on other captures, corrections or transferred copies.</MudText>
+        @if (_review.CanRelease)
+        { <MudButton OnClick="SubmitAsync" Disabled="Locked" Color="Color.Warning">Release this hold</MudButton> }
+        else
+        { <MudAlert Severity="Severity.Warning">A transferred source requires an upstream retention review before its hold can be released. That review is not available here.</MudAlert> }
+    }
+    else
+    {
+        <MudText>Place a hold to protect this episode and its retained history from scope deletion.</MudText>
+        <MudButton OnClick="SubmitAsync" Disabled="Locked">Place hold</MudButton>
+    }
+    <MudButton OnClick="LoadAsync" Disabled="Locked">Refresh review</MudButton>
+}
+@if (_pending is not null)
+{ <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same hold decision</MudButton> }
+@if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public Guid EpisodeId { get; set; }
+    [Parameter] public EventCallback<Guid> Reviewed { get; set; }
+    [Parameter] public EventCallback<bool> LockedChanged { get; set; }
+    private string Url => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/episodes/{EpisodeId}/hold";
+    private MemoryHoldPreview? _review;
+    private ReviewMemoryHoldRequest? _pending;
+    private bool _busy;
+    private bool Locked => _busy || _pending is not null;
+    private string? _message;
+
+    private async Task LoadAsync()
+    {
+        if (Locked) return;
+        _busy = true; _review = null; _message = null; await LockedChanged.InvokeAsync(true);
+        try
+        {
+            using var response = await Http.GetAsync(Url);
+            if (!response.IsSuccessStatusCode) { _message = "This episode is unavailable for review or your permission changed."; return; }
+            _review = await response.Content.ReadFromJsonAsync<MemoryHoldPreview>();
+        }
+        catch (Exception error) when (NetworkError(error)) { _message = "Review details could not be loaded. Try again."; }
+        finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
+    }
+    private async Task SubmitAsync()
+    {
+        if (Locked || _review is null || (_review.LegalHold && !_review.CanRelease)) return;
+        _pending = new(Guid.NewGuid(), _review.Revision, _review.EvidenceToken, !_review.LegalHold);
+        await RetryAsync();
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || _pending is null) return;
+        _busy = true; _message = null; await LockedChanged.InvokeAsync(true);
+        Guid? updated = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(Url, _pending);
+            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            {
+                _pending = null; _review = null;
+                _message = "The review was not accepted. Reload the current episode and check your authority and source evidence before deciding again.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<ReviewMemoryHoldResponse>() ?? throw new System.Text.Json.JsonException();
+            _pending = null; _review = null; updated = result.EpisodeId;
+            _message = result.WasReplay ? "This hold decision was already recorded." : "The retention hold decision was recorded.";
+        }
+        catch (Exception error) when (NetworkError(error))
+        { _message = "The result could not be confirmed. Retry the same hold decision to check it without creating another review."; }
+        finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
+        if (updated.HasValue)
+        {
+            try { await Reviewed.InvokeAsync(updated.Value); }
+            catch (Exception error) when (NetworkError(error)) { _message = "The review was recorded. Reload the inspector to see its current state."; }
+        }
+    }
+    private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
+}

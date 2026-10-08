@@ -1,0 +1,188 @@
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Knowledge transfers">
+    <MudText Typo="Typo.h6">Knowledge transfers</MudText>
+    <MudText Class="mb-2">Prepare a handoff, review the exact content, then approve and apply it to the receiving employee.</MudText>
+    @if (!_opened)
+    {
+        <MudButton OnClick="OpenAsync" Disabled="_busy">Manage transfers</MudButton>
+    }
+    else
+    {
+        <MudStack Spacing="2">
+            <MudSelect T="Guid" Label="Receiving employee" @bind-Value="_target" Disabled="Frozen">
+                @foreach (var employee in _employees.Where(x => x.Id != EmployeeId && x.EmployeeType == 1 && x.IsActive && x.ArchivedAt is null))
+                { <MudSelectItem T="Guid" Value="employee.Id">@employee.DisplayName</MudSelectItem> }
+            </MudSelect>
+            <MudSelect T="string" Label="Source audience" @bind-Value="_scope" Disabled="@(Frozen || _items.Count > 0)">
+                <MudSelectItem T="string" Value="@("Employee")">Employee memory</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Relationship")">Your relationship with this employee</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Organization")">Organization memory</MudSelectItem>
+            </MudSelect>
+            <MudText Typo="Typo.caption">Relationship handoffs stay in your relationship with the receiving employee. You must manage both employees; organization memory requires a top-level human manager.</MudText>
+            <MudButton OnClick="AddSelected" Disabled="@(Frozen || Selected is null || _items.Count >= 32)">Add the currently inspected memory</MudButton>
+            @foreach (var item in _items)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" @key="item.Id">
+                    <MudText>@item.Title</MudText>
+                    <MudButton OnClick="@(() => _items.Remove(item))" Disabled="Frozen">Remove</MudButton>
+                </MudStack>
+            }
+            <MudTextField T="string" Label="Handoff notes" @bind-Value="_debrief" Lines="3" MaxLength="16000" Disabled="Frozen" />
+            <MudSelect T="string" Label="Notes sensitivity" @bind-Value="_sensitivity" Disabled="Frozen">
+                @foreach (var value in new[] { "Personal", "Confidential", "Restricted" })
+                { <MudSelectItem T="string" Value="value">@value</MudSelectItem> }
+            </MudSelect>
+            <MudButton Color="Color.Secondary" Variant="Variant.Outlined" OnClick="PrepareAsync"
+                       Disabled="@(Frozen || _target == Guid.Empty || (_items.Count == 0 && string.IsNullOrWhiteSpace(_debrief)))">Prepare for review</MudButton>
+            @if (_pendingPrepare is not null || _pendingTransition is not null)
+            {
+                <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same operation</MudButton>
+            }
+            @if (_transfer is { } transfer)
+            {
+                <MudDivider />
+                <MudText Typo="Typo.h6">Transfer to @EmployeeName(transfer.TargetEmployeeId)</MudText>
+                <MudText>@transfer.Status · @transfer.Sensitivity</MudText>
+                <pre style="white-space:pre-wrap;overflow-wrap:anywhere">@transfer.Content</pre>
+                @if (transfer.Status is "PendingApproval" or "Approved" && !transfer.CanApprove && !transfer.CanApply)
+                { <MudAlert Severity="Severity.Warning">Source evidence changed or is unavailable. Reject this transfer and prepare a new review.</MudAlert> }
+                <MudStack Row="true">
+                    <MudButton OnClick="@(() => LoadTransferAsync(transfer.PackageId))" Disabled="Frozen">Refresh review</MudButton>
+                    <MudButton OnClick='@(() => TransitionAsync("approve"))' Disabled="@(Frozen || !transfer.CanApprove)">Approve</MudButton>
+                    <MudButton Color="Color.Primary" OnClick='@(() => TransitionAsync("apply"))' Disabled="@(Frozen || !transfer.CanApply)">Apply to receiving employee</MudButton>
+                    <MudButton Color="Color.Error" OnClick='@(() => TransitionAsync("reject"))' Disabled="@(Frozen || !transfer.CanReject)">
+                        @(transfer.Status == "Applied" ? "Revoke transfer" : "Reject transfer")
+                    </MudButton>
+                </MudStack>
+            }
+            <MudText Typo="Typo.subtitle1">Your saved transfers</MudText>
+            <MudButton OnClick="@(() => LoadListAsync(false))" Disabled="Frozen">Refresh saved transfers</MudButton>
+            @foreach (var saved in _saved)
+            {
+                <MudButton OnClick="@(() => LoadTransferAsync(saved.PackageId))" Disabled="Frozen" @key="saved.PackageId">
+                    Review handoff to @EmployeeName(saved.TargetEmployeeId) · @saved.CreatedAt.ToLocalTime().ToString("g")
+                </MudButton>
+            }
+            @if (_nextCursor.HasValue)
+            { <MudButton OnClick="@(() => LoadListAsync(true))" Disabled="Frozen">Load older transfers</MudButton> }
+        </MudStack>
+    }
+    @if (_message is not null) { <MudAlert Severity="Severity.Info" Class="mt-2">@_message</MudAlert> }
+</MudPaper>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public AgentMemoryItemResponse? Selected { get; set; }
+    private string Url => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/transfers";
+    private bool _opened, _busy;
+    private bool Frozen => _busy || _pendingPrepare is not null || _pendingTransition is not null;
+    private IReadOnlyList<OrganizationUserResponse> _employees = [];
+    private readonly List<AgentMemoryItemResponse> _items = [];
+    private readonly List<MemoryTransferListItem> _saved = [];
+    private Guid _target;
+    private Guid? _nextCursor;
+    private string _scope = "Employee", _debrief = "", _sensitivity = "Personal";
+    private string? _message;
+    private MemoryTransferResponse? _transfer;
+    private PrepareMemoryTransferRequest? _pendingPrepare;
+    private TransitionMemoryTransferRequest? _pendingTransition;
+    private Guid _pendingPackage;
+    private string EmployeeName(Guid id) => _employees.FirstOrDefault(x => x.Id == id)?.DisplayName ?? "Unavailable employee";
+    private static string? ItemKind(string kind) => kind switch { "Episode" or "Claim" or "Block" or "Procedure" => kind,
+        "Core" => "Block", "Relationship" or "Edge" => "Edge", _ => null };
+
+    private async Task OpenAsync()
+    {
+        _busy = true; _message = null;
+        try
+        {
+            _employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{OrganizationId}/users") ?? [];
+            _opened = true;
+        }
+        catch (Exception e) when (NetworkError(e)) { _message = "Transfer controls could not be loaded. Try again."; }
+        finally { _busy = false; }
+        if (_opened) await LoadListAsync(false);
+    }
+    private void AddSelected()
+    {
+        if (Frozen || Selected is not { } selected) return;
+        if (ItemKind(selected.Kind) is null || selected.Scope is not ("Employee" or "Relationship" or "Organization"))
+        { _message = "This item cannot be transferred. Select an episode, claim, relationship, core block or procedure."; return; }
+        if (_items.Count > 0 && (_items[0].Scope != selected.Scope || _items[0].UserId != selected.UserId))
+        { _message = "Keep each handoff within one audience. Prepare separate transfers for different relationships."; return; }
+        _scope = selected.Scope;
+        if (!_items.Any(x => x.Id == selected.Id && x.Kind == selected.Kind)) _items.Add(selected);
+        _message = null;
+    }
+    private async Task PrepareAsync()
+    {
+        if (Frozen) return;
+        _pendingPrepare = new(Guid.NewGuid(), _target, _scope, _items.Select(x => new MemoryTransferSelection(ItemKind(x.Kind)!, x.Id)).ToArray(), _debrief, _sensitivity);
+        await RetryAsync();
+    }
+    private async Task TransitionAsync(string action)
+    {
+        if (Frozen || _transfer is null) return;
+        _pendingPackage = _transfer.PackageId;
+        _pendingTransition = new(Guid.NewGuid(), _transfer.ReviewToken, action);
+        await RetryAsync();
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || (_pendingPrepare is null && _pendingTransition is null)) return;
+        _busy = true; _message = null;
+        Guid? refresh = null;
+        try
+        {
+            using var response = _pendingPrepare is { } prepare ? await Http.PostAsJsonAsync(Url, prepare)
+                : await Http.PostAsJsonAsync($"{Url}/{_pendingPackage}", _pendingTransition);
+            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            {
+                _pendingPrepare = null; _pendingTransition = null;
+                _transfer = null;
+                _message = "The operation was not accepted. Your authority, selection or evidence may have changed. Reopen the saved transfer or prepare a new review.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<MemoryTransferResult>() ?? throw new System.Text.Json.JsonException();
+            _pendingPrepare = null; _pendingTransition = null; refresh = result.PackageId;
+            _message = result.WasReplay ? "This operation was already recorded. Loading the current transfer." : "The operation was recorded.";
+        }
+        catch (Exception e) when (NetworkError(e))
+        { _message = "The result could not be confirmed. Retry the same operation to check it without creating another copy."; }
+        finally { _busy = false; }
+        if (refresh.HasValue) { await LoadTransferAsync(refresh.Value); await LoadListAsync(false); }
+    }
+    private async Task LoadTransferAsync(Guid id)
+    {
+        if (Frozen) return;
+        _busy = true; _transfer = null;
+        try
+        {
+            using var response = await Http.GetAsync($"{Url}/{id}");
+            if (!response.IsSuccessStatusCode) { _message = "This transfer is unavailable or your permission changed."; return; }
+            _transfer = await response.Content.ReadFromJsonAsync<MemoryTransferResponse>();
+        }
+        catch (Exception e) when (NetworkError(e)) { _message = "The review could not be loaded. Reopen it from saved transfers."; }
+        finally { _busy = false; }
+    }
+    private async Task LoadListAsync(bool more)
+    {
+        if (Frozen) return;
+        _busy = true;
+        try
+        {
+            var page = await Http.GetFromJsonAsync<MemoryTransferPage>(Url + (more && _nextCursor.HasValue ? $"?cursor={_nextCursor}" : ""));
+            if (!more) _saved.Clear();
+            if (page is not null) { _saved.AddRange(page.Items.Where(x => !_saved.Any(y => y.PackageId == x.PackageId))); _nextCursor = page.NextCursor; }
+        }
+        catch (Exception e) when (NetworkError(e)) { _message = "Saved transfers could not be loaded. Transfer review requires an authorized human manager."; }
+        finally { _busy = false; }
+    }
+    private static bool NetworkError(Exception e) => e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
+}

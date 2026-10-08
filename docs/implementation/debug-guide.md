@@ -1,5 +1,10 @@
 # Debug & Local Development Guide
 
+For disk reclamation after clearing the database, use the
+[Windows local reset guide](local-reset.md). `scripts/Reset-CSweetLocal.ps1` previews
+runtime/VM storage and optional generated builds, user data and the Aspire database
+before an explicitly requested destructive reset.
+
 ## Prerequisites
 
 - Windows with the .NET 10 SDK specified by `global.json`.
@@ -10,6 +15,40 @@
 Docker runs trusted development infrastructure. It is not the isolation boundary for imported or marketplace agents; those agents remain disabled until the certified hardware-isolation provider is ready.
 
 ## Quick Start
+
+### Visual Studio restore errors with sibling repositories
+
+`Directory.Build.props` selects local Agent SDK, Memory, WorkManagement Contracts, Office
+Contracts and Isolation projects when their sibling checkouts exist. Visual Studio can report
+`NU1105` when a selected dependency is outside the loaded solution or its restore graph is stale.
+From the C-Sweet repository, run `dotnet restore CSweet.slnx`, then reload the solution.
+
+For a solution that explicitly loads the selected dependencies, run:
+
+```powershell
+powershell -File scripts/New-LocalSolution.ps1
+```
+
+Open the generated `CSweet.Local.slnx` and keep its **local dependencies** folder's projects
+loaded. `New-LocalSolution.ps1` evaluates the normal conditional MSBuild project graph and includes
+only its actual project dependencies; it does not change package pins or dependency selection.
+The generated solution is machine-specific and ignored by Git. Regenerate after changing sibling
+checkouts or dependency switches. Continue using `CSweet.slnx` for portable command-line builds.
+
+When Visual Studio is building or cleaning Debug outputs, use a separate configuration for
+command-line verification:
+
+```powershell
+powershell -File scripts/New-LocalSolution.ps1 -AdditionalConfiguration MemoryDevelopmentVerified
+dotnet build CSweet.Local.slnx -c MemoryDevelopmentVerified --no-restore
+```
+
+Run the normal restore first. A separate configuration gives verification its own build outputs;
+avoid concurrent restores that change dependency switches or the package cache.
+
+Before evaluating memory changes interactively, complete a build and use a disposable development
+database with the migrations listed in `features/agent-memory-hardening.md`; compilation alone
+does not apply those migrations or prove runtime acceptance.
 
 ### Option 1: Aspire AppHost (Recommended)
 

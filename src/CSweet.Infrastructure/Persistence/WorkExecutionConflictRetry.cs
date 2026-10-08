@@ -19,7 +19,8 @@ public static class WorkExecutionConflictRetry
             try { return await operation(); }
             catch (DbUpdateConcurrencyException exception) when (canRetry && attempt < 3 &&
                 db.Database.CurrentTransaction is null && exception.Entries.Count > 0 &&
-                exception.Entries.All(x => x.Entity is WorkExecutionContext or WorkExecutionInterval))
+                exception.Entries.All(x => x.Entity is WorkExecutionContext or WorkExecutionInterval or
+                    CSweet.Domain.Setup.AgentWorkItem or CSweet.Domain.Setup.AgentWorkAttempt))
             {
                 // SaveChanges rolled back the source mutation, intervals and outbox together.
                 // Remove all failed-save additions too, rather than reusing their stale revisions.

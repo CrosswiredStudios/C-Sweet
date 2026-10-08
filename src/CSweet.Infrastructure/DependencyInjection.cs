@@ -511,6 +511,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUserActionService, UserActionService>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, HiringMarketplaceUserActionWorkflowResolver>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, PluginSetupUserActionWorkflowResolver>();
+        builder.Services.AddScoped<IUserActionWorkflowResolver, ApprovalUserActionWorkflowResolver>();
         builder.Services.AddScoped<IExecutiveDecisionService, ExecutiveDecisionService>();
         builder.Services.AddScoped<IAgentCommunicationOnboardingService, AgentCommunicationOnboardingService>();
         builder.Services.AddScoped<IApplicationRealtimeOutboxDispatcher, ApplicationRealtimeOutboxDispatcher>();
@@ -529,6 +530,12 @@ public static class DependencyInjection
                 connectionString ?? throw new InvalidOperationException("A PostgreSQL connection is required for memory.")));
         }
         builder.Services.AddScoped<IAgentMemoryService, AgentMemoryService>();
+        builder.Services.AddScoped<IAgentMemoryRecoveryService, AgentMemoryRecoveryService>();
+        builder.Services.AddScoped<IAgentMemoryReviewService, AgentMemoryReviewService>();
+        builder.Services.AddScoped<IAgentMemorySuppressionService, AgentMemoryReviewService>();
+        builder.Services.AddScoped<IAgentMemoryHoldService, AgentMemoryReviewService>();
+        builder.Services.AddScoped<IAgentMemoryErasureImpactService, AgentMemoryReviewService>();
+        builder.Services.AddScoped<IAgentMemoryTransferService, AgentMemoryTransferService>();
         builder.Services.TryAddSingleton(TimeProvider.System);
 
         return builder;
