@@ -10,6 +10,24 @@ namespace CSweet.UnitTests;
 public sealed class MemoryHoldPanelTests
 {
     [Fact]
+    public async Task UpstreamBlockerPreventsSubmissionAndResolvedReviewRetainsExactRetry()
+    {
+        using var handler = new ReviewHttp();
+        using var http = new HttpClient(handler) { BaseAddress = new("http://test/") };
+        var panel = Panel(http);
+        var blocked = Preview() with { LegalHold = true, CanRelease = false, IsTransferred = true,
+            UpstreamSources = 2, HeldUpstreamSources = 1, ReleaseBlocker = "memory_transfer_upstream_held" };
+        Set(panel, "_review", blocked);
+        await Call(panel, "SubmitAsync"); Assert.Empty(handler.Writes); Assert.Null(Get(panel, "_pending"));
+        Set(panel, "_review", blocked with { CanRelease = true, HeldUpstreamSources = 0, ReleaseBlocker = null });
+        await Call(panel, "SubmitAsync");
+        var pending = Assert.IsType<ReviewMemoryHoldRequest>(Get(panel, "_pending"));
+        Assert.False(pending.LegalHold); Assert.Equal(blocked.EvidenceToken, pending.EvidenceToken);
+        await Call(panel, "RetryAsync");
+        Assert.Equal(handler.Writes[0], handler.Writes[1]); Assert.Null(Get(panel, "_pending"));
+    }
+
+    [Fact]
     public async Task EarlierSearchCannotClearAnEpisodeWithAnUncertainReview()
     {
         using var handler = new DelayedReadHttp();

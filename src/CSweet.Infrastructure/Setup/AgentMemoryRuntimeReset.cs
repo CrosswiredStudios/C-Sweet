@@ -9,7 +9,7 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class AgentMemoryRuntimeReset(CSweetDbContext db)
 {
     public async Task<bool> RequestAsync(Guid runtimeId, Guid tickId, Guid installationId, string organizationId,
-        long grantRevision, string reasonCode, CancellationToken token)
+        long grantRevision, string reasonCode, CancellationToken token, string? validationDiagnostic = null)
     {
         if (db.Database.CurrentTransaction is not null)
             throw new InvalidOperationException("A reset request must own its transaction or be staged by the queue.");
@@ -29,7 +29,7 @@ public sealed class AgentMemoryRuntimeReset(CSweetDbContext db)
                 }
                 try
                 {
-                    var accepted = await StageAsync(runtimeId, tickId, installationId, organizationId, grantRevision, reasonCode, token);
+                    var accepted = await StageAsync(runtimeId, tickId, installationId, organizationId, grantRevision, reasonCode, token, validationDiagnostic);
                     await db.SaveChangesAsync(token);
                     if (transaction is not null) await transaction.CommitAsync(token);
                     return accepted;
@@ -54,17 +54,20 @@ public sealed class AgentMemoryRuntimeReset(CSweetDbContext db)
 
     // Caller owns the installation claim lock and transaction, and saves/commits before returning.
     internal async Task<bool> StageAsync(Guid runtimeId, Guid tickId, Guid installationId, string organizationId,
-        long grantRevision, string reasonCode, CancellationToken token)
+        long grantRevision, string reasonCode, CancellationToken token, string? validationDiagnostic = null)
     {
         if (reasonCode is not (MemoryRuntimeResetRequiredException.LegacyEvidence or
             MemoryRuntimeResetRequiredException.RetainedEvidence or MemoryRuntimeResetRequiredException.ReceiptCapacity))
             throw new ArgumentException("Unknown server reset reason.", nameof(reasonCode));
+        if (validationDiagnostic is not null && !System.Text.RegularExpressions.Regex.IsMatch(
+                validationDiagnostic, @"\A[a-zA-Z0-9_.;=:\-]{1,512}\z"))
+            throw new ArgumentException("Reset diagnostics must contain bounded codes and identifiers only.", nameof(validationDiagnostic));
         var runtime = await db.AgentRuntimeInstances.SingleOrDefaultAsync(x => x.Id == runtimeId &&
             x.TickId == tickId && x.AgentInstallationId == installationId, token);
         if (runtime is null || !AgentRuntimeInstance.IsActive(runtime.Status) ||
             !await db.AgentInstallations.AsNoTracking().AnyAsync(x => x.Id == installationId && x.BusinessId == organizationId &&
                 x.Grant != null && x.Grant.GrantRevision == grantRevision, token)) return false;
-        return await StageCoreAsync(runtime, reasonCode, token);
+        return await StageCoreAsync(runtime, reasonCode, token, validationDiagnostic);
     }
 
     // The erasure coordinator owns current human authority, all affected installation
@@ -78,7 +81,7 @@ public sealed class AgentMemoryRuntimeReset(CSweetDbContext db)
             await StageCoreAsync(runtime, MemoryRuntimeResetRequiredException.ErasedEvidence, token);
     }
 
-    private async Task<bool> StageCoreAsync(AgentRuntimeInstance runtime, string reasonCode, CancellationToken token)
+    private async Task<bool> StageCoreAsync(AgentRuntimeInstance runtime, string reasonCode, CancellationToken token, string? validationDiagnostic = null)
     {
         if (runtime.MemoryResetRequestedAt is not null) return true;
         var now = DateTimeOffset.UtcNow;
@@ -97,7 +100,8 @@ public sealed class AgentMemoryRuntimeReset(CSweetDbContext db)
         db.AgentRuntimeEvents.Add(new AgentRuntimeEvent
         {
             Id = Guid.NewGuid(), AgentRuntimeInstanceId = runtime.Id, Status = runtime.Status,
-            Reason = MemoryRuntimeResetRequiredException.FailureCode, OccurredAt = now
+            Reason = validationDiagnostic is null ? MemoryRuntimeResetRequiredException.FailureCode :
+                $"{MemoryRuntimeResetRequiredException.FailureCode};reason={reasonCode};{validationDiagnostic}", OccurredAt = now
         });
         var sessions = await db.McpAgentSessions.Where(x => x.RuntimeInstanceId == runtime.Id && x.RevokedAt == null).Take(1025).ToListAsync(token);
         if (sessions.Count > 1024) throw new InvalidOperationException("Runtime reset session fencing exceeded its bound.");

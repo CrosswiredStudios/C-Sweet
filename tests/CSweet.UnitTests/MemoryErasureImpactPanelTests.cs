@@ -9,6 +9,22 @@ namespace CSweet.UnitTests;
 
 public sealed class MemoryErasureImpactPanelTests
 {
+    [Theory]
+    [InlineData("memory_erasure_generic_ingestion_review_required","extraction job still retains")]
+    [InlineData("memory_erasure_generic_lineage_review_required","cannot be verified")]
+    public async Task GenericExtractionRetentionBlocksApplyEvenWithAnEarlierEvidenceToken(string code,string message)
+    {
+        using var handler = new DelayedHttp(); using var http = new HttpClient(handler) { BaseAddress = new("http://test/") };
+        var panel = Panel(http);
+        Set(panel, "_impact", Impact((Guid)GetProperty(panel, "EpisodeId")!) with {
+            ApplyBlockedReason = code, EvidenceToken = new string('a', 64) });
+        Set(panel, "_confirmed", true);
+        await Call(panel, "ApplyAsync").WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Empty(handler.Methods);
+        var label = typeof(MemoryErasureImpactPanel).GetMethod("Blocker", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [code]);
+        Assert.Contains(message, Assert.IsType<string>(label));
+    }
     [Fact]
     public async Task NavigationDiscardsEarlierResponseAndKeepsNewPreview()
     {

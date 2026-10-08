@@ -21,6 +21,7 @@ public sealed partial class AgentMemoryService
                 {
                     (roots, records) = await evidence.CaptureAsync(selected, cancellationToken);
                     await evidence.RequireAudienceAsync(binding, roots, cancellationToken);
+                    await evidence.RequireSharedAudienceAsync(binding, records, cancellationToken);
                 });
         }
         if (binding != await evidence.ReadBindingAsync(turnId, cancellationToken)) throw new ProviderDispatchDeniedException();

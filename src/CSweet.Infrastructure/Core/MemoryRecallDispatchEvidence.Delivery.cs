@@ -87,9 +87,12 @@ public sealed partial class MemoryRecallDispatchEvidence
             MemoryRecallReceiptJson = delivered.EvidenceJson
         };
         await AuthorizeWorkCoreAsync(original, delivered.EmployeeId.ToString("D"), token, retained: true, preserveInfrastructureFailure: true);
-        if (currentWork.SourceType != "chat-turn" || !Guid.TryParse(currentWork.SourceId, out var currentTurn)) throw Denied();
+        if (currentWork.SourceType != "chat-turn" || !Guid.TryParse(currentWork.SourceId, out var currentTurn))
+            throw Denied("queued-recall.consumer-kind");
         var binding = await ReadBindingAsync(currentTurn, token);
-        if (binding.EmployeeId != delivered.EmployeeId || binding.HumanId != receipt.Binding.HumanId) throw Denied();
+        if (binding.EmployeeId != delivered.EmployeeId || binding.HumanId != receipt.Binding.HumanId)
+            throw Denied("queued-recall.consumer-audience");
         if (receipt.Roots.Length > 0) await RequireAudienceAsync(binding, receipt.Roots, token);
+        await RequireSharedAudienceAsync(binding, receipt.Records, token);
     }
 }

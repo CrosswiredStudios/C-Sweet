@@ -246,6 +246,7 @@ public sealed partial class AgentMemoryServiceTests
         private readonly string? adminConnection;
         private readonly string? databaseName;
         private readonly string? sqlitePath;
+        private readonly NpgsqlDataSource? contextDataSource;
         public Guid OrganizationId { get; } = Guid.NewGuid();
         public Guid EmployeeId { get; } = Guid.NewGuid();
         public Guid HumanId { get; } = Guid.NewGuid();
@@ -257,14 +258,17 @@ public sealed partial class AgentMemoryServiceTests
             EmployeeId.ToString("D"), HumanId.ToString("D"), "csweet").Partition;
 
         private DurabilityFixture(DbContextOptions<CSweetDbContext> options, IMemoryStore store, string? adminConnection,
-            string? databaseName, string? sqlitePath)
+            string? databaseName, string? sqlitePath, NpgsqlDataSource? contextDataSource = null)
         {
             this.options = options; Store = store; this.adminConnection = adminConnection;
             this.databaseName = databaseName; this.sqlitePath = sqlitePath;
+            this.contextDataSource = contextDataSource;
         }
 
         public CSweetDbContext Context(params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors) =>
             new(new DbContextOptionsBuilder<CSweetDbContext>(options).AddInterceptors(interceptors).Options);
+
+        public NpgsqlConnection IndependentConnection() => contextDataSource?.CreateConnection() ?? throw new NotSupportedException();
         public AgentMemoryService Service(CSweetDbContext db, ILlmProviderFactory factory) => new(db, Store, factory,
             new StaticInstallationConfigurationService(InstallationId, ProviderId, "test-model"), NullLogger<AgentMemoryService>.Instance);
 
@@ -274,6 +278,7 @@ public sealed partial class AgentMemoryServiceTests
             var admin = postgres ? Environment.GetEnvironmentVariable("CSWEET_MEMORY_TEST_POSTGRES")! : null;
             var databaseName = postgres ? "memory_durability_" + Guid.NewGuid().ToString("N") : null;
             string? path = null;
+            NpgsqlDataSource? contextDataSource = null;
             IMemoryStore store;
             if (postgres)
             {
@@ -281,8 +286,11 @@ public sealed partial class AgentMemoryServiceTests
                 await connection.OpenAsync();
                 await using var command = new NpgsqlCommand($"CREATE DATABASE {databaseName}", connection);
                 await command.ExecuteNonQueryAsync();
-                var connectionString = new NpgsqlConnectionStringBuilder(admin) { Database = databaseName, Pooling = false }.ConnectionString;
-                builder.UseNpgsql(connectionString);
+                // Bounded owned pools avoid exhausting Windows ephemeral ports in large
+                // suites. Dispose both pools before dropping this fixture's database.
+                var connectionString = new NpgsqlConnectionStringBuilder(admin) { Database = databaseName, Pooling = true, MaxPoolSize = 16 }.ConnectionString;
+                contextDataSource = NpgsqlDataSource.Create(connectionString);
+                builder.UseNpgsql(contextDataSource);
                 store = new PostgreSqlMemoryStore(connectionString);
             }
             else
@@ -291,7 +299,7 @@ public sealed partial class AgentMemoryServiceTests
                 path = Path.Combine(Path.GetTempPath(), $"memory-durability-{Guid.NewGuid():N}.db");
                 store = new SqliteMemoryStore(path);
             }
-            var fixture = new DurabilityFixture(builder.Options, store, admin, databaseName, path);
+            var fixture = new DurabilityFixture(builder.Options, store, admin, databaseName, path, contextDataSource);
             try
             {
                 await using var db = fixture.Context();
@@ -326,6 +334,7 @@ public sealed partial class AgentMemoryServiceTests
         public async ValueTask DisposeAsync()
         {
             await Store.DisposeAsync();
+            if (contextDataSource is not null) await contextDataSource.DisposeAsync();
             if (databaseName is not null)
             {
                 await using var connection = new NpgsqlConnection(adminConnection);

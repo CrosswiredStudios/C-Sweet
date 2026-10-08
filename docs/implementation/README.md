@@ -8,7 +8,7 @@
 > for the current architecture. Docker is still required for trusted development infrastructure;
 > it is no longer an untrusted-agent isolation mechanism.
 
-Last updated: 2026-09-15
+Last updated: 2026-10-08
 
 ## Purpose
 
@@ -42,14 +42,14 @@ Read these files in order:
 
 - [Agent memory hardening](./features/agent-memory-hardening.md) - verified assessment, namespace
   and recall safeguards, durable enrichment and extraction input receipts, source suppression and conversation lifecycle, historical source/read discovery and extraction/work/runtime impact preview, reviewed forgetting apply/replay/status and diagnostic cleanup, frozen chat prompt/auxiliary metadata, input retention checks and runtime reset, work audit minimization, operator recovery, migrations,
-  and staged acceptance gates. Start with its progress dashboard for the 32-milestone delivery register.
+  copied-hold upstream review and separate audited release, durable proposal/transfer extraction jobs, accepted-output recovery, audited generic retries, reviewed jobless legacy-input recovery, current-membership team/role proposal and verified installation-private recovery, reviewed preservation of partial legacy derivatives, atomic reviewed generic forgetting with contributor closure and late-worker fences, team/role and installation-private forgetting with saved producer authority, audience holds/suppression with hold-only extraction and accepted-output replay, reviewed re-extraction of existing jobs with frozen predecessors and exact replacement recovery, and staged acceptance gates. Start with
+  its progress dashboard and **AI handoff** for the 32-milestone delivery register, current working-tree/package snapshot, final recorded test evidence and exact remaining scope. Canonical team/role transfer sources retain shared restrictions through private copies, inspection/review, recall/raw-read dispatch and retention. Sealed correction ancestry is implemented in both stores with guarded read/retention integration; export/reseal integrity cases, authenticated shared-correction writes and replacement-target replay remain open. The October 7 production-brief failure also needs status-aware recovery after a memory runtime reset. P0 remains 11/20 complete; implementation is paused for handoff.
 - [Uniform provider responses](./features/provider-response-compatibility.md) - shared
   agent response contract, bounded formatting recovery, streaming fallback and diagnostics.
 - [Agent upgrades and configuration readiness](./features/agent-upgrade-configuration.md) -
   provider-independent package upgrades, retained settings, and local readiness checks.
-- [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - null work-context
-- [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them
-  crash in health capture, and the next-step/escalation convention for waiting agents.
+- [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - the fixed October 2 null work-context crash, the unresolved October 7 memory-reset recovery gap, and the next-step/escalation convention for waiting agents.
+- [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.
 

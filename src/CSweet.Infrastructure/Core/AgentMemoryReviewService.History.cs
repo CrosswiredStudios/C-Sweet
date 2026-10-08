@@ -24,9 +24,12 @@ public sealed partial class AgentMemoryReviewService
         var actor = await MemoryManagerAuthorization.RequireAsync(db, organizationId, employeeId, applicationUserId, true, cancellationToken);
         await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
         var tenant = organizationId.ToString("D"); var employee = employeeId.ToString("D");
-        var partitions = new[] { EmployeeMemoryNamespaces.Employee(tenant, employee, "csweet").Partition,
+        var partitions = new List<MemoryPartition> { EmployeeMemoryNamespaces.Employee(tenant, employee, "csweet").Partition,
             EmployeeMemoryNamespaces.UserRelationship(tenant, employee, actor.ToString("D"), "csweet").Partition,
             EmployeeMemoryNamespaces.Organization(tenant, "csweet").Partition };
+        foreach (var audience in await MemorySharedAudienceAuthorization.ReadableAsync(db, organizationId, employeeId, actor, cancellationToken))
+            partitions.Add(audience.Scope == "Team" ? EmployeeMemoryNamespaces.Team(tenant, audience.AudienceId.ToString("D"), "csweet").Partition :
+                EmployeeMemoryNamespaces.Role(tenant, audience.AudienceId.ToString("D"), "csweet").Partition);
         // History may survive record deletion. Resolve only among explicit, server-owned audience candidates.
         var keys = new List<string>();
         await using (var command = Command("""
@@ -41,10 +44,13 @@ public sealed partial class AgentMemoryReviewService
         }
         if (keys.Count != 1) throw new KeyNotFoundException();
         var partition = partitions.Single(x => x.StorageKey == keys[0]);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, partition, cancellationToken);
+        if (MemorySharedAudiences.IsCanonical(partition))
+            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, partition, cancellationToken);
+        else await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, partition, cancellationToken);
         await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
         var page = await store.ReadRevisionsAsync(partition, recordKind, recordId, afterRevision, limit, cancellationToken);
         if (page.Items.Count == 0 && afterRevision == 0) throw new KeyNotFoundException();
+        await RequireSharedHistorySourcesAsync(store, organizationId, employeeId, applicationUserId, actor, partition, page.Items, cancellationToken);
         var previous = new Dictionary<long, long>();
         if (page.Items.Count != 0)
         {
@@ -74,7 +80,9 @@ public sealed partial class AgentMemoryReviewService
                         x.MemoryId != recordId ? new(kind, x.MemoryId, "Original record") : null)).ToArray()
         }).ToArray();
         await transaction.CommitAsync(cancellationToken);
-        var scope = partition.CustomNamespace == "organization" ? "Organization" : partition.UserId is not null ? "Relationship" : "Employee";
+        var scope = partition.CustomNamespace?.StartsWith("team:", StringComparison.Ordinal) == true ? "Team" :
+            partition.CustomNamespace?.StartsWith("role:", StringComparison.Ordinal) == true ? "Role" :
+            partition.CustomNamespace == "organization" ? "Organization" : partition.UserId is not null ? "Relationship" : "Employee";
         return new(kind, recordId, scope, snapshots, page.NextAfterRevision);
     }
 

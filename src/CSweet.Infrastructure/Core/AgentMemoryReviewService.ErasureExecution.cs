@@ -8,15 +8,35 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed partial class AgentMemoryReviewService
 {
-    private sealed record ErasureExecution(MemoryErasureExecutionImpact Impact, MemoryCaptureErasure.Plan Capture,
-        MemoryWorkErasure.Plan Work, IReadOnlyList<MemoryRecallDispatchEvidence.ErasureRead> Reads,
-        IReadOnlyList<MemoryPartition> Audiences);
+    private sealed record ErasureAudienceOwner(Guid EmployeeId, MemoryPartition Partition);
+    private sealed record ErasureExecution(MemoryErasureExecutionImpact Impact, MemoryCaptureErasure.Plan Capture, MemoryEpisodeErasure.Plan Episodes,
+        string GenericTransferRetentionHash, MemoryWorkErasure.Plan Work, IReadOnlyList<MemoryRecallDispatchEvidence.ErasureRead> Reads,
+        IReadOnlyList<MemoryPartition> Audiences, IReadOnlyList<ErasureAudienceOwner> Owners);
 
     private async Task<ErasureExecution> ReadErasureExecutionAsync(Guid organization, Guid employee, Guid user, Guid actor,
         MemoryErasurePreview inventory, PostgreSqlMemoryStore store, MemoryWorkErasure work, MemoryCaptureErasure capture,
+        MemoryEpisodeErasure.Plan episodes, IReadOnlyList<MemoryPartition> genericAudiences, string genericTransferRetentionHash,
         CancellationToken token, IReadOnlyList<MemoryCaptureErasure.Source>? additionalSources = null)
     {
-        var sources = (await ReadErasureCaptureSourcesAsync(organization, inventory, token))
+        var owners = new HashSet<ErasureAudienceOwner>();
+        foreach (var entry in episodes.Entries)
+            foreach (var reference in entry.Evidence.References)
+                owners.Add(new(ErasureAudienceOwnerId(reference.Partition, entry.Job.EmployeeId), reference.Partition));
+        // A preservation job may retain another producer's proposal without erasing
+        // that contributor itself. Shared partition keys do not identify its owner.
+        foreach (var retained in episodes.RetainedSources.Where(x => x.Source.Type == "agent-proposal"))
+        {
+            if (!Guid.TryParseExact(retained.Source.Author, "D", out var producer) ||
+                MetadataGuid(retained, "installationId") is not { } installation ||
+                !AgentMemoryService.IsVerifiedProposalForOperatorReview(retained, organization, producer, installation) ||
+                !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == producer && x.OrganizationId == organization &&
+                    x.EmployeeType == EmployeeType.Agent && x.IsActive && x.ArchivedAt == null && x.AgentInstallationId == installation, token))
+                throw new InvalidOperationException("memory_erasure_generic_lineage_review_required");
+            owners.Add(new(producer, retained.Partition));
+        }
+        foreach (var target in inventory.Targets)
+            owners.Add(new(ErasureAudienceOwnerId(target.Partition, employee), target.Partition));
+        var sources = (await ReadErasureCaptureSourcesAsync(organization, user, actor, inventory, episodes, owners, token))
             .Concat(additionalSources ?? []).Distinct().OrderBy(x => x.MessageId).ToArray();
         foreach (var source in sources)
         {
@@ -43,26 +63,24 @@ public sealed partial class AgentMemoryReviewService
         var delivered = reads.Delivered.Where(x => runtimes.Contains(x.RuntimeId)).ToArray();
         foreach (var installation in plan.Works.Select(x => x.InstallationId).Concat(plan.Runtimes.Select(x => x.InstallationId)).Distinct())
         {
-            var owners = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization &&
+            var installationOwners = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization &&
                 x.AgentInstallationId == installation && x.EmployeeType == EmployeeType.Agent).Select(x => x.Id).Take(2).ToArrayAsync(token);
-            if (owners.Length != 1 || await MemoryManagerAuthorization.RequireAsync(db, organization, owners[0], user, true, token, true) != actor)
+            if (installationOwners.Length != 1 || await MemoryManagerAuthorization.RequireAsync(db, organization, installationOwners[0], user, true, token, true) != actor)
                 throw new UnauthorizedAccessException();
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, owners[0], actor,
-                EmployeeMemoryNamespaces.Employee(organization.ToString("D"), owners[0].ToString("D"), "csweet").Partition, token, true);
+            var partition = EmployeeMemoryNamespaces.Employee(organization.ToString("D"), installationOwners[0].ToString("D"), "csweet").Partition;
+            owners.Add(new(installationOwners[0], partition));
+            foreach (var read in queued.Where(x => plan.Works.Single(w => w.Id == x.WorkId).InstallationId == installation).Select(x => x.Read)
+                .Concat(delivered.Where(x => x.InstallationId == installation).Select(x => x.Read)))
+                foreach (var audience in read.Partitions)
+                    owners.Add(new(ErasureAudienceOwnerId(audience, installationOwners[0]), audience));
         }
         if (delivered.Any(x => plan.Runtimes.Single(r => r.Id == x.RuntimeId).InstallationId != x.InstallationId))
             throw new UnauthorizedAccessException();
         var evidence = queued.Select(x => x.Read).Concat(delivered.Select(x => x.Read)).ToArray();
-        var audiences = evidence.SelectMany(x => x.Partitions).Distinct().ToArray();
+        var audiences = evidence.SelectMany(x => x.Partitions).Concat(genericAudiences).Distinct().ToArray();
         if (audiences.Length > 64) throw new InvalidOperationException("memory_erasure_scan_limit");
-        foreach (var partition in audiences)
-        {
-            var owner = partition == EmployeeMemoryNamespaces.Organization(organization.ToString("D"), "csweet").Partition ? employee :
-                Guid.TryParse(partition.AgentId, out var id) ? id : throw new UnauthorizedAccessException();
-            if (await MemoryManagerAuthorization.RequireAsync(db, organization, owner, user, true, token, true) != actor)
-                throw new UnauthorizedAccessException();
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token, true);
-        }
+        foreach (var partition in audiences) owners.Add(new(ErasureAudienceOwnerId(partition, employee), partition));
+        await AuthorizeErasureOwnersAsync(organization, user, actor, owners, token);
         foreach (var read in evidence.Where(x => x.Binding is not null))
         {
             var binding = read.Binding!;
@@ -84,7 +102,7 @@ public sealed partial class AgentMemoryReviewService
             throw new InvalidOperationException("memory_erasure_work_audience_review_required");
         var sourceReferences = evidence.SelectMany(x => x.References).Where(x => x.Kind == MemoryErasureKind.Episode).Distinct().ToArray();
         if (sourceReferences.Length > 1024) throw new InvalidOperationException("memory_erasure_scan_limit");
-        var held = captureRetention == "memory_legal_hold_prevents_deletion";
+        var held = captureRetention == "memory_legal_hold_prevents_deletion" || episodes.BlockedReason == "memory_legal_hold_prevents_deletion";
         held |= await CheckPromptRetentionAsync(organization, actor, evidence, store, token);
         foreach (var source in sourceReferences)
         {
@@ -97,12 +115,14 @@ public sealed partial class AgentMemoryReviewService
         }
         var runtimeIds = runtimes.ToArray();
         var active = await db.AgentRuntimeInstances.AsNoTracking().Where(x => runtimeIds.Contains(x.Id)).Select(x => x.Status).ToListAsync(token);
-        return new(new(sources.Length, captures.Jobs.Count, works.Count, runtimes.Count,
+        return new(new(sources.Length, captures.Jobs.Count+episodes.Entries.Length, works.Count, runtimes.Count,
             active.Count(CSweet.Domain.Setup.AgentRuntimeInstance.IsActive), held ? "memory_legal_hold_prevents_deletion" : null),
-            captures, plan, evidence, audiences);
+            captures, episodes, genericTransferRetentionHash, plan, evidence, audiences,
+            owners.OrderBy(x => x.Partition.StorageKey, StringComparer.Ordinal).ThenBy(x => x.EmployeeId).ToArray());
     }
 
-    private async Task<IReadOnlyList<MemoryCaptureErasure.Source>> ReadErasureCaptureSourcesAsync(Guid organization, MemoryErasurePreview inventory, CancellationToken token)
+    private async Task<IReadOnlyList<MemoryCaptureErasure.Source>> ReadErasureCaptureSourcesAsync(Guid organization, Guid user, Guid actor, MemoryErasurePreview inventory, MemoryEpisodeErasure.Plan generic,
+        ISet<ErasureAudienceOwner> owners, CancellationToken token)
     {
         var targets = inventory.Targets.Where(x => x.Kind == MemoryErasureKind.Episode).ToHashSet();
         var ids = targets.Select(x => x.Id).Distinct().ToArray();
@@ -129,6 +149,32 @@ public sealed partial class AgentMemoryReviewService
         foreach (var episode in episodes.DistinctBy(x => (x.Id, x.Partition, x.Source, x.SourceFingerprint,
                      MetadataGuid(x, "messageId"), MetadataGuid(x, "conversationId"))))
         {
+            if (episode.CorrectionEvidence is not null || episode.SourceFingerprint?.StartsWith("sha256-v3:", StringComparison.Ordinal)==true)
+            {
+                if (episode.Partition.AgentId is null || !Guid.TryParseExact(episode.Partition.AgentId,"D",out var correctionOwner))
+                    throw new InvalidOperationException("memory_erasure_source_review_required");
+                var retention=await ReadTransferRetentionAsync(organization,correctionOwner,user,actor,episode,token);
+                if(retention.Blocker=="memory_transfer_retention_review_required" || retention.EvidenceHash is null)
+                    throw new InvalidOperationException("memory_erasure_source_review_required");
+                owners.Add(new(correctionOwner,episode.Partition));
+                continue;
+            }
+            if (episode.Source.Type=="agent-proposal" && MemorySourceIntegrity.IsVerified(episode) &&
+                generic.Entries.Any(x=>x.Job.EpisodeId==episode.Id && x.Evidence.Episode.Partition==episode.Partition &&
+                    episode.Source.Id==episode.Id.ToString("D") && episode.Source.Author==x.Job.EmployeeId.ToString("D") &&
+                    MetadataGuid(episode,"installationId")==x.Job.InstallationId && episode.TransferEvidence is null)) continue;
+            if(episode.Source.Type=="agent-proposal" && Guid.TryParseExact(episode.Source.Author,"D",out var producer) &&
+                MetadataGuid(episode,"installationId") is { } installation &&
+                (episode.Partition.AgentId is null || episode.Partition.AgentId==producer.ToString("D")) &&
+                AgentMemoryService.IsVerifiedProposalForOperatorReview(episode,organization,producer,installation) &&
+                await db.CoreOrganizationUsers.AnyAsync(x=>x.Id==producer && x.OrganizationId==organization &&
+                    x.EmployeeType==EmployeeType.Agent && x.IsActive && x.ArchivedAt==null && x.AgentInstallationId==installation,token))
+            {
+                if(await MemoryManagerAuthorization.RequireAsync(db,organization,producer,user,true,token,true)!=actor) throw new UnauthorizedAccessException();
+                await AuthorizeErasureAudiencesAsync(organization, producer, user, actor, [episode.Partition], token);
+                owners.Add(new(producer, episode.Partition));
+                continue;
+            }
             if (episode.TransferEvidence is not null && episode.Source.Type == "knowledge-transfer") continue;
             if (!Guid.TryParse(episode.Source.Id, out var sourceId)) throw new InvalidOperationException("memory_erasure_source_review_required");
             if (MetadataGuid(episode, "conversationId") is not { } conversationId || MetadataGuid(episode, "messageId") != sourceId)

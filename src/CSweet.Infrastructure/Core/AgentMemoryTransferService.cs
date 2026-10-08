@@ -13,7 +13,7 @@ using Npgsql;
 
 namespace CSweet.Infrastructure.Core;
 
-public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore memory, TimeProvider clock) : IAgentMemoryTransferService
+public sealed partial class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore memory, TimeProvider clock) : IAgentMemoryTransferService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly string[] Tables = ["episodes", "entities", "claims", "edges", "blocks", "procedures"];
@@ -33,7 +33,7 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
         try
         {
             var actor = await AuthorizePairAsync(organizationId, employeeId, request.TargetEmployeeId, applicationUserId, token);
-            var (source, target) = Namespaces(organizationId, employeeId, request.TargetEmployeeId, actor, request.SourceScope);
+            var (source, target) = Namespaces(organizationId, employeeId, request.TargetEmployeeId, actor, request.SourceScope, request.SourceAudienceId);
             await BarrierAsync(token);
             await AuthorizeScopesAsync(organizationId, employeeId, request.TargetEmployeeId, actor, source, target, token);
             var hash = Hash(new { organizationId, employeeId, applicationUserId, actor, request });
@@ -46,7 +46,8 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
                 KnowledgeTransferStatus.PendingApproval, now, actor.ToString("D"));
             if (MemoryTransferEvidence.RenderContent(package).Length > 32000) throw new ArgumentException("Transfer content is too large.");
             // Validate the complete snapshot before persisting a reviewable draft. This is not approval.
-            _ = await EvidenceAsync(store, package, token);
+            var draftEvidence = await EvidenceAsync(store, package, token);
+            await RequireInheritedAudiencesAsync(organizationId, employeeId, request.TargetEmployeeId, actor, draftEvidence, token);
             await store.WriteKnowledgeTransferAsync(package, token);
             var receipt = Receipt(organizationId, employeeId, request.TargetEmployeeId, applicationUserId, actor,
                 request.OperationId, hash, "prepare", package);
@@ -62,15 +63,17 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
     {
         await RequireBackendAsync(token);
         await using var transaction = await db.Database.BeginTransactionAsync(token);
-        await MemoryManagerAuthorization.RequireAsync(db, organizationId, employeeId, applicationUserId, true, token);
+        var actor = await MemoryManagerAuthorization.RequireAsync(db, organizationId, employeeId, applicationUserId, true, token);
         await BarrierAsync(token);
         await using var store = EnlistedStore();
         var package = await AuthorizedPackageAsync(store, organizationId, employeeId, packageId, applicationUserId, token);
         var evidence = await TryEvidenceAsync(store, package, token);
         var current = evidence is not null && (package.Status == KnowledgeTransferStatus.PendingApproval ||
             JsonSerializer.Serialize(evidence, Json) == JsonSerializer.Serialize(package.ApprovedEvidence, Json));
+        await RequireInheritedAudiencesAsync(organizationId, employeeId, Guid.Parse(package.TargetEmployeeId), actor, evidence ?? package.ApprovedEvidence, token);
+        var reviewToken = await ReviewTokenAsync(package, evidence, actor, token);
         await transaction.CommitAsync(token);
-        return new(package.Id, Guid.Parse(package.TargetEmployeeId), package.Status.ToString(), Hash(new { package, evidence }),
+        return new(package.Id, Guid.Parse(package.TargetEmployeeId), package.Status.ToString(), reviewToken,
             MemoryTransferEvidence.RenderContent(package), MemoryProvenance.Maximum(package.Items.Select(x => x.Sensitivity)
                 .Append(package.DebriefSensitivity).ToArray()).ToString(), current && package.Status == KnowledgeTransferStatus.PendingApproval,
             current && package.Status == KnowledgeTransferStatus.Approved, package.Status != KnowledgeTransferStatus.Rejected, package.AppliedEpisodeId);
@@ -105,10 +108,12 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
             await BarrierAsync(token);
             await using var store = EnlistedStore();
             var package = await AuthorizedPackageAsync(store, organizationId, employeeId, packageId, applicationUserId, token);
+            await RequireInheritedAudiencesAsync(organizationId, employeeId, Guid.Parse(package.TargetEmployeeId), actor, package.ApprovedEvidence, token);
             var hash = Hash(new { organizationId, employeeId, packageId, applicationUserId, actor, request });
             if (await ReplayAsync(organizationId, request.OperationId, hash, token) is { } replay) return replay;
             var evidence = await TryEvidenceAsync(store, package, token);
-            if (request.ExpectedToken != Hash(new { package, evidence })) throw Changed();
+            await RequireInheritedAudiencesAsync(organizationId, employeeId, Guid.Parse(package.TargetEmployeeId), actor, evidence, token);
+            if (request.ExpectedToken != await ReviewTokenAsync(package, evidence, actor, token)) throw Changed();
             if (request.Action == "reject")
             {
                 if (package.Status == KnowledgeTransferStatus.Rejected) throw Changed();
@@ -125,7 +130,16 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
                 package = request.Action == "approve"
                     ? await engine.ApproveKnowledgeTransferAsync(new(package.Id, access, true), token)
                     : await engine.ApplyKnowledgeTransferAsync(new(package.Id, access), token);
-                if (request.Action == "apply") await RegisterTargetAsync(organizationId, package, token);
+                if (request.Action == "apply")
+                {
+                    await RegisterTargetAsync(organizationId, package, token);
+                    var target = Guid.Parse(package.TargetEmployeeId);
+                    var installation = await db.CoreOrganizationUsers.Where(x => x.Id == target && x.OrganizationId == organizationId)
+                        .Select(x => x.AgentInstallationId).SingleAsync(token) ?? throw new UnauthorizedAccessException();
+                    var episode = await ((IMemorySourceReader)store).GetEpisodeAsync(package.TargetNamespace.Partition,
+                        package.AppliedEpisodeId!.Value, token) ?? throw new InvalidOperationException("memory_transfer_source_unavailable");
+                    await AgentMemoryService.StageEpisodeJobAsync(db, episode, organizationId, target, installation, applicationUserId, token);
+                }
             }
             var receipt = Receipt(organizationId, employeeId, Guid.Parse(package.TargetEmployeeId), applicationUserId, actor,
                 request.OperationId, hash, request.Action, package);
@@ -145,8 +159,9 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
         var actor = await AuthorizePairAsync(organization, employee, targetId, user, token);
         var source = package.SourceNamespaces[0];
         var scope = source.Audience switch { MemoryAudienceType.Employee => "Employee", MemoryAudienceType.UserRelationship => "Relationship",
-            MemoryAudienceType.Organization => "Organization", _ => throw new UnauthorizedAccessException() };
-        var expected = Namespaces(organization, employee, targetId, actor, scope);
+            MemoryAudienceType.Organization => "Organization", MemoryAudienceType.Team => "Team", MemoryAudienceType.Role => "Role", _ => throw new UnauthorizedAccessException() };
+        Guid? audience = scope is "Team" or "Role" && Guid.TryParseExact(source.AudienceId, "D", out var parsed) ? parsed : null;
+        var expected = Namespaces(organization, employee, targetId, actor, scope, audience);
         if (source != expected.Source || package.TargetNamespace != expected.Target) throw new UnauthorizedAccessException();
         await AuthorizeScopesAsync(organization, employee, targetId, actor, source, package.TargetNamespace, token);
         return package;
@@ -163,19 +178,28 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
     private async Task AuthorizeScopesAsync(Guid organization, Guid employee, Guid target, Guid actor,
         MemoryNamespace sourceScope, MemoryNamespace targetScope, CancellationToken token)
     {
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, employee, actor, sourceScope.Partition, token);
+        if (sourceScope.Audience is MemoryAudienceType.Team or MemoryAudienceType.Role)
+        {
+            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, employee, actor, sourceScope.Partition, token);
+            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, target, actor, sourceScope.Partition, token);
+        }
+        else await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, employee, actor, sourceScope.Partition, token);
         await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, target, actor, targetScope.Partition, token);
     }
 
-    private static (MemoryNamespace Source, MemoryNamespace Target) Namespaces(Guid organization, Guid employee, Guid target, Guid actor, string scope)
+    private static (MemoryNamespace Source, MemoryNamespace Target) Namespaces(Guid organization, Guid employee, Guid target, Guid actor, string scope, Guid? audience = null)
     {
         var tenant = organization.ToString("D"); var from = employee.ToString("D"); var to = target.ToString("D");
+        if (scope is "Team" or "Role" ? audience is null || audience == Guid.Empty : audience is not null)
+            throw new ArgumentException("Invalid transfer audience identity.");
         return scope switch
         {
             "Employee" => (EmployeeMemoryNamespaces.Employee(tenant, from, "csweet"), EmployeeMemoryNamespaces.Employee(tenant, to, "csweet")),
             "Relationship" => (EmployeeMemoryNamespaces.UserRelationship(tenant, from, actor.ToString("D"), "csweet"),
                 EmployeeMemoryNamespaces.UserRelationship(tenant, to, actor.ToString("D"), "csweet")),
             "Organization" => (EmployeeMemoryNamespaces.Organization(tenant, "csweet"), EmployeeMemoryNamespaces.Employee(tenant, to, "csweet")),
+            "Team" => (EmployeeMemoryNamespaces.Team(tenant, audience!.Value.ToString("D"), "csweet"), EmployeeMemoryNamespaces.Employee(tenant, to, "csweet")),
+            "Role" => (EmployeeMemoryNamespaces.Role(tenant, audience!.Value.ToString("D"), "csweet"), EmployeeMemoryNamespaces.Employee(tenant, to, "csweet")),
             _ => throw new ArgumentException("Unsupported transfer audience.")
         };
     }
@@ -209,6 +233,11 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
         var receipt = await db.MemoryTransferReceipts.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.OperationId == operation, token);
         if (receipt is null) return null;
         if (receipt.RequestHash != hash) throw Changed();
+        await using var store = EnlistedStore();
+        var package = await AuthorizedPackageAsync(store, organization, receipt.EmployeeId, receipt.PackageId, receipt.ActorApplicationUserId, token);
+        var evidence = await TryEvidenceAsync(store, package, token) ?? package.ApprovedEvidence;
+        if (evidence is null && package.Items.Count > 0) throw new InvalidOperationException("memory_transfer_source_unavailable");
+        await RequireInheritedAudiencesAsync(organization, receipt.EmployeeId, receipt.TargetEmployeeId, receipt.ActorOrganizationUserId, evidence, token);
         return Result(receipt, true);
     }
 
@@ -277,6 +306,12 @@ public sealed class AgentMemoryTransferService(CSweetDbContext db, IMemoryStore 
             if (value.GetProperty("id").GetGuid() != key.Id || value.GetProperty("partition").Deserialize<MemoryPartition>(Json) != partition)
                 throw new InvalidOperationException("memory_transfer_source_unavailable");
             rows.Add(key, value);
+            if (key.Kind == MemoryRecordKind.Episode && value.Deserialize<MemoryEpisode>(Json)?.CorrectionEvidence is { } correction)
+            {
+                if (correction.Sources is not { Count: > 0 and <= MemoryProvenance.MaximumSourceEpisodes })
+                    throw new InvalidOperationException("memory_transfer_source_unavailable");
+                foreach (var reference in correction.Sources) pending.Enqueue((MemoryRecordKind.Episode, reference.EpisodeId));
+            }
             if (value.TryGetProperty("sourceEpisodeIds", out var sources))
             {
                 if (sources.ValueKind != JsonValueKind.Array || sources.GetArrayLength() > MemoryProvenance.MaximumSourceEpisodes)

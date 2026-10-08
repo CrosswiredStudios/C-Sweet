@@ -8,13 +8,24 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
 
-public sealed class AgentMemoryRecoveryService(CSweetDbContext db, TimeProvider clock) : IAgentMemoryRecoveryService
+public sealed partial class AgentMemoryRecoveryService(CSweetDbContext db, TimeProvider clock, AgentMemoryService? memory = null) : IAgentMemoryRecoveryService
 {
     public async Task<MemoryEnrichmentJobPageResponse> ListFailuresAsync(Guid organizationId, Guid employeeId,
         Guid applicationUserId, string? cursor = null, int limit = 20, CancellationToken cancellationToken = default)
     {
         await RequireManagerAsync(organizationId, employeeId, applicationUserId, false, cancellationToken);
-        var query = Jobs(organizationId, employeeId).AsNoTracking().Where(x => x.Status == MemoryCaptureStatus.Failed);
+        // Both projections omit source text, accepted JSON and original reviewer identity.
+        var query = Jobs(organizationId, employeeId).AsNoTracking().Where(x => x.Status == MemoryCaptureStatus.Failed)
+            .Select(x => new { x.Id, ConversationId = x.ConversationMessage!.ConversationId, x.Status, x.Attempts,
+                x.RetryGeneration, x.CreatedAt, x.NextAttemptAt, HasAcceptedExtraction = x.AcceptedExtractionJson != null,
+                FailureCode = db.MemorySourceInvalidations.Any(e => e.SourceMessageId == x.ConversationMessageId)
+                    ? "memory_source_changed" : db.MemoryCaptureExclusions.Any(e => e.SourceMessageId == x.ConversationMessageId)
+                    ? "memory_capture_excluded" : x.LastError, JobKind = "conversation", EpisodeId = (Guid?)null })
+            .Concat(db.MemoryEpisodeEnrichmentJobs.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                x.EmployeeId == employeeId && x.Status == MemoryCaptureStatus.Failed && x.SupersededAt == null)
+                .Select(x => new { x.Id, ConversationId = Guid.Empty, x.Status, x.Attempts, x.RetryGeneration,
+                    x.CreatedAt, x.NextAttemptAt, HasAcceptedExtraction = x.AcceptedExtractionJson != null,
+                    FailureCode = x.LastError, JobKind = "episode", EpisodeId = (Guid?)x.EpisodeId }));
         if (cursor is not null)
         {
             var position = DecodeCursor(cursor, organizationId, employeeId);
@@ -22,15 +33,11 @@ public sealed class AgentMemoryRecoveryService(CSweetDbContext db, TimeProvider 
                 (x.CreatedAt == position.CreatedAt && x.Id.CompareTo(position.Id) < 0));
         }
         var size = Math.Clamp(limit, 1, 100);
-        // Project before materialization so listing never reads source text or accepted extraction JSON.
         var rows = await query.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
-            .Select(x => new MemoryEnrichmentJobResponse(x.Id, x.ConversationMessage!.ConversationId,
-                x.Status.ToString(), x.Attempts, x.RetryGeneration, x.CreatedAt, x.NextAttemptAt,
-                x.AcceptedExtractionJson != null,
-                db.MemorySourceInvalidations.Any(e => e.SourceMessageId == x.ConversationMessageId)
-                    ? "memory_source_changed" : db.MemoryCaptureExclusions.Any(e => e.SourceMessageId == x.ConversationMessageId)
-                    ? "memory_capture_excluded" : x.LastError)).Take(size + 1).ToListAsync(cancellationToken);
-        var items = rows.Take(size).Select(x => x with { FailureCode = SafeFailureCode(x.FailureCode) }).ToList();
+            .Take(size + 1).ToListAsync(cancellationToken);
+        var items = rows.Take(size).Select(x => new MemoryEnrichmentJobResponse(x.Id, x.ConversationId,
+            x.Status.ToString(), x.Attempts, x.RetryGeneration, x.CreatedAt, x.NextAttemptAt,
+            x.HasAcceptedExtraction, SafeFailureCode(x.FailureCode), x.JobKind, x.EpisodeId)).ToList();
         var next = rows.Count > size ? Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(
             new FailureCursor(organizationId, employeeId, items[^1].CreatedAt, items[^1].Id))) : null;
         return new(items, next);
@@ -43,6 +50,9 @@ public sealed class AgentMemoryRecoveryService(CSweetDbContext db, TimeProvider 
             throw new ArgumentException("A retry identity and a valid retry generation are required.");
         // Authorize before looking up the job, and reauthorize under locks before changing it.
         await RequireManagerAsync(organizationId, employeeId, applicationUserId, false, cancellationToken);
+        if (await db.MemoryEpisodeEnrichmentJobs.AsNoTracking().AnyAsync(x => x.Id == jobId &&
+            x.OrganizationId == organizationId && x.EmployeeId == employeeId, cancellationToken))
+            return await RetryEpisodeAsync(organizationId, employeeId, jobId, applicationUserId, request, cancellationToken);
         if (!await Jobs(organizationId, employeeId).AnyAsync(x => x.Id == jobId, cancellationToken))
             throw new KeyNotFoundException("The memory job was not found.");
         await using var transaction = db.Database.IsRelational()
@@ -158,6 +168,7 @@ public sealed class AgentMemoryRecoveryService(CSweetDbContext db, TimeProvider 
             "memory_enrichment_unverifiable_output" => code,
             "memory_enrichment_input_receipt_capacity" => code,
         "memory_capture_excluded" or "memory_source_changed" or "memory_source_suppressed" or MemoryCaptureErasure.FailureCode => code,
+        "memory_enrichment_authority_revoked" or "memory_transfer_source_unavailable" => code,
         _ => "memory_enrichment_failed"
     };
 

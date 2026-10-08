@@ -46,7 +46,13 @@ public sealed class OrganizationDeletionTests
             OccurredAt = DateTimeOffset.UtcNow,
             CreatedAt = DateTimeOffset.UtcNow
         };
-        db.AddRange(deleted, retained, onboarding, deletedProfile, retainedProfile, sharedWorker, audit);
+        var episodeRetry = new MemoryEpisodeRetryReceipt
+        {
+            Id = Guid.NewGuid(), JobId = Guid.NewGuid(), OperationId = Guid.NewGuid(), OrganizationId = deleted.Id,
+            EmployeeId = Guid.NewGuid(), ActorOrganizationUserId = Guid.NewGuid(), ActorApplicationUserId = Guid.NewGuid(),
+            RetryGeneration = 1, PreviousAttempts = 10, SourceHash = new string('a', 64), CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.AddRange(deleted, retained, onboarding, deletedProfile, retainedProfile, sharedWorker, audit, episodeRetry);
         await db.SaveChangesAsync();
         // Seed these with SQL so this deletion test remains isolated from realtime
         // outbox capture, whose generated sequence is PostgreSQL-specific.
@@ -110,6 +116,7 @@ public sealed class OrganizationDeletionTests
             NullLogger<OrganizationDataPurgeService>.Instance);
 
         await service.PurgeAsync(deleted.Id);
+        Assert.Equal(episodeRetry.SourceHash, (await db.MemoryEpisodeRetryReceipts.SingleAsync(x => x.Id == episodeRetry.Id)).SourceHash);
 
         Assert.False(await db.CoreOrganizations.AnyAsync(x => x.Id == deleted.Id));
         Assert.True(await db.CoreOrganizations.AnyAsync(x => x.Id == retained.Id));
@@ -227,7 +234,7 @@ public sealed class OrganizationDeletionTests
         var classified = OrganizationDataPurgeService.ScopedEntityTypes(db.Model)
             .Select(x => x.ClrType)
             .ToHashSet();
-        var preserved = new[] { typeof(Organization), typeof(AuditEvent), typeof(MemoryCaptureRetryReceipt), typeof(MemoryExtractionInputReceipt), typeof(MemoryReviewReceipt), typeof(MemoryErasureReceipt), typeof(MemoryTransferReceipt), typeof(AgentMemoryReadReceipt), typeof(MemoryCaptureExclusion), typeof(Worker) };
+        var preserved = new[] { typeof(Organization), typeof(AuditEvent), typeof(MemoryCaptureRetryReceipt), typeof(MemoryEpisodeRetryReceipt), typeof(MemoryEpisodeReextractionReceipt), typeof(MemoryExtractionInputReceipt), typeof(MemoryReviewReceipt), typeof(MemoryErasureReceipt), typeof(MemoryTransferReceipt), typeof(AgentMemoryReadReceipt), typeof(MemoryCaptureExclusion), typeof(Worker) };
         var expected = db.Model.GetEntityTypes()
             .Where(x => x.BaseType is null && x.FindPrimaryKey() is not null && x.GetTableName() is not null)
             .Where(x => x.FindProperty("OrganizationId") is { } property &&
@@ -242,6 +249,8 @@ public sealed class OrganizationDeletionTests
         Assert.Contains(typeof(ExecutionWorkloadAssignment), classified);
         Assert.DoesNotContain(typeof(AuditEvent), classified);
         Assert.DoesNotContain(typeof(MemoryCaptureRetryReceipt), classified);
+        Assert.DoesNotContain(typeof(MemoryEpisodeRetryReceipt), classified);
+        Assert.DoesNotContain(typeof(MemoryEpisodeReextractionReceipt), classified);
         Assert.DoesNotContain(typeof(MemoryExtractionInputReceipt), classified);
         Assert.DoesNotContain(typeof(MemoryReviewReceipt), classified);
         Assert.DoesNotContain(typeof(MemoryTransferReceipt), classified);

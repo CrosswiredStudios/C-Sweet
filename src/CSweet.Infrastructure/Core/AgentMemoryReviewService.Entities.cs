@@ -25,6 +25,7 @@ public sealed partial class AgentMemoryReviewService
         var claim = await LockClaimAsync(store, claimId, cancellationToken);
         await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, claim.Partition, cancellationToken);
         var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
+        await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
         if (claim.ObjectEntityId is null || !evidence.Valid) return [];
         var ids = new List<Guid>();
         await using (var command = Command("""
@@ -46,6 +47,8 @@ public sealed partial class AgentMemoryReviewService
         {
             var target = await ReadCorrectionTargetAsync(store, claim, id, cancellationToken);
             if (target is null || evidence.SourceIds.Concat(target.Entity.SourceEpisodeIds).Distinct().Count() > MemoryProvenance.MaximumSourceEpisodes) continue;
+            var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, target.Sources.Values, cancellationToken);
+            if (sharedHash is not null) continue; // corrections cannot create an unrestricted episode from shared evidence
             results.Add(new(id, target.Entity.CanonicalName, target.Entity.Type, target.Sensitivity.ToString(), target.Token, target.Entity.SourceEpisodeIds));
         }
         await transaction.CommitAsync(cancellationToken);

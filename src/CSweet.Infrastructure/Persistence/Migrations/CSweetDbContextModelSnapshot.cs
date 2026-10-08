@@ -4888,6 +4888,265 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("MemoryEnrichmentProviderLeases");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.MemoryEpisodeEnrichmentJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AcceptedExtractionJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EpisodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ExtractionAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("InputGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseToken")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PreviousJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RetryGeneration")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ReviewerApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("SupersededAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EpisodeId")
+                        .IsUnique()
+                        .HasFilter("\"SupersededAt\" IS NULL");
+
+                    b.HasIndex("PreviousJobId")
+                        .IsUnique()
+                        .HasFilter("\"PreviousJobId\" IS NOT NULL");
+
+                    b.HasIndex("EpisodeId", "InputGeneration")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "LastAttemptAt");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("MemoryEpisodeEnrichmentJobs");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.MemoryEpisodeExtractionReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LeaseToken")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "LeaseToken")
+                        .IsUnique();
+
+                    b.ToTable("MemoryEpisodeExtractionReceipts");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.MemoryEpisodeReextractionReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EpisodeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("InputGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PreviousAcceptedHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PreviousJobHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PreviousJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId")
+                        .IsUnique();
+
+                    b.HasIndex("PreviousJobId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "OperationId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "EpisodeId", "InputGeneration")
+                        .IsUnique();
+
+                    b.ToTable("MemoryEpisodeReextractionReceipts");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.MemoryEpisodeRetryReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PreviousAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PreviousGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RetryGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("ReusesAcceptedExtraction")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobId", "OperationId")
+                        .IsUnique();
+
+                    b.HasIndex("JobId", "RetryGeneration")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "EmployeeId", "CreatedAt");
+
+                    b.ToTable("MemoryEpisodeRetryReceipts");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.MemoryErasureReceipt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -15713,6 +15972,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("ConversationMessage");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.MemoryEpisodeExtractionReceipt", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.MemoryEpisodeEnrichmentJob", null)
+                        .WithMany()
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.MemoryExtractionInputReceipt", b =>

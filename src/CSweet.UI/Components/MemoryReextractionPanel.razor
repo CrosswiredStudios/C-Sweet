@@ -1,0 +1,136 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Review a new memory extraction">
+    <MudText Typo="Typo.h6">Review a new extraction</MudText>
+    <MudText Class="mb-2">Review another extraction of an existing proposal or applied transfer. The previous job and saved results remain preserved. Existing stored records stay unchanged; new inferred claims still need review.</MudText>
+    <MudButton OnClick="RefreshAsync" Disabled="Locked">Find existing extractions</MudButton>
+    @if (_candidates is not null)
+    {
+        @foreach (var candidate in _candidates.Items)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2" @key="candidate.JobId">
+                <MudText>@candidate.Status · @candidate.Audience · @candidate.CreatedAt.ToLocalTime().ToString("g")</MudText>
+                <MudButton OnClick="@(() => PreviewAsync(candidate.JobId))" Disabled="Locked">Review new extraction</MudButton>
+            </MudStack>
+        }
+        @if (_candidates.Items.Count == 0) { <MudText>No existing extractions found in your supported audiences.</MudText> }
+        @if (_candidates.NextCursor is not null) { <MudButton OnClick="LoadMoreAsync" Disabled="Locked">Load more</MudButton> }
+    }
+    @if (_preview is not null)
+    {
+        <MudDivider Class="my-3" />
+        <MudText style="white-space:pre-wrap">@_preview.Content</MudText>
+        <MudText Typo="Typo.caption">@_preview.Source · @_preview.Audience · @_preview.Sensitivity</MudText>
+        <MudAlert Severity="Severity.Info">A new extraction will be requested. @_preview.ExistingRecords existing records will be preserved. Previous saved output will remain with its original job.</MudAlert>
+        @if (_preview.CanQueue)
+        {
+            <MudCheckBox T="bool" @bind-Value="_acknowledged" Disabled="Locked" Label="Run a new extraction and preserve existing records" />
+            <MudButton OnClick="QueueAsync" Disabled="@(Locked || !_acknowledged)" Color="Color.Primary">Queue new extraction</MudButton>
+        }
+        else { <MudAlert Severity="Severity.Warning">This job is unavailable for replacement. Refresh its current state before deciding again.</MudAlert> }
+    }
+    @if (_pending is not null)
+    { <MudButton OnClick="RetryAsync" Disabled="_busy" Color="Color.Warning">Check the same review request</MudButton> }
+    @if (_pendingUrl is not null && !_pendingUrl.StartsWith(BaseUrl + "/", StringComparison.Ordinal))
+    { <MudAlert Severity="Severity.Warning">A review for another employee awaits confirmation. Checking it uses the original employee and job.</MudAlert> }
+    @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+</MudPaper>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public EventCallback Recovered { get; set; }
+    private string BaseUrl => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory";
+    private MemoryReextractionCandidatePage? _candidates;
+    private MemoryReextractionPreview? _preview;
+    private ReviewMemoryReextractionRequest? _pending;
+    private string? _pendingUrl;
+    private Guid _pendingJob;
+    private Guid _pendingEpisode;
+    private bool _busy;
+    private bool _acknowledged;
+    private bool Locked => _busy || _pending is not null;
+    private string? _message;
+    private (Guid Organization, Guid Employee) _scope;
+    private int _readEpoch;
+    protected override void OnParametersSet()
+    {
+        if (_scope == (OrganizationId, EmployeeId)) return;
+        _scope = (OrganizationId, EmployeeId); _readEpoch++;
+        _preview = null; _candidates = null; _message = null; _acknowledged = false;
+        // An uncertain mutation retains its exact request and original scope.
+    }
+    private Task RefreshAsync() => LoadAsync(null);
+    private Task LoadMoreAsync() => LoadAsync(_candidates?.NextCursor);
+    private async Task LoadAsync(string? cursor)
+    {
+        if (Locked) return;
+        var route = BaseUrl; var epoch = ++_readEpoch; _busy = true; _preview = null; _message = null; _acknowledged = false;
+        if (cursor is null) _candidates = null;
+        try
+        {
+            var suffix = cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor);
+            using var response = await Http.GetAsync(route + "/ingestion/reextraction?limit=20" + suffix);
+            if (route != BaseUrl || epoch != _readEpoch) return;
+            if (!response.IsSuccessStatusCode) { _candidates = null; _message = "Existing extractions could not be read. Check your access and refresh."; return; }
+            var page = await response.Content.ReadFromJsonAsync<MemoryReextractionCandidatePage>();
+            if (route != BaseUrl || epoch != _readEpoch) return;
+            if (page is not null) _candidates = cursor is null || _candidates is null ? page :
+                new(_candidates.Items.Concat(page.Items).DistinctBy(x => x.JobId).ToArray(), page.NextCursor);
+        }
+        catch (Exception error) when (NetworkError(error)) { if (route == BaseUrl && epoch == _readEpoch) _message = "Existing extractions could not be loaded. Try again."; }
+        finally { _busy = false; }
+    }
+    private async Task PreviewAsync(Guid job)
+    {
+        if (Locked) return;
+        var route = BaseUrl; var epoch = ++_readEpoch; _busy = true; _preview = null; _message = null; _acknowledged = false;
+        try
+        {
+            using var response = await Http.GetAsync(route + $"/jobs/{job}/reextraction-review");
+            if (route != BaseUrl || epoch != _readEpoch) return;
+            if (!response.IsSuccessStatusCode) { _message = "This extraction or its retained evidence is unavailable, or your access changed."; return; }
+            var preview = await response.Content.ReadFromJsonAsync<MemoryReextractionPreview>();
+            if (route == BaseUrl && epoch == _readEpoch && preview?.JobId == job) _preview = preview;
+        }
+        catch (Exception error) when (NetworkError(error)) { if (route == BaseUrl && epoch == _readEpoch) _message = "Review details could not be loaded. Try again."; }
+        finally { _busy = false; }
+    }
+    private async Task QueueAsync()
+    {
+        if (Locked || !_acknowledged || _preview is not { CanQueue: true }) return;
+        _pending = new(Guid.NewGuid(), _preview.InputGeneration, _preview.EvidenceToken, "preserve-existing-v1");
+        _pendingJob = _preview.JobId; _pendingEpisode = _preview.EpisodeId;
+        _pendingUrl = BaseUrl + $"/jobs/{_preview.JobId}/reextraction-review";
+        await RetryAsync();
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || _pending is null || _pendingUrl is null) return;
+        _busy = true; _message = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(_pendingUrl, _pending);
+            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            { Clear(); _message = "The review was not accepted. Reload current evidence and access before deciding again."; return; }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<ReviewMemoryReextractionResponse>() ?? throw new System.Text.Json.JsonException();
+            if (result.PreviousJobId != _pendingJob || result.EpisodeId != _pendingEpisode || result.InputGeneration != _pending.ExpectedInputGeneration + 1 ||
+                result.ReceiptId == Guid.Empty || result.JobId == Guid.Empty) throw new System.Text.Json.JsonException();
+            var current = _pendingUrl.StartsWith(BaseUrl + "/", StringComparison.Ordinal);
+            Clear();
+            _message = result.Replayed ? "This review was already recorded. Check processing for its current state." :
+                "The new extraction was queued. Existing records and the previous job remain preserved.";
+            if (current) await Recovered.InvokeAsync();
+            else _message = "The review for the previous employee was recorded. Return to that employee to inspect its current state.";
+        }
+        catch (Exception error) when (NetworkError(error))
+        { _message = "The review could not be confirmed. Check the same request without queuing another extraction."; }
+        finally { _busy = false; }
+    }
+    private void Clear()
+    { _pending = null; _pendingUrl = null; _pendingJob = Guid.Empty; _pendingEpisode = Guid.Empty; _preview = null; _candidates = null; _acknowledged = false; }
+    private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
+}

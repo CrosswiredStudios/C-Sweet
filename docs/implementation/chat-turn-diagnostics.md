@@ -45,6 +45,9 @@ agent's sanitized failure text and stores `ErrorCode`/`ErrorMessage` on the turn
    (`agent-failure:v1;code=<platform.capability.denied|unavailable|validation_failed|agent.invalid_operation|runtime.transport|rate_limited>;diagnosticId=…`).
 5. `AgentRunLogs` — LLM/plugin run records (`Status`, `FailureMessage`, `PromptPreview`, `ChatTurnId`).
 6. `AgentRuntimeInstances.LogExcerpt` — runtime lifecycle excerpt when the agent never answered.
+   Memory-reset validation diagnostics are on `AgentRuntimeEvents.Reason`: server-authored
+   `validation`, `receipt`, `work`, and `error` fields identify the rejected check without copying
+   recalled content. The runtime's `MemoryResetReasonCode` remains the broad reset classification.
 7. Console output: the API process logs `Chat turn {TurnId} failed.` with the exception, and the
    AgentHost process logs platform LLM stream failures. The application has no file log sink, so the
    AppHost console holds the current run's output.

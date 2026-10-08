@@ -11,8 +11,8 @@ public interface IAgentMemoryService
         CancellationToken cancellationToken = default);
     Task CaptureMessageAsync(Guid messageId, bool enrich = false, CancellationToken cancellationToken = default);
     Task<int> ProcessPendingAsync(int limit = 20, CancellationToken cancellationToken = default);
-    Task<AgentMemorySummaryResponse?> GetSummaryAsync(Guid organizationId, Guid employeeId, CancellationToken cancellationToken = default);
-    Task<AgentMemoryPageResponse?> BrowseAsync(Guid organizationId, Guid employeeId, AgentMemoryQuery query, CancellationToken cancellationToken = default);
-    Task<AgentMemoryGraphResponse?> GetGraphAsync(Guid organizationId, Guid employeeId, string? search, Guid? userId, int limit = 100, CancellationToken cancellationToken = default);
-    Task<AgentMemoryItemResponse?> GetItemAsync(Guid organizationId, Guid employeeId, Guid memoryId, CancellationToken cancellationToken = default);
+    Task<AgentMemorySummaryResponse?> GetSummaryAsync(Guid organizationId, Guid employeeId, CancellationToken cancellationToken = default, Guid? applicationUserId = null);
+    Task<AgentMemoryPageResponse?> BrowseAsync(Guid organizationId, Guid employeeId, AgentMemoryQuery query, CancellationToken cancellationToken = default, Guid? applicationUserId = null);
+    Task<AgentMemoryGraphResponse?> GetGraphAsync(Guid organizationId, Guid employeeId, string? search, Guid? userId, int limit = 100, CancellationToken cancellationToken = default, Guid? applicationUserId = null);
+    Task<AgentMemoryItemResponse?> GetItemAsync(Guid organizationId, Guid employeeId, Guid memoryId, CancellationToken cancellationToken = default, Guid? applicationUserId = null);
 }

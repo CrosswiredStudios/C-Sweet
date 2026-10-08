@@ -12,13 +12,17 @@ else
 {
     <MudText style="white-space:pre-wrap">@_review.Content</MudText>
     <MudAlert Severity="Severity.Info">Retention decisions require the top-level human in this employee's reporting hierarchy and access to this audience. A hold preserves evidence; it does not authorize recall.</MudAlert>
+    @if (_review.IsTransferred)
+    {
+        <MudText>Inspected upstream sources: @_review.UpstreamSources; @_review.HeldUpstreamSources still held. Release affects only this copy. It does not restore recall or authorize deletion; other copies keep their own holds.</MudText>
+    }
     @if (_review.LegalHold)
     {
         <MudText>This episode is held. Releasing its hold does not delete evidence, restore suppressed recall, or release holds on other captures, corrections or transferred copies.</MudText>
         @if (_review.CanRelease)
         { <MudButton OnClick="SubmitAsync" Disabled="Locked" Color="Color.Warning">Release this hold</MudButton> }
         else
-        { <MudAlert Severity="Severity.Warning">A transferred source requires an upstream retention review before its hold can be released. That review is not available here.</MudAlert> }
+        { <MudAlert Severity="Severity.Warning">@(_review.ReleaseBlocker == "memory_transfer_upstream_held" ? "Upstream sources are still held. Review and release those obligations first, then refresh this copy's review." : "The retained transfer evidence is incomplete or unverifiable. Its hold cannot be released until the evidence is resolved.")</MudAlert> }
     }
     else
     {

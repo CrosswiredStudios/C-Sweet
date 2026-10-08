@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CSweet.Application.Setup;
 using CSweet.Domain.Core;
 using CSweet.Memory;
@@ -19,6 +20,11 @@ public sealed partial class AgentMemoryService
     {
         public EnrichmentSources? Sources { get; init; }
         public EnrichmentProvider? Provider { get; init; }
+        public string? GenericSourceHash { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public EpisodeReconciliation? Reconciliation { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public EpisodeReextraction? Reextraction { get; init; }
     }
 
     private async Task<bool> ProcessMessageAsync(Guid messageId, CancellationToken cancellationToken)
@@ -147,8 +153,25 @@ public sealed partial class AgentMemoryService
     }
 
     private static bool HasVerifiableEnvelope(AcceptedMemoryExtraction accepted) =>
-        accepted.Sources?.Messages is { Length: >= 1 and <= 2 } && accepted.Provider is not null &&
-        (accepted.SchemaVersion == 3 || (accepted.SchemaVersion == 2 && accepted.Sources.Messages is { Length: 1 }));
+        HasVerifiableEnrichment(accepted.Enrichment) && !string.IsNullOrWhiteSpace(accepted.ExtractorVersion) &&
+        accepted.Provider is { Id: var providerId, ConfigurationHash.Length: 64 } && providerId != Guid.Empty &&
+        !string.IsNullOrWhiteSpace(accepted.Provider.Model) &&
+        accepted.Provider.ConfigurationHash.All(x => x is >= '0' and <= '9' or >= 'a' and <= 'f') &&
+        (((accepted.Reextraction is null && (accepted.SchemaVersion == 4 && accepted.Reconciliation is null ||
+        accepted.SchemaVersion == 5 && ValidReconciliation(accepted.Reconciliation)) ||
+        accepted.SchemaVersion == 6 && ValidReextraction(accepted.Reextraction) && (accepted.Reconciliation is null || ValidReconciliation(accepted.Reconciliation))) &&
+        accepted.GenericSourceHash is { Length: 64 } && accepted.Sources is null) ||
+        (accepted.Reextraction is null && accepted.Reconciliation is null && accepted.Sources?.Messages is { Length: >= 1 and <= 2 } &&
+        (accepted.SchemaVersion == 3 || (accepted.SchemaVersion == 2 && accepted.Sources.Messages is { Length: 1 }))));
+
+    private static bool HasVerifiableEnrichment(MemoryEnrichment? value) => value is
+        { Entities: not null, Claims: not null, Edges: not null, Procedures: not null } &&
+        value.Entities.All(x => x is not null && !string.IsNullOrWhiteSpace(x.Type) && !string.IsNullOrWhiteSpace(x.Name)) &&
+        value.Claims.All(x => x is not null && !string.IsNullOrWhiteSpace(x.SubjectName) && !string.IsNullOrWhiteSpace(x.Predicate) &&
+            double.IsFinite(x.Confidence) && double.IsFinite(x.Importance) && Enum.IsDefined(x.Sensitivity) && Enum.IsDefined(x.Kind)) &&
+        value.Edges.All(x => x is not null && !string.IsNullOrWhiteSpace(x.FromName) && !string.IsNullOrWhiteSpace(x.Relationship) &&
+            !string.IsNullOrWhiteSpace(x.ToName) && double.IsFinite(x.Confidence)) &&
+        value.Procedures.All(x => x is not null && !string.IsNullOrWhiteSpace(x.Name) && !string.IsNullOrWhiteSpace(x.Procedure));
 
     private async Task EnsureEnrichmentContextAsync(Guid messageId, CancellationToken cancellationToken)
     {

@@ -20,7 +20,11 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
     internal sealed record Binding(Guid TurnId, int Attempt, Guid OrganizationId, Guid ConversationId, Guid MessageId,
         Guid EmployeeId, Guid HumanId, Guid InstallationId, string AuthorityHash);
     internal sealed record Root(MemoryPartition Partition, MemoryRecordKind Kind, Guid Id, string ContentHash, Guid[] Sources, string Format = "candidate", MemorySensitivity? MinimumSensitivity = null);
-    internal sealed record Record(MemoryPartition Partition, MemoryRecordKind Kind, Guid Id, long Revision, string Hash);
+    internal sealed record Record(MemoryPartition Partition, MemoryRecordKind Kind, Guid Id, long Revision, string Hash)
+    {
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public string? SharedAudienceJson { get; init; }
+    }
     internal sealed record Receipt(int Version, Binding Binding, string? ContextHash, Root[] Roots, Record[] Records, string? PayloadHash = null)
     {
         public PromptEvidence? Prompt { get; init; }
@@ -112,6 +116,7 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
             if (receipt.Roots.Length == 0) return;
             await RequireAudienceAsync(binding, receipt.Roots, token);
             var current = await ReadEvidenceAsync(receipt.Roots, token);
+            await RequireSharedAudienceAsync(binding, current, token);
             if (!current.SequenceEqual(receipt.Records) || binding != await ReadBindingAsync(binding.TurnId, token, retained)) throw Denied();
         }
         catch (Exception exception) when (exception is not OperationCanceledException && exception is not ProviderDispatchDeniedException &&
@@ -160,13 +165,16 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
             command.Parameters.AddWithValue("partition", key.Partition.StorageKey); command.Parameters.AddWithValue("id", key.Id);
             command.Parameters.AddWithValue("kind", (int)key.Kind); command.Parameters.AddWithValue("table", table);
             await using var reader = await command.ExecuteReaderAsync(token);
-            if (!await reader.ReadAsync(token) || reader.IsDBNull(1)) throw Denied();
+            if (!await reader.ReadAsync(token) || reader.IsDBNull(1)) throw Denied("read.source-missing-or-quarantined");
             var payload = reader.GetString(0); var revision = reader.GetInt64(1); characters += payload.Length;
             await reader.DisposeAsync();
             if (characters > 1_048_576) throw Denied();
             using var document = JsonDocument.Parse(payload); var value = document.RootElement.Clone();
             if (value.GetProperty("id").GetGuid() != key.Id || value.GetProperty("partition").Deserialize<MemoryPartition>(Json) != key.Partition) throw Denied();
-            rows.Add(key, new(new(key.Partition, key.Kind, key.Id, revision, Hash(payload)), value));
+            var episodeEvidence = key.Kind == MemoryRecordKind.Episode ? value.Deserialize<MemoryEpisode>(Json) : null;
+            var shared = episodeEvidence is null ? null : MemorySharedAudiences.Required(episodeEvidence);
+            rows.Add(key, new(new(key.Partition, key.Kind, key.Id, revision, Hash(payload))
+                { SharedAudienceJson = shared is null ? null : JsonSerializer.Serialize(MemorySharedAudiences.Merge(shared), Json) }, value));
             if (value.TryGetProperty("sourceEpisodeIds", out var sources))
             {
                 if (sources.ValueKind != JsonValueKind.Array || sources.GetArrayLength() > MemoryProvenance.MaximumSourceEpisodes) throw Denied();
@@ -187,6 +195,11 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
             }
             if (key.Kind == MemoryRecordKind.Episode && value.Deserialize<MemoryEpisode>(Json)?.TransferEvidence is { } transfer)
                 foreach (var reference in transfer.Records) pending.Enqueue((reference.Partition, reference.Kind, reference.Id));
+            if (episodeEvidence?.CorrectionEvidence is { } correction)
+            {
+                if (correction.Sources is not { Count: > 0 and <= MemoryProvenance.MaximumSourceEpisodes }) throw Denied();
+                foreach (var reference in correction.Sources) pending.Enqueue((key.Partition, MemoryRecordKind.Episode, reference.EpisodeId));
+            }
         }
         var resolved = new Dictionary<(MemoryPartition, Guid), MemoryEpisode>();
         foreach (var row in rows.Values.Where(x => x.Record.Kind == MemoryRecordKind.Episode))
@@ -219,12 +232,12 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
                         MemoryRecordKind.Block => projected.Blocks.SingleOrDefault(x => x.Id == root.Id),
                         MemoryRecordKind.Procedure => projected.Procedures.SingleOrDefault(x => x.Id == root.Id),
                         MemoryRecordKind.Embedding => projected.Embeddings?.SingleOrDefault(x => x.Id == root.Id), _ => null
-                    } ?? throw Denied();
+                    } ?? throw Denied("read.source-ineligible");
                     content = JsonSerializer.Serialize(record, record.GetType(), Json);
                 }
                 else
                 {
-                    var item = items.SingleOrDefault(x => x.MemoryId == root.Id) ?? throw Denied();
+                    var item = items.SingleOrDefault(x => x.MemoryId == root.Id) ?? throw Denied("read.source-ineligible");
                     if (root.Format == "transfer")
                     {
                         item = item with { Sensitivity = MemoryProvenance.Maximum(item.Sensitivity, root.MinimumSensitivity ?? throw Denied()) };
@@ -235,8 +248,9 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
                         content = root.Kind == MemoryRecordKind.Procedure ? projected.Procedures.Single(x => x.Id == root.Id).Procedure : item.Content;
                     else throw Denied();
                 }
-                if (Hash(content) != root.ContentHash || root.Sources.Any(id => !resolved.TryGetValue((group.Key, id), out var episode) ||
-                    episode.Sensitivity > MemoryRecallPolicy.MaximumSensitivity(group.Key))) throw Denied();
+                if (Hash(content) != root.ContentHash) throw Denied("read.source-content-changed");
+                if (root.Sources.Any(id => !resolved.TryGetValue((group.Key, id), out var episode) ||
+                    episode.Sensitivity > MemoryRecallPolicy.MaximumSensitivity(group.Key))) throw Denied("read.source-sensitivity-changed");
             }
         }
         if (ownedTransaction is not null) await ownedTransaction.CommitAsync(token);
@@ -269,5 +283,10 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
                 x.EpisodeCapturedAt == null && x.LastError != null, token)) throw Denied();
     }
 
-    private static ProviderDispatchDeniedException Denied() => new();
+    private static ProviderDispatchDeniedException Denied(string? validationCode = null)
+    {
+        var error = new ProviderDispatchDeniedException();
+        if (validationCode is not null) error.Data["memory.validation"] = validationCode;
+        return error;
+    }
 }

@@ -13,15 +13,28 @@
     else
     {
         <MudStack Spacing="2">
-            <MudSelect T="Guid" Label="Receiving employee" @bind-Value="_target" Disabled="Frozen">
+            <MudSelect T="Guid" Label="Receiving employee" Value="_target" ValueChanged="TargetChangedAsync" Disabled="Frozen">
                 @foreach (var employee in _employees.Where(x => x.Id != EmployeeId && x.EmployeeType == 1 && x.IsActive && x.ArchivedAt is null))
                 { <MudSelectItem T="Guid" Value="employee.Id">@employee.DisplayName</MudSelectItem> }
             </MudSelect>
+            <MudButton OnClick="@(() => TargetChangedAsync(_target))" Disabled="@(Frozen || _target == Guid.Empty)">Refresh shared audiences</MudButton>
             <MudSelect T="string" Label="Source audience" @bind-Value="_scope" Disabled="@(Frozen || _items.Count > 0)">
                 <MudSelectItem T="string" Value="@("Employee")">Employee memory</MudSelectItem>
                 <MudSelectItem T="string" Value="@("Relationship")">Your relationship with this employee</MudSelectItem>
                 <MudSelectItem T="string" Value="@("Organization")">Organization memory</MudSelectItem>
+                @if (_audiences.Any(x => x.Scope == "Team"))
+                { <MudSelectItem T="string" Value="@("Team")">Team memory</MudSelectItem> }
+                @if (_audiences.Any(x => x.Scope == "Role"))
+                { <MudSelectItem T="string" Value="@("Role")">Role memory</MudSelectItem> }
             </MudSelect>
+            @if (_scope is "Team" or "Role")
+            {
+                <MudSelect T="Guid?" Label="Shared audience" @bind-Value="_sourceAudience" Disabled="@(Frozen || _items.Count > 0)">
+                    @foreach (var audience in _audiences.Where(x => x.Scope == _scope))
+                    { <MudSelectItem T="Guid?" Value="@((Guid?)audience.AudienceId)">@audience.Name</MudSelectItem> }
+                </MudSelect>
+                <MudText Typo="Typo.caption">The receiving employee and reviewer must remain members of this audience to use the copied knowledge.</MudText>
+            }
             <MudText Typo="Typo.caption">Relationship handoffs stay in your relationship with the receiving employee. You must manage both employees; organization memory requires a top-level human manager.</MudText>
             <MudButton OnClick="AddSelected" Disabled="@(Frozen || Selected is null || _items.Count >= 32)">Add the currently inspected memory</MudButton>
             @foreach (var item in _items)
@@ -37,7 +50,7 @@
                 { <MudSelectItem T="string" Value="value">@value</MudSelectItem> }
             </MudSelect>
             <MudButton Color="Color.Secondary" Variant="Variant.Outlined" OnClick="PrepareAsync"
-                       Disabled="@(Frozen || _target == Guid.Empty || (_items.Count == 0 && string.IsNullOrWhiteSpace(_debrief)))">Prepare for review</MudButton>
+                       Disabled="@(Frozen || !CanPrepare)">Prepare for review</MudButton>
             @if (_pendingPrepare is not null || _pendingTransition is not null)
             {
                 <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same operation</MudButton>
@@ -85,6 +98,10 @@
     private readonly List<AgentMemoryItemResponse> _items = [];
     private readonly List<MemoryTransferListItem> _saved = [];
     private Guid _target;
+    private Guid? _sourceAudience;
+    private IReadOnlyList<MemoryTransferAudience> _audiences = [];
+    private bool CanPrepare => _target != Guid.Empty && (_items.Count > 0 || !string.IsNullOrWhiteSpace(_debrief)) &&
+        (_scope is not ("Team" or "Role") || _audiences.Any(x => x.Scope == _scope && x.AudienceId == _sourceAudience));
     private Guid? _nextCursor;
     private string _scope = "Employee", _debrief = "", _sensitivity = "Personal";
     private string? _message;
@@ -92,37 +109,69 @@
     private PrepareMemoryTransferRequest? _pendingPrepare;
     private TransitionMemoryTransferRequest? _pendingTransition;
     private Guid _pendingPackage;
+    private string? _pendingUrl, _pendingOrigin;
+    private long _viewGeneration, _activity;
+    private (Guid Organization, Guid Employee)? _view;
+
+    protected override void OnParametersSet()
+    {
+        var view = (OrganizationId, EmployeeId);
+        if (_view == view) return;
+        _view = view; _viewGeneration++; _activity++;
+        ClearPresentation();
+        _employees = []; _saved.Clear(); _nextCursor = null; _target = Guid.Empty;
+        _audiences = []; _sourceAudience = null;
+        _scope = "Employee"; _sensitivity = "Personal";
+        // An uncertain write keeps its exact body and original route across navigation.
+        _opened = _pendingPrepare is not null || _pendingTransition is not null;
+        if (!_opened) _busy = false;
+        _message = _opened ? "A transfer operation for the previous employee is unconfirmed. Retry the same operation before preparing another handoff." : null;
+    }
+
+    private void ClearPresentation()
+    { _transfer = null; _items.Clear(); _debrief = ""; }
+    private void ClearPending()
+    { _pendingPrepare = null; _pendingTransition = null; _pendingUrl = null; _pendingOrigin = null; _pendingPackage = Guid.Empty; }
     private string EmployeeName(Guid id) => _employees.FirstOrDefault(x => x.Id == id)?.DisplayName ?? "Unavailable employee";
     private static string? ItemKind(string kind) => kind switch { "Episode" or "Claim" or "Block" or "Procedure" => kind,
         "Core" => "Block", "Relationship" or "Edge" => "Edge", _ => null };
 
     private async Task OpenAsync()
     {
+        if (Frozen) return;
+        var generation = _viewGeneration; var activity = ++_activity;
+        var organization = OrganizationId;
         _busy = true; _message = null;
         try
         {
-            _employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{OrganizationId}/users") ?? [];
+            var employees = await Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>($"api/core/organizations/{organization}/users") ?? [];
+            if (generation != _viewGeneration) return;
+            _employees = employees;
             _opened = true;
         }
-        catch (Exception e) when (NetworkError(e)) { _message = "Transfer controls could not be loaded. Try again."; }
-        finally { _busy = false; }
-        if (_opened) await LoadListAsync(false);
+        catch (Exception e) when (NetworkError(e)) { if (generation == _viewGeneration) _message = "Transfer controls could not be loaded. Try again."; }
+        finally { if (activity == _activity) _busy = false; }
+        if (generation == _viewGeneration && _opened) await LoadListAsync(false);
     }
     private void AddSelected()
     {
         if (Frozen || Selected is not { } selected) return;
-        if (ItemKind(selected.Kind) is null || selected.Scope is not ("Employee" or "Relationship" or "Organization"))
+        if (ItemKind(selected.Kind) is null || selected.Scope is not ("Employee" or "Relationship" or "Organization" or "Team" or "Role") ||
+            selected.Scope is "Team" or "Role" && (selected.AudienceId is null || selected.AudienceId == Guid.Empty))
         { _message = "This item cannot be transferred. Select an episode, claim, relationship, core block or procedure."; return; }
-        if (_items.Count > 0 && (_items[0].Scope != selected.Scope || _items[0].UserId != selected.UserId))
-        { _message = "Keep each handoff within one audience. Prepare separate transfers for different relationships."; return; }
+        if (_items.Count > 0 && (_items[0].Scope != selected.Scope || _items[0].UserId != selected.UserId || _items[0].AudienceId != selected.AudienceId))
+        { _message = "Keep each handoff within one audience. Prepare separate transfers for different audiences."; return; }
         _scope = selected.Scope;
+        _sourceAudience = selected.AudienceId;
         if (!_items.Any(x => x.Id == selected.Id && x.Kind == selected.Kind)) _items.Add(selected);
         _message = null;
     }
     private async Task PrepareAsync()
     {
-        if (Frozen) return;
-        _pendingPrepare = new(Guid.NewGuid(), _target, _scope, _items.Select(x => new MemoryTransferSelection(ItemKind(x.Kind)!, x.Id)).ToArray(), _debrief, _sensitivity);
+        if (Frozen || !CanPrepare) return;
+        _pendingPrepare = new(Guid.NewGuid(), _target, _scope, _items.Select(x => new MemoryTransferSelection(ItemKind(x.Kind)!, x.Id)).ToArray(), _debrief, _sensitivity,
+            _scope is "Team" or "Role" ? _sourceAudience : null);
+        _pendingOrigin = Url; _pendingUrl = Url;
         await RetryAsync();
     }
     private async Task TransitionAsync(string action)
@@ -130,59 +179,107 @@
         if (Frozen || _transfer is null) return;
         _pendingPackage = _transfer.PackageId;
         _pendingTransition = new(Guid.NewGuid(), _transfer.ReviewToken, action);
+        _pendingOrigin = Url; _pendingUrl = $"{Url}/{_pendingPackage}";
         await RetryAsync();
     }
     private async Task RetryAsync()
     {
-        if (_busy || (_pendingPrepare is null && _pendingTransition is null)) return;
+        if (_busy || _pendingUrl is null || (_pendingPrepare is null && _pendingTransition is null)) return;
+        var generation = _viewGeneration; var origin = _pendingOrigin;
         _busy = true; _message = null;
         Guid? refresh = null;
         try
         {
-            using var response = _pendingPrepare is { } prepare ? await Http.PostAsJsonAsync(Url, prepare)
-                : await Http.PostAsJsonAsync($"{Url}/{_pendingPackage}", _pendingTransition);
+            using var response = _pendingPrepare is { } prepare ? await Http.PostAsJsonAsync(_pendingUrl, prepare)
+                : await Http.PostAsJsonAsync(_pendingUrl, _pendingTransition);
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
             {
-                _pendingPrepare = null; _pendingTransition = null;
-                _transfer = null;
+                ClearPending(); ClearPresentation();
+                if (generation != _viewGeneration || origin != Url) _opened = false;
                 _message = "The operation was not accepted. Your authority, selection or evidence may have changed. Reopen the saved transfer or prepare a new review.";
                 return;
             }
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<MemoryTransferResult>() ?? throw new System.Text.Json.JsonException();
-            _pendingPrepare = null; _pendingTransition = null; refresh = result.PackageId;
-            _message = result.WasReplay ? "This operation was already recorded. Loading the current transfer." : "The operation was recorded.";
+            if (result.ReceiptId == Guid.Empty || result.PackageId == Guid.Empty ||
+                _pendingTransition is not null && result.PackageId != _pendingPackage ||
+                result.Status is not ("PendingApproval" or "Approved" or "Applied" or "Rejected") ||
+                result.Status == "Applied" && (result.AppliedEpisodeId is null || result.AppliedEpisodeId == Guid.Empty))
+                throw new System.Text.Json.JsonException();
+            ClearPending(); ClearPresentation();
+            if (generation == _viewGeneration && origin == Url)
+            {
+                refresh = result.PackageId;
+                _message = result.WasReplay ? "This operation was already recorded. Loading the current transfer." : "The operation was recorded.";
+            }
+            else
+            {
+                _opened = false;
+                _message = "The operation for the previous employee was recorded. Return to that employee to inspect its current transfer.";
+            }
         }
         catch (Exception e) when (NetworkError(e))
         { _message = "The result could not be confirmed. Retry the same operation to check it without creating another copy."; }
         finally { _busy = false; }
-        if (refresh.HasValue) { await LoadTransferAsync(refresh.Value); await LoadListAsync(false); }
+        if (refresh.HasValue)
+        {
+            await LoadTransferAsync(refresh.Value);
+            if (generation == _viewGeneration && origin == Url) await LoadListAsync(false);
+        }
     }
     private async Task LoadTransferAsync(Guid id)
     {
         if (Frozen) return;
+        var generation = _viewGeneration; var activity = ++_activity; var url = Url;
         _busy = true; _transfer = null;
         try
         {
-            using var response = await Http.GetAsync($"{Url}/{id}");
+            using var response = await Http.GetAsync($"{url}/{id}");
+            if (generation != _viewGeneration) return;
             if (!response.IsSuccessStatusCode) { _message = "This transfer is unavailable or your permission changed."; return; }
-            _transfer = await response.Content.ReadFromJsonAsync<MemoryTransferResponse>();
+            var transfer = await response.Content.ReadFromJsonAsync<MemoryTransferResponse>();
+            if (generation != _viewGeneration) return;
+            if (transfer is null || transfer.PackageId != id || transfer.TargetEmployeeId == Guid.Empty || transfer.ReviewToken?.Length != 64 ||
+                transfer.Status is not ("PendingApproval" or "Approved" or "Applied" or "Rejected")) throw new System.Text.Json.JsonException();
+            _transfer = transfer;
         }
-        catch (Exception e) when (NetworkError(e)) { _message = "The review could not be loaded. Reopen it from saved transfers."; }
-        finally { _busy = false; }
+        catch (Exception e) when (NetworkError(e)) { if (generation == _viewGeneration) _message = "The review could not be loaded. Reopen it from saved transfers."; }
+        finally { if (activity == _activity) _busy = false; }
     }
     private async Task LoadListAsync(bool more)
     {
         if (Frozen) return;
+        var generation = _viewGeneration; var activity = ++_activity; var url = Url;
+        _busy = true;
+        if (!more) { _saved.Clear(); _nextCursor = null; }
+        try
+        {
+            var page = await Http.GetFromJsonAsync<MemoryTransferPage>(url + (more && _nextCursor.HasValue ? $"?cursor={_nextCursor}" : ""));
+            if (generation != _viewGeneration) return;
+            if (page is not null) { _saved.AddRange(page.Items.Where(x => !_saved.Any(y => y.PackageId == x.PackageId))); _nextCursor = page.NextCursor; }
+        }
+        catch (Exception e) when (NetworkError(e)) { if (generation == _viewGeneration) { _saved.Clear(); _nextCursor = null; _message = "Saved transfers could not be loaded. Transfer review requires an authorized human manager."; } }
+        finally { if (activity == _activity) _busy = false; }
+    }
+    private async Task TargetChangedAsync(Guid target)
+    {
+        if (Frozen) return;
+        _target = target; _audiences = [];
+        if (_items.Count == 0) _sourceAudience = null;
+        if (target == Guid.Empty) return;
+        var generation = _viewGeneration; var activity = ++_activity; var url = Url;
         _busy = true;
         try
         {
-            var page = await Http.GetFromJsonAsync<MemoryTransferPage>(Url + (more && _nextCursor.HasValue ? $"?cursor={_nextCursor}" : ""));
-            if (!more) _saved.Clear();
-            if (page is not null) { _saved.AddRange(page.Items.Where(x => !_saved.Any(y => y.PackageId == x.PackageId))); _nextCursor = page.NextCursor; }
+            var audiences = await Http.GetFromJsonAsync<MemoryTransferAudience[]>($"{url}/audiences?targetEmployeeId={target}") ?? [];
+            if (generation != _viewGeneration || _target != target) return;
+            if (audiences.Length > 129 || audiences.Any(x => x.AudienceId == Guid.Empty || x.Scope is not ("Team" or "Role")))
+                throw new System.Text.Json.JsonException();
+            _audiences = audiences;
         }
-        catch (Exception e) when (NetworkError(e)) { _message = "Saved transfers could not be loaded. Transfer review requires an authorized human manager."; }
-        finally { _busy = false; }
+        catch (Exception e) when (NetworkError(e))
+        { if (generation == _viewGeneration && _target == target) _message = "Shared audiences could not be loaded. Choose the receiving employee again to refresh them."; }
+        finally { if (activity == _activity) _busy = false; }
     }
     private static bool NetworkError(Exception e) => e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
 }

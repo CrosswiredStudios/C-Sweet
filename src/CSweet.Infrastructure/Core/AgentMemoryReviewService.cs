@@ -32,11 +32,13 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
         var claim = await LockClaimAsync(store, claimId, cancellationToken);
         await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, claim.Partition, cancellationToken);
         var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
+        var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
+        evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
         await transaction.CommitAsync(cancellationToken);
         return new(claim.Id, evidence.Revision, evidence.Token,
             $"{evidence.Subject.CanonicalName} {claim.Predicate} {claim.Value ?? evidence.Object?.CanonicalName}",
             claim.Confirmation.ToString(), evidence.Sensitivity.ToString(), evidence.Valid,
-            evidence.Valid && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes, claim.ValidFrom <= clock.GetUtcNow() &&
+            sharedHash is null && evidence.Valid && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes, claim.ValidFrom <= clock.GetUtcNow() &&
                 (claim.ValidTo is null || claim.ValidTo > clock.GetUtcNow()), evidence.SourceIds, claim.ObjectEntityId is not null);
     }
 
@@ -62,6 +64,9 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
             await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
             var claim = await LockClaimAsync(store, claimId, cancellationToken);
             await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, claim.Partition, cancellationToken);
+            var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
+            var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
+            evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
             var hash = Hash(new { organizationId, employeeId, claimId, applicationUserId, actor, request });
             var receipt = await db.MemoryReviewReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.OrganizationId == organizationId && x.OperationId == request.OperationId, cancellationToken);
@@ -70,7 +75,7 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
                 if (receipt.RecordKind != "Claim" || receipt.RequestHash != hash) throw Changed();
                 return Response(receipt, true);
             }
-            var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
+
             if (evidence.Revision != request.ExpectedRevision || evidence.Token != request.EvidenceToken) throw Changed();
             var now = clock.GetUtcNow();
             if (claim.ValidFrom > now || claim.ValidTo <= now || !Enum.IsDefined(claim.Confirmation) ||
@@ -80,10 +85,14 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
             var resultId = claim.Id;
             if (request.Action == "correct")
             {
+                if (sharedHash is not null) throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
                 if ((claim.ObjectEntityId is not null) != (request.ReplacementEntity is not null))
                     throw new ArgumentException("A correction must preserve the claim's value type.");
                 var replacement = request.ReplacementEntity is { } selected
                     ? await ReadCorrectionTargetAsync(store, claim, selected.EntityId, cancellationToken) : null;
+                if (replacement is not null && await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor,
+                    replacement.Sources.Values, cancellationToken) is not null)
+                    throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
                 if (request.ReplacementEntity is { } expected && (replacement is null || replacement.Token != expected.EvidenceToken)) throw Changed();
                 // Retain original evidence, so correction cannot silently detach sensitivity or lifecycle restrictions.
                 var contributors = evidence.SourceIds.Concat(replacement?.Entity.SourceEpisodeIds ?? []).Distinct().Order().ToArray();
@@ -172,7 +181,7 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
                 if (source is not null && source.Id == reader.GetGuid(0) && source.Partition == claim.Partition) sources[source.Id] = source;
             }
         }
-        foreach (var source in sources.Values.Where(x => x.TransferEvidence is not null || x.Source.Type == "knowledge-transfer").ToArray())
+        foreach (var source in sources.Values.Where(x => x.TransferEvidence is not null || x.CorrectionEvidence is not null || x.SourceFingerprint?.StartsWith("sha256-v3:", StringComparison.Ordinal) == true || x.Source.Type == "knowledge-transfer").ToArray())
             sources[source.Id] = await store.GetEpisodeAsync(claim.Partition, source.Id, token) ?? source;
         var now = clock.GetUtcNow();
         var valid = sources.Count == ids.Length && sources.All(x => MemoryProvenance.IsCurrent(x.Value, claim.Partition, x.Key, now));

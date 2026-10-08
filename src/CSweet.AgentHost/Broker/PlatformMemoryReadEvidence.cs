@@ -58,7 +58,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         try { await RecordCoreAsync(session, capability, invocation, result, searchPartition, token); }
         catch (MemoryRuntimeResetRequiredException reset)
         {
-            await RequestResetAsync(session, reset.ReasonCode, token);
+            await RequestResetAsync(session, reset.ReasonCode, token, reset.ValidationDiagnostic);
             throw Denied();
         }
     }
@@ -77,6 +77,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         if (await BeginAsync(session, capability, token) != invocation) throw Denied();
         var resolver = new AgentMemoryIdentityResolver(db);
         foreach (var partition in capture.Partitions) await resolver.AuthorizeAsync(session, partition, PlatformMemoryAction.Read, token);
+        await RequireSharedReadConsumerAsync(invocation.WorkId, organization, invocation.EmployeeId, capture.EvidenceJson, capture.Partitions, token);
         var authority = await AuthorityHashAsync(organization, invocation.EmployeeId, capture.Partitions, token);
         var fingerprint = Hash(JsonSerializer.Serialize(new { invocation.WorkId, invocation.Attempt, capability, authority, capture.EvidenceJson }, Json));
         if (!await db.AgentMemoryReadReceipts.AnyAsync(x => x.RuntimeId == invocation.RuntimeId && x.ReceiptHash == fingerprint, token))
@@ -93,6 +94,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         if (await BeginAsync(session, capability, token) != invocation ||
             authority != await AuthorityHashAsync(organization, invocation.EmployeeId, capture.Partitions, token)) throw Denied();
         foreach (var partition in capture.Partitions) await resolver.AuthorizeAsync(session, partition, PlatformMemoryAction.Read, token);
+        await RequireSharedReadConsumerAsync(invocation.WorkId, organization, invocation.EmployeeId, capture.EvidenceJson, capture.Partitions, token);
         await transaction.CommitAsync(token);
     }
 
@@ -101,17 +103,17 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         try { await AuthorizeDispatchCoreAsync(session, expectedWork, token); }
         catch (MemoryRuntimeResetRequiredException reset)
         {
-            await RequestResetAsync(session, reset.ReasonCode, token);
+            await RequestResetAsync(session, reset.ReasonCode, token, reset.ValidationDiagnostic);
             throw new ProviderDispatchDeniedException();
         }
         catch (Exception e) when (e is not OperationCanceledException && e is not ProviderDispatchDeniedException)
         { throw new ProviderDispatchDeniedException(); }
     }
 
-    private Task<bool> RequestResetAsync(AgentSession session, string reason, CancellationToken token) =>
+    private Task<bool> RequestResetAsync(AgentSession session, string reason, CancellationToken token, string? diagnostic = null) =>
         Guid.TryParse(session.RuntimeInstanceId, out var runtime) && Guid.TryParse(session.TickId, out var tick) &&
         Guid.TryParse(session.InstallationId, out var installation)
-            ? new AgentMemoryRuntimeReset(db).RequestAsync(runtime, tick, installation, session.BusinessId, session.Grant.Revision, reason, token)
+            ? new AgentMemoryRuntimeReset(db).RequestAsync(runtime, tick, installation, session.BusinessId, session.Grant.Revision, reason, token, diagnostic)
             : Task.FromResult(false);
 
     private async Task AuthorizeDispatchCoreAsync(AgentSession session, Guid? expectedWork, CancellationToken token)
@@ -135,23 +137,30 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
             var capability = queuedRecall ? PlatformChatCapabilities.ChatStream : receipt.Capability;
             var current = await BeginAsync(session, capability, token);
             if (current.WorkId != expectedWork) throw Denied();
+            var validation = "receipt.binding";
             try
             {
                 if (current.EmployeeId != receipt.EmployeeId || receipt.OrganizationId.ToString("D") != session.BusinessId ||
                     receipt.InstallationId.ToString("D") != session.InstallationId || receipt.GrantRevision != session.Grant.Revision) throw Denied();
                 if (queuedRecall)
                 {
+                    validation = "queued-recall.retained-delivery";
                     var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == current.WorkId, token);
                     await validator.AuthorizeRetainedDeliveryAsync(receipt, work, token);
                     if (current != await BeginAsync(session, capability, token)) throw Denied();
                     continue;
                 }
+                validation = "read.evidence";
                 var partitions = await validator.ValidateReadAsync(receipt.EvidenceJson, token, preserveInfrastructureFailure: true);
+                validation = "read.shared-consumer";
+                await RequireSharedReadConsumerAsync(current.WorkId, receipt.OrganizationId, current.EmployeeId, receipt.EvidenceJson, partitions, token);
                 foreach (var partition in partitions)
                 {
+                    validation = "read.partition-authority";
                     await resolver.AuthorizeAsync(session, partition, PlatformMemoryAction.Read, token);
                     if (partition.UserId is { } user)
                     {
+                        validation = "read.relationship-consumer";
                         var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == current.WorkId, token);
                         if (work.SourceType == "chat-turn")
                         {
@@ -163,13 +172,29 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
                         else if (current.WorkId != receipt.WorkId) throw Denied();
                     }
                 }
-                if (receipt.AuthorityHash != await AuthorityHashAsync(receipt.OrganizationId, receipt.EmployeeId, partitions, token) ||
-                    current != await BeginAsync(session, receipt.Capability, token)) throw Denied();
+                validation = "read.authority-changed";
+                if (receipt.AuthorityHash != await AuthorityHashAsync(receipt.OrganizationId, receipt.EmployeeId, partitions, token)) throw Denied();
+                validation = "read.lease-changed";
+                if (current != await BeginAsync(session, receipt.Capability, token)) throw Denied();
             }
             catch (Exception error) when (error is ProviderDispatchDeniedException or UnauthorizedAccessException or
                 JsonException or FormatException or NullReferenceException or KeyNotFoundException or ArgumentException)
-            { throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.RetainedEvidence); }
+            {
+                var code = error.Data["memory.validation"] as string ?? validation;
+                throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.RetainedEvidence,
+                    $"validation={code};receipt={receipt.Id:D};work={current.WorkId:D};error={error.GetType().Name}");
+            }
         }
+    }
+
+    private async Task RequireSharedReadConsumerAsync(Guid workId, Guid organization, Guid employee, string json,
+        IReadOnlyList<MemoryPartition> partitions, CancellationToken token)
+    {
+        if (!partitions.Any(MemorySharedAudiences.IsCanonical)) return;
+        var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == workId, token);
+        if (work.SourceType != "chat-turn") return;
+        if (!Guid.TryParse(work.SourceId, out var turn)) throw Denied();
+        await new MemoryRecallDispatchEvidence(db).AuthorizeChatReadSharedAudienceAsync(json, turn, organization, employee, token);
     }
 
     private async Task<string> AuthorityHashAsync(Guid organization, Guid employee, IReadOnlyList<MemoryPartition> partitions, CancellationToken token)

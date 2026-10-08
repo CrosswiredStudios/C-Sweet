@@ -23,6 +23,7 @@ public sealed partial class AgentMemoryReviewService
         try
         {
             await db.Database.ExecuteSqlRawAsync("""
+                LOCK TABLE "MemoryEpisodeEnrichmentJobs", "MemoryEpisodeExtractionReceipts" IN EXCLUSIVE MODE NOWAIT;
                 LOCK TABLE "ChatTurns", "ChatTurnTraceEvents", "AgentMemoryRecallUses", "ComputeAuditOutbox", "CommunicationDeliveries" IN EXCLUSIVE MODE NOWAIT;
                 LOCK TABLE "AuditEvents", "AuditEventPayloads" IN SHARE MODE NOWAIT;
                 """, token);
@@ -36,9 +37,10 @@ public sealed partial class AgentMemoryReviewService
         PostgreSqlMemoryStore store, MemoryWorkErasure work, MemoryCaptureErasure capture, CancellationToken token)
     {
         var source = await LockLegacyEpisodeAsync(episode, token);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, employee, actor, source.Episode.Partition, token, true);
+        await AuthorizeErasureAudiencesAsync(organization, employee, user, actor, [source.Episode.Partition], token);
         var roots = new HashSet<ErasureRoot> { new(source.Episode.Partition, episode) };
         var outputs = new HashSet<MemoryCaptureErasure.Source>();
+        var episodeCleanup = new MemoryEpisodeErasure(db);
         MemoryErasurePreview inventory = null!; ErasureExecution? execution = null;
         ChatTurn[] turns = []; string? blocked = null; var stable = false;
         for (var pass = 0; pass < 8; pass++)
@@ -52,7 +54,44 @@ public sealed partial class AgentMemoryReviewService
                 previews.Select(x => x.BlockedReason).FirstOrDefault(x => x is not null));
             await AuthorizeErasureAudiencesAsync(organization, employee, user, actor, targets.Select(x => x.Partition), token);
             blocked = inventory.BlockedReason;
-            try { execution = await ReadErasureExecutionAsync(organization, employee, user, actor, inventory, store, work, capture, token, outputs.ToArray()); }
+            try
+            {
+                var generic = await episodeCleanup.PrepareAsync(organization,targets,store,token);
+                var genericAudiences=new HashSet<MemoryPartition>(generic.Entries.SelectMany(x=>x.Evidence.References).Select(x=>x.Partition));
+                var transferRetentionHashes=new List<string>();
+                foreach (var entry in generic.Entries)
+                {
+                    if (await MemoryManagerAuthorization.RequireAsync(db,organization,entry.Job.EmployeeId,user,true,token,true)!=actor)
+                        throw new UnauthorizedAccessException();
+                    await AuthorizeErasureAudiencesAsync(organization,entry.Job.EmployeeId,user,actor,entry.Evidence.References.Select(x=>x.Partition),token);
+                    if (entry.Evidence.Episode.TransferEvidence is not null)
+                    {
+                        if(!await db.MemoryTransferReceipts.AnyAsync(x=>x.OrganizationId==organization && x.TargetEmployeeId==entry.Job.EmployeeId &&
+                            x.AppliedEpisodeId==entry.Job.EpisodeId && x.PackageId==entry.Evidence.Episode.TransferEvidence.PackageId &&
+                            x.ActorApplicationUserId==entry.Job.ReviewerApplicationUserId && x.Action=="apply" && x.Status=="Applied",token))
+                            throw new InvalidOperationException("memory_erasure_generic_lineage_review_required");
+                    }
+                }
+                foreach(var retained in generic.RetainedSources.Where(x=>x.TransferEvidence is not null || x.CorrectionEvidence is not null ||
+                    x.SourceFingerprint?.StartsWith("sha256-v3:",StringComparison.Ordinal)==true || x.Source.Type=="knowledge-transfer"))
+                {
+                    var owner=employee;
+                    if(retained.Partition.AgentId is not null && !Guid.TryParseExact(retained.Partition.AgentId,"D",out owner))
+                        throw new InvalidOperationException("memory_erasure_generic_lineage_review_required");
+                    var retention=await ReadTransferRetentionAsync(organization,owner,user,actor,retained,token);
+                    if(retention.Blocker=="memory_transfer_retention_review_required" || retention.EvidenceHash is null)
+                        throw new InvalidOperationException("memory_erasure_generic_lineage_review_required");
+                    if(retention.Held>0) blocked ??= "memory_legal_hold_prevents_deletion";
+                    transferRetentionHashes.Add(retention.EvidenceHash);
+                    foreach(var audience in retention.Audiences ?? []) genericAudiences.Add(audience);
+                }
+                if(genericAudiences.Count>64) throw new InvalidOperationException("memory_erasure_scan_limit");
+                var expanded=false;
+                foreach(var entry in generic.Entries) expanded |= roots.Add(new(entry.Evidence.Episode.Partition,entry.Job.EpisodeId));
+                if (expanded) continue;
+                execution = await ReadErasureExecutionAsync(organization, employee, user, actor, inventory, store, work, capture, generic,
+                    genericAudiences.ToArray(),Hash(transferRetentionHashes),token,outputs.ToArray());
+            }
             catch (InvalidOperationException error) when (IsErasureReviewBlocker(error.Message))
             { blocked ??= error.Message; execution = null; stable = true; break; }
             blocked ??= execution.Impact.BlockedReason;
@@ -88,13 +127,20 @@ public sealed partial class AgentMemoryReviewService
             .Distinct().OrderBy(x => x.StorageKey, StringComparer.Ordinal).ToArray();
         await AuthorizeErasureAudiencesAsync(organization, employee, user, actor, audiences, token);
         var rows = new List<MemoryErasureAudienceImpact>();
-        var shared = EmployeeMemoryNamespaces.Organization(organization.ToString("D"), "csweet").Partition;
         foreach (var partition in inventory.Targets.Select(x => x.Partition).Distinct().OrderBy(x => x.StorageKey, StringComparer.Ordinal))
         {
-            var owner = partition == shared ? employee : Guid.Parse(partition.AgentId!);
-            var scope = partition == shared ? "Organization" : partition.UserId is null ? "Employee" : "Relationship";
-            var name = partition == shared ? "Shared organization" : await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == owner).Select(x => x.DisplayName).SingleAsync(token);
-            rows.Add(new(scope, partition == shared ? null : owner, name, inventory.Targets.Where(x => x.Partition == partition).GroupBy(x => x.Kind)
+            var owner = ErasureAudienceOwnerId(partition, employee);
+            var scope = MemoryEpisodeOperatorAuthorization.Label(partition);
+            if (scope == "Private relationship") scope = "Relationship";
+            var audienceId = scope is "Team" or "Role" ? Guid.Parse(partition.CustomNamespace![5..]) : Guid.Empty;
+            var name = scope switch
+            {
+                "Organization" => "Shared organization",
+                "Team" => await db.OrganizationTeams.AsNoTracking().Where(x => x.Id == audienceId).Select(x => x.Name).SingleAsync(token),
+                "Role" => await db.CoreRoles.AsNoTracking().Where(x => x.Id == audienceId).Select(x => x.Name).SingleAsync(token),
+                _ => await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == owner).Select(x => x.DisplayName).SingleAsync(token)
+            };
+            rows.Add(new(scope, partition.AgentId is null ? null : owner, name, inventory.Targets.Where(x => x.Partition == partition).GroupBy(x => x.Kind)
                 .OrderBy(x => x.Key).Select(x => new MemoryErasureKindCount(x.Key.ToString(), x.Select(y => y.Id).Distinct().Count())).ToArray()));
         }
         var applyBlocked = blocked ?? (turns.Any(x => x.Status is not (ChatTurnStatus.Completed or ChatTurnStatus.CompletedWithWarnings or ChatTurnStatus.Failed or ChatTurnStatus.Cancelled))
@@ -113,19 +159,32 @@ public sealed partial class AgentMemoryReviewService
     {
         var audiences = partitions.Distinct().ToArray();
         if (audiences.Length > 64) throw new InvalidOperationException("memory_erasure_scan_limit");
-        var shared = EmployeeMemoryNamespaces.Organization(organization.ToString("D"), "csweet").Partition;
         foreach (var partition in audiences)
         {
-            var owner = partition == shared ? employee : Guid.TryParse(partition.AgentId, out var id) ? id : throw new UnauthorizedAccessException();
+            var owner = ErasureAudienceOwnerId(partition, employee);
             if (await MemoryManagerAuthorization.RequireAsync(db, organization, owner, user, true, token, true) != actor) throw new UnauthorizedAccessException();
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token, true);
+            // Historical conversation content remains eligible for reviewed erasure.
+            // Recovery still requires a live relationship; both paths validate its owner.
+            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token, requireActiveRelationship: false);
         }
+    }
+
+    private static Guid ErasureAudienceOwnerId(MemoryPartition partition, Guid fallback) =>
+        partition.AgentId is null ? fallback : Guid.TryParseExact(partition.AgentId, "D", out var id) ? id : throw new UnauthorizedAccessException();
+
+    private async Task AuthorizeErasureOwnersAsync(Guid organization, Guid user, Guid actor,
+        IEnumerable<ErasureAudienceOwner> owners, CancellationToken token)
+    {
+        var bindings = owners.Distinct().ToArray();
+        if (bindings.Length > 1024) throw new InvalidOperationException("memory_erasure_scan_limit");
+        foreach (var binding in bindings)
+            await AuthorizeErasureAudiencesAsync(organization, binding.EmployeeId, user, actor, [binding.Partition], token);
     }
 
     private static bool IsErasureReviewBlocker(string code) => code is "memory_erasure_source_review_required" or
         "memory_erasure_work_lineage_review_required" or "memory_erasure_work_audience_review_required" or "memory_erasure_work_retention_review_required" or
         "memory_erasure_lineage_review_required" or "memory_erasure_capture_lineage_review_required" or "memory_erasure_capture_retention_review_required" or
-        "memory_erasure_work_prompt_review_required" or "memory_erasure_work_attachment_review_required";
+        "memory_erasure_work_prompt_review_required" or "memory_erasure_work_attachment_review_required" or "memory_erasure_generic_lineage_review_required";
 
     private async Task<string> ErasureInventoryHashAsync(Guid organization, Guid employee, Guid user, Guid actor,
         MemoryErasurePreview inventory, ErasureExecution execution, IReadOnlyList<ChatTurn> turns, CancellationToken token)
@@ -135,11 +194,16 @@ public sealed partial class AgentMemoryReviewService
         var jobs = execution.Capture.Jobs.ToArray(); var works = execution.Work.Works.Select(x => x.Id).ToArray();
         var runtimes = execution.Work.Runtimes.Select(x => x.Id).ToArray(); var turnIds = turns.Select(x => x.Id).ToArray();
         var sources = execution.Capture.Sources.Select(x => x.MessageId).ToArray();
-        digest.AppendData(Encoding.UTF8.GetBytes(Hash(new { organization, employee, user, actor, inventory, sources, jobs, works, runtimes, turnIds })));
+        var episodeJobs=execution.Episodes.Entries.Select(x=>x.Job.Id).ToArray();
+        digest.AppendData(Encoding.UTF8.GetBytes(Hash(new { organization, employee, user, actor, inventory, sources, jobs, episodeJobs,
+            EpisodeRetentionHash=execution.Episodes.RetentionHash, execution.GenericTransferRetentionHash, execution.Owners, works, runtimes, turnIds })));
         using var command = Command("""
             SELECT 'capture', to_jsonb(t)::text FROM "MemoryCaptureOutbox" t WHERE t."Id"=ANY(@jobs)
             UNION ALL SELECT 'extraction',to_jsonb(t)::text FROM "MemoryExtractionInputReceipts" t WHERE t."JobId"=ANY(@jobs)
             UNION ALL SELECT 'provider',to_jsonb(t)::text FROM "MemoryEnrichmentProviderLeases" t WHERE t."JobId"=ANY(@jobs)
+            UNION ALL SELECT 'episode-job',to_jsonb(t)::text FROM "MemoryEpisodeEnrichmentJobs" t WHERE t."Id"=ANY(@episodeJobs)
+            UNION ALL SELECT 'episode-input',to_jsonb(t)::text FROM "MemoryEpisodeExtractionReceipts" t WHERE t."JobId"=ANY(@episodeJobs)
+            UNION ALL SELECT 'episode-provider',to_jsonb(t)::text FROM "MemoryEnrichmentProviderLeases" t WHERE t."JobId"=ANY(@episodeJobs)
             UNION ALL SELECT 'work',to_jsonb(t)::text FROM "AgentWorkItems" t WHERE t."Id"=ANY(@works)
             UNION ALL SELECT 'attempt',to_jsonb(t)::text FROM "AgentWorkAttempts" t WHERE t."AgentWorkItemId"=ANY(@works)
             UNION ALL SELECT 'progress',to_jsonb(t)::text FROM "AgentWorkProgress" t WHERE t."AgentWorkItemId"=ANY(@works)
@@ -151,12 +215,18 @@ public sealed partial class AgentMemoryReviewService
             UNION ALL SELECT 'source',to_jsonb(t)::text FROM "CoreConversationMessages" t WHERE t."Id"=ANY(@sources)
             UNION ALL SELECT 'audience',to_jsonb(t)::text FROM "CoreConversations" t WHERE t."OrganizationId"=@organization
             UNION ALL SELECT 'authority',to_jsonb(t)::text FROM "CoreOrganizationUsers" t WHERE t."OrganizationId"=@organization
+            UNION ALL SELECT 'team',to_jsonb(t)::text FROM "OrganizationTeams" t WHERE t."OrganizationId"=@organization
+            UNION ALL SELECT 'membership',to_jsonb(t)::text FROM "TeamMemberships" t WHERE t."OrganizationId"=@organization
+            UNION ALL SELECT 'role',to_jsonb(t)::text FROM "CoreRoles" t WHERE t."OrganizationId"=@organization
+            UNION ALL SELECT 'installation',to_jsonb(t)::text FROM "AgentInstallations" t WHERE t."BusinessId"=@tenant
             UNION ALL SELECT 'use',to_jsonb(t)::text FROM "AgentMemoryRecallUses" t WHERE t."OrganizationId"=@organization
             ORDER BY 1,2 LIMIT 32769
             """);
         command.Parameters.AddWithValue("jobs", jobs); command.Parameters.AddWithValue("works", works);
         command.Parameters.AddWithValue("runtimes", runtimes); command.Parameters.AddWithValue("turns", turnIds);
         command.Parameters.AddWithValue("sources", sources); command.Parameters.AddWithValue("organization", organization);
+        command.Parameters.AddWithValue("episodeJobs",episodeJobs);
+        command.Parameters.AddWithValue("tenant",organization.ToString("D"));
         using var reader = await command.ExecuteReaderAsync(token); int count = 0; long bytes = 0;
         while (await reader.ReadAsync(token))
         {

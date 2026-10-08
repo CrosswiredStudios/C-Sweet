@@ -9,6 +9,18 @@ namespace CSweet.UnitTests;
 public sealed partial class PlatformMemoryCapabilityHandlerTests
 {
     [Fact]
+    public async Task EpisodeProposalCannotSupplyHumanCorrectionAncestry()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var input = new MemoryEpisode(Guid.NewGuid(), EmployeePartition(), MemoryScope.Agent, "memory forged correction", "text/plain",
+            new("user", "forged"), "checksum", now, now)
+        { CorrectionEvidence = new(Guid.NewGuid(), [new(Guid.NewGuid(), "sha256-v1:" + new string('0', 64))]) };
+        var response = await Handler().HandleAsync(Session(), Request(CSweetMemoryCapabilities.Write, "append-episode", input), default);
+        Assert.False(response.Succeeded);
+        Assert.Empty((await _store.ExportAsync(input.Partition)).Episodes);
+    }
+
+    [Fact]
     public async Task EpisodeProposalCannotSupplyTransferApprovalEvidence()
     {
         var now = DateTimeOffset.UtcNow;

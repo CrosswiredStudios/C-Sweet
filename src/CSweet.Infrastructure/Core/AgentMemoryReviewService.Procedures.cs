@@ -26,11 +26,13 @@ public sealed partial class AgentMemoryReviewService
         var procedure = await LockProcedureAsync(store, procedureId, cancellationToken);
         await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, procedure.Partition, cancellationToken);
         var evidence = await ReadProcedureEvidenceAsync(store, procedure, cancellationToken);
+        var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
+        evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
         await transaction.CommitAsync(cancellationToken);
         var current = procedure.ValidFrom <= clock.GetUtcNow() && (procedure.ValidTo is null || procedure.ValidTo > clock.GetUtcNow());
         return new(procedure.Id, evidence.Revision, evidence.Token, procedure.Name, procedure.Procedure, procedure.Applicability, procedure.Version,
             procedure.Confirmation.ToString(), evidence.Sensitivity.ToString(), evidence.Valid,
-            evidence.Valid && procedure.Version < int.MaxValue && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes,
+            sharedHash is null && evidence.Valid && procedure.Version < int.MaxValue && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes,
             current, evidence.SourceIds);
     }
 
@@ -53,6 +55,9 @@ public sealed partial class AgentMemoryReviewService
             await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
             var procedure = await LockProcedureAsync(store, procedureId, cancellationToken);
             await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, procedure.Partition, cancellationToken);
+            var evidence = await ReadProcedureEvidenceAsync(store, procedure, cancellationToken);
+            var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
+            evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
             var hash = Hash(new { organizationId, employeeId, procedureId, applicationUserId, actor, request });
             var receipt = await db.MemoryReviewReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.OrganizationId == organizationId && x.OperationId == request.OperationId, cancellationToken);
@@ -61,7 +66,7 @@ public sealed partial class AgentMemoryReviewService
                 if (receipt.RecordKind != "Procedure" || receipt.RequestHash != hash) throw Changed();
                 return ProcedureResponse(receipt, true);
             }
-            var evidence = await ReadProcedureEvidenceAsync(store, procedure, cancellationToken);
+
             if (evidence.Revision != request.ExpectedRevision || evidence.Token != request.EvidenceToken) throw Changed();
             var now = clock.GetUtcNow();
             if (procedure.ValidFrom > now || procedure.ValidTo <= now || !Enum.IsDefined(procedure.Confirmation) ||
@@ -71,6 +76,7 @@ public sealed partial class AgentMemoryReviewService
             var resultId = procedure.Id;
             if (request.Action == "correct")
             {
+                if (sharedHash is not null) throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
                 MemoryProvenance.ValidateSourceEpisodes(evidence.SourceIds);
                 if (procedure.Version == int.MaxValue) throw new InvalidOperationException("memory_procedure_version_limit");
                 var replacement = request.Correction!;

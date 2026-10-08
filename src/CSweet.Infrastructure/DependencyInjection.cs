@@ -529,8 +529,12 @@ public static class DependencyInjection
             builder.Services.TryAddScoped<IMemoryStore>(_ => new PostgreSqlMemoryStore(
                 connectionString ?? throw new InvalidOperationException("A PostgreSQL connection is required for memory.")));
         }
-        builder.Services.AddScoped<IAgentMemoryService, AgentMemoryService>();
+        builder.Services.AddScoped<AgentMemoryService>();
+        builder.Services.AddScoped<IAgentMemoryService>(services => services.GetRequiredService<AgentMemoryService>());
+        builder.Services.AddScoped<IAgentMemoryIngestion>(services => services.GetRequiredService<AgentMemoryService>());
         builder.Services.AddScoped<IAgentMemoryRecoveryService, AgentMemoryRecoveryService>();
+        builder.Services.AddScoped<IAgentMemoryIngestionRecoveryService, AgentMemoryIngestionRecoveryService>();
+        builder.Services.AddScoped<IAgentMemoryReextractionService, AgentMemoryReextractionService>();
         builder.Services.AddScoped<IAgentMemoryReviewService, AgentMemoryReviewService>();
         builder.Services.AddScoped<IAgentMemorySuppressionService, AgentMemoryReviewService>();
         builder.Services.AddScoped<IAgentMemoryHoldService, AgentMemoryReviewService>();

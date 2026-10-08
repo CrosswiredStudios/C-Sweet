@@ -610,6 +610,80 @@ public sealed class AgentCoordinationServiceTests
 
     [Theory]
     [InlineData("ready", true)]
+    [InlineData("stopping", false)]
+    [InlineData("no-replacement", false)]
+    [InlineData("replacement-reset", false)]
+    [InlineData("erased", false)]
+    [InlineData("exhausted", false)]
+    [InlineData("no-attempt", false)]
+    [InlineData("revoked", false)]
+    public async Task MemoryRecoveryRequiresConfirmedReplacementAndPreservesQuestions(string scenario, bool recover)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var now = DateTimeOffset.UtcNow;
+        var stored = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
+        stored.Turns.Single().Content = "Gabriel's five scope questions and exact production brief.";
+        var work = await fixture.Inbox.EnqueueAsync(fixture.OrganizationId.ToString("D"), fixture.InitiatorInstallationId,
+            CSweet.Domain.Setup.AgentWorkKind.Event, AgentCoordinationEvents.TurnRequested,
+            JsonSerializer.SerializeToElement(new { sessionId = fixture.SessionId }), "memory-failed-director", now.AddHours(1),
+            correlationId: fixture.SessionId.ToString("D"), causationId: stored.Turns.Single().Id.ToString("D"),
+            sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
+        work.Status = AgentWorkStatus.DeadLetter;
+        work.AttemptCount = scenario == "exhausted" ? 3 : 1;
+        work.LastError = CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.SafeMessage;
+        stored.Status = AgentCoordinationStatus.Failed;
+        stored.FinalSummary = work.LastError;
+        stored.UpdatedAt = now.AddMinutes(-10);
+        stored.CurrentAgentWorkItemId = null;
+        stored.CurrentOrganizationUserId = null;
+        if (scenario != "revoked")
+            foreach (var installation in new[] { fixture.InitiatorInstallationId, fixture.TargetInstallationId })
+                fixture.Db.AgentInstallationGrants.Add(new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = installation,
+                    RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { CommunicationCapabilities.CoordinationRead, CommunicationCapabilities.CoordinationRespond }),
+                    GrantRevision = 1 });
+        var old = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
+            AgentInstallationId = fixture.InitiatorInstallationId, QueuedAt = now.AddMinutes(-15),
+            MemoryResetRequestedAt = now.AddMinutes(-12),
+            MemoryResetReasonCode = scenario == "erased" ? "memory.source_erased" : "memory.retained_evidence_invalid" };
+        old.TransitionTo(AgentRuntimeStatus.Starting, now.AddMinutes(-15));
+        old.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, now.AddMinutes(-14));
+        old.TransitionTo(AgentRuntimeStatus.Running, now.AddMinutes(-14));
+        if (scenario != "stopping")
+        {
+            old.TransitionTo(AgentRuntimeStatus.Cancelled, now.AddMinutes(-11));
+            old.MemoryResetCompletedAt = now.AddMinutes(-11);
+        }
+        fixture.Db.AgentRuntimeInstances.Add(old);
+        if (scenario != "no-attempt")
+            fixture.Db.AgentWorkAttempts.Add(new() { Id = Guid.NewGuid(), AgentWorkItemId = work.Id,
+                RuntimeInstanceId = old.Id, Attempt = 1, Error = "memory.runtime_reset", FinishedAt = now.AddMinutes(-12) });
+        if (scenario != "no-replacement")
+        {
+            var replacement = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
+                AgentInstallationId = fixture.InitiatorInstallationId, QueuedAt = now.AddMinutes(-9),
+                MemoryResetRequestedAt = scenario == "replacement-reset" ? now : null };
+            replacement.TransitionTo(AgentRuntimeStatus.Starting, now.AddMinutes(-9));
+            replacement.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, now.AddMinutes(-8));
+            replacement.TransitionTo(AgentRuntimeStatus.Running, now.AddMinutes(-8));
+            fixture.Db.AgentRuntimeInstances.Add(replacement);
+        }
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(recover ? 1 : 0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Equal(0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Equal("Gabriel's five scope questions and exact production brief.", Assert.Single(stored.Turns).Content);
+        var pending = await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync();
+        if (recover)
+        {
+            Assert.Equal(fixture.InitiatorInstallationId, Assert.Single(pending).AgentInstallationId);
+            Assert.Equal(fixture.InitiatorId, stored.CurrentOrganizationUserId);
+            Assert.Equal(AgentCoordinationStatus.Active, stored.Status);
+            Assert.Equal(work.CausationId, pending[0].CausationId);
+        }
+        else Assert.Empty(pending);
+    }
+
+    [Theory]
+    [InlineData("ready", true)]
     [InlineData("disabled", false)]
     [InlineData("no-evidence", false)]
     [InlineData("other-capability", false)]

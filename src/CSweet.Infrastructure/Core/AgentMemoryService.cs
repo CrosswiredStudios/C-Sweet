@@ -23,7 +23,7 @@ public sealed partial class AgentMemoryService(
     IMemoryStore store,
     ILlmProviderFactory providerFactory,
     IAgentInstallationConfigurationService configurations,
-    ILogger<AgentMemoryService> logger) : IAgentMemoryService
+    ILogger<AgentMemoryService> logger) : IAgentMemoryService, IAgentMemoryIngestion
 {
     private const string ApplicationId = "csweet";
     public const int RecallContextCharacterBudget = 6_000;
@@ -89,7 +89,16 @@ public sealed partial class AgentMemoryService(
             }
 
             var normalizedQuery = NormalizeRecallText(query);
-            var selected = candidates
+            var accessible = new List<MemoryCandidate>();
+            foreach (var candidate in candidates)
+            {
+                var allowed = true;
+                foreach (var shared in candidate.RequiredSharedPartitions ?? [])
+                    if (!await MemorySharedAudienceAuthorization.CanReadAsync(db, Guid.Parse(context.OrganizationId), Guid.Parse(context.EmployeeId),
+                        Guid.Parse(context.UserId), shared, cancellationToken)) { allowed = false; break; }
+                if (allowed) accessible.Add(candidate);
+            }
+            var selected = accessible
                 .GroupBy(x => x.Id)
                 .Select(x => x.OrderByDescending(item => item.Score).First())
                 .Where(x => x.Layer != MemoryLayer.Episodic || NormalizeRecallText(x.Content) != normalizedQuery)
@@ -331,20 +340,25 @@ public sealed partial class AgentMemoryService(
             visited.Add(next.Value);
             if (await ProcessMessageAsync(next.Value, cancellationToken)) completed++;
         }
+        completed += await ProcessEpisodeJobsAsync(Math.Clamp(limit, 1, 100), cancellationToken);
         return completed;
     }
 
-    public async Task<AgentMemorySummaryResponse?> GetSummaryAsync(Guid organizationId, Guid employeeId, CancellationToken cancellationToken = default)
+    public async Task<AgentMemorySummaryResponse?> GetSummaryAsync(Guid organizationId, Guid employeeId, CancellationToken cancellationToken = default, Guid? applicationUserId = null)
     {
         var owner = await LoadOwnerAsync(organizationId, employeeId, cancellationToken);
         if (owner is null) return null;
-        var exports = await LoadExportsAsync(owner, cancellationToken);
+        var exports = await LoadExportsAsync(owner, cancellationToken, applicationUserId);
         var pending = await db.MemoryCaptureOutbox.CountAsync(x =>
             (x.Status == MemoryCaptureStatus.Pending || x.Status == MemoryCaptureStatus.Processing) &&
             x.ConversationMessage!.Conversation!.AgentOrganizationUserId == employeeId,
             cancellationToken);
         var failed = await db.MemoryCaptureOutbox.AnyAsync(x => x.Status == MemoryCaptureStatus.Failed &&
             x.ConversationMessage!.Conversation!.AgentOrganizationUserId == employeeId, cancellationToken);
+        pending += await db.MemoryEpisodeEnrichmentJobs.CountAsync(x => x.OrganizationId == organizationId && x.EmployeeId == employeeId && x.SupersededAt == null &&
+            (x.Status == MemoryCaptureStatus.Pending || x.Status == MemoryCaptureStatus.Processing), cancellationToken);
+        failed |= await db.MemoryEpisodeEnrichmentJobs.AnyAsync(x => x.OrganizationId == organizationId && x.EmployeeId == employeeId && x.SupersededAt == null &&
+            x.Status == MemoryCaptureStatus.Failed, cancellationToken);
         return new AgentMemorySummaryResponse(
             organizationId, employeeId, owner.EmployeeName, owner.InstallationId,
             owner.AgentDefinitionId, owner.AgentName,
@@ -355,11 +369,11 @@ public sealed partial class AgentMemoryService(
             pending, failed ? "Needs attention" : pending == 0 ? "Healthy" : "Catching up");
     }
 
-    public async Task<AgentMemoryPageResponse?> BrowseAsync(Guid organizationId, Guid employeeId, AgentMemoryQuery query, CancellationToken cancellationToken = default)
+    public async Task<AgentMemoryPageResponse?> BrowseAsync(Guid organizationId, Guid employeeId, AgentMemoryQuery query, CancellationToken cancellationToken = default, Guid? applicationUserId = null)
     {
         var owner = await LoadOwnerAsync(organizationId, employeeId, cancellationToken);
         if (owner is null) return null;
-        var exports = await LoadExportsAsync(owner, cancellationToken);
+        var exports = await LoadExportsAsync(owner, cancellationToken, applicationUserId);
         var items = ToItems(exports);
         items = ApplyFilters(items, query);
         var total = items.Count;
@@ -369,15 +383,15 @@ public sealed partial class AgentMemoryService(
         return new AgentMemoryPageResponse(page, offset + page.Count < total ? EncodeCursor(offset + page.Count) : null, total);
     }
 
-    public async Task<AgentMemoryGraphResponse?> GetGraphAsync(Guid organizationId, Guid employeeId, string? search, Guid? userId, int limit = 100, CancellationToken cancellationToken = default)
+    public async Task<AgentMemoryGraphResponse?> GetGraphAsync(Guid organizationId, Guid employeeId, string? search, Guid? userId, int limit = 100, CancellationToken cancellationToken = default, Guid? applicationUserId = null)
     {
         var owner = await LoadOwnerAsync(organizationId, employeeId, cancellationToken);
         if (owner is null) return null;
-        var exports = await LoadExportsAsync(owner, cancellationToken);
+        var exports = await LoadExportsAsync(owner, cancellationToken, applicationUserId);
         var bounded = Math.Clamp(limit, 10, 250);
         var entities = exports
             .Where(x => userId is null || x.UserId == userId)
-            .SelectMany(x => x.Export.Entities.Select(entity => (entity, x.UserId)))
+            .SelectMany(x => x.Export.Entities.Select(entity => (entity, x.UserId, x.Scope, x.AudienceId)))
             .Where(x => string.IsNullOrWhiteSpace(search) || x.entity.CanonicalName.Contains(search, StringComparison.OrdinalIgnoreCase) || x.entity.Type.Contains(search, StringComparison.OrdinalIgnoreCase))
             .DistinctBy(x => x.entity.Id)
             .Take(bounded)
@@ -390,19 +404,19 @@ public sealed partial class AgentMemoryService(
             .ToList();
         var nodes = entities.Select(x => new AgentMemoryGraphNodeResponse(
             x.entity.Id, x.entity.CanonicalName, x.entity.Type,
-            x.UserId.HasValue ? "Relationship" : "Employee", x.UserId)).ToList();
+            x.Scope, x.UserId) { AudienceId = x.AudienceId }).ToList();
         return new AgentMemoryGraphResponse(nodes, edges, entities.Count >= bounded || edges.Count >= bounded * 2);
     }
 
-    public async Task<AgentMemoryItemResponse?> GetItemAsync(Guid organizationId, Guid employeeId, Guid memoryId, CancellationToken cancellationToken = default)
+    public async Task<AgentMemoryItemResponse?> GetItemAsync(Guid organizationId, Guid employeeId, Guid memoryId, CancellationToken cancellationToken = default, Guid? applicationUserId = null)
     {
-        var page = await BrowseAsync(organizationId, employeeId, new AgentMemoryQuery(Limit: 100), cancellationToken);
+        var page = await BrowseAsync(organizationId, employeeId, new AgentMemoryQuery(Limit: 100), cancellationToken, applicationUserId);
         if (page is null) return null;
         var item = page.Items.FirstOrDefault(x => x.Id == memoryId);
         if (item is not null) return await AddRecallUsesAsync(item, organizationId, employeeId, cancellationToken);
         var owner = await LoadOwnerAsync(organizationId, employeeId, cancellationToken);
         if (owner is null) return null;
-        item = ToItems(await LoadExportsAsync(owner, cancellationToken)).FirstOrDefault(x => x.Id == memoryId);
+        item = ToItems(await LoadExportsAsync(owner, cancellationToken, applicationUserId)).FirstOrDefault(x => x.Id == memoryId);
         return item is null ? null : await AddRecallUsesAsync(item, organizationId, employeeId, cancellationToken);
     }
 
@@ -457,6 +471,11 @@ public sealed partial class AgentMemoryService(
             .Where(x => x.Id == messageId)
             .Select(x => x.Conversation!.AgentOrganizationUser!.AgentInstallationId)
             .SingleOrDefaultAsync(cancellationToken);
+        return await ResolveInstallationEnrichmentProviderAsync(installationId, cancellationToken);
+    }
+
+    private async Task<EnrichmentProvider> ResolveInstallationEnrichmentProviderAsync(Guid? installationId, CancellationToken cancellationToken)
+    {
         var effectiveConfiguration = installationId.HasValue
             ? await configurations.GetAsync(installationId.Value, cancellationToken)
             : null;
@@ -511,7 +530,7 @@ public sealed partial class AgentMemoryService(
     {
         var (_, episode, enrichment, extractorVersion) = accepted;
         if (!HasVerifiableEnvelope(accepted)) throw new MemorySourceInvalidatedException("memory_enrichment_unverifiable_output");
-        var sourceIds = accepted.Sources!.Messages.Select(x => x.Id).Distinct().ToArray();
+        var sourceIds = accepted.GenericSourceHash is not null ? new[] { episode.Id } : accepted.Sources!.Messages.Select(x => x.Id).Distinct().ToArray();
         var entities = new Dictionary<string, MemoryEntity>(StringComparer.OrdinalIgnoreCase);
         foreach (var extracted in enrichment.Entities)
         {
@@ -519,6 +538,12 @@ public sealed partial class AgentMemoryService(
                 ? await store.FindEntityByApplicationKeyAsync(episode.Partition, extracted.ApplicationKey, cancellationToken)
                 : null;
             existing ??= await store.FindEntityAsync(episode.Partition, extracted.Name, cancellationToken);
+            if (accepted.Reconciliation is not null && existing is not null)
+            {
+                // Keep retained entity identity, classification, aliases and lineage unchanged.
+                entities[extracted.Name] = existing;
+                continue;
+            }
             var entity = existing ?? new MemoryEntity(
                 DeterministicId(episode.Id, "entity", $"{extracted.Type}:{extracted.Name}"), episode.Partition,
                 extracted.Type.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) ? extracted.Type : $"learned:{extracted.Type}",
@@ -535,13 +560,15 @@ public sealed partial class AgentMemoryService(
         {
             if (!entities.TryGetValue(extracted.SubjectName, out var subject)) continue;
             entities.TryGetValue(extracted.ObjectName ?? string.Empty, out var objectEntity);
+            if (accepted.Reconciliation?.Claims.Any(x => x.Subject == subject.Id &&
+                string.Equals(x.Predicate, extracted.Predicate, StringComparison.OrdinalIgnoreCase)) == true) continue;
             var sensitivity = MemoryProvenance.Maximum(extracted.Sensitivity, episode.Sensitivity,
                 subject.Sensitivity, objectEntity?.Sensitivity ?? MemorySensitivity.Public);
             await store.WriteClaimAsync(new MemoryClaim(
                 DeterministicId(episode.Id, "claim", $"{extracted.SubjectName}:{extracted.Predicate}:{extracted.ObjectName}:{extracted.Value}"),
                 episode.Partition, episode.Id, subject.Id, extracted.Predicate,
                 objectEntity?.Id, extracted.Value, MemoryTrustTier.AgentInference,
-                sensitivity >= MemorySensitivity.Confidential ? MemoryConfirmationState.Pending : MemoryConfirmationState.NotRequired,
+                accepted.GenericSourceHash is not null || sensitivity >= MemorySensitivity.Confidential ? MemoryConfirmationState.Pending : MemoryConfirmationState.NotRequired,
                 sensitivity, Math.Clamp(extracted.Confidence, 0, 1), Math.Clamp(extracted.Importance, 0, 1),
                 episode.OccurredAt, null, recordedAt, ExtractorVersion: extractorVersion, Kind: extracted.Kind)
                 { SourceEpisodeIds = sourceIds }, cancellationToken);
@@ -550,6 +577,9 @@ public sealed partial class AgentMemoryService(
         foreach (var extracted in enrichment.Edges.DistinctBy(x => (x.FromName, x.Relationship, x.ToName)))
         {
             if (!entities.TryGetValue(extracted.FromName, out var from) || !entities.TryGetValue(extracted.ToName, out var to)) continue;
+            var relationship = extracted.Relationship.StartsWith("learned:", StringComparison.OrdinalIgnoreCase) ? extracted.Relationship : $"learned:{extracted.Relationship}";
+            if (accepted.Reconciliation?.Edges.Any(x => x.From == from.Id && x.To == to.Id &&
+                string.Equals(x.Relationship, relationship, StringComparison.OrdinalIgnoreCase)) == true) continue;
             await store.WriteEdgeAsync(new MemoryEdge(
                 DeterministicId(episode.Id, "edge", $"{extracted.FromName}:{extracted.Relationship}:{extracted.ToName}"),
                 episode.Partition, episode.Id, from.Id,
@@ -560,6 +590,7 @@ public sealed partial class AgentMemoryService(
 
         foreach (var extracted in enrichment.Procedures.DistinctBy(x => (x.Name, x.Procedure)))
         {
+            if (accepted.Reconciliation?.Procedures.Contains(extracted.Name, StringComparer.OrdinalIgnoreCase) == true) continue;
             await store.WriteProcedureAsync(new ProceduralMemory(
                 DeterministicId(episode.Id, "procedure", $"{extracted.Name}:{extracted.Procedure}"),
                 episode.Partition, episode.Id, extracted.Name, extracted.Procedure,
@@ -603,6 +634,9 @@ public sealed partial class AgentMemoryService(
                 AgentKey = x.Conversation.AgentOrganizationUser.AgentInstallation!.PackageVersion!.AgentId
             })
             .SingleOrDefaultAsync(cancellationToken);
+        var generic = correlation is null ? await db.MemoryEpisodeEnrichmentJobs.AsNoTracking()
+            .Where(x => x.EpisodeId == episode.Id && x.SupersededAt == null).Select(x => new { x.OrganizationId, x.EmployeeId, x.InstallationId })
+            .SingleOrDefaultAsync(cancellationToken) : null;
         using var chatClient = await providerFactory.CreateChatClientAsync(providerId, model, cancellationToken);
         var capturingClient = new UsageCapturingChatClient(chatClient, PersistCallAsync, authorizeDispatch);
         var enricher = new MicrosoftExtensionsAIMemoryEnricher(capturingClient);
@@ -617,8 +651,8 @@ public sealed partial class AgentMemoryService(
                 runLog = new AgentRunLog
                 {
                     Id = call.Id, MeasurementKind = "ProviderAttempt",
-                    OrganizationId = correlation?.OrganizationId, EmployeeId = correlation?.EmployeeId,
-                    AgentInstallationId = correlation?.InstallationId, ConversationId = correlation?.ConversationId,
+                    OrganizationId = correlation?.OrganizationId ?? generic?.OrganizationId, EmployeeId = correlation?.EmployeeId ?? generic?.EmployeeId,
+                    AgentInstallationId = correlation?.InstallationId ?? generic?.InstallationId, ConversationId = correlation?.ConversationId,
                     ChatTurnId = correlation?.ChatTurnId, AgentKey = correlation?.AgentKey ?? "csweet.memory.enrichment",
                     ProviderProfileId = providerId, Model = model, StartedAt = call.StartedAt,
                     InvocationKind = "memory-enrichment",
@@ -766,7 +800,7 @@ public sealed partial class AgentMemoryService(
                 x.AgentInstallation!.PackageVersion!.AgentId, x.AgentInstallation.PackageVersion.AgentName))
             .SingleOrDefaultAsync(cancellationToken);
 
-    private async Task<List<ScopedExport>> LoadExportsAsync(MemoryOwner owner, CancellationToken cancellationToken)
+    private async Task<List<ScopedExport>> LoadExportsAsync(MemoryOwner owner, CancellationToken cancellationToken, Guid? applicationUserId = null)
     {
         await store.InitializeAsync(cancellationToken);
         var result = new List<ScopedExport>();
@@ -788,6 +822,25 @@ public sealed partial class AgentMemoryService(
         result.Add(new ScopedExport("Employee", null, null, await store.ExportAsync(employee.Partition, cancellationToken)));
         var organization = EmployeeMemoryNamespaces.Organization(organizationId, ApplicationId);
         result.Add(new ScopedExport("Organization", null, null, await store.ExportAsync(organization.Partition, cancellationToken)));
+        var actor = applicationUserId.HasValue ? await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == owner.OrganizationId &&
+            x.ApplicationUserId == applicationUserId && x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null)
+            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken) : null;
+        var allowed = new HashSet<MemoryPartition>();
+        if (actor.HasValue)
+        {
+            foreach (var audience in await MemorySharedAudienceAuthorization.ReadableAsync(db, owner.OrganizationId, owner.EmployeeId, actor.Value, cancellationToken))
+            {
+                var shared = audience.Scope == "Team" ? EmployeeMemoryNamespaces.Team(organizationId, audience.AudienceId.ToString("D"), ApplicationId) :
+                    EmployeeMemoryNamespaces.Role(organizationId, audience.AudienceId.ToString("D"), ApplicationId);
+                if (!await MemorySharedAudienceAuthorization.CanReadAsync(db, owner.OrganizationId, owner.EmployeeId, actor, shared.Partition, cancellationToken)) continue;
+                allowed.Add(shared.Partition);
+                result.Add(new(audience.Scope, null, audience.Name, await store.ExportAsync(shared.Partition, cancellationToken), audience.AudienceId));
+            }
+        }
+        foreach (var shared in allowed.ToArray())
+            if (!await MemorySharedAudienceAuthorization.CanReadAsync(db, owner.OrganizationId, owner.EmployeeId, actor, shared, cancellationToken)) allowed.Remove(shared);
+        result.RemoveAll(x => x.AudienceId.HasValue && !allowed.Any(p => p.CustomNamespace == x.Scope.ToLowerInvariant() + ":" + x.AudienceId.Value.ToString("D")));
+        for (var index = 0; index < result.Count; index++) result[index] = result[index] with { Export = MemoryAudienceProjection.Create(result[index].Export, allowed.Contains) };
         return result;
     }
 
@@ -796,6 +849,7 @@ public sealed partial class AgentMemoryService(
         var items = new List<AgentMemoryItemResponse>();
         foreach (var scoped in exports)
         {
+            var first = items.Count;
             var entities = scoped.Export.Entities.ToDictionary(x => x.Id);
             items.AddRange(scoped.Export.Episodes.Select(x => new AgentMemoryItemResponse(
                 x.Id, "Episode", scoped.Scope, scoped.UserId, scoped.UserName,
@@ -821,6 +875,7 @@ public sealed partial class AgentMemoryService(
             items.AddRange(scoped.Export.Blocks.Select(x => new AgentMemoryItemResponse(
                 x.Id, "Core", scoped.Scope, scoped.UserId, scoped.UserName, x.Name, x.Content,
                 "curated", x.Sensitivity.ToString(), x.Confirmation == MemoryConfirmationState.NotRequired ? (x.IsPinned ? "Pinned" : "Current") : x.Confirmation.ToString(), null, x.UpdatedAt, null, null)));
+            for (var index = first; index < items.Count; index++) items[index] = items[index] with { AudienceId = scoped.AudienceId };
         }
         return items.OrderByDescending(x => x.OccurredAt).ThenBy(x => x.Id).ToList();
     }
@@ -847,5 +902,5 @@ public sealed partial class AgentMemoryService(
 
     private sealed record ConversationMemoryContext(string OrganizationId, string EmployeeId, string UserId);
     private sealed record MemoryOwner(Guid OrganizationId, Guid EmployeeId, string EmployeeName, Guid InstallationId, string AgentDefinitionId, string AgentName);
-    private sealed record ScopedExport(string Scope, Guid? UserId, string? UserName, MemoryExport Export);
+    private sealed record ScopedExport(string Scope, Guid? UserId, string? UserName, MemoryExport Export, Guid? AudienceId = null);
 }

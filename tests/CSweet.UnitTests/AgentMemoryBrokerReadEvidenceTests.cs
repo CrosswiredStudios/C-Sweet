@@ -70,8 +70,13 @@ public sealed partial class AgentMemoryServiceTests
         runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow);
         runtime.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow);
         db.AgentRuntimeInstances.Add(runtime);
-        db.AgentInstallationGrants.Add(new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = fixture.InstallationId,
-            GrantRevision = 1, RequiredCapabilitiesJson = JsonSerializer.Serialize(capabilities) });
+        var grant = await db.AgentInstallationGrants.SingleOrDefaultAsync(x => x.AgentInstallationId == fixture.InstallationId);
+        if (grant is null)
+        {
+            grant = new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = fixture.InstallationId, GrantRevision = 1 };
+            db.AgentInstallationGrants.Add(grant);
+        }
+        grant.RequiredCapabilitiesJson = JsonSerializer.Serialize(capabilities);
         var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId.ToString("D"), AgentInstallationId = fixture.InstallationId,
             Kind = AgentWorkKind.Capability, Name = "fixture", IdempotencyKey = Guid.NewGuid().ToString("N"), Status = AgentWorkStatus.Leased,
             DeadlineAt = DateTimeOffset.UtcNow.AddMinutes(20), AttemptCount = 1 };

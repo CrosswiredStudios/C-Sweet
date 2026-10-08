@@ -69,9 +69,11 @@ public sealed partial class MemoryRecallDispatchEvidence
         if (roots.Count == 0 && packages.Count == 0) return null;
         var selected = roots.DistinctBy(x => (x.Partition, x.Kind, x.Id, x.Format)).ToArray();
         var records = selected.Length == 0 ? [] : await ReadEvidenceAsync(selected, token, 512);
+        partitions.UnionWith(SharedAudienceClosure(records));
         // Package state must not change while its returned source closure is being captured.
         foreach (var package in packages) if (Hash(await ReadPackageAsync(package.Id, token)) != package.Hash) throw Denied();
         var audiences = partitions.OrderBy(x => x.StorageKey, StringComparer.Ordinal).ToArray();
+        if (audiences.Length > 32) throw Denied();
         var evidence = JsonSerializer.Serialize(new ReadReceipt(1, selected, records, packages.ToArray(), audiences), Json);
         if (evidence.Length > 262144) throw Denied();
         return new(evidence, audiences);
@@ -82,13 +84,14 @@ public sealed partial class MemoryRecallDispatchEvidence
     {
         try
         {
-            if (evidenceJson.Length > 262144) throw Denied();
-            var receipt = JsonSerializer.Deserialize<ReadReceipt>(evidenceJson, Json) ?? throw Denied();
+            if (evidenceJson.Length > 262144) throw Denied("read.receipt-size");
+            var receipt = JsonSerializer.Deserialize<ReadReceipt>(evidenceJson, Json) ?? throw Denied("read.receipt-empty");
             if (receipt.Version != 1 || receipt.Roots.Length > 512 || receipt.Records.Length > 512 || receipt.Packages.Length > 1 || receipt.Partitions.Length > 32)
-                throw Denied();
+                throw Denied("read.receipt-shape");
             var current = receipt.Roots.Length == 0 ? [] : await ReadEvidenceAsync(receipt.Roots, token, 512);
-            if (!current.SequenceEqual(receipt.Records)) throw Denied();
-            foreach (var package in receipt.Packages) if (Hash(await ReadPackageAsync(package.Id, token)) != package.Hash) throw Denied();
+            if (!current.SequenceEqual(receipt.Records)) throw Denied("read.source-closure-changed");
+            if (SharedAudienceClosure(current).Any(x => !receipt.Partitions.Contains(x))) throw Denied("read.shared-audience-changed");
+            foreach (var package in receipt.Packages) if (Hash(await ReadPackageAsync(package.Id, token)) != package.Hash) throw Denied("read.package-changed");
             return receipt.Partitions;
         }
         catch (Exception e) when (e is not OperationCanceledException && e is not CSweet.Infrastructure.Llm.ProviderDispatchDeniedException &&

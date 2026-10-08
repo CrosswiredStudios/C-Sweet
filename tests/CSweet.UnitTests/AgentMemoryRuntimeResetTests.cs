@@ -142,6 +142,11 @@ public sealed partial class AgentMemoryServiceTests
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db)
             .AuthorizeDispatchAsync(session, work.Id, default));
         Assert.Equal(MemoryRuntimeResetRequiredException.RetainedEvidence, (await db.AgentRuntimeInstances.SingleAsync()).MemoryResetReasonCode);
+        var diagnostic = Assert.Single(await db.AgentRuntimeEvents.ToListAsync()).Reason;
+        Assert.Contains("validation=", diagnostic);
+        Assert.Contains("receipt=", diagnostic);
+        Assert.Contains($"work={work.Id:D}", diagnostic);
+        Assert.DoesNotContain("payload", diagnostic);
         Assert.Single(await db.AgentMemoryReadReceipts.ToListAsync());
     }
 

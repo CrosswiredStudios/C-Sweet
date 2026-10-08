@@ -32,7 +32,11 @@ public sealed record AgentMemoryItemResponse(
     Guid? ConversationId,
     IReadOnlyDictionary<string, string>? Metadata,
     IReadOnlyList<Guid>? RelatedMemoryIds = null,
-    IReadOnlyList<AgentMemoryRecallUseResponse>? RecallUses = null);
+    IReadOnlyList<AgentMemoryRecallUseResponse>? RecallUses = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? AudienceId { get; init; }
+}
 
 public sealed record AgentMemoryRecallUseResponse(
     Guid ConversationId,
@@ -50,7 +54,11 @@ public sealed record AgentMemoryGraphNodeResponse(
     string Label,
     string Type,
     string Scope,
-    Guid? UserId);
+    Guid? UserId)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? AudienceId { get; init; }
+}
 
 public sealed record AgentMemoryGraphEdgeResponse(
     Guid Id,

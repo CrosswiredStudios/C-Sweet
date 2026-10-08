@@ -3,17 +3,24 @@
 `Corpus.SeedAsync` defines `employee-business-retrieval-v2`: six employee/business decisions,
 source-linked claims and aliases, procedure/core context, valid-time supersession, forbidden
 states and audiences, vector eligibility, identifiers, Unicode, abstentions, and near-neighbor
-distractors. Seven calibration queries and 27 held-out queries remain separate in every report.
-The held-out questions have not been used to tune the retrieval implementation.
+distractors. Seven calibration queries and 27 originally held-out queries remain separate in
+every report. The 0.2.0 findings informed the 0.2.1 alias and ranking fixes, so this corpus now
+provides regression evidence, not a blind quality estimate. Preserve its questions and expected
+answers for before/after comparison; use a fresh independent set for future quality acceptance.
 
 Build this standalone tool against the same memory packages that the application is testing.
-For the current unpublished 0.2.0 feed, from the C-Sweet repository:
+For the current unpublished 0.3.0 feed, from the C-Sweet repository:
 
 ```powershell
-dotnet restore tools/CSweet.Memory.Evaluate/CSweet.Memory.Evaluate.csproj --source ../CSweet.Memory/artifacts/packages/0.2.0 --source https://api.nuget.org/v3/index.json
+dotnet restore tools/CSweet.Memory.Evaluate/CSweet.Memory.Evaluate.csproj --configfile tools/CSweet.Memory.Evaluate/NuGet.local.config
 dotnet build tools/CSweet.Memory.Evaluate/CSweet.Memory.Evaluate.csproj -c Release --no-restore
-dotnet tools/CSweet.Memory.Evaluate/bin/Release/net10.0/CSweet.Memory.Evaluate.dll sqlite artifacts/memory-retrieval-evaluation 1000 5
+dotnet tools/CSweet.Memory.Evaluate/bin/Release/net10.0/CSweet.Memory.Evaluate.dll sqlite artifacts/memory-retrieval-evaluation/0.3.0 1000 5
 ```
+
+`NuGet.local.config` explicitly selects the draft feed and nuget.org. Build/pack Memory first;
+the draft packages are not yet published. Keep reports from different package versions in
+separate directories. The command-line `--source` URL was interpreted as a local path by the
+installed Windows SDK during verification; the explicit configuration avoids that failure.
 
 PostgreSQL requires a disposable instance. Set `CSWEET_MEMORY_EVAL_POSTGRES` to its connection
 string and `CSWEET_MEMORY_EVAL_DISPOSABLE=1`, then use `postgres` instead of `sqlite`. The tool

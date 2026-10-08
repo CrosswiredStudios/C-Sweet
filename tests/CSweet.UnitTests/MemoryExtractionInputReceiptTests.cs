@@ -43,7 +43,7 @@ public sealed partial class AgentMemoryServiceTests
         Assert.Equal(receipt.EvidenceJson, (await db.MemoryExtractionInputReceipts.AsNoTracking().SingleAsync()).EvidenceJson);
         // The provider's old input may now be absent: the completed fence and metadata
         // receipt still allow the host cleanup to replay without restoring that input.
-        await using (var connection = new NpgsqlConnection(db.Database.GetConnectionString()))
+        await using (var connection = fixture.IndependentConnection())
         {
             await connection.OpenAsync();
             await using var delete = new NpgsqlCommand("DELETE FROM csweet_memory_episodes WHERE id=@id", connection);

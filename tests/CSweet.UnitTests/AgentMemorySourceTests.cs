@@ -17,7 +17,7 @@ public sealed partial class AgentMemoryServiceTests
         var assistantId = await AddSourceAssistantAsync(fixture);
         await using var db = fixture.Context();
         await fixture.Store.InitializeAsync();
-        await using var gate = new NpgsqlConnection(db.Database.GetConnectionString());
+        await using var gate = fixture.IndependentConnection();
         await gate.OpenAsync();
         await using (var hold = new NpgsqlCommand("SELECT pg_advisory_lock(6281006)", gate))
             await hold.ExecuteNonQueryAsync();
@@ -38,7 +38,7 @@ public sealed partial class AgentMemoryServiceTests
                 if (processing.IsCompleted) Assert.Fail("Enrichment finished before reaching the apply gate.");
                 await Task.Delay(25, deadline.Token);
             }
-            await using var editor = new NpgsqlConnection(db.Database.GetConnectionString());
+            await using var editor = fixture.IndependentConnection();
             await editor.OpenAsync();
             await using (var timeout = new NpgsqlCommand("SET lock_timeout = '250ms'", editor))
                 await timeout.ExecuteNonQueryAsync();

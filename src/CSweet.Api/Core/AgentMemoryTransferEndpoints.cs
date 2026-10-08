@@ -10,6 +10,9 @@ public static class AgentMemoryTransferEndpoints
 {
     public static void MapMemoryTransferRoutes(this RouteGroupBuilder group)
     {
+        group.MapGet("/transfers/audiences", (Guid organizationId, Guid employeeId, Guid targetEmployeeId, ClaimsPrincipal principal,
+            IAgentMemoryTransferService transfers, CancellationToken token) =>
+            Execute(principal, user => transfers.ListAudiencesAsync(organizationId, employeeId, targetEmployeeId, user, token)));
         group.MapPost("/transfers", (Guid organizationId, Guid employeeId, PrepareMemoryTransferRequest request,
             ClaimsPrincipal principal, IAgentMemoryTransferService transfers, CancellationToken token) =>
             Execute(principal, user => transfers.PrepareAsync(organizationId, employeeId, user, request, token)));

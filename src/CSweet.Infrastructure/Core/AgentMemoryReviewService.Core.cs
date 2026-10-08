@@ -26,11 +26,13 @@ public sealed partial class AgentMemoryReviewService
         var block = await LockCoreAsync(store, blockId, cancellationToken);
         await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, block.Partition, cancellationToken);
         var evidence = await ReadCoreEvidenceAsync(store, block, cancellationToken);
+        var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
+        evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
         await transaction.CommitAsync(cancellationToken);
         var current = block.UpdatedAt <= clock.GetUtcNow() && block.Revision is > 0 and < int.MaxValue && Enum.IsDefined(block.Confirmation);
         return new(block.Id, evidence.Revision, evidence.Token, block.Name, block.Content, block.Revision, block.IsPinned,
             block.Confirmation.ToString(), evidence.Sensitivity.ToString(), evidence.Valid && current,
-            evidence.Valid && current && block.SourceEpisodeIds.Distinct().Count() < MemoryProvenance.MaximumSourceEpisodes,
+            sharedHash is null && evidence.Valid && current && block.SourceEpisodeIds.Distinct().Count() < MemoryProvenance.MaximumSourceEpisodes,
             current, block.SourceEpisodeIds);
     }
 
@@ -52,6 +54,9 @@ public sealed partial class AgentMemoryReviewService
             await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
             var block = await LockCoreAsync(store, blockId, cancellationToken);
             await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, block.Partition, cancellationToken);
+            var evidence = await ReadCoreEvidenceAsync(store, block, cancellationToken);
+            var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
+            evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
             var hash = Hash(new { organizationId, employeeId, blockId, applicationUserId, actor, request });
             var receipt = await db.MemoryReviewReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.OrganizationId == organizationId && x.OperationId == request.OperationId, cancellationToken);
@@ -60,7 +65,7 @@ public sealed partial class AgentMemoryReviewService
                 if (receipt.RecordKind != "Block" || receipt.RequestHash != hash) throw Changed();
                 return CoreResponse(receipt, true);
             }
-            var evidence = await ReadCoreEvidenceAsync(store, block, cancellationToken);
+
             if (evidence.Revision != request.ExpectedRevision || evidence.Token != request.EvidenceToken) throw Changed();
             var now = clock.GetUtcNow();
             if (block.UpdatedAt > now || block.Revision is <= 0 or int.MaxValue || !Enum.IsDefined(block.Confirmation) ||
@@ -71,6 +76,7 @@ public sealed partial class AgentMemoryReviewService
                 ? MemoryConfirmationState.Rejected : MemoryConfirmationState.Confirmed };
             if (request.Action == "correct")
             {
+                if (sharedHash is not null) throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
                 var sourceId = Guid.NewGuid(); var contributors = block.SourceEpisodeIds.Append(sourceId).Distinct().Order().ToArray();
                 MemoryProvenance.ValidateSourceEpisodes(contributors);
                 var expiry = evidence.Sources.Values.Select(x => x.ExpiresAt).Where(x => x.HasValue).Min();

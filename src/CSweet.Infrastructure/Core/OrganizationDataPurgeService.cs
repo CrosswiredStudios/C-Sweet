@@ -20,6 +20,8 @@ public sealed class OrganizationDataPurgeService(
     [
         typeof(AuditEvent),
         typeof(MemoryCaptureRetryReceipt),
+        typeof(MemoryEpisodeRetryReceipt),
+        typeof(MemoryEpisodeReextractionReceipt),
         typeof(MemoryExtractionInputReceipt), // Removed through its job/message cascade, after quiescing.
         typeof(MemoryReviewReceipt),
         typeof(MemoryErasureReceipt),

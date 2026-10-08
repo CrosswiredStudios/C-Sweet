@@ -24,7 +24,7 @@
     <MudText>@impact.DiagnosticTurns chat turns have diagnostic copies in this review.</MudText>
     @if (impact.ApplyBlockedReason is { } reason && reason != impact.BlockedReason)
     { <MudAlert Severity="Severity.Warning">@Blocker(reason)</MudAlert> }
-    @if (impact.EvidenceToken is not null && _result is null && _request is null)
+    @if (impact.EvidenceToken is not null && impact.BlockedReason is null && impact.ApplyBlockedReason is null && _result is null && _request is null)
     {
         <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="_busy" Label="I reviewed the affected audiences and understand this erasure cannot be undone." />
         <MudButton Color="Color.Error" OnClick="ApplyAsync" Disabled="@(_busy || !_confirmed)">Forget reviewed source</MudButton>
@@ -106,7 +106,7 @@
         if (_busy || _result is not null) return;
         if (_request is null)
         {
-            if (!_confirmed || _impact?.EvidenceToken is not { } evidence) return;
+            if (!_confirmed || _impact?.EvidenceToken is not { } evidence || _impact.BlockedReason is not null || _impact.ApplyBlockedReason is not null) return;
             _request = new(Guid.NewGuid(), evidence);
         }
         var request = _request;
@@ -149,6 +149,8 @@
         "memory_legal_hold_prevents_deletion" => "A retention hold prevents erasure. Its obligations must be reviewed before forgetting can proceed.",
         "memory_erasure_lineage_review_required" => "Some source links cannot be verified. Their lineage must be reviewed before a complete erasure can be planned.",
         "memory_erasure_source_review_required" => "Some historical sources cannot yet be mapped to their capture jobs. Source review is required.",
+        "memory_erasure_generic_ingestion_review_required" => "A proposal or transfer extraction job still retains this evidence. Reviewed cleanup of those inputs is required before forgetting can finish.",
+        "memory_erasure_generic_lineage_review_required" => "Some proposal or transfer extraction evidence cannot be verified. Review its source lineage and retention before forgetting can finish.",
         "memory_erasure_work_lineage_review_required" => "Some queued or delivered work has incomplete memory-read evidence. Work review is required before its impact can be verified.",
         "memory_erasure_work_audience_review_required" => "The affected runtime also handled work whose input audience needs further review.",
         "memory_erasure_work_retention_review_required" => "Retention for some evidence in affected work cannot yet be verified.",

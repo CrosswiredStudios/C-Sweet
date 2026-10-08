@@ -235,6 +235,10 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<AgentPlatformEventOutboxItem> AgentPlatformEventOutbox => Set<AgentPlatformEventOutboxItem>();
     public DbSet<ApplicationRealtimeOutboxItem> ApplicationRealtimeOutbox => Set<ApplicationRealtimeOutboxItem>();
     public DbSet<MemoryCaptureOutboxItem> MemoryCaptureOutbox => Set<MemoryCaptureOutboxItem>();
+    public DbSet<MemoryEpisodeEnrichmentJob> MemoryEpisodeEnrichmentJobs => Set<MemoryEpisodeEnrichmentJob>();
+    public DbSet<MemoryEpisodeExtractionReceipt> MemoryEpisodeExtractionReceipts => Set<MemoryEpisodeExtractionReceipt>();
+    public DbSet<MemoryEpisodeRetryReceipt> MemoryEpisodeRetryReceipts => Set<MemoryEpisodeRetryReceipt>();
+    public DbSet<MemoryEpisodeReextractionReceipt> MemoryEpisodeReextractionReceipts => Set<MemoryEpisodeReextractionReceipt>();
     public DbSet<MemoryExtractionInputReceipt> MemoryExtractionInputReceipts => Set<MemoryExtractionInputReceipt>();
     public DbSet<MemoryTransferReceipt> MemoryTransferReceipts => Set<MemoryTransferReceipt>();
     public DbSet<MemoryReviewReceipt> MemoryReviewReceipts => Set<MemoryReviewReceipt>();
@@ -309,6 +313,16 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     private void EnforceAppendOnlyAuditLedger()
     {
         ChangeTracker.DetectChanges();
+        if (ChangeTracker.Entries<MemoryEpisodeEnrichmentJob>().Any(x => x.State == EntityState.Modified &&
+            new[] { nameof(MemoryEpisodeEnrichmentJob.OrganizationId), nameof(MemoryEpisodeEnrichmentJob.EmployeeId),
+                nameof(MemoryEpisodeEnrichmentJob.InstallationId), nameof(MemoryEpisodeEnrichmentJob.ReviewerApplicationUserId),
+                nameof(MemoryEpisodeEnrichmentJob.EpisodeId), nameof(MemoryEpisodeEnrichmentJob.SourceJson), nameof(MemoryEpisodeEnrichmentJob.SourceHash),
+                nameof(MemoryEpisodeEnrichmentJob.InputGeneration), nameof(MemoryEpisodeEnrichmentJob.PreviousJobId) }
+                .Any(name => x.Property(name).IsModified)))
+            throw new InvalidOperationException("Accepted episode input is immutable.");
+        if (ChangeTracker.Entries<MemoryEpisodeExtractionReceipt>().Any(x => x.State == EntityState.Modified ||
+            x.State == EntityState.Deleted && !ChangeTracker.Entries<MemoryEpisodeEnrichmentJob>().Any(j => j.Entity.Id == x.Entity.JobId && j.State == EntityState.Deleted)))
+            throw new InvalidOperationException("Episode extraction receipts are immutable for the lifetime of their job.");
         if (ChangeTracker.Entries<ChatTurn>().Any(x => x.State == EntityState.Added && x.Entity.MemoryErasedAt != null ||
             x.State == EntityState.Modified && (x.Property(p => p.MemoryErasedAt).IsModified || x.Property(p => p.MemoryErasedAt).OriginalValue != null)))
             throw new InvalidOperationException("Erased chat diagnostics are immutable.");
@@ -328,7 +342,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
                x.Property(p => p.SourceType).IsModified || x.Property(p => p.SourceId).IsModified ||
                x.Property(p => p.OrganizationId).IsModified || x.Property(p => p.AgentInstallationId).IsModified)))))
             throw new InvalidOperationException("Queued memory evidence and its work binding are immutable.");
-        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload or MemoryCaptureRetryReceipt or MemoryCaptureExclusion or MemorySourceInvalidation or MemoryReviewReceipt or MemoryTransferReceipt or MemoryErasureReceipt &&
+        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload or MemoryCaptureRetryReceipt or MemoryEpisodeRetryReceipt or MemoryEpisodeReextractionReceipt or MemoryCaptureExclusion or MemorySourceInvalidation or MemoryReviewReceipt or MemoryTransferReceipt or MemoryErasureReceipt &&
             x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Security audit ledger records are append-only.");
         if (ChangeTracker.Entries<AgentMemoryReadReceipt>().Any(x => x.State == EntityState.Modified ||

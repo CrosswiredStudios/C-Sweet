@@ -19,10 +19,10 @@ public sealed partial class AgentMemoryReviewService : IAgentMemorySuppressionSe
         var actor = await MemoryManagerAuthorization.RequireAsync(db, organizationId, employeeId, applicationUserId, true, cancellationToken);
         await AcquireSuppressionBarrierAsync(cancellationToken);
         var source = await LockLegacyEpisodeAsync(episodeId, cancellationToken);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, source.Episode.Partition, cancellationToken);
+        var audienceHash = await RequireSourceOperatorAudienceAsync(organizationId, employeeId, actor, source.Episode, cancellationToken);
         var revision = await RevisionAsync(source.Episode.Partition, episodeId, cancellationToken, MemoryRecordKind.Episode);
         await transaction.CommitAsync(cancellationToken);
-        return new(episodeId, revision, Hash(new { revision, source.Payload }), source.Episode.Content,
+        return new(episodeId, revision, SourceOperatorToken(Hash(new { revision, source.Payload }), audienceHash), source.Episode.Content,
             source.Episode.IsSuppressed, source.Episode.LegalHold);
     }
 
@@ -41,7 +41,7 @@ public sealed partial class AgentMemoryReviewService : IAgentMemorySuppressionSe
             await AcquireSuppressionBarrierAsync(cancellationToken);
             var source = await LockLegacyEpisodeAsync(episodeId, cancellationToken);
             var episode = source.Episode;
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, episode.Partition, cancellationToken);
+            var audienceHash = await RequireSourceOperatorAudienceAsync(organizationId, employeeId, actor, episode, cancellationToken);
             var hash = Hash(new { organizationId, employeeId, episodeId, applicationUserId, actor, request });
             var receipt = await db.MemoryReviewReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.OrganizationId == organizationId && x.OperationId == request.OperationId, cancellationToken);
@@ -51,7 +51,8 @@ public sealed partial class AgentMemoryReviewService : IAgentMemorySuppressionSe
                 return SuppressionResponse(receipt, true);
             }
             var revision = await RevisionAsync(episode.Partition, episodeId, cancellationToken, MemoryRecordKind.Episode);
-            if (episode.IsSuppressed || revision != request.ExpectedRevision || Hash(new { revision, source.Payload }) != request.EvidenceToken) throw Changed();
+            if (episode.IsSuppressed || revision != request.ExpectedRevision ||
+                SourceOperatorToken(Hash(new { revision, source.Payload }), audienceHash) != request.EvidenceToken) throw Changed();
             await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
             await store.SuppressEpisodeAsync(episode.Partition, episodeId, cancellationToken);
             receipt = new MemoryReviewReceipt { Id = Guid.NewGuid(), OrganizationId = organizationId, EmployeeId = employeeId,

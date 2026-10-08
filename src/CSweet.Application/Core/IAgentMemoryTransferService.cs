@@ -4,6 +4,8 @@ namespace CSweet.Application.Core;
 
 public interface IAgentMemoryTransferService
 {
+    Task<IReadOnlyList<MemoryTransferAudience>> ListAudiencesAsync(Guid organizationId, Guid employeeId, Guid targetEmployeeId,
+        Guid applicationUserId, CancellationToken token = default);
     Task<MemoryTransferResult> PrepareAsync(Guid organizationId, Guid employeeId, Guid applicationUserId,
         PrepareMemoryTransferRequest request, CancellationToken token = default);
     Task<MemoryTransferResponse> GetAsync(Guid organizationId, Guid employeeId, Guid packageId, Guid applicationUserId,

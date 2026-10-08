@@ -33,6 +33,34 @@ public sealed partial class AgentMemoryServiceTests
     }
 
     [MemoryPostgresFact]
+    public async Task QueuedRecallResetRecordsTheSpecificNonChatConsumerValidation()
+    {
+        await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
+        var turn = await SeedRecallTurnAsync(fixture);
+        var (session, initial) = await SeedBrokerReadLeaseAsync(fixture);
+        await using var db = fixture.Context();
+        await db.Database.OpenConnectionAsync();
+        await db.AgentWorkItems.Where(x => x.Id == initial.Id).ExecuteDeleteAsync();
+        var (inbox, work) = await QueueRecallAsync(fixture, db, turn, includeMemory: false);
+        Assert.NotNull(await inbox.ClaimAsync(DeliverySession(session), default));
+        var receipt = Assert.Single(await db.AgentMemoryReadReceipts.ToListAsync());
+        await db.AgentWorkItems.Where(x => x.Id == work.Id).ExecuteDeleteAsync();
+        await db.ChatTurns.Where(x => x.Id == turn.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, ChatTurnStatus.Completed));
+        var next = await inbox.EnqueueAsync(session.BusinessId, fixture.InstallationId, AgentWorkKind.Event,
+            "coordination-turn", JsonSerializer.SerializeToElement(new { }), "coordination-after-chat",
+            DateTimeOffset.UtcNow.AddMinutes(10), sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
+        Assert.NotNull(await inbox.ClaimAsync(DeliverySession(session), default));
+        await using var fresh = fixture.Context();
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new PlatformMemoryReadEvidence(fresh).AuthorizeDispatchAsync(session, next.Id, default));
+        var diagnostic = Assert.Single(await fresh.AgentRuntimeEvents.ToListAsync()).Reason;
+        Assert.Contains("validation=queued-recall.consumer-kind", diagnostic);
+        Assert.Contains($"receipt={receipt.Id:D}", diagnostic);
+        Assert.Contains($"work={next.Id:D}", diagnostic);
+        Assert.DoesNotContain("Alice", diagnostic);
+    }
+
+    [MemoryPostgresFact]
     public async Task QueuedMemoryDeliveryRetainsEvidenceAfterWorkDeletionAndTurnCompletion()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);

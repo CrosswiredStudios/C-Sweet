@@ -26,6 +26,7 @@ public sealed class AgentMemoryRecoveryEndpointTests
     [InlineData("source", HttpStatusCode.Conflict)]
     [InlineData("missing", HttpStatusCode.NotFound)]
     [InlineData("invalid", HttpStatusCode.BadRequest)]
+    [InlineData("unavailable", HttpStatusCode.ServiceUnavailable)]
     public async Task RetryUsesAuthenticatedActorAndMapsRecoveryOutcomes(string scenario, HttpStatusCode expected)
     {
         var user = Guid.NewGuid();
@@ -104,6 +105,7 @@ public sealed class AgentMemoryRecoveryEndpointTests
             Request = request;
             switch (scenario)
             {
+                case "unavailable": throw new NotSupportedException();
                 case "forbidden": throw new UnauthorizedAccessException("private-memory");
                 case "stale": throw new DbUpdateConcurrencyException("private-memory");
                 case "source": throw new InvalidOperationException("private-memory");

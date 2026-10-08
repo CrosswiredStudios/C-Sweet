@@ -41,6 +41,50 @@ internal static class CoreConfigurations
         modelBuilder.Entity<ChatTurnTraceEvent>(ConfigureChatTurnTraceEvent);
         modelBuilder.Entity<ExecutiveDecision>(ConfigureExecutiveDecision);
         modelBuilder.Entity<MemoryCaptureOutboxItem>(ConfigureMemoryCaptureOutbox);
+        modelBuilder.Entity<MemoryEpisodeEnrichmentJob>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceJson).IsRequired();
+            entity.Property(x => x.SourceHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsConcurrencyToken();
+            entity.Property(x => x.LeaseToken).IsConcurrencyToken();
+            entity.Property(x => x.RetryGeneration).IsConcurrencyToken();
+            entity.Property(x => x.AcceptedExtractionJson).HasColumnType("jsonb");
+            entity.Property(x => x.LastError).HasMaxLength(80);
+            entity.Property(x => x.SupersededAt).IsConcurrencyToken();
+            entity.HasIndex(x => x.EpisodeId).IsUnique().HasFilter("\"SupersededAt\" IS NULL");
+            entity.HasIndex(x => new { x.EpisodeId, x.InputGeneration }).IsUnique();
+            entity.HasIndex(x => x.PreviousJobId).IsUnique().HasFilter("\"PreviousJobId\" IS NOT NULL");
+            entity.HasIndex(x => new { x.Status, x.NextAttemptAt });
+            entity.HasIndex(x => new { x.OrganizationId, x.LastAttemptAt });
+        });
+        modelBuilder.Entity<MemoryEpisodeExtractionReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.JobId, x.LeaseToken }).IsUnique();
+            entity.HasOne<MemoryEpisodeEnrichmentJob>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<MemoryEpisodeRetryReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.JobId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => new { x.JobId, x.RetryGeneration }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.CreatedAt });
+        });
+        modelBuilder.Entity<MemoryEpisodeReextractionReceipt>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PreviousJobHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.SourceHash).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.PreviousAcceptedHash).HasMaxLength(64);
+            entity.HasIndex(x => new { x.OrganizationId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => x.PreviousJobId).IsUnique();
+            entity.HasIndex(x => x.JobId).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.EpisodeId, x.InputGeneration }).IsUnique();
+        });
         modelBuilder.Entity<MemoryExtractionInputReceipt>(entity =>
         {
             entity.HasKey(x => x.Id);

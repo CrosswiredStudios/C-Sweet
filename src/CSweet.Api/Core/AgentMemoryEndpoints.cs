@@ -15,6 +15,8 @@ public static class AgentMemoryEndpoints
         group.MapMemoryProcedureReviewRoutes();
         group.MapMemoryCoreReviewRoutes();
         group.MapMemoryLegacyReviewRoutes();
+        group.MapMemoryIngestionRecoveryRoutes();
+        group.MapMemoryReextractionRoutes();
         group.MapMemorySuppressionRoutes();
         group.MapMemoryHoldRoutes();
         group.MapMemoryErasureImpactRoutes();
@@ -93,6 +95,7 @@ public static class AgentMemoryEndpoints
             catch (KeyNotFoundException) { return Results.NotFound(); }
             catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "memory_job_changed" }); }
             catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_memory_retry" }); }
+            catch (NotSupportedException) { return Results.StatusCode(StatusCodes.Status503ServiceUnavailable); }
             catch (InvalidOperationException) { return Results.Conflict(new { error = "memory_source_unavailable" }); }
         });
 
@@ -100,7 +103,7 @@ public static class AgentMemoryEndpoints
             IAgentMemoryService memory, IEmployeeHierarchyAccessService hierarchy, CancellationToken cancellationToken) =>
         {
             if (!await CanInspectAsync(organizationId, employeeId, principal, hierarchy, cancellationToken)) return Results.Forbid();
-            var summary = await memory.GetSummaryAsync(organizationId, employeeId, cancellationToken);
+            var summary = await memory.GetSummaryAsync(organizationId, employeeId, cancellationToken, principal.GetApplicationUserId());
             return summary is null ? Results.NotFound() : Results.Ok(summary);
         });
 
@@ -115,7 +118,7 @@ public static class AgentMemoryEndpoints
             var page = await memory.BrowseAsync(organizationId, employeeId,
                 new AgentMemoryQuery(kind ?? layer, search, userId, scope ?? @namespace, source, sensitivity,
                     state ?? confirmationState, from, to, cursor, limit ?? 50),
-                cancellationToken);
+                cancellationToken, principal.GetApplicationUserId());
             return page is null ? Results.NotFound() : Results.Ok(page);
         });
 
@@ -125,7 +128,7 @@ public static class AgentMemoryEndpoints
             CancellationToken cancellationToken) =>
         {
             if (!await CanInspectAsync(organizationId, employeeId, principal, hierarchy, cancellationToken)) return Results.Forbid();
-            var item = await memory.GetItemAsync(organizationId, employeeId, memoryId, cancellationToken);
+            var item = await memory.GetItemAsync(organizationId, employeeId, memoryId, cancellationToken, principal.GetApplicationUserId());
             return item is null ? Results.NotFound() : Results.Ok(item);
         });
 
@@ -135,7 +138,7 @@ public static class AgentMemoryEndpoints
             CancellationToken cancellationToken) =>
         {
             if (!await CanInspectAsync(organizationId, employeeId, principal, hierarchy, cancellationToken)) return Results.Forbid();
-            var graph = await memory.GetGraphAsync(organizationId, employeeId, search, userId, limit ?? 100, cancellationToken);
+            var graph = await memory.GetGraphAsync(organizationId, employeeId, search, userId, limit ?? 100, cancellationToken, principal.GetApplicationUserId());
             return graph is null ? Results.NotFound() : Results.Ok(graph);
         });
 

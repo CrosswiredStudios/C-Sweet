@@ -1,0 +1,130 @@
+@using CSweet.Contracts.Memory
+@using System.Net
+@inject HttpClient Http
+
+<MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Existing memory ingestion recovery">
+    <MudText Typo="Typo.h6">Recover existing memory processing</MudText>
+    <MudText Class="mb-2">Review older proposals and applied transfers that have no processing job. Queuing them keeps their original audience and classification; inferred claims still need review.</MudText>
+    <MudButton OnClick="RefreshAsync" Disabled="Locked">Find unprocessed episodes</MudButton>
+    @if (_candidates is not null)
+    {
+        @foreach (var candidate in _candidates.Items)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2" @key="candidate.EpisodeId">
+                <MudText>@(candidate.Source == "knowledge-transfer" ? "Applied transfer" : "Agent proposal") · @candidate.Audience · @candidate.OccurredAt.ToLocalTime().ToString("g")</MudText>
+                <MudButton OnClick="@(() => PreviewAsync(candidate.EpisodeId))" Disabled="Locked">Review processing</MudButton>
+            </MudStack>
+        }
+        @if (_candidates.Items.Count == 0) { <MudText>No unprocessed episodes found in your supported audiences.</MudText> }
+        @if (_candidates.NextCursor is not null) { <MudButton OnClick="LoadMoreAsync" Disabled="Locked">Load more episodes</MudButton> }
+    }
+    @if (_preview is not null)
+    {
+        <MudDivider Class="my-3" />
+        <MudText style="white-space:pre-wrap">@_preview.Content</MudText>
+        <MudText Typo="Typo.caption">@_preview.Source · @_preview.Audience · @_preview.Sensitivity</MudText>
+        @if (_preview.RequiredReconciliationPolicy is not null)
+        {
+            <MudAlert Severity="Severity.Info">This episode already has @_preview.ExistingRecords stored records. Recovery runs a new extraction, keeps those records unchanged, and adds only facts, relationships and procedure names outside their existing keys. It cannot reconstruct the missing original model output.</MudAlert>
+            <MudCheckBox T="bool" @bind-Value="_reconcileAcknowledged" Disabled="Locked" Label="Run a new extraction while preserving existing records" />
+        }
+        @if (_preview.CanQueue)
+        { <MudButton OnClick="QueueAsync" Disabled="@(Locked || _preview.RequiredReconciliationPolicy is not null && !_reconcileAcknowledged)" Color="Color.Primary">Queue reviewed episode</MudButton> }
+        else
+        { <MudAlert Severity="Severity.Warning">@( _preview.BlockedReason == "memory_ingestion_already_processed" ? "This episode already has processing or recovery history. Use the processing controls to inspect its current state." : "Current source evidence or access cannot be verified. Processing cannot be recovered through this review.")</MudAlert> }
+    }
+    @if (_pending is not null) { <MudButton OnClick="RetryAsync" Disabled="_busy">Check the same recovery request</MudButton> }
+    @if (_pendingUrl is not null && !_pendingUrl.StartsWith(BaseUrl + "/", StringComparison.Ordinal))
+    { <MudAlert Severity="Severity.Warning">A recovery for another employee awaits confirmation. Checking the request uses its original episode and employee.</MudAlert> }
+    @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+</MudPaper>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public EventCallback Recovered { get; set; }
+    private string BaseUrl => $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory";
+    private MemoryIngestionCandidatePage? _candidates;
+    private MemoryIngestionRecoveryPreview? _preview;
+    private RecoverMemoryIngestionRequest? _pending;
+    private string? _pendingUrl;
+    private bool _busy;
+    private bool _reconcileAcknowledged;
+    private bool Locked => _busy || _pending is not null;
+    private string? _message;
+    private (Guid Organization, Guid Employee) _scope;
+    protected override void OnParametersSet()
+    {
+        if (_scope == (OrganizationId, EmployeeId)) return;
+        _scope = (OrganizationId, EmployeeId);
+        _preview = null; _candidates = null; _message = null; _reconcileAcknowledged = false;
+        // Keep an uncertain mutation's exact request and original URL for safe recovery.
+    }
+    private Task RefreshAsync() => LoadAsync(null);
+    private Task LoadMoreAsync() => LoadAsync(_candidates?.NextCursor);
+
+    private async Task LoadAsync(string? cursor)
+    {
+        if (Locked) return;
+        var route = BaseUrl; _busy = true; _preview = null; _message = null; _reconcileAcknowledged = false;
+        if (cursor is null) _candidates = null;
+        try
+        {
+            var suffix = cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor);
+            using var response = await Http.GetAsync(route + "/ingestion/recovery?limit=20" + suffix);
+            if (route != BaseUrl) return;
+            if (!response.IsSuccessStatusCode) { _candidates = null; _message = "Recovery episodes could not be read. Check your permission and refresh."; return; }
+            var page = await response.Content.ReadFromJsonAsync<MemoryIngestionCandidatePage>();
+            if (route != BaseUrl) return;
+            if (page is not null) _candidates = cursor is null || _candidates is null ? page :
+                new(_candidates.Items.Concat(page.Items).DistinctBy(x => x.EpisodeId).ToList(), page.NextCursor);
+        }
+        catch (Exception error) when (NetworkError(error)) { _message = "Recovery episodes could not be loaded. Try again."; }
+        finally { _busy = false; }
+    }
+    private async Task PreviewAsync(Guid id)
+    {
+        if (Locked) return;
+        var route = BaseUrl; _busy = true; _preview = null; _message = null; _reconcileAcknowledged = false;
+        try
+        {
+            using var response = await Http.GetAsync(route + $"/episodes/{id}/ingestion-review");
+            if (route != BaseUrl) return;
+            if (!response.IsSuccessStatusCode) { _message = "This episode is unavailable for recovery or your permission changed."; return; }
+            var preview = await response.Content.ReadFromJsonAsync<MemoryIngestionRecoveryPreview>();
+            if (route == BaseUrl && preview?.EpisodeId == id) _preview = preview;
+        }
+        catch (Exception error) when (NetworkError(error)) { _message = "Review details could not be loaded. Try again."; }
+        finally { _busy = false; }
+    }
+    private async Task QueueAsync()
+    {
+        if (Locked || _preview is not { CanQueue: true } || _preview.RequiredReconciliationPolicy is not null && !_reconcileAcknowledged) return;
+        _pending = new(Guid.NewGuid(), _preview.Revision, _preview.EvidenceToken, _preview.RequiredReconciliationPolicy);
+        _pendingUrl = BaseUrl + $"/episodes/{_preview.EpisodeId}/ingestion-review";
+        await RetryAsync();
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || _pending is null || _pendingUrl is null) return;
+        _busy = true; _message = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(_pendingUrl, _pending);
+            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            { _pending = null; _pendingUrl = null; _preview = null; _candidates = null; _message = "Recovery was not accepted. Reload current evidence and access before deciding again."; return; }
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<RecoverMemoryIngestionResponse>() ?? throw new System.Text.Json.JsonException();
+            var belongsToCurrentEmployee = _pendingUrl.StartsWith(BaseUrl + "/", StringComparison.Ordinal);
+            _pending = null; _pendingUrl = null; _preview = null; _candidates = null;
+            _message = result.Status == "Completed" ? "This episode has already been processed." : result.Replayed
+                ? "This recovery was already recorded. Check the processing panel for its current state." : "Recovery recorded. Background processing will check the source again before extracting or applying results.";
+            if (belongsToCurrentEmployee) await Recovered.InvokeAsync();
+            else _message = "Recovery for the previous employee was recorded. Return to that employee's processing panel to inspect its current state.";
+        }
+        catch (Exception error) when (NetworkError(error))
+        { _message = "Recovery could not be confirmed. Check the same request without queuing another job."; }
+        finally { _busy = false; }
+    }
+    private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
+}

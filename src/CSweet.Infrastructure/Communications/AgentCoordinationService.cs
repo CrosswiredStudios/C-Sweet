@@ -545,7 +545,8 @@ public sealed class AgentCoordinationService(
         var sessions = await db.AgentCoordinationSessions.AsNoTracking()
             .Where(x => x.Status == DomainStatus.Failed && x.UpdatedAt <= cutoff &&
                 x.FinalSummary != null && (x.FinalSummary.Contains("retryable=true") ||
-                    x.FinalSummary.Contains("code=platform.capability.unavailable")))
+                    x.FinalSummary.Contains("code=platform.capability.unavailable") ||
+                    x.FinalSummary.Contains(Core.MemoryRuntimeResetRequiredException.SafeMessage)))
             .OrderBy(x => x.UpdatedAt).ToListAsync(cancellationToken);
         var recovered = 0;
         foreach (var session in sessions)
@@ -558,7 +559,34 @@ public sealed class AgentCoordinationService(
             if (failed is null || failed.Status != AgentWorkStatus.DeadLetter) continue;
             var attempts = deliveries.Where(x => x.CausationId == failed.CausationId).Sum(x => x.AttemptCount);
             if (attempts >= 12) continue;
-            if (IsUnavailableInference(failed.LastError))
+            if (failed.LastError == Core.MemoryRuntimeResetRequiredException.SafeMessage)
+            {
+                // A delivered turn may have mutated durable state. Resume the same speaker
+                // and transcript, never replay its lease or reuse the contaminated runtime.
+                if (attempts >= 3 || session.UpdatedAt.AddMinutes(Math.Pow(2, Math.Max(0, attempts - 1))) > now)
+                    continue;
+                var oldRuntime = await db.AgentWorkAttempts.AsNoTracking()
+                    .Where(x => x.AgentWorkItemId == failed.Id && x.Error == Core.MemoryRuntimeResetRequiredException.FailureCode)
+                    .OrderByDescending(x => x.Attempt).Select(x => x.RuntimeInstanceId).FirstOrDefaultAsync(cancellationToken);
+                if (!await db.AgentRuntimeInstances.AnyAsync(x => x.Id == oldRuntime &&
+                        x.AgentInstallationId == failed.AgentInstallationId && x.MemoryResetCompletedAt != null &&
+                        x.CompletedAt != null && (x.MemoryResetReasonCode == Core.MemoryRuntimeResetRequiredException.RetainedEvidence ||
+                            x.MemoryResetReasonCode == Core.MemoryRuntimeResetRequiredException.LegacyEvidence ||
+                            x.MemoryResetReasonCode == Core.MemoryRuntimeResetRequiredException.ReceiptCapacity), cancellationToken) ||
+                    await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == failed.AgentInstallationId &&
+                        x.MemoryResetRequestedAt != null && x.MemoryResetCompletedAt == null, cancellationToken) ||
+                    !await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == failed.AgentInstallationId &&
+                        x.Id != oldRuntime && x.Status == AgentRuntimeStatus.Running && x.MemoryResetRequestedAt == null &&
+                        x.MemoryReadEvidenceVersion == AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion &&
+                        (x.RuntimeDeadlineAt == null || x.RuntimeDeadlineAt > now), cancellationToken)) continue;
+                try
+                {
+                    await ResolveParticipantsAsync(session.OrganizationId, session.InitiatorOrganizationUserId,
+                        session.InitiatorInstallationId, session.TargetOrganizationUserId, cancellationToken);
+                }
+                catch (Exception error) when (error is UnauthorizedAccessException or InvalidOperationException) { continue; }
+            }
+            else if (IsUnavailableInference(failed.LastError))
             {
                 // Older SDKs label unavailable inference non-retryable. Reassess it as a
                 // bounded availability probe, without treating denied/invalid requests as transient.

@@ -17,6 +17,7 @@ public sealed class PlatformMemoryCapabilityHandler
     private readonly ILogger<PlatformMemoryCapabilityHandler> _logger;
     private readonly IAgentMemoryIdentityResolver? _identityResolver;
     private readonly IPlatformMemoryReadEvidence? _readEvidence;
+    private readonly IAgentMemoryIngestion? _ingestion;
 
     public PlatformMemoryCapabilityHandler(IMemoryStore store, ILogger<PlatformMemoryCapabilityHandler> logger)
         : this(store, logger, null)
@@ -27,7 +28,8 @@ public sealed class PlatformMemoryCapabilityHandler
         IMemoryStore store,
         ILogger<PlatformMemoryCapabilityHandler> logger,
         IAgentMemoryIdentityResolver? identityResolver,
-        IPlatformMemoryReadEvidence? readEvidence = null)
+        IPlatformMemoryReadEvidence? readEvidence = null,
+        IAgentMemoryIngestion? ingestion = null)
     {
         _store = store;
         _transfers = store as IKnowledgeTransferStore
@@ -35,6 +37,7 @@ public sealed class PlatformMemoryCapabilityHandler
         _logger = logger;
         _identityResolver = identityResolver;
         _readEvidence = readEvidence;
+        _ingestion = ingestion;
     }
 
     public static bool IsPlatformMemoryCapability(string capability) => capability is
@@ -135,7 +138,9 @@ public sealed class PlatformMemoryCapabilityHandler
             case "append-episode":
                 var episode = Read<MemoryEpisode>(command); await AuthorizeAsync(session, episode.Partition, PlatformMemoryAction.Propose, cancellationToken);
                 episode = PlatformMemoryWritePolicy.Episode(session, episode, DateTimeOffset.UtcNow);
-                return await _store.AppendEpisodeAsync(episode, cancellationToken);
+                return _ingestion is null ? await _store.AppendEpisodeAsync(episode, cancellationToken)
+                    : await _ingestion.AcceptProposalAsync(Guid.Parse(session.MemoryTenantId!), Guid.Parse(session.MemoryEmployeeId!),
+                        Guid.Parse(session.InstallationId), episode, cancellationToken);
             case "upsert-entity":
             case "write-block":
             case "write-edge":

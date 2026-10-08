@@ -11,7 +11,7 @@ internal static class PlatformMemoryWritePolicy
     internal static MemoryEpisode Episode(AgentSession session, MemoryEpisode episode, DateTimeOffset now)
     {
         ValidateId(episode.Id);
-        if (episode.TransferEvidence is not null) throw ReviewRequired();
+        if (episode.TransferEvidence is not null || episode.CorrectionEvidence is not null) throw ReviewRequired();
         ValidateSensitivity(episode.Sensitivity);
         ArgumentException.ThrowIfNullOrWhiteSpace(episode.Content);
         if (episode.ExpiresAt <= episode.OccurredAt) throw new ArgumentException("Invalid episode validity window.");

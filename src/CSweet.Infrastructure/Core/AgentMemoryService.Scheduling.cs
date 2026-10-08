@@ -23,6 +23,10 @@ public sealed partial class AgentMemoryService
                         WHERE job."Id"="MemoryEnrichmentProviderLeases"."JobId"
                             AND job."LeaseToken"="MemoryEnrichmentProviderLeases"."LeaseToken"
                             AND job."Status"='Processing' AND job."LeaseExpiresAt">{now})
+                       AND NOT EXISTS (SELECT 1 FROM "MemoryEpisodeEnrichmentJobs" job
+                        WHERE job."Id"="MemoryEnrichmentProviderLeases"."JobId"
+                            AND job."LeaseToken"="MemoryEnrichmentProviderLeases"."LeaseToken"
+                            AND job."Status"='Processing' AND job."LeaseExpiresAt">{now})
                 """, cancellationToken);
             if (acquired == 0) throw new MemoryProviderBusyException();
             return;

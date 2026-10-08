@@ -63,7 +63,7 @@ public sealed partial class MemoryRecallDispatchEvidence
             foreach (var package in packages)
                 foreach (var partition in partitions) references.Add(new(MemoryErasureKind.Transfer, package.Id, partition));
             if (references.Count > 4096) throw new JsonException();
-            var audiences = partitions.Concat(references.Select(x => x.Partition)).Distinct().ToArray();
+            var audiences = partitions.Concat(references.Select(x => x.Partition)).Concat(SharedAudienceClosure(records)).Distinct().ToArray();
             if (audiences.Length > 64) throw new JsonException();
             return new(references.ToArray(), audiences, binding, payloadHash, prompt);
         }

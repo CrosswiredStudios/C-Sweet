@@ -20,6 +20,9 @@ public sealed class AgentMemoryTransferEndpointTests
     [InlineData("prepare", "ok", HttpStatusCode.OK)]
     [InlineData("get", "ok", HttpStatusCode.OK)]
     [InlineData("list", "ok", HttpStatusCode.OK)]
+    [InlineData("audiences", "ok", HttpStatusCode.OK)]
+    [InlineData("audiences", "anonymous", HttpStatusCode.Unauthorized)]
+    [InlineData("audiences", "forbidden", HttpStatusCode.Forbidden)]
     [InlineData("transition", "ok", HttpStatusCode.OK)]
     [InlineData("transition", "anonymous", HttpStatusCode.Unauthorized)]
     [InlineData("transition", "unverified", HttpStatusCode.Unauthorized)]
@@ -57,6 +60,7 @@ public sealed class AgentMemoryTransferEndpointTests
                     SourceScope = "Employee", Items = Array.Empty<MemoryTransferSelection>(), Debrief = "reviewed", ApplicationUserId = Guid.NewGuid() }),
                 "get" => await client.GetAsync($"{root}/{package}"),
                 "list" => await client.GetAsync(root),
+                "audiences" => await client.GetAsync($"{root}/audiences?targetEmployeeId={Guid.NewGuid()}"),
                 _ => await client.PostAsJsonAsync($"{root}/{package}", new { OperationId = Guid.NewGuid(), ExpectedToken = new string('a', 64),
                     Action = "approve", ApplicationUserId = Guid.NewGuid() })
             };
@@ -71,6 +75,8 @@ public sealed class AgentMemoryTransferEndpointTests
     private sealed class TransferStub(string scenario) : IAgentMemoryTransferService
     {
         public int Calls { get; private set; }
+        public Task<IReadOnlyList<MemoryTransferAudience>> ListAudiencesAsync(Guid organizationId, Guid employeeId, Guid targetEmployeeId, Guid applicationUserId, CancellationToken token = default)
+        { Call(organizationId, employeeId, applicationUserId); return Task.FromResult<IReadOnlyList<MemoryTransferAudience>>([]); }
         public (Guid Organization, Guid Employee, Guid User) Actor { get; private set; }
         private void Call(Guid org, Guid employee, Guid user)
         {

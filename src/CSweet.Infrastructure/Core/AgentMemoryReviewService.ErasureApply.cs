@@ -13,7 +13,8 @@ namespace CSweet.Infrastructure.Core;
 public sealed partial class AgentMemoryReviewService
 {
     private sealed record PendingErasureRuntime(Guid Id, DateTimeOffset RequestedAt);
-    private sealed record ErasureReceiptInventory(MemoryPartition[] Audiences, PendingErasureRuntime[] PendingRuntimes, Guid[] TurnIds);
+    private sealed record ErasureReceiptInventory(MemoryPartition[] Audiences, PendingErasureRuntime[] PendingRuntimes, Guid[] TurnIds,
+        ErasureAudienceOwner[]? Owners = null);
 
     public async Task<MemoryErasureResponse> EraseSourceAsync(Guid organizationId, Guid employeeId, Guid episodeId,
         Guid applicationUserId, EraseMemorySourceRequest request, CancellationToken cancellationToken = default)
@@ -48,6 +49,7 @@ public sealed partial class AgentMemoryReviewService
                 .Where(x => AgentRuntimeInstance.IsActive(x.Status)).Select(x => x.Id).Order().ToArray();
             var now = clock.GetUtcNow();
             var captures = await capture.StageAsync(plan.Execution.Capture, now, cancellationToken);
+            var episodeJobs = await plan.Execution.Episodes.Owner.StageAsync(plan.Execution.Episodes,cancellationToken);
             var workResult = await work.StageAsync(plan.Execution.Work, cancellationToken);
             var pendingRuntimes = await db.AgentRuntimeInstances.AsNoTracking().Where(x => active.Contains(x.Id))
                 .OrderBy(x => x.Id).Select(x => new PendingErasureRuntime(x.Id, x.MemoryResetRequestedAt!.Value)).ToArrayAsync(cancellationToken);
@@ -75,8 +77,9 @@ public sealed partial class AgentMemoryReviewService
             receipt = new MemoryErasureReceipt { Id = Guid.NewGuid(), OrganizationId = organizationId, EmployeeId = employeeId,
                 EpisodeId = episodeId, OperationId = request.OperationId, ActorApplicationUserId = applicationUserId,
                 ActorOrganizationUserId = actor, RequestHash = hash, CreatedAt = now,
-                InventoryJson = JsonSerializer.Serialize(new ErasureReceiptInventory(plan.Audiences.ToArray(), pendingRuntimes, plan.Turns.Select(x => x.Id).ToArray()), JsonOptions),
-                ErasedRecords = erasedRecords, ErasedRevisions = erasedRevisions, ClearedJobs = captures.ClearedJobs,
+                InventoryJson = JsonSerializer.Serialize(new ErasureReceiptInventory(plan.Audiences.ToArray(), pendingRuntimes, plan.Turns.Select(x => x.Id).ToArray(),
+                    plan.Execution.Owners.ToArray()), JsonOptions),
+                ErasedRecords = erasedRecords, ErasedRevisions = erasedRevisions, ClearedJobs = captures.ClearedJobs+episodeJobs,
                 ClearedWorks = workResult.ClearedWorks, ClearedDiagnosticTurns = turns.Length };
             db.MemoryErasureReceipts.Add(receipt);
             db.QueueAudit(new AuditEventWriteRequest("memory.source.erased.v1", "Memory", OrganizationId: organizationId,
@@ -109,6 +112,8 @@ public sealed partial class AgentMemoryReviewService
         if (receipt.ActorApplicationUserId != user || receipt.ActorOrganizationUserId != actor) throw new UnauthorizedAccessException();
         var inventory = JsonSerializer.Deserialize<ErasureReceiptInventory>(receipt.InventoryJson, JsonOptions) ?? throw new InvalidOperationException("Invalid erasure receipt.");
         await AuthorizeErasureAudiencesAsync(receipt.OrganizationId, receipt.EmployeeId, user, actor, inventory.Audiences, token);
+        if (inventory.Owners is not null)
+            await AuthorizeErasureOwnersAsync(receipt.OrganizationId, user, actor, inventory.Owners, token);
         var runtimeIds = inventory.PendingRuntimes.Select(x => x.Id).ToArray();
         var current = await db.AgentRuntimeInstances.AsNoTracking().Where(x => runtimeIds.Contains(x.Id))
             .Select(x => new { x.Id, x.Status, x.MemoryResetCompletedAt }).ToArrayAsync(token);

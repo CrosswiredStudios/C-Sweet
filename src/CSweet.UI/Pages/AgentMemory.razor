@@ -62,9 +62,9 @@
                     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" @key="job.Id">
                         <div>
                             <MudText>@FailureLabel(job.FailureCode)</MudText>
-                            <MudText Typo="Typo.caption">@job.CreatedAt.ToLocalTime().ToString("g") · @job.Attempts attempts · @(job.HasAcceptedExtraction ? "Saved results available" : "Extraction needed")</MudText>
+                            <MudText Typo="Typo.caption">@(job.JobKind == "episode" ? "Episode" : "Conversation") · @job.CreatedAt.ToLocalTime().ToString("g") · @job.Attempts attempts · @(job.HasAcceptedExtraction ? "Saved results available" : "Extraction needed")</MudText>
                         </div>
-                        <MudButton Color="Color.Secondary" Variant="Variant.Outlined" Disabled="@(_recovering || job.FailureCode is "memory_enrichment_source_invalidated" or "memory_enrichment_unverifiable_output" or "memory_enrichment_input_receipt_capacity" or "memory_capture_excluded" or "memory_source_changed" or "memory_source_suppressed" or "memory_source_erased")"
+                        <MudButton Color="Color.Secondary" Variant="Variant.Outlined" Disabled="@(_recovering || job.FailureCode is "memory_enrichment_source_invalidated" or "memory_enrichment_unverifiable_output" or "memory_enrichment_input_receipt_capacity" or "memory_enrichment_authority_revoked" or "memory_transfer_source_unavailable" or "memory_capture_excluded" or "memory_source_changed" or "memory_source_suppressed" or "memory_source_erased")"
                                    OnClick="@(() => RetryAsync(job))" aria-label="Retry memory processing">Retry processing</MudButton>
                     </MudStack>
                 }
@@ -79,6 +79,8 @@
             }
         </MudPaper>
 
+        <MemoryIngestionRecoveryPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Recovered="RefreshRecoveryAsync" />
+        <MemoryReextractionPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Recovered="RefreshRecoveryAsync" />
         <MudPaper Elevation="1" Class="surface-panel memory-controls">
             <MemoryErasureStatusPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" />
             <MudTextField T="string" Label="Search memory" @bind-Value="_search" Variant="Variant.Outlined"
@@ -96,6 +98,8 @@
                 <MudSelectItem T="string" Value="@("Relationship")">Relationship</MudSelectItem>
                 <MudSelectItem T="string" Value="@("Employee")">Employee</MudSelectItem>
                 <MudSelectItem T="string" Value="@("Organization")">Organization</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Team")">Team</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Role")">Role</MudSelectItem>
             </MudSelect>
             <MudSelect T="string" Label="Source" @bind-Value="_source" Variant="Variant.Outlined">
                 <MudSelectItem T="string" Value="@string.Empty">All sources</MudSelectItem>
@@ -247,7 +251,7 @@
                 new RetryMemoryEnrichmentRequest(operationId, job.RetryGeneration));
             if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
             {
-                _recoveryNotice = "The job changed or its source is unavailable. Check that the employee and conversation participants are active, then refresh.";
+                _recoveryNotice = "The job changed or its source is unavailable. Check the employee, source access and processing configuration, then refresh.";
                 await RefreshRecoveryAsync();
                 return;
             }
@@ -277,6 +281,8 @@
         "memory_enrichment_timeout" => "Processing timed out",
         "memory_enrichment_attempts_exhausted" => "Processing reached its retry limit",
         "memory_enrichment_source_invalidated" => "The source changed or is unavailable. Retrying is disabled.",
+        "memory_enrichment_authority_revoked" => "The source no longer has permission to be processed. Retrying is disabled.",
+        "memory_transfer_source_unavailable" => "Transferred evidence is unavailable. Retrying is disabled.",
         "memory_enrichment_unverifiable_output" => "Saved results lack verifiable source evidence. Retrying is disabled.",
         "memory_enrichment_input_receipt_capacity" => "This extraction has reached its input-evidence limit. An operator must review its history before further processing.",
         "memory_capture_excluded" => "This source is excluded from memory processing. Retrying is disabled.",
