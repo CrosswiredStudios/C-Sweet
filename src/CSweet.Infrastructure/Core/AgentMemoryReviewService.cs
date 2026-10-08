@@ -38,7 +38,7 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
         return new(claim.Id, evidence.Revision, evidence.Token,
             $"{evidence.Subject.CanonicalName} {claim.Predicate} {claim.Value ?? evidence.Object?.CanonicalName}",
             claim.Confirmation.ToString(), evidence.Sensitivity.ToString(), evidence.Valid,
-            sharedHash is null && evidence.Valid && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes, claim.ValidFrom <= clock.GetUtcNow() &&
+            evidence.Valid && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes, claim.ValidFrom <= clock.GetUtcNow() &&
                 (claim.ValidTo is null || claim.ValidTo > clock.GetUtcNow()), evidence.SourceIds, claim.ObjectEntityId is not null);
     }
 
@@ -73,6 +73,14 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
             if (receipt is not null)
             {
                 if (receipt.RecordKind != "Claim" || receipt.RequestHash != hash) throw Changed();
+                // Same-operation replay reports a committed outcome only to a reviewer who still holds
+                // authority over every contributor, including a selected replacement entity.
+                if (receipt.Action == "correct" && request.ReplacementEntity is { } replayed)
+                {
+                    var replayedTarget = await ReadCorrectionTargetAsync(store, claim, replayed.EntityId, cancellationToken, requireCurrent: false)
+                        ?? throw new InvalidOperationException("memory_review_source_unavailable");
+                    await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, replayedTarget.Sources.Values, cancellationToken);
+                }
                 return Response(receipt, true);
             }
 
@@ -85,14 +93,18 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
             var resultId = claim.Id;
             if (request.Action == "correct")
             {
-                if (sharedHash is not null) throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
                 if ((claim.ObjectEntityId is not null) != (request.ReplacementEntity is not null))
                     throw new ArgumentException("A correction must preserve the claim's value type.");
                 var replacement = request.ReplacementEntity is { } selected
                     ? await ReadCorrectionTargetAsync(store, claim, selected.EntityId, cancellationToken) : null;
-                if (replacement is not null && await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor,
-                    replacement.Sources.Values, cancellationToken) is not null)
-                    throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
+                string? replacementShared = null;
+                if (replacement is not null)
+                {
+                    // Bind the replacement's current audience authority into its preview token, as for the claim.
+                    replacementShared = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor,
+                        replacement.Sources.Values, cancellationToken);
+                    replacement = replacement with { Token = SourceOperatorToken(replacement.Token, replacementShared) };
+                }
                 if (request.ReplacementEntity is { } expected && (replacement is null || replacement.Token != expected.EvidenceToken)) throw Changed();
                 // Retain original evidence, so correction cannot silently detach sensitivity or lifecycle restrictions.
                 var contributors = evidence.SourceIds.Concat(replacement?.Entity.SourceEpisodeIds ?? []).Distinct().Order().ToArray();
@@ -102,13 +114,16 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
                 var episodeId = Guid.NewGuid(); resultId = Guid.NewGuid();
                 var expiry = sources.Select(x => x.ExpiresAt).Append(claim.ValidTo).Where(x => x.HasValue).Min();
                 var content = replacement is null ? request.ReplacementValue! : $"{evidence.Subject.CanonicalName} {claim.Predicate} {replacement.Entity.CanonicalName}";
+                var ancestry = sharedHash is not null || replacementShared is not null
+                    ? await CaptureCorrectionAncestryAsync(store, claim.Partition, request.OperationId, sources, cancellationToken) : null;
                 var episode = new MemoryEpisode(episodeId, claim.Partition, InferScope(claim.Partition), content,
                     "text/plain", new("user", request.OperationId.ToString("D"), actor.ToString("D")),
                     Hash(content), now, now, ExpiresAt: expiry,
                     LegalHold: sources.Any(x => x.LegalHold), Sensitivity: sensitivity,
                     OperationalReferences: replacement is null ? [new("memory-claim", claim.Id.ToString("D"), evidence.Revision.ToString())]
                         : [new("memory-claim", claim.Id.ToString("D"), evidence.Revision.ToString()),
-                           new("memory-entity", replacement.Entity.Id.ToString("D"), replacement.Revision.ToString())]);
+                           new("memory-entity", replacement.Entity.Id.ToString("D"), replacement.Revision.ToString())])
+                    { CorrectionEvidence = ancestry };
                 await store.AppendEpisodeAsync(episode, cancellationToken);
                 await store.WriteClaimAsync(claim with { Id = resultId, EpisodeId = episodeId, Value = request.ReplacementValue,
                     Confirmation = MemoryConfirmationState.Confirmed, Trust = MemoryTrustTier.ConfirmedUser,

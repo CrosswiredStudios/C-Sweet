@@ -47,15 +47,20 @@ public sealed partial class AgentMemoryReviewService
         {
             var target = await ReadCorrectionTargetAsync(store, claim, id, cancellationToken);
             if (target is null || evidence.SourceIds.Concat(target.Entity.SourceEpisodeIds).Distinct().Count() > MemoryProvenance.MaximumSourceEpisodes) continue;
-            var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, target.Sources.Values, cancellationToken);
-            if (sharedHash is not null) continue; // corrections cannot create an unrestricted episode from shared evidence
-            results.Add(new(id, target.Entity.CanonicalName, target.Entity.Type, target.Sensitivity.ToString(), target.Token, target.Entity.SourceEpisodeIds));
+            string? sharedHash;
+            try { sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, target.Sources.Values, cancellationToken); }
+            catch (Exception error) when (error is UnauthorizedAccessException or InvalidOperationException) { continue; }
+            // Shared-derived targets are offered with their audience authority bound into the token;
+            // the correction then carries sealed ancestry instead of an unrestricted episode.
+            results.Add(new(id, target.Entity.CanonicalName, target.Entity.Type, target.Sensitivity.ToString(),
+                SourceOperatorToken(target.Token, sharedHash), target.Entity.SourceEpisodeIds));
         }
         await transaction.CommitAsync(cancellationToken);
         return results;
     }
 
-    private async Task<CorrectionTarget?> ReadCorrectionTargetAsync(PostgreSqlMemoryStore store, MemoryClaim claim, Guid id, CancellationToken token)
+    private async Task<CorrectionTarget?> ReadCorrectionTargetAsync(PostgreSqlMemoryStore store, MemoryClaim claim, Guid id, CancellationToken token,
+        bool requireCurrent = true)
     {
         if (id == claim.ObjectEntityId) return null;
         await using var command = Command("""
@@ -71,12 +76,29 @@ public sealed partial class AgentMemoryReviewService
         foreach (var sourceId in entity.SourceEpisodeIds.Distinct().Order())
         {
             var source = await store.GetEpisodeAsync(claim.Partition, sourceId, token);
-            if (!MemoryProvenance.IsCurrent(source, claim.Partition, sourceId, clock.GetUtcNow())) return null;
+            if (source is null || requireCurrent && !MemoryProvenance.IsCurrent(source, claim.Partition, sourceId, clock.GetUtcNow())) return null;
             sources.Add(sourceId, source!);
         }
         var sensitivity = MemoryProvenance.Maximum(sources.Values.Select(x => x.Sensitivity).Append(entity.Sensitivity).ToArray());
         var revision = await RevisionAsync(claim.Partition, id, token, MemoryRecordKind.Entity);
         // Bind the choice to this claim and the exact target revision plus current source policy/evidence.
         return new(entity, sources, sensitivity, revision, Hash(new { claimId = claim.Id, entity, revision, sources = sources.Values.ToArray() }));
+    }
+
+    // Shared-derived corrections carry sealed same-partition ancestry, so the new human-authored episode
+    // inherits every contributor's audience closure, classification and expiry. The capture runs inside the
+    // review transaction: ancestry, correction, receipt and audit commit together or not at all.
+    private static async Task<MemoryCorrectionEvidence> CaptureCorrectionAncestryAsync(PostgreSqlMemoryStore store,
+        MemoryPartition partition, Guid operationId, IEnumerable<MemoryEpisode> sources, CancellationToken token)
+    {
+        // A prior human correction is replaced by its own sealed contributors. It inherited exactly their
+        // audience, classification and expiry, so repeated corrections keep the same closure without
+        // growing the bounded ancestry depth with each review.
+        var ids = sources.SelectMany(x => x.CorrectionEvidence is { } prior && x.Source.Type == "user"
+                ? prior.Sources.Select(source => source.EpisodeId) : [x.Id])
+            .Distinct().Order().ToArray();
+        try { return await store.CaptureCorrectionEvidenceAsync(partition, operationId, ids, token); }
+        catch (Exception error) when (error is InvalidOperationException or ArgumentException)
+        { throw new InvalidOperationException("memory_shared_correction_lineage_unavailable", error); }
     }
 }

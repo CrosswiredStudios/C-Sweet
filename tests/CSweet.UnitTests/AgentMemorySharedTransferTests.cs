@@ -325,12 +325,11 @@ public sealed partial class AgentMemoryServiceTests
             { SourceEpisodeIds = [copy], Sensitivity = MemorySensitivity.Personal, Confirmation = MemoryConfirmationState.Pending };
         await fixture.Store.WriteBlockAsync(block);
         var review = new AgentMemoryReviewService(db, fixture.Store, TimeProvider.System);
-        var preview = await review.GetClaimAsync(fixture.OrganizationId, target, claim.Id, user); Assert.True(preview.CanConfirm); Assert.False(preview.CanCorrect);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => review.ReviewClaimAsync(fixture.OrganizationId, target, claim.Id, user,
-            new(Guid.NewGuid(), preview.Revision, preview.EvidenceToken, "correct", "new value")));
+        // Shared-derived corrections are enabled with sealed ancestry; see AgentMemorySharedCorrectionTests.
+        var preview = await review.GetClaimAsync(fixture.OrganizationId, target, claim.Id, user); Assert.True(preview.CanConfirm); Assert.True(preview.CanCorrect);
         var request = new ReviewMemoryClaimRequest(Guid.NewGuid(), preview.Revision, preview.EvidenceToken, "confirm");
         await review.ReviewClaimAsync(fixture.OrganizationId, target, claim.Id, user, request);
-        var core = await review.GetCoreAsync(fixture.OrganizationId, target, block.Id, user); Assert.False(core.CanCorrect);
+        var core = await review.GetCoreAsync(fixture.OrganizationId, target, block.Id, user); Assert.True(core.CanCorrect);
         Assert.NotEmpty((await review.ReadHistoryAsync(fixture.OrganizationId, target, "Claim", claim.Id, user)).Items);
         await RevokeOperatorAudienceAsync(fixture, db, audience, kind == "Team" ? "actor-ended" : "actor-role");
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => review.GetClaimAsync(fixture.OrganizationId, target, claim.Id, user));

@@ -32,7 +32,7 @@ public sealed partial class AgentMemoryReviewService
         var current = procedure.ValidFrom <= clock.GetUtcNow() && (procedure.ValidTo is null || procedure.ValidTo > clock.GetUtcNow());
         return new(procedure.Id, evidence.Revision, evidence.Token, procedure.Name, procedure.Procedure, procedure.Applicability, procedure.Version,
             procedure.Confirmation.ToString(), evidence.Sensitivity.ToString(), evidence.Valid,
-            sharedHash is null && evidence.Valid && procedure.Version < int.MaxValue && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes,
+            evidence.Valid && procedure.Version < int.MaxValue && evidence.SourceIds.Length <= MemoryProvenance.MaximumSourceEpisodes,
             current, evidence.SourceIds);
     }
 
@@ -76,8 +76,9 @@ public sealed partial class AgentMemoryReviewService
             var resultId = procedure.Id;
             if (request.Action == "correct")
             {
-                if (sharedHash is not null) throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
                 MemoryProvenance.ValidateSourceEpisodes(evidence.SourceIds);
+                var ancestry = sharedHash is null ? null
+                    : await CaptureCorrectionAncestryAsync(store, procedure.Partition, request.OperationId, evidence.Sources.Values, cancellationToken);
                 if (procedure.Version == int.MaxValue) throw new InvalidOperationException("memory_procedure_version_limit");
                 var replacement = request.Correction!;
                 var sourceId = Guid.NewGuid(); resultId = Guid.NewGuid();
@@ -86,7 +87,8 @@ public sealed partial class AgentMemoryReviewService
                 await store.AppendEpisodeAsync(new(sourceId, procedure.Partition, InferScope(procedure.Partition), content, "text/plain",
                     new("user", request.OperationId.ToString("D"), actor.ToString("D")), Hash(content), now, now,
                     ExpiresAt: expiry, LegalHold: evidence.Sources.Values.Any(x => x.LegalHold), Sensitivity: evidence.Sensitivity,
-                    OperationalReferences: [new("memory-procedure", procedure.Id.ToString("D"), evidence.Revision.ToString())]), cancellationToken);
+                    OperationalReferences: [new("memory-procedure", procedure.Id.ToString("D"), evidence.Revision.ToString())])
+                    { CorrectionEvidence = ancestry }, cancellationToken);
                 await store.WriteProcedureAsync(procedure with { Id = resultId, EpisodeId = sourceId, Name = replacement.Name,
                     Procedure = replacement.Procedure, Applicability = replacement.Applicability, Version = procedure.Version + 1,
                     Trust = MemoryTrustTier.ConfirmedUser, Confirmation = MemoryConfirmationState.Confirmed, ValidFrom = now,

@@ -89,7 +89,10 @@ before a stream failure, and every forwarded chunk is persisted first.
   evidence, or reached its receipt limit. `AgentMemoryRuntimeReset.RequestAsync` fences sessions and
   attempts; `AgentWorkInbox.SettleMemoryResetAsync` records a nonretryable result for delivered work.
   Review possible side effects before submitting a new request. Pending work waits for a fresh
-  runtime after `AgentRuntimeManager` confirms shutdown. Unknown fleet attempts keep recovery
+  runtime after `AgentRuntimeManager` confirms shutdown. When the incompatibility is detected at
+  claim time (`AgentWorkInbox.ClaimAsync` → `MemoryRecallDispatchEvidence.RequireRetainedConsumerAsync`),
+  the work is never delivered: the runtime event reason records `validation=claim.*` and the item
+  stays Pending for the replacement runtime instead of failing. Unknown fleet attempts keep recovery
   blocked; a cancelled assignment alone is not proof that its workload stopped.
 - For `memory.recall_stale`, retry as a new turn to prepare current recall. `AgentWorkInbox.ClaimCoreAsync`
   atomically dead-letters the stale work with a protected, content-free failure result and releases no

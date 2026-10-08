@@ -611,13 +611,14 @@ public sealed class AgentCoordinationServiceTests
     [Theory]
     [InlineData("ready", true)]
     [InlineData("stopping", false)]
-    [InlineData("no-replacement", false)]
+    [InlineData("no-replacement", true)]
     [InlineData("replacement-reset", false)]
+    [InlineData("replacement-legacy", false)]
     [InlineData("erased", false)]
     [InlineData("exhausted", false)]
     [InlineData("no-attempt", false)]
     [InlineData("revoked", false)]
-    public async Task MemoryRecoveryRequiresConfirmedReplacementAndPreservesQuestions(string scenario, bool recover)
+    public async Task MemoryRecoveryRequiresTerminatedContaminatedRuntimeAndPreservesQuestions(string scenario, bool recover)
     {
         await using var fixture = await Fixture.CreateAsync();
         var now = DateTimeOffset.UtcNow;
@@ -661,7 +662,8 @@ public sealed class AgentCoordinationServiceTests
         {
             var replacement = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
                 AgentInstallationId = fixture.InitiatorInstallationId, QueuedAt = now.AddMinutes(-9),
-                MemoryResetRequestedAt = scenario == "replacement-reset" ? now : null };
+                MemoryResetRequestedAt = scenario == "replacement-reset" ? now : null,
+                MemoryReadEvidenceVersion = scenario == "replacement-legacy" ? 2 : AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion };
             replacement.TransitionTo(AgentRuntimeStatus.Starting, now.AddMinutes(-9));
             replacement.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, now.AddMinutes(-8));
             replacement.TransitionTo(AgentRuntimeStatus.Running, now.AddMinutes(-8));

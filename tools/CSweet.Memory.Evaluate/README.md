@@ -9,12 +9,12 @@ provides regression evidence, not a blind quality estimate. Preserve its questio
 answers for before/after comparison; use a fresh independent set for future quality acceptance.
 
 Build this standalone tool against the same memory packages that the application is testing.
-For the current unpublished 0.3.0 feed, from the C-Sweet repository:
+For the current 0.3.1 feed, from the C-Sweet repository:
 
 ```powershell
 dotnet restore tools/CSweet.Memory.Evaluate/CSweet.Memory.Evaluate.csproj --configfile tools/CSweet.Memory.Evaluate/NuGet.local.config
 dotnet build tools/CSweet.Memory.Evaluate/CSweet.Memory.Evaluate.csproj -c Release --no-restore
-dotnet tools/CSweet.Memory.Evaluate/bin/Release/net10.0/CSweet.Memory.Evaluate.dll sqlite artifacts/memory-retrieval-evaluation/0.3.0 1000 5
+dotnet tools/CSweet.Memory.Evaluate/bin/Release/net10.0/CSweet.Memory.Evaluate.dll sqlite artifacts/memory-retrieval-evaluation/0.3.1 1000 5
 ```
 
 `NuGet.local.config` explicitly selects the draft feed and nuget.org. Build/pack Memory first;

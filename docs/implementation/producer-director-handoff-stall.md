@@ -4,7 +4,7 @@ Last updated: **2026-10-08 PDT**. The two incidents below have different causes.
 
 ## October 7: memory reset followed by missing failed-session recovery
 
-**Status: open; source diagnosis completed, no recovery fix or live acceptance performed.** The user reports Gabriel sent five production-brief scope questions on October 7 at 6:24 p.m. PDT (October 8 at 01:24 UTC). Naomi's reply ended with `memory.retained_evidence_invalid`, the platform replaced her runtime, and the collaboration became Failed. Agents continue scheduled reviews, but the exact production brief remains unaccepted.
+**Status: fixed in source and locally verified (2026-10-08); live acceptance pending.** See [Memory-reset handoff recovery](#memory-reset-handoff-recovery-2026-10-08) below. The paragraphs in this section describe the original diagnosis. The user reports Gabriel sent five production-brief scope questions on October 7 at 6:24 p.m. PDT (October 8 at 01:24 UTC). Naomi's reply ended with `memory.retained_evidence_invalid`, the platform replaced her runtime, and the collaboration became Failed. Agents continue scheduled reviews, but the exact production brief remains unaccepted.
 
 `CreativeDirectorNextStep.Describe` (`NextStepReporting.cs`) reports “the Producer and I converge on the shared production brief” whenever `HandoffSessionId` exists. The project setup branch in `VideoGameCreativeDirectorAgent` creates a handoff only when that ID is null; it does not inspect Failed there. `VideoGameCreativeDirectorAgent.FindProducerKickoffsAsync` (`ProducerKickoff.cs`) likewise skips states with an existing ID. These paths can leave a failed session represented as ordinary waiting work, so successful scheduled reviews do not recover it or enter the exception-based stall escalation.
 
@@ -32,8 +32,11 @@ reviews reported convergence because `HandoffSessionId` was populated.
 - `AgentCoordinationService.RecoverTransientFailuresAsync` recovers eligible memory-reset
   delivery failures after a one/two-minute cooldown, with at most three total execution attempts
   for the unanswered logical turn. It requires the failed attempt's runtime to have confirmed
-  reset completion and termination, a running replacement with current evidence format and no
-  pending reset, active participants/installations and current coordination grants. Erasure resets
+  reset completion and termination, no pending reset, and that any active runtime for the
+  installation is a different runtime with the current evidence format, plus active
+  participants/installations and current coordination grants. A Running replacement is not
+  required: on-demand installations start a runtime only once work is pending, so requiring one
+  would leave the session Failed indefinitely. The resumed turn is claimed by a fresh runtime. Erasure resets
   remain outside automatic recovery. `ResumeAsync` preserves the session, transcript, artifact
   revisions and unanswered speaker, and creates a new revision-bound delivery rather than replaying
   the old lease. Exhausted/ineligible failures remain Failed and enter the Director escalation path.
@@ -43,13 +46,53 @@ reviews reported convergence because `HandoffSessionId` was populated.
   consumer-kind/audience failures. `AgentMemoryRuntimeReset` saves this diagnostic atomically
   with runtime/session fencing. No source content or raw exception message is copied.
 
+- Root-cause prevention: `AgentWorkInbox.ClaimAsync` now calls
+  `MemoryRecallDispatchEvidence.RequireRetainedConsumerAsync` before leasing any work to a runtime
+  that retains memory read receipts. Retained queued-chat context, relationship-private broker
+  reads and shared-audience reads are checked against the candidate work's audience
+  (`AuthorizeRetainedDeliveryAsync`, `RequireRelationshipConsumerAsync`,
+  `AuthorizeChatReadSharedAudienceAsync`). If the candidate may not receive that context — for
+  example a coordination turn, or another human's chat, after a private chat recall — the runtime
+  reset is staged with a `validation=claim.*` diagnostic and the work stays **Pending and
+  undelivered**. A fresh runtime then claims it, so the collaboration does not fail at all.
+  Dispatch authorization remains the final check; the claim-time check only avoids delivering
+  doomed work. This matches the most likely trigger of the October 7 incident (Naomi answered a
+  private chat with recalled context, then received the coordination turn on the same runtime);
+  the exact branch of that historical reset cannot be reconstructed.
+
+### Confirming the October 7 trigger (content-free)
+
+Run on the affected database (read-only). These select identifiers, states and server codes only; they never read turn content or memory payloads.
+
+```sql
+-- 1. The failed production-brief session(s) around 2026-10-08 01:24 UTC.
+SELECT "Id", "Status", "Revision", "UpdatedAt", "InitiatorOrganizationUserId", "TargetOrganizationUserId"
+FROM "AgentCoordinationSessions"
+WHERE "Status" = 'Failed' AND "UpdatedAt" BETWEEN '2026-10-08 00:30Z' AND '2026-10-08 04:00Z'
+  AND "FinalSummary" LIKE 'The agent''s memory context changed%';
+
+-- 2. The failed delivery and the runtime that received it (replace :session).
+SELECT w."Id" AS work_id, w."Status", w."AttemptCount", a."Attempt", a."RuntimeInstanceId", a."Error", a."ClaimedAt", a."FinishedAt"
+FROM "AgentWorkItems" w JOIN "AgentWorkAttempts" a ON a."AgentWorkItemId" = w."Id"
+WHERE w."SourceType" = 'agent-coordination' AND w."CorrelationId" = ':session' ORDER BY a."ClaimedAt";
+
+-- 3. That runtime's reset and the earlier work whose memory it still held (replace :runtime).
+SELECT "MemoryResetReasonCode", "MemoryResetRequestedAt", "MemoryResetCompletedAt", "Status" FROM "AgentRuntimeInstances" WHERE "Id" = ':runtime';
+SELECT r."Capability", r."WorkId", w."SourceType", r."CreatedAt"
+FROM "AgentMemoryReadReceipts" r LEFT JOIN "AgentWorkItems" w ON w."Id" = r."WorkId"
+WHERE r."RuntimeId" = ':runtime' ORDER BY r."CreatedAt";
+```
+
+A receipt with capability `platform.memory.queued-recall.v1` (or a relationship-partition broker read) from a `chat-turn` work item that precedes the coordination delivery confirms the expected audience invalidation: private chat context was still held when the coordination turn arrived. With this change that delivery would have been held back and claimed by a fresh runtime. Resets recorded after this change also carry `validation=...` in `AgentRuntimeEvents."Reason"`.
+
 Communications **Retry collaboration** remains an explicit recovery option for authorized managers
 after reviewing the failed turn. It resumes the existing transcript and is separate from automatic
 review recovery. New diagnostics cannot reconstruct the precise validation branch of an old reset.
 
-Regression coverage: `HandoffReviewTests`, `AgentCoordinationServiceTests.MemoryRecoveryRequiresConfirmedReplacementAndPreservesQuestions`,
-`MemoryResetDistinguishesUnavailableEvidenceFromChangedRetainedEvidence`, and
-`QueuedRecallResetRecordsTheSpecificNonChatConsumerValidation`.
+Regression coverage: `HandoffReviewTests`, `AgentCoordinationServiceTests.MemoryRecoveryRequiresTerminatedContaminatedRuntimeAndPreservesQuestions`
+(including no active runtime and a legacy-format replacement), `MemoryResetDistinguishesUnavailableEvidenceFromChangedRetainedEvidence`,
+`QueuedRecallResetRecordsTheSpecificNonChatConsumerValidation` (coordination turn stays pending) and
+`QueuedMemoryDeliveryCannotReusePreviousRecipientContextForAnotherHuman` (another human's chat stays pending).
 
 ## Evidence
 

@@ -162,14 +162,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
                     {
                         validation = "read.relationship-consumer";
                         var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == current.WorkId, token);
-                        if (work.SourceType == "chat-turn")
-                        {
-                            if (!Guid.TryParse(work.SourceId, out var turnId) || !Guid.TryParse(user, out var human) ||
-                                !await db.ChatTurns.AsNoTracking().AnyAsync(x => x.Id == turnId && x.TargetAgentOrganizationUserId == current.EmployeeId &&
-                                    x.Conversation!.Kind == ConversationKind.DirectHumanAgent && x.Conversation.InitiatedByOrganizationUserId == human &&
-                                    (x.UserMessage!.SenderOrganizationUserId ?? x.Conversation.InitiatedByOrganizationUserId) == human, token)) throw Denied();
-                        }
-                        else if (current.WorkId != receipt.WorkId) throw Denied();
+                        await validator.RequireRelationshipConsumerAsync(work, current.EmployeeId, receipt.WorkId, user, token);
                     }
                 }
                 validation = "read.authority-changed";

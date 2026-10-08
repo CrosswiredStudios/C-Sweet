@@ -49,12 +49,19 @@ public sealed partial class AgentMemoryServiceTests
         var next = await inbox.EnqueueAsync(session.BusinessId, fixture.InstallationId, AgentWorkKind.Event,
             "coordination-turn", JsonSerializer.SerializeToElement(new { }), "coordination-after-chat",
             DateTimeOffset.UtcNow.AddMinutes(10), sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
-        Assert.NotNull(await inbox.ClaimAsync(DeliverySession(session), default));
+        // Private chat context must not reach agent coordination. The runtime is rotated before the
+        // coordination turn is delivered, so the turn stays pending for a fresh runtime instead of failing.
+        Assert.Null(await inbox.ClaimAsync(DeliverySession(session), default));
         await using var fresh = fixture.Context();
-        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
-            new PlatformMemoryReadEvidence(fresh).AuthorizeDispatchAsync(session, next.Id, default));
+        var pending = await fresh.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == next.Id);
+        Assert.Equal(AgentWorkStatus.Pending, pending.Status);
+        Assert.Equal(0, pending.AttemptCount);
+        Assert.Empty(await fresh.AgentWorkAttempts.Where(x => x.AgentWorkItemId == next.Id).ToListAsync());
+        var runtimeId = Guid.Parse(session.RuntimeInstanceId);
+        Assert.Equal(MemoryRuntimeResetRequiredException.RetainedEvidence,
+            (await fresh.AgentRuntimeInstances.SingleAsync(x => x.Id == runtimeId)).MemoryResetReasonCode);
         var diagnostic = Assert.Single(await fresh.AgentRuntimeEvents.ToListAsync()).Reason;
-        Assert.Contains("validation=queued-recall.consumer-kind", diagnostic);
+        Assert.Contains("validation=claim.queued-recall.consumer-kind", diagnostic);
         Assert.Contains($"receipt={receipt.Id:D}", diagnostic);
         Assert.Contains($"work={next.Id:D}", diagnostic);
         Assert.DoesNotContain("Alice", diagnostic);
@@ -199,7 +206,14 @@ public sealed partial class AgentMemoryServiceTests
             TargetAgentOrganizationUserId = fixture.EmployeeId, UserMessageId = message.Id, Status = ChatTurnStatus.RecallingMemory };
         db.AddRange(human, conversation, message, nextTurn); await db.SaveChangesAsync();
         var (nextInbox, nextWork) = await QueueRecallAsync(fixture, db, nextTurn, includeMemory: false);
-        Assert.NotNull(await nextInbox.ClaimAsync(DeliverySession(session), default));
+        // The runtime still holds the first human's recalled context, so it is rotated before the second
+        // human's turn is delivered; the turn waits, undelivered, for a fresh runtime.
+        Assert.Null(await nextInbox.ClaimAsync(DeliverySession(session), default));
+        Assert.Equal(AgentWorkStatus.Pending, (await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == nextWork.Id)).Status);
+        Assert.Empty(await db.AgentWorkAttempts.AsNoTracking().Where(x => x.AgentWorkItemId == nextWork.Id).ToListAsync());
+        Assert.Equal(MemoryRuntimeResetRequiredException.RetainedEvidence, (await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetReasonCode);
+        Assert.Contains("validation=claim.queued-recall.consumer-audience",
+            Assert.Single(await db.AgentRuntimeEvents.AsNoTracking().ToListAsync()).Reason);
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, nextWork.Id, default));
     }
 }
