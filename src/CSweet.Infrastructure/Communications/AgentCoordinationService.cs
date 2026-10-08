@@ -539,6 +539,12 @@ public sealed class AgentCoordinationService(
         return mapped;
     }
 
+    private static readonly AgentRuntimeStatus[] ActiveRuntimeStatuses =
+    [
+        AgentRuntimeStatus.Queued, AgentRuntimeStatus.Starting, AgentRuntimeStatus.WaitingForMcpSession,
+        AgentRuntimeStatus.Running, AgentRuntimeStatus.CompletionReported, AgentRuntimeStatus.Stopping
+    ];
+
     public async Task<int> RecoverTransientFailuresAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         var cutoff = now.AddMinutes(-1);
@@ -575,10 +581,12 @@ public sealed class AgentCoordinationService(
                             x.MemoryResetReasonCode == Core.MemoryRuntimeResetRequiredException.ReceiptCapacity), cancellationToken) ||
                     await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == failed.AgentInstallationId &&
                         x.MemoryResetRequestedAt != null && x.MemoryResetCompletedAt == null, cancellationToken) ||
-                    !await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == failed.AgentInstallationId &&
-                        x.Id != oldRuntime && x.Status == AgentRuntimeStatus.Running && x.MemoryResetRequestedAt == null &&
-                        x.MemoryReadEvidenceVersion == AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion &&
-                        (x.RuntimeDeadlineAt == null || x.RuntimeDeadlineAt > now), cancellationToken)) continue;
+                    // Any active runtime must be a clean replacement. On-demand installations start one only
+                    // once work is pending, so an absent runtime is ready: the next claim starts fresh context.
+                    await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == failed.AgentInstallationId &&
+                        ActiveRuntimeStatuses.Contains(x.Status) &&
+                        (x.Id == oldRuntime || x.MemoryReadEvidenceVersion != AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion),
+                        cancellationToken)) continue;
                 try
                 {
                     await ResolveParticipantsAsync(session.OrganizationId, session.InitiatorOrganizationUserId,

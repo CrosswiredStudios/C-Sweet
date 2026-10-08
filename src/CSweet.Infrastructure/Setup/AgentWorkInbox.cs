@@ -322,12 +322,17 @@ public sealed partial class AgentWorkInbox(
 
         try
         {
-            await new CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence(db).RecordDeliveryAsync(item, session, cancellationToken);
+            var evidence = new CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence(db);
+            // Retained private or audience-bound context must never reach a different audience. Rotate the
+            // runtime before delivery so this work remains pending for a fresh runtime instead of failing.
+            await evidence.RequireRetainedConsumerAsync(session, item, cancellationToken);
+            await evidence.RecordDeliveryAsync(item, session, cancellationToken);
         }
         catch (CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException reset)
         {
             await new AgentMemoryRuntimeReset(db).StageAsync(session.RuntimeInstanceId, session.TickId,
-                session.AgentInstallationId, session.OrganizationId, session.GrantRevision, reset.ReasonCode, cancellationToken);
+                session.AgentInstallationId, session.OrganizationId, session.GrantRevision, reset.ReasonCode, cancellationToken,
+                reset.ValidationDiagnostic);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return null;

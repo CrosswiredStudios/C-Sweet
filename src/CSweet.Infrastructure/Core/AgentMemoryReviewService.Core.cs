@@ -32,7 +32,7 @@ public sealed partial class AgentMemoryReviewService
         var current = block.UpdatedAt <= clock.GetUtcNow() && block.Revision is > 0 and < int.MaxValue && Enum.IsDefined(block.Confirmation);
         return new(block.Id, evidence.Revision, evidence.Token, block.Name, block.Content, block.Revision, block.IsPinned,
             block.Confirmation.ToString(), evidence.Sensitivity.ToString(), evidence.Valid && current,
-            sharedHash is null && evidence.Valid && current && block.SourceEpisodeIds.Distinct().Count() < MemoryProvenance.MaximumSourceEpisodes,
+            evidence.Valid && current && block.SourceEpisodeIds.Distinct().Count() < MemoryProvenance.MaximumSourceEpisodes,
             current, block.SourceEpisodeIds);
     }
 
@@ -76,14 +76,16 @@ public sealed partial class AgentMemoryReviewService
                 ? MemoryConfirmationState.Rejected : MemoryConfirmationState.Confirmed };
             if (request.Action == "correct")
             {
-                if (sharedHash is not null) throw new InvalidOperationException("memory_shared_correction_requires_restricted_source_lineage");
+                var ancestry = sharedHash is null ? null
+                    : await CaptureCorrectionAncestryAsync(store, block.Partition, request.OperationId, evidence.Sources.Values, cancellationToken);
                 var sourceId = Guid.NewGuid(); var contributors = block.SourceEpisodeIds.Append(sourceId).Distinct().Order().ToArray();
                 MemoryProvenance.ValidateSourceEpisodes(contributors);
                 var expiry = evidence.Sources.Values.Select(x => x.ExpiresAt).Where(x => x.HasValue).Min();
                 await store.AppendEpisodeAsync(new(sourceId, block.Partition, InferScope(block.Partition), request.Correction!.Content, "text/plain",
                     new("user", request.OperationId.ToString("D"), actor.ToString("D")), Hash(request.Correction.Content), now, now,
                     ExpiresAt: expiry, LegalHold: evidence.Sources.Values.Any(x => x.LegalHold), Sensitivity: evidence.Sensitivity,
-                    OperationalReferences: [new("memory-block", block.Id.ToString("D"), evidence.Revision.ToString())]), cancellationToken);
+                    OperationalReferences: [new("memory-block", block.Id.ToString("D"), evidence.Revision.ToString())])
+                    { CorrectionEvidence = ancestry }, cancellationToken);
                 updated = updated with { Content = request.Correction.Content, IsPinned = request.Correction.IsPinned,
                     Trust = MemoryTrustTier.ConfirmedUser, Sensitivity = evidence.Sensitivity, SourceEpisodeIds = contributors };
             }
