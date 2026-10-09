@@ -221,6 +221,8 @@ public sealed class PluginOperationsCapabilityHandler(
         }
         if (proposal.ActionType == ProjectApprovalReader.ActionType)
         {
+            if (input.ExpectedRevision.HasValue || input.ResourceId is not null)
+                throw new InvalidOperationException("The project creation binding changed after review.");
             await new ProjectApprovalGovernance(db).DecideAsync(approver, new(input.ProposalId,
                 input.Decision == "Request revision" ? "RequestRevision" : input.Decision, input.Comment ?? "",
                 input.PayloadHash, input.ActionIdempotencyKey, input.DecisionIdempotencyKey), executors ?? [], cancellationToken);
