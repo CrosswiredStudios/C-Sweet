@@ -11,6 +11,7 @@
 @inject HttpClient Http
 @inject ILlmProviderApiClient LlmProviderApi
 @inject AgentHireOperationState HireOperations
+@inject NavigationManager Navigation
 
 <PageTitle>Agent Catalog - C-Sweet</PageTitle>
 
@@ -450,6 +451,8 @@
             Add("q", _search);
             Add("role", _role);
             Add("category", _category);
+            if (RecommendationId.HasValue)
+                query.Add($"recommendationId={RecommendationId.Value:D}");
             _result = await Http.GetFromJsonAsync<AvailableAgentSearchResult>(
                 $"api/core/organizations/{OrganizationId:D}/agents/available?{string.Join('&', query)}")
                 ?? Offline("The agent catalog returned an empty response.");
@@ -462,7 +465,9 @@
         }
         catch (HttpRequestException)
         {
-            _result = Offline("C-Sweet could not reach the agent catalog.");
+            _result = Offline(RecommendationId.HasValue
+                ? "The hiring recommendation or its candidates could not be loaded. Refresh or return to Hiring to select a current recommendation."
+                : "C-Sweet could not reach the agent catalog.");
         }
         finally
         {
@@ -595,6 +600,7 @@
             _reviewOpen = false;
             _preview = null;
             _selectedAgent = null;
+            Navigation.NavigateTo($"/organizations/{OrganizationId:D}/command-center");
         }
         catch (Exception exception)
         {

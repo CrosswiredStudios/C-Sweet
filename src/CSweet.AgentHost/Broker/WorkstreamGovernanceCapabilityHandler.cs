@@ -8,6 +8,7 @@ using CSweet.Application.Setup;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 using W = CSweet.WorkManagement.Contracts;
@@ -171,6 +172,14 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             Status = ProposalStatus.Pending, CreatedAt = clock.GetUtcNow()
         };
         db.ActionProposals.Add(proposal);
+        if (proposal.ActionType == ProjectApprovalReader.ActionType)
+        {
+            var governance = new ProjectApprovalGovernance(db);
+            var approverId = await governance.ApproverAsync(proposal, token);
+            var target = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == approverId && x.OrganizationId == organizationId && x.IsActive)
+                .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token);
+            governance.QueueWake(proposal, target, ProjectApprovalGovernance.RequestedEvent, "requested");
+        }
         await db.SaveChangesAsync(token);
         await audit.WriteAsync("workstream.plan.proposed", nameof(ActionProposal), proposal.Id,
             proposal.Summary, JsonSerializer.Serialize(new { organizationId, actorId, request.ProfileKey, request.ProfileVersion,
@@ -206,6 +215,14 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             Status = ProposalStatus.Pending, CreatedAt = clock.GetUtcNow()
         };
         db.ActionProposals.Add(proposal);
+        if (proposal.ActionType == ProjectApprovalReader.ActionType)
+        {
+            var governance = new ProjectApprovalGovernance(db);
+            var approverId = await governance.ApproverAsync(proposal, token);
+            var target = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == approverId && x.OrganizationId == organizationId && x.IsActive)
+                .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token);
+            governance.QueueWake(proposal, target, ProjectApprovalGovernance.RequestedEvent, "requested");
+        }
         await db.SaveChangesAsync(token);
         await audit.WriteAsync("workstream.change.proposed", nameof(ActionProposal), proposal.Id,
             proposal.Summary, JsonSerializer.Serialize(new { organizationId, actorId, request.WorkstreamId, request.ExpectedRevision }, JsonOptions), token);

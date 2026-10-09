@@ -4,6 +4,7 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Llm;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
@@ -130,7 +131,7 @@ public sealed partial class AgentMemoryServiceTests
 
     [MemoryPostgresTheory]
     [MemberData(nameof(QueuedAuthorityData))]
-    public async Task QueuedAuthorityRestorationOnReconnectLeavesFreshWorkPending(string change, bool memory)
+    public async Task QueuedAuthorityRestorationOnReconnectUsesFreshTaskEvidenceWithoutReset(string change, bool memory)
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var audience = await SeedQueuedAuthorityAsync(fixture); var turn = await SeedRecallTurnAsync(fixture);
@@ -139,21 +140,30 @@ public sealed partial class AgentMemoryServiceTests
         var (inbox, work) = await QueueRecallAsync(fixture, db, turn, memory);
         Assert.NotNull(await inbox.ClaimAsync(DeliverySession(session), default));
         await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, work.Id, default);
+        var historical = await db.AgentMemoryReadReceipts.AsNoTracking().SingleAsync();
         await db.AgentWorkItems.Where(x => x.Id == work.Id).ExecuteDeleteAsync();
         await db.ChatTurns.Where(x => x.Id == turn.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, ChatTurnStatus.Completed));
         await RestoreQueuedAuthorityWithoutObservationAsync(fixture, audience, change);
         var next = await SeedRecallTurnAsync(fixture);
-        // This fresh certificate uses restored current authority. It cannot retroactively certify
-        // the older context retained by the same runtime, even through a fresh service context.
+        // This fresh attempt uses restored current authority without inheriting or
+        // retroactively certifying the completed callback's historical context.
         await using var reconnected = fixture.Context();
         var (nextInbox, nextWork) = await QueueRecallAsync(fixture, reconnected, next, includeMemory: false);
-        Assert.Null(await nextInbox.ClaimAsync(DeliverySession(session), default));
+        var delivered = Assert.IsType<ClaimedAgentWork>(await nextInbox.ClaimAsync(DeliverySession(session), default));
+        Assert.Equal(nextWork.Id, delivered.WorkId);
+        await new PlatformMemoryReadEvidence(reconnected).AuthorizeDispatchAsync(session, nextWork.Id, default, delivered.Attempt);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new PlatformMemoryReadEvidence(reconnected).AuthorizeDispatchAsync(session, work.Id, default, 1));
+        var currentConsumer = await reconnected.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == nextWork.Id);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new MemoryRecallDispatchEvidence(reconnected).AuthorizeRetainedDeliveryAsync(historical, currentConsumer, default));
         await using var current = fixture.Context();
-        var pending = await current.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == nextWork.Id);
-        Assert.Equal(AgentWorkStatus.Pending, pending.Status); Assert.Equal(0, pending.AttemptCount);
-        Assert.Empty(await current.AgentWorkAttempts.Where(x => x.AgentWorkItemId == nextWork.Id).ToArrayAsync());
-        Assert.Single(await current.AgentMemoryReadReceipts.ToArrayAsync());
-        Assert.NotNull((await current.AgentRuntimeInstances.SingleAsync()).MemoryResetRequestedAt);
+        var active = await current.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == nextWork.Id);
+        Assert.Equal(AgentWorkStatus.Leased, active.Status); Assert.Equal(1, active.AttemptCount);
+        Assert.Single(await current.AgentWorkAttempts.Where(x => x.AgentWorkItemId == nextWork.Id).ToArrayAsync());
+        Assert.Equal(2, await current.AgentMemoryReadReceipts.CountAsync());
+        Assert.Equal(historical.EvidenceJson, (await current.AgentMemoryReadReceipts.SingleAsync(x => x.WorkId == work.Id)).EvidenceJson);
+        Assert.Null((await current.AgentRuntimeInstances.SingleAsync()).MemoryResetRequestedAt);
     }
 
     [MemoryPostgresFact]

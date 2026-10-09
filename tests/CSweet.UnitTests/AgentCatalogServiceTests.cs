@@ -17,6 +17,79 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCatalogServiceTests
 {
+    [Theory]
+    [InlineData("game-engineer", null)]
+    [InlineData("Game Engineer", null)]
+    [InlineData(null, "software-developer")]
+    public async Task MarketplaceDiscovery_DoesNotPrefilterBySpecializedRole(string? role, string? category)
+    {
+        var marketplace = new RecordingMarketplace();
+        var provider = new MarketplaceAgentCatalogProvider(marketplace);
+        await provider.SearchAsync(null, new(Role: role, RoleCategoryKey: category));
+        Assert.Null(marketplace.Query!.Search);
+        await provider.SearchAsync(null, new(Role: role, RoleCategoryKey: category, SearchString: "explicit search"));
+        Assert.Equal("explicit search", marketplace.Query!.Search);
+    }
+
+    private sealed class RecordingMarketplace : CSweet.Application.Marketplace.IMarketplaceDiscoveryService
+    {
+        public CSweet.Contracts.Marketplace.MarketplaceDiscoveryQuery? Query { get; private set; }
+        public Task<CSweet.Contracts.Marketplace.MarketplaceDiscoveryResponse> SearchAsync(
+            CSweet.Contracts.Marketplace.MarketplaceDiscoveryQuery query, CancellationToken cancellationToken = default)
+        {
+            Query = query;
+            return Task.FromResult(new CSweet.Contracts.Marketplace.MarketplaceDiscoveryResponse([], 0, [], [], true, null));
+        }
+    }
+    [Theory]
+    [InlineData("game-engineer")]
+    [InlineData("Game Engineer")]
+    [InlineData("Gameplay Engineer")]
+    [InlineData("software-developer")]
+    public async Task LegacyRoleSearch_IncludesBothCoreFamilyMembers(string role)
+    {
+        var specialist = Agent("first-party:game", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            AgentId = "com.example.game", Name = "Adrian Silva", RoleKey = "game-engineer",
+            RoleName = "Game Engineer", RoleAliases = ["Gameplay Engineer"],
+            RoleCategoryKeys = ["game-engineer", "software-developer"], SpecializationKeys = ["video-game-development"]
+        };
+        var general = specialist with
+        {
+            AgentReference = "first-party:general", AgentId = "com.example.general", Name = "Daniel Kim",
+            RoleKey = "software-developer", RoleName = "Software Developer", RoleAliases = [],
+            RoleCategoryKeys = ["software-developer"], SpecializationKeys = []
+        };
+        var unrelated = general with { AgentId = "com.example.qa", RoleKey = "software-qa", RoleCategoryKeys = ["software-qa"] };
+        var service = new AgentCatalogService(
+            [new StubProvider(AgentCatalogSource.FirstPartyCatalog, general, specialist, unrelated),
+             new StubProvider(AgentCatalogSource.LocalDirectory, specialist)], NullLogger<AgentCatalogService>.Instance);
+        var result = await service.GetAvailableAgentsAsync(null, new(Role: role));
+        Assert.Equal(2, result.Agents.Count);
+        Assert.Contains(result.Agents, x => x.AgentId == general.AgentId);
+        Assert.Contains(result.Agents, x => x.AgentId == specialist.AgentId);
+        Assert.Single((await service.GetAvailableAgentsAsync(null, new(Role: role, SearchString: "Daniel"))).Agents);
+        Assert.Empty((await service.GetAvailableAgentsAsync(null, new(Role: role, Category: "unrelated"))).Agents);
+        Assert.Empty((await service.GetAvailableAgentsAsync(null, new(Role: role, RequiredCapabilities: ["missing.capability"]))).Agents);
+    }
+
+    [Fact]
+    public async Task LegacyRoleSearch_ResolvesArbitrarySharedFamilyAndKeepsAmbiguousTextMatching()
+    {
+        var specialist = Agent("first-party:one", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            AgentId = "one", RoleKey = "custom-specialist", RoleName = "Custom Specialist",
+            RoleAliases = ["Shared title"], RoleCategoryKeys = ["custom-family"]
+        };
+        var general = specialist with { AgentId = "two", RoleKey = "custom-general", RoleName = "Custom General", RoleAliases = [] };
+        var other = specialist with { AgentId = "three", RoleKey = "other-role", RoleCategoryKeys = ["other-family"] };
+        var service = new AgentCatalogService([new StubProvider(AgentCatalogSource.FirstPartyCatalog, specialist, general, other)],
+            NullLogger<AgentCatalogService>.Instance);
+        Assert.Equal(2, (await service.GetAvailableAgentsAsync(null, new(Role: "custom-specialist"))).Agents.Count);
+        var ambiguous = await service.GetAvailableAgentsAsync(null, new(Role: "Shared title"));
+        Assert.Equal(2, ambiguous.Agents.Count);
+        Assert.DoesNotContain(ambiguous.Agents, x => x.AgentId == "two");
+    }
     [Fact]
     public async Task ProfileReadsRemoteDeclarationsWithoutImportingOrGrantingAccess()
     {

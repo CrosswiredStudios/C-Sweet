@@ -712,7 +712,7 @@ public sealed partial class AgentMemoryService(
         var now = DateTimeOffset.UtcNow;
         db.ChatTurnTraceEvents.Add(new ChatTurnTraceEvent
         {
-            Id = Guid.NewGuid(), ChatTurnId = turn.Id, Sequence = turn.NextTraceSequence++, Category = "memory",
+            Id = Guid.NewGuid(), ChatTurnId = turn.Id, Sequence = await ChatTurnTraceSequence.NextAsync(db, turn, cancellationToken), Category = "memory",
             EventType = eventType, Status = status, Title = title, Summary = summary,
             Sensitivity = "Internal", OccurredAt = now
         });

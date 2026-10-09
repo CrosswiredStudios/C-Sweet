@@ -6,6 +6,17 @@ its trace, and agent-side records.
 
 ## Turn lifecycle
 
+`ChatTurnTraceSequence.NextAsync` allocates diagnostic sequences with an atomic database
+increment. Both `ChatTurnService.TraceAsync` and `AgentMemoryService.AppendTurnMemoryTraceAsync`
+use it; long-lived tracked turns must not allocate sequences themselves. Otherwise background
+enrichment can collide with streamed output and break response handling after business effects
+have already completed.
+
+`ChatTurnService.ClaimNextAsync` retains the attempt when its exact durable chat dispatch exists.
+`ChatTurnWorker.ProcessAsync` reuses that work and reads its persisted progress, including the
+final response, instead of enqueueing another generation. Explicit user retries create a new
+turn. A lease recovery is not authorization to replay completed document/approval effects.
+
 `ChatTurnWorker` (`src/CSweet.Api/Chat/ChatTurnWorker.cs`) claims a `ChatTurn`, dispatches it to the
 target agent as durable `AgentWorkItems` work, relays streamed chunks, then commits the answer. Status,
 error code, error message, partial response, and attempt count live on `ChatTurns`; every step writes

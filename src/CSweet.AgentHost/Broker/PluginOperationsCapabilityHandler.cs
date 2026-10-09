@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.Application.Core;
+using CSweet.Infrastructure.Core;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -13,7 +15,8 @@ namespace CSweet.AgentHost.Broker;
 
 public sealed class PluginOperationsCapabilityHandler(
     CSweetDbContext db,
-    IAuditEventWriter audit) : IPlatformCapabilityHandler
+    IAuditEventWriter audit,
+    IEnumerable<IManagedActionExecutor>? executors = null) : IPlatformCapabilityHandler
 {
     public const string ManagedAction = "platform.managed-action.execute.v1";
     public const string ManagedActionDecide = "platform.managed-action.decide.v1";
@@ -25,7 +28,7 @@ public sealed class PluginOperationsCapabilityHandler(
     public const string AgentOperatingStateWrite = "platform.agent-operating-state.write.v1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlySet<string> Capabilities = new HashSet<string>(StringComparer.Ordinal)
-        { ManagedAction, ManagedActionDecide, EngagementInbox, MetricSnapshot, SyncCheckpoint,
+        { ProjectApprovalGovernance.ReadCapability, ProjectApprovalGovernance.DecideCapability, ManagedAction, ManagedActionDecide, EngagementInbox, MetricSnapshot, SyncCheckpoint,
             AgentOperatingStateRead, AgentOperatingStateWrite };
 
     public bool CanHandle(string capability) => Capabilities.Contains(capability);
@@ -40,6 +43,12 @@ public sealed class PluginOperationsCapabilityHandler(
             yield break;
         }
         CapabilityResult result;
+        if (request.Capability is ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability &&
+            session.Grant.RequestedCapabilities?.Contains(request.Capability, StringComparer.Ordinal) != true)
+        {
+            yield return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied, "The installation is not granted this project review capability.");
+            yield break;
+        }
         if (!CanHandle(request.Capability))
         {
             yield return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied,
@@ -48,7 +57,9 @@ public sealed class PluginOperationsCapabilityHandler(
         }
         try
         {
-            result = request.Capability == AgentOperatingStateRead
+            result = request.Capability is ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability
+                ? await HandleProjectApprovalAsync(request, organizationId, installationId, cancellationToken)
+                : request.Capability == AgentOperatingStateRead
                 ? await ReadOperatingStateAsync(request, organizationId, installationId, cancellationToken)
                 : request.Capability == AgentOperatingStateWrite
                     ? await WriteOperatingStateAsync(request, organizationId, installationId, cancellationToken)
@@ -61,7 +72,7 @@ public sealed class PluginOperationsCapabilityHandler(
                     ? await HandleEngagementAsync(request, organizationId, installationId, cancellationToken)
                     : await HandleStateAsync(request, organizationId, installationId, cancellationToken);
         }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or UnauthorizedAccessException or DbUpdateConcurrencyException)
+        catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException or UnauthorizedAccessException or DbUpdateConcurrencyException)
         {
             result = Failure(request.RequestId, exception.Message);
         }
@@ -208,6 +219,13 @@ public sealed class PluginOperationsCapabilityHandler(
                     input.DecisionIdempotencyKey, input.ResourceId), cancellationToken);
             return Success(request.RequestId, new { proposal.Id, status, executionPending = status == "Approved" });
         }
+        if (proposal.ActionType == ProjectApprovalReader.ActionType)
+        {
+            await new ProjectApprovalGovernance(db).DecideAsync(approver, new(input.ProposalId,
+                input.Decision == "Request revision" ? "RequestRevision" : input.Decision, input.Comment ?? "",
+                input.PayloadHash, input.ActionIdempotencyKey, input.DecisionIdempotencyKey), executors ?? [], cancellationToken);
+            return Success(request.RequestId, new { proposal.Id, status = proposal.Status.ToString() });
+        }
         var requestingAgent = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == proposal.AgentInstallationId && x.IsActive,
             cancellationToken);
@@ -347,6 +365,25 @@ public sealed class PluginOperationsCapabilityHandler(
         // Ingestion grants permit storage only. Interpreting urgency, scheduling a digest,
         // and sending messages belong to the consumer's separately granted workflow.
         return Success(request.RequestId, new { persisted = true, count, updatedAt = now });
+    }
+
+    private async Task<CapabilityResult> HandleProjectApprovalAsync(RequestCapability request, Guid organizationId, Guid installationId, CancellationToken ct)
+    {
+        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId && x.IsActive && x.ArchivedAt == null, ct)
+            ?? throw new UnauthorizedAccessException("The agent employee is unavailable.");
+        var service = new ProjectApprovalGovernance(db);
+        using var payload = JsonDocument.Parse(request.Payload.Span.ToArray());
+        if (request.Capability == ProjectApprovalGovernance.ReadCapability)
+        {
+            Guid? id = payload.RootElement.TryGetProperty("proposalId", out var node) && node.ValueKind == JsonValueKind.String && node.TryGetGuid(out var value) ? value : null;
+            return Success(request.RequestId, await service.ReadAsync(actor, id, ct));
+        }
+        var decision = payload.RootElement.Deserialize<ProjectApprovalGovernance.Decision>(JsonOptions)!;
+        await service.DecideAsync(actor, decision, executors ?? [], ct);
+        await audit.WriteAsync("project-approval.agent-decided", nameof(ActionProposal), decision.ProposalId,
+            decision.Comment, JsonSerializer.Serialize(new { actorId = actor.Id, decision.DecisionKind, decision.DecisionIdempotencyKey }, JsonOptions), ct);
+        return Success(request.RequestId, await service.ReadAsync(actor, decision.ProposalId, ct));
     }
 
     private static CapabilityResult Success<T>(string requestId, T value) => new()

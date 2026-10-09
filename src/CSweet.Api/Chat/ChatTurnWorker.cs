@@ -209,13 +209,20 @@ public sealed class ChatTurnWorker(
                         model = GetConfiguredString(configuration, "llmModel"),
                         installationId
                     }, cancellationToken: hardTimeout.Token);
-                var work = await inbox.EnqueueAsync(
+                // A recovered turn may have already completed its business effects. Reuse its
+                // original payload/recall certificate and replay durable progress to the UI.
+                var dispatchKey = $"chat-turn:{turnId:D}:attempt:{turn.Attempt}";
+                var work = await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.OrganizationId == conversation.OrganizationId.ToString("D") &&
+                    x.AgentInstallationId == installationId && x.SourceType == "chat-turn" &&
+                    x.SourceId == turnId.ToString("D") && x.IdempotencyKey == dispatchKey, hardTimeout.Token)
+                    ?? await inbox.EnqueueAsync(
                     conversation.OrganizationId.ToString("D"),
                     installationId,
                     CSweet.Domain.Setup.AgentWorkKind.Event,
                     AgentChatEvents.UserMessageReceivedEvent,
                     JsonSerializer.SerializeToElement(payload, JsonOptions),
-                    $"chat-turn:{turnId:D}:attempt:{turn.Attempt}",
+                    dispatchKey,
                     turn.CreatedAt.Add(options.Value.HardTimeout),
                     correlationId: turnId.ToString("D"),
                     causationId: turn.UserMessageId.ToString("D"),
@@ -613,6 +620,9 @@ public sealed class ChatTurnWorker(
                         chunk.Sensitivity));
             }
 
+            // Recovery can have more than one page of saved progress. Drain it before
+            // deciding that completed work has no final response.
+            if (progress.Count == 100) continue;
             var state = await inbox.ReadStateAsync(workId, cancellationToken);
             if (state.Status == AgentWorkStatus.Completed)
             {

@@ -30,7 +30,7 @@ public sealed class ProjectApprovalReader(CSweetDbContext db)
             x.OrganizationId == organizationId && x.AgentInstallationId == proposal.AgentInstallationId && x.IsActive, ct);
         var configuration = await db.AgentInstallationConfigurations.AsNoTracking().Where(x =>
             x.AgentInstallationId == proposal.AgentInstallationId).Select(x => x.SettingsJson).SingleOrDefaultAsync(ct);
-        var authorized = ManagedActionApprovalAuthority.CanDecide(actor, requester?.ReportsToOrganizationUserId, configuration);
+        var authorized = await new ProjectApprovalGovernance(db).CanDecideAsync(proposal, actor, ct);
         if (!authorized && actor.PermissionLevel != OrganizationPermissionLevel.Owner) return null;
         var item = new ApprovalDashboardItemResponse(proposal.Id, ApprovalDashboardKinds.AgentAction,
             "Create project", proposal.Summary, proposal.Status.ToString(), requester?.DisplayName ?? "Creative Director",
@@ -94,6 +94,13 @@ public sealed class ProjectApprovalReader(CSweetDbContext db)
             var receipt = receiptJson is null ? null : JsonSerializer.Deserialize<Receipt>(receiptJson, Json);
             var projectId = receipt?.ProjectId ?? await db.Workstreams.AsNoTracking().Where(x =>
                 x.OrganizationId == org && x.SourceProposalId == proposal.Id).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+            var routeJson = await db.PluginOperationalStates.AsNoTracking().Where(x => x.OrganizationId == org &&
+                x.Kind == "project-approval-route" && x.ExternalKey == key).Select(x => x.PayloadJson).SingleOrDefaultAsync(ct);
+            if (routeJson is not null)
+            {
+                var route = JsonSerializer.Deserialize<ProjectApprovalGovernance.Route>(routeJson, Json)!;
+                review = review with { Rationale = review.Rationale + " Escalated for manager review: " + route.Reason };
+            }
             return item with { Title = $"Create project: {review.Name}", Summary = review.Outcome, ProjectCreation = review,
                 ActionUri = "", DecisionComment = receipt?.Comment, DecisionKind = receipt?.Decision,
                 ActualDecisionMaker = receipt?.ActorName, CreatedProjectId = projectId };

@@ -16,6 +16,43 @@ namespace CSweet.UnitTests;
 public sealed class HiringServiceTests
 {
     [Fact]
+    public async Task CandidateSearchContext_IsOrganizationScopedAndUsesApprovedCategory()
+    {
+        await using var db = CreateDb();
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var recommendationId = Guid.NewGuid();
+        db.ResourceChangeRequests.Add(new ResourceChangeRequestRecord
+        {
+            Id = requestId, OrganizationId = organizationId, Status = ResourceChangeRequestStatus.Approved,
+            Roles = [new ResourceChangeRoleRecord
+            {
+                Id = Guid.NewGuid(), ResourceChangeRequestId = requestId, RoleKey = "gameplay-position",
+                RoleCategoryKey = "game-engineer", PreferredSpecializationKeysJson = "[\"video-game-development\"]", IsDesired = true
+            }]
+        });
+        db.WorkforcePlans.Add(new WorkforcePlan
+        {
+            Id = recommendationId, OrganizationId = organizationId, Title = "Gameplay Engineer",
+            RoleKey = "gameplay-position", SourceResourceChangeRequestId = requestId
+        });
+        await db.SaveChangesAsync();
+        var service = new HiringService(db, new RecordingOrganizationUserService(), new TestAuditEventWriter());
+        var context = Assert.IsType<HiringCandidateSearchContext>(await service.GetCandidateSearchContextAsync(organizationId, recommendationId));
+        Assert.Equal("software-developer", context.RoleCategoryKey);
+        Assert.Equal("Gameplay Engineer", context.RoleTitle);
+        Assert.Equal(["video-game-development"], context.PreferredSpecializationKeys);
+        Assert.Null(await service.GetCandidateSearchContextAsync(Guid.NewGuid(), recommendationId));
+        Assert.Null(await service.GetCandidateSearchContextAsync(organizationId, Guid.Empty));
+        var plan = await db.WorkforcePlans.SingleAsync();
+        plan.SourceResourceChangeRequestId = null;
+        plan.RoleKey = "game-engineer";
+        await db.SaveChangesAsync();
+        context = Assert.IsType<HiringCandidateSearchContext>(await service.GetCandidateSearchContextAsync(organizationId, recommendationId));
+        Assert.Equal("software-developer", context.RoleCategoryKey);
+        Assert.Empty(context.PreferredSpecializationKeys);
+    }
+    [Fact]
     public async Task SourceLinkedRecommendation_RequiresTheApprovedPlansRawRoleKey()
     {
         await using var db = CreateDb();
@@ -607,6 +644,7 @@ public sealed class HiringServiceTests
     [Theory]
     [InlineData("product-manager", "product-manager")]
     [InlineData("game-engineer", "software-developer")]
+    [InlineData("software-developer", "game-engineer")]
     public async Task MarketplacePreview_LinksAndValidatesPendingRecommendation(
         string approvedRoleCategory, string candidateRoleCategory)
     {
@@ -693,9 +731,10 @@ public sealed class HiringServiceTests
             new RecordingInstallationService(organizationId),
             new RecordingAgentCatalog(available with { RoleCategoryKeys = ["software-architect"] }),
             new RecordingDefinitionService());
+        var organizationUsers = new RecordingOrganizationUserService();
         var service = new HiringService(
             db,
-            new RecordingOrganizationUserService(),
+            organizationUsers,
             new TestAuditEventWriter(),
             new RecordingImportPreview(db, repositoryUrl),
             new RecordingInstallationService(organizationId),
@@ -804,6 +843,31 @@ public sealed class HiringServiceTests
             {
                 RecommendationId = recommendation.Id
             }));
+
+        completedRecommendation.Status = ProposalStatus.Pending;
+        completedRecommendation.FulfilledHeadcount = 0;
+        var package = await db.AgentPackageVersions.SingleAsync();
+        package.ManifestJson = JsonSerializer.Serialize(new PluginManifest
+        {
+            RolePolicy = new PluginRolePolicy { DeclaredRoleKeys = [candidateRoleCategory] }
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await db.SaveChangesAsync();
+        var hired = await service.StartAsync(organizationId, preview.WorkflowId, applicationUserId,
+            new("confirm-family-member")
+            {
+                ConfigurationSettings = new Dictionary<string, JsonElement>
+                {
+                    ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString()),
+                    ["llmModel"] = JsonSerializer.SerializeToElement("test-model"),
+                    ["responseTone"] = JsonSerializer.SerializeToElement("balanced")
+                }
+            });
+        Assert.Equal(AgentHireOperationStatuses.Succeeded, hired?.Status);
+        Assert.Equal(productManager.Id, organizationUsers.CreatedRequest!.ReportsToOrganizationUserId);
+        Assert.Equal(approvedRoleCategory, organizationUsers.CreatedRequest.RoleCategoryKey);
+        Assert.Equal(recommendation.Id, workflow.WorkforcePlanId);
+        Assert.Equal(ProposalStatus.Approved, completedRecommendation.Status);
+        Assert.Equal(1, completedRecommendation.FulfilledHeadcount);
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using CSweet.Contracts.Plugins;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Setup;
 using CSweet.Memory;
 using Microsoft.EntityFrameworkCore;
@@ -116,6 +117,8 @@ public sealed class McpToolCatalog(
             "Propose a managed workstream with one accountable manager."),
         Read(W.WorkstreamCapabilityNames.ReadV1, "read_workstream",
             "Read one visible Workstream, including its immutable profile binding and current revision."),
+        HiddenRead(ProjectApprovalGovernance.ReadCapability, "read_project_approvals", "Read exact assigned or submitted project proposals and current spending policy."),
+        HiddenWrite(ProjectApprovalGovernance.DecideCapability, "decide_project_approval", "Approve, request revision, reject or escalate an exact project proposal through the reporting hierarchy."),
         Approval(W.WorkstreamCapabilityNames.PlanProposeV2, "propose_profiled_workstream",
             "Propose a profile-bound Workstream, accountable manager, authority envelope, milestones, and gates."),
         Approval(W.WorkstreamCapabilityNames.ChangeProposeV1, "propose_workstream_change",
@@ -566,6 +569,7 @@ public sealed class McpToolCatalog(
         PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead or PlatformCapabilities.ConnectorActionCancel => Schema("""
             {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"},"capability":{"type":"string"},"status":{"type":"string","enum":["Prepared","AwaitingApproval","Approved","Executing","Completed","Rejected","RevisionRequested","Cancelled","Blocked","Indeterminate","Expired","Unavailable"]},"updatedAt":{"type":"string","format":"date-time"},"result":{"type":["object","array","string","number","boolean","null"]},"conditionCode":{"type":["string","null"]},"decision":{"type":["object","null"],"properties":{"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"decidedAt":{"type":"string","format":"date-time"}},"required":["decision","comment","decidedAt"],"additionalProperties":false}},"required":["actionId","capability","status","updatedAt","result","conditionCode","decision"],"additionalProperties":false}
             """),
+        ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability or
         WorkBoardActions.Read or
         WorkSprintActions.Read or
         W.WorkstreamCapabilityNames.GateReadV1 or
@@ -609,6 +613,12 @@ public sealed class McpToolCatalog(
                 """);
         return capability switch
         {
+        ProjectApprovalGovernance.ReadCapability => Schema("""
+            {"type":"object","properties":{"proposalId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            """),
+        ProjectApprovalGovernance.DecideCapability => Schema("""
+            {"type":"object","required":["proposalId","decisionKind","comment","payloadHash","actionIdempotencyKey","decisionIdempotencyKey"],"properties":{"proposalId":{"type":"string","format":"uuid"},"decisionKind":{"enum":["Approve","RequestRevision","Reject","Escalate","Withdraw"]},"comment":{"type":"string","minLength":1,"maxLength":4000},"payloadHash":{"type":"string"},"actionIdempotencyKey":{"type":"string"},"decisionIdempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         ProjectHealthCapabilities.Read => Schema("""
             {"type":"object","required":["workstreamId"],"properties":{"workstreamId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),

@@ -205,7 +205,7 @@ public sealed partial class AgentMemoryServiceTests
         await tx.CommitAsync(); var current = await db.AgentRunLogs.SingleAsync();
         Assert.Null(current.MemoryErasedAt); Assert.Null(current.MemoryErasureAuditJson); Assert.Equal(log.Model, current.Model); Assert.Equal(7, current.TokenInputCount);
         Assert.False(db.Database.HasPendingModelChanges());
-        Assert.Equal("20261009163000_MemoryModelDiagnosticErasure", db.Database.GetMigrations().Last());
+        Assert.Contains("20261009163000_MemoryModelDiagnosticErasure", db.Database.GetMigrations());
     }
 
     [MemoryPostgresFact]

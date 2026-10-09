@@ -4,6 +4,8 @@ namespace CSweet.Application.Core;
 
 public interface IHiringService
 {
+    Task<HiringCandidateSearchContext?> GetCandidateSearchContextAsync(Guid organizationId,
+        Guid recommendationId, CancellationToken cancellationToken = default);
     Task<HiringRecommendationResponse> UpsertRecommendationAsync(Guid organizationId, Guid requestingInstallationId,
         UpsertHiringRecommendationRequest request, CancellationToken cancellationToken = default);
     Task<HiringRecommendationResponse> ResolveRecommendationAsync(Guid organizationId, Guid requestingInstallationId,
@@ -27,3 +29,8 @@ public interface IHiringService
     Task<MarketplaceHirePreviewResponse> PreviewMarketplaceHireAsync(Guid organizationId, Guid applicationUserId,
         PreviewMarketplaceHireRequest request, CancellationToken cancellationToken = default);
 }
+
+public sealed record HiringCandidateSearchContext(
+    string RoleTitle,
+    string? RoleCategoryKey,
+    IReadOnlyList<string> PreferredSpecializationKeys);

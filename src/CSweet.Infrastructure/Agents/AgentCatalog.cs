@@ -50,7 +50,8 @@ public sealed class AgentCatalogService(
         {
             try
             {
-                var result = await provider.SearchAsync(organizationId, normalized, cancellationToken);
+                // Resolve legacy role labels after collecting metadata, before applying family eligibility.
+                var result = await provider.SearchAsync(organizationId, normalized with { Role = null }, cancellationToken);
                 agents.AddRange(result.Agents);
                 health.Add(result.Health);
             }
@@ -61,9 +62,33 @@ public sealed class AgentCatalogService(
             }
         }
 
-        var filtered = agents
+        var consolidated = agents
             .GroupBy(DeduplicationKey, StringComparer.OrdinalIgnoreCase)
             .Select(Consolidate)
+            .ToList();
+        if (string.IsNullOrWhiteSpace(normalized.RoleCategoryKey) && !string.IsNullOrWhiteSpace(normalized.Role))
+        {
+            var role = normalized.Role.Trim();
+            var exact = consolidated.Where(agent =>
+                string.Equals(agent.RoleKey, role, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(agent.RoleName, role, StringComparison.OrdinalIgnoreCase) ||
+                agent.RoleAliases.Contains(role, StringComparer.OrdinalIgnoreCase) ||
+                (agent.RoleCategoryKeys ?? []).Contains(role, StringComparer.OrdinalIgnoreCase)).ToArray();
+            var families = exact.SelectMany(agent => agent.RoleCategoryKeys ?? [])
+                .Where(RoleTaxonomy.IsCanonicalKey).Select(RoleTaxonomy.CoreRoleKey)
+                .Distinct(StringComparer.Ordinal).ToArray();
+            if (families.Length == 1)
+                normalized = normalized with
+                {
+                    Role = null,
+                    RoleCategoryKey = families[0],
+                    PreferredSpecializationKeys = normalized.PreferredSpecializationKeys.Count > 0
+                        ? normalized.PreferredSpecializationKeys
+                        : exact.SelectMany(agent => agent.SpecializationKeys ?? []).Distinct(StringComparer.Ordinal).ToArray()
+                };
+        }
+
+        var filtered = consolidated
             .Where(agent => Matches(agent, normalized))
             .Select(agent => agent with { Score = Score(agent, normalized) })
             .ToList();
@@ -411,7 +436,7 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
         CancellationToken cancellationToken = default)
     {
         var result = await marketplace.SearchAsync(new MarketplaceDiscoveryQuery(
-            query.SearchString ?? query.Role,
+            query.SearchString,
             query.Category,
             query.RequiredCapabilities?.FirstOrDefault(),
             null,
