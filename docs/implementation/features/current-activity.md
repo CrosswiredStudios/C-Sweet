@@ -16,10 +16,30 @@ agent's most recently edited ticket. Parallel executors remain separate rows.
 
 The organization-scoped list is paged in groups of 50 after authorization and
 deduplication. Project work sorts first, then creation time and stable row key.
-The compact widget initially shows three rows; Show all opens a bounded scrolling
-list, with Load more for additional pages. Each row displays up to two earlier
-reported progress/model phases and the current state. No synthetic progress or
-percentage completion is generated.
+The widget initially shows three activity cards; Show all opens a bounded scrolling
+list, with Load more for additional pages. `ActivityCard` uses readable headings for
+collaboration, review, Communications, model calls, and task work. Linked task titles
+open the board's `item` deep link. Personal tasks use the authorized board owner's
+employee page with `tab=personal-board&item=...`, including the diagnostic panel's
+Open work item link. `EmployeePersonalBoard.RequestedItemId` opens only a ticket
+present in the authorized board response and preserves drafts across refreshes.
+`ActivityAgent` displays the existing employee
+portrait, name, role, and a labelled active state only while execution is confirmed.
+Waiting cards emphasize the reported dependency or queue reason. Up to two earlier
+reported progress/model phases are expandable under Recent progress; raw event names
+are available only under Technical details for diagnostic-authorized viewers.
+No synthetic progress or percentage completion is generated.
+
+For coordination deliveries, `CurrentActivityService` binds the two participants and
+source task through `AgentCoordinationSession.CurrentAgentWorkItemId`, the current
+speaker, and the participant installation. Session-source tasks go through the same
+board authorization as execution-context tasks, including feed reads and rejection
+of omitted task IDs. A collaborator is shown only when their employee diagnostics
+are also authorized. Stale or foreign sessions do not supply identities or task links.
+Protected inbox payloads and conversation history are not read to construct cards.
+An ongoing collaboration uses its speaker's delivery lease to establish execution,
+even when the source task is blocked or awaiting approval; a source dependency
+must not hide independent collaboration.
 
 `Executing` requires a live claimed attempt or a recorded active standalone model
 call. Waiting for claim, review, or explicit dependencies is separate from
@@ -80,7 +100,8 @@ filters, or attempts cancels stale requests.
 - `CSweet.Api/Core/CompanyDashboardEndpoints`: activity list, attempt feed, standalone model feed.
 - `CSweet.Infrastructure/Core/CurrentActivityService`: discovery, scope, authorization, state.
 - `CSweet.Infrastructure/Core/CurrentActivityFeedReader`: evidence projection and watermark paging.
-- `CSweet.UI/Components/CurrentActivity`: Signal rows, popover, event reconciliation, fragment grouping.
+- `CSweet.UI/Components/CurrentActivity`: card list, popover, event reconciliation, fragment grouping.
+- `CSweet.UI/Components/ActivityCard`, `ActivityAgent`: activity-specific card layouts and employee identities.
 - `CSweet.UI/wwwroot/currentActivity.js`: scroll following, dismissal, focus restoration.
 - `CurrentActivityTests`, `CurrentActivityRenderingTests`, and `CompanyDashboard*Tests`:
   task/attempt isolation, diagnostic and board grants, standalone calls, pagination,

@@ -296,7 +296,7 @@ public static class McpGatewayEndpoints
         }));
     }
 
-    private static async Task<IResult> CallToolAsync(
+    internal static async Task<IResult> CallToolAsync(
         JsonElement? id,
         JsonElement root,
         AgentSession session,
@@ -335,9 +335,11 @@ public static class McpGatewayEndpoints
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
-        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
+        var inputFailure = ValidateToolInput(request.RequestId, arguments, tool.InputSchema);
         CapabilityResult? terminal;
-        if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
+        if (inputFailure is not null)
+            terminal = inputFailure;
+        else if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
                 x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
         {
             var key = arguments.TryGetProperty("idempotencyKey", out var connectorKey) && connectorKey.ValueKind == JsonValueKind.String
@@ -456,6 +458,18 @@ public static class McpGatewayEndpoints
                     FailureCode = error is OperationCanceledException ? "cancelled" : "capability_failed" },
                 CancellationToken.None, startedEventId);
             throw;
+        }
+    }
+
+    internal static CapabilityResult? ValidateToolInput(string requestId, JsonElement arguments, JsonElement schema)
+    {
+        try { JsonSchemaValidator.Validate(arguments, schema); return null; }
+        catch (InvalidOperationException error)
+        {
+            // A valid MCP tools/call envelope with invalid tool arguments is a tool failure,
+            // not a transport failure. Existing SDKs consume this nonretryable result metadata.
+            return new CapabilityResult { RequestId = requestId, Succeeded = false,
+                Error = error.Message, FailureCode = "platform.capability.validation_failed", Retryable = false };
         }
     }
 

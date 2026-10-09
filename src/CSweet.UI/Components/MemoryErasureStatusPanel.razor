@@ -22,6 +22,7 @@
         @if (_result is { } result)
         {
             <MudText>@result.ErasedRecords records erased; @result.ClearedWorks work items cleared.</MudText>
+            @if (result.ClearedModelRuns > 0) { <MudText>@result.ClearedModelRuns model diagnostic copies cleared.</MudText> }
             <MudAlert Severity="@(result.PendingRuntimes == 0 ? Severity.Success : Severity.Info)">
                 @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
             </MudAlert>

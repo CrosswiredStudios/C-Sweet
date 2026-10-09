@@ -241,6 +241,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<MemoryEpisodeReextractionReceipt> MemoryEpisodeReextractionReceipts => Set<MemoryEpisodeReextractionReceipt>();
     public DbSet<MemoryExtractionInputReceipt> MemoryExtractionInputReceipts => Set<MemoryExtractionInputReceipt>();
     public DbSet<MemoryTransferReceipt> MemoryTransferReceipts => Set<MemoryTransferReceipt>();
+    public DbSet<WorkInstructionPublication> WorkInstructionPublications => Set<WorkInstructionPublication>();
     public DbSet<MemoryReviewReceipt> MemoryReviewReceipts => Set<MemoryReviewReceipt>();
     public DbSet<MemoryErasureReceipt> MemoryErasureReceipts => Set<MemoryErasureReceipt>();
     public DbSet<MemoryCaptureRetryReceipt> MemoryCaptureRetryReceipts => Set<MemoryCaptureRetryReceipt>();
@@ -335,6 +336,21 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             x.State == EntityState.Modified && (x.Property(p => p.MemoryErasedAt).IsModified ||
                 x.Property(p => p.MemoryErasedAt).OriginalValue is not null)))
             throw new InvalidOperationException("Erased work is immutable; only the server erasure transaction may create its tombstone.");
+        if (ChangeTracker.Entries<AgentRunLog>().Any(x =>
+            x.State == EntityState.Added && x.Entity.MemoryErasedAt is not null ||
+            x.State == EntityState.Added && x.Entity.MemoryErasureAuditJson is not null ||
+            x.State == EntityState.Modified && (x.Property(p => p.MemoryErasureAuditJson).IsModified || x.Property(p => p.MemoryErasedAt).IsModified ||
+                x.Property(p => p.MemoryErasedAt).OriginalValue is not null) ||
+            x.State == EntityState.Deleted && x.Entity.MemoryErasedAt is not null))
+            throw new InvalidOperationException("Erased model diagnostics are immutable; only reviewed cleanup may create their tombstone.");
+        if (ChangeTracker.Entries<AgentWorkItem>().Any(x => x.State == EntityState.Modified &&
+            (x.Property(p => p.NativeWorkInputReceiptJson).IsModified ||
+             x.Property(p => p.NativeWorkInputReceiptJson).OriginalValue is not null &&
+             new[] { nameof(AgentWorkItem.Id), nameof(AgentWorkItem.OrganizationId), nameof(AgentWorkItem.AgentInstallationId),
+                 nameof(AgentWorkItem.Kind), nameof(AgentWorkItem.Name), nameof(AgentWorkItem.CorrelationId), nameof(AgentWorkItem.CausationId),
+                 nameof(AgentWorkItem.SourceType), nameof(AgentWorkItem.SourceId), nameof(AgentWorkItem.IdempotencyKey),
+                 nameof(AgentWorkItem.PayloadHash), nameof(AgentWorkItem.ProtectedPayload) }.Any(name => x.Property(name).IsModified))))
+            throw new InvalidOperationException("Native work input evidence and its binding are immutable; legacy work cannot be certified retrospectively.");
         if (ChangeTracker.Entries<AgentWorkItem>().Any(x => x.State == EntityState.Modified &&
             (x.Property(p => p.MemoryRecallReceiptJson).IsModified ||
              (x.Property(p => p.MemoryRecallReceiptJson).OriginalValue is not null &&
@@ -992,6 +1008,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.Entity<AgentRunLog>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.MemoryErasedAt).IsConcurrencyToken();
+            entity.HasIndex(x => x.AgentWorkItemId);
+            entity.Property(x => x.MemoryErasureAuditJson).HasMaxLength(262144);
             entity.Property(x => x.AgentKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Model).HasMaxLength(512);
             entity.Property(x => x.Status).HasMaxLength(80).IsRequired();
@@ -1581,6 +1600,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired().IsConcurrencyToken();
             entity.Property(x => x.MemoryErasedAt).IsConcurrencyToken();
+            entity.Property(x => x.NativeWorkInputReceiptJson).HasMaxLength(32768);
             entity.Property(x => x.Name).HasMaxLength(300).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.CausationId).HasMaxLength(128);
@@ -1604,8 +1624,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.ReceiptHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.EvidenceJson).IsRequired();
             entity.HasIndex(x => new { x.RuntimeId, x.ReceiptHash }).IsUnique();
+            entity.HasIndex(x => new { x.RuntimeId, x.WorkId, x.Attempt });
             entity.HasIndex(x => x.OrganizationId);
-            // Work completion/deletion must not erase evidence still retained by its runtime.
+            // Work completion/deletion must not erase historical audit/erasure evidence.
             entity.HasOne<AgentRuntimeInstance>().WithMany().HasForeignKey(x => x.RuntimeId).OnDelete(DeleteBehavior.Cascade);
         });
 

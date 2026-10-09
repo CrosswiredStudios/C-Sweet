@@ -63,6 +63,7 @@ public sealed partial class MemoryRecallDispatchEvidence
                             Hash(JsonSerializer.Serialize(item, Json)), item.EpisodeIds.Distinct().Order().ToArray(), "transfer", item.Sensitivity));
                     }
                     break;
+                case IEnumerable<MemoryEpisode> values: foreach (var x in values) await Visit(x); break;
                 case IEnumerable<MemoryCandidate> values: foreach (var x in values) await Visit(x); break;
                 case IEnumerable<MemoryClaim> values: foreach (var x in values) await Visit(x); break;
                 default: throw Denied();

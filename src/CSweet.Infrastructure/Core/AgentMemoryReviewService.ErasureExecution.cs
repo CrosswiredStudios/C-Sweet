@@ -117,7 +117,8 @@ public sealed partial class AgentMemoryReviewService
         var runtimeIds = runtimes.ToArray();
         var active = await db.AgentRuntimeInstances.AsNoTracking().Where(x => runtimeIds.Contains(x.Id)).Select(x => x.Status).ToListAsync(token);
         return new(new(sources.Length, captures.Jobs.Count+episodes.Entries.Length, works.Count, runtimes.Count,
-            active.Count(CSweet.Domain.Setup.AgentRuntimeInstance.IsActive), held ? "memory_legal_hold_prevents_deletion" : null),
+            active.Count(CSweet.Domain.Setup.AgentRuntimeInstance.IsActive), held ? "memory_legal_hold_prevents_deletion" : null)
+            { ModelRuns = plan.ModelRuns.Count },
             captures, episodes, genericTransferRetentionHash, plan, evidence, audiences,
             owners.OrderBy(x => x.Partition.StorageKey, StringComparer.Ordinal).ThenBy(x => x.EmployeeId).ToArray());
     }
@@ -176,6 +177,10 @@ public sealed partial class AgentMemoryReviewService
                 continue;
             }
             if (episode.TransferEvidence is not null && episode.Source.Type == "knowledge-transfer") continue;
+            if (episode.Source.Type == WorkInstructionMemorySource.Type &&
+                MemorySourceIntegrity.IsVerified(episode) && await WorkInstructionMemorySource.MatchesAsync(db, episode, token, retained: true) &&
+                generic.Entries.Any(x => x.Job.EpisodeId == episode.Id && x.Evidence.Episode.Partition == episode.Partition &&
+                    x.Job.OrganizationId == organization && MetadataGuid(episode, "installationId") == x.Job.InstallationId)) continue;
             if (!Guid.TryParse(episode.Source.Id, out var sourceId)) throw new InvalidOperationException("memory_erasure_source_review_required");
             if (MetadataGuid(episode, "conversationId") is not { } conversationId || MetadataGuid(episode, "messageId") != sourceId)
             {

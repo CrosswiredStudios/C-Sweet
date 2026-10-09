@@ -2507,6 +2507,16 @@ public sealed partial class WorkManagementCapabilityHandler(
             x.OrganizationId == organizationId && x.WorkItemId == input.ItemId && x.DeletedAt == null);
         if (!string.IsNullOrWhiteSpace(input.Kind))
             query = query.Where(x => x.Kind == input.Kind);
+        if (await query.AnyAsync(x => x.Kind == WorkInstructionPublicationService.CommentKind, cancellationToken))
+        {
+            var people = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                x.AgentInstallationId == installation.Id && x.EmployeeType == EmployeeType.Agent && x.IsActive && x.ArchivedAt == null)
+                .Select(x => x.Id).Take(2).ToListAsync(cancellationToken);
+            if (people.Count != 1) throw new UnauthorizedAccessException("The instruction reader has no unique active employee identity.");
+            await CSweet.Infrastructure.Core.MemoryScopedAudienceAuthorization.RequireAsync(db, organizationId, people[0], null,
+                CSweet.Memory.EmployeeMemoryNamespaces.Case(organizationId.ToString("D"), input.ItemId.ToString("D"), "csweet").Partition,
+                cancellationToken);
+        }
         var total = await query.CountAsync(cancellationToken);
         var rows = await query.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
             .Skip((input.Page - 1) * input.PageSize).Take(input.PageSize)

@@ -227,7 +227,6 @@ public partial class CurrentActivity
     private static string DisplayAction(CurrentActivityItem item) => DisplayState(item) != item.State ?
         DisplayState(item) == "Recovering" ? "Execution lease expired; awaiting recovery" : "No recent task progress reported" : item.CurrentAction;
     private static string StateClass(CurrentActivityItem item) => DisplayState(item) == "Executing" ? "executing" : "waiting";
-    private static string StateIcon(CurrentActivityItem item) => DisplayState(item) == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule;
     private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
     private static string Age(DateTimeOffset time)
     {

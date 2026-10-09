@@ -9,6 +9,7 @@ using CSweet.Domain.Notifications;
 using CSweet.Domain.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.WorkManagement;
@@ -42,8 +43,15 @@ public sealed class WorkItemCollaborationService(
             organizationId, boardId, member.Id, cancellationToken);
         // Archived boards stay readable but accept no new discussion.
         var canComment = permissions.CanComment && board.ArchivedAt is null;
+        var canReadInstructions = (await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.OrganizationUser,
+            member.Id, WorkItemActions.ReadComments, GrantScopeKind.WorkItem, itemId, cancellationToken)).Allowed ||
+            (await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.OrganizationUser, member.Id,
+                WorkItemActions.ReadComments, GrantScopeKind.Board, boardId, cancellationToken)).Allowed ||
+            board.TeamId is { } team && (await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.OrganizationUser,
+                member.Id, WorkItemActions.ReadComments, GrantScopeKind.Team, team, cancellationToken)).Allowed;
         var comments = await db.WorkItemComments.AsNoTracking()
-            .Where(x => x.WorkItemId == itemId && x.DeletedAt == null)
+            .Where(x => x.WorkItemId == itemId && x.DeletedAt == null &&
+                (x.Kind != WorkInstructionPublicationService.CommentKind || canReadInstructions))
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         var authorNames = await WorkItemCommentAuthors.ResolveAsync(
@@ -163,6 +171,8 @@ public sealed class WorkItemCollaborationService(
             throw new InvalidOperationException("A deleted comment cannot be edited.");
         RequireExpectedRevision(comment.Revision, request.ExpectedRevision, "comment");
 
+        await using var instructionTransaction = comment.Kind == WorkInstructionPublicationService.CommentKind
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var now = DateTimeOffset.UtcNow;
         comment.Body = body!;
         comment.EditedAt = now;
@@ -176,10 +186,21 @@ public sealed class WorkItemCollaborationService(
             organizationId, boardId, itemId, "comment.updated", comment.Revision,
             cancellationToken);
         await WorkItemDiscussion.QueueAsync(db, boardId, comment, "comment.updated", cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
-        await WriteAuditAsync(
-            organizationId, boardId, itemId, member, WorkItemActions.UpdateComment,
-            decision, new { commentId = comment.Id }, cancellationToken);
+        if (instructionTransaction is not null)
+            QueueInstructionMutationAudit(organizationId, boardId, itemId, member, decision, comment, "updated");
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            if (instructionTransaction is not null)
+            {
+                await WorkInstructionMemorySource.CaptureAsync(db, comment.Id, cancellationToken);
+                await instructionTransaction.CommitAsync(cancellationToken);
+            }
+        }
+        catch { if (instructionTransaction is not null) db.ChangeTracker.Clear(); throw; }
+        if (instructionTransaction is null)
+            await WriteAuditAsync(organizationId, boardId, itemId, member, WorkItemActions.UpdateComment,
+                decision, new { commentId = comment.Id }, cancellationToken);
         return await ToCommentResponseAsync(
             comment, organizationId, boardId, member.Id, cancellationToken);
     }
@@ -232,10 +253,12 @@ public sealed class WorkItemCollaborationService(
             organizationId, boardId, itemId, "comment.deleted", comment.Revision,
             cancellationToken);
         await WorkItemDiscussion.QueueAsync(db, boardId, comment, "comment.deleted", cancellationToken);
+        if (comment.Kind == WorkInstructionPublicationService.CommentKind)
+            QueueInstructionMutationAudit(organizationId, boardId, itemId, member, decision, comment, "withdrawn");
         await db.SaveChangesAsync(cancellationToken);
-        await WriteAuditAsync(
-            organizationId, boardId, itemId, member, WorkItemActions.DeleteComment,
-            decision, new { commentId = comment.Id }, cancellationToken);
+        if (comment.Kind != WorkInstructionPublicationService.CommentKind)
+            await WriteAuditAsync(organizationId, boardId, itemId, member, WorkItemActions.DeleteComment,
+                decision, new { commentId = comment.Id }, cancellationToken);
         return await ToCommentResponseAsync(
             comment, organizationId, boardId, member.Id, cancellationToken);
     }
@@ -513,6 +536,15 @@ public sealed class WorkItemCollaborationService(
             Actor: new AuditActor(
                 "Human", true, member.ApplicationUserId, member.Id, member.DisplayName)),
             cancellationToken);
+
+    private void QueueInstructionMutationAudit(Guid organization, Guid board, Guid item, OrganizationUser actor,
+        ScopedAuthorizationDecision grant, WorkItemComment comment, string change) =>
+        db.QueueAudit(new AuditEventWriteRequest("work.instruction.changed.v1", "WorkManagement", OrganizationId: organization,
+            EntityType: "WorkItem", EntityId: item, Summary: "A human changed a published work instruction.",
+            MetadataJson: JsonSerializer.Serialize(new { boardId = board, itemId = item, commentId = comment.Id,
+                comment.Revision, change, grantId = grant.GrantId, grantRevision = grant.GrantRevision }, JsonOptions),
+            Actor: new AuditActor("Human", ApplicationUserId: actor.ApplicationUserId, OrganizationUserId: actor.Id),
+            UseAmbientOrganization: false));
 
     private static void ValidateMutation(
         string? value,

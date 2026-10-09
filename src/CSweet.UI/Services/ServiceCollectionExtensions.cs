@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace CSweet.UI.Services;
@@ -23,6 +24,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<ExecutionCapacityAlertState>();
         services.AddScoped<CommunicationUnreadState>();
+        services.AddSingleton(sp => NotificationSoundOptions.FromConfiguration(sp.GetService<IConfiguration>()));
+        services.AddScoped<NotificationSoundPlayer>();
         services.AddScoped<ApprovalState>();
         services.AddScoped<AgentHireOperationState>();
         services.AddScoped<BusinessOnboardingOperationState>();

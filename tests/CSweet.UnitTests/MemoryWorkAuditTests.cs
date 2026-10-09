@@ -12,6 +12,7 @@ public sealed partial class EmployeeAuditTimelineTests
 {
     [Theory]
     [InlineData("receipt")]
+    [InlineData("native-inputs")]
     [InlineData("legacy-chat")]
     [InlineData("broker")]
     [InlineData("retained-chat")]
@@ -30,6 +31,7 @@ public sealed partial class EmployeeAuditTimelineTests
             IdempotencyKey = secret, ProtectedPayload = protector.Protect(bytes), ProtectedResult = protector.Protect(bytes),
             PayloadHash = new string('a', 64), ResultHash = new string('b', 64), AttemptCount = evidence == "historical" ? 0 : 1 };
         if (evidence == "receipt") work.MemoryRecallReceiptJson = "{\"malformed\":\"" + secret + "\"}"; // Still withhold.
+        if (evidence == "native-inputs") work.NativeWorkInputReceiptJson = "{\"malformed\":\"" + secret + "\"}";
         if (evidence == "legacy-chat") work.SourceType = "chat-turn";
         f.Db.AgentWorkItems.Add(work);
         var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), AgentInstallationId = work.AgentInstallationId,

@@ -15,7 +15,7 @@ using System.Text.Json;
 
 namespace CSweet.ExecutionGateway;
 
-public sealed class OfficeGatewayService(
+public sealed partial class OfficeGatewayService(
     CSweetDbContext db,
     IExecutionWorkloadOrchestrator orchestrator,
     IExecutionBrokerSessionRunner brokerSessions,
@@ -36,6 +36,7 @@ public sealed class OfficeGatewayService(
         bool? deliveredDrainState = null;
         Guid? authenticatedOfficeId = null;
         long sessionEpoch = 0;
+        var stopDiscoveryOffset = 0;
         await foreach (var message in requestStream.ReadAllAsync(context.CancellationToken))
         {
             // A connection can outlive administrator changes and assignment retries.
@@ -124,6 +125,8 @@ public sealed class OfficeGatewayService(
                     deliveredDrainState = drain;
                 }
 
+                stopDiscoveryOffset = await ReconcileStopsAsync(nodeId, sessionEpoch, stopDiscoveryOffset,
+                    responseStream, context.CancellationToken);
                 var assignments = await orchestrator.GetNodeAssignmentsAsync(nodeId, sessionEpoch, context.CancellationToken);
                 var activeEpochs = assignments.ToDictionary(x => x.AssignmentId, x => x.FencingEpoch);
                 foreach (var stale in delivered.Where(x =>

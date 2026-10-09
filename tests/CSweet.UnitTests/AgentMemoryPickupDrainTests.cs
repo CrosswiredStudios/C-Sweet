@@ -17,7 +17,7 @@ public sealed partial class AgentMemoryServiceTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task RetainedContextPickupKeepsActiveChatAliveThenRotatesBeforeIncompatibleWork(bool recallMemory, bool otherHuman)
+    public async Task TaskContextPickupKeepsActiveChatAliveThenAdmitsDifferentWorkWithoutRotation(bool recallMemory, bool otherHuman)
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var turn = await SeedRecallTurnAsync(fixture);
@@ -72,34 +72,18 @@ public sealed partial class AgentMemoryServiceTests
         var completion = new AgentWorkCompletion(true, JsonSerializer.SerializeToElement(new { reply = "Pitch ready", approvalId = Guid.NewGuid() }), null);
         await inbox.CompleteAsync(DeliverySession(session), work.Id, claim.Attempt, claim.LeaseToken, completion, default);
         await inbox.CompleteAsync(DeliverySession(session), work.Id, claim.Attempt, claim.LeaseToken, completion, default);
-        Assert.Null(await inbox.ClaimAsync(DeliverySession(session), default));
-        await inbox.SettleMemoryResetAsync(Guid.Parse(session.RuntimeInstanceId), default);
+        var nextClaim = Assert.IsType<ClaimedAgentWork>(await inbox.ClaimAsync(DeliverySession(session), default));
+        Assert.Equal(next.Id, nextClaim.WorkId);
+        await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, next.Id, default, nextClaim.Attempt);
         Assert.True((await inbox.ReadStateAsync(work.Id, default)).Completion!.Succeeded);
-        Assert.Equal(AgentWorkStatus.Pending, (await inbox.ReadStateAsync(next.Id, default)).Status);
         Assert.Equal(1, (await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == work.Id)).AttemptCount);
-        Assert.NotNull((await db.McpAgentSessions.AsNoTracking().SingleAsync()).RevokedAt);
-        var diagnostic = Assert.Single(await db.AgentRuntimeEvents.AsNoTracking().ToArrayAsync()).Reason;
-        Assert.Contains(otherHuman ? "queued-recall.consumer-audience" : "queued-recall.consumer-kind", diagnostic);
-
-        // A clean replacement may claim the pending work once, without inheriting old receipts.
-        // Simulate confirmed shutdown here; AgentRuntimeManagerTests separately exercises provider
-        // confirmation and prevents replacement while shutdown is uncertain.
-        var retired = await db.AgentRuntimeInstances.SingleAsync();
-        retired.TransitionTo(AgentRuntimeStatus.Stopping, DateTimeOffset.UtcNow);
-        retired.TransitionTo(AgentRuntimeStatus.Cancelled, DateTimeOffset.UtcNow);
-        retired.MemoryResetCompletedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync();
-        var replacement = new AgentRuntimeInstance { Id = Guid.NewGuid(), AgentInstallationId = fixture.InstallationId,
-            TickId = Guid.NewGuid(), RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddHours(1) };
-        replacement.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow);
-        replacement.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow);
-        replacement.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow);
-        db.AgentRuntimeInstances.Add(replacement); await db.SaveChangesAsync();
-        var replacementSession = DeliverySession(session);
-        replacementSession.RuntimeInstanceId = replacement.Id; replacementSession.TickId = replacement.TickId;
-        Assert.Equal(next.Id, (await inbox.ClaimAsync(replacementSession, default))!.WorkId);
+        Assert.Null((await db.McpAgentSessions.AsNoTracking().SingleAsync()).RevokedAt);
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+        Assert.Empty(await db.AgentRuntimeEvents.AsNoTracking().ToArrayAsync());
         Assert.Equal(1, await db.AgentWorkAttempts.CountAsync(x => x.AgentWorkItemId == next.Id));
-        Assert.Equal(1, (await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == work.Id)).AttemptCount);
+        Assert.NotEmpty(await db.AgentMemoryReadReceipts.Where(x => x.WorkId == work.Id).ToArrayAsync());
+        Assert.All(await db.AgentMemoryReadReceipts.Where(x => x.WorkId == next.Id).ToArrayAsync(), receipt =>
+            Assert.Equal(nextClaim.Attempt, receipt.Attempt));
     }
 
     [MemoryPostgresFact]

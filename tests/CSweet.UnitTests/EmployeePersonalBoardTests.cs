@@ -95,6 +95,29 @@ public sealed partial class EmployeePersonalBoardTests
     }
 
     [Fact]
+    public async Task DeepLinkOpensOnlyAnItemOnTheAuthorizedBoardAndDoesNotOverwriteDrafts()
+    {
+        var item = Item();
+        using var http = new HttpClient(new Handler(_ => new(HttpStatusCode.OK)
+            { Content = JsonContent.Create(Array.Empty<object>()) })) { BaseAddress = new Uri("http://localhost") };
+        var component = Component(item, http);
+        component.CanAdd = false; component.CanExecute = false;
+        component.RequestedItemId = Guid.NewGuid();
+        await InvokeTask(component, "OnParametersSetAsync");
+        Assert.False(Get<bool>(component, "_dialogOpen"));
+        component.RequestedItemId = item.Id;
+        await InvokeTask(component, "OnParametersSetAsync");
+        Assert.True(Get<bool>(component, "_dialogOpen"));
+        Assert.Equal(item.Id, Get<Wire.PersonalTodoItem>(component, "_selectedItem").Id);
+        Set(component, "_editTitle", "Unsaved draft");
+        await InvokeTask(component, "OnParametersSetAsync");
+        Assert.Equal("Unsaved draft", Get<string>(component, "_editTitle"));
+        Invoke(component, "CloseDetails");
+        await InvokeTask(component, "OnParametersSetAsync");
+        Assert.False(Get<bool>(component, "_dialogOpen"));
+    }
+
+    [Fact]
     public async Task EditingAndMovingUsesReturnedRevisionAndKeepsMentionInputs()
     {
         var item = Item() with

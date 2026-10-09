@@ -1,0 +1,69 @@
+@namespace CSweet.UI.Components.Communications
+@using CSweet.Contracts.WorkManagement
+@implements IAsyncDisposable
+
+<button type="button" class="share-instruction" @onclick="OpenAsync">Share instruction with a work item</button>
+@if (_open)
+{
+    <div class="instruction-backdrop">
+        <MudFocusTrap Class="instruction-focus" DefaultFocus="DefaultFocus.FirstChild">
+        <section class="instruction-dialog" role="dialog" aria-modal="true" aria-labelledby="@HeadingId" @onkeydown="@(args => { if (args.Key == "Escape") Close(); })">
+            <h2 id="@HeadingId">Share a work instruction</h2>
+            <p>Choose the relevant text from your message and its work item. People and agents with access to that work item's comments can read the published instruction.</p>
+            @if (_error is not null) { <p role="alert">@_error</p> }
+            @if (_result is not null)
+            {
+                <p role="status">Instruction @StatusText(_result.Status).</p>
+                <a href="@WorkHref">Open work item</a>
+            }
+            else
+            {
+                <label for="@SourceId">Highlight the instruction to share</label>
+                <textarea id="@SourceId" @ref="_source" readonly rows="6">@Content</textarea>
+                <label for="@BoardId">Board</label>
+                <select id="@BoardId" value="@_board" @onchange="ChangeBoardAsync" disabled="@(_busy || _uncertain)">
+                    <option value="">Choose a board</option>
+                    @foreach (var board in _boards) { <option value="@board.Id">@board.Name</option> }
+                </select>
+                <label for="@ItemId">Work item</label>
+                <select id="@ItemId" value="@_item" @onchange="ChangeItemAsync" disabled="@(_busy || _uncertain || _board is null)">
+                    <option value="">Choose a work item</option>
+                    @foreach (var item in _items) { <option value="@item.Id">@(item.Identifier is null ? item.Title : $"{item.Identifier} · {item.Title}")</option> }
+                </select>
+                @if (_preview is not null)
+                {
+                    <h3>Publish to @_preview.BoardName · @_preview.WorkItemTitle</h3>
+                    <blockquote>@_preview.Instruction</blockquote>
+                    <p>This text will be attributed to you. You can edit or withdraw it in the work item's comments.</p>
+                    @if (_uncertain)
+                    {
+                        <p role="status">The response was lost. Retry the same publication to check its saved result.</p>
+                    }
+                    <button type="button" disabled="@_busy" @onclick="PublishAsync">@(_uncertain ? "Check publication" : "Publish this instruction")</button>
+                    @if (!_uncertain) { <button type="button" disabled="@_busy" @onclick="ClearReview">Change selection</button> }
+                }
+                else
+                {
+                    <button type="button" disabled="@(_busy || _item is null)" @onclick="PreviewAsync">Review highlighted text</button>
+                }
+            }
+            @if (_item is not null)
+            {
+                <details>
+                    <summary>Your published instructions for this work item</summary>
+                    <button type="button" disabled="@_busy" @onclick="RefreshPublicationsAsync">Refresh saved publications</button>
+                    @if (_history.Count == 0) { <p>No saved publications loaded.</p> }
+                    <ul>
+                        @foreach (var publication in _history)
+                        {
+                            <li @key="publication.Id"><a href="@WorkHref">Instruction @publication.Id.ToString("N")[..8]</a> · @StatusText(publication.Status)</li>
+                        }
+                    </ul>
+                    @if (_next is not null) { <button type="button" disabled="@_busy" @onclick="LoadMoreAsync">More publications</button> }
+                </details>
+            }
+            <button type="button" @onclick="Close">Close</button>
+        </section>
+        </MudFocusTrap>
+    </div>
+}

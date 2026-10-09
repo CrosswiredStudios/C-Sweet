@@ -60,7 +60,9 @@
                 }
                 else if (widget == "activity")
                 {
-                    <CurrentActivity OrganizationId="OrganizationId" RefreshVersion="_activityRefreshVersion" />
+                    <EmployeePortraitScope OrganizationId="OrganizationId">
+                        <CurrentActivity OrganizationId="OrganizationId" RefreshVersion="_activityRefreshVersion" />
+                    </EmployeePortraitScope>
                 }
                 else if (widget == "decisions")
                 {

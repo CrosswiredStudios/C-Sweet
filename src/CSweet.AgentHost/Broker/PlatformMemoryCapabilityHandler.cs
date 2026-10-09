@@ -104,6 +104,11 @@ public sealed class PlatformMemoryCapabilityHandler
         {
             return Failure(request.RequestId, "That memory write ID already has different content or review state.", "memory_write_conflict", false);
         }
+        catch (MemorySearchBudgetExceededException)
+        {
+            return Failure(request.RequestId, "Memory search exceeded its evidence allowance. Narrow the query or requested layers.",
+                MemorySearchBudgetExceededException.ErrorCode, false);
+        }
         catch (Exception exception) when (exception is InvalidOperationException or ArgumentException)
         {
             _logger.LogWarning(exception, "Memory operation {RequestId} failed for agent {AgentId}.", request.RequestId, session.AgentId);

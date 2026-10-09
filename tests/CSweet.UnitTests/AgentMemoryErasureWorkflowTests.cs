@@ -212,9 +212,13 @@ public sealed partial class AgentMemoryServiceTests
         var (actor, turn, _) = await SeedErasureWorkflowAsync(fixture);
         await using var db = fixture.Context(); await db.Database.OpenConnectionAsync();
         var migration = new ReviewedMemoryErasure(); var generator = db.GetService<IMigrationsSqlGenerator>();
+        var diagnostics = new MemoryModelDiagnosticErasure();
+        await db.Database.ExecuteSqlRawAsync(MemoryModelDiagnosticErasure.InstallGuards);
         await db.Database.ExecuteSqlRawAsync(ReviewedMemoryErasure.InstallTriggers);
+        foreach (var command in generator.Generate(diagnostics.DownOperations)) await db.Database.ExecuteSqlRawAsync(command.CommandText);
         foreach (var command in generator.Generate(migration.DownOperations)) await db.Database.ExecuteSqlRawAsync(command.CommandText);
         foreach (var command in generator.Generate(migration.UpOperations)) await db.Database.ExecuteSqlRawAsync(command.CommandText);
+        foreach (var command in generator.Generate(diagnostics.UpOperations)) await db.Database.ExecuteSqlRawAsync(command.CommandText);
         Assert.Equal(turn.Id, await db.ChatTurns.Select(x => x.Id).SingleAsync());
         var service = ErasureService(fixture, db); var preview = await service.GetErasureImpactAsync(fixture.OrganizationId, fixture.EmployeeId, fixture.MessageId, actor);
         await service.EraseSourceAsync(fixture.OrganizationId, fixture.EmployeeId, fixture.MessageId, actor, new(Guid.NewGuid(), Assert.IsType<string>(preview.EvidenceToken)));

@@ -59,7 +59,18 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
         var sender = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == senderId &&
             x.OrganizationId == turn.OrganizationId && x.IsActive && x.ArchivedAt == null, token) ?? throw Denied();
         if (employee.AgentInstallationId is not { } installation || !await db.AgentInstallations.AsNoTracking().AnyAsync(x =>
-            x.Id == installation && x.BusinessId == turn.OrganizationId.ToString() && x.IsEnabled, token)) throw Denied();
+            x.Id == installation && x.BusinessId == turn.OrganizationId.ToString() && x.IsEnabled &&
+            x.RevisionStatus == PluginRevisionStatus.Active, token)) throw Denied();
+        Guid? senderInstallation = null;
+        if (sender.EmployeeType == EmployeeType.Agent)
+        {
+            senderInstallation = sender.AgentInstallationId ?? throw Denied("queued-recall.sender-installation");
+            if (!await db.AgentInstallations.AsNoTracking().AnyAsync(x => x.Id == senderInstallation &&
+                    x.BusinessId == turn.OrganizationId.ToString() && x.IsEnabled &&
+                    x.RevisionStatus == PluginRevisionStatus.Active, token)) throw Denied("queued-recall.sender-installation");
+        }
+        else if (sender.EmployeeType != EmployeeType.Human || sender.AgentInstallationId is not null)
+            throw Denied("queued-recall.sender-identity");
         var members = await db.TeamMemberships.AsNoTracking().Where(x => x.OrganizationId == turn.OrganizationId &&
             (x.OrganizationUserId == employee.Id || x.OrganizationUserId == sender.Id) && x.EndedAt == null)
             .OrderBy(x => x.Id).Select(x => new { x.Id, x.TeamId, x.OrganizationUserId, x.TeamRoleId,
@@ -74,6 +85,7 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
             generations = await MemoryAccessAuthorityEvidence.ReadAsync(db,
                 new[] { (Kind: "person", Id: employee.Id), (Kind: "person", Id: sender.Id),
                     (Kind: "installation", Id: installation), (Kind: "conversation", Id: conversation.Id) }
+                .Concat(senderInstallation is { } senderIdInstallation ? [(Kind: "installation", Id: senderIdInstallation)] : [])
                 .Concat(members.Select(x => (Kind: "member", Id: x.Id)))
                 .Concat(members.Select(x => (Kind: "team", Id: x.TeamId)))
                 .Concat(roles.Select(x => (Kind: "role", Id: x.Id))), token);
@@ -273,6 +285,11 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
 
     private async Task RequireCurrentConversationSourceAsync(MemoryEpisode episode, CancellationToken token)
     {
+        if (episode.Source.Type == WorkInstructionMemorySource.Type)
+        {
+            if (!await WorkInstructionMemorySource.MatchesAsync(db, episode, token)) throw Denied("read.instruction-source-changed");
+            return;
+        }
         // Other established source types are governed by their library provenance/transfer checks.
         if (episode.Metadata?.TryGetValue("conversationId", out var raw) != true) return;
         if (!Guid.TryParse(raw, out var conversationId)) throw Denied();

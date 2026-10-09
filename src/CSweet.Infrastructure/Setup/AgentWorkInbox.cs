@@ -63,7 +63,7 @@ public sealed partial class AgentWorkInbox(
     private readonly IDataProtector _protector =
         protectionProvider.CreateProtector("CSweet.AgentWorkInbox.v1");
 
-    public async Task<AgentWorkItem> EnqueueAsync(
+    public Task<AgentWorkItem> EnqueueAsync(
         string organizationId,
         Guid installationId,
         AgentWorkKind kind,
@@ -78,9 +78,18 @@ public sealed partial class AgentWorkInbox(
         int maximumAttempts = 3,
         CancellationToken cancellationToken = default,
         string? memoryRecallReceiptJson = null)
+        => EnqueueCoreAsync(organizationId, installationId, kind, name, payload, idempotencyKey, deadline,
+            correlationId, causationId, sourceType, sourceId, maximumAttempts, cancellationToken, memoryRecallReceiptJson, null);
+
+    private async Task<AgentWorkItem> EnqueueCoreAsync(
+        string organizationId, Guid installationId, AgentWorkKind kind, string name, JsonElement payload,
+        string idempotencyKey, DateTimeOffset deadline, string? correlationId, string? causationId,
+        string? sourceType, string? sourceId, int maximumAttempts, CancellationToken cancellationToken,
+        string? memoryRecallReceiptJson, NativeWorkInputEvidence? nativeInputs)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var payloadHash = Convert.ToHexString(SHA256.HashData(bytes));
+        nativeInputs?.RequirePayload(payloadHash, organizationId, installationId, kind, name, correlationId, sourceType, sourceId);
         if (memoryRecallReceiptJson?.Length > 131072)
             throw new InvalidOperationException("Memory recall receipt is too large.");
         if (memoryRecallReceiptJson is not null)
@@ -115,6 +124,7 @@ public sealed partial class AgentWorkInbox(
         if (existing is not null &&
             existing.OrganizationId == organizationId && existing.Kind == kind && existing.Name == name &&
             existing.PayloadHash == payloadHash && existing.MemoryRecallReceiptJson == memoryRecallReceiptJson &&
+            existing.NativeWorkInputReceiptJson == nativeInputs?.Bind(existing) &&
             (kind != AgentWorkKind.Event ||
              string.Equals(existing.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)))
             return existing;
@@ -165,6 +175,7 @@ public sealed partial class AgentWorkInbox(
             MaximumAttempts = Math.Clamp(maximumAttempts, 1, 10),
             CreatedAt = now
         };
+        item.NativeWorkInputReceiptJson = nativeInputs?.Bind(item);
         db.AgentWorkItems.Add(item);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work("enqueued", kind);
@@ -234,7 +245,8 @@ public sealed partial class AgentWorkInbox(
                 x.AgentWorkItem!.Status == AgentWorkStatus.Leased &&
                 x.AgentWorkItem.AgentInstallationId == session.AgentInstallationId &&
                 x.AgentWorkItem.OrganizationId == session.OrganizationId &&
-                db.AgentMemoryReadReceipts.Any(receipt => receipt.RuntimeId == session.RuntimeInstanceId))
+                db.AgentMemoryReadReceipts.Any(receipt => receipt.RuntimeId == session.RuntimeInstanceId &&
+                    receipt.WorkId == x.AgentWorkItemId && receipt.Attempt == x.Attempt))
             .OrderBy(x => x.Id).Select(x => (Guid?)x.AgentWorkItemId).FirstOrDefaultAsync(cancellationToken);
         if (expiredRetainedWork is { } expiredWorkId)
         {
@@ -346,7 +358,7 @@ public sealed partial class AgentWorkInbox(
         {
             var evidence = new CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence(db);
             // Durable active leases hold new pickups while retained context serves running work.
-            // Validate that work first; rotate for an incompatible candidate only after it finishes.
+            // Validate only each live attempt's context; completed callbacks do not taint the next task.
             if (!await evidence.RequireRetainedConsumerAsync(session, item, cancellationToken))
             {
                 await db.SaveChangesAsync(cancellationToken);

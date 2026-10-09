@@ -377,6 +377,15 @@
                                   @if (message.ResourceChange is null && message.Actions?.Any(x => x.ApprovalId.HasValue) != true)
                                   {
                                       <MentionedMessageContent Content="@message.Content" Mentions="@message.Mentions" />
+                                      @if (!_hub.IsReadOnlyPerspective && _selected.IsDirect && _selected.IsPrivate &&
+                                          _selected.Participants.Any(x => x.EmployeeType == "Agent") &&
+                                          message.SenderOrganizationUserId == _hub.CurrentOrganizationUserId &&
+                                          message.SenderEmployeeType == "Human" && message.ChatId == _selected.Id &&
+                                          message.Content.Length is > 0 and <= 65536)
+                                      {
+                                          <ShareWorkInstruction @key="(OrganizationId, message.Id)" OrganizationId="OrganizationId"
+                                              ConversationId="message.ChatId" MessageId="message.Id" Content="message.Content" />
+                                      }
                                   }
                                   @if (message.Attachments.Count > 0)
                                   {

@@ -20,6 +20,7 @@
     @if (impact.Execution is { } execution)
     {
         <MudText>@execution.CaptureSources capture sources, @execution.ExtractionJobs extraction jobs, and @execution.WorkItems work items would require cleanup. @execution.ActiveRuntimes active runtimes would need to stop; @execution.Runtimes runtimes are represented in the affected work history.</MudText>
+        @if (execution.ModelRuns > 0) { <MudText>@execution.ModelRuns model runs have diagnostic copies in this review.</MudText> }
     }
     <MudText>@impact.DiagnosticTurns chat turns have diagnostic copies in this review.</MudText>
     @if (impact.ApplyBlockedReason is { } reason && reason != impact.BlockedReason)
@@ -40,6 +41,7 @@
 {
     <MudAlert Severity="@(result.PendingRuntimes == 0 ? Severity.Success : Severity.Info)">
         @result.ErasedRecords records and @result.ErasedRevisions historical versions erased; @result.ClearedWorks work items and @result.ClearedDiagnosticTurns diagnostic turns cleared.
+        @if (result.ClearedModelRuns > 0) { <MudText>@result.ClearedModelRuns model diagnostic copies cleared.</MudText> }
         @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
     </MudAlert>
     <MudText Typo="Typo.caption">Operation: @result.OperationId</MudText>

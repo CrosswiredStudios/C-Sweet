@@ -81,6 +81,7 @@ public sealed partial class AgentMemoryReviewService
                     plan.Execution.Owners.ToArray(), OwnershipVersion: 1), JsonOptions),
                 ErasedRecords = erasedRecords, ErasedRevisions = erasedRevisions, ClearedJobs = captures.ClearedJobs+episodeJobs,
                 ClearedWorks = workResult.ClearedWorks, ClearedDiagnosticTurns = turns.Length };
+            receipt.ClearedModelRuns = plan.Execution.Work.ModelRuns.Count;
             db.MemoryErasureReceipts.Add(receipt);
             db.QueueAudit(new AuditEventWriteRequest("memory.source.erased.v1", "Memory", OrganizationId: organizationId,
                 EntityType: "MemoryErasure", EntityId: episodeId, Summary: "A human reviewer erased a memory source and its verified retained copies.",
@@ -123,6 +124,7 @@ public sealed partial class AgentMemoryReviewService
         var pending = runtimeIds.Except(stopped).Count();
         return new(receipt.Id, receipt.OperationId, receipt.EpisodeId, receipt.ErasedRecords, receipt.ErasedRevisions,
             receipt.ClearedJobs, receipt.ClearedWorks, receipt.ClearedDiagnosticTurns, pending,
-            pending == 0 ? "completed" : "runtime-reset-pending", receipt.CreatedAt, replay);
+            pending == 0 ? "completed" : "runtime-reset-pending", receipt.CreatedAt, replay)
+            { ClearedModelRuns = receipt.ClearedModelRuns };
     }
 }

@@ -16,6 +16,7 @@ public sealed class MemoryErasureReceipt
     public int ErasedRevisions { get; set; }
     public int ClearedJobs { get; set; }
     public int ClearedWorks { get; set; }
+    public int ClearedModelRuns { get; set; }
     public int ClearedDiagnosticTurns { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }

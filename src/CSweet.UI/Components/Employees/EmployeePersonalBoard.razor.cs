@@ -19,6 +19,8 @@ public partial class EmployeePersonalBoard
     [Parameter, EditorRequired] public Guid EmployeeId { get; set; }
     [Parameter, EditorRequired] public Wire.PersonalTodoBoard Board { get; set; } = default!;
     [Parameter] public bool CanAdd { get; set; }
+    [Parameter] public Guid? RequestedItemId { get; set; }
+    private Guid? _openedRequestedItemId;
     [Parameter] public bool CanExecute { get; set; }
     [Parameter] public bool IncludeArchived { get; set; }
     [Parameter] public EventCallback<bool> IncludeArchivedChanged { get; set; }
@@ -86,7 +88,15 @@ public partial class EmployeePersonalBoard
             _loadedBoardId = Board.BoardId;
             _statuses.Clear(); _priority = ""; _archive = IncludeArchived ? "all" : "current";
             _dialogOpen = false; _selectedItem = null; _error = null; _notice = "";
+            _openedRequestedItemId = null;
         }
+        if (RequestedItemId is { } requested && requested != _openedRequestedItemId &&
+            Board.Items.SingleOrDefault(x => x.Id == requested) is { } requestedItem)
+        {
+            OpenDetails(requestedItem);
+            _openedRequestedItemId = requested;
+        }
+        if (RequestedItemId is null) _openedRequestedItemId = null;
         // Do not overwrite a user's draft when a realtime board refresh arrives. The save
         // keeps the original revision so a concurrent edit is detected by the server.
         if (_loadedOrganizationId == OrganizationId || !(CanAdd || CanExecute)) return;

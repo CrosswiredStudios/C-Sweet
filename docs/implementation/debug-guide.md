@@ -728,3 +728,13 @@ Set-ItemProperty $key DumpCount 3 -Type DWord
 
 Event Viewer > Windows Logs > Application also records the faulting module for native crashes
 ("Application Error" and ".NET Runtime" entries at the crash time).
+
+## QA waiting behind incomplete runtime shutdown
+
+`OfficeGatewayService.ReconcileStopsAsync` (`OfficeGatewayService.Stops.cs`) uses the existing authenticated heartbeat to rediscover up to eight retired attempts without shutdown acknowledgement. Discovery rotates and repeats across reconnects. `OfficeWorker.ReadControlMessagesAsync` retains every received epoch and handles the teardown-only hint, while `AssignmentStopJournal` retains permanent replay tombstones and reports confirmed cleanup through the existing stop outbox.
+
+`RuntimeHostAuthorizationGate.Attempts.cs` retains exact creation intent and handles; `RuntimeHostRequestDispatcher.Attempts.cs` serializes creation against teardown and recovers lost responses. Hyper-V's `HyperVAttemptJournal` and `HyperVHelperController.DestroyAttemptAsync` recover interrupted creation using provider-owned identities through the existing typed destroy operation. `FleetAgentWorkloadRunner.InspectAsync` still requires stop evidence for every attempt before replacement. Unknown historical creation outcomes remain unconfirmed.
+
+Deploy Headquarters with Office.Contracts 0.9.0 and Office 0.8.0 (Node, RuntimeHost and digest-pinned helper together). Source builds and mocked tests do not certify live Hyper-V recovery. No database reset or fabricated `StoppedAt` is required.
+
+`WorkItemMutationEngine.CoordinationWake.cs` also correlates typed role-estimation and QA-readiness requests through their exact `PlanningDigest`, since their artifact keys identify the narrower request. Initiator identity, installation, project, team, board, terminal status and durable wake receipts remain required. Completion releases only an availability hint; the Producer re-reads current scope and evidence before progressing. Tests: `AssignmentStopJournalTests`, `RuntimeHostRpcIntegrationTests`, `ExecutionWorkloadOrchestratorTests.GatewayRediscoversRetiredAttemptsEvenWhenLatestAttemptHasStopped`, and `PersonalTodoServiceTests.Planning_cycle_recovers_intake_context_and_completion_before_deferral_only_with_exact_provenance`.

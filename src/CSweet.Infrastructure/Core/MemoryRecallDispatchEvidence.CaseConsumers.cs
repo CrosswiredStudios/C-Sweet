@@ -13,6 +13,8 @@ public sealed partial class MemoryRecallDispatchEvidence
         if (!db.Database.IsNpgsql()) throw Denied("case.consumer-backend");
         var item = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == itemId &&
             x.OrganizationId == organization && x.BoardId != null && x.ArchivedAt == null, token) ?? throw Denied();
+        if (work.SourceType == "agent-coordination")
+            return await CaseCoordinationConsumerBindingAsync(work, organization, employee, itemId, item.BoardId!.Value, token);
         if (work.SourceType is not ("WorkStageExecution" or "WorkDeliveryStage"))
         {
             // Historical activity and payload hints cannot replace the current server-owned claim.

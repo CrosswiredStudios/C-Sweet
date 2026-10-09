@@ -103,6 +103,7 @@ public sealed class CompanyDashboardRealtimeTests
             services.AddSingleton<IComponentActivator>(Activator);
             services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost") });
             services.AddScoped<AppRealtimeState>();
+            services.AddScoped<IAgentApiClient, AgentApiClient>();
             _services = services.BuildServiceProvider();
             Realtime = _services.GetRequiredService<AppRealtimeState>();
             Renderer = new HtmlRenderer(_services, _services.GetRequiredService<ILoggerFactory>());
@@ -155,6 +156,7 @@ public sealed class CompanyDashboardRealtimeTests
             else if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(DashboardWidgets.DefaultOrder);
             else if (path.EndsWith("/dashboard")) result = new CompanyDashboardResponse(new([], null), new([], null));
             else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
+            else if (path.EndsWith("/users") || path.EndsWith("/installations")) result = Array.Empty<object>();
             else if (path.EndsWith("/inspection")) result = new ProjectPortfolioResponse(DateTimeOffset.UtcNow, 0, 0, []);
             else if (path.EndsWith("/questions/pending")) result = Array.Empty<CSweet.Contracts.Communications.PendingAgentQuestionResponse>();
             else if (path.EndsWith("/approvals")) result = new ApprovalDashboardResponse(Guid.NewGuid(), ItemCount,

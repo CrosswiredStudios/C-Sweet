@@ -1,0 +1,71 @@
+@using CSweet.Contracts.Core
+
+<article class="activity-card" data-activity-kind="@Item.ActivityKind">
+    <header class="activity-card-header">
+        <div class="activity-card-title"><MudIcon Icon="@HeadingIcon" Size="Size.Small" /><strong>@Heading</strong></div>
+        <div class="activity-card-controls">
+            <span class="activity-card-status @StateClass">@FriendlyState <span aria-hidden="true">·</span> <time title="@Item.StartedAt.ToLocalTime().ToString("g")">@Age</time></span>
+            <button type="button" class="activity-inspect" data-current-activity-open="@Item.Key" aria-label="@($"Inspect {Heading}: {Item.Title}")" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)"><MudIcon Icon="@Icons.Material.Outlined.MoreHoriz" /></button>
+        </div>
+    </header>
+    @if (Item.WorkItemId.HasValue && Item.BoardId.HasValue)
+    {
+        <a class="activity-task-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)"><MudIcon Icon="@Icons.Material.Outlined.CheckBox" Size="Size.Small" />@Item.Title<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
+        <div class="activity-card-context">@if (Item.Identifier is not null) { <span>@Item.Identifier · </span> }@Item.Context</div>
+    }
+    <div class="activity-card-agents @(Item.Collaborator is not null ? "collaborating" : "")">
+        <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" Status="@AgentStatus" />
+        @if (Item.Collaborator is { } other)
+        {
+            <span class="activity-card-connector" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.CompareArrows" Size="Size.Small" /></span>
+            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" />
+        }
+    </div>
+    @if (State is "Waiting" or "Needs attention")
+    {
+        <div class="activity-card-reason"><span>@(State == "Needs attention" ? "What needs attention" : IsQueued ? "What's next" : "What's needed")</span><p>@Action</p></div>
+    }
+    else
+    {
+        <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
+    }
+    @if (Item.PreviousSteps.Count > 0)
+    {
+        <details class="activity-card-details"><summary>Recent progress</summary><ul>@foreach (var step in Item.PreviousSteps) { <li>@step.Text</li> }</ul></details>
+    }
+    @if (Item.CanInspect && !string.IsNullOrWhiteSpace(Item.TechnicalName))
+    {
+        <details class="activity-card-details"><summary>Technical details</summary><code>@Item.TechnicalName</code></details>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public CurrentActivityItem Item { get; set; } = null!;
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public string State { get; set; } = "";
+    [Parameter] public string Action { get; set; } = "";
+    [Parameter] public string Age { get; set; } = "";
+    [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public EventCallback<CurrentActivityItem> Inspect { get; set; }
+    private bool IsQueued => State == "Waiting" && (Action.StartsWith("Queued", StringComparison.Ordinal) || Action == "Waiting for an agent claim");
+    private string FriendlyState => State == "Executing" ? "Working" : IsQueued ? "Queued" : State;
+    private string StateClass => State == "Executing" ? "working" : State is "Needs attention" or "Recovering" or "Unconfirmed" ? "attention" : "waiting";
+    private string AgentStatus => State == "Executing" ? Item.ActivityKind is "Collaboration" or "Chat" ? "Responding now" : "Working now" : FriendlyState;
+    private string Heading => Item.ActivityKind switch
+    {
+        "Collaboration" => "Collaborating",
+        "Review" => State == "Executing" ? "Reviewing work" : IsQueued ? "Review queued" : "Review waiting",
+        "Chat" => "Responding in Communications",
+        "Model" => "Generating a response",
+        _ => State == "Waiting" ? IsQueued ? "Work queued" : Action.Contains("decision", StringComparison.OrdinalIgnoreCase) ? "Awaiting a decision" :
+            Action.Contains("approval", StringComparison.OrdinalIgnoreCase) ? "Awaiting approval" : Action.Contains("model capacity", StringComparison.OrdinalIgnoreCase) ? "Waiting for capacity" : "Waiting on dependencies" :
+            State == "Needs attention" ? "Needs attention" : Item.WorkItemId.HasValue ? "Working on a task" : "Background activity"
+    };
+    private string HeadingIcon => Item.ActivityKind switch
+    {
+        "Collaboration" => Icons.Material.Outlined.Forum,
+        "Review" => Icons.Material.Outlined.FactCheck,
+        "Chat" => Icons.Material.Outlined.ChatBubbleOutline,
+        _ => State is "Waiting" or "Needs attention" ? Icons.Material.Outlined.PauseCircleOutline : Icons.Material.Outlined.TaskAlt
+    };
+}

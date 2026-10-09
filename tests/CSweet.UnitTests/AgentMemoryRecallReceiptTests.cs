@@ -158,6 +158,7 @@ public sealed partial class AgentMemoryServiceTests
             { Sensitivity = MemorySensitivity.Personal, SourceEpisodeIds = [fixture.MessageId], Confirmation = MemoryConfirmationState.Confirmed };
         await fixture.Store.WriteBlockAsync(block);
         var prepared = await fixture.Service(db, new UsageProviderFactory()).PrepareTurnRecallAsync(turn.Id);
+        Assert.Contains("concise", prepared.Context);
         var work = ReceiptWork(fixture, turn, prepared.ReceiptJson);
         await fixture.Store.WriteBlockAsync(block with { Confirmation = MemoryConfirmationState.Rejected });
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new MemoryRecallDispatchEvidence(db).AuthorizeWorkAsync(work, fixture.EmployeeId.ToString("D"), default));

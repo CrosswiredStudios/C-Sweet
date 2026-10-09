@@ -5,6 +5,8 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Llm;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using CSweet.Infrastructure.Persistence;
 using Microsoft.Extensions.AI;
 
 namespace CSweet.AgentHost.Broker;
@@ -40,7 +42,11 @@ public sealed partial class PlatformLlmCapabilityHandler
         if (!await IsModelApprovedAsync(session, current.Id, selectedModel, current.DefaultChatModel, token)) throw new ProviderDispatchDeniedException();
         var benchmark = await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ResolveAsync(_dbContext, installationId, session.BusinessId, token);
         if (benchmark is not null && (benchmark.ProviderProfileId != current.Id || benchmark.Model != selectedModel)) throw new ProviderDispatchDeniedException();
-        await new PlatformMemoryReadEvidence(_dbContext).AuthorizeDispatchAsync(session, InferenceExecutionAttribution.Current?.WorkId, token);
+        // Provider-start telemetry can be dirty during an HTTP retry or while a stream is running.
+        // A safety reset owns its transaction and must never save those unrelated tracked changes.
+        await using (var memoryDb = new CSweetDbContext((DbContextOptions<CSweetDbContext>)_dbContext.GetService<IDbContextOptions>()))
+            await new PlatformMemoryReadEvidence(memoryDb).AuthorizeDispatchAsync(session, InferenceExecutionAttribution.Current?.WorkId, token,
+                InferenceExecutionAttribution.Current?.Attempt);
         if (InferenceExecutionAttribution.Current is { } attribution)
         {
             if (!await _dbContext.AgentWorkItems.AsNoTracking().AnyAsync(x => x.Id == attribution.WorkId &&

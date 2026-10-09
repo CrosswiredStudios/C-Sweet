@@ -760,6 +760,14 @@ public sealed class AgentCoordinationService(
     {
         var request = await BuildTurnRequestAsync(session, currentUserId, cancellationToken);
         var eventId = Guid.NewGuid();
+        if (session.SourceKind == "WorkItem" && session.SourceWorkItemId is not null &&
+            session.SourceConversationId is null && session.SourceChatTurnId is null && session.SourceMessageId is null)
+        {
+            if (request.Self.AgentInstallationId != installationId)
+                throw new InvalidOperationException("The native collaboration consumer has changed.");
+            return (await inbox.EnqueueCaseCoordinationAsync(session, request, eventId,
+                DateTimeOffset.UtcNow.Add(TurnDeadline), cancellationToken)).Id;
+        }
         var work = await inbox.EnqueueAsync(
             session.OrganizationId.ToString("D"),
             installationId,

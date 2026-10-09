@@ -12,7 +12,8 @@ namespace CSweet.Infrastructure.Core;
 /// derives initial IDs from reviewed read evidence and authorizes the full returned closure.
 /// Dispose after committing/rolling back: installation claim gates cover the entire transaction.
 /// </summary>
-internal sealed class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvider? protection = null, TimeProvider? clock = null) : IDisposable
+internal sealed partial class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvider? protection = null, TimeProvider? clock = null,
+    IDataProtectionProvider? diagnosticProtection = null) : IDisposable
 {
     internal const string FailureCode = "memory.source_erased";
     internal const string SafeMessage = "This work's retained memory was erased. Its content is unavailable and it will not be replayed.";
@@ -24,14 +25,17 @@ internal sealed class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvi
 
     internal sealed record Work(Guid Id, Guid InstallationId);
     internal sealed record Runtime(Guid Id, Guid InstallationId);
+    internal sealed record ModelDiagnostics(IReadOnlyList<Guid> Runs, IReadOnlyDictionary<Guid, string> AuditEvidence);
     internal sealed class Plan(MemoryWorkErasure owner, Guid transaction, Guid organization,
-        IReadOnlyList<Work> works, IReadOnlyList<Runtime> runtimes)
+        IReadOnlyList<Work> works, IReadOnlyList<Runtime> runtimes, ModelDiagnostics modelRuns)
     {
         internal MemoryWorkErasure Owner { get; } = owner;
         internal Guid Transaction { get; } = transaction;
         internal Guid Organization { get; } = organization;
         internal IReadOnlyList<Work> Works { get; } = works;
         internal IReadOnlyList<Runtime> Runtimes { get; } = runtimes;
+        internal IReadOnlyList<Guid> ModelRuns { get; } = modelRuns.Runs;
+        internal IReadOnlyDictionary<Guid, string> ModelAuditEvidence { get; } = modelRuns.AuditEvidence;
     }
     internal sealed record Result(int ClearedWorks, int DeletedProgress, int ResetRuntimes);
 
@@ -48,7 +52,8 @@ internal sealed class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvi
             // read may own the memory barrier. Fail/rollback rather than reversing either.
             await db.Database.ExecuteSqlRawAsync("""
                 LOCK TABLE "AgentWorkItems", "AgentWorkAttempts", "AgentWorkProgress",
-                    "AgentRuntimeInstances", "McpAgentSessions", "AgentMemoryReadReceipts" IN EXCLUSIVE MODE NOWAIT;
+                    "AgentRuntimeInstances", "McpAgentSessions", "AgentMemoryReadReceipts", "AgentRunLogs",
+                    "ComputeAuditOutbox", "AuditEvents", "AuditEventPayloads" IN EXCLUSIVE MODE NOWAIT;
                 LOCK TABLE "AgentInstallations" IN SHARE MODE NOWAIT;
                 """, token);
         }
@@ -108,9 +113,10 @@ internal sealed class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvi
             }
             catch { gate.Release(); throw; }
         }
+        var modelRuns = await ReadModelDiagnosticsAsync(organization, selectedWorks, token);
         var plan = new Plan(this, transaction, organization,
             workRows.OrderBy(x => x.Id).Select(x => new Work(x.Id, x.AgentInstallationId)).ToList().AsReadOnly(),
-            runtimeRows.OrderBy(x => x.Id).ToList().AsReadOnly());
+            runtimeRows.OrderBy(x => x.Id).ToList().AsReadOnly(), modelRuns);
         plans.Add(plan); return plan;
     }
 
@@ -119,7 +125,7 @@ internal sealed class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvi
         if (protection is null) throw new InvalidOperationException("A preview-only work erasure scope cannot stage cleanup.");
         if (RequireTransaction() != plan.Transaction || !ReferenceEquals(plan.Owner, this) || !plans.Contains(plan))
             throw new InvalidOperationException("The work erasure plan belongs to another transaction.");
-        if (db.ChangeTracker.Entries().Any(x => x.Entity is AgentWorkItem or AgentWorkAttempt or AgentWorkProgress or AgentRuntimeInstance or McpAgentSession))
+        if (db.ChangeTracker.Entries().Any(x => x.Entity is AgentWorkItem or AgentWorkAttempt or AgentWorkProgress or AgentRuntimeInstance or McpAgentSession or AgentRunLog))
             throw new InvalidOperationException("Work erasure requires untracked work/runtime rows.");
         var reset = new AgentMemoryRuntimeReset(db); var resetCount = 0;
         foreach (var runtime in plan.Runtimes)
@@ -128,6 +134,7 @@ internal sealed class MemoryWorkErasure(CSweetDbContext db, IDataProtectionProvi
             if (await reset.StageErasureAsync(runtime.Id, runtime.InstallationId, plan.Organization.ToString("D"), token) && !alreadyRequested) resetCount++;
         }
         var result = await new AgentWorkInbox(db, protection, clock ?? TimeProvider.System).StageMemoryErasureAsync(plan.Works.Select(x => x.Id).ToArray(), token);
+        await StageModelDiagnosticsAsync(plan.ModelAuditEvidence, token);
         // Reset/settlement and their outbox records have been saved, but the caller still
         // owns commit together with store/source erasure, authorization and replay audit.
         foreach (var entry in db.ChangeTracker.Entries().Where(x => x.Entity is AgentWorkItem or AgentWorkAttempt or AgentWorkProgress or AgentRuntimeInstance or McpAgentSession).ToArray())

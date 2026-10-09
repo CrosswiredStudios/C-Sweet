@@ -187,6 +187,7 @@ public sealed partial class AgentMemoryReviewService
     }
 
     private static bool IsErasureReviewBlocker(string code) => code is "memory_erasure_source_review_required" or
+        "memory_erasure_diagnostics_review_required" or
         "memory_erasure_work_lineage_review_required" or "memory_erasure_work_audience_review_required" or "memory_erasure_work_retention_review_required" or
         "memory_erasure_lineage_review_required" or "memory_erasure_capture_lineage_review_required" or "memory_erasure_capture_retention_review_required" or
         "memory_erasure_work_prompt_review_required" or "memory_erasure_work_attachment_review_required" or "memory_erasure_generic_lineage_review_required";
@@ -218,6 +219,11 @@ public sealed partial class AgentMemoryReviewService
             UNION ALL SELECT 'work',to_jsonb(t)::text FROM "AgentWorkItems" t WHERE t."Id"=ANY(@works)
             UNION ALL SELECT 'attempt',to_jsonb(t)::text FROM "AgentWorkAttempts" t WHERE t."AgentWorkItemId"=ANY(@works)
             UNION ALL SELECT 'progress',to_jsonb(t)::text FROM "AgentWorkProgress" t WHERE t."AgentWorkItemId"=ANY(@works)
+            UNION ALL SELECT 'model-run',to_jsonb(t)::text FROM "AgentRunLogs" t WHERE t."Id"=ANY(@models)
+            UNION ALL SELECT 'model-outbox',to_jsonb(t)::text FROM "ComputeAuditOutbox" t WHERE t."SourceEntityId"=ANY(@models)
+            UNION ALL SELECT 'model-audit',to_jsonb(t)::text FROM "AuditEvents" t WHERE t."EntityId"=ANY(@models)
+            UNION ALL SELECT 'model-evidence',to_jsonb(t)::text FROM "AuditEventPayloads" t
+                WHERE t."AuditEventId" IN(SELECT "Id" FROM "AuditEvents" WHERE "EntityId"=ANY(@models))
             UNION ALL SELECT 'runtime',to_jsonb(t)::text FROM "AgentRuntimeInstances" t WHERE t."Id"=ANY(@runtimes)
             UNION ALL SELECT 'session',to_jsonb(t)::text FROM "McpAgentSessions" t WHERE t."RuntimeInstanceId"=ANY(@runtimes)
             UNION ALL SELECT 'read',to_jsonb(t)::text FROM "AgentMemoryReadReceipts" t WHERE t."RuntimeId"=ANY(@runtimes)
@@ -235,6 +241,7 @@ public sealed partial class AgentMemoryReviewService
             """);
         command.Parameters.AddWithValue("jobs", jobs); command.Parameters.AddWithValue("works", works);
         command.Parameters.AddWithValue("runtimes", runtimes); command.Parameters.AddWithValue("turns", turnIds);
+        command.Parameters.AddWithValue("models", execution.Work.ModelRuns.ToArray());
         command.Parameters.AddWithValue("sources", sources); command.Parameters.AddWithValue("organization", organization);
         command.Parameters.AddWithValue("episodeJobs",episodeJobs);
         command.Parameters.AddWithValue("tenant",organization.ToString("D"));

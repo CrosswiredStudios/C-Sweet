@@ -3,8 +3,15 @@ namespace CSweet.Domain.Setup;
 public sealed class AgentRunLog
 {
     public Guid Id { get; set; }
+    // Permanent content-free diagnostic tombstone created by reviewed memory cleanup.
+    public DateTimeOffset? MemoryErasedAt { get; set; }
+    // Content-free, pre-reviewed audit IDs/digests allowed to finish outbox delivery.
+    public string? MemoryErasureAuditJson { get; set; }
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public string? RequestEvidenceJson { get; set; }
+    // Server-prepared memory context must be omitted before its dispatch read exists.
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public bool OmitMemoryAuditContent { get; set; }
     public Guid? TaskRunId { get; set; }
     public Guid? AgentWorkItemId { get; set; }
     public Guid? AgentWorkAttemptId { get; set; }

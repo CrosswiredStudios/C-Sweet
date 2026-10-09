@@ -132,6 +132,7 @@ public sealed class CompanyDashboardRenderingTests
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();
+        services.AddScoped<IAgentApiClient, AgentApiClient>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
@@ -155,6 +156,7 @@ public sealed class CompanyDashboardRenderingTests
                 result = new HiringBacklogResponse(recommendations ?? []);
             }
             else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
+            else if (path.EndsWith("/users") || path.EndsWith("/installations")) result = Array.Empty<object>();
             else if (path.EndsWith("/dashboard"))
             {
                 if (failReports) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));

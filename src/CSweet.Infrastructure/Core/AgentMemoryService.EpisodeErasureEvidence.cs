@@ -46,6 +46,13 @@ public sealed partial class AgentMemoryService
                     episode.TransferEvidence is not null || episode.OperationalReferences is not null || episode.Sensitivity < MemorySensitivity.Personal)
                     throw new JsonException();
             }
+            else if (episode.Source.Type == WorkInstructionMemorySource.Type)
+            {
+                if (ReadGuid(episode.Metadata, "installationId") != job.InstallationId ||
+                    ReadGuid(episode.Metadata, "publicationId") is null || ReadGuid(episode.Metadata, "workItemId") is null ||
+                    job.ReviewerApplicationUserId is null || episode.TransferEvidence is not null || episode.CorrectionEvidence is not null ||
+                    episode.Sensitivity != MemorySensitivity.Internal) throw new JsonException();
+            }
             else if (episode.Source.Type != "knowledge-transfer" || episode.TransferEvidence is null || job.ReviewerApplicationUserId is null)
                 throw new JsonException();
             if (includeAccepted && job.AcceptedExtractionJson is { } json)

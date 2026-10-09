@@ -75,7 +75,8 @@ public sealed partial class AgentMemoryService(
                 foreach (var searchQuery in searchQueries)
                 {
                     var found = (await store.SearchAsync(new MemorySearchRequest(
-                        memoryNamespace.Partition, memoryNamespace.Scope, searchQuery, Limit: 12, AsOf: asOf), cancellationToken))
+                        memoryNamespace.Partition, memoryNamespace.Scope, searchQuery, Limit: 12, AsOf: asOf)
+                        { IncludePinnedCore = true }, cancellationToken))
                         .Where(item => MemoryRecallPolicy.IsEligible(item,
                             MemoryRecallPolicy.MaximumSensitivity(memoryNamespace.Partition), asOf)).ToArray();
                     foreach (var item in found)

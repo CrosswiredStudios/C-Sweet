@@ -1,6 +1,7 @@
 namespace CSweet.Domain.Core;
 
-/// <summary>Content-free evidence retained for the lifetime of the runtime that received it.</summary>
+/// <summary>Content-free audit evidence of reads supplied to one work attempt on a runtime.
+/// Retention does not make this receipt a prompt input for later attempts or tasks.</summary>
 public sealed class AgentMemoryReadReceipt
 {
     public Guid Id { get; set; }
