@@ -74,6 +74,12 @@ public sealed partial class AgentMemoryService
             if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.Id == job.EmployeeId && x.RoleId == role &&
                 x.Role!.OrganizationId == job.OrganizationId, token)) throw new UnauthorizedAccessException();
         }
+        else if (MemoryScopedAudienceAuthorization.Resolve(partition) is { } scoped)
+        {
+            audience = scoped;
+            await MemoryScopedAudienceAuthorization.RequireAsync(db, job.OrganizationId, job.EmployeeId, null,
+                partition, token, lockAuthority: true);
+        }
         else throw new UnauthorizedAccessException();
         if (partition != audience.Partition || episode.Scope != audience.Scope) throw new UnauthorizedAccessException();
     }

@@ -3,13 +3,14 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using CSweet.Domain.Core;
 using CSweet.Memory;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
 
 public sealed partial class AgentMemoryReviewService
 {
     private sealed record TransferRetention(bool IsTransferred, string? EvidenceHash, int Sources, int Held, string? Blocker,
-        MemoryPartition[]? Audiences=null);
+        MemoryPartition[]? Audiences=null, ErasureAudienceOwner[]? Owners=null);
     private sealed class UnresolvedTransferRetention : Exception;
 
     // Generic extraction already verifies recall eligibility. Reuse the retained closure's
@@ -61,8 +62,8 @@ public sealed partial class AgentMemoryReviewService
             if (audiences.Count > 64) throw new UnresolvedTransferRetention();
             var current = await MemoryManagerAuthorization.RequireAsync(db, organization, owner, user, true, token, failOnLockContention: true);
             if (current != actor) throw new UnauthorizedAccessException();
-            if (MemorySharedAudiences.IsCanonical(partition))
-                await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token);
+            if (MemorySharedAudiences.IsCanonical(partition) || MemoryScopedAudienceAuthorization.Resolve(partition) is not null)
+                await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token, retainedScoped: true);
             else await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token, failOnLockContention: true);
         }
         void CanonicalAudience(MemoryNamespace value, Guid owner)
@@ -81,32 +82,28 @@ public sealed partial class AgentMemoryReviewService
         }
         async Task Visit(MemoryEpisode episode, int depth)
         {
-            if (!Copied(episode)) return;
+            if (!Copied(episode))
+            {
+                // Shared partitions do not identify the original proposal producer.
+                // Preserve that identity even when the proposal is nested under a correction.
+                if (episode.Source.Type == "agent-proposal")
+                {
+                    if (!Guid.TryParseExact(episode.Source.Author, "D", out var producer) ||
+                        MetadataGuid(episode, "installationId") is not { } installation ||
+                        !AgentMemoryService.IsVerifiedProposalForOperatorReview(episode, organization, producer, installation) ||
+                        !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == producer && x.OrganizationId == organization &&
+                            x.EmployeeType == EmployeeType.Agent && x.IsActive && x.ArchivedAt == null && x.AgentInstallationId == installation, token))
+                        throw new UnresolvedTransferRetention();
+                    await Authorize(episode.Partition, producer);
+                }
+                return;
+            }
             if (depth >= 3 || !path.Add(episode.Id)) throw new UnresolvedTransferRetention();
             try
             {
                 if (episode.CorrectionEvidence is { } correction)
                 {
-                    if (episode.TransferEvidence is not null || !MemorySourceIntegrity.IsVerified(episode) || correction.ReviewOperationId == Guid.Empty ||
-                        correction.Sources is not { Count: > 0 and <= MemoryProvenance.MaximumSourceEpisodes } ||
-                        episode.Source.Type != "user" || episode.Source.Id != correction.ReviewOperationId.ToString("D") ||
-                        !Guid.TryParseExact(episode.Source.Author, "D", out var reviewer)) throw new UnresolvedTransferRetention();
-                    string receiptPayload;
-                    await using (var command = Command("""
-                        SELECT ((to_jsonb(r) - 'ClaimId' - 'ResultClaimId') ||
-                            jsonb_build_object('MemoryId',r."ClaimId",'ResultMemoryId',r."ResultClaimId"))::text FROM "MemoryReviewReceipts" r
-                        WHERE r."OrganizationId"=@organization AND r."OperationId"=@operation FOR SHARE
-                        """))
-                    {
-                        command.Parameters.AddWithValue("organization", organization); command.Parameters.AddWithValue("operation", correction.ReviewOperationId);
-                        receiptPayload = await command.ExecuteScalarAsync(token) as string ?? throw new UnresolvedTransferRetention();
-                    }
-                    var receipt = JsonSerializer.Deserialize<MemoryReviewReceipt>(receiptPayload, JsonOptions) ?? throw new UnresolvedTransferRetention();
-                    var referenceType = receipt.RecordKind switch { "Claim" => "memory-claim", "Procedure" => "memory-procedure", "Block" => "memory-block", _ => null };
-                    if (receipt.Action != "correct" || receipt.ActorOrganizationUserId != reviewer || receipt.OperationId != correction.ReviewOperationId ||
-                        receipt.OrganizationId != organization || referenceType is null || episode.OperationalReferences is null ||
-                        !episode.OperationalReferences.Any(x => x.Type == referenceType && x.Id == receipt.MemoryId.ToString("D") &&
-                            x.Version == receipt.PreviousRevision.ToString(System.Globalization.CultureInfo.InvariantCulture))) throw new UnresolvedTransferRetention();
+                    var (receipt, receiptPayload) = await ReadCorrectionReviewAsync(organization, episode, token);
                     Snapshot("correction-review:" + correction.ReviewOperationId.ToString("D"), receiptPayload);
                     await Authorize(episode.Partition, receipt.EmployeeId);
                     var contributors = new List<MemoryEpisode>(); var ids = new HashSet<Guid>();
@@ -249,11 +246,19 @@ public sealed partial class AgentMemoryReviewService
             var sharedAuthority = await MemorySharedAudienceAuthorization.AuthorityHashAsync(db, organization,
                 audiences.Select(x => x.Owner).Append(actor), audiences.Select(x => x.Partition).Where(MemorySharedAudiences.IsCanonical), token);
             if (sharedAuthority is not null) Snapshot("shared-authority", sharedAuthority);
+            foreach (var owner in audiences.Select(x => x.Owner).Distinct())
+            {
+                var scopedAuthority = await MemoryScopedAudienceAuthorization.AuthorityHashAsync(db, organization, owner, actor,
+                    audiences.Where(x => x.Owner == owner).Select(x => x.Partition), token, retained: true);
+                if (scopedAuthority is not null) Snapshot("scoped-authority:" + owner.ToString("D"), scopedAuthority);
+            }
             var snapshotBytes = JsonSerializer.SerializeToUtf8Bytes(snapshots, JsonOptions);
             if (snapshotBytes.Length > 32 * 1024 * 1024) throw new UnresolvedTransferRetention();
             var digest = Convert.ToHexString(SHA256.HashData(snapshotBytes)).ToLowerInvariant();
             return new(true, digest, sources, held, held > 0 ? "memory_transfer_upstream_held" : null,
-                audiences.Select(x=>x.Partition).Distinct().OrderBy(x=>x.StorageKey,StringComparer.Ordinal).ToArray());
+                audiences.Select(x=>x.Partition).Distinct().OrderBy(x=>x.StorageKey,StringComparer.Ordinal).ToArray(),
+                audiences.Select(x => new ErasureAudienceOwner(x.Owner, x.Partition))
+                    .OrderBy(x => x.Partition.StorageKey, StringComparer.Ordinal).ThenBy(x => x.EmployeeId).ToArray());
         }
         catch (Exception error) when (error is UnresolvedTransferRetention or JsonException or ArgumentException or NullReferenceException)
         {

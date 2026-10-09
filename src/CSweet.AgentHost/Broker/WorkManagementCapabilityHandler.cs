@@ -487,6 +487,27 @@ public sealed partial class WorkManagementCapabilityHandler(
         return published;
     }
 
+    /// <summary>
+    /// Gives the accountable manager and earlier participants of a project board their board and project delivery
+    /// access (see <see cref="CSweet.Infrastructure.Core.ProjectSetupService.ReconcileProjectBoardAccessAsync"/>).
+    /// Idempotent; saves only when something was missing.
+    /// </summary>
+    private async Task ReconcileProjectBoardAccessAsync(Guid organizationId, Guid boardId, CancellationToken cancellationToken)
+    {
+        if (db.Database.CurrentTransaction is not null) return;
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System);
+        await projectPolicy.LockAsync(organizationId, cancellationToken);
+        var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == boardId && x.OrganizationId == organizationId && x.ArchivedAt == null, cancellationToken);
+        if (board?.WorkstreamId is null) return;
+        await new CSweet.Infrastructure.Core.ProjectSetupService(db, TimeProvider.System, projectPolicy)
+            .ReconcileProjectBoardAccessAsync(board, cancellationToken);
+        if (!db.ChangeTracker.HasChanges()) return;
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+    }
+
     private async Task<Wire.ConfigureProfileOrchestrationResponse> ConfigureProfileAsync(
         AgentSession session,
         Guid organizationId,
@@ -497,6 +518,9 @@ public sealed partial class WorkManagementCapabilityHandler(
         var grant = await RequireAsync(
             organizationId, installation.Id, WorkOrchestrationActions.ConfigureProfile,
             input.BoardId, cancellationToken);
+        // Every staffing pass configures the profile first, so a project board created before its people were
+        // enrolled (or before this reconciliation existed) is repaired here, ahead of any delivery read.
+        await ReconcileProjectBoardAccessAsync(organizationId, input.BoardId, cancellationToken);
         ValidateIdempotencyKey(input.IdempotencyKey);
         if (string.IsNullOrWhiteSpace(input.ProfileDefinitionDigest) || input.ProfileDefinitionDigest.Length != 64)
             throw new ArgumentException("A pinned SHA-256 profile definition digest is required.");
@@ -1316,11 +1340,22 @@ public sealed partial class WorkManagementCapabilityHandler(
             Key = board.Key,
             ProfileKey = board.ProfileKey
         };
+        // A project board created here, rather than through project setup, starts with nobody enrolled. Give the
+        // accountable manager and any earlier participants their board and project delivery access with it, so the
+        // manager who just created the board can actually run delivery on it.
+        await using var transaction = board.WorkstreamId.HasValue && db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System);
+        if (board.WorkstreamId.HasValue) await projectPolicy.LockAsync(organizationId, cancellationToken);
         db.WorkBoards.Add(board);
         AddReceipt(
             organizationId, installation.Id, WorkBoardActions.Create,
             input.IdempotencyKey, board.Id, result);
+        if (board.WorkstreamId.HasValue)
+            await new CSweet.Infrastructure.Core.ProjectSetupService(db, TimeProvider.System, projectPolicy)
+                .ReconcileProjectBoardAccessAsync(board, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         await WriteAuditAsync(
             organizationId, installation.Id, board.Id, WorkBoardActions.Create, grant,
             new { board.Id, board.Name, input.IdempotencyKey }, cancellationToken, session);

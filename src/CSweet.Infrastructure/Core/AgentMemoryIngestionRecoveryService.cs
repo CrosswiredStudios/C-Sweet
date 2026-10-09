@@ -43,6 +43,8 @@ public sealed class AgentMemoryIngestionRecoveryService(CSweetDbContext db, IMem
                    WHEN e.payload->'partition'->>'customNamespace' LIKE 'role:%' THEN 'Role'
                    WHEN e.payload->'partition'->>'customNamespace' LIKE 'relationship:%' THEN 'Private relationship'
                    WHEN e.payload->'partition'->>'customNamespace'='organization' THEN 'Organization'
+                   WHEN e.payload->'partition'->>'customNamespace' LIKE 'case:%' THEN 'Case'
+                   WHEN e.payload->'partition'->>'conversationId' IS NOT NULL THEN 'Conversation'
                    ELSE 'Employee' END AS "Audience"
             FROM csweet_memory_episodes e
             WHERE e.partition_key=ANY({keys})

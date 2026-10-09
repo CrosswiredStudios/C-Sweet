@@ -225,6 +225,28 @@ public sealed partial class AgentWorkInbox(
         if (await db.AgentRuntimeInstances.AsNoTracking().AnyAsync(x => x.Id == session.RuntimeInstanceId &&
                 x.MemoryResetRequestedAt != null, cancellationToken)) return null;
 
+        // Delivered work may already have committed business effects. If its retained context
+        // outlives the execution lease/deadline, fence it before ordinary expiry can requeue it.
+        // The reset settles it nonretryably; an incompatible pending item still has no lease.
+        var expiredRetainedWork = await db.AgentWorkAttempts.AsNoTracking().Where(x =>
+                x.RuntimeInstanceId == session.RuntimeInstanceId && x.FinishedAt == null &&
+                (x.LeaseExpiresAt <= now || x.AgentWorkItem!.DeadlineAt <= now) &&
+                x.AgentWorkItem!.Status == AgentWorkStatus.Leased &&
+                x.AgentWorkItem.AgentInstallationId == session.AgentInstallationId &&
+                x.AgentWorkItem.OrganizationId == session.OrganizationId &&
+                db.AgentMemoryReadReceipts.Any(receipt => receipt.RuntimeId == session.RuntimeInstanceId))
+            .OrderBy(x => x.Id).Select(x => (Guid?)x.AgentWorkItemId).FirstOrDefaultAsync(cancellationToken);
+        if (expiredRetainedWork is { } expiredWorkId)
+        {
+            await new AgentMemoryRuntimeReset(db).StageAsync(session.RuntimeInstanceId, session.TickId,
+                session.AgentInstallationId, session.OrganizationId, session.GrantRevision,
+                CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.RetainedEvidence, cancellationToken,
+                $"validation=claim.consumer-lease-expired;work={expiredWorkId:D}");
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return null;
+        }
+
         var expiredPending = await db.AgentWorkItems
             .Where(x =>
                 x.OrganizationId == session.OrganizationId &&
@@ -323,9 +345,14 @@ public sealed partial class AgentWorkInbox(
         try
         {
             var evidence = new CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence(db);
-            // Retained private or audience-bound context must never reach a different audience. Rotate the
-            // runtime before delivery so this work remains pending for a fresh runtime instead of failing.
-            await evidence.RequireRetainedConsumerAsync(session, item, cancellationToken);
+            // Durable active leases hold new pickups while retained context serves running work.
+            // Validate that work first; rotate for an incompatible candidate only after it finishes.
+            if (!await evidence.RequireRetainedConsumerAsync(session, item, cancellationToken))
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
             await evidence.RecordDeliveryAsync(item, session, cancellationToken);
         }
         catch (CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException reset)

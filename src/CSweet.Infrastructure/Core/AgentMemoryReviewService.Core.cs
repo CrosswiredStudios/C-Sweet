@@ -24,7 +24,7 @@ public sealed partial class AgentMemoryReviewService
         await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
         await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
         var block = await LockCoreAsync(store, blockId, cancellationToken);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, block.Partition, cancellationToken);
+        await RequireReviewPartitionAsync(organizationId, employeeId, actor, block.Partition, cancellationToken);
         var evidence = await ReadCoreEvidenceAsync(store, block, cancellationToken);
         var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
         evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
@@ -53,7 +53,7 @@ public sealed partial class AgentMemoryReviewService
             await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
             await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
             var block = await LockCoreAsync(store, blockId, cancellationToken);
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, block.Partition, cancellationToken);
+            await RequireReviewPartitionAsync(organizationId, employeeId, actor, block.Partition, cancellationToken);
             var evidence = await ReadCoreEvidenceAsync(store, block, cancellationToken);
             var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
             evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };

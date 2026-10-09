@@ -11,6 +11,7 @@ internal static class WorkManagementConfigurations
     {
         modelBuilder.Entity<WorkBoard>(entity =>
         {
+            entity.Property<long>("MemoryAudienceRevision").HasDefaultValue(1L).ValueGeneratedOnAddOrUpdate();
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(2048).IsRequired();

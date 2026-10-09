@@ -30,7 +30,7 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
         await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
         await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
         var claim = await LockClaimAsync(store, claimId, cancellationToken);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, claim.Partition, cancellationToken);
+        await RequireReviewPartitionAsync(organizationId, employeeId, actor, claim.Partition, cancellationToken);
         var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
         var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
         evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
@@ -63,7 +63,7 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
             await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
             await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
             var claim = await LockClaimAsync(store, claimId, cancellationToken);
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, claim.Partition, cancellationToken);
+            await RequireReviewPartitionAsync(organizationId, employeeId, actor, claim.Partition, cancellationToken);
             var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
             var sharedHash = await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
             evidence = evidence with { Token = SourceOperatorToken(evidence.Token, sharedHash) };
@@ -220,9 +220,10 @@ public sealed partial class AgentMemoryReviewService(CSweetDbContext db, IMemory
         return revision;
     }
 
-    private static MemoryScope InferScope(MemoryPartition partition) => partition.CustomNamespace == "organization" ? MemoryScope.Tenant :
+    private static MemoryScope InferScope(MemoryPartition partition) => MemoryScopedAudienceAuthorization.Resolve(partition)?.Scope ??
+        (partition.CustomNamespace == "organization" ? MemoryScope.Tenant :
         partition.UserId is not null ? MemoryScope.User :
-        partition.AgentId is not null ? MemoryScope.Agent : MemoryScope.Application;
+        partition.AgentId is not null ? MemoryScope.Agent : MemoryScope.Application);
     private static string Hash<T>(T value) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))).ToLowerInvariant();
     private static DbUpdateConcurrencyException Changed() => new("memory_review_changed");
     private static ReviewMemoryClaimResponse Response(MemoryReviewReceipt receipt, bool replay) =>

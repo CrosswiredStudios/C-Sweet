@@ -304,6 +304,12 @@ public sealed partial class AgentMemoryServiceTests
             {
                 await using var db = fixture.Context();
                 await db.Database.EnsureCreatedAsync();
+                if (postgres)
+                {
+                    await using var authority = await db.Database.BeginTransactionAsync();
+                    await db.Database.ExecuteSqlRawAsync(CSweet.Infrastructure.Persistence.Migrations.MemoryAccessAuthority.AuthorityTriggers);
+                    await authority.CommitAsync();
+                }
                 var now = DateTimeOffset.UtcNow;
                 var organization = new Organization { Id = fixture.OrganizationId, Name = "Memory test", CreatedAt = now, UpdatedAt = now };
                 var package = new AgentPackageVersion { Id = Guid.NewGuid(), AgentId = "memory.test", AgentName = "Test", Version = "1.0.0",

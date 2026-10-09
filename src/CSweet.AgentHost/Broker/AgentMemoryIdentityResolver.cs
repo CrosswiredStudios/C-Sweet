@@ -1,6 +1,7 @@
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Memory;
+using CSweet.Infrastructure.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.AgentHost.Broker;
@@ -37,6 +38,12 @@ public sealed class AgentMemoryIdentityResolver(CSweetDbContext db) : IAgentMemo
         var organizationId = Guid.Parse(session.MemoryTenantId!);
         var employeeId = Guid.Parse(session.MemoryEmployeeId!);
         var now = DateTimeOffset.UtcNow;
+        if (scope.Audience is MemoryAudienceType.Case or MemoryAudienceType.Conversation)
+        {
+            await MemoryScopedAudienceAuthorization.RequireAsync(db, organizationId, employeeId, null, partition,
+                cancellationToken, lockAuthority: db.Database.IsNpgsql() && db.Database.CurrentTransaction is not null);
+            return;
+        }
         var allowed = scope.Audience switch
         {
             MemoryAudienceType.Organization or MemoryAudienceType.Employee => true,

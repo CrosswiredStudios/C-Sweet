@@ -10,12 +10,14 @@ namespace CSweet.Infrastructure.Core;
 public sealed partial class MemoryRecallDispatchEvidence
 {
     /// <summary>
-    /// Checks, before a lease is granted, whether every memory read already retained by the runtime may
-    /// be carried into the candidate work's audience. An incompatible candidate requests a fresh runtime
-    /// instead: the work stays pending and undelivered, so it cannot be consumed by a reset after delivery.
-    /// Dispatch authorization remains the final check; this only avoids delivering doomed work.
+    /// Validates retained memory before a lease is granted. While delivered work is still running,
+    /// validate its consumers and return false to hold all new pickups. Its durable leases are the
+    /// drain boundary; an incompatible next consumer must not reset otherwise valid running work.
+    /// Once idle, validate the candidate and rotate before delivering incompatible work. Invalid
+    /// retained evidence and receipt limits still require an immediate reset. Dispatch rechecks remain
+    /// authoritative; this admission check never grants provider execution.
     /// </summary>
-    public async Task RequireRetainedConsumerAsync(McpAgentSession session, AgentWorkItem candidate, CancellationToken token)
+    public async Task<bool> RequireRetainedConsumerAsync(McpAgentSession session, AgentWorkItem candidate, CancellationToken token)
     {
         if (db.Database.IsNpgsql() && db.Database.CurrentTransaction is not null)
         {
@@ -25,35 +27,49 @@ public sealed partial class MemoryRecallDispatchEvidence
         }
         var receipts = await db.AgentMemoryReadReceipts.AsNoTracking().Where(x => x.RuntimeId == session.RuntimeInstanceId)
             .OrderBy(x => x.Id).Take(65).ToArrayAsync(token);
-        if (receipts.Length == 0) return;
+        if (receipts.Length == 0) return true;
         if (receipts.Length > 64 || receipts.Sum(x => x.EvidenceJson.Length) > 2_097_152)
             throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.ReceiptCapacity);
+        if (await db.AgentRuntimeInstances.AsNoTracking().AnyAsync(x => x.Id == session.RuntimeInstanceId &&
+                x.MemoryReadEvidenceVersion != AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion, token))
+            throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.LegacyEvidence);
+        var now = DateTimeOffset.UtcNow;
+        var running = await db.AgentWorkAttempts.AsNoTracking().Where(x => x.RuntimeInstanceId == session.RuntimeInstanceId &&
+                x.FinishedAt == null && x.LeaseExpiresAt > now && x.AgentWorkItem!.Status == AgentWorkStatus.Leased &&
+                x.AgentWorkItem.DeadlineAt > now && x.AgentWorkItem.AgentInstallationId == session.AgentInstallationId &&
+                x.AgentWorkItem.OrganizationId == session.OrganizationId)
+            .Select(x => x.AgentWorkItem!).Distinct().Take(1001).ToArrayAsync(token);
+        if (running.Length > 1000) throw new InvalidOperationException("Retained memory consumer validation exceeded its bound.");
+        var consumers = running.Length == 0 ? [candidate] : running;
+        foreach (var consumer in consumers)
         foreach (var receipt in receipts)
         {
             var validation = "claim.receipt-binding";
             try
             {
                 if (receipt.InstallationId != session.AgentInstallationId || receipt.OrganizationId.ToString("D") != session.OrganizationId ||
-                    receipt.GrantRevision != session.GrantRevision || candidate.AgentInstallationId != session.AgentInstallationId)
+                    receipt.GrantRevision != session.GrantRevision || consumer.AgentInstallationId != session.AgentInstallationId)
                     throw Denied();
                 if (receipt.Capability == QueuedRecallCapability)
                 {
                     validation = "claim.queued-recall";
-                    await AuthorizeRetainedDeliveryAsync(receipt, candidate, token);
+                    await AuthorizeRetainedDeliveryAsync(receipt, consumer, token);
                     continue;
                 }
                 validation = "claim.read-evidence";
                 var partitions = await ValidateReadAsync(receipt.EvidenceJson, token, preserveInfrastructureFailure: true);
+                validation = "claim.scoped-consumer";
+                await AuthorizeScopedReadConsumerAsync(receipt.EvidenceJson, consumer, receipt.EmployeeId, token);
                 foreach (var partition in partitions)
                     if (partition.UserId is { } user)
                     {
                         validation = "claim.relationship-consumer";
-                        await RequireRelationshipConsumerAsync(candidate, receipt.EmployeeId, receipt.WorkId, user, token);
+                        await RequireRelationshipConsumerAsync(consumer, receipt.EmployeeId, receipt.WorkId, user, token);
                     }
-                if (partitions.Any(MemorySharedAudiences.IsCanonical) && candidate.SourceType == "chat-turn")
+                if (partitions.Any(MemorySharedAudiences.IsCanonical) && consumer.SourceType == "chat-turn")
                 {
                     validation = "claim.shared-consumer";
-                    if (!Guid.TryParse(candidate.SourceId, out var turn)) throw Denied();
+                    if (!Guid.TryParse(consumer.SourceId, out var turn)) throw Denied();
                     await AuthorizeChatReadSharedAudienceAsync(receipt.EvidenceJson, turn, receipt.OrganizationId, receipt.EmployeeId, token);
                 }
             }
@@ -62,9 +78,10 @@ public sealed partial class MemoryRecallDispatchEvidence
             {
                 var code = error.Data["memory.validation"] is string specific ? $"claim.{specific}" : validation;
                 throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.RetainedEvidence,
-                    $"validation={code};receipt={receipt.Id:D};work={candidate.Id:D};error={error.GetType().Name}");
+                    $"validation={code};receipt={receipt.Id:D};work={consumer.Id:D};error={error.GetType().Name}");
             }
         }
+        return running.Length == 0;
     }
 
     /// <summary>

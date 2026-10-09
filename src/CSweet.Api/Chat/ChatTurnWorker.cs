@@ -243,6 +243,9 @@ public sealed class ChatTurnWorker(
                     {
                         if (chunk.Error == CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code)
                             throw new CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException();
+                        if (chunk.Error == CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.FailureCode)
+                            throw new CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException(
+                                CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.RetainedEvidence);
                         await PublishTraceAsync(turns, turnId, "model", "agent.error", "failed", "Agent reported an error",
                             chunk.Delta,
                             new { kind = chunk.Kind, code = chunk.Error },
@@ -436,6 +439,13 @@ public sealed class ChatTurnWorker(
             await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId,
                 CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code,
                 CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.SafeMessage, CancellationToken.None);
+        }
+        catch (CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException)
+        {
+            await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId,
+                CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.FailureCode,
+                "The reply was interrupted because the agent's memory context changed. Documents or approvals already created may still exist. Review them before retrying; completed actions were not replayed.",
+                CancellationToken.None);
         }
         catch (AgentNoResponseException exception)
         {

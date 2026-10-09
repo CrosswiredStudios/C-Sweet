@@ -10,4 +10,6 @@ public interface IAgentMemoryErasureImpactService
         Guid applicationUserId, EraseMemorySourceRequest request, CancellationToken cancellationToken = default);
     Task<MemoryErasureResponse> GetErasureStatusAsync(Guid organizationId, Guid employeeId, Guid operationId,
         Guid applicationUserId, CancellationToken cancellationToken = default);
+    Task<MemoryErasureOperationPage> ListErasureOperationsAsync(Guid organizationId, Guid employeeId,
+        Guid applicationUserId, Guid? beforeReceiptId = null, int limit = 10, CancellationToken cancellationToken = default);
 }

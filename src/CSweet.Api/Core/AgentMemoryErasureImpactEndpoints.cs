@@ -11,6 +11,16 @@ public static class AgentMemoryErasureImpactEndpoints
 {
     public static void MapMemoryErasureImpactRoutes(this RouteGroupBuilder group)
     {
+        group.MapGet("/erasure-operations", async (Guid organizationId, Guid employeeId,
+            [FromQuery] Guid? beforeReceiptId, [FromQuery] int? limit, ClaimsPrincipal principal, HttpResponse response,
+            [FromServices] IAgentMemoryErasureImpactService review, CancellationToken token) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            var user = principal.Identity?.IsAuthenticated == true ? principal.GetApplicationUserId() : null;
+            if (!user.HasValue) return Results.Unauthorized();
+            return await ExecuteAsync(() => review.ListErasureOperationsAsync(organizationId, employeeId, user.Value,
+                beforeReceiptId, limit ?? 10, token));
+        });
         group.MapGet("/episodes/{episodeId:guid}/erasure-impact", async (Guid organizationId, Guid employeeId, Guid episodeId,
             ClaimsPrincipal principal, HttpResponse response, [FromServices] IAgentMemoryErasureImpactService review, CancellationToken token) =>
         {
@@ -52,6 +62,8 @@ public static class AgentMemoryErasureImpactEndpoints
         catch (DbUpdateConcurrencyException) { return Results.Conflict(new { error = "memory_review_changed" }); }
         catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_memory_review" }); }
         catch (NotSupportedException) { return Results.StatusCode(StatusCodes.Status503ServiceUnavailable); }
+        catch (InvalidOperationException error) when (error.Message is "memory_erasure_ownership_review_required" or "memory_erasure_evidence_review_required")
+        { return Results.Conflict(new { error = error.Message }); }
         catch (InvalidOperationException) { return Results.Conflict(new { error = "memory_erasure_unavailable" }); }
     }
 }

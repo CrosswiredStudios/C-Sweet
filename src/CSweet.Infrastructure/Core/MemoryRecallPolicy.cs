@@ -8,7 +8,8 @@ public static class MemoryRecallPolicy
     // These are platform ceilings, never values taken from an agent's principal attributes.
     // Finer sensitivity grants and source-derived restrictions are separate policy work.
     public static MemorySensitivity MaximumSensitivity(MemoryPartition authorizedPartition) =>
-        authorizedPartition.AgentId is null ? MemorySensitivity.Internal : MemorySensitivity.Personal;
+        authorizedPartition.AgentId is not null || MemoryScopedAudienceAuthorization.Resolve(authorizedPartition) is not null
+            ? MemorySensitivity.Personal : MemorySensitivity.Internal;
 
     public static bool IsEligible(MemoryCandidate candidate, MemorySensitivity maximum, DateTimeOffset asOf) =>
         Enum.IsDefined(candidate.Layer) && double.IsFinite(candidate.Score) &&

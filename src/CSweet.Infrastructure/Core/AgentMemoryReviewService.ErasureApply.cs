@@ -14,7 +14,7 @@ public sealed partial class AgentMemoryReviewService
 {
     private sealed record PendingErasureRuntime(Guid Id, DateTimeOffset RequestedAt);
     private sealed record ErasureReceiptInventory(MemoryPartition[] Audiences, PendingErasureRuntime[] PendingRuntimes, Guid[] TurnIds,
-        ErasureAudienceOwner[]? Owners = null);
+        ErasureAudienceOwner[]? Owners = null, int OwnershipVersion = 0);
 
     public async Task<MemoryErasureResponse> EraseSourceAsync(Guid organizationId, Guid employeeId, Guid episodeId,
         Guid applicationUserId, EraseMemorySourceRequest request, CancellationToken cancellationToken = default)
@@ -78,7 +78,7 @@ public sealed partial class AgentMemoryReviewService
                 EpisodeId = episodeId, OperationId = request.OperationId, ActorApplicationUserId = applicationUserId,
                 ActorOrganizationUserId = actor, RequestHash = hash, CreatedAt = now,
                 InventoryJson = JsonSerializer.Serialize(new ErasureReceiptInventory(plan.Audiences.ToArray(), pendingRuntimes, plan.Turns.Select(x => x.Id).ToArray(),
-                    plan.Execution.Owners.ToArray()), JsonOptions),
+                    plan.Execution.Owners.ToArray(), OwnershipVersion: 1), JsonOptions),
                 ErasedRecords = erasedRecords, ErasedRevisions = erasedRevisions, ClearedJobs = captures.ClearedJobs+episodeJobs,
                 ClearedWorks = workResult.ClearedWorks, ClearedDiagnosticTurns = turns.Length };
             db.MemoryErasureReceipts.Add(receipt);
@@ -110,7 +110,7 @@ public sealed partial class AgentMemoryReviewService
     private async Task<MemoryErasureResponse> ErasureResponseAsync(MemoryErasureReceipt receipt, Guid user, Guid actor, bool replay, CancellationToken token)
     {
         if (receipt.ActorApplicationUserId != user || receipt.ActorOrganizationUserId != actor) throw new UnauthorizedAccessException();
-        var inventory = JsonSerializer.Deserialize<ErasureReceiptInventory>(receipt.InventoryJson, JsonOptions) ?? throw new InvalidOperationException("Invalid erasure receipt.");
+        var inventory = ReadErasureReceiptInventory(receipt.InventoryJson);
         await AuthorizeErasureAudiencesAsync(receipt.OrganizationId, receipt.EmployeeId, user, actor, inventory.Audiences, token);
         if (inventory.Owners is not null)
             await AuthorizeErasureOwnersAsync(receipt.OrganizationId, user, actor, inventory.Owners, token);

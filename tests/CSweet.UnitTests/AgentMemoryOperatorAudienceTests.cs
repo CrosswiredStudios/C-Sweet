@@ -9,18 +9,24 @@ namespace CSweet.UnitTests;
 
 public sealed partial class AgentMemoryServiceTests
 {
-    private static async Task<(Guid User, MemoryEpisode Episode, Guid Audience)> SeedOperatorAudienceAsync(DurabilityFixture fixture, string kind)
+    private static async Task<(Guid User, MemoryEpisode Episode, Guid Audience)> SeedOperatorAudienceAsync(DurabilityFixture fixture, string kind,
+        bool legacyShared = false, MemorySensitivity? sensitivity = null)
     {
         var tenant = fixture.OrganizationId.ToString("D"); var employee = fixture.EmployeeId.ToString("D");
         var audienceId = Guid.NewGuid();
         var audience = kind switch
         {
+            "Organization" => EmployeeMemoryNamespaces.Organization(tenant, "csweet"),
             "Team" => EmployeeMemoryNamespaces.Team(tenant, audienceId.ToString("D"), "csweet"),
             "Role" => EmployeeMemoryNamespaces.Role(tenant, audienceId.ToString("D"), "csweet"),
             "InstallationEmployee" => EmployeeMemoryNamespaces.Employee(tenant, employee, fixture.InstallationId.ToString("D")),
             _ => EmployeeMemoryNamespaces.UserRelationship(tenant, employee, fixture.HumanId.ToString("D"), fixture.InstallationId.ToString("D"))
         };
-        var (user, episode) = await SeedJoblessProposalAsync(fixture, x => x with { Partition = audience.Partition, Scope = audience.Scope });
+        var (user, episode) = await SeedJoblessProposalAsync(fixture, x => x with
+        {
+            Partition = legacyShared ? audience.Partition with { ApplicationId = fixture.InstallationId.ToString("D") } : audience.Partition,
+            Scope = audience.Scope, Sensitivity = sensitivity ?? (legacyShared ? MemorySensitivity.Internal : x.Sensitivity)
+        });
         await using var db = fixture.Context();
         if (kind == "Role")
         {

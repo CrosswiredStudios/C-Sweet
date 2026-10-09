@@ -1,5 +1,7 @@
 # CSweet.Memory: verified assessment and implementation plan
 
+> **Historical record.** The active remaining-work plan is [Memory System Implementation](memory-system-implementation.md). Use that document for the current baseline, remaining tasks and completion criteria. This file preserves assessment/checkpoint evidence; older status paragraphs, version tables and handoff instructions are not the current backlog.
+
 Created: 2026-10-06; last reconciled for handoff: **2026-10-08 PDT**; updated by the October 8 afternoon continuation (branch `memory/p0-handoff-recovery-corrections`).
 
 Status: **Incomplete; the three handoff priorities are implemented and locally verified, the remaining register is open.** Use the progress dashboard and AI handoff below for the current delivery register, verified working-tree changes, known defects and remaining release gates.

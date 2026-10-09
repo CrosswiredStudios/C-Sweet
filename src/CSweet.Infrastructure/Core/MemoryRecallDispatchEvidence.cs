@@ -68,7 +68,21 @@ public sealed partial class MemoryRecallDispatchEvidence(CSweetDbContext db)
         var roleIds = new[] { employee.RoleId, sender.RoleId }.Concat(members.Select(x => x.TeamRoleId)).Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
         var roles = await db.CoreRoles.AsNoTracking().Where(x => roleIds.Contains(x.Id)).OrderBy(x => x.Id)
             .Select(x => new { x.Id, x.OrganizationId, x.AuthorityLevel, x.ResponsibilitiesJson, x.UpdatedAt }).ToListAsync(token);
-        var authority = Hash(JsonSerializer.Serialize(new { conversation.Kind, conversation.AgentOrganizationUserId, conversation.InitiatedByOrganizationUserId,
+        MemoryAccessAuthorityEvidence.Generation[] generations;
+        try
+        {
+            generations = await MemoryAccessAuthorityEvidence.ReadAsync(db,
+                new[] { (Kind: "person", Id: employee.Id), (Kind: "person", Id: sender.Id),
+                    (Kind: "installation", Id: installation), (Kind: "conversation", Id: conversation.Id) }
+                .Concat(members.Select(x => (Kind: "member", Id: x.Id)))
+                .Concat(members.Select(x => (Kind: "team", Id: x.TeamId)))
+                .Concat(roles.Select(x => (Kind: "role", Id: x.Id))), token);
+        }
+        catch (UnauthorizedAccessException) { throw Denied("queued-recall.authority-generation"); }
+        // Old queued certificates intentionally fail this versioned hash. Do not certify their
+        // already retained prompt using today's authority after an upgrade or reconnect.
+        var authority = Hash(JsonSerializer.Serialize(new { authorityVersion = 2, generations,
+            conversation.Kind, conversation.AgentOrganizationUserId, conversation.InitiatedByOrganizationUserId,
             conversation.TeamId, conversation.WorkstreamId, message.Role, message.SenderOrganizationUserId, message.Content, message.CreatedAt,
             employee = new { employee.Id, employee.Revision, employee.RoleId, employee.ReportsToOrganizationUserId, employee.PermissionLevel },
             sender = new { sender.Id, sender.ApplicationUserId, sender.Revision, sender.EmployeeType, sender.RoleId, sender.ReportsToOrganizationUserId, sender.PermissionLevel }, members, roles }, Json));

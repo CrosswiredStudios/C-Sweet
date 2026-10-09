@@ -8,6 +8,12 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed partial class AgentMemoryReviewService
 {
+    private Task RequireReviewPartitionAsync(Guid organization, Guid employee, Guid actor,
+        MemoryPartition partition, CancellationToken token) =>
+        MemoryScopedAudienceAuthorization.Resolve(partition) is not null
+            ? MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, employee, actor, partition, token)
+            : MemoryManagerAuthorization.RequirePartitionAsync(db, organization, employee, actor, partition, token);
+
     // Preserve the existing legacy review policy and wire tokens for native audiences.
     // Newly supported shared/private-installation proposals require verified attribution.
     private async Task<string?> RequireSourceOperatorAudienceAsync(Guid organization, Guid employee, Guid actor,
@@ -33,7 +39,15 @@ public sealed partial class AgentMemoryReviewService
         }
 
         await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, employee, actor, partition, token,
-            requireActiveRelationship: false);
+            requireActiveRelationship: false, retainedScoped: true);
+        if (MemoryScopedAudienceAuthorization.Resolve(partition) is not null && episode.CorrectionEvidence is not null)
+        {
+            var user = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == actor && x.OrganizationId == organization)
+                .Select(x => x.ApplicationUserId).SingleAsync(token) ?? throw new UnauthorizedAccessException();
+            var retained = await ReadTransferRetentionAsync(organization, employee, user, actor, episode, token);
+            if (retained.EvidenceHash is null) throw new InvalidOperationException("memory_transfer_source_unavailable");
+            return retained.EvidenceHash;
+        }
         if (episode.Source.Type != "agent-proposal" || episode.Source.Author != employee.ToString("D"))
             throw new UnauthorizedAccessException();
         if (MetadataGuid(episode, "installationId") is not { } installation ||
@@ -74,18 +88,24 @@ public sealed partial class AgentMemoryReviewService
             if (++rows > 128 || bytes > 1_048_576) throw new InvalidOperationException("memory_review_source_unavailable");
             digest.AppendData(BitConverter.GetBytes(value.Length)); digest.AppendData(value);
         }
-        return Convert.ToHexString(digest.GetHashAndReset()).ToLowerInvariant();
+        await reader.DisposeAsync();
+        var sourceAuthority = Convert.ToHexString(digest.GetHashAndReset()).ToLowerInvariant();
+        var scopedAuthority = await MemoryScopedAudienceAuthorization.AuthorityHashAsync(db, organization, employee, actor, [partition], token, retained: true);
+        return scopedAuthority is null ? sourceAuthority : Hash(new { sourceAuthority, scopedAuthority });
     }
 
     private static string SourceOperatorToken(string sourceToken, string? audienceHash) => audienceHash is null ? sourceToken :
         Hash(new { SourceToken = sourceToken, AudienceHash = audienceHash });
 
     private async Task<string?> RequireSharedReviewSourcesAsync(Guid organization, Guid employee, Guid user, Guid actor,
-        IEnumerable<MemoryEpisode> sources, CancellationToken token)
+        IEnumerable<MemoryEpisode> sources, CancellationToken token, bool retainedScoped = false)
     {
         var hashes = new List<string>();
         foreach (var source in sources.OrderBy(x => x.Id))
         {
+            var scoped = await MemoryScopedAudienceAuthorization.AuthorityHashAsync(db, organization, employee, actor,
+                [source.Partition], token, retained: retainedScoped);
+            if (scoped is not null) hashes.Add(scoped);
             if ((source.TransferEvidence is not null || source.CorrectionEvidence is not null || source.SourceFingerprint?.StartsWith("sha256-v3:", StringComparison.Ordinal) == true || source.Source.Type == "knowledge-transfer") && !MemorySourceIntegrity.IsVerified(source))
                 throw new InvalidOperationException("memory_transfer_source_unavailable");
             if (source.CorrectionEvidence is null && MemorySharedAudiences.Required(source) is null) continue;

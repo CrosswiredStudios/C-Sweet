@@ -22,3 +22,7 @@ public sealed record EraseMemorySourceRequest(Guid OperationId, string EvidenceT
 public sealed record MemoryErasureResponse(Guid ReceiptId, Guid OperationId, Guid EpisodeId, int ErasedRecords,
     int ErasedRevisions, int ClearedJobs, int ClearedWorks, int ClearedDiagnosticTurns, int PendingRuntimes,
     string Status, DateTimeOffset ErasedAt, bool WasReplay);
+
+/// <summary>Only the requesting human's operation identity; availability is not cleanup completion.</summary>
+public sealed record MemoryErasureOperationSummary(Guid OperationId, DateTimeOffset ErasedAt, string Availability);
+public sealed record MemoryErasureOperationPage(IReadOnlyList<MemoryErasureOperationSummary> Items, Guid? NextBeforeReceiptId);

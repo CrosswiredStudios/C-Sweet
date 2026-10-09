@@ -1,4 +1,5 @@
 using CSweet.Memory;
+using CSweet.Infrastructure.Core;
 
 namespace CSweet.AgentHost.Broker;
 
@@ -31,8 +32,10 @@ internal static class PlatformMemoryNamespacePolicy
             expected = EmployeeMemoryNamespaces.Team(tenant, team, app);
         else if (ReadAudienceId(partition.CustomNamespace, "role:") is { } role)
             expected = EmployeeMemoryNamespaces.Role(tenant, role, app);
+        else if (MemoryScopedAudienceAuthorization.Resolve(partition) is { } scoped)
+            expected = scoped;
         else
-            // Case, conversation and custom scopes require an explicit server policy before use.
+            // Arbitrary custom scopes and installation-scoped case/conversation audiences have no policy.
             throw Denied();
 
         // Compare fields, never Key: distinct legacy field assignments can have the same key.

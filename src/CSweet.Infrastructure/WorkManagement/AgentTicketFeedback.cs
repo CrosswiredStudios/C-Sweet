@@ -223,11 +223,25 @@ public static class AgentTicketFeedback
         var x when x.Contains("lease expired", StringComparison.OrdinalIgnoreCase) =>
             "I couldn't finish because my runtime stopped responding.",
         var x when x.Contains("code=runtime.transport", StringComparison.Ordinal) => "I couldn’t finish this attempt because the connection to the runtime failed.",
+        // Checked before the capability-specific cases: a refusal is an authority problem, not an outage.
+        var x when IsDenied(x) =>
+            $"I couldn’t continue because the platform denied me access{DeniedCapability(x)}. Someone who manages this project " +
+            "needs to grant that access (for example, by adding me under Projects → Manage members) before I can continue.",
         var x when x.Contains("capability=platform.llm", StringComparison.Ordinal) => "I couldn’t continue because the model service was unavailable.",
         var x when x.Contains("code=agent.payload_invalid", StringComparison.Ordinal) => "I couldn’t finish because the result I produced wasn’t valid.",
         var x when x.Contains("code=agent.invalid_operation", StringComparison.Ordinal) => "I stopped before I could produce a complete result for this ticket.",
         _ => "I couldn’t finish this attempt because execution stopped unexpectedly."
     };
+
+    // agent-failure:v1 diagnostics carry the platform refusal as code=platform.capability.denied (or a more specific *.denied code).
+    private static bool IsDenied(string error) =>
+        error.Split(';').Any(x => x.StartsWith("code=", StringComparison.Ordinal) && x.EndsWith("denied", StringComparison.OrdinalIgnoreCase));
+
+    private static string DeniedCapability(string error)
+    {
+        var capability = error.Split(';').FirstOrDefault(x => x.StartsWith("capability=", StringComparison.Ordinal))?["capability=".Length..].Trim();
+        return string.IsNullOrWhiteSpace(capability) ? string.Empty : $" to {capability}";
+    }
 
     private static string ShortTitle(string title) => title.Length <= 256 ? title : title[..253] + "...";
 

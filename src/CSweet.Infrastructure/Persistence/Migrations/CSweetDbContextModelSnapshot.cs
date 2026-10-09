@@ -3546,6 +3546,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<long>("MemoryAudienceRevision")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
                     b.Property<Guid?>("MergedIntoConversationId")
                         .HasColumnType("uuid");
 
@@ -5205,6 +5210,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.HasIndex("OrganizationId", "EmployeeId", "CreatedAt");
+
+                    b.HasIndex("OrganizationId", "EmployeeId", "ActorApplicationUserId", "ActorOrganizationUserId", "CreatedAt", "Id")
+                        .HasDatabaseName("IX_MemoryErasureReceipts_ActorHistory");
 
                     b.ToTable("MemoryErasureReceipts");
                 });
@@ -7265,6 +7273,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(24)
                         .HasColumnType("character varying(24)");
+
+                    b.Property<long>("MemoryAudienceRevision")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.Property<Guid?>("MergeAuthorizationGrantId")
                         .HasColumnType("uuid");
@@ -13216,6 +13229,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("ManagerOrganizationUserId")
                         .HasColumnType("uuid");
+
+                    b.Property<long>("MemoryAudienceRevision")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.Property<string>("Name")
                         .IsRequired()

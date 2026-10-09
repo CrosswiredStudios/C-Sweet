@@ -28,7 +28,7 @@ older audit copies block erasure. See [memory hardening](features/agent-memory-h
 | "...exceeded the N-minute safety limit..." | `timeout` | Turn hard timeout (`ChatTurnOptions.HardTimeout`) |
 | "The agent completed its work without providing a response." | `agent_no_response` | Work completed with no final chunk |
 | "The recalled context for this queued request is no longer valid. Please retry as a new chat turn." | `memory.recall_stale` | Queue delivery rejected missing, malformed or changed immutable recall evidence before releasing the payload |
-| "The agent's memory context changed and its runtime must be replaced." (with review-before-retry guidance) | `memory.runtime_reset` | Delivered work was fenced and settled while retained-context recovery waits for confirmed shutdown |
+| "The reply was interrupted because the agent's memory context changed." (with existing-document/approval and review-before-retry guidance) | `memory.runtime_reset` | Delivered work was fenced and settled while retained-context recovery waits for confirmed shutdown |
 
 Before the fallback is written, `ChatTurnWorker` publishes an `agent.error` trace event with the
 agent's sanitized failure text and stores `ErrorCode`/`ErrorMessage` on the turn; the final
@@ -94,6 +94,15 @@ before a stream failure, and every forwarded chunk is persisted first.
   the work is never delivered: the runtime event reason records `validation=claim.*` and the item
   stays Pending for the replacement runtime instead of failing. Unknown fleet attempts keep recovery
   blocked; a cancelled assignment alone is not proof that its workload stopped.
+  While a runtime with retained memory has live delivered work, the claim check validates the running
+  consumers and holds additional pickups using durable `AgentWorkAttempts`. An incompatible candidate
+  cannot itself terminate the current reply. After the running work finishes, candidate validation
+  resumes. A retained delivered work lease/deadline that expires requests reset before ordinary expiry
+  can automatically requeue it (`validation=claim.consumer-lease-expired`); delivered work settles
+  nonretryably and the never-delivered candidate remains pending. Invalid retained sources/authority and receipt capacity still
+  reset immediately; dispatch checks are not bypassed. Terminal `memory.runtime_reset` work errors
+  retain that code on the chat turn instead of becoming generic `turn_failed`. Already streamed
+  document links are preserved; the fallback does not claim that any particular artifact was saved.
 - For `memory.recall_stale`, retry as a new turn to prepare current recall. `AgentWorkInbox.ClaimCoreAsync`
   atomically dead-letters the stale work with a protected, content-free failure result and releases no
   payload or lease. `ReadStateAsync` and `WaitForResultAsync` retain the code; `ChatTurnWorker` preserves

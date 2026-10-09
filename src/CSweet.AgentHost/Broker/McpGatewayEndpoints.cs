@@ -443,7 +443,7 @@ public static class McpGatewayEndpoints
             {
                 csweet = new
                 {
-                    failureCode = terminal.FailureCode ?? "capability.failed",
+                    failureCode = terminal.FailureCode ?? FailureCodeFromPayload(structured) ?? "capability.failed",
                     retryable = terminal.Retryable == true
                 }
             }
@@ -561,6 +561,19 @@ public static class McpGatewayEndpoints
         }, JsonOptions);
         await http.Response.WriteAsync($"id: {result.Sequence}\nevent: capability\ndata: {frame}\n\n", cancellationToken);
         await http.Response.Body.FlushAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Capability handlers report refusals as a <c>PlatformCapabilityError</c> payload ({"code":"Denied",...}) without a
+    /// failure code. Without one the runtime sees a generic "capability.failed": the agent cannot tell a refusal from an
+    /// outage and the ticket only says execution stopped unexpectedly. Carry the error code as platform.capability.*.
+    /// </summary>
+    internal static string? FailureCodeFromPayload(JsonNode? payload)
+    {
+        if (payload is not JsonObject error || error["code"] is not JsonValue value || !value.TryGetValue<string>(out var code) ||
+            string.IsNullOrWhiteSpace(code) || code.Length > 64 || !code.All(char.IsLetter)) return null;
+        var snake = string.Concat(code.Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
+        return "platform.capability." + snake;
     }
 
     internal static void ValidateSuccessfulToolOutput(bool succeeded, JsonElement payload, JsonElement schema)

@@ -1,5 +1,4 @@
 using CSweet.Domain.Core;
-using CSweet.Domain.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
@@ -68,15 +67,8 @@ public sealed partial class ProjectSetupService
             QueueProjectAssignmentChanges(project, board.Id, teamId, added, []);
             return true;
         }
-        // Enrolled before the board existed: add the missing board access, but never restore a revoked grant.
-        var subject = person.AgentInstallationId ?? person.Id;
-        var kind = person.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser;
-        var existing = await db.ScopedActionGrants.Where(x => x.OrganizationId == org && x.SubjectId == subject && x.SubjectKind == kind &&
-            x.ScopeKind == GrantScopeKind.Board && x.ScopeId == board.Id).Select(x => x.Action).ToListAsync(ct);
-        foreach (var action in ParticipantBoardActions(project, person).Except(existing, StringComparer.Ordinal))
-            db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, SubjectKind = kind, SubjectId = subject, Action = action,
-                ScopeKind = GrantScopeKind.Board, ScopeId = board.Id, GrantedBySubjectKind = GrantSubjectKind.OrganizationUser,
-                GrantedBySubjectId = actor.Id, GrantedAt = clock.GetUtcNow() });
+        // Enrolled before the board existed: add the missing board and delivery access, but never restore a revoked grant.
+        await AddMissingParticipantAccessAsync(project, board.Id, person, actor.Id, ct);
         return true;
     }
 }

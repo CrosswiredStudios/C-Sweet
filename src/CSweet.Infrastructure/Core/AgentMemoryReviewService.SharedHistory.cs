@@ -12,7 +12,7 @@ public sealed partial class AgentMemoryReviewService
         foreach (var revision in revisions.Where(x => x.Kind == MemoryRecordKind.Episode))
         {
             var episode = JsonSerializer.Deserialize<MemoryEpisode>(revision.PayloadJson, JsonOptions) ?? throw new JsonException();
-            await RequireSharedReviewSourcesAsync(organization, employee, user, actor, [episode], token);
+            await RequireSharedReviewSourcesAsync(organization, employee, user, actor, [episode], token, retainedScoped: true);
         }
         var ids = revisions.Where(x => x.Kind != MemoryRecordKind.Episode).SelectMany(x => ProjectHistory(x).Sources)
             .Select(x => x.Id).Distinct().Order().ToArray();
@@ -31,6 +31,6 @@ public sealed partial class AgentMemoryReviewService
             if (source.Id != id || source.Partition != partition) throw new InvalidOperationException("memory_history_source_unavailable");
             episodes.Add(id, source);
         }
-        await RequireSharedReviewSourcesAsync(organization, employee, user, actor, episodes.Values, token);
+        await RequireSharedReviewSourcesAsync(organization, employee, user, actor, episodes.Values, token, retainedScoped: true);
     }
 }

@@ -176,6 +176,18 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
             .Concat(manager ? new[] { WorkBoardActions.Configure } : Array.Empty<string>()).Distinct().ToArray();
     }
 
+    /// <summary>Project-scoped delivery authority a participant holds: everything for the accountable manager.</summary>
+    internal async Task<IReadOnlyList<string>> ParticipantDeliveryActionsAsync(Workstream project, OrganizationUser person, CancellationToken ct)
+    {
+        if (person.Id == project.AccountableManagerOrganizationUserId)
+            return CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.All;
+        var architect = await HasRoleAsync(person, "software-architect", ct) || await HasRoleAsync(person, "game-technical-director", ct);
+        return new[] { CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Read,
+            CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Evidence,
+            CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Review }.Concat(architect
+                ? new[] { CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Configure } : Array.Empty<string>()).ToArray();
+    }
+
     private async Task<List<OrganizationUser>> ApplyParticipantsAsync(Workstream project, WorkBoard board, List<OrganizationUser> people, OrganizationUser actor, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
@@ -203,14 +215,7 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
                 else { grant.RevokedAt = null; grant.ExpiresAt = null; grant.Revision++; }
             }
             // Project setup records explicit authority independently of release membership.
-            var architect = await HasRoleAsync(person, "software-architect", ct) || await HasRoleAsync(person, "game-technical-director", ct);
-            var deliveryActions = person.Id == project.AccountableManagerOrganizationUserId
-                ? CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.All
-                : new[] { CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Read,
-                    CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Evidence,
-                    CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Review }.Concat(architect
-                        ? new[] { CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Configure } : Array.Empty<string>()).ToArray();
-            foreach (var action in deliveryActions)
+            foreach (var action in await ParticipantDeliveryActionsAsync(project, person, ct))
             {
                 var grant = await db.ScopedActionGrants.SingleOrDefaultAsync(x => x.OrganizationId == project.OrganizationId &&
                     x.SubjectId == subject && x.SubjectKind == kind && x.ScopeKind == GrantScopeKind.Workstream && x.ScopeId == project.Id && x.Action == action, ct);

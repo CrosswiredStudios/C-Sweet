@@ -127,6 +127,23 @@
             if (generation != _generation) return;
             if (!response.IsSuccessStatusCode)
             {
+                if (response.StatusCode == HttpStatusCode.Conflict)
+                {
+                    System.Text.Json.JsonElement failure = default;
+                    try { failure = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(); }
+                    catch (System.Text.Json.JsonException) { /* An empty/non-JSON conflict still invalidates a stale review. */ }
+                    if (generation != _generation) return;
+                    if (failure.ValueKind == System.Text.Json.JsonValueKind.Object && failure.TryGetProperty("error", out var code) &&
+                        code.ValueKind == System.Text.Json.JsonValueKind.String &&
+                        code.GetString() is "memory_erasure_ownership_review_required" or "memory_erasure_evidence_review_required")
+                    {
+                        _impact = null; _confirmed = false;
+                        _message = code.GetString() == "memory_erasure_ownership_review_required"
+                            ? "Saved cleanup evidence does not identify every responsible employee. Ownership review is required before this operation can be checked or retried."
+                            : "Saved cleanup evidence cannot be verified. Evidence review is required before this operation can be checked or retried.";
+                        return;
+                    }
+                }
                 _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
                     ? "Current permission to every affected audience is required."
                     : "The erasure could not be confirmed. Retry the same operation or refresh its status.";

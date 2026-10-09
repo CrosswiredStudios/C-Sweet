@@ -23,7 +23,7 @@ public sealed partial class AgentMemoryReviewService
         await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
         await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
         var claim = await LockClaimAsync(store, claimId, cancellationToken);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, claim.Partition, cancellationToken);
+        await RequireReviewPartitionAsync(organizationId, employeeId, actor, claim.Partition, cancellationToken);
         var evidence = await ReadEvidenceAsync(store, claim, cancellationToken);
         await RequireSharedReviewSourcesAsync(organizationId, employeeId, applicationUserId, actor, evidence.Sources.Values, cancellationToken);
         if (claim.ObjectEntityId is null || !evidence.Valid) return [];

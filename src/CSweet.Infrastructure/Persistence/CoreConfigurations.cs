@@ -154,6 +154,8 @@ internal static class CoreConfigurations
             entity.Property(x => x.InventoryJson).HasMaxLength(262144).IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.OperationId }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.CreatedAt });
+            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.ActorApplicationUserId,
+                x.ActorOrganizationUserId, x.CreatedAt, x.Id }).HasDatabaseName("IX_MemoryErasureReceipts_ActorHistory");
         });
         modelBuilder.Entity<AgentMemoryNamespaceRegistration>(ConfigureAgentMemoryNamespace);
         modelBuilder.Entity<AgentMemoryRecallUse>(ConfigureAgentMemoryRecallUse);
@@ -608,6 +610,7 @@ internal static class CoreConfigurations
 
     static void ConfigureWorkTask(EntityTypeBuilder<WorkTask> entity)
     {
+        entity.Property<long>("MemoryAudienceRevision").HasDefaultValue(1L).ValueGeneratedOnAddOrUpdate();
         entity.HasKey(x => x.Id);
         entity.ToTable(table =>
         {
@@ -1095,6 +1098,7 @@ internal static class CoreConfigurations
 
     static void ConfigureConversation(EntityTypeBuilder<Conversation> entity)
     {
+        entity.Property(x => x.MemoryAudienceRevision).HasDefaultValue(1L).ValueGeneratedOnAddOrUpdate();
         entity.Property(x => x.DirectParticipantKey).HasMaxLength(65);
         entity.HasIndex(x => new { x.OrganizationId, x.DirectParticipantKey }).IsUnique()
             .HasFilter("\"ArchivedAt\" IS NULL AND \"DirectParticipantKey\" IS NOT NULL");
