@@ -49,7 +49,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
             select new { work.Id, attempt.Attempt }).Take(2).ToListAsync(token);
         if (leases.Count != 1) throw Denied();
         var employee = Guid.Parse(identity.EmployeeId);
-        return new(leases[0].Id, leases[0].Attempt, runtime, employee, await AuthorityHashAsync(organization, employee, [], token));
+        return new(leases[0].Id, leases[0].Attempt, runtime, employee, await AuthorityHashAsync(organization, employee, leases[0].Id, [], token));
     }
 
     public async Task RecordAsync(AgentSession session, string capability, MemoryReadInvocation invocation, object? result,
@@ -76,13 +76,17 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey},0))", token);
         if (await BeginAsync(session, capability, token) != invocation) throw Denied();
         var resolver = new AgentMemoryIdentityResolver(db);
+        await new MemoryRecallDispatchEvidence(db).ValidateReadAsync(capture.EvidenceJson, token, preserveInfrastructureFailure: true);
         foreach (var partition in capture.Partitions) await resolver.AuthorizeAsync(session, partition, PlatformMemoryAction.Read, token);
+        var consumer = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == invocation.WorkId, token);
+        capture = capture with { EvidenceJson = await new MemoryRecallDispatchEvidence(db)
+            .BindScopedReadConsumerAsync(capture.EvidenceJson, consumer, invocation.EmployeeId, token) };
         await RequireSharedReadConsumerAsync(invocation.WorkId, organization, invocation.EmployeeId, capture.EvidenceJson, capture.Partitions, token);
-        var authority = await AuthorityHashAsync(organization, invocation.EmployeeId, capture.Partitions, token);
+        var authority = await AuthorityHashAsync(organization, invocation.EmployeeId, invocation.WorkId, capture.Partitions, token);
         var fingerprint = Hash(JsonSerializer.Serialize(new { invocation.WorkId, invocation.Attempt, capability, authority, capture.EvidenceJson }, Json));
         if (!await db.AgentMemoryReadReceipts.AnyAsync(x => x.RuntimeId == invocation.RuntimeId && x.ReceiptHash == fingerprint, token))
         {
-            var sizes = await db.AgentMemoryReadReceipts.Where(x => x.RuntimeId == invocation.RuntimeId).Select(x => x.EvidenceJson.Length).Take(65).ToArrayAsync(token);
+            var sizes = await db.AgentMemoryReadReceipts.Where(x => x.RuntimeId == invocation.RuntimeId && x.WorkId == invocation.WorkId && x.Attempt == invocation.Attempt).Select(x => x.EvidenceJson.Length).Take(65).ToArrayAsync(token);
             if (sizes.Length >= 64 || sizes.Sum() + capture.EvidenceJson.Length > 2_097_152)
                 throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.ReceiptCapacity);
             db.AgentMemoryReadReceipts.Add(new AgentMemoryReadReceipt { Id = Guid.NewGuid(), OrganizationId = organization,
@@ -92,15 +96,16 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
             await db.SaveChangesAsync(token);
         }
         if (await BeginAsync(session, capability, token) != invocation ||
-            authority != await AuthorityHashAsync(organization, invocation.EmployeeId, capture.Partitions, token)) throw Denied();
+            authority != await AuthorityHashAsync(organization, invocation.EmployeeId, invocation.WorkId, capture.Partitions, token)) throw Denied();
         foreach (var partition in capture.Partitions) await resolver.AuthorizeAsync(session, partition, PlatformMemoryAction.Read, token);
         await RequireSharedReadConsumerAsync(invocation.WorkId, organization, invocation.EmployeeId, capture.EvidenceJson, capture.Partitions, token);
+        await new MemoryRecallDispatchEvidence(db).ValidateReadAsync(capture.EvidenceJson, token, preserveInfrastructureFailure: true);
         await transaction.CommitAsync(token);
     }
 
-    public async Task AuthorizeDispatchAsync(AgentSession session, Guid? expectedWork, CancellationToken token)
+    public async Task AuthorizeDispatchAsync(AgentSession session, Guid? expectedWork, CancellationToken token, int? expectedAttempt = null)
     {
-        try { await AuthorizeDispatchCoreAsync(session, expectedWork, token); }
+        try { await AuthorizeDispatchCoreAsync(session, expectedWork, expectedAttempt, token); }
         catch (MemoryRuntimeResetRequiredException reset)
         {
             await RequestResetAsync(session, reset.ReasonCode, token, reset.ValidationDiagnostic);
@@ -116,7 +121,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
             ? new AgentMemoryRuntimeReset(db).RequestAsync(runtime, tick, installation, session.BusinessId, session.Grant.Revision, reason, token, diagnostic)
             : Task.FromResult(false);
 
-    private async Task AuthorizeDispatchCoreAsync(AgentSession session, Guid? expectedWork, CancellationToken token)
+    private async Task AuthorizeDispatchCoreAsync(AgentSession session, Guid? expectedWork, int? expectedAttempt, CancellationToken token)
     {
         if (!Guid.TryParse(session.RuntimeInstanceId, out var runtime)) throw Denied();
         // Even runtimes without memory-query grants may have received recalled chat context.
@@ -124,10 +129,27 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         if (currentRuntime is null || currentRuntime.MemoryResetRequestedAt is not null) throw Denied();
         if (currentRuntime.MemoryReadEvidenceVersion != AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion)
             throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.LegacyEvidence);
-        // Retain all reads for this runtime: finishing a work item does not erase its prompt state.
-        var receipts = await db.AgentMemoryReadReceipts.AsNoTracking().Where(x => x.RuntimeId == runtime).OrderBy(x => x.Id).Take(65).ToArrayAsync(token);
-        if (receipts.Length == 0) return;
-        if (expectedWork is null) throw Denied();
+        // A completed callback is not a context input for the next task. Resolve the live
+        // lease before loading evidence so a stale/missing callback cannot reset other work.
+        if (expectedWork is null)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (await db.AgentMemoryReadReceipts.AsNoTracking().AnyAsync(receipt => receipt.RuntimeId == runtime &&
+                db.AgentWorkAttempts.Any(attempt => attempt.RuntimeInstanceId == runtime && attempt.AgentWorkItemId == receipt.WorkId &&
+                    attempt.Attempt == receipt.Attempt && attempt.FinishedAt == null && attempt.LeaseExpiresAt > now &&
+                    attempt.AgentWorkItem!.Status == AgentWorkStatus.Leased && attempt.AgentWorkItem.DeadlineAt > now), token)) throw Denied();
+            return;
+        }
+        var scopeTime = DateTimeOffset.UtcNow;
+        var leases = await db.AgentWorkAttempts.AsNoTracking().Where(x => x.RuntimeInstanceId == runtime &&
+                x.AgentWorkItemId == expectedWork.Value && x.FinishedAt == null && x.LeaseExpiresAt > scopeTime &&
+                x.AgentWorkItem!.Status == AgentWorkStatus.Leased && x.AgentWorkItem.DeadlineAt > scopeTime &&
+                x.AgentWorkItem.AgentInstallationId.ToString() == session.InstallationId && x.AgentWorkItem.OrganizationId == session.BusinessId)
+            .Select(x => x.Attempt).Take(2).ToArrayAsync(token);
+        if (leases.Length != 1 || expectedAttempt is { } attemptNumber && leases[0] != attemptNumber) throw Denied();
+        var execution = new { WorkId = expectedWork.Value, RuntimeId = runtime, Attempt = leases[0] };
+        var receipts = await db.AgentMemoryReadReceipts.AsNoTracking().Where(x => x.RuntimeId == runtime &&
+                x.WorkId == execution.WorkId && x.Attempt == execution.Attempt).OrderBy(x => x.Id).Take(65).ToArrayAsync(token);
         if (receipts.Length > 64 || receipts.Sum(x => x.EvidenceJson.Length) > 2_097_152)
             throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.ReceiptCapacity);
         var validator = new MemoryRecallDispatchEvidence(db); var resolver = new AgentMemoryIdentityResolver(db);
@@ -135,11 +157,14 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         {
             var queuedRecall = receipt.Capability == MemoryRecallDispatchEvidence.QueuedRecallCapability;
             var capability = queuedRecall ? PlatformChatCapabilities.ChatStream : receipt.Capability;
-            var current = await BeginAsync(session, capability, token);
-            if (current.WorkId != expectedWork) throw Denied();
-            var validation = "receipt.binding";
+            MemoryReadInvocation? current = null;
+            var validation = "receipt.work-binding";
             try
             {
+                // Identity/grant/source invalidation in a live context still requires fencing.
+                current = await BeginAsync(session, capability, token);
+                if (current.WorkId != execution.WorkId || current.Attempt != execution.Attempt) throw Denied();
+                validation = "receipt.binding";
                 if (current.EmployeeId != receipt.EmployeeId || receipt.OrganizationId.ToString("D") != session.BusinessId ||
                     receipt.InstallationId.ToString("D") != session.InstallationId || receipt.GrantRevision != session.Grant.Revision) throw Denied();
                 if (queuedRecall)
@@ -152,6 +177,9 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
                 }
                 validation = "read.evidence";
                 var partitions = await validator.ValidateReadAsync(receipt.EvidenceJson, token, preserveInfrastructureFailure: true);
+                validation = "read.scoped-consumer";
+                var scopedConsumer = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == current.WorkId, token);
+                await validator.AuthorizeScopedReadConsumerAsync(receipt.EvidenceJson, scopedConsumer, current.EmployeeId, token);
                 validation = "read.shared-consumer";
                 await RequireSharedReadConsumerAsync(current.WorkId, receipt.OrganizationId, current.EmployeeId, receipt.EvidenceJson, partitions, token);
                 foreach (var partition in partitions)
@@ -166,16 +194,23 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
                     }
                 }
                 validation = "read.authority-changed";
-                if (receipt.AuthorityHash != await AuthorityHashAsync(receipt.OrganizationId, receipt.EmployeeId, partitions, token)) throw Denied();
+                if (receipt.AuthorityHash != await AuthorityHashAsync(receipt.OrganizationId, receipt.EmployeeId, current.WorkId, partitions, token)) throw Denied();
                 validation = "read.lease-changed";
                 if (current != await BeginAsync(session, receipt.Capability, token)) throw Denied();
             }
             catch (Exception error) when (error is ProviderDispatchDeniedException or UnauthorizedAccessException or
                 JsonException or FormatException or NullReferenceException or KeyNotFoundException or ArgumentException)
             {
+                // Completion/replacement closes this prompt context. A late retry must be
+                // denied, not turn its obsolete validation failure into another task's reset.
+                var now = DateTimeOffset.UtcNow;
+                if (!await db.AgentWorkAttempts.AsNoTracking().AnyAsync(x => x.RuntimeInstanceId == execution.RuntimeId &&
+                        x.AgentWorkItemId == execution.WorkId && x.Attempt == execution.Attempt && x.FinishedAt == null &&
+                        x.LeaseExpiresAt > now && x.AgentWorkItem!.Status == AgentWorkStatus.Leased && x.AgentWorkItem.DeadlineAt > now, token))
+                    throw Denied();
                 var code = error.Data["memory.validation"] as string ?? validation;
                 throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.RetainedEvidence,
-                    $"validation={code};receipt={receipt.Id:D};work={current.WorkId:D};error={error.GetType().Name}");
+                    $"validation={code};receipt={receipt.Id:D};work={current?.WorkId ?? receipt.WorkId:D};error={error.GetType().Name}");
             }
         }
     }
@@ -183,17 +218,33 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
     private async Task RequireSharedReadConsumerAsync(Guid workId, Guid organization, Guid employee, string json,
         IReadOnlyList<MemoryPartition> partitions, CancellationToken token)
     {
-        if (!partitions.Any(MemorySharedAudiences.IsCanonical)) return;
+        if (!partitions.Any(x => MemorySharedAudiences.IsCanonical(x) || MemoryScopedAudienceAuthorization.Resolve(x) is not null)) return;
         var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == workId, token);
+        await new MemoryRecallDispatchEvidence(db).AuthorizeScopedReadConsumerAsync(json, work, employee, token);
+        if (!partitions.Any(MemorySharedAudiences.IsCanonical)) return;
         if (work.SourceType != "chat-turn") return;
         if (!Guid.TryParse(work.SourceId, out var turn)) throw Denied();
         await new MemoryRecallDispatchEvidence(db).AuthorizeChatReadSharedAudienceAsync(json, turn, organization, employee, token);
     }
 
-    private async Task<string> AuthorityHashAsync(Guid organization, Guid employee, IReadOnlyList<MemoryPartition> partitions, CancellationToken token)
+    private async Task<string> AuthorityHashAsync(Guid organization, Guid employee, Guid workId,
+        IReadOnlyList<MemoryPartition> partitions, CancellationToken token)
     {
-        var users = partitions.Where(x => x.UserId is not null).Select(x => Guid.Parse(x.UserId!)).Append(employee).Distinct().Order().ToArray();
-        if (users.Length > 33) throw Denied();
+        // Use the durable turn's sender, never an audience supplied in the capability payload.
+        var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == workId, token);
+        Guid? sender = null; Guid? consumerConversation = null;
+        if (work.SourceType == "chat-turn")
+        {
+            if (!Guid.TryParse(work.SourceId, out var turnId)) throw Denied();
+            var consumer = await db.ChatTurns.AsNoTracking().Where(x => x.Id == turnId &&
+                x.OrganizationId == organization && x.TargetAgentOrganizationUserId == employee)
+                .Select(x => new { x.ConversationId, Sender = x.UserMessage!.SenderOrganizationUserId ?? x.Conversation!.InitiatedByOrganizationUserId })
+                .SingleOrDefaultAsync(token) ?? throw Denied();
+            sender = consumer.Sender; consumerConversation = consumer.ConversationId;
+        }
+        var users = partitions.Where(x => x.UserId is not null).Select(x => Guid.Parse(x.UserId!)).Append(employee)
+            .Concat(sender.HasValue ? [sender.Value] : Array.Empty<Guid>()).Distinct().Order().ToArray();
+        if (users.Length > 34) throw Denied();
         var people = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization && users.Contains(x.Id))
             .OrderBy(x => x.Id).Select(x => new { x.Id, x.ApplicationUserId, x.AgentInstallationId, x.IsActive, x.ArchivedAt, x.EmployeeType,
                 x.RoleId, x.ReportsToOrganizationUserId, x.PermissionLevel, x.Revision }).ToArrayAsync(token);
@@ -207,6 +258,21 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         var roles = people.Select(x => x.RoleId).Concat(memberships.Select(x => x.TeamRoleId)).Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToArray();
         var definitions = await db.CoreRoles.AsNoTracking().Where(x => roles.Contains(x.Id)).OrderBy(x => x.Id)
             .Select(x => new { x.Id, x.OrganizationId, x.AuthorityLevel, x.ResponsibilitiesJson, x.UpdatedAt }).ToArrayAsync(token);
-        return Hash(JsonSerializer.Serialize(new { people, memberships, definitions }, Json));
+        var conversations = await db.CoreConversations.AsNoTracking().Where(x => x.OrganizationId == organization &&
+            (x.Id == consumerConversation || x.Kind == ConversationKind.DirectHumanAgent && x.AgentOrganizationUserId == employee &&
+                users.Contains(x.InitiatedByOrganizationUserId) && x.ArchivedAt == null && x.MergedIntoConversationId == null))
+            .OrderBy(x => x.Id).Select(x => x.Id).Take(65).ToArrayAsync(token);
+        if (conversations.Length > 64) throw Denied();
+        var keys = users.Select(id => (Kind: "person", Id: id))
+            .Concat(people.Where(x => x.AgentInstallationId.HasValue).Select(x => (Kind: "installation", Id: x.AgentInstallationId!.Value)))
+            .Concat(memberships.Select(x => (Kind: "member", Id: x.Id)))
+            .Concat(memberships.Select(x => (Kind: "team", Id: x.TeamId)))
+            .Concat(definitions.Select(x => (Kind: "role", Id: x.Id)))
+            .Concat(conversations.Select(id => (Kind: "conversation", Id: id))).Distinct().OrderBy(x => x.Kind).ThenBy(x => x.Id).ToArray();
+        var generations = await MemoryAccessAuthorityEvidence.ReadAsync(db, keys, token);
+        var scoped = await MemoryScopedAudienceAuthorization.AuthorityHashAsync(db, organization, employee, null, partitions, token);
+        // Version 2 deliberately invalidates receipts issued before durable generations existed.
+        // Never backfill an old receipt with today's authority: its retained prompt cannot be proven safe.
+        return Hash(JsonSerializer.Serialize(new { version = 2, people, memberships, definitions, generations, scoped }, Json));
     }
 }

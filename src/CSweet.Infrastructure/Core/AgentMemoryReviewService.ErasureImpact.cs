@@ -15,7 +15,7 @@ public sealed partial class AgentMemoryReviewService : IAgentMemoryErasureImpact
         await RequireBackendAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var actor = await RequireHoldAuthorityAsync(organizationId, employeeId, applicationUserId, cancellationToken);
-        using var work = new MemoryWorkErasure(db);
+        using var work = new MemoryWorkErasure(db, diagnosticProtection: protection);
         var capture = new MemoryCaptureErasure(db);
         await AcquireErasureBarriersAsync(work, capture, cancellationToken);
         await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());

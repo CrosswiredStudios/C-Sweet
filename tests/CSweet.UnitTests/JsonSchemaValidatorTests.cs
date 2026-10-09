@@ -66,7 +66,7 @@ public sealed class JsonSchemaValidatorTests
             valueText = $$"""{"x":{{valueText}}}""";
         }
 
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.ThrowsAny<InvalidOperationException>(() =>
             JsonSchemaValidator.Validate(Json(valueText), Json(schemaText)));
     }
 
@@ -143,6 +143,64 @@ public sealed class JsonSchemaValidatorTests
     {
         Assert.Throws<InvalidOperationException>(() =>
             JsonSchemaValidator.ValidateSchema(Json(schemaText)));
+    }
+
+    [Theory]
+    [InlineData("3", true)]
+    [InlineData("\"word\"", true)]
+    [InlineData("false", false)]
+    [InlineData("0", false)]
+    [InlineData("\"longer-than-five\"", false)]
+    public void OneOfRequiresExactlyOneAlternativeAndEnforcesCommonConstraints(string value, bool valid)
+    {
+        var schema = Json("""{"minimum":1,"maxLength":5,"oneOf":[{"type":"number"},{"$ref":"#/$defs/text"}],"$defs":{"text":{"type":"string"}}}""");
+        JsonSchemaValidator.ValidateSchema(schema);
+        if (valid) JsonSchemaValidator.Validate(Json(value), schema);
+        else Assert.Throws<InvalidOperationException>(() => JsonSchemaValidator.Validate(Json(value), schema));
+    }
+
+    [Fact]
+    public void OneOfRejectsAmbiguousMatches()
+    {
+        var schema = Json("""{"oneOf":[{"type":"number"},{"type":"integer"}]}""");
+        Assert.Throws<InvalidOperationException>(() => JsonSchemaValidator.Validate(Json("1"), schema));
+        JsonSchemaValidator.Validate(Json("1.5"), schema);
+    }
+
+    [Theory]
+    [InlineData("{\"oneOf\":[]}")]
+    [InlineData("{\"oneOf\":{}}")]
+    [InlineData("{\"oneOf\":[true]}")]
+    [InlineData("{\"oneOf\":[{\"unsupported\":true}]}")]
+    public void OneOfSchemaValidatesAlternativeShapeAndSupportedKeywords(string schema) =>
+        Assert.Throws<InvalidOperationException>(() => JsonSchemaValidator.ValidateSchema(Json(schema)));
+
+    [Fact]
+    public void OneOfSchemaBoundsAlternativeCount()
+    {
+        var schema = JsonSerializer.SerializeToElement(new { oneOf = Enumerable.Range(0, 17).Select(_ => new { type = "string" }).ToArray() });
+        Assert.Throws<InvalidOperationException>(() => JsonSchemaValidator.ValidateSchema(schema));
+    }
+
+    [Fact]
+    public void OneOfCannotHideRecursiveDepthLimitBehindMatchingAlternative()
+    {
+        var schema = Json("""{"oneOf":[{"$ref":"#/$defs/recursive"},{"type":"number"}],"$defs":{"recursive":{"$ref":"#/$defs/recursive"}}}""");
+        JsonSchemaValidator.ValidateSchema(schema);
+        Assert.Contains("maximum validation depth", Assert.ThrowsAny<InvalidOperationException>(() => JsonSchemaValidator.Validate(Json("1"), schema)).Message);
+    }
+
+    [Fact]
+    public void OneOfBoundsRepeatedBranchTraversalWithoutHidingWorkLimit()
+    {
+        // A compact definition graph would otherwise cause exponentially repeated work.
+        var definitions = new Dictionary<string, object> { ["d0"] = new { type = "string" } };
+        for (var i = 1; i <= 12; i++)
+            definitions[$"d{i}"] = new { oneOf = Enumerable.Range(0, 3)
+                .Select(_ => new Dictionary<string, string> { ["$ref"] = $"#/$defs/d{i - 1}" }).ToArray() };
+        var schema = JsonSerializer.SerializeToElement(new Dictionary<string, object> { ["$ref"] = "#/$defs/d12", ["$defs"] = definitions });
+        JsonSchemaValidator.ValidateSchema(schema);
+        Assert.Contains("maximum validation work", Assert.ThrowsAny<InvalidOperationException>(() => JsonSchemaValidator.Validate(Json("1"), schema)).Message);
     }
 
     private static JsonElement Json(string value) =>

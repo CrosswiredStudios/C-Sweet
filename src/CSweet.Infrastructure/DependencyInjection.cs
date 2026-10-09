@@ -419,6 +419,7 @@ public static class DependencyInjection
         });
         builder.Services.AddScoped<IWorkBoardGrantService, WorkBoardGrantService>();
         builder.Services.AddScoped<IWorkItemCollaborationService, WorkItemCollaborationService>();
+        builder.Services.AddScoped<IWorkInstructionPublicationService, WorkInstructionPublicationService>();
         builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();
         builder.Services.AddScoped<AgentWorkInbox>();
         builder.Services.AddScoped<AgentWorkRouter>();

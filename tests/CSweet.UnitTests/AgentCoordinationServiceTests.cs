@@ -472,6 +472,16 @@ public sealed class AgentCoordinationServiceTests
         var grant = Assert.Single(await db.ScopedActionGrants.Where(x => x.SubjectId == fixture.TargetInstallationId).ToArrayAsync());
         Assert.Equal(CSweet.Contracts.Core.ArtifactActions.Read, grant.Action);
         Assert.Equal(documentId, grant.ScopeId);
+        var queuedId = await db.AgentCoordinationSessions.Where(s => s.Id == session.Id).Select(s => s.CurrentAgentWorkItemId).SingleAsync();
+        var queuedWork = await db.AgentWorkItems.SingleAsync(x => x.Id == queuedId);
+        if (workSource)
+        {
+            using var inputs = JsonDocument.Parse(Assert.IsType<string>(queuedWork.NativeWorkInputReceiptJson));
+            Assert.Equal("input-origins-only-v1", inputs.RootElement.GetProperty("coverage").GetString());
+            Assert.Equal(itemId, inputs.RootElement.GetProperty("origins").GetProperty("caseId").GetGuid());
+            Assert.Equal(session.Id, inputs.RootElement.GetProperty("origins").GetProperty("sessionId").GetGuid());
+        }
+        else Assert.Null(queuedWork.NativeWorkInputReceiptJson);
     }
 
     private sealed class Fixture : IAsyncDisposable

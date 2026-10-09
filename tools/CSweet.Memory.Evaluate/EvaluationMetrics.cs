@@ -2,7 +2,12 @@ namespace CSweet.Memory.Evaluate;
 
 public sealed record EvaluationSample(string Scenario, string Split, string Mode, int Required, int RetrievedRequired,
     int Returned, int Irrelevant, int Forbidden, bool CorrectAbstention, double Milliseconds, long DatabaseCommands,
-    int RenderedCharacters, int EstimatedTokens, string[] Channels, string[] ReturnedIds);
+    int RenderedCharacters, int EstimatedTokens, string[] Channels, string[] ReturnedIds)
+{
+    public string Phase { get; init; } = "warm";
+    public int RawForbidden { get; init; }
+    public int Repetition { get; init; }
+}
 
 public sealed record EvaluationSummary(string Split, string Mode, int Samples, double RecallAtK,
     double IrrelevantRate, int ForbiddenResults, int AbstentionSamples, double? CorrectAbstentionRate,

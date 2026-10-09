@@ -4,8 +4,8 @@ public sealed class AgentRuntimeInstance
 {
     public Guid Id { get; set; }
     public Guid TickId { get; set; }
-    public const int CurrentMemoryReadEvidenceVersion = 3;
-    // Existing runtimes are fenced: prior direct prompt/auxiliary inputs may be unverifiable.
+    public const int CurrentMemoryReadEvidenceVersion = 4;
+    // Prior runtime-wide context assumptions cannot establish the new work-attempt boundary.
     public int MemoryReadEvidenceVersion { get; set; } = CurrentMemoryReadEvidenceVersion;
     public DateTimeOffset? MemoryResetRequestedAt { get; set; }
     public string? MemoryResetReasonCode { get; set; }

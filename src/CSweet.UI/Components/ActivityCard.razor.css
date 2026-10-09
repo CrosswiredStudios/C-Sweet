@@ -1,0 +1,31 @@
+.activity-card { padding: 18px; border: 1px solid var(--mud-palette-divider); border-radius: 10px; background: var(--mud-palette-surface); }
+.activity-card-header, .activity-card-title, .activity-card-controls { display: flex; align-items: center; gap: 8px; }
+.activity-card-header { justify-content: space-between; flex-wrap: wrap; }
+.activity-card-title { min-width: 0; }
+.activity-card-title strong { font-size: .9375rem; font-weight: 500; overflow-wrap: anywhere; }
+.activity-card-controls { margin-left: auto; }
+.activity-card-status { padding: 3px 8px; border-radius: 5px; color: var(--mud-palette-text-secondary); background: var(--mud-palette-background-gray); font-size: .75rem; }
+.activity-card-status time { font-variant-numeric: tabular-nums; }
+.activity-card-status.working { color: var(--mud-palette-success-darken); background: var(--mud-palette-success-hover); }
+.activity-card-status.waiting, .activity-card-status.attention { color: var(--mud-palette-warning-darken); background: var(--mud-palette-warning-hover); }
+.activity-inspect { display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; padding: 3px; min-height: 30px; background: transparent; color: var(--mud-palette-text-secondary); cursor: pointer; }
+.activity-inspect:hover { background: var(--mud-palette-action-default-hover); }
+.activity-task-link { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; color: var(--mud-palette-primary); font-size: .875rem; font-weight: 500; overflow-wrap: anywhere; text-decoration: none; }
+.activity-task-link:hover { text-decoration: underline; }
+.activity-task-link ::deep .mud-icon-root { flex-shrink: 0; margin-top: 2px; }
+.activity-card-context { font-size: .75rem; color: var(--mud-palette-text-secondary); margin: 5px 0 0 28px; overflow-wrap: anywhere; }
+.activity-card-agents { margin: 18px 0 14px; }
+.activity-card-agents.collaborating { display: grid; grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr); align-items: center; gap: 16px; padding: 16px; border-radius: 8px; background: var(--mud-palette-background-gray); }
+.activity-card-connector { color: var(--mud-palette-text-secondary); }
+.activity-card-now { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--mud-palette-text-secondary); }
+.activity-card-now span { overflow-wrap: anywhere; }
+.activity-card-now ::deep .mud-icon-root { flex-shrink: 0; }
+.activity-card-reason { padding-left: 12px; border-left: 3px solid var(--mud-palette-warning); margin-top: 12px; }
+.activity-card-reason > span { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--mud-palette-text-secondary); }
+.activity-card-reason p { font-size: .8rem; margin: 4px 0 0; overflow-wrap: anywhere; }
+.activity-card-details { font-size: .75rem; color: var(--mud-palette-text-secondary); margin-top: 12px; }
+.activity-card-details summary { cursor: pointer; width: fit-content; }
+.activity-card-details code { display: block; margin-top: 8px; overflow-wrap: anywhere; }
+.activity-card-details ul { padding-left: 18px; margin: 8px 0 0; overflow-wrap: anywhere; }
+@media(max-width:600px) { .activity-card { padding: 14px; } .activity-card-agents.collaborating { grid-template-columns: minmax(0, 1fr); gap: 14px; } .activity-card-connector { display: none; } }
+@media(pointer:coarse) { .activity-inspect, .activity-task-link, .activity-card-details summary { min-height: 44px; } .activity-task-link { align-items: center; } }

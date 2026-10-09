@@ -18,6 +18,11 @@ public sealed partial class PersonalTodoServiceTests
     [InlineData("late-wait", true)]
     [InlineData("repeat-wait", true)]
     [InlineData("defer-race", true)]
+    [InlineData("qa-readiness", true)]
+    [InlineData("role-estimate", true)]
+    [InlineData("qa-wrong-digest", false)]
+    [InlineData("qa-wrong-type", false)]
+    [InlineData("qa-substring-digest", false)]
     [InlineData("wrong-key", false)]
     [InlineData("wrong-speaker", false)]
     [InlineData("wrong-installation", false)]
@@ -46,7 +51,7 @@ public sealed partial class PersonalTodoServiceTests
             TeamId = team, SourceKind = "Board", Status = AgentCoordinationStatus.Completed,
             CreatedAt = now.AddMinutes(-1), CompletedAt = now.AddSeconds(-1), UpdatedAt = now.AddSeconds(-1) };
         task.CreatedAt = now.AddMinutes(-2); task.Status = WorkTaskStatus.Running;
-        task.UpdatedAt = scenario is "late-wait" or "defer-race" ? now : now.AddMinutes(-1);
+        task.UpdatedAt = scenario is "late-wait" or "defer-race" or "qa-readiness" or "role-estimate" ? now : now.AddMinutes(-1);
         task.NextReviewAt = now.AddMinutes(30); task.WaitingReason = "Await planning";
         task.WaitingOnOrganizationUserId = session.TargetOrganizationUserId;
         switch (scenario)
@@ -64,7 +69,13 @@ public sealed partial class PersonalTodoServiceTests
         db.AddRange(intake, session);
         db.AgentCoordinationTurns.Add(new() { Id = Guid.NewGuid(), SessionId = session.Id, Ordinal = 0,
             SpeakerOrganizationUserId = scenario == "wrong-speaker" ? Guid.NewGuid() : setup.Agent.Id,
-            ArtifactKey = scenario == "wrong-key" ? "other-cycle" : context.SourceFingerprint });
+            ArtifactKey = scenario.StartsWith("qa-", StringComparison.Ordinal) || scenario == "role-estimate"
+                ? "exact-request-fingerprint" : scenario == "wrong-key" ? "other-cycle" : context.SourceFingerprint,
+            ArtifactType = scenario == "role-estimate" ? "video-game.production.role-estimate-request.v1" :
+                scenario == "qa-wrong-type" ? "unrelated-artifact" : "video-game.production.qa-readiness-request.v1",
+            ArtifactPayloadJson = scenario.StartsWith("qa-", StringComparison.Ordinal) || scenario == "role-estimate"
+                ? JsonSerializer.Serialize(new { PlanningDigest = scenario == "qa-wrong-digest" ? "different-cycle" :
+                    scenario == "qa-substring-digest" ? "prefix-" + context.SourceFingerprint : context.SourceFingerprint }) : null });
         if (scenario == "ambiguous-board")
         {
             var other = new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = setup.Organization.Id,

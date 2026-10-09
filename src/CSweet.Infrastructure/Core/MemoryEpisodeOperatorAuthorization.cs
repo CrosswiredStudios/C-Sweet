@@ -12,10 +12,11 @@ internal static class MemoryEpisodeOperatorAuthorization
         partition.CustomNamespace?.StartsWith("team:", StringComparison.Ordinal) == true ? "Team" :
         partition.CustomNamespace?.StartsWith("role:", StringComparison.Ordinal) == true ? "Role" :
         partition.CustomNamespace?.StartsWith("relationship:", StringComparison.Ordinal) == true ? "Private relationship" :
-        partition.CustomNamespace == "organization" ? "Organization" : "Employee";
+        partition.CustomNamespace == "organization" ? "Organization" :
+        MemoryScopedAudienceAuthorization.Resolve(partition)?.Audience.ToString() ?? "Employee";
 
     internal static async Task RequirePartitionAsync(CSweetDbContext db, Guid organization, Guid employee,
-        Guid actor, MemoryPartition partition, CancellationToken token, bool requireActiveRelationship = true)
+        Guid actor, MemoryPartition partition, CancellationToken token, bool requireActiveRelationship = true, bool retainedScoped = false)
     {
         var tenant = organization.ToString("D");
         var employeeKey = employee.ToString("D");
@@ -29,6 +30,12 @@ internal static class MemoryEpisodeOperatorAuthorization
             (!privateAudience || partition.ApplicationId != installation.ToString("D"))) throw new UnauthorizedAccessException();
         // The existing manager helper locks and validates the current installation too.
         await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, employee, actor, own, token, true);
+        if (MemoryScopedAudienceAuthorization.Resolve(partition) is not null)
+        {
+            await MemoryScopedAudienceAuthorization.RequireAsync(db, organization, employee, actor, partition, token,
+                lockAuthority: true, retained: retainedScoped);
+            return;
+        }
         if (privateAudience)
         {
             await MemoryManagerAuthorization.RequirePartitionAsync(db, organization, employee, actor, canonical, token, true);
@@ -108,6 +115,7 @@ internal static class MemoryEpisodeOperatorAuthorization
             .Select(x => x.TeamId).Distinct().OrderBy(x => x).Take(129).ToListAsync(token);
         if (teams.Count > 128) throw new InvalidOperationException("memory_ingestion_audience_capacity");
         candidates.AddRange(teams.Select(x => EmployeeMemoryNamespaces.Team(tenant, x.ToString("D"), "csweet").Partition));
+        candidates.AddRange(await MemoryScopedAudienceAuthorization.ReadableAsync(db, organization, employee, actor, token));
         foreach (var candidate in candidates) await RequirePartitionAsync(db, organization, employee, actor, candidate, token);
         return candidates.Select(x => x.StorageKey).ToArray();
     }

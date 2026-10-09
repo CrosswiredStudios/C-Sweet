@@ -44,6 +44,16 @@ public sealed partial class WorkItemMutationEngine
                 x.SpeakerOrganizationUserId == session.InitiatorOrganizationUserId && x.ArtifactKey != null)
                 .OrderBy(x => x.Ordinal).Take(32).Select(x => x.ArtifactKey!).ToListAsync(token)).ToHashSet(StringComparer.Ordinal)
             : new HashSet<string>(StringComparer.Ordinal);
+        if (session.SourceKind == "Board" && waiting.Count > 0)
+        {
+            var requests = await db.AgentCoordinationTurns.AsNoTracking().Where(x => x.SessionId == session.Id &&
+                x.SpeakerOrganizationUserId == session.InitiatorOrganizationUserId &&
+                (x.ArtifactType == "video-game.production.role-estimate-request.v1" ||
+                 x.ArtifactType == "video-game.production.qa-readiness-request.v1"))
+                .OrderBy(x => x.Ordinal).Take(32).ToListAsync(token);
+            foreach (var request in requests)
+                if (ReadPlanningDigest(request) is { } digest) boardFingerprints.Add(digest);
+        }
         foreach (var item in waiting)
         {
             if (item.Status != WorkTaskStatus.Running || item.NextReviewAt is null || item.ClaimEventId is not null) continue;
@@ -115,8 +125,18 @@ public sealed partial class WorkItemMutationEngine
             (context.BoardId == null || x.SourceBoardId == context.BoardId) &&
             (x.SourceWorkItemId == null || x.SourceWorkItemId == context.WorkItemId) &&
             db.AgentCoordinationTurns.Any(t => t.SessionId == x.Id &&
-                t.SpeakerOrganizationUserId == owner && t.ArtifactKey == context.SourceFingerprint))
+                t.SpeakerOrganizationUserId == owner && (t.ArtifactKey == context.SourceFingerprint ||
+                    ((t.ArtifactType == "video-game.production.role-estimate-request.v1" ||
+                      t.ArtifactType == "video-game.production.qa-readiness-request.v1") &&
+                     t.ArtifactPayloadJson != null && t.ArtifactPayloadJson.Contains(context.SourceFingerprint)))))
             .OrderByDescending(x => x.CreatedAt).Take(33).ToListAsync(token);
+        if (sessions.Count > 32) return;
+        // SQL narrows discovery; parsed equality, not substring matching, binds the cycle.
+        var ids = sessions.Select(x => x.Id).ToArray();
+        var evidence = await db.AgentCoordinationTurns.AsNoTracking().Where(x => ids.Contains(x.SessionId) &&
+            x.SpeakerOrganizationUserId == owner).OrderBy(x => x.Ordinal).Take(1056).ToListAsync(token);
+        sessions = sessions.Where(s => evidence.Any(t => t.SessionId == s.Id &&
+            (t.ArtifactKey == context.SourceFingerprint || ReadPlanningDigest(t) == context.SourceFingerprint))).ToList();
         if (sessions.Count is 0 or > 32 || sessions.Select(x => x.SourceBoardId).Distinct().Count() != 1) return;
         item.PersonalWorkContextJson = JsonSerializer.Serialize(context with
         {
@@ -125,6 +145,22 @@ public sealed partial class WorkItemMutationEngine
             // reconciliation, which always re-reads all required proposals.
             CoordinationSessionId = null
         }, JsonOptions);
+    }
+
+    private static string? ReadPlanningDigest(AgentCoordinationTurn turn)
+    {
+        if (turn.ArtifactType is not ("video-game.production.role-estimate-request.v1" or
+            "video-game.production.qa-readiness-request.v1") || turn.ArtifactPayloadJson is null) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(turn.ArtifactPayloadJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if ((document.RootElement.TryGetProperty("PlanningDigest", out var value) ||
+                 document.RootElement.TryGetProperty("planningDigest", out value)) &&
+                value.ValueKind == JsonValueKind.String) return value.GetString();
+        }
+        catch (JsonException) { }
+        return null;
     }
 
     internal async Task RecoverCoordinationWaitsAsync(CancellationToken token, WorkTask? deferred = null)

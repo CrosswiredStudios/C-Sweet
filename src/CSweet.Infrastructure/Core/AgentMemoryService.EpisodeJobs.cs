@@ -172,8 +172,12 @@ public sealed partial class AgentMemoryService
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             db.ChangeTracker.Clear();
-            var permanent = error is MemorySourceInvalidatedException or UnauthorizedAccessException || job.Attempts >= MaximumEnrichmentAttempts;
             var deferral = error is MemoryProviderBusyException || token.IsCancellationRequested;
+            // Busy providers and worker shutdown refund this claim. Decide exhaustion
+            // from that same count, otherwise the final refundable claim becomes a
+            // terminal job with attempts still available. Semantic denials stay final.
+            var spentAttempts = deferral ? Math.Max(0, job.Attempts - 1) : job.Attempts;
+            var permanent = error is MemorySourceInvalidatedException or UnauthorizedAccessException || spentAttempts >= MaximumEnrichmentAttempts;
             var code = error is MemorySourceInvalidatedException invalid ? invalid.Code : error is UnauthorizedAccessException
                 ? "memory_enrichment_authority_revoked" : token.IsCancellationRequested ? "memory_enrichment_interrupted" :
                 error is MemoryProviderBusyException ? "memory_provider_busy" : "memory_enrichment_failed";

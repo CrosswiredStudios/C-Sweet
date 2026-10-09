@@ -22,6 +22,59 @@ public sealed class AgentMemoryErasureImpactEndpointTests
     [InlineData("forbidden", HttpStatusCode.Forbidden)]
     [InlineData("stale", HttpStatusCode.Conflict)]
     [InlineData("source", HttpStatusCode.Conflict)]
+    [InlineData("invalid", HttpStatusCode.BadRequest)]
+    [InlineData("backend", HttpStatusCode.ServiceUnavailable)]
+    public async Task ErasureHistoryEndpointUsesAuthenticatedActorAndBoundedCursorParameters(string scenario, HttpStatusCode expected)
+    {
+        var user = Guid.NewGuid(); var organization = Guid.NewGuid(); var employee = Guid.NewGuid(); var cursor = Guid.NewGuid();
+        var service = new ImpactStub(scenario);
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", ContentRootPath = Path.GetTempPath(), Args = [] });
+        builder.Configuration.Sources.Clear(); builder.Configuration.AddInMemoryCollection(); builder.Logging.ClearProviders(); builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddSingleton<IAgentMemoryErasureImpactService>(service);
+        builder.Services.AddAuthentication("test").AddCookie("test", options => options.Events.OnRedirectToAccessDenied = context =>
+        { context.Response.StatusCode = 403; return Task.CompletedTask; });
+        await using var app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            context.User = scenario == "anonymous" ? new ClaimsPrincipal() : new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, user.ToString())], scenario == "unverified" ? null : "test")); await next(context);
+        });
+        app.MapGroup("/api/core/organizations/{organizationId:guid}/employees/{employeeId:guid}/memory").MapMemoryErasureImpactRoutes();
+        await app.StartAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new(app.Urls.Single()) };
+            var prefix = $"/api/core/organizations/{organization}/employees/{employee}/memory/erasure-operations";
+            using var read = await client.GetAsync($"{prefix}?beforeReceiptId={cursor}&limit=2&applicationUserId={Guid.NewGuid()}");
+            Assert.Equal(expected, read.StatusCode); Assert.True(read.Headers.CacheControl?.NoStore);
+            if (scenario is not ("anonymous" or "unverified"))
+            {
+                Assert.Equal((organization, employee, Guid.Empty, user), service.Request);
+                Assert.Equal((cursor, 2), service.ListRequest);
+            }
+            else Assert.Equal(0, service.Calls);
+            Assert.DoesNotContain("private-memory", await read.Content.ReadAsStringAsync());
+            if (scenario == "ok")
+            {
+                var page = await read.Content.ReadFromJsonAsync<MemoryErasureOperationPage>();
+                Assert.Equal("ownership-review-required", Assert.Single(page!.Items).Availability);
+                using var first = await client.GetAsync(prefix); Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+                Assert.Equal(((Guid?)null, 10), service.ListRequest);
+                var calls = service.Calls;
+                using var invalid = await client.GetAsync(prefix + "?beforeReceiptId=not-a-guid");
+                Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode); Assert.Equal(calls, service.Calls);
+            }
+        }
+        finally { await app.StopAsync(); }
+    }
+
+    [Theory]
+    [InlineData("anonymous", HttpStatusCode.Unauthorized)]
+    [InlineData("unverified", HttpStatusCode.Unauthorized)]
+    [InlineData("ok", HttpStatusCode.OK)]
+    [InlineData("forbidden", HttpStatusCode.Forbidden)]
+    [InlineData("stale", HttpStatusCode.Conflict)]
+    [InlineData("source", HttpStatusCode.Conflict)]
     [InlineData("missing", HttpStatusCode.NotFound)]
     [InlineData("invalid", HttpStatusCode.BadRequest)]
     [InlineData("backend", HttpStatusCode.ServiceUnavailable)]
@@ -61,6 +114,14 @@ public sealed class AgentMemoryErasureImpactEndpointTests
 
     private sealed class ImpactStub(string scenario) : IAgentMemoryErasureImpactService
     {
+        public (Guid? Cursor, int Limit)? ListRequest { get; private set; }
+        public Task<MemoryErasureOperationPage> ListErasureOperationsAsync(Guid organizationId, Guid employeeId,
+            Guid applicationUserId, Guid? beforeReceiptId = null, int limit = 10, CancellationToken cancellationToken = default)
+        {
+            ListRequest = (beforeReceiptId, limit);
+            GetErasureImpactAsync(organizationId, employeeId, Guid.Empty, applicationUserId, cancellationToken);
+            return Task.FromResult(new MemoryErasureOperationPage([new(Guid.NewGuid(), DateTimeOffset.UtcNow, "ownership-review-required")], null));
+        }
         public EraseMemorySourceRequest? ErasureRequest { get; private set; }
         public Task<MemoryErasureResponse> EraseSourceAsync(Guid organizationId, Guid employeeId, Guid episodeId,
             Guid applicationUserId, EraseMemorySourceRequest request, CancellationToken cancellationToken = default)
@@ -86,6 +147,8 @@ public sealed class AgentMemoryErasureImpactEndpointTests
                 case "forbidden": throw new UnauthorizedAccessException("private-memory");
                 case "stale": throw new DbUpdateConcurrencyException("private-memory");
                 case "source": throw new InvalidOperationException("private-memory");
+                case "ownership": throw new InvalidOperationException("memory_erasure_ownership_review_required");
+                case "evidence": throw new InvalidOperationException("memory_erasure_evidence_review_required");
                 case "missing": throw new KeyNotFoundException("private-memory");
                 case "invalid": throw new ArgumentException("private-memory");
                 case "backend": throw new NotSupportedException("private-memory");
@@ -104,6 +167,8 @@ public sealed class AgentMemoryErasureImpactEndpointTests
     [InlineData("missing", HttpStatusCode.NotFound)]
     [InlineData("invalid", HttpStatusCode.BadRequest)]
     [InlineData("backend", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("ownership", HttpStatusCode.Conflict)]
+    [InlineData("evidence", HttpStatusCode.Conflict)]
     public async Task ErasureApplyAndStatusDeriveTheActorFromAuthentication(string scenario, HttpStatusCode expected)
     {
         var user = Guid.NewGuid(); var organization = Guid.NewGuid(); var employee = Guid.NewGuid(); var episode = Guid.NewGuid();
@@ -131,6 +196,12 @@ public sealed class AgentMemoryErasureImpactEndpointTests
             Assert.Equal(expected, status.StatusCode); Assert.True(status.Headers.CacheControl?.NoStore);
             if (scenario is not ("anonymous" or "unverified")) Assert.Equal((organization, employee, request.OperationId, user), service.Request);
             Assert.DoesNotContain("private-memory", await apply.Content.ReadAsStringAsync()); Assert.DoesNotContain("private-memory", await status.Content.ReadAsStringAsync());
+            if (scenario is "ownership" or "evidence")
+            {
+                var code = scenario == "ownership" ? "memory_erasure_ownership_review_required" : "memory_erasure_evidence_review_required";
+                Assert.Equal("{\"error\":\"" + code + "\"}", await apply.Content.ReadAsStringAsync());
+                Assert.Equal("{\"error\":\"" + code + "\"}", await status.Content.ReadAsStringAsync());
+            }
         }
         finally { await app.StopAsync(); }
     }

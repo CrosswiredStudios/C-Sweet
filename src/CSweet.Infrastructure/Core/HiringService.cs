@@ -39,6 +39,28 @@ public sealed class HiringService(
     private IAgentInstallationService? LegacyAgentInstallationService => agentInstallations;
     public const string ApprovalMessageSource = "HiringWorkflowApproval";
 
+    public async Task<HiringCandidateSearchContext?> GetCandidateSearchContextAsync(
+        Guid organizationId, Guid recommendationId, CancellationToken cancellationToken = default)
+    {
+        var plan = await db.WorkforcePlans.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == recommendationId && x.OrganizationId == organizationId, cancellationToken);
+        if (plan is null) return null;
+
+        ResourceChangeRoleRecord? role = null;
+        if (plan.SourceResourceChangeRequestId is Guid requestId)
+        {
+            role = await db.ResourceChangeRoles.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.ResourceChangeRequestId == requestId && x.RoleKey == plan.RoleKey && x.IsDesired &&
+                x.Request != null && x.Request.OrganizationId == organizationId &&
+                x.Request.Status == ResourceChangeRequestStatus.Approved, cancellationToken);
+        }
+        var category = string.IsNullOrWhiteSpace(role?.RoleCategoryKey) ? plan.RoleKey : role.RoleCategoryKey;
+        return new(plan.Title,
+            CSweet.Agent.SDK.RoleTaxonomy.IsCanonicalKey(category)
+                ? CSweet.Agent.SDK.RoleTaxonomy.CoreRoleKey(category!) : null,
+            ReadStrings(role?.PreferredSpecializationKeysJson));
+    }
+
     public async Task<HiringRecommendationResponse> UpsertRecommendationAsync(
         Guid organizationId,
         Guid requestingInstallationId,

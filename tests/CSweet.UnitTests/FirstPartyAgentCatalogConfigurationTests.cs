@@ -12,6 +12,23 @@ namespace CSweet.UnitTests;
 public sealed class FirstPartyAgentCatalogConfigurationTests
 {
     [Theory]
+    [InlineData("game-engineer")]
+    [InlineData("Video Game Engineer")]
+    [InlineData("software-developer")]
+    [InlineData("Software Developer")]
+    public async Task ConfiguredCatalog_ShowsBothSoftwareEngineersForLegacyRoleLinks(string role)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(RepositoryRoot(), "src", "CSweet.Api", "first-party-agents.json")).Build();
+        var options = configuration.GetSection(MarketplaceOptions.SectionName).Get<MarketplaceOptions>()!;
+        var service = new AgentCatalogService([new FirstPartyAgentCatalogProvider(Options.Create(options))],
+            NullLogger<AgentCatalogService>.Instance);
+        var result = await service.GetAvailableAgentsAsync(Guid.NewGuid(), new(Role: role));
+        Assert.Equal(2, result.Agents.Count);
+        Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.software-developer");
+        Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.video-game-engineer");
+    }
+    [Theory]
     [InlineData("Creative Director", false)]
     [InlineData("creative-director", false)]
     [InlineData("Game Director", false)]

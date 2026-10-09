@@ -102,7 +102,7 @@
                 else
                 {
                     <div class="mt-3">
-                        <EmployeePersonalBoard OrganizationId="OrganizationId" EmployeeId="EmployeeId" Board="_personalBoard"
+                        <EmployeePersonalBoard OrganizationId="OrganizationId" EmployeeId="EmployeeId" Board="_personalBoard" RequestedItemId="ItemId"
                             CanAdd="_details.Permissions.CanManagePersonalBoard"
                             CanExecute="_details.Permissions.CanExecutePersonalWork"
                             IncludeArchived="_includeArchived" IncludeArchivedChanged="SetIncludeArchivedAsync"
@@ -207,6 +207,7 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid EmployeeId { get; set; }
     [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    [SupplyParameterFromQuery(Name = "item")] public Guid? ItemId { get; set; }
     private static readonly string[] TabSlugs =
         ["overview", "personal-board", "assigned-work", "agent-operations", "memory", "usage", "timeline"];
     private int _activeTab;

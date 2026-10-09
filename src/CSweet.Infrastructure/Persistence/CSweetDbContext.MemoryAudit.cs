@@ -16,12 +16,25 @@ public sealed partial class CSweetDbContext
         "CreatedAt", "CompletedAt", "AvailableAt", "DeadlineAt", "ClaimedAt", "FinishedAt", "LastConfirmedAt", "LeaseExpiresAt",
         "OccurredAt", "PayloadHash", "ResultHash", "CompletionHash"
     };
+    private static readonly HashSet<string> ContentFreeModelAuditFields = new(ContentFreeWorkAuditFields.Concat(new[]
+    {
+        "TaskRunId", "WorkItemId", "WorkstreamId", "QueueJobId", "BenchmarkTrialId", "EmployeeId", "ProviderProfileId",
+        "ConversationId", "ChatTurnId", "StartedAt", "ProviderStartedAt", "MemoryErasedAt", "DurationMs",
+        "ReportedInputTokens", "ReportedOutputTokens", "TokenInputCount", "TokenOutputCount", "TokenCachedInputCount",
+        "TokenReasoningCount", "PromptMessageCharacters", "PromptInstructionCharacters", "PromptToolCharacters", "PromptMemoryCharacters",
+        "InvocationSequence"
+    }), StringComparer.Ordinal);
 
     private static bool IsAuditDigest(string value) => value.Length == 64 && value.All(Uri.IsHexDigit);
+    internal static bool IsContentFreeModelAuditField(string name) => ContentFreeModelAuditFields.Contains(name);
+
+    public bool RequiresContentFreeModelAudit(AgentRunLog log) => log.OmitMemoryAuditContent || log.MemoryErasedAt is not null ||
+        log.AgentWorkItemId is { } id && RequiresContentFreeWorkAudit(AgentWorkItems.Find(id));
 
     private bool RequiresContentFreeWorkAudit(AgentWorkItem? work)
     {
-        if (OmitWorkAuditContent || work is null || work.MemoryErasedAt is not null || work.MemoryRecallReceiptJson is not null || work.SourceType == "chat-turn") return true;
+        if (OmitWorkAuditContent || work is null || work.MemoryErasedAt is not null || work.MemoryRecallReceiptJson is not null ||
+            work.NativeWorkInputReceiptJson is not null || work.SourceType == "chat-turn") return true;
         var persisted = AgentWorkAttempts.AsNoTracking().Where(x => x.AgentWorkItemId == work.Id)
             .Select(x => x.RuntimeInstanceId).Take(129).ToArray();
         var tracked = ChangeTracker.Entries<AgentWorkAttempt>().Where(x => x.Entity.AgentWorkItemId == work.Id)
@@ -41,8 +54,9 @@ public sealed partial class CSweetDbContext
         if (ChangeTracker.Entries<AgentRuntimeInstance>().Any(x => runtimeIds.Contains(x.Entity.Id) && x.Entity.MemoryReadEvidenceVersion != AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion) ||
             AgentRuntimeInstances.AsNoTracking().Any(x => runtimeIds.Contains(x.Id) && x.MemoryReadEvidenceVersion != AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion)) return true;
         if (AgentWorkAttempts.AsNoTracking().Any(x => runtimeIds.Contains(x.RuntimeInstanceId) &&
-            (x.AgentWorkItem!.MemoryRecallReceiptJson != null || x.AgentWorkItem.SourceType == "chat-turn"))) return true;
-        var localWork = ChangeTracker.Entries<AgentWorkItem>().Where(x => x.Entity.MemoryRecallReceiptJson is not null || x.Entity.SourceType == "chat-turn")
+            (x.AgentWorkItem!.MemoryRecallReceiptJson != null || x.AgentWorkItem.NativeWorkInputReceiptJson != null || x.AgentWorkItem.SourceType == "chat-turn"))) return true;
+        var localWork = ChangeTracker.Entries<AgentWorkItem>().Where(x => x.Entity.MemoryRecallReceiptJson is not null ||
+            x.Entity.NativeWorkInputReceiptJson is not null || x.Entity.SourceType == "chat-turn")
             .Select(x => x.Entity.Id).ToHashSet();
         return ChangeTracker.Entries<AgentWorkAttempt>().Any(x => runtimeIds.Contains(x.Entity.RuntimeInstanceId) && localWork.Contains(x.Entity.AgentWorkItemId));
     }

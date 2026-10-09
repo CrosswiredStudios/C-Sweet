@@ -9,8 +9,19 @@ internal static class WorkManagementConfigurations
 {
     public static void Apply(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<WorkInstructionPublication>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.SourceChecksum).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.InstructionChecksum).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => new { x.OrganizationId, x.OperationId }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.ActorApplicationUserId, x.WorkItemId, x.CreatedAt, x.Id });
+            entity.HasIndex(x => x.CommentId).IsUnique();
+        });
         modelBuilder.Entity<WorkBoard>(entity =>
         {
+            entity.Property<long>("MemoryAudienceRevision").HasDefaultValue(1L).ValueGeneratedOnAddOrUpdate();
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Description).HasMaxLength(2048).IsRequired();

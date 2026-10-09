@@ -6,6 +6,7 @@ using CSweet.Contracts.Plugins;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Setup;
 using CSweet.Memory;
 using Microsoft.EntityFrameworkCore;
@@ -116,6 +117,8 @@ public sealed class McpToolCatalog(
             "Propose a managed workstream with one accountable manager."),
         Read(W.WorkstreamCapabilityNames.ReadV1, "read_workstream",
             "Read one visible Workstream, including its immutable profile binding and current revision."),
+        HiddenRead(ProjectApprovalGovernance.ReadCapability, "read_project_approvals", "Read exact assigned or submitted project proposals and current spending policy."),
+        HiddenWrite(ProjectApprovalGovernance.DecideCapability, "decide_project_approval", "Approve, request revision, reject or escalate an exact project proposal through the reporting hierarchy."),
         Approval(W.WorkstreamCapabilityNames.PlanProposeV2, "propose_profiled_workstream",
             "Propose a profile-bound Workstream, accountable manager, authority envelope, milestones, and gates."),
         Approval(W.WorkstreamCapabilityNames.ChangeProposeV1, "propose_workstream_change",
@@ -566,6 +569,7 @@ public sealed class McpToolCatalog(
         PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead or PlatformCapabilities.ConnectorActionCancel => Schema("""
             {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"},"capability":{"type":"string"},"status":{"type":"string","enum":["Prepared","AwaitingApproval","Approved","Executing","Completed","Rejected","RevisionRequested","Cancelled","Blocked","Indeterminate","Expired","Unavailable"]},"updatedAt":{"type":"string","format":"date-time"},"result":{"type":["object","array","string","number","boolean","null"]},"conditionCode":{"type":["string","null"]},"decision":{"type":["object","null"],"properties":{"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"decidedAt":{"type":"string","format":"date-time"}},"required":["decision","comment","decidedAt"],"additionalProperties":false}},"required":["actionId","capability","status","updatedAt","result","conditionCode","decision"],"additionalProperties":false}
             """),
+        ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability or
         WorkBoardActions.Read or
         WorkSprintActions.Read or
         W.WorkstreamCapabilityNames.GateReadV1 or
@@ -609,6 +613,12 @@ public sealed class McpToolCatalog(
                 """);
         return capability switch
         {
+        ProjectApprovalGovernance.ReadCapability => Schema("""
+            {"type":"object","properties":{"proposalId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
+            """),
+        ProjectApprovalGovernance.DecideCapability => Schema("""
+            {"type":"object","required":["proposalId","decisionKind","comment","payloadHash","actionIdempotencyKey","decisionIdempotencyKey"],"properties":{"proposalId":{"type":"string","format":"uuid"},"decisionKind":{"enum":["Approve","RequestRevision","Reject","Escalate","Withdraw"]},"comment":{"type":"string","minLength":1,"maxLength":4000},"payloadHash":{"type":"string"},"actionIdempotencyKey":{"type":"string"},"decisionIdempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            """),
         ProjectHealthCapabilities.Read => Schema("""
             {"type":"object","required":["workstreamId"],"properties":{"workstreamId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
@@ -750,7 +760,11 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["conversationId","prompt","options","recommendedOptionId","idempotencyKey"],"properties":{"configurationChange":{"type":["object","null"],"required":["key","currentValue","proposedValue"],"properties":{"key":{"type":"string","minLength":1,"maxLength":160},"currentValue":{"type":"string","maxLength":160},"proposedValue":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false},"conversationId":{"type":"string","format":"uuid"},"chatTurnId":{"type":["string","null"],"format":"uuid"},"conversationMessageId":{"type":["string","null"],"format":"uuid"},"prompt":{"type":"string","minLength":1,"maxLength":2048},"options":{"type":"array","minItems":2,"maxItems":4,"items":{"type":"object","required":["id","label"],"properties":{"id":{"type":"string","minLength":1,"maxLength":80},"label":{"type":"string","minLength":1,"maxLength":160},"description":{"type":["string","null"],"maxLength":500}},"additionalProperties":false}},"recommendedOptionId":{"type":"string","minLength":1,"maxLength":80},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         SuggestedUserActionCapabilities.Suggest => Schema("""
-            {"type":"object","required":["workflowType","label","parameters","idempotencyKey"],"properties":{"messageId":{"type":["string","null"],"format":"uuid"},"chatTurnId":{"type":["string","null"],"format":"uuid"},"workflowType":{"type":"string","enum":["hiring.marketplace.browse.v1"]},"label":{"type":"string","minLength":1,"maxLength":120},"description":{"type":["string","null"],"maxLength":500},"parameters":{"type":"object","required":["role"],"properties":{"role":{"type":"string","minLength":1,"maxLength":160},"recommendationId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["workflowType","label","parameters","idempotencyKey"],"properties":{"messageId":{"type":["string","null"],"format":"uuid"},"chatTurnId":{"type":["string","null"],"format":"uuid"},"workflowType":{"type":"string","enum":["hiring.marketplace.browse.v1","approval.review.v1"]},"label":{"type":"string","minLength":1,"maxLength":120},"description":{"type":["string","null"],"maxLength":500},"parameters":{"type":"object"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false,
+             "oneOf":[
+               {"properties":{"workflowType":{"enum":["hiring.marketplace.browse.v1"]},"parameters":{"type":"object","required":["role"],"properties":{"role":{"type":"string","minLength":1,"maxLength":160},"recommendationId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}}},
+               {"properties":{"workflowType":{"enum":["approval.review.v1"]},"parameters":{"type":"object","required":["approvalId"],"properties":{"approvalId":{"type":"string","format":"uuid"}},"additionalProperties":false}}}
+             ]}
             """),
         HiringCapabilities.UpsertRecommendation => Schema("""
             {"type":"object","required":["title","objective","priority","idempotencyKey"],"properties":{"title":{"type":"string","minLength":1,"maxLength":256},"objective":{"type":"string","minLength":1,"maxLength":2048},"priority":{"type":"integer","minimum":1,"maximum":100,"description":"1 is the highest priority"},"roleKey":{"type":["string","null"],"maxLength":160},"headcount":{"type":"integer","minimum":1,"maximum":100},"sourceResourceChangeRequestId":{"type":["string","null"],"format":"uuid"},"teamId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"candidateReferences":{"type":["array","null"],"maxItems":3,"items":{"type":"string"}},"recommendedCandidateReference":{"type":["string","null"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

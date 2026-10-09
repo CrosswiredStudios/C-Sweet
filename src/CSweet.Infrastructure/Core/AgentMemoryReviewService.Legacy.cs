@@ -26,7 +26,7 @@ public sealed partial class AgentMemoryReviewService
         await LockLegacyMessageAsync(episodeId, cancellationToken);
         await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
         var legacy = await LockLegacyEpisodeAsync(episodeId, cancellationToken);
-        await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, legacy.Episode.Partition, cancellationToken);
+        await RequireReviewPartitionAsync(organizationId, employeeId, actor, legacy.Episode.Partition, cancellationToken);
         var evidence = await ReadLegacyEvidenceAsync(legacy, organizationId, employeeId, actor, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new(episodeId, evidence.Revision, evidence.Token, legacy.Episode.Content, legacy.Episode.Source.Type,
@@ -50,7 +50,7 @@ public sealed partial class AgentMemoryReviewService
             await MemoryReviewWriteBarrier.AcquireAsync(db, cancellationToken);
             var legacy = await LockLegacyEpisodeAsync(episodeId, cancellationToken);
             var episode = legacy.Episode;
-            await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, episode.Partition, cancellationToken);
+            await RequireReviewPartitionAsync(organizationId, employeeId, actor, episode.Partition, cancellationToken);
             var hash = Hash(new { organizationId, employeeId, episodeId, applicationUserId, actor, request });
             var receipt = await db.MemoryReviewReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.OrganizationId == organizationId && x.OperationId == request.OperationId, cancellationToken);

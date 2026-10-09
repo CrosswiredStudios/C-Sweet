@@ -191,7 +191,7 @@ public sealed partial class AgentMemoryServiceTests
     }
 
     [MemoryPostgresFact]
-    public async Task AudienceErasureReadsOlderContentFreeReceiptWithoutOwnerExtension()
+    public async Task AudienceErasureRequiresOwnershipReviewForOlderReceiptWithoutOwnerExtension()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var (user, _) = await SeedRecoveryAsync(fixture);
@@ -203,7 +203,9 @@ public sealed partial class AgentMemoryServiceTests
                 new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
         db.MemoryErasureReceipts.Add(receipt); await db.SaveChangesAsync();
         var service = ErasureService(fixture, db);
-        Assert.Equal("completed", (await service.GetErasureStatusAsync(fixture.OrganizationId, fixture.EmployeeId, receipt.OperationId, user)).Status);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetErasureStatusAsync(
+            fixture.OrganizationId, fixture.EmployeeId, receipt.OperationId, user));
+        Assert.Equal("memory_erasure_ownership_review_required", failure.Message);
         await db.CoreOrganizationUsers.Where(x => x.Id == fixture.EmployeeId).ExecuteUpdateAsync(x => x.SetProperty(t => t.ReportsToOrganizationUserId, (Guid?)null));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GetErasureStatusAsync(fixture.OrganizationId, fixture.EmployeeId, receipt.OperationId, user));
     }

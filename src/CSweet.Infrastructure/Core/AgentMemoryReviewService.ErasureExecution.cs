@@ -16,9 +16,10 @@ public sealed partial class AgentMemoryReviewService
     private async Task<ErasureExecution> ReadErasureExecutionAsync(Guid organization, Guid employee, Guid user, Guid actor,
         MemoryErasurePreview inventory, PostgreSqlMemoryStore store, MemoryWorkErasure work, MemoryCaptureErasure capture,
         MemoryEpisodeErasure.Plan episodes, IReadOnlyList<MemoryPartition> genericAudiences, string genericTransferRetentionHash,
-        CancellationToken token, IReadOnlyList<MemoryCaptureErasure.Source>? additionalSources = null)
+        IReadOnlyCollection<ErasureAudienceOwner> retainedOwners, CancellationToken token,
+        IReadOnlyList<MemoryCaptureErasure.Source>? additionalSources = null)
     {
-        var owners = new HashSet<ErasureAudienceOwner>();
+        var owners = new HashSet<ErasureAudienceOwner>(retainedOwners);
         foreach (var entry in episodes.Entries)
             foreach (var reference in entry.Evidence.References)
                 owners.Add(new(ErasureAudienceOwnerId(reference.Partition, entry.Job.EmployeeId), reference.Partition));
@@ -116,7 +117,8 @@ public sealed partial class AgentMemoryReviewService
         var runtimeIds = runtimes.ToArray();
         var active = await db.AgentRuntimeInstances.AsNoTracking().Where(x => runtimeIds.Contains(x.Id)).Select(x => x.Status).ToListAsync(token);
         return new(new(sources.Length, captures.Jobs.Count+episodes.Entries.Length, works.Count, runtimes.Count,
-            active.Count(CSweet.Domain.Setup.AgentRuntimeInstance.IsActive), held ? "memory_legal_hold_prevents_deletion" : null),
+            active.Count(CSweet.Domain.Setup.AgentRuntimeInstance.IsActive), held ? "memory_legal_hold_prevents_deletion" : null)
+            { ModelRuns = plan.ModelRuns.Count },
             captures, episodes, genericTransferRetentionHash, plan, evidence, audiences,
             owners.OrderBy(x => x.Partition.StorageKey, StringComparer.Ordinal).ThenBy(x => x.EmployeeId).ToArray());
     }
@@ -151,12 +153,11 @@ public sealed partial class AgentMemoryReviewService
         {
             if (episode.CorrectionEvidence is not null || episode.SourceFingerprint?.StartsWith("sha256-v3:", StringComparison.Ordinal)==true)
             {
-                if (episode.Partition.AgentId is null || !Guid.TryParseExact(episode.Partition.AgentId,"D",out var correctionOwner))
-                    throw new InvalidOperationException("memory_erasure_source_review_required");
+                var correctionOwner = await ReadCorrectionErasureOwnerAsync(organization, episode, token);
                 var retention=await ReadTransferRetentionAsync(organization,correctionOwner,user,actor,episode,token);
-                if(retention.Blocker=="memory_transfer_retention_review_required" || retention.EvidenceHash is null)
+                if(retention.Blocker=="memory_transfer_retention_review_required" || retention.EvidenceHash is null || retention.Owners is null)
                     throw new InvalidOperationException("memory_erasure_source_review_required");
-                owners.Add(new(correctionOwner,episode.Partition));
+                owners.UnionWith(retention.Owners);
                 continue;
             }
             if (episode.Source.Type=="agent-proposal" && MemorySourceIntegrity.IsVerified(episode) &&
@@ -176,6 +177,10 @@ public sealed partial class AgentMemoryReviewService
                 continue;
             }
             if (episode.TransferEvidence is not null && episode.Source.Type == "knowledge-transfer") continue;
+            if (episode.Source.Type == WorkInstructionMemorySource.Type &&
+                MemorySourceIntegrity.IsVerified(episode) && await WorkInstructionMemorySource.MatchesAsync(db, episode, token, retained: true) &&
+                generic.Entries.Any(x => x.Job.EpisodeId == episode.Id && x.Evidence.Episode.Partition == episode.Partition &&
+                    x.Job.OrganizationId == organization && MetadataGuid(episode, "installationId") == x.Job.InstallationId)) continue;
             if (!Guid.TryParse(episode.Source.Id, out var sourceId)) throw new InvalidOperationException("memory_erasure_source_review_required");
             if (MetadataGuid(episode, "conversationId") is not { } conversationId || MetadataGuid(episode, "messageId") != sourceId)
             {

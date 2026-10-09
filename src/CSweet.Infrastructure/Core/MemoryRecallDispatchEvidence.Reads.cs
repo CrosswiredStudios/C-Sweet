@@ -11,7 +11,11 @@ public sealed record CapturedMemoryRead(string EvidenceJson, IReadOnlyList<Memor
 public sealed partial class MemoryRecallDispatchEvidence
 {
     private sealed record Package(Guid Id, string Hash);
-    private sealed record ReadReceipt(int Version, Root[] Roots, Record[] Records, Package[] Packages, MemoryPartition[] Partitions);
+    private sealed record ReadReceipt(int Version, Root[] Roots, Record[] Records, Package[] Packages, MemoryPartition[] Partitions)
+    {
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public string? ScopedAuthorityHash { get; init; }
+    }
 
     public async Task<CapturedMemoryRead?> CaptureReadAsync(object? result, MemoryPartition? searchPartition, CancellationToken token)
     {
@@ -59,6 +63,7 @@ public sealed partial class MemoryRecallDispatchEvidence
                             Hash(JsonSerializer.Serialize(item, Json)), item.EpisodeIds.Distinct().Order().ToArray(), "transfer", item.Sensitivity));
                     }
                     break;
+                case IEnumerable<MemoryEpisode> values: foreach (var x in values) await Visit(x); break;
                 case IEnumerable<MemoryCandidate> values: foreach (var x in values) await Visit(x); break;
                 case IEnumerable<MemoryClaim> values: foreach (var x in values) await Visit(x); break;
                 default: throw Denied();

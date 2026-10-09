@@ -20,6 +20,7 @@
     @if (impact.Execution is { } execution)
     {
         <MudText>@execution.CaptureSources capture sources, @execution.ExtractionJobs extraction jobs, and @execution.WorkItems work items would require cleanup. @execution.ActiveRuntimes active runtimes would need to stop; @execution.Runtimes runtimes are represented in the affected work history.</MudText>
+        @if (execution.ModelRuns > 0) { <MudText>@execution.ModelRuns model runs have diagnostic copies in this review.</MudText> }
     }
     <MudText>@impact.DiagnosticTurns chat turns have diagnostic copies in this review.</MudText>
     @if (impact.ApplyBlockedReason is { } reason && reason != impact.BlockedReason)
@@ -40,6 +41,7 @@
 {
     <MudAlert Severity="@(result.PendingRuntimes == 0 ? Severity.Success : Severity.Info)">
         @result.ErasedRecords records and @result.ErasedRevisions historical versions erased; @result.ClearedWorks work items and @result.ClearedDiagnosticTurns diagnostic turns cleared.
+        @if (result.ClearedModelRuns > 0) { <MudText>@result.ClearedModelRuns model diagnostic copies cleared.</MudText> }
         @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
     </MudAlert>
     <MudText Typo="Typo.caption">Operation: @result.OperationId</MudText>
@@ -127,6 +129,23 @@
             if (generation != _generation) return;
             if (!response.IsSuccessStatusCode)
             {
+                if (response.StatusCode == HttpStatusCode.Conflict)
+                {
+                    System.Text.Json.JsonElement failure = default;
+                    try { failure = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(); }
+                    catch (System.Text.Json.JsonException) { /* An empty/non-JSON conflict still invalidates a stale review. */ }
+                    if (generation != _generation) return;
+                    if (failure.ValueKind == System.Text.Json.JsonValueKind.Object && failure.TryGetProperty("error", out var code) &&
+                        code.ValueKind == System.Text.Json.JsonValueKind.String &&
+                        code.GetString() is "memory_erasure_ownership_review_required" or "memory_erasure_evidence_review_required")
+                    {
+                        _impact = null; _confirmed = false;
+                        _message = code.GetString() == "memory_erasure_ownership_review_required"
+                            ? "Saved cleanup evidence does not identify every responsible employee. Ownership review is required before this operation can be checked or retried."
+                            : "Saved cleanup evidence cannot be verified. Evidence review is required before this operation can be checked or retried.";
+                        return;
+                    }
+                }
                 _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
                     ? "Current permission to every affected audience is required."
                     : "The erasure could not be confirmed. Retry the same operation or refresh its status.";

@@ -305,7 +305,12 @@ public sealed class ApprovalDashboardService(
         foreach (var proposal in agentActions.Where(x => x.ActionType == ProjectApprovalReader.ActionType))
         {
             var index = items.FindIndex(x => x.Id == proposal.Id);
-            items[index] = await projectReader.EnrichAsync(items[index], proposal, cancellationToken);
+            var governance = new ProjectApprovalGovernance(db);
+            var approverId = await governance.ApproverAsync(proposal, cancellationToken);
+            items[index] = await projectReader.EnrichAsync(items[index] with {
+                CanDecide = proposal.Status == ProposalStatus.Pending && await governance.CanDecideAsync(proposal, actor, cancellationToken),
+                AssignedTo = approverId.HasValue ? Name(names, approverId.Value, "Assigned manager") : ownerLabel
+            }, proposal, cancellationToken);
         }
         var ordered = items
             .Where(x => !IsPending(x.Status) || x.CanDecide)

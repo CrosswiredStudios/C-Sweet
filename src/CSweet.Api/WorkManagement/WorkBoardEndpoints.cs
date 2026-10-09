@@ -13,6 +13,7 @@ public static class WorkBoardEndpoints
     public static IEndpointRouteBuilder MapWorkBoardEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/boards");
+        group.MapWorkInstructionEndpoints();
         var organizationGrantGroup =
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/grants");
         var repositoryGroup =

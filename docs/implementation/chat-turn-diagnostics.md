@@ -6,6 +6,17 @@ its trace, and agent-side records.
 
 ## Turn lifecycle
 
+`ChatTurnTraceSequence.NextAsync` allocates diagnostic sequences with an atomic database
+increment. Both `ChatTurnService.TraceAsync` and `AgentMemoryService.AppendTurnMemoryTraceAsync`
+use it; long-lived tracked turns must not allocate sequences themselves. Otherwise background
+enrichment can collide with streamed output and break response handling after business effects
+have already completed.
+
+`ChatTurnService.ClaimNextAsync` retains the attempt when its exact durable chat dispatch exists.
+`ChatTurnWorker.ProcessAsync` reuses that work and reads its persisted progress, including the
+final response, instead of enqueueing another generation. Explicit user retries create a new
+turn. A lease recovery is not authorization to replay completed document/approval effects.
+
 `ChatTurnWorker` (`src/CSweet.Api/Chat/ChatTurnWorker.cs`) claims a `ChatTurn`, dispatches it to the
 target agent as durable `AgentWorkItems` work, relays streamed chunks, then commits the answer. Status,
 error code, error message, partial response, and attempt count live on `ChatTurns`; every step writes
@@ -22,19 +33,59 @@ older audit copies block erasure. See [memory hardening](features/agent-memory-h
 
 ## Failure branch map
 
+`AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion` is **4**. Memory read evidence now
+belongs to a **runtime + work item + attempt**, rather than every later task in a process.
+Completed receipts remain immutable audit/erasure evidence. Receiving
+`com.csweet.work.personal-todo.available.v1` after a completed private chat must not trigger
+`claim.relationship.consumer-kind` or rotate the agent. A stale completed model retry is
+denied without resetting the next task. Current source/authority invalidation, expired
+retained work, per-attempt receipt exhaustion and incompatible legacy runtime evidence still
+use safety fencing. A version-3 runtime requires one replacement during rollout; the new
+`TaskScopedMemoryReadEvidence` migration preserves receipts and adds their scope index.
+
 | User-visible result | Code | Trigger |
 | --- | --- | --- |
 | "The agent couldn't complete that request. Please try again." | `turn_failed` | Agent error chunk (`agent_error`, `agent_work_failed`, `agent_progress_unavailable`, cancelled/dead-letter work), runtime not ready, missing installation/provider, empty model response, unresolvable terminal approval message, or any infrastructure exception |
 | "...exceeded the N-minute safety limit..." | `timeout` | Turn hard timeout (`ChatTurnOptions.HardTimeout`) |
 | "The agent completed its work without providing a response." | `agent_no_response` | Work completed with no final chunk |
 | "The recalled context for this queued request is no longer valid. Please retry as a new chat turn." | `memory.recall_stale` | Queue delivery rejected missing, malformed or changed immutable recall evidence before releasing the payload |
-| "The agent's memory context changed and its runtime must be replaced." (with review-before-retry guidance) | `memory.runtime_reset` | Delivered work was fenced and settled while retained-context recovery waits for confirmed shutdown |
+| "The reply was interrupted because the agent's memory context changed." (with existing-document/approval and review-before-retry guidance) | `memory.runtime_reset` | Delivered work was fenced and settled while retained-context recovery waits for confirmed shutdown |
 
 Before the fallback is written, `ChatTurnWorker` publishes an `agent.error` trace event with the
 agent's sanitized failure text and stores `ErrorCode`/`ErrorMessage` on the turn; the final
 `turn.completed` trace event repeats the code and detail.
 
 ## Where to look
+
+For MCP `tools/call`, `McpGatewayEndpoints.CallToolAsync` returns invalid arguments as an HTTP 200
+tool error with `_meta.csweet.failureCode=platform.capability.validation_failed` and `retryable=false`.
+`ValidateToolInput` prevents dispatch and records a failed capability audit. Existing SDK 3.59.0
+reads this metadata into `PlatformCapabilityException`; the runtime preserves the failure code.
+It must not be diagnosed as a retryable `runtime.transport` outage. Malformed RPC envelopes and
+actual transport failures retain their separate error paths.
+
+The Naomi Producer-documentation blocker observed on October 8 was a schema mismatch in
+`McpToolCatalog`: `suggest_user_action` excluded the supported `approval.review.v1` workflow.
+The schema now admits approval `{ approvalId }` and hiring `{ role, recommendationId? }` using
+separate `oneOf` alternatives. `ApprovalUserActionWorkflowResolver` and `UserActionService`
+still enforce proposal ownership, the private approver chat, and idempotency. This correction
+requires updating the platform host; it does not require a Creative Director package change.
+
+For governed canonical work, `PlatformLlmCapabilityHandler.StreamAsync` now projects current published case instructions
+through `MemoryRecallDispatchEvidence.PrepareCaseInstructionsAsync`. A change before the provider sends that prepared
+context produces a dispatch denial with no retained read or reset. A change after dispatch still invokes retained-context
+safety checks and can fence the runtime. `AuthorizeDispatchAsync` uses an independent configured EF context for those
+checks: pending provider-start telemetry must not produce `A reset request cannot commit unrelated pending changes`
+instead of recording the safety reset. `CSweetDbContext.RequiresContentFreeModelAudit` also omits model request/response
+audit bodies and output previews for actual chat/recall/native-input work and work on memory-sensitive runtimes,
+before any automatic case instruction is added. The handler binds the model log to its server-authenticated work
+before the first diagnostic save. Operational responses still stream normally; read receipts, source IDs, typed
+usage counts and statuses remain available. `MemoryWorkErasure.ReadModelDiagnosticsAsync` requires review for
+historical copied audit bodies or unverified model ownership. Reviewed forgetting clears model preview/settings
+copies atomically and fences late writes; already reviewed content-free audit events can finish outbox delivery.
+An ordinary authorized chat provider call does not request reset because its diagnostic content is omitted.
+Ordinary chat/project handoffs and routine-runtime
+rotation remain separate unfinished work in the Memory System Implementation plan.
 
 1. Turn dialog in Communications (the thinking/detail button on the message) — trace events, activity
    durations, tool calls, and retry.
@@ -94,6 +145,25 @@ before a stream failure, and every forwarded chunk is persisted first.
   the work is never delivered: the runtime event reason records `validation=claim.*` and the item
   stays Pending for the replacement runtime instead of failing. Unknown fleet attempts keep recovery
   blocked; a cancelled assignment alone is not proof that its workload stopped.
+  While a runtime with retained memory has live delivered work, the claim check validates the running
+  consumers and holds additional pickups using durable `AgentWorkAttempts`. An incompatible candidate
+  cannot itself terminate the current reply. After the running work finishes, candidate validation
+  resumes. A retained delivered work lease/deadline that expires requests reset before ordinary expiry
+  can automatically requeue it (`validation=claim.consumer-lease-expired`); delivered work settles
+  nonretryably and the never-delivered candidate remains pending. Invalid retained sources/authority and receipt capacity still
+  reset immediately; dispatch checks are not bypassed. Terminal `memory.runtime_reset` work errors
+  retain that code on the chat turn instead of becoming generic `turn_failed`. Already streamed
+  document links are preserved; the fallback does not claim that any particular artifact was saved.
+  A reset can also follow a successfully completed chat when the next queued background consumer
+  cannot use its retained context (`validation=claim.queued-recall.consumer-kind`). Compare the
+  reset request time with the delivered attempts' `FinishedAt`/work `CompletedAt` before describing
+  it as a failed memory fetch or interrupted reply. A normal authorized read does not itself request
+  shutdown; recording a read can trigger the explicit receipt-capacity safeguard. Runtime replacement
+  clears transient process context; it does not delete the employee's durable memories. The current
+  runtime-wide boundary still causes routine restart churn. M02/M03 in
+  [Memory System Implementation](features/memory-system-implementation.md) now require authorized
+  task handoffs and verified task context isolation so supported agents can retain lasting knowledge
+  and continue ordinary work without restarting the process.
 - For `memory.recall_stale`, retry as a new turn to prepare current recall. `AgentWorkInbox.ClaimCoreAsync`
   atomically dead-letters the stale work with a protected, content-free failure result and releases no
   payload or lease. `ReadStateAsync` and `WaitForResultAsync` retain the code; `ChatTurnWorker` preserves

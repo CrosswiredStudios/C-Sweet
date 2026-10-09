@@ -32,6 +32,15 @@ public sealed partial class AgentMemoryService
             if (grant is null || JsonSerializer.Deserialize<string[]>(grant)?.Contains("platform.memory.write.v1") != true)
                 throw new UnauthorizedAccessException();
         }
+        else if (episode.Source.Type == WorkInstructionMemorySource.Type)
+        {
+            var publicationId = ReadGuid(episode.Metadata, "publicationId");
+            if (ReadGuid(episode.Metadata, "installationId") != job.InstallationId ||
+                !await db.WorkInstructionPublications.AsNoTracking().AnyAsync(x => x.Id == publicationId &&
+                    x.OrganizationId == job.OrganizationId && x.SourceEmployeeId == job.EmployeeId &&
+                    x.ActorApplicationUserId == job.ReviewerApplicationUserId, token) ||
+                !await WorkInstructionMemorySource.MatchesAsync(db, episode, token)) throw new UnauthorizedAccessException();
+        }
         else if (episode.Source.Type != "knowledge-transfer" || episode.TransferEvidence is null || job.ReviewerApplicationUserId is null)
             throw new UnauthorizedAccessException();
 
@@ -73,6 +82,12 @@ public sealed partial class AgentMemoryService
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"CoreRoles\" WHERE \"Id\"={role} FOR SHARE NOWAIT", token);
             if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.Id == job.EmployeeId && x.RoleId == role &&
                 x.Role!.OrganizationId == job.OrganizationId, token)) throw new UnauthorizedAccessException();
+        }
+        else if (MemoryScopedAudienceAuthorization.Resolve(partition) is { } scoped)
+        {
+            audience = scoped;
+            await MemoryScopedAudienceAuthorization.RequireAsync(db, job.OrganizationId, job.EmployeeId, null,
+                partition, token, lockAuthority: true);
         }
         else throw new UnauthorizedAccessException();
         if (partition != audience.Partition || episode.Scope != audience.Scope) throw new UnauthorizedAccessException();

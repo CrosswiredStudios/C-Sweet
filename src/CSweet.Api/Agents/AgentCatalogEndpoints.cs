@@ -1,6 +1,7 @@
 using CSweet.Agent.SDK;
 using CSweet.Api.Auth;
 using CSweet.Application.Agents;
+using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -59,6 +60,8 @@ public static class AgentCatalogEndpoints
             HttpContext http,
             CSweetDbContext db,
             IAgentCatalogService catalog,
+            IHiringService hiring,
+            Guid? recommendationId,
             CancellationToken cancellationToken) =>
         {
             var applicationUserId = http.User.GetApplicationUserId();
@@ -69,9 +72,22 @@ public static class AgentCatalogEndpoints
                 x.IsActive,
                 cancellationToken);
             if (!member) return Results.Forbid();
+            var query = Query(role, q, capabilities, category, maxPrice, currency, sort, limit, roleCategory, specializations);
+            if (recommendationId.HasValue)
+            {
+                var context = await hiring.GetCandidateSearchContextAsync(organizationId, recommendationId.Value, cancellationToken);
+                if (context is null)
+                    return Results.Problem("The hiring recommendation is unavailable.", statusCode: 404);
+                query = query with
+                {
+                    Role = context.RoleCategoryKey is null ? context.RoleTitle : null,
+                    RoleCategoryKey = context.RoleCategoryKey,
+                    PreferredSpecializationKeys = context.PreferredSpecializationKeys
+                };
+            }
             var result = await catalog.GetAvailableAgentsAsync(
                 organizationId,
-                Query(role, q, capabilities, category, maxPrice, currency, sort, limit, roleCategory, specializations),
+                query,
                 cancellationToken);
             return Results.Ok(result);
         });

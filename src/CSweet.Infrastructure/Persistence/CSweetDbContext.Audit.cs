@@ -183,7 +183,8 @@ public sealed partial class CSweetDbContext
                 id = run.Id; organization = run.OrganizationId; employee = run.EmployeeId; installation = run.AgentInstallationId;
                 category = "Model"; eventType = run.CompletedAt.HasValue ? "model.call.completed" : "model.call.started";
                 outcome = run.Status; when = run.CompletedAt ?? run.StartedAt; correlation = run.ChatTurnId?.ToString("D") ?? run.Id.ToString("D");
-                extra = run.RequestEvidenceJson is null ? null : JsonSerializer.Deserialize<JsonElement>(run.RequestEvidenceJson);
+                contentFreeWork = historical || RequiresContentFreeModelAudit(run);
+                if (!contentFreeWork) extra = run.RequestEvidenceJson is null ? null : JsonSerializer.Deserialize<JsonElement>(run.RequestEvidenceJson);
                 break;
             case AgentRuntimeEvent runtimeEvent:
                 if (entry.State != EntityState.Added && !historical) return null;
@@ -215,7 +216,8 @@ public sealed partial class CSweetDbContext
         {
             // Names, errors, correlation strings and idempotency keys can echo recalled
             // text too. A whitelist avoids copying them into an immutable second store.
-            values = values.Where(x => ContentFreeWorkAuditFields.Contains(x.Key) &&
+            var allowedFields = entry.Entity is AgentRunLog ? ContentFreeModelAuditFields : ContentFreeWorkAuditFields;
+            values = values.Where(x => allowedFields.Contains(x.Key) &&
                 (x.Value is not string text || IsAuditDigest(text) || Guid.TryParse(text, out _)))
                 .ToDictionary(x => x.Key, x => x.Value);
             extra = new { contentPolicy = "memory-content-omitted-v1" };

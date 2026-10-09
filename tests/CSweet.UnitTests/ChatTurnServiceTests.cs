@@ -8,6 +8,37 @@ namespace CSweet.UnitTests;
 
 public sealed class ChatTurnServiceTests
 {
+    [Theory]
+    [InlineData(AgentWorkStatus.Pending)]
+    [InlineData(AgentWorkStatus.Leased)]
+    [InlineData(AgentWorkStatus.Completed)]
+    public async Task ExpiredChatLease_ReusesAlreadyDispatchedAttempt(AgentWorkStatus status)
+    {
+        await using var db = CreateDb();
+        var organization = Guid.NewGuid();
+        var agent = Guid.NewGuid();
+        var conversation = new Conversation { Id = Guid.NewGuid(), OrganizationId = organization,
+            AgentOrganizationUserId = agent, InitiatedByOrganizationUserId = agent,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        db.CoreOrganizationUsers.Add(CreateAgent(organization, agent));
+        db.CoreConversations.Add(conversation);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+        var started = (await service.StartAsync(organization, conversation.Id, "Create the first pitch"))!;
+        await service.ClaimNextAsync("original-worker");
+        var turn = await db.ChatTurns.SingleAsync();
+        db.AgentWorkItems.Add(new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = organization.ToString("D"),
+            AgentInstallationId = Guid.NewGuid(), SourceType = "chat-turn", SourceId = turn.Id.ToString("D"),
+            IdempotencyKey = $"chat-turn:{turn.Id:D}:attempt:1", Status = status, Name = "pitch",
+            ProtectedPayload = [], PayloadHash = "hash", CreatedAt = DateTimeOffset.UtcNow });
+        turn.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(-1);
+        await db.SaveChangesAsync();
+        Assert.Equal(turn.Id, await service.ClaimNextAsync("replacement-worker"));
+        Assert.Equal(1, turn.Attempt);
+        Assert.Equal("replacement-worker", turn.LeaseOwner);
+        Assert.Single(await db.AgentWorkItems.ToListAsync());
+    }
+
     [Fact]
     public async Task TurnLifecycle_PersistsOrderedTraceOutputAndCompletion()
     {

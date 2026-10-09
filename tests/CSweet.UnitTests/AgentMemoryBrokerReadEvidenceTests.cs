@@ -202,7 +202,7 @@ public sealed partial class AgentMemoryServiceTests
     }
 
     [MemoryPostgresFact]
-    public async Task BrokerReadEvidenceSurvivesWorkDeletionAndBlocksCrossRecipientReuse()
+    public async Task BrokerReadHistorySurvivesDeletionWithoutBecomingAnotherTasksContext()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var (session, work) = await SeedBrokerReadLeaseAsync(fixture); await SeedReviewClaim(fixture);
@@ -216,11 +216,13 @@ public sealed partial class AgentMemoryServiceTests
         var turn = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId, ConversationId = conversation.Id, TargetAgentOrganizationUserId = fixture.EmployeeId, UserMessageId = message.Id };
         db.AddRange(human, conversation, message, turn);
         var next = new AgentWorkItem { Id = Guid.NewGuid(), AgentInstallationId = fixture.InstallationId, OrganizationId = fixture.OrganizationId.ToString("D"),
-            SourceType = "chat-turn", SourceId = turn.Id.ToString("D"), Status = AgentWorkStatus.Leased, DeadlineAt = DateTimeOffset.UtcNow.AddMinutes(10) };
+            SourceType = "chat-turn", SourceId = turn.Id.ToString("D"), Status = AgentWorkStatus.Leased, AttemptCount = 1, DeadlineAt = DateTimeOffset.UtcNow.AddMinutes(10) };
         db.AgentWorkItems.Add(next); db.AgentWorkAttempts.Add(new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = next.Id, RuntimeInstanceId = Guid.Parse(session.RuntimeInstanceId),
             Attempt = 1, LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10) }); await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, next.Id, default));
-        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, null, default));
+        await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, next.Id, default, 1);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, work.Id, default, 1));
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+        Assert.Single(await db.AgentMemoryReadReceipts.ToListAsync());
     }
 
     [MemoryPostgresFact]

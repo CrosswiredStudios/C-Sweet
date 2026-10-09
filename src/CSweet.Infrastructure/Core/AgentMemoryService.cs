@@ -75,7 +75,8 @@ public sealed partial class AgentMemoryService(
                 foreach (var searchQuery in searchQueries)
                 {
                     var found = (await store.SearchAsync(new MemorySearchRequest(
-                        memoryNamespace.Partition, memoryNamespace.Scope, searchQuery, Limit: 12, AsOf: asOf), cancellationToken))
+                        memoryNamespace.Partition, memoryNamespace.Scope, searchQuery, Limit: 12, AsOf: asOf)
+                        { IncludePinnedCore = true }, cancellationToken))
                         .Where(item => MemoryRecallPolicy.IsEligible(item,
                             MemoryRecallPolicy.MaximumSensitivity(memoryNamespace.Partition), asOf)).ToArray();
                     foreach (var item in found)
@@ -711,7 +712,7 @@ public sealed partial class AgentMemoryService(
         var now = DateTimeOffset.UtcNow;
         db.ChatTurnTraceEvents.Add(new ChatTurnTraceEvent
         {
-            Id = Guid.NewGuid(), ChatTurnId = turn.Id, Sequence = turn.NextTraceSequence++, Category = "memory",
+            Id = Guid.NewGuid(), ChatTurnId = turn.Id, Sequence = await ChatTurnTraceSequence.NextAsync(db, turn, cancellationToken), Category = "memory",
             EventType = eventType, Status = status, Title = title, Summary = summary,
             Sensitivity = "Internal", OccurredAt = now
         });

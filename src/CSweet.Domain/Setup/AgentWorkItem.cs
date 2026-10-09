@@ -28,6 +28,9 @@ public sealed class AgentWorkItem
     public string PayloadHash { get; set; } = string.Empty;
     // Server-owned evidence binding; excluded from the payload delivered to agents.
     public string? MemoryRecallReceiptJson { get; set; }
+    // Server-built input origins, not a grant to read or erase the primary records.
+    // Legacy/caller-built work deliberately has no receipt.
+    public string? NativeWorkInputReceiptJson { get; set; }
     // Permanent tombstone: operational payloads were removed by a reviewed memory erasure.
     public DateTimeOffset? MemoryErasedAt { get; set; }
     public byte[]? ProtectedResult { get; set; }

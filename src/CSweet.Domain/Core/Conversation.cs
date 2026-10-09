@@ -21,6 +21,8 @@ public sealed class Conversation
     public DateTimeOffset? ArchivedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    // Changes only with membership/audience authority, never with read-position updates.
+    public long MemoryAudienceRevision { get; set; } = 1;
 
     // Navigation
     public Organization? Organization { get; set; }

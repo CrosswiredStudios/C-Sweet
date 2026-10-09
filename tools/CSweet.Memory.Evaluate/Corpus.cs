@@ -5,11 +5,32 @@ using CSweet.Memory;
 namespace CSweet.Memory.Evaluate;
 
 public sealed record EvaluationScenario(string Id, string Split, string Query, MemoryLayer Layer,
-    Guid[] RequiredIds, DateTimeOffset AsOf, IReadOnlyList<float>? Embedding = null);
+    Guid[] RequiredIds, DateTimeOffset AsOf, IReadOnlyList<float>? Embedding = null)
+{
+    public Guid[]? RelevantIds { get; init; }
+    public Guid[] ForbiddenIds { get; init; } = [];
+    public string? ExpectedAnswer { get; init; }
+    public string? Category { get; init; }
+}
 
-internal sealed class Corpus
+internal interface IEvaluationCorpus
+{
+    string DatasetVersion { get; }
+    string? DatasetHash { get; }
+    MemoryPartition Partition { get; }
+    MemoryPartition Foreign { get; }
+    MemoryPartition OtherEmployee { get; }
+    HashSet<Guid> Forbidden { get; }
+    List<EvaluationScenario> Scenarios { get; }
+    Dictionary<string, int> Counts { get; }
+    Task SeedAsync(IMemoryStore store, int distractors, CancellationToken token);
+}
+
+internal sealed class Corpus : IEvaluationCorpus
 {
     public const string Version = "employee-business-retrieval-v2";
+    public string DatasetVersion => Version;
+    public string? DatasetHash => null;
     public static readonly DateTimeOffset Now = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
     public MemoryPartition Partition { get; } = new(Guid.NewGuid().ToString("D"), "memory-evaluation", "employee-avery");
     public MemoryPartition Foreign => Partition with { TenantId = Partition.TenantId + "-foreign" };

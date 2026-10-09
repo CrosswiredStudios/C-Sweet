@@ -209,13 +209,20 @@ public sealed class ChatTurnWorker(
                         model = GetConfiguredString(configuration, "llmModel"),
                         installationId
                     }, cancellationToken: hardTimeout.Token);
-                var work = await inbox.EnqueueAsync(
+                // A recovered turn may have already completed its business effects. Reuse its
+                // original payload/recall certificate and replay durable progress to the UI.
+                var dispatchKey = $"chat-turn:{turnId:D}:attempt:{turn.Attempt}";
+                var work = await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.OrganizationId == conversation.OrganizationId.ToString("D") &&
+                    x.AgentInstallationId == installationId && x.SourceType == "chat-turn" &&
+                    x.SourceId == turnId.ToString("D") && x.IdempotencyKey == dispatchKey, hardTimeout.Token)
+                    ?? await inbox.EnqueueAsync(
                     conversation.OrganizationId.ToString("D"),
                     installationId,
                     CSweet.Domain.Setup.AgentWorkKind.Event,
                     AgentChatEvents.UserMessageReceivedEvent,
                     JsonSerializer.SerializeToElement(payload, JsonOptions),
-                    $"chat-turn:{turnId:D}:attempt:{turn.Attempt}",
+                    dispatchKey,
                     turn.CreatedAt.Add(options.Value.HardTimeout),
                     correlationId: turnId.ToString("D"),
                     causationId: turn.UserMessageId.ToString("D"),
@@ -243,6 +250,9 @@ public sealed class ChatTurnWorker(
                     {
                         if (chunk.Error == CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code)
                             throw new CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException();
+                        if (chunk.Error == CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.FailureCode)
+                            throw new CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException(
+                                CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.RetainedEvidence);
                         await PublishTraceAsync(turns, turnId, "model", "agent.error", "failed", "Agent reported an error",
                             chunk.Delta,
                             new { kind = chunk.Kind, code = chunk.Error },
@@ -437,6 +447,13 @@ public sealed class ChatTurnWorker(
                 CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.Code,
                 CSweet.Infrastructure.Core.MemoryRecallDeliveryRejectedException.SafeMessage, CancellationToken.None);
         }
+        catch (CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException)
+        {
+            await CompleteVisibleFailureAsync(services, turns, db, conversation, turnId,
+                CSweet.Infrastructure.Core.MemoryRuntimeResetRequiredException.FailureCode,
+                "The reply was interrupted because the agent's memory context changed. Documents or approvals already created may still exist. Review them before retrying; completed actions were not replayed.",
+                CancellationToken.None);
+        }
         catch (AgentNoResponseException exception)
         {
             logger.LogWarning(exception, "Agent produced no response for chat turn {TurnId}.", turnId);
@@ -603,6 +620,9 @@ public sealed class ChatTurnWorker(
                         chunk.Sensitivity));
             }
 
+            // Recovery can have more than one page of saved progress. Drain it before
+            // deciding that completed work has no final response.
+            if (progress.Count == 100) continue;
             var state = await inbox.ReadStateAsync(workId, cancellationToken);
             if (state.Status == AgentWorkStatus.Completed)
             {

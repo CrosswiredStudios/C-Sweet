@@ -10,5 +10,8 @@
     <Compile Include="../../src/CSweet.Infrastructure/Core/MemoryRecallPolicy.cs" Link="MemoryRecallPolicy.cs" />
     <None Include="*.cs" CopyToOutputDirectory="PreserveNewest" TargetPath="sources/%(Filename)%(Extension)" />
     <None Include="../../src/CSweet.Infrastructure/Core/MemoryRecallPolicy.cs" CopyToOutputDirectory="PreserveNewest" TargetPath="sources/MemoryRecallPolicy.cs" />
+    <EmbeddedResource Include="datasets/employee-retrieval-v3.json" />
+    <None Update="datasets/employee-retrieval-v3.json" CopyToOutputDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="CSweet.Memory.Evaluate.Tests" />
   </ItemGroup>
 </Project>

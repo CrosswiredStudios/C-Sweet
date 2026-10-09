@@ -13,6 +13,12 @@ public sealed class CommunicationUnreadState(HttpClient http, IBusinessContext b
     public IReadOnlyDictionary<Guid, int> ChatUnreadCounts { get; private set; } = new Dictionary<Guid, int>();
     public event Action? Changed;
 
+    /// <summary>
+    /// Raised when a new message raised the signed-in user's unread total. Self-authored messages, agent-perspective
+    /// traffic, and messages already read never contribute to unread, so they never raise this event.
+    /// </summary>
+    public event Action? UnreadMessagesArrived;
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (!_initialized)
@@ -57,9 +63,15 @@ public sealed class CommunicationUnreadState(HttpClient http, IBusinessContext b
     private async void OnReconnected() => await ReloadAsync();
     private async void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
-        if (envelope.OrganizationId == businesses.SelectedBusiness?.Id &&
-            envelope.EventType.StartsWith("com.csweet.communication.", StringComparison.Ordinal))
-            await ReloadAsync();
+        var organizationId = businesses.SelectedBusiness?.Id;
+        if (envelope.OrganizationId != organizationId ||
+            !envelope.EventType.StartsWith("com.csweet.communication.", StringComparison.Ordinal)) return;
+        var unreadBefore = TotalUnreadCount;
+        await ReloadAsync();
+        if (envelope.EventType == CommunicationEvents.MessageCreated &&
+            businesses.SelectedBusiness?.Id == organizationId &&
+            TotalUnreadCount > unreadBefore)
+            UnreadMessagesArrived?.Invoke();
     }
 
     public void Dispose()

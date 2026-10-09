@@ -6,6 +6,7 @@ using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.Memory;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,7 +34,7 @@ public sealed partial class AgentMemoryServiceTests
     }
 
     [MemoryPostgresFact]
-    public async Task QueuedRecallResetRecordsTheSpecificNonChatConsumerValidation()
+    public async Task QueuedRecallCompletedChatDoesNotBecomeCoordinationContext()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var turn = await SeedRecallTurnAsync(fixture);
@@ -49,22 +50,24 @@ public sealed partial class AgentMemoryServiceTests
         var next = await inbox.EnqueueAsync(session.BusinessId, fixture.InstallationId, AgentWorkKind.Event,
             "coordination-turn", JsonSerializer.SerializeToElement(new { }), "coordination-after-chat",
             DateTimeOffset.UtcNow.AddMinutes(10), sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
-        // Private chat context must not reach agent coordination. The runtime is rotated before the
-        // coordination turn is delivered, so the turn stays pending for a fresh runtime instead of failing.
-        Assert.Null(await inbox.ClaimAsync(DeliverySession(session), default));
+        // Private chat context must not reach coordination. The new task receives
+        // only its explicit input; historical audit evidence does not force rotation.
+        var delivered = Assert.IsType<ClaimedAgentWork>(await inbox.ClaimAsync(DeliverySession(session), default));
+        Assert.Equal(next.Id, delivered.WorkId);
+        Assert.Equal("{}", delivered.Payload.GetRawText());
         await using var fresh = fixture.Context();
-        var pending = await fresh.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == next.Id);
-        Assert.Equal(AgentWorkStatus.Pending, pending.Status);
-        Assert.Equal(0, pending.AttemptCount);
-        Assert.Empty(await fresh.AgentWorkAttempts.Where(x => x.AgentWorkItemId == next.Id).ToListAsync());
+        var active = await fresh.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == next.Id);
+        Assert.Equal(AgentWorkStatus.Leased, active.Status);
+        Assert.Equal(1, active.AttemptCount);
+        Assert.Single(await fresh.AgentWorkAttempts.Where(x => x.AgentWorkItemId == next.Id).ToListAsync());
+        await new PlatformMemoryReadEvidence(fresh).AuthorizeDispatchAsync(session, next.Id, default, delivered.Attempt);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new MemoryRecallDispatchEvidence(fresh).AuthorizeRetainedDeliveryAsync(receipt, active, default));
         var runtimeId = Guid.Parse(session.RuntimeInstanceId);
-        Assert.Equal(MemoryRuntimeResetRequiredException.RetainedEvidence,
-            (await fresh.AgentRuntimeInstances.SingleAsync(x => x.Id == runtimeId)).MemoryResetReasonCode);
-        var diagnostic = Assert.Single(await fresh.AgentRuntimeEvents.ToListAsync()).Reason;
-        Assert.Contains("validation=claim.queued-recall.consumer-kind", diagnostic);
-        Assert.Contains($"receipt={receipt.Id:D}", diagnostic);
-        Assert.Contains($"work={next.Id:D}", diagnostic);
-        Assert.DoesNotContain("Alice", diagnostic);
+        Assert.Null((await fresh.AgentRuntimeInstances.SingleAsync(x => x.Id == runtimeId)).MemoryResetRequestedAt);
+        Assert.Empty(await fresh.AgentRuntimeEvents.ToListAsync());
+        Assert.Equal(receipt.EvidenceJson, (await fresh.AgentMemoryReadReceipts.SingleAsync()).EvidenceJson);
+        Assert.Empty(await fresh.AgentMemoryReadReceipts.Where(x => x.WorkId == next.Id).ToListAsync());
     }
 
     [MemoryPostgresFact]
@@ -166,7 +169,7 @@ public sealed partial class AgentMemoryServiceTests
     }
 
     [MemoryPostgresFact]
-    public async Task QueuedMemoryDeliverySharesBrokerReceiptBudgetWithoutEviction()
+    public async Task QueuedMemoryDeliverySharesCurrentAttemptBudgetAndPreservesHistoricalReceipts()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var turn = await SeedRecallTurnAsync(fixture); var (session, initial) = await SeedBrokerReadLeaseAsync(fixture);
@@ -183,10 +186,30 @@ public sealed partial class AgentMemoryServiceTests
         await db.SaveChangesAsync();
         await db.AgentWorkItems.Where(x => x.Id == initial.Id).ExecuteDeleteAsync();
         var (inbox, work) = await QueueRecallAsync(fixture, db, turn);
-        Assert.Null(await inbox.ClaimAsync(DeliverySession(session), default));
-        Assert.Equal(MemoryRuntimeResetRequiredException.ReceiptCapacity, (await db.AgentRuntimeInstances.SingleAsync()).MemoryResetReasonCode);
-        Assert.Equal(64, await db.AgentMemoryReadReceipts.CountAsync()); Assert.Empty(await db.AgentWorkAttempts.ToListAsync());
-        Assert.Equal(AgentWorkStatus.Pending, (await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == work.Id)).Status);
+        var delivered = Assert.IsType<ClaimedAgentWork>(await inbox.ClaimAsync(DeliverySession(session), default));
+        Assert.Equal(work.Id, delivered.WorkId);
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+        Assert.Equal(64, await db.AgentMemoryReadReceipts.CountAsync(x => x.WorkId == initial.Id));
+        Assert.Equal(1, await db.AgentMemoryReadReceipts.CountAsync(x => x.WorkId == work.Id));
+        Assert.True((await ReadHandler(fixture, db).HandleAsync(session, ReadSearch(fixture), default)).Succeeded);
+        var current = await db.AgentMemoryReadReceipts.SingleAsync(x => x.WorkId == work.Id && x.Capability == receipt.Capability);
+        // The queued prompt and broker reads share this attempt's allowance. Historical
+        // evidence stays intact without consuming that allowance or requiring rotation.
+        for (var i = 2; i < 64; i++) db.AgentMemoryReadReceipts.Add(new AgentMemoryReadReceipt
+        {
+            Id = Guid.NewGuid(), OrganizationId = current.OrganizationId, EmployeeId = current.EmployeeId,
+            InstallationId = current.InstallationId, RuntimeId = current.RuntimeId, WorkId = current.WorkId,
+            Attempt = delivered.Attempt, GrantRevision = current.GrantRevision, Capability = current.Capability,
+            EvidenceJson = current.EvidenceJson, AuthorityHash = current.AuthorityHash, ReceiptHash = (i + 100).ToString("D64")
+        });
+        await db.SaveChangesAsync();
+        var denied = await ReadHandler(fixture, db).HandleAsync(session,
+            ReadRequest("export", fixture.Partition, CSweetMemoryCapabilities.Export), default);
+        Assert.False(denied.Succeeded);
+        Assert.Equal(MemoryRuntimeResetRequiredException.ReceiptCapacity,
+            (await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetReasonCode);
+        Assert.Equal(64, await db.AgentMemoryReadReceipts.CountAsync(x => x.WorkId == initial.Id));
+        Assert.Equal(64, await db.AgentMemoryReadReceipts.CountAsync(x => x.WorkId == work.Id && x.Attempt == delivered.Attempt));
     }
 
     [MemoryPostgresFact]
@@ -198,6 +221,7 @@ public sealed partial class AgentMemoryServiceTests
         await db.AgentWorkItems.Where(x => x.Id == initial.Id).ExecuteDeleteAsync();
         var (inbox, work) = await QueueRecallAsync(fixture, db, turn);
         Assert.NotNull(await inbox.ClaimAsync(DeliverySession(session), default));
+        var historical = await db.AgentMemoryReadReceipts.AsNoTracking().SingleAsync();
         await db.AgentWorkItems.Where(x => x.Id == work.Id).ExecuteDeleteAsync();
         var human = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId, EmployeeType = EmployeeType.Human };
         var conversation = new Conversation { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId, AgentOrganizationUserId = fixture.EmployeeId, InitiatedByOrganizationUserId = human.Id };
@@ -206,14 +230,21 @@ public sealed partial class AgentMemoryServiceTests
             TargetAgentOrganizationUserId = fixture.EmployeeId, UserMessageId = message.Id, Status = ChatTurnStatus.RecallingMemory };
         db.AddRange(human, conversation, message, nextTurn); await db.SaveChangesAsync();
         var (nextInbox, nextWork) = await QueueRecallAsync(fixture, db, nextTurn, includeMemory: false);
-        // The runtime still holds the first human's recalled context, so it is rotated before the second
-        // human's turn is delivered; the turn waits, undelivered, for a fresh runtime.
-        Assert.Null(await nextInbox.ClaimAsync(DeliverySession(session), default));
-        Assert.Equal(AgentWorkStatus.Pending, (await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == nextWork.Id)).Status);
-        Assert.Empty(await db.AgentWorkAttempts.AsNoTracking().Where(x => x.AgentWorkItemId == nextWork.Id).ToListAsync());
-        Assert.Equal(MemoryRuntimeResetRequiredException.RetainedEvidence, (await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetReasonCode);
-        Assert.Contains("validation=claim.queued-recall.consumer-audience",
-            Assert.Single(await db.AgentRuntimeEvents.AsNoTracking().ToListAsync()).Reason);
-        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, nextWork.Id, default));
+        // A fresh task can use the same process, but cannot adopt another human's
+        // private prompt or receipt. Its explicit payload has only its own context.
+        var delivered = Assert.IsType<ClaimedAgentWork>(await nextInbox.ClaimAsync(DeliverySession(session), default));
+        Assert.Equal(nextWork.Id, delivered.WorkId);
+        Assert.DoesNotContain("Alice", delivered.Payload.GetRawText());
+        var consumer = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == nextWork.Id);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new MemoryRecallDispatchEvidence(db).AuthorizeRetainedDeliveryAsync(historical, consumer, default));
+        await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, nextWork.Id, default, delivered.Attempt);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, work.Id, default, 1));
+        Assert.Equal(AgentWorkStatus.Leased, consumer.Status);
+        Assert.Single(await db.AgentWorkAttempts.AsNoTracking().Where(x => x.AgentWorkItemId == nextWork.Id).ToListAsync());
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+        Assert.Empty(await db.AgentRuntimeEvents.AsNoTracking().ToListAsync());
+        Assert.Equal(historical.EvidenceJson, (await db.AgentMemoryReadReceipts.SingleAsync(x => x.WorkId == work.Id)).EvidenceJson);
     }
 }

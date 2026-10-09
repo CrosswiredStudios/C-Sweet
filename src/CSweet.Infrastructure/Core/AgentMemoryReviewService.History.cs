@@ -30,6 +30,21 @@ public sealed partial class AgentMemoryReviewService
         foreach (var audience in await MemorySharedAudienceAuthorization.ReadableAsync(db, organizationId, employeeId, actor, cancellationToken))
             partitions.Add(audience.Scope == "Team" ? EmployeeMemoryNamespaces.Team(tenant, audience.AudienceId.ToString("D"), "csweet").Partition :
                 EmployeeMemoryNamespaces.Role(tenant, audience.AudienceId.ToString("D"), "csweet").Partition);
+        // Read only partition metadata first; content authorization precedes history loading.
+        await using (var metadata = Command("""
+            SELECT DISTINCT (payload->'partition')::text FROM csweet_memory_revisions
+            WHERE kind=@kind AND record_id=@id AND payload->'partition'->>'tenantId'=@tenant LIMIT 2
+            """))
+        {
+            metadata.Parameters.AddWithValue("kind", (int)recordKind); metadata.Parameters.AddWithValue("id", recordId);
+            metadata.Parameters.AddWithValue("tenant", tenant);
+            await using var reader = await metadata.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var candidate = JsonSerializer.Deserialize<MemoryPartition>(reader.GetString(0), JsonOptions) ?? throw new JsonException();
+                if (MemoryScopedAudienceAuthorization.Resolve(candidate) is not null) partitions.Add(candidate);
+            }
+        }
         // History may survive record deletion. Resolve only among explicit, server-owned audience candidates.
         var keys = new List<string>();
         await using (var command = Command("""
@@ -44,8 +59,8 @@ public sealed partial class AgentMemoryReviewService
         }
         if (keys.Count != 1) throw new KeyNotFoundException();
         var partition = partitions.Single(x => x.StorageKey == keys[0]);
-        if (MemorySharedAudiences.IsCanonical(partition))
-            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, partition, cancellationToken);
+        if (MemorySharedAudiences.IsCanonical(partition) || MemoryScopedAudienceAuthorization.Resolve(partition) is not null)
+            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, partition, cancellationToken, retainedScoped: true);
         else await MemoryManagerAuthorization.RequirePartitionAsync(db, organizationId, employeeId, actor, partition, cancellationToken);
         await using var store = new PostgreSqlMemoryStore((NpgsqlTransaction)transaction.GetDbTransaction());
         var page = await store.ReadRevisionsAsync(partition, recordKind, recordId, afterRevision, limit, cancellationToken);

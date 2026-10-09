@@ -13,6 +13,40 @@ namespace CSweet.UnitTests;
 
 public sealed partial class ExecutionWorkloadOrchestratorTests
 {
+    [Fact]
+    public async Task GatewayRediscoversRetiredAttemptsEvenWhenLatestAttemptHasStopped()
+    {
+        await using var db = CreateDb();
+        var pool = Pool();
+        var node = Node(pool, Guid.NewGuid());
+        var other = Node(pool, Guid.NewGuid());
+        var assignment = Assignment(pool.Id, node.Id, 1, 512);
+        assignment.Status = ExecutionAssignmentStatus.Cancelled;
+        assignment.FencingEpoch = 7;
+        db.AddRange(pool, node, other, assignment);
+        foreach (var epoch in new[] { 2L, 4L, 6L })
+            db.Add(new ExecutionAssignmentAttempt { AssignmentId = assignment.Id, FencingEpoch = epoch,
+                ExecutionNodeId = node.Id, ProviderId = assignment.ProviderId, AssignedAt = Now,
+                StoppedAt = epoch == 4 ? null : Now });
+        await db.SaveChangesAsync();
+        var clock = new MutableTimeProvider(Now);
+        var gateway = new OfficeGatewayService(db, new ExecutionWorkloadOrchestrator(db, clock),
+            null!, null!, null!, null!, clock, NullLogger<OfficeGatewayService>.Instance);
+        var replies = new StopReplyStream();
+        Assert.Equal(1, await gateway.ReconcileStopsAsync(node.Id, node.SessionEpoch, 0, replies, default));
+        var hint = Assert.Single(replies.Messages).ReconcileAssignmentStop;
+        Assert.Equal(4, hint.FencingEpoch);
+        Assert.Equal(assignment.Id.ToString("D"), hint.AssignmentId);
+        Assert.Null((await db.ExecutionAssignmentAttempts.SingleAsync(x => x.FencingEpoch == 4)).StoppedAt);
+        var unauthorized = new StopReplyStream();
+        await gateway.ReconcileStopsAsync(other.Id, other.SessionEpoch, 0, unauthorized, default);
+        Assert.Empty(unauthorized.Messages);
+        Assert.True(await new ExecutionWorkloadOrchestrator(db, clock).ReportStoppedAsync(node.Id,
+            assignment.Id, 4, assignment.ProviderId, "", true));
+        replies.Messages.Clear();
+        await gateway.ReconcileStopsAsync(node.Id, node.SessionEpoch, 0, replies, default);
+        Assert.Empty(replies.Messages);
+    }
     [Theory]
     [InlineData("valid")]
     [InlineData("missing-certificate")]

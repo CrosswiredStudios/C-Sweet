@@ -196,8 +196,17 @@ public sealed partial class WorkBoardService(
                 NewColumn("Done", WorkBoardColumnCategory.Done, 1)
             ]
         };
+        // A project board starts with its accountable manager and earlier participants holding their access.
+        await using var transaction = board.WorkstreamId.HasValue && db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System);
+        if (board.WorkstreamId.HasValue) await projectPolicy.LockAsync(organizationId, cancellationToken);
         db.WorkBoards.Add(board);
+        if (board.WorkstreamId.HasValue)
+            await new CSweet.Infrastructure.Core.ProjectSetupService(db, TimeProvider.System, projectPolicy)
+                .ReconcileProjectBoardAccessAsync(board, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         await WriteAllowedAsync(
             organizationId, member, WorkBoardActions.Create, board.Id,
             decision.GrantId!.Value,

@@ -30,13 +30,14 @@ public sealed partial class MemoryRecallDispatchEvidence
         var receipt = await ValidateDeliveryWorkAsync(work, token);
         var evidence = work.MemoryRecallReceiptJson ?? throw new MemoryRecallDeliveryRejectedException();
 
-        // Share the broker read lock and budget. Never discard earlier context to accept new work.
+        // Share the broker read lock. Historical receipts remain immutable audit evidence;
+        // only reads delivered to this work attempt consume its transient-context budget.
         var lockKey = $"memory-read:{session.RuntimeInstanceId:D}";
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey},0))", token);
         var attempt = work.AttemptCount + 1;
         var fingerprint = Hash(JsonSerializer.Serialize(new { work.Id, attempt, MemoryRecallReceiptJson = evidence, QueuedRecallCapability }, Json));
         if (await db.AgentMemoryReadReceipts.AnyAsync(x => x.RuntimeId == session.RuntimeInstanceId && x.ReceiptHash == fingerprint, token)) return;
-        var sizes = await db.AgentMemoryReadReceipts.Where(x => x.RuntimeId == session.RuntimeInstanceId)
+        var sizes = await db.AgentMemoryReadReceipts.Where(x => x.RuntimeId == session.RuntimeInstanceId && x.WorkId == work.Id && x.Attempt == attempt)
             .Select(x => x.EvidenceJson.Length).Take(65).ToArrayAsync(token);
         if (sizes.Length >= 64 || sizes.Sum() + evidence.Length > 2_097_152)
             throw new MemoryRuntimeResetRequiredException(MemoryRuntimeResetRequiredException.ReceiptCapacity);
@@ -72,7 +73,8 @@ public sealed partial class MemoryRecallDispatchEvidence
     public async Task AuthorizeRetainedDeliveryAsync(AgentMemoryReadReceipt delivered, AgentWorkItem currentWork,
         CancellationToken token)
     {
-        if (delivered.Capability != QueuedRecallCapability || delivered.EvidenceJson.Length > 131072) throw Denied();
+        if (delivered.Capability != QueuedRecallCapability || delivered.EvidenceJson.Length > 131072 ||
+            delivered.WorkId != currentWork.Id || delivered.Attempt != currentWork.AttemptCount) throw Denied("queued-recall.context-binding");
         var receipt = ReadQueuedReceipt(delivered.EvidenceJson);
         if (receipt.Binding.OrganizationId != delivered.OrganizationId || receipt.Binding.EmployeeId != delivered.EmployeeId ||
             receipt.Binding.InstallationId != delivered.InstallationId || receipt.Binding.AuthorityHash != delivered.AuthorityHash ||

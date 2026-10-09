@@ -33,6 +33,18 @@ remain independent lifecycles; dashboard navigation does not decide or complete 
 
 ## What a suggestion is
 
+`Marketplace.SearchAsync` passes its existing recommendation ID to the organization-scoped
+available-agents endpoint. `HiringService.GetCandidateSearchContextAsync` reads the recommendation
+within that organization and uses its approved desired role's category and preferred specializations,
+falling back to the recommendation role key. `AgentCatalogService` applies `RoleTaxonomy.SatisfiesRole`
+to include every agent in that base family; specializations affect ranking only. The role title remains
+the hire's display context. Missing or inaccessible recommendations return an error.
+
+Legacy role-only links resolve exact catalog role keys, names, aliases, or declared categories when
+they identify one unambiguous core family; other values retain text matching. Marketplace discovery
+receives explicit search text rather than the specialized role label, so upstream text filtering cannot
+hide generalists. Existing recommendation URLs and hire-time role validation remain compatible.
+
 - `SuggestedUserAction` (`src/CSweet.Domain/Core/ConversationMessage.cs`) — one actionable workflow for
   a specific conversation. For hiring it stores `{ "role", "recommendationId" }` in `ParametersJson`.
 - A suggestion is created by a granted agent capability and, once attached to a message or completed

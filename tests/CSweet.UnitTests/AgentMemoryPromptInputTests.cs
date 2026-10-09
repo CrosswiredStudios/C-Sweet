@@ -121,9 +121,15 @@ public sealed partial class AgentMemoryServiceTests
         var receipt = await db.AgentMemoryReadReceipts.AsNoTracking().SingleAsync();
         var read = MemoryRecallDispatchEvidence.InspectErasureRead(receipt.EvidenceJson, queued: true);
         Assert.Empty(read.References); Assert.NotNull(read.Prompt); Assert.Contains(read.Prompt.Inputs, x => x.Id == fixture.MessageId);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, null, default));
         await db.AgentWorkItems.Where(x => x.Id == work.Id).ExecuteDeleteAsync();
         Assert.Single(await db.AgentMemoryReadReceipts.ToListAsync());
-        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, null, default));
+        // An idle context has no transient memory to supply. This helper is not
+        // an execution grant, and the old work remains unavailable for dispatch.
+        await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, null, default);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, work.Id, default, 1));
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+        Assert.Equal(receipt.EvidenceJson, (await db.AgentMemoryReadReceipts.AsNoTracking().SingleAsync()).EvidenceJson);
     }
 
     [MemoryPostgresTheory]

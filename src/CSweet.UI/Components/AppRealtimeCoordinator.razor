@@ -7,6 +7,7 @@
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject IBusinessContext Businesses
 @inject ISnackbar Snackbar
+@inject NotificationSoundPlayer Sounds
 @inject NavigationManager Navigation
 
 @code {
@@ -20,6 +21,13 @@
         _disposeToken = _disposeCts.Token;
         Realtime.EventReceived += OnEvent;
         Realtime.Disconnected += OnDisconnected;
+        Unread.UnreadMessagesArrived += OnUnreadMessagesArrived;
+    }
+
+    private void OnUnreadMessagesArrived()
+    {
+        if (_disposeToken.IsCancellationRequested) return;
+        _ = InvokeAsync(() => Sounds.PlayAsync(NotificationSoundEvents.CommunicationMessageReceived, _disposeToken));
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -105,6 +113,7 @@
     {
         Realtime.EventReceived -= OnEvent;
         Realtime.Disconnected -= OnDisconnected;
+        Unread.UnreadMessagesArrived -= OnUnreadMessagesArrived;
         _disposeCts.Cancel();
         _disposeCts.Dispose();
     }

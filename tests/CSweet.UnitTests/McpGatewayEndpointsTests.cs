@@ -13,6 +13,18 @@ public sealed class McpGatewayEndpointsTests
         McpGatewayEndpoints.ValidateSuccessfulToolOutput(false, denial.RootElement, schema.RootElement);
         Assert.ThrowsAny<Exception>(() => McpGatewayEndpoints.ValidateSuccessfulToolOutput(true, denial.RootElement, schema.RootElement));
     }
+    [Theory]
+    [InlineData("{\"code\":\"Denied\",\"message\":\"The project delivery grant is required\"}", "platform.capability.denied")]
+    [InlineData("{\"code\":\"NotFound\",\"message\":\"Board was not found.\"}", "platform.capability.not_found")]
+    [InlineData("{\"code\":\"ValidationFailed\",\"message\":\"bad\"}", "platform.capability.validation_failed")]
+    [InlineData("{\"message\":\"no code\"}", null)]
+    [InlineData("[1]", null)]
+    [InlineData("{\"code\":\"not;a code\"}", null)]
+    public void A_capability_error_payload_carries_its_code_to_the_runtime(string payload, string? expected) =>
+        // Without it a refusal reaches the agent as a generic capability.failed and the ticket says
+        // "execution stopped unexpectedly" (Prism Break, 2026-10-08).
+        Assert.Equal(expected, McpGatewayEndpoints.FailureCodeFromPayload(System.Text.Json.Nodes.JsonNode.Parse(payload)));
+
     [Fact]
     public void GetToolResponseText_UsesCapabilityErrorWhenFailurePayloadIsEmpty()
     {

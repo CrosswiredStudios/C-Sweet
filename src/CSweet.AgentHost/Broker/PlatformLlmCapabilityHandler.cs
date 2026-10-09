@@ -11,6 +11,7 @@ using CSweet.AI.Providers;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Llm;
+using CSweet.Infrastructure.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -223,19 +224,41 @@ public sealed partial class PlatformLlmCapabilityHandler
 
         List<ChatMessage> messages = [];
         string? attachmentResolutionError = null;
+        string? preparationFailureCode = null;
+        CaseInstructionContext? caseInstructions = null;
+        MemoryReadInvocation? instructionInvocation = null;
         try
         {
             messages = await ResolveMessagesAsync(
                 organizationId, installationId, hasEmployeeIdentity ? employeeId : Guid.Empty, input, requestToken);
+            if (hasEmployeeIdentity && _dbContext.Database.IsNpgsql() && InferenceExecutionAttribution.Current is { } attribution)
+            {
+                var work = await _dbContext.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x => x.Id == attribution.WorkId &&
+                    x.OrganizationId == session.BusinessId && x.AgentInstallationId == installationId, requestToken)
+                    ?? throw new ProviderDispatchDeniedException();
+                caseInstructions = await new MemoryRecallDispatchEvidence(_dbContext).PrepareCaseInstructionsAsync(work, employeeId, requestToken);
+                if (caseInstructions is not null)
+                {
+                    instructionInvocation = await new PlatformMemoryReadEvidence(_dbContext).BeginAsync(session, PlatformChatCapabilities.ChatStream, requestToken);
+                    if (instructionInvocation.WorkId != work.Id || instructionInvocation.Attempt != attribution.Attempt ||
+                        instructionInvocation.EmployeeId != employeeId) throw new ProviderDispatchDeniedException();
+                }
+            }
         }
         catch (InvalidOperationException exception)
         {
             LogDenied(session, request, input.ProviderProfileId, selectedModel, exception.Message);
             attachmentResolutionError = exception.Message;
+            if (exception is ProviderDispatchDeniedException) preparationFailureCode = "llm.dispatch_denied";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            attachmentResolutionError = "The current work is no longer authorized to receive this context.";
+            preparationFailureCode = "llm.dispatch_denied";
         }
         if (attachmentResolutionError is not null)
         {
-            yield return Failure(request.RequestId, attachmentResolutionError);
+            yield return Failure(request.RequestId, attachmentResolutionError, failureCode: preparationFailureCode);
             yield break;
         }
         var messageInstructions = string.Join("\n\n", messages
@@ -243,7 +266,9 @@ public sealed partial class PlatformLlmCapabilityHandler
             .Select(message => message.Text)
             .Where(text => !string.IsNullOrWhiteSpace(text)));
         messages = messages.Where(message => message.Role != ChatRole.System).ToList();
-        var combinedInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions }
+        var callerInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+        var combinedInstructions = string.Join("\n\n", new[] { callerInstructions, caseInstructions?.Text }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         var runLog = CreateRunLog(
             session,
@@ -275,12 +300,31 @@ public sealed partial class PlatformLlmCapabilityHandler
                 : null
         };
         runLog.PromptInstructionCharacters = options.Instructions?.Length ?? 0;
+        if (caseInstructions is not null) runLog.PromptMemoryCharacters = (int)Math.Min(int.MaxValue,
+            (long)(runLog.PromptMemoryCharacters ?? 0) + caseInstructions.Text.Length);
         runLog.MeasurementKind = "ProviderAttempt";
         runLog.QueueJobId = InferenceExecutionAttribution.Current?.QueueJobId;
         runLog.InferenceSettingsJson = JsonSerializer.Serialize(new
         { input.Temperature, MaxOutputTokens = effectiveMaxOutputTokens, input.ReasoningEffort, input.ReasoningOutput });
-        runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = options.Instructions,
-            effectiveMaxOutputTokens, model = selectedModel }, JsonOptions);
+        // Bind the first diagnostic write to authenticated durable work as well. Full
+        // analytics attribution is captured later; caller telemetry cannot supply this ID.
+        if (InferenceExecutionAttribution.Current is { } diagnosticAttribution && runLog.OrganizationId is { } diagnosticOrganization)
+        {
+            var diagnosticWork = await _dbContext.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x => x.Id == diagnosticAttribution.WorkId &&
+                x.OrganizationId == diagnosticOrganization.ToString("D") && x.AgentInstallationId == runLog.AgentInstallationId, requestToken);
+            if (diagnosticWork is not null) runLog.AgentWorkItemId = diagnosticWork.Id;
+        }
+        var omitInstructionEvidence = caseInstructions?.Episodes.Count > 0 || _dbContext.RequiresContentFreeModelAudit(runLog);
+        runLog.OmitMemoryAuditContent = omitInstructionEvidence;
+        // The dispatch receipt carries lineage. Diagnostics retain identifiers/counts, never an extra copy
+        // of automatically projected memory which an erasure inventory cannot independently account for.
+        var diagnosticInstructions = omitInstructionEvidence
+            ? identity is null ? callerInstructions : AgentEmployeeIdentityResolver.ApplyToInstructions(session, identity, callerInstructions)
+            : options.Instructions;
+        runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = diagnosticInstructions,
+            effectiveMaxOutputTokens, model = selectedModel, caseMemory = caseInstructions is null ? null : new
+            { contentPolicy = "memory-content-omitted-v1", caseInstructions.CaseId, caseInstructions.SourceHash,
+                sourceIds = caseInstructions.Episodes.Select(x => x.Id).ToArray(), characters = caseInstructions.Text.Length } }, JsonOptions);
         await TryPersistRunLogAsync(runLog, requestToken);
         var responseText = new StringBuilder();
         long? inputTokenCount = null;
@@ -291,8 +335,23 @@ public sealed partial class PlatformLlmCapabilityHandler
         // short polling and acknowledged-wait deadline accounting.
         using var providerPermit = providerSlotAcquired || _jobs is null ? null :
             await _jobs.AcquireProviderAsync(input.ProviderProfileId, requestToken);
+        var instructionReadRecorded = false;
         using var dispatch = new ProviderDispatchScope(
-            token => AuthorizeDispatchAsync(session, profile, selectedModel, identity?.EmployeeId, token),
+            async token =>
+            {
+                await AuthorizeDispatchAsync(session, profile, selectedModel, identity?.EmployeeId, token);
+                if (caseInstructions is null || instructionInvocation is null) return;
+                var work = await _dbContext.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == instructionInvocation.WorkId, token);
+                await new MemoryRecallDispatchEvidence(_dbContext).ValidateCaseInstructionsAsync(caseInstructions, work, employeeId, token);
+                // A server-prepared prompt has not contaminated the agent while it waits for a provider.
+                // Record its provenance only when dispatch is authorized, before any response can reach the agent.
+                if (!instructionReadRecorded && caseInstructions.Episodes.Count > 0)
+                {
+                    await new PlatformMemoryReadEvidence(_dbContext).RecordAsync(session, PlatformChatCapabilities.ChatStream,
+                        instructionInvocation, caseInstructions.Episodes, null, token);
+                    instructionReadRecorded = true;
+                }
+            },
             () => runLog.ProviderStartedAt ??= DateTimeOffset.UtcNow);
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
@@ -333,7 +392,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                 inputTokenCount,
                 outputTokenCount,
                 responseText,
-                "The platform LLM request was cancelled.");
+                "The platform LLM request was cancelled.", omitMemoryContent: omitInstructionEvidence);
             await TryPersistRunLogAsync(runLog, CancellationToken.None);
             throw;
         }
@@ -366,7 +425,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                 inputTokenCount,
                 outputTokenCount,
                 responseText,
-                providerError);
+                providerError, omitMemoryContent: omitInstructionEvidence);
             await TryPersistRunLogAsync(runLog, CancellationToken.None);
             yield return Failure(request.RequestId, providerError ?? "The platform LLM provider could not start the request.", providerRetryable, providerFailureCode);
             yield break;
@@ -385,6 +444,8 @@ public sealed partial class PlatformLlmCapabilityHandler
                     {
                         update = updates.Current;
                     }
+                    // Do not release a late answer or tool call derived from an edited/withdrawn instruction.
+                    if (caseInstructions is not null) await ProviderDispatchScope.AuthorizeCurrentAsync(requestToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -395,7 +456,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                         inputTokenCount,
                         outputTokenCount,
                         responseText,
-                        "The platform LLM request was cancelled.");
+                        "The platform LLM request was cancelled.", omitMemoryContent: omitInstructionEvidence);
                     await TryPersistRunLogAsync(runLog, CancellationToken.None);
                     throw;
                 }
@@ -428,7 +489,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                         inputTokenCount,
                         outputTokenCount,
                         responseText,
-                        providerError);
+                        providerError, omitMemoryContent: omitInstructionEvidence);
                     await TryPersistRunLogAsync(runLog, CancellationToken.None);
                     yield return Failure(request.RequestId, providerError, providerRetryable, providerFailureCode);
                     yield break;
@@ -458,7 +519,10 @@ public sealed partial class PlatformLlmCapabilityHandler
                         OrganizationId: organizationId, EntityType: "AgentRunLog", EntityId: runLog.Id,
                         OccurredAt: DateTimeOffset.UtcNow, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
                         Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json",
-                        Payload: JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence, update.Text, contents,
+                        Payload: omitInstructionEvidence ? JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence,
+                            contentPolicy = "memory-content-omitted-v1", inputTokens = usage?.InputTokenCount,
+                            outputTokens = usage?.OutputTokenCount }, JsonOptions)
+                            : JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence, update.Text, contents,
                             inputTokens = usage?.InputTokenCount, outputTokens = usage?.OutputTokenCount,
                             role = update.Role?.ToString(), finishReason = update.FinishReason?.ToString(),
                             additionalUsage = usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts) }, JsonOptions),
@@ -488,7 +552,7 @@ public sealed partial class PlatformLlmCapabilityHandler
             inputTokenCount,
             outputTokenCount,
             responseText,
-            failureMessage: null);
+            failureMessage: null, omitMemoryContent: omitInstructionEvidence);
         await TryPersistRunLogAsync(runLog, CancellationToken.None);
 
         yield return Success(
@@ -548,7 +612,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         long? inputTokenCount,
         long? outputTokenCount,
         StringBuilder responseText,
-        string? failureMessage)
+        string? failureMessage, bool omitMemoryContent = false)
     {
         stopwatch.Stop();
         runLog.CompletedAt = DateTimeOffset.UtcNow;
@@ -557,7 +621,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         runLog.TokenOutputCount = ToNullableInt(outputTokenCount);
         runLog.ReportedInputTokens = inputTokenCount;
         runLog.ReportedOutputTokens = outputTokenCount;
-        runLog.OutputPreview = responseText.Length == 0
+        runLog.OutputPreview = omitMemoryContent || responseText.Length == 0
             ? null
             : Truncate(responseText.ToString(), 500);
         runLog.FailureMessage = Truncate(failureMessage, 2048);

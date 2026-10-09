@@ -147,7 +147,7 @@ public sealed partial class AgentMemoryServiceTests
     }
 
     [MemoryPostgresFact]
-    public async Task PromptMetadataRetainedDeliveryIsRecheckedAfterWorkDeletion()
+    public async Task PromptMetadataHistoryDoesNotTaintNextTaskButCurrentMetadataIsRechecked()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
         var turn = await SeedRecallTurnAsync(fixture); var (session, initial) = await SeedBrokerReadLeaseAsync(fixture);
@@ -156,14 +156,27 @@ public sealed partial class AgentMemoryServiceTests
         await SeedPromptMetadataAsync(fixture, turn, db, attachment: false);
         var (inbox, work) = await QueueRecallAsync(fixture, db, turn, false);
         Assert.NotNull(await inbox.ClaimAsync(DeliverySession(session), default));
+        var historical = await db.AgentMemoryReadReceipts.AsNoTracking().SingleAsync();
         await db.AgentWorkItems.Where(x => x.Id == work.Id).ExecuteDeleteAsync();
         await db.ChatTurns.Where(x => x.Id == turn.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, ChatTurnStatus.Completed));
-        var next = await SeedRecallTurnAsync(fixture); var (nextInbox, nextWork) = await QueueRecallAsync(fixture, db, next, false);
+        var next = await SeedRecallTurnAsync(fixture);
+        await SeedPromptMetadataAsync(fixture, next, db, attachment: false);
+        var (nextInbox, nextWork) = await QueueRecallAsync(fixture, db, next, false);
         Assert.NotNull(await nextInbox.ClaimAsync(DeliverySession(session), default));
         await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, nextWork.Id, default);
         await db.ConversationMessageMentions.Where(x => x.MessageId == turn.UserMessageId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.DisplayText, "changed"));
+        await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, nextWork.Id, default);
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+        Assert.Equal(historical.EvidenceJson, (await db.AgentMemoryReadReceipts.AsNoTracking().SingleAsync(x => x.WorkId == work.Id)).EvidenceJson);
+        await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() =>
+            new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, work.Id, default, 1));
+        // Changing metadata actually supplied to the live task still invalidates it.
+        await db.ConversationMessageMentions.Where(x => x.MessageId == next.UserMessageId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.DisplayText, "current change"));
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, nextWork.Id, default));
+        Assert.Equal(MemoryRuntimeResetRequiredException.RetainedEvidence,
+            (await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetReasonCode);
     }
 
     [MemoryPostgresFact]

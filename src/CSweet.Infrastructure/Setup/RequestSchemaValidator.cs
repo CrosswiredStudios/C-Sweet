@@ -16,11 +16,11 @@ public static class RequestSchemaValidator
         "type", "properties", "required", "additionalProperties", "items",
         "minProperties", "maxProperties", "minItems", "maxItems",
         "minLength", "maxLength", "minimum", "exclusiveMinimum", "maximum", "format", "enum",
-        "pattern", "uniqueItems", "$defs", "$ref", "description", "title"
+        "pattern", "uniqueItems", "$defs", "$ref", "description", "title", "oneOf"
     ];
 
     public static void Validate(JsonElement value, JsonElement schema) =>
-        Validate(value, schema, schema, "$", 0);
+        Validate(value, schema, schema, "$", 0, new ValidationBudget());
 
     public static void ValidateSchema(JsonElement schema) =>
         ValidateSchema(schema, schema, "$", 0);
@@ -59,6 +59,14 @@ public static class RequestSchemaValidator
             ValidatePattern(pattern, path);
         if (schema.TryGetProperty("$ref", out var reference))
             _ = ResolveReference(rootSchema, reference, path);
+        if (schema.TryGetProperty("oneOf", out var alternatives))
+        {
+            if (alternatives.ValueKind != JsonValueKind.Array || alternatives.GetArrayLength() is < 1 or > 16)
+                throw new InvalidOperationException($"JSON Schema '{path}.oneOf' must contain 1 to 16 schemas.");
+            var index = 0;
+            foreach (var alternative in alternatives.EnumerateArray())
+                ValidateSchema(alternative, rootSchema, $"{path}.oneOf[{index++}]", depth + 1);
+        }
         if (schema.TryGetProperty("properties", out var properties))
         {
             if (properties.ValueKind != JsonValueKind.Object)
@@ -82,17 +90,30 @@ public static class RequestSchemaValidator
         JsonElement schema,
         JsonElement rootSchema,
         string path,
-        int depth)
+        int depth,
+        ValidationBudget budget)
     {
         if (depth > MaximumDepth)
-            throw new InvalidOperationException("JSON exceeds the maximum validation depth.");
+            throw new ValidationLimitException("JSON exceeds the maximum validation depth.");
         if (schema.TryGetProperty("$ref", out var reference))
-            Validate(value, ResolveReference(rootSchema, reference, path), rootSchema, path, depth + 1);
+            Validate(value, ResolveReference(rootSchema, reference, path), rootSchema, path, depth + 1, budget);
+        if (schema.TryGetProperty("oneOf", out var alternatives))
+        {
+            var matches = 0;
+            foreach (var alternative in alternatives.EnumerateArray())
+            {
+                budget.Take();
+                try { Validate(value, alternative, rootSchema, path, depth + 1, budget); matches++; }
+                catch (InvalidOperationException error) when (error is not ValidationLimitException) { }
+                if (matches > 1) break;
+            }
+            if (matches != 1) Fail(path, "must match exactly one allowed schema");
+        }
         ValidateType(value, schema, path);
         if (value.ValueKind == JsonValueKind.Object)
-            ValidateObject(value, schema, rootSchema, path, depth);
+            ValidateObject(value, schema, rootSchema, path, depth, budget);
         else if (value.ValueKind == JsonValueKind.Array)
-            ValidateArray(value, schema, rootSchema, path, depth);
+            ValidateArray(value, schema, rootSchema, path, depth, budget);
         else if (value.ValueKind == JsonValueKind.String)
             ValidateString(value.GetString()!, schema, path);
         else if (value.ValueKind == JsonValueKind.Number)
@@ -105,7 +126,8 @@ public static class RequestSchemaValidator
         JsonElement schema,
         JsonElement rootSchema,
         string path,
-        int depth)
+        int depth,
+        ValidationBudget budget)
     {
         if (schema.TryGetProperty("required", out var required))
             foreach (var name in required.EnumerateArray().Select(x => x.GetString()!))
@@ -117,7 +139,7 @@ public static class RequestSchemaValidator
         foreach (var property in value.EnumerateObject())
         {
             if (hasProperties && properties.TryGetProperty(property.Name, out var childSchema))
-                Validate(property.Value, childSchema, rootSchema, $"{path}.{property.Name}", depth + 1);
+                Validate(property.Value, childSchema, rootSchema, $"{path}.{property.Name}", depth + 1, budget);
             else if (!additionalAllowed)
                 Fail($"{path}.{property.Name}", "is not allowed");
         }
@@ -133,7 +155,8 @@ public static class RequestSchemaValidator
         JsonElement schema,
         JsonElement rootSchema,
         string path,
-        int depth)
+        int depth,
+        ValidationBudget budget)
     {
         var count = value.GetArrayLength();
         if (schema.TryGetProperty("minItems", out var min) && count < min.GetInt32())
@@ -144,7 +167,7 @@ public static class RequestSchemaValidator
         {
             var index = 0;
             foreach (var item in value.EnumerateArray())
-                Validate(item, itemSchema, rootSchema, $"{path}[{index++}]", depth + 1);
+                Validate(item, itemSchema, rootSchema, $"{path}[{index++}]", depth + 1, budget);
         }
         if (schema.TryGetProperty("uniqueItems", out var uniqueItems) && uniqueItems.GetBoolean())
         {
@@ -279,4 +302,11 @@ public static class RequestSchemaValidator
 
     private static void Fail(string path, string reason) =>
         throw new InvalidOperationException($"JSON Schema validation failed: {path} {reason}.");
+
+    private sealed class ValidationLimitException(string message) : InvalidOperationException(message);
+    private sealed class ValidationBudget
+    {
+        private int remaining = 65_536;
+        public void Take() { if (--remaining < 0) throw new ValidationLimitException("JSON exceeds the maximum validation work."); }
+    }
 }

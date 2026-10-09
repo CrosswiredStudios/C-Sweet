@@ -4,11 +4,25 @@
 
 <MudExpansionPanels>
     <MudExpansionPanel Text="Check a saved erasure operation">
+        <MudButton OnClick="@(() => LoadOperationsAsync(true))" Disabled="_busy">Find my saved erasure operations</MudButton>
+        @if (_page is { } page)
+        {
+            @if (page.Items.Count == 0) { <MudText>No saved operations on this page.</MudText> }
+            @foreach (var item in page.Items)
+            {
+                <MudText>Saved @item.ErasedAt.ToLocalTime().ToString("g") · @item.OperationId</MudText>
+                <MudText>@Availability(item.Availability)</MudText>
+                <MudButton OnClick="@(() => SelectAsync(item.OperationId))" Disabled="_busy">Check this operation</MudButton>
+            }
+            @if (page.NextBeforeReceiptId is not null)
+            { <MudButton OnClick="@(() => LoadOperationsAsync(false))" Disabled="_busy">Older operations</MudButton> }
+        }
         <MudTextField T="string" @bind-Value="_operation" Label="Erasure operation ID" Disabled="_busy" />
         <MudButton OnClick="LoadAsync" Disabled="_busy">Check erasure status</MudButton>
         @if (_result is { } result)
         {
             <MudText>@result.ErasedRecords records erased; @result.ClearedWorks work items cleared.</MudText>
+            @if (result.ClearedModelRuns > 0) { <MudText>@result.ClearedModelRuns model diagnostic copies cleared.</MudText> }
             <MudAlert Severity="@(result.PendingRuntimes == 0 ? Severity.Success : Severity.Info)">
                 @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
             </MudAlert>
@@ -26,11 +40,54 @@
     private bool _busy;
     private string? _message;
     private MemoryErasureResponse? _result;
+    private MemoryErasureOperationPage? _page;
     protected override void OnParametersSet()
     {
         if (_identity == (OrganizationId, EmployeeId)) return;
-        _identity = (OrganizationId, EmployeeId); _generation++; _busy = false; _operation = string.Empty; _message = null; _result = null;
+        _identity = (OrganizationId, EmployeeId); _generation++; _busy = false; _operation = string.Empty; _message = null; _result = null; _page = null;
     }
+
+    private Task SelectAsync(Guid operation)
+    { if (_busy) return Task.CompletedTask; _operation = operation.ToString("D"); return LoadAsync(); }
+
+    private async Task LoadOperationsAsync(bool restart)
+    {
+        if (_busy) return;
+        var cursor = restart ? null : _page?.NextBeforeReceiptId;
+        if (!restart && cursor is null) return;
+        var generation = ++_generation; _busy = true; _message = null; _page = null; _result = null;
+        try
+        {
+            var url = $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/erasure-operations";
+            if (cursor is { } before) url += $"?beforeReceiptId={before:D}";
+            using var response = await Http.GetAsync(url);
+            if (generation != _generation) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
+                    ? "Current permission for this employee is required to find your saved operations."
+                    : "Saved operations could not be loaded. Refresh and try again.";
+                return;
+            }
+            var page = await response.Content.ReadFromJsonAsync<MemoryErasureOperationPage>();
+            if (page?.Items is not { Count: <= 10 } || page.Items.Any(x => x is null || x.OperationId == Guid.Empty ||
+                x.Availability is not ("available" or "ownership-review-required" or "permission-required" or "evidence-review-required")) ||
+                page.Items.Select(x => x.OperationId).Distinct().Count() != page.Items.Count || page.NextBeforeReceiptId == Guid.Empty)
+                throw new System.Text.Json.JsonException();
+            if (generation == _generation) _page = page;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (generation == _generation) _message = "Saved operations could not be loaded. Refresh and try again."; }
+        finally { if (generation == _generation) _busy = false; }
+    }
+
+    private static string Availability(string value) => value switch
+    {
+        "available" => "Current cleanup status can be checked.",
+        "permission-required" => "Current permission to every affected audience is required to check cleanup status.",
+        "ownership-review-required" => "Ownership review is required. Cleanup completion cannot yet be verified.",
+        _ => "Saved cleanup evidence requires review. Cleanup completion cannot yet be verified."
+    };
     private async Task LoadAsync()
     {
         if (_busy) return;
@@ -44,6 +101,21 @@
             if (generation != _generation) return;
             if (!response.IsSuccessStatusCode)
             {
+                if (response.StatusCode == HttpStatusCode.Conflict)
+                {
+                    System.Text.Json.JsonElement failure = default;
+                    try { failure = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(); }
+                    catch (System.Text.Json.JsonException) { /* Use the generic status failure when no structured blocker is available. */ }
+                    if (generation != _generation) return;
+                    if (failure.ValueKind == System.Text.Json.JsonValueKind.Object && failure.TryGetProperty("error", out var code) &&
+                        code.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        if (code.GetString() == "memory_erasure_ownership_review_required")
+                        { _message = "Saved cleanup evidence does not identify every responsible employee. Ownership review is required before this operation can be checked or retried."; return; }
+                        if (code.GetString() == "memory_erasure_evidence_review_required")
+                        { _message = "Saved cleanup evidence cannot be verified. Evidence review is required before this operation can be checked or retried."; return; }
+                    }
+                }
                 _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
                     ? "Current permission to every affected audience is required." : "This operation could not be found or checked. Verify its ID and try again.";
                 return;

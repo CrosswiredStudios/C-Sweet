@@ -59,6 +59,7 @@ public sealed partial class AgentMemoryReviewService
                 var generic = await episodeCleanup.PrepareAsync(organization,targets,store,token);
                 var genericAudiences=new HashSet<MemoryPartition>(generic.Entries.SelectMany(x=>x.Evidence.References).Select(x=>x.Partition));
                 var transferRetentionHashes=new List<string>();
+                var retainedOwners = new HashSet<ErasureAudienceOwner>();
                 foreach (var entry in generic.Entries)
                 {
                     if (await MemoryManagerAuthorization.RequireAsync(db,organization,entry.Job.EmployeeId,user,true,token,true)!=actor)
@@ -75,22 +76,25 @@ public sealed partial class AgentMemoryReviewService
                 foreach(var retained in generic.RetainedSources.Where(x=>x.TransferEvidence is not null || x.CorrectionEvidence is not null ||
                     x.SourceFingerprint?.StartsWith("sha256-v3:",StringComparison.Ordinal)==true || x.Source.Type=="knowledge-transfer"))
                 {
-                    var owner=employee;
-                    if(retained.Partition.AgentId is not null && !Guid.TryParseExact(retained.Partition.AgentId,"D",out owner))
+                    var correction = retained.CorrectionEvidence is not null ||
+                        retained.SourceFingerprint?.StartsWith("sha256-v3:", StringComparison.Ordinal) == true;
+                    var owner = correction ? await ReadCorrectionErasureOwnerAsync(organization, retained, token) : employee;
+                    if(!correction && retained.Partition.AgentId is not null && !Guid.TryParseExact(retained.Partition.AgentId,"D",out owner))
                         throw new InvalidOperationException("memory_erasure_generic_lineage_review_required");
                     var retention=await ReadTransferRetentionAsync(organization,owner,user,actor,retained,token);
-                    if(retention.Blocker=="memory_transfer_retention_review_required" || retention.EvidenceHash is null)
+                    if(retention.Blocker=="memory_transfer_retention_review_required" || retention.EvidenceHash is null || retention.Owners is null)
                         throw new InvalidOperationException("memory_erasure_generic_lineage_review_required");
                     if(retention.Held>0) blocked ??= "memory_legal_hold_prevents_deletion";
                     transferRetentionHashes.Add(retention.EvidenceHash);
                     foreach(var audience in retention.Audiences ?? []) genericAudiences.Add(audience);
+                    retainedOwners.UnionWith(retention.Owners);
                 }
                 if(genericAudiences.Count>64) throw new InvalidOperationException("memory_erasure_scan_limit");
                 var expanded=false;
                 foreach(var entry in generic.Entries) expanded |= roots.Add(new(entry.Evidence.Episode.Partition,entry.Job.EpisodeId));
                 if (expanded) continue;
                 execution = await ReadErasureExecutionAsync(organization, employee, user, actor, inventory, store, work, capture, generic,
-                    genericAudiences.ToArray(),Hash(transferRetentionHashes),token,outputs.ToArray());
+                    genericAudiences.ToArray(),Hash(transferRetentionHashes),retainedOwners,token,outputs.ToArray());
             }
             catch (InvalidOperationException error) when (IsErasureReviewBlocker(error.Message))
             { blocked ??= error.Message; execution = null; stable = true; break; }
@@ -165,7 +169,8 @@ public sealed partial class AgentMemoryReviewService
             if (await MemoryManagerAuthorization.RequireAsync(db, organization, owner, user, true, token, true) != actor) throw new UnauthorizedAccessException();
             // Historical conversation content remains eligible for reviewed erasure.
             // Recovery still requires a live relationship; both paths validate its owner.
-            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token, requireActiveRelationship: false);
+            await MemoryEpisodeOperatorAuthorization.RequirePartitionAsync(db, organization, owner, actor, partition, token,
+                requireActiveRelationship: false, retainedScoped: true);
         }
     }
 
@@ -182,6 +187,7 @@ public sealed partial class AgentMemoryReviewService
     }
 
     private static bool IsErasureReviewBlocker(string code) => code is "memory_erasure_source_review_required" or
+        "memory_erasure_diagnostics_review_required" or
         "memory_erasure_work_lineage_review_required" or "memory_erasure_work_audience_review_required" or "memory_erasure_work_retention_review_required" or
         "memory_erasure_lineage_review_required" or "memory_erasure_capture_lineage_review_required" or "memory_erasure_capture_retention_review_required" or
         "memory_erasure_work_prompt_review_required" or "memory_erasure_work_attachment_review_required" or "memory_erasure_generic_lineage_review_required";
@@ -197,6 +203,12 @@ public sealed partial class AgentMemoryReviewService
         var episodeJobs=execution.Episodes.Entries.Select(x=>x.Job.Id).ToArray();
         digest.AppendData(Encoding.UTF8.GetBytes(Hash(new { organization, employee, user, actor, inventory, sources, jobs, episodeJobs,
             EpisodeRetentionHash=execution.Episodes.RetentionHash, execution.GenericTransferRetentionHash, execution.Owners, works, runtimes, turnIds })));
+        foreach (var owner in execution.Owners.GroupBy(x => x.EmployeeId).OrderBy(x => x.Key))
+        {
+            var scoped = await MemoryScopedAudienceAuthorization.AuthorityHashAsync(db, organization, owner.Key, actor,
+                owner.Select(x => x.Partition), token, retained: true);
+            if (scoped is not null) digest.AppendData(Encoding.UTF8.GetBytes(scoped));
+        }
         using var command = Command("""
             SELECT 'capture', to_jsonb(t)::text FROM "MemoryCaptureOutbox" t WHERE t."Id"=ANY(@jobs)
             UNION ALL SELECT 'extraction',to_jsonb(t)::text FROM "MemoryExtractionInputReceipts" t WHERE t."JobId"=ANY(@jobs)
@@ -207,6 +219,11 @@ public sealed partial class AgentMemoryReviewService
             UNION ALL SELECT 'work',to_jsonb(t)::text FROM "AgentWorkItems" t WHERE t."Id"=ANY(@works)
             UNION ALL SELECT 'attempt',to_jsonb(t)::text FROM "AgentWorkAttempts" t WHERE t."AgentWorkItemId"=ANY(@works)
             UNION ALL SELECT 'progress',to_jsonb(t)::text FROM "AgentWorkProgress" t WHERE t."AgentWorkItemId"=ANY(@works)
+            UNION ALL SELECT 'model-run',to_jsonb(t)::text FROM "AgentRunLogs" t WHERE t."Id"=ANY(@models)
+            UNION ALL SELECT 'model-outbox',to_jsonb(t)::text FROM "ComputeAuditOutbox" t WHERE t."SourceEntityId"=ANY(@models)
+            UNION ALL SELECT 'model-audit',to_jsonb(t)::text FROM "AuditEvents" t WHERE t."EntityId"=ANY(@models)
+            UNION ALL SELECT 'model-evidence',to_jsonb(t)::text FROM "AuditEventPayloads" t
+                WHERE t."AuditEventId" IN(SELECT "Id" FROM "AuditEvents" WHERE "EntityId"=ANY(@models))
             UNION ALL SELECT 'runtime',to_jsonb(t)::text FROM "AgentRuntimeInstances" t WHERE t."Id"=ANY(@runtimes)
             UNION ALL SELECT 'session',to_jsonb(t)::text FROM "McpAgentSessions" t WHERE t."RuntimeInstanceId"=ANY(@runtimes)
             UNION ALL SELECT 'read',to_jsonb(t)::text FROM "AgentMemoryReadReceipts" t WHERE t."RuntimeId"=ANY(@runtimes)
@@ -224,6 +241,7 @@ public sealed partial class AgentMemoryReviewService
             """);
         command.Parameters.AddWithValue("jobs", jobs); command.Parameters.AddWithValue("works", works);
         command.Parameters.AddWithValue("runtimes", runtimes); command.Parameters.AddWithValue("turns", turnIds);
+        command.Parameters.AddWithValue("models", execution.Work.ModelRuns.ToArray());
         command.Parameters.AddWithValue("sources", sources); command.Parameters.AddWithValue("organization", organization);
         command.Parameters.AddWithValue("episodeJobs",episodeJobs);
         command.Parameters.AddWithValue("tenant",organization.ToString("D"));

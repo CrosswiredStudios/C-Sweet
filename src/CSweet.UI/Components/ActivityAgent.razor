@@ -1,0 +1,20 @@
+<div class="activity-agent">
+    <span class="activity-agent-avatar @(IsActive ? "active" : "")" aria-hidden="true"><PersonAvatarContent EmployeeId="EmployeeId" IsAgent="true" Initials="@Initials" /></span>
+    <div class="activity-agent-identity">
+        <a href="@($"/organizations/{OrganizationId}/employees/{EmployeeId}")">@Name</a>
+        @if (!string.IsNullOrWhiteSpace(RoleTitle)) { <span class="activity-agent-role">@RoleTitle</span> }
+        @if (!string.IsNullOrWhiteSpace(Status)) { <span class="activity-agent-state @(IsActive ? "active" : "")">@Status</span> }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public string Name { get; set; } = "";
+    [Parameter] public string? Role { get; set; }
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public string? Status { get; set; }
+    private string? RoleTitle => Role ?? Portraits?.FindRole(EmployeeId);
+    private string Initials => string.Concat(Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
+}

@@ -171,7 +171,13 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         turn.LeaseOwner = leaseOwner;
         var recovering = turn.Status != ChatTurnStatus.Queued;
         turn.LeaseUntil = now.Add(InitialLeaseDuration);
-        turn.Attempt++;
+        var existingDispatch = recovering && await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
+            x.OrganizationId == turn.OrganizationId.ToString("D") && x.SourceType == "chat-turn" &&
+            x.SourceId == turn.Id.ToString("D") &&
+            x.IdempotencyKey == $"chat-turn:{turn.Id:D}:attempt:{turn.Attempt}", cancellationToken);
+        // Recover the original durable dispatch, including its final progress, instead of
+        // issuing a new side-effecting request because the response relay lost its lease.
+        if (!existingDispatch) turn.Attempt++;
         if (recovering)
         {
             turn.PartialResponse = string.Empty;
@@ -193,7 +199,7 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         var now = DateTimeOffset.UtcNow;
         var traceEvent = new ChatTurnTraceEvent
         {
-            Id = Guid.NewGuid(), ChatTurnId = turnId, Sequence = turn.NextTraceSequence++, Category = category,
+            Id = Guid.NewGuid(), ChatTurnId = turnId, Sequence = await ChatTurnTraceSequence.NextAsync(db, turn, cancellationToken), Category = category,
             EventType = eventType, Status = status, Title = title, Summary = summary,
             DetailsJson = details is null ? null : JsonSerializer.Serialize(details), Sensitivity = sensitivity,
             DurationMs = durationMs, OccurredAt = now

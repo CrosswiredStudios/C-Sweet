@@ -125,7 +125,9 @@ public static class ApprovalEndpoints
                 var configurationJson = await db.AgentInstallationConfigurations.AsNoTracking()
                     .Where(x => x.AgentInstallationId == proposal.AgentInstallationId)
                     .Select(x => x.SettingsJson).SingleOrDefaultAsync(cancellationToken);
-                var authorized = ManagedActionApprovalAuthority.CanDecide(actor, agent?.ReportsToOrganizationUserId, configurationJson);
+                var authorized = proposal.ActionType == ProjectApprovalReader.ActionType
+                    ? await new ProjectApprovalGovernance(db).CanDecideAsync(proposal, actor, cancellationToken)
+                    : ManagedActionApprovalAuthority.CanDecide(actor, agent?.ReportsToOrganizationUserId, configurationJson);
                 if (!authorized) return Results.Forbid();
                 if (proposal.Status != ProposalStatus.Pending)
                     return Results.Conflict(new { error = "stale_decision", message = "The action is no longer pending." });
@@ -203,6 +205,13 @@ public static class ApprovalEndpoints
                             request.Comment?.Trim(), actor.Id, actor.DisplayName, execution?.ResourceId),
                             new JsonSerializerOptions(JsonSerializerDefaults.Web))
                     });
+                    new ProjectApprovalGovernance(db).QueueWake(proposal, proposal.AgentInstallationId, ProjectApprovalGovernance.DecidedEvent, "human-decided");
+                    var reportingManagerId = agent?.ReportsToOrganizationUserId;
+                    var reportingManagerInstallation = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+                        x.OrganizationId == organizationId && x.Id == reportingManagerId && x.IsActive)
+                        .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(cancellationToken);
+                    if (reportingManagerInstallation.HasValue)
+                        new ProjectApprovalGovernance(db).QueueWake(proposal, reportingManagerInstallation, ProjectApprovalGovernance.DecidedEvent, "human-manager-decided");
                     var suggestions = await db.SuggestedUserActions.Where(x => x.OrganizationId == organizationId &&
                         x.OriginatingInstallationId == proposal.AgentInstallationId &&
                         x.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.ReviewApproval)

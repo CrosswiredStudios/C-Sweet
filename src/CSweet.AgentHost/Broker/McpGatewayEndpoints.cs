@@ -296,7 +296,7 @@ public static class McpGatewayEndpoints
         }));
     }
 
-    private static async Task<IResult> CallToolAsync(
+    internal static async Task<IResult> CallToolAsync(
         JsonElement? id,
         JsonElement root,
         AgentSession session,
@@ -335,9 +335,11 @@ public static class McpGatewayEndpoints
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
-        JsonSchemaValidator.Validate(arguments, tool.InputSchema);
+        var inputFailure = ValidateToolInput(request.RequestId, arguments, tool.InputSchema);
         CapabilityResult? terminal;
-        if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
+        if (inputFailure is not null)
+            terminal = inputFailure;
+        else if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
                 x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
         {
             var key = arguments.TryGetProperty("idempotencyKey", out var connectorKey) && connectorKey.ValueKind == JsonValueKind.String
@@ -443,7 +445,7 @@ public static class McpGatewayEndpoints
             {
                 csweet = new
                 {
-                    failureCode = terminal.FailureCode ?? "capability.failed",
+                    failureCode = terminal.FailureCode ?? FailureCodeFromPayload(structured) ?? "capability.failed",
                     retryable = terminal.Retryable == true
                 }
             }
@@ -456,6 +458,18 @@ public static class McpGatewayEndpoints
                     FailureCode = error is OperationCanceledException ? "cancelled" : "capability_failed" },
                 CancellationToken.None, startedEventId);
             throw;
+        }
+    }
+
+    internal static CapabilityResult? ValidateToolInput(string requestId, JsonElement arguments, JsonElement schema)
+    {
+        try { JsonSchemaValidator.Validate(arguments, schema); return null; }
+        catch (InvalidOperationException error)
+        {
+            // A valid MCP tools/call envelope with invalid tool arguments is a tool failure,
+            // not a transport failure. Existing SDKs consume this nonretryable result metadata.
+            return new CapabilityResult { RequestId = requestId, Succeeded = false,
+                Error = error.Message, FailureCode = "platform.capability.validation_failed", Retryable = false };
         }
     }
 
@@ -561,6 +575,19 @@ public static class McpGatewayEndpoints
         }, JsonOptions);
         await http.Response.WriteAsync($"id: {result.Sequence}\nevent: capability\ndata: {frame}\n\n", cancellationToken);
         await http.Response.Body.FlushAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Capability handlers report refusals as a <c>PlatformCapabilityError</c> payload ({"code":"Denied",...}) without a
+    /// failure code. Without one the runtime sees a generic "capability.failed": the agent cannot tell a refusal from an
+    /// outage and the ticket only says execution stopped unexpectedly. Carry the error code as platform.capability.*.
+    /// </summary>
+    internal static string? FailureCodeFromPayload(JsonNode? payload)
+    {
+        if (payload is not JsonObject error || error["code"] is not JsonValue value || !value.TryGetValue<string>(out var code) ||
+            string.IsNullOrWhiteSpace(code) || code.Length > 64 || !code.All(char.IsLetter)) return null;
+        var snake = string.Concat(code.Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
+        return "platform.capability." + snake;
     }
 
     internal static void ValidateSuccessfulToolOutput(bool succeeded, JsonElement payload, JsonElement schema)

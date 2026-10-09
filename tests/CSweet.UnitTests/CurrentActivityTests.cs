@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Application.Security;
 using CSweet.Application.Setup;
 using CSweet.Domain.Core;
+using CSweet.Domain.Communications;
 using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
@@ -16,6 +17,99 @@ namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityTests
 {
+    [Fact]
+    public async Task PersonalTaskNavigationUsesBoardOwnerRatherThanExecutor()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var board = await f.Db.WorkBoards.SingleAsync();
+        board.Kind = WorkBoardKind.Personal;
+        board.OwnerOrganizationUserId = f.Owner.Id;
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal(f.Owner.Id, row.PersonalBoardOwnerId);
+        Assert.Equal(f.Agent.Id, row.EmployeeId);
+        f.Grants.Allow = false;
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+    }
+
+    [Theory]
+    [InlineData(true, WorkTaskStatus.Running)]
+    [InlineData(false, WorkTaskStatus.Running)]
+    [InlineData(true, WorkTaskStatus.WaitingForApproval)]
+    [InlineData(true, WorkTaskStatus.Blocked)]
+    public async Task CollaborationUsesExactCurrentDeliveryAndAuthorizedSourceTask(bool canInspect, WorkTaskStatus sourceState)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var work = await f.Db.AgentWorkItems.SingleAsync();
+        work.SourceType = "agent-coordination";
+        work.SourceId = Guid.NewGuid().ToString(); // No claim-event attribution.
+        work.Name = "com.csweet.agent.coordination.turn-requested.v1";
+        f.Ticket.Status = sourceState;
+        if (sourceState != WorkTaskStatus.Running) f.Ticket.WaitingReason = "Awaiting a project decision";
+        foreach (var context in await f.Db.WorkExecutionContexts.ToListAsync()) { context.RootWorkItemId = null; context.WorkItemId = null; }
+        var role = new Role { Id = Guid.NewGuid(), OrganizationId = f.Org, Name = "Architect" };
+        var partner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Org, EmployeeType = EmployeeType.Agent,
+            AgentInstallationId = Guid.NewGuid(), DisplayName = "Collaborating architect", RoleId = role.Id };
+        var session = new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            InitiatorOrganizationUserId = partner.Id, InitiatorInstallationId = partner.AgentInstallationId.Value,
+            TargetOrganizationUserId = f.Agent.Id, TargetInstallationId = f.Agent.AgentInstallationId!.Value,
+            CurrentOrganizationUserId = f.Agent.Id, CurrentAgentWorkItemId = work.Id, SourceWorkItemId = f.Ticket.Id };
+        f.Db.AddRange(role, partner, session);
+        if (!canInspect) f.Owner.PermissionLevel = OrganizationPermissionLevel.Contributor;
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal("Collaboration", row.ActivityKind);
+        Assert.Equal(f.Ticket.Id, row.WorkItemId);
+        Assert.Equal(f.Ticket.Title, row.Title);
+        Assert.Equal("Executing", row.State);
+        Assert.DoesNotContain("Awaiting a project decision", row.CurrentAction);
+        if (canInspect)
+        {
+            Assert.Equal(partner.Id, row.Collaborator!.EmployeeId);
+            Assert.Equal("Architect", row.Collaborator.Role);
+            Assert.Equal(work.Name, row.TechnicalName);
+            // Session task attribution also binds feed authorization; omitting it cannot bypass a board grant.
+            await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, null, 0, default));
+        }
+        else { Assert.Null(row.Collaborator); Assert.Null(row.TechnicalName); }
+        f.Grants.Allow = false;
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        if (canInspect)
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default));
+    }
+
+    [Fact]
+    public async Task StaleOrForeignCollaborationCannotAttachPartnerOrTask()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var work = await f.Db.AgentWorkItems.SingleAsync();
+        work.SourceType = "agent-coordination"; work.SourceId = Guid.NewGuid().ToString();
+        foreach (var context in await f.Db.WorkExecutionContexts.ToListAsync()) { context.RootWorkItemId = null; context.WorkItemId = null; }
+        f.Db.AddRange(
+            new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
+                CurrentAgentWorkItemId = Guid.NewGuid(), CurrentOrganizationUserId = f.Agent.Id, SourceWorkItemId = f.Ticket.Id },
+            new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(),
+                CurrentAgentWorkItemId = work.Id, CurrentOrganizationUserId = f.Agent.Id, SourceWorkItemId = f.Ticket.Id });
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.AgentWorkItemId == work.Id);
+        Assert.Null(row.Collaborator); Assert.Null(row.WorkItemId);
+        Assert.Equal("Collaborating", row.Title);
+    }
+
+    [Theory]
+    [InlineData("com.csweet.agent.attention.review-due.v1", "Review", "Reviewing work")]
+    [InlineData("com.example.unknown.event.v2", "Background", "Background activity")]
+    public async Task BackgroundEventsHaveHumanReadableTitles(string name, string kind, string title)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+            AgentInstallationId = f.Agent.AgentInstallationId!.Value, Name = name, Status = AgentWorkStatus.Pending };
+        f.Db.Add(work); await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.AgentWorkItemId == work.Id);
+        Assert.Equal(title, row.Title); Assert.Equal(kind, row.ActivityKind); Assert.Equal(name, row.TechnicalName);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
