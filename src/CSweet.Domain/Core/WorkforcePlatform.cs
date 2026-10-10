@@ -191,6 +191,8 @@ public sealed class WorkforcePlan
     public Guid? WorkstreamId { get; set; }
     public Guid? TeamId { get; set; }
     public Guid RequestingInstallationId { get; set; }
+    public string? SelectedCatalogAgentJson { get; set; }
+    public string? SelectionRationale { get; set; }
     public Guid? RecommendedCandidateId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string IdempotencyKey { get; set; } = string.Empty;
@@ -255,6 +257,7 @@ public sealed class ResourceNeed
 
 public sealed class StaffingActionProposal
 {
+    public Guid? DelegatedInstallationId { get; set; }
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid WorkforcePlanId { get; set; }

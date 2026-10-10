@@ -114,9 +114,23 @@ public sealed class AgentCatalogService(
         if (string.IsNullOrWhiteSpace(agentReference)) return null;
         var source = ParseSource(agentReference);
         var provider = providers.FirstOrDefault(x => x.Source == source);
-        return provider is null
-            ? null
-            : await provider.ResolveAsync(organizationId, agentReference, cancellationToken);
+        var resolved = provider is null ? null : await provider.ResolveAsync(organizationId, agentReference, cancellationToken);
+        if (resolved?.Source != AgentCatalogSource.Installed) return resolved;
+        // Installed records retain their granted capabilities. Curated repository provenance
+        // and known catalog pricing may be attached only for the exact package origin.
+        var curated = providers.FirstOrDefault(x => x.Source == AgentCatalogSource.FirstPartyCatalog);
+        if (curated is null) return resolved;
+        try
+        {
+            var listings = await curated.SearchAsync(organizationId, new AvailableAgentSearchQuery(Limit: 100), cancellationToken);
+            return listings.Agents.Append(resolved).GroupBy(DeduplicationKey, StringComparer.OrdinalIgnoreCase)
+                .Where(group => group.Any(x => x.AgentReference == agentReference)).Select(Consolidate).Single();
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            logger.LogWarning(error, "Curated provenance is unavailable for installed agent {Reference}.", agentReference);
+            return resolved;
+        }
     }
 
     private static bool Matches(AvailableAgent agent, AvailableAgentSearchQuery query)
@@ -194,7 +208,15 @@ public sealed class AgentCatalogService(
 
     private static string DeduplicationKey(AvailableAgent agent)
     {
-        if (!string.IsNullOrWhiteSpace(agent.AgentId)) return $"id:{agent.AgentId.Trim()}";
+        // A manifest ID alone cannot transfer the curated catalog's provenance to a
+        // different package repository. Installed repository identity comes from its import source.
+        if (!string.IsNullOrWhiteSpace(agent.AgentId))
+        {
+            var origin = Uri.TryCreate(agent.RepositoryUrl, UriKind.Absolute, out var repositoryOrigin)
+                ? repositoryOrigin.GetLeftPart(UriPartial.Path).TrimEnd('/')
+                : agent.AgentReference;
+            return $"id:{agent.AgentId.Trim()}:origin:{origin}";
+        }
         if (Uri.TryCreate(agent.RepositoryUrl, UriKind.Absolute, out var repository))
             return $"repo:{repository.GetLeftPart(UriPartial.Path).TrimEnd('/')}";
         return $"name:{agent.Publisher.Trim()}:{agent.Name.Trim()}";
@@ -211,7 +233,12 @@ public sealed class AgentCatalogService(
             Name = ordered.Where(x => x.Source != AgentCatalogSource.Installed)
                 .Select(x => x.Name).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? primary.Name,
             AlternateSources = ordered.Skip(1).Select(x => x.Source).Distinct().ToArray(),
-            Capabilities = ordered.SelectMany(x => x.Capabilities).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            Capabilities = primary.Source == AgentCatalogSource.Installed ? primary.Capabilities
+                : ordered.SelectMany(x => x.Capabilities).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            Price = ordered.Where(x => x.Source == AgentCatalogSource.FirstPartyCatalog || x.Source == primary.Source)
+                .Select(x => x.Price).FirstOrDefault(x => x.HasValue),
+            Currency = ordered.Where(x => x.Price.HasValue && (x.Source == AgentCatalogSource.FirstPartyCatalog || x.Source == primary.Source))
+                .Select(x => x.Currency).FirstOrDefault() ?? primary.Currency,
             RoleKey = ordered.Select(x => x.RoleKey).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             RoleName = ordered.Select(x => x.RoleName).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)),
             RoleAliases = ordered.SelectMany(x => x.RoleAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),

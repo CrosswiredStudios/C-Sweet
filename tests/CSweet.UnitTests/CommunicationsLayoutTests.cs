@@ -142,6 +142,23 @@ public sealed class CommunicationsLayoutTests
         Assert.Contains(".hub-system-action-cancelled", css, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BothHiringEntryPointsUseTheSameReviewComponent()
+    {
+        var root = FindRepositoryRoot();
+        var marketplace = File.ReadAllText(Path.Combine(root, "src", "CSweet.UI", "Pages", "Marketplace.razor"));
+        var chat = File.ReadAllText(Path.Combine(root, "src", "CSweet.UI", "Components", "Hiring", "HiringSuggestionCarousel.razor"));
+        var shared = File.ReadAllText(Path.Combine(root, "src", "CSweet.UI", "Components", "Hiring", "AgentHireDialog.razor"));
+        Assert.Contains("<AgentHireDialog", marketplace);
+        Assert.Contains("<AgentHireDialog", chat);
+        Assert.DoesNotContain("<MudDialog", marketplace);
+        Assert.DoesNotContain("<MudDialog", chat);
+        Assert.Contains("<MudDialog", shared);
+        Assert.Contains("RecommendationId", shared);
+        Assert.Contains("Plan proposed by", marketplace);
+        Assert.Contains("Browse outside this plan", marketplace);
+    }
+
     private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFile)!, "..", ".."));
 }

@@ -6,6 +6,17 @@ namespace CSweet.UnitTests;
 
 public sealed class HierarchicalDeliverySchemaTests
 {
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("[{\"planId\":\"00000000-0000-0000-0000-000000000001\",\"status\":\"Draft\"}]")]
+    public void DeliveryDiscoveryAcceptsSuccessfulListResponses(string response)
+    {
+        var tool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { WorkDeliveryCapabilities.Read }));
+        McpGatewayEndpoints.ValidateSuccessfulToolOutput(true, JsonSerializer.Deserialize<JsonElement>(response), tool.OutputSchema!.Value);
+        Assert.Throws<InvalidOperationException>(() => McpGatewayEndpoints.ValidateSuccessfulToolOutput(
+            true, JsonSerializer.SerializeToElement(new { }), tool.OutputSchema.Value));
+    }
+
     [Fact]
     public void TypedDeliveryRequestsMatchThePublishedBrokerSchemas()
     {

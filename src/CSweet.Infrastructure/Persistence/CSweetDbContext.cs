@@ -192,6 +192,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<BudgetReservation> BudgetReservations => Set<BudgetReservation>();
     public DbSet<ManagementCycle> ManagementCycles => Set<ManagementCycle>();
     public DbSet<BusinessPattern> BusinessPatterns => Set<BusinessPattern>();
+    public DbSet<ChiefHiringPolicy> ChiefHiringPolicies => Set<ChiefHiringPolicy>();
+    public DbSet<ChiefHiringPolicyRevision> ChiefHiringPolicyRevisions => Set<ChiefHiringPolicyRevision>();
+    public DbSet<HiringPlanDelegation> HiringPlanDelegations => Set<HiringPlanDelegation>();
     public DbSet<WorkforcePlan> WorkforcePlans => Set<WorkforcePlan>();
     public DbSet<HiringRecommendationFulfillment> HiringRecommendationFulfillments => Set<HiringRecommendationFulfillment>();
     public DbSet<WorkforceCandidate> WorkforceCandidates => Set<WorkforceCandidate>();
@@ -265,6 +268,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
         AssignInMemoryMessageSequences();
+        CaptureHiringPlanDelegations();
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
@@ -287,6 +291,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
         AssignInMemoryMessageSequences();
+        CaptureHiringPlanDelegations();
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
         CaptureApplicationNotificationEvents();
@@ -298,6 +303,30 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureAgentAuditEvents();
         CaptureProjectHealthSignals();
         return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void CaptureHiringPlanDelegations()
+    {
+        foreach (var entry in ChangeTracker.Entries<ResourceChangeRequestRecord>().Where(x =>
+                     x.Entity.Status == ResourceChangeRequestStatus.Approved &&
+                     (x.State == EntityState.Added || x.State == EntityState.Modified &&
+                      x.Property(p => p.Status).OriginalValue != ResourceChangeRequestStatus.Approved)).ToArray())
+        {
+            var request = entry.Entity;
+            var chiefs = CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == request.OrganizationId &&
+                x.IsActive && x.AgentInstallationId != null && LeadershipAssignments.Any(a => a.OrganizationUserId == x.Id &&
+                    a.OrganizationId == request.OrganizationId && a.PositionKey == LeadershipPositionKeys.ChiefOfStaff && a.EndsAt == null))
+                .Select(x => x.AgentInstallationId!.Value).ToArray();
+            foreach (var chiefId in chiefs)
+            {
+                if (HiringPlanDelegations.Local.Any(x => x.ResourceChangeRequestId == request.Id && x.InstallationId == chiefId) ||
+                    HiringPlanDelegations.Any(x => x.ResourceChangeRequestId == request.Id && x.InstallationId == chiefId)) continue;
+                var policy = ChiefHiringPolicies.AsNoTracking().SingleOrDefault(x => x.OrganizationId == request.OrganizationId && x.InstallationId == chiefId);
+                HiringPlanDelegations.Add(new HiringPlanDelegation { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId,
+                    ResourceChangeRequestId = request.Id, InstallationId = chiefId,
+                    SettingsJson = policy?.SetupComplete == true ? policy.SettingsJson : "{}", CreatedAt = request.DecidedAt ?? DateTimeOffset.UtcNow });
+            }
+        }
     }
 
     private void AssignDirectParticipantKeys()
@@ -762,6 +791,10 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<ChiefHiringPolicy>().HasIndex(x => new { x.OrganizationId, x.InstallationId }).IsUnique();
+        modelBuilder.Entity<ChiefHiringPolicy>().Property(x => x.Revision).IsConcurrencyToken();
+        modelBuilder.Entity<ChiefHiringPolicyRevision>().HasIndex(x => new { x.OrganizationId, x.InstallationId, x.Revision }).IsUnique();
+        modelBuilder.Entity<HiringPlanDelegation>().HasIndex(x => new { x.ResourceChangeRequestId, x.InstallationId }).IsUnique();
         ConfigureProjectHealth(modelBuilder);
         ConfigureEfficiency(modelBuilder);
         ConfigureBenchmarks(modelBuilder);

@@ -137,6 +137,10 @@
             <MudTabPanel Text="Agent operations" Icon="@Icons.Material.Outlined.SettingsSuggest" Disabled="@(_details.Employee.AgentInstallationId is null)">
                 @if (_details.Employee.AgentInstallationId.HasValue)
                 {
+                    @if (_details.Role?.Name?.Contains("Chief of Staff", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                    <MudButton Href="@($"/organizations/{OrganizationId:D}/hiring-settings/{_details.Employee.AgentInstallationId:D}")">Chief hiring settings</MudButton>
+                    }
                     <MudGrid Class="mt-3">
                         <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Runtime</MudText><MudText>@(_runtime?.Stage ?? "Unavailable")</MudText><MudText Color="Color.Secondary">@(_runtime?.Reason ?? _runtime?.RuntimeStatus)</MudText></MudPaper></MudItem>
                         <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-4"><MudText Typo="Typo.h6">Schedule & resources</MudText><MudText>@(_installation?.Schedule.ActivationMode ?? "Unavailable")</MudText><MudText Color="Color.Secondary">@(_installation is null ? "" : $"{_installation.MemoryMb} MB · {_installation.CpuPercent}% CPU · {_installation.Schedule.MaxRuntimeSeconds}s max runtime")</MudText></MudPaper></MudItem>

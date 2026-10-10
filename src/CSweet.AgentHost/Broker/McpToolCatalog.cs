@@ -217,6 +217,10 @@ public sealed class McpToolCatalog(
             "Cancel a coordination session when separately authorized."),
         Write(SuggestedUserActionCapabilities.Suggest, "suggest_user_action",
             "Attach a safe, platform-resolved workflow action to this agent's message or chat turn. Use hiring.marketplace.browse.v1 with a role for hiring, or approval.review.v1 with parameters { approvalId } for an inline Approve / More info / Deny card for this agent's project-creation proposal in its private approver conversation. Never supply approval UI or decision authority in the parameters."),
+        Read(HiringAutonomyCapabilities.Read, "read_hiring_policy", "Read authoritative owner hiring preferences."),
+        HiddenWrite(HiringAutonomyCapabilities.CaptureDecision, "capture_hiring_policy_decision", "Capture an authenticated owner answer to a hiring preference question."),
+        HiddenWrite(HiringAutonomyCapabilities.SelectCandidate, "select_hiring_candidate", "Select and persist a candidate for an authorized recommendation."),
+        HiddenWrite(HiringAutonomyCapabilities.Submit, "submit_delegated_hire", "Execute hiring only under an explicit owner delegation for an approved plan."),
         Read(HiringCapabilities.ListRecommendations, "list_hiring_recommendations",
             "Read this agent installation's role backlog in priority order."),
         Write(HiringCapabilities.UpsertRecommendation, "upsert_hiring_recommendation",
@@ -572,6 +576,7 @@ public sealed class McpToolCatalog(
         ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability or
         WorkBoardActions.Read or
         WorkSprintActions.Read or
+        W.WorkDeliveryCapabilities.Read or
         W.WorkstreamCapabilityNames.GateReadV1 or
         W.DecisionCapabilityNames.ReadV1 or
         W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2 or
@@ -701,6 +706,9 @@ public sealed class McpToolCatalog(
         PlatformCapabilities.OrganizationSnapshotRead or
         PlatformCapabilities.FinanceProfileRead or
         PlatformCapabilities.ManagementCycleRead or
+        HiringAutonomyCapabilities.Read => EmptyInput,
+        HiringAutonomyCapabilities.CaptureDecision => Schema("""{"type":"object","required":["decisionId","expectedRevision"],"properties":{"decisionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer"},"answerTurnId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
+        HiringAutonomyCapabilities.SelectCandidate or HiringAutonomyCapabilities.Submit => Schema("""{"type":"object","required":["recommendationId"],"properties":{"recommendationId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
         HiringCapabilities.ListRecommendations => EmptyInput,
         CommunicationCapabilities.ChatRead => Schema("""
             {"type":"object","properties":{"chatId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}

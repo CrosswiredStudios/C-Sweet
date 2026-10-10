@@ -490,6 +490,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IConversationService, ConversationService>();
         builder.Services.AddScoped<IChatTurnService, ChatTurnService>();
         builder.Services.AddScoped<HiringService>();
+        builder.Services.AddScoped<IHiringAutonomyService>(services => services.GetRequiredService<HiringService>());
         builder.Services.AddScoped<IHiringService>(services => services.GetRequiredService<HiringService>());
         builder.Services.AddScoped<IAgentHireOrchestrator>(services => services.GetRequiredService<HiringService>());
         builder.Services.AddScoped<IAgentHireOperationService>(services => services.GetRequiredService<HiringService>());

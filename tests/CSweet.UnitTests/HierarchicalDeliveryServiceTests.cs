@@ -16,6 +16,27 @@ namespace CSweet.UnitTests;
 
 public sealed class HierarchicalDeliveryServiceTests
 {
+    [Theory]
+    [InlineData("Artifact", "game-quality-assurance", true, true)]
+    [InlineData("Artifact", "software-qa", true, true)]
+    [InlineData("Code", "game-quality-assurance", true, false)]
+    [InlineData("Artifact", "game-engineer", true, false)]
+    [InlineData("Artifact", "game-quality-assurance", false, false)]
+    public async Task AggregateQaCanOwnOnlyManagerReviewedQaEvidence(string kind, string role, bool managerReviews, bool allowed)
+    {
+        await using var f = await Fixture.Create(true);
+        var author = await f.Db.WorkItemStageAssignments.SingleAsync(x => x.WorkItemId == f.Task.Id && x.StageKey == "development");
+        author.OrganizationUserId = f.Qa.Id;
+        author.RequirementsJson = JsonSerializer.Serialize(new WorkAssignmentRequirements(role, [], [], []), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var review = await f.Db.WorkItemStageAssignments.SingleAsync(x => x.WorkItemId == f.Task.Id && x.StageKey == "quality");
+        review.OrganizationUserId = managerReviews ? f.Manager.Id : f.Qa.Id;
+        f.Task.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(Guid.Empty, ["Deliver requirement"], ["Requirement works"])
+            { DeliveryKind = kind }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await f.Db.SaveChangesAsync();
+        if (allowed) Assert.NotNull(await f.Configure());
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => f.Configure());
+    }
+
     [Fact]
     public async Task ReleaseRegressionRemediationCanAmendScopeAfterStoryIntegrationAndRequiresNewTaskQa()
     {

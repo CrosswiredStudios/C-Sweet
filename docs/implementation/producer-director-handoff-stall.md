@@ -1,6 +1,49 @@
 # Producer ↔ Creative Director handoff stall
 
-Last updated: **2026-10-08 PDT**. The two incidents below have different causes. The October 2 fix does not establish recovery for the October 7 memory-reset failure.
+Last updated: **2026-10-09 PDT**. The incidents below have different causes; verification of one does not establish recovery for another.
+
+## October 9: invalid project proposal and initial-hiring replenishment
+
+**Status: fixed in source and locally verified; live upgrade/retry pending.**
+
+The live audit recorded a Producer `platform.workstream.plan.propose.v2` validation failure at
+15:30 PDT: `$.outcome must be string`. The coordination delivery became nonretryable DeadLetter.
+The Director had separately attempted staffing replenishment at 15:27 before the original
+Producer hiring plan had filled that role. The Chief's 15:21 management review failed because
+its installation lacked `platform.management.status-report.v1`. All three runtimes continued
+handling attention events; runtime health did not establish delivery progress.
+
+Source fixes:
+
+- Producer 2.19.1: `PrepareProjectDraftAsync` in `ProjectProposalDraft.cs` validates editable
+  model fields before submission, permits one correction attempt, preserves milestone review
+  requirements and trusted template authority, and caches terminal validation outcomes to bound
+  duplicate wakes. Corrected model settings or an explicit resumed collaboration can retry a
+  rejected draft. Invalid legacy drafts can be regenerated; valid prior commands retain their
+  idempotency keys. `ProposeProjectFoundationAsync` returns a blocker for rejected proposals and
+  retains proposal IDs for `RecoverSubmittedProjectsAsync`. Coordination and background revisions
+  use the same cached plan and submission key.
+- Director 1.18.1: `EnsureStaffingReplacementAsync` uses prior staffed state on the same team
+  to distinguish replacement requests from initial hiring. The host still verifies fulfilled
+  capacity. `EnsureProjectFoundationAsync` reads the saved collaboration and recovers a returned
+  proposal ID from its transcript. If approval already created a project before a reply failed,
+  the exact decision receipt and authorized portfolio recover it without replaying approval.
+  Terminal failures enter the existing reconciliation stall
+  reporting path. `ReviewProjectFoundationAsync` preserves Producer blocker details during
+  finalization and requests a retry when an authorized manager resumes that blocked collaboration.
+- Chief 2.10.4 declares the reporting capability; SDK 3.60.0 includes
+  `CapabilityNames.Management.StatusReport` in `CapabilityCatalog` and `GRANTS.md`.
+
+Regression coverage: Producer `ProjectProposalValidationTests` and `ProjectFoundationTests`;
+Director `ProjectFoundationTests`, `ProjectApprovalReviewTests`, and `StaffingEventTests`;
+Chief `ChiefOfStaffProfileTests`; SDK `CapabilityCatalogTests` and generated-template verification.
+
+Rollout requires publishing/importing the new SDK and agent packages, upgrading the installations,
+and approving the Chief's added grant through the normal review flow. After checking any existing
+approval effects, use **Retry collaboration** on the failed project-proposal session. Successful
+source tests do not mark that live session recovered. Do not rewrite queue status or bypass grants
+in the database. The Director's recovered source path surfaces ineligible failures; it does not
+automatically retry arbitrary validation, cancelled, or semantic-blocked sessions.
 
 ## October 7: memory reset followed by missing failed-session recovery
 
@@ -93,6 +136,42 @@ Regression coverage: `HandoffReviewTests`, `AgentCoordinationServiceTests.Memory
 (including no active runtime and a legacy-format replacement), `MemoryResetDistinguishesUnavailableEvidenceFromChangedRetainedEvidence`,
 `QueuedRecallResetRecordsTheSpecificNonChatConsumerValidation` (coordination turn stays pending) and
 `QueuedMemoryDeliveryCannotReusePreviousRecipientContextForAnotherHuman` (another human's chat stays pending).
+
+## October 9 delivery discovery and duplicate game projects
+
+The October 9 run created `Pulse Break — Game Pitch` (`fdb3c31a-530f-4b5d-967c-1f6d0a0e7baf`)
+through `producer-project-foundation` at 20:20 PDT, then `Chiptune Breakout — Single-Dev Web Game`
+(`1f1e697b-ca00-4f49-8afb-58c43f107cff`) through a revised `producer-manager-project` proposal
+at 20:42 PDT. Both were submitted by Gabriel and approved by Naomi. Only Pulse Break held
+documents, a team, a board and planning sessions during diagnosis; the second project's outcome
+references the production brief belonging to the original game.
+
+`SpecialistAgent.HandleManagerMessageAsync` previously filtered discovery to
+`video-game-manager-brief.v1`, excluding the original `video-game-production.v2` project.
+Producer 2.19.2 discovers all active owned projects, reuses the only existing game for renamed
+or revised briefs, requires an explicit independent-game indication before another creation,
+refuses unavailable/ambiguous IDs, and reuses pending proposals from `SubmittedProjectsKey`.
+Production-profile follow-ups keep their accepted handoff and production workflow.
+
+Creative Director 1.18.2 includes existing owned projects in `ReviewProjectAsync`, requests
+revision for duplicate creation across profiles, re-reads current proposal status/ownership,
+and uses an exact-command fingerprint in its decision key. The previous decision-kind-only key
+could collide when spending/escalation reassessment changed the rationale. Resolved receipts
+are authoritative during retry and discovery races.
+
+Specialist planning completed, but Producer `HierarchicalProjectDelivery.PrepareAsync` failed
+on `work.delivery.read.v1`: `WorkDeliveryCapabilityHandler` returned a valid array while
+`McpToolCatalog.OutputFor` incorrectly declared an object. Output validation produced HTTP 400,
+misclassified as retryable transport failure, eventually dead-lettering review and personal
+todo work. `OutputFor` now explicitly declares this capability's array response. Empty and
+populated lists are covered through `McpGatewayEndpoints.ValidateSuccessfulToolOutput`.
+
+Verification: `HierarchicalDeliverySchemaTests`, `McpCapabilityRegistryTests`, Producer
+`ManagerChatTests`, and Director `ProjectApprovalRecoveryTests`, plus both agent suites and
+self-tests. Rollout requires the rebuilt host and Producer 2.19.2 / Director 1.18.2.
+The source corrections do not merge or delete historical project records. Reconcile the
+empty duplicate through an authorized project status change, preserving its approval history
+and the original project's documents, board, team and planning evidence.
 
 ## Evidence
 

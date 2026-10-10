@@ -405,16 +405,25 @@ public sealed class ArtifactDocumentService(
             x.SubjectId == actor.InstallationId && x.Status == ArtifactAccessRequestStatus.Pending &&
             x.ActionsJson == JsonSerializer.Serialize(actions, JsonOptions), cancellationToken);
         if (duplicate is not null) return await AccessResponseAsync(duplicate, cancellationToken);
+        var now = clock.GetUtcNow();
+        var grantedActions = await db.ScopedActionGrants.AsNoTracking().Where(x =>
+            x.OrganizationId == organizationId && x.SubjectKind == GrantSubjectKind.AgentInstallation &&
+            x.SubjectId == actor.InstallationId && x.ScopeKind == GrantScopeKind.Artifact &&
+            x.ScopeId == artifactId && x.RevokedAt == null && (x.ExpiresAt == null || x.ExpiresAt > now))
+            .Select(x => x.Action).ToListAsync(cancellationToken);
+        var alreadyGranted = actions.All(grantedActions.Contains);
         var item = new ArtifactAccessRequest
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, ArtifactId = artifactId,
             SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = actor.InstallationId,
             RequestingInstallationId = actor.InstallationId, ActionsJson = JsonSerializer.Serialize(actions, JsonOptions),
             Justification = request.Justification.Trim(), IdempotencyKey = request.IdempotencyKey,
-            CreatedAt = clock.GetUtcNow(), ExpiresAt = request.ExpiresAt
+            CreatedAt = now, ExpiresAt = request.ExpiresAt,
+            Status = alreadyGranted ? ArtifactAccessRequestStatus.Approved : ArtifactAccessRequestStatus.Pending,
+            DecidedAt = alreadyGranted ? now : null
         };
         db.ArtifactAccessRequests.Add(item); await db.SaveChangesAsync(cancellationToken);
-        await AuditAgentAsync("artifact.access.requested", "Completed", organizationId, artifactId, actor,
+        await AuditAgentAsync(alreadyGranted ? "artifact.access.already-granted" : "artifact.access.requested", "Completed", organizationId, artifactId, actor,
             new { requestId = item.Id, actions, justificationBytes = Encoding.UTF8.GetByteCount(item.Justification) }, cancellationToken);
         return await AccessResponseAsync(item, cancellationToken);
     }

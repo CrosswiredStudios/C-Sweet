@@ -1156,3 +1156,14 @@ the remaining options available.
 - [`10-open-questions.md`](10-open-questions.md)
 - [`15-team-structure-and-role-occupancy.md`](15-team-structure-and-role-occupancy.md)
 - [`implementation/chief-of-staff-workforce-platform.md`](implementation/chief-of-staff-workforce-platform.md)
+
+## Implemented hiring autonomy
+
+See [Chief hiring autonomy](implementation/features/chief-hiring-autonomy.md) for the current
+policy and code map. `ChiefOfStaffAgent.HiringPolicy.cs` conducts owner setup before company
+focus using existing decision widgets. Recommendations and first-party preference are the
+default. Automatic execution requires the completed platform policy, an approved role, and
+approval-time delegation; the Chief cannot infer authority from memory or agent text.
+`ReconcileApprovedResourceChangeAsync` prepares candidates through the platform broker and
+submits authorized automatic hires. Candidate exceptions retain the shared owner review.
+Hiring authority does not permit adding roles, expanding headcount, or unrelated spending.

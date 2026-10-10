@@ -13,6 +13,71 @@ namespace CSweet.UnitTests;
 public sealed class ApprovalDashboardServiceTests
 {
     [Theory]
+    [InlineData("agent-steward", false, false)]
+    [InlineData("agent-steward", true, false)]
+    [InlineData("human-steward", false, false)]
+    [InlineData("human-steward", true, true)]
+    [InlineData("owner-steward", false, true)]
+    [InlineData("owner-steward", true, false)]
+    [InlineData("agent-reviewer", false, false)]
+    [InlineData("agent-reviewer", true, false)]
+    [InlineData("completed-review", false, false)]
+    [InlineData("failed-review", false, false)]
+    [InlineData("inactive-reviewer", false, false)]
+    [InlineData("stale-review", false, false)]
+    [InlineData("stale-review", true, true)]
+    [InlineData("foreign-review", true, true)]
+    [InlineData("unassigned", false, true)]
+    [InlineData("unassigned", true, false)]
+    public async Task ArtifactInboxUsesCurrentReviewAssignmentWithoutEscalatingToOwner(
+        string routing, bool asManager, bool expected)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organizationId = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "CEO", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner };
+        var manager = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "Human manager", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Manager };
+        var director = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = Guid.NewGuid(), DisplayName = "Creative Director", EmployeeType = EmployeeType.Agent,
+            IsActive = routing != "inactive-reviewer" };
+        var producer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = Guid.NewGuid(), DisplayName = "Producer", EmployeeType = EmployeeType.Agent };
+        var artifact = new Artifact { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            Title = "Collaborative game production brief", Type = ArtifactType.Document,
+            CreatedByOrganizationUserId = producer.Id, CreatorDisplayName = producer.DisplayName,
+            SubmittedRevisionId = Guid.NewGuid(), ApprovalStatus = ApprovalStatus.Pending,
+            StewardOrganizationUserId = routing == "unassigned" ? null :
+                routing == "agent-steward" ? director.Id : routing == "owner-steward" ? owner.Id : manager.Id };
+        db.AddRange(owner, manager, director, producer, artifact);
+        if (routing is "agent-reviewer" or "completed-review" or "failed-review" or "inactive-reviewer" or "stale-review" or "foreign-review")
+            db.ArtifactReviewJobs.Add(new ArtifactReviewJob { Id = Guid.NewGuid(),
+                OrganizationId = routing == "foreign-review" ? Guid.NewGuid() : organizationId,
+                ArtifactId = artifact.Id,
+                RevisionId = routing == "stale-review" ? Guid.NewGuid() : artifact.SubmittedRevisionId.Value,
+                ReviewerOrganizationUserId = director.Id, ReviewerInstallationId = director.AgentInstallationId,
+                IdempotencyKey = routing, CreatedAt = DateTimeOffset.UtcNow,
+                Status = routing == "completed-review" ? ArtifactReviewJobStatus.Completed :
+                    routing == "failed-review" ? ArtifactReviewJobStatus.Failed : ArtifactReviewJobStatus.Pending });
+        await db.SaveChangesAsync();
+        var service = new ApprovalDashboardService(db, new StubResourceChangeService([]), new HiringService(db, null!, null!));
+        var result = await service.GetAsync(organizationId, (asManager ? manager : owner).ApplicationUserId!.Value);
+        Assert.Equal(expected ? 1 : 0, result.PendingCount);
+        if (expected)
+        {
+            var item = Assert.Single(result.Items);
+            Assert.True(item.CanDecide);
+            Assert.Equal(asManager ? manager.DisplayName : owner.DisplayName, item.AssignedTo);
+            Assert.Equal(producer.DisplayName, item.RequestedBy);
+            Assert.Equal(artifact.SubmittedRevisionId, item.Artifact!.SubmittedRevisionId);
+        }
+        else Assert.Empty(result.Items);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ConnectorReviewDisplaysExactChangesAndOnlyOffersDecisionToBoundApprover(bool assigned)

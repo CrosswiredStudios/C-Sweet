@@ -21,7 +21,8 @@ public sealed class WorkforcePlatformCapabilityHandler(
     IResourceChangeService? resourceChanges = null,
     IStaffingReplenishmentService? staffingReplenishments = null,
     IAgentCatalogService? agentCatalog = null,
-    AgentEmployeeIdentityResolver? identityResolver = null) : IPlatformCapabilityHandler
+    AgentEmployeeIdentityResolver? identityResolver = null,
+    IHiringAutonomyService? hiringAutonomy = null) : IPlatformCapabilityHandler
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly IReadOnlySet<string> HandledCapabilities = new HashSet<string>(StringComparer.Ordinal)
@@ -40,6 +41,10 @@ public sealed class WorkforcePlatformCapabilityHandler(
         PlatformCapabilities.BudgetEvaluate,
         PlatformCapabilities.ApprovalPropose,
         PlatformCapabilities.ManagementCycleRead,
+        HiringAutonomyCapabilities.Read,
+        HiringAutonomyCapabilities.CaptureDecision,
+        HiringAutonomyCapabilities.SelectCandidate,
+        HiringAutonomyCapabilities.Submit,
         HiringCapabilities.ListRecommendations,
         HiringCapabilities.UpsertRecommendation,
         HiringCapabilities.ResolveRecommendation,
@@ -107,6 +112,14 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 PlatformCapabilities.BudgetEvaluate => await EvaluateBudgetAsync(request, organizationId, token),
                 PlatformCapabilities.ApprovalPropose => await PersistApprovalAsync(request, organizationId, installationId, token),
                 PlatformCapabilities.ManagementCycleRead => Success(request.RequestId, await ReadManagementCycleAsync(organizationId, token)),
+                HiringAutonomyCapabilities.Read => Success(request.RequestId,
+                    await hiringAutonomy!.ReadPolicyAsync(organizationId, installationId, token)),
+                HiringAutonomyCapabilities.CaptureDecision => Success(request.RequestId,
+                    await hiringAutonomy!.CaptureDecisionAsync(organizationId, installationId, Read<CaptureHiringPolicyDecisionRequest>(request), token)),
+                HiringAutonomyCapabilities.SelectCandidate => Success(request.RequestId,
+                    await hiringAutonomy!.SelectCandidateAsync(organizationId, installationId, Read<SelectHiringCandidateRequest>(request).RecommendationId, token)),
+                HiringAutonomyCapabilities.Submit => Success(request.RequestId,
+                    await hiringAutonomy!.SubmitDelegatedAsync(organizationId, installationId, Read<SubmitDelegatedHireRequest>(request).RecommendationId, token)),
                 HiringCapabilities.ListRecommendations => Success(request.RequestId,
                     new CSweet.Contracts.Core.HiringBacklogResponse(await (hiring ?? throw new InvalidOperationException("The hiring service is unavailable."))
                         .ListRecommendationsForInstallationAsync(organizationId, installationId, token))),

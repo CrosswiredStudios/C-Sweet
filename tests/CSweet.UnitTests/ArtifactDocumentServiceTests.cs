@@ -11,6 +11,41 @@ namespace CSweet.UnitTests;
 
 public sealed class ArtifactDocumentServiceTests
 {
+    [Theory]
+    [InlineData("active", "Approved")]
+    [InlineData("partial", "Pending")]
+    [InlineData("expired", "Pending")]
+    [InlineData("revoked", "Pending")]
+    public async Task AgentAccessRequestsDoNotAskForPermissionsAlreadyGranted(string grantState, string expected)
+    {
+        await using var db = CreateDb();
+        var (organization, _) = SeedHuman(db, OrganizationPermissionLevel.Owner);
+        var agent = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            AgentInstallationId = Guid.NewGuid(), EmployeeType = EmployeeType.Agent, DisplayName = "Naomi" };
+        var artifact = new Artifact { Id = Guid.NewGuid(), OrganizationId = organization.Id, Title = "Brief" };
+        db.AddRange(agent, artifact);
+        foreach (var action in new[] { ArtifactActions.Read, ArtifactActions.Decide })
+        {
+            if (grantState == "partial" && action == ArtifactActions.Decide) continue;
+            db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+                SubjectKind = CSweet.Domain.Security.GrantSubjectKind.AgentInstallation, SubjectId = agent.AgentInstallationId.Value,
+                ScopeKind = CSweet.Domain.Security.GrantScopeKind.Artifact, ScopeId = artifact.Id, Action = action,
+                ExpiresAt = grantState == "expired" ? DateTimeOffset.UtcNow.AddHours(-1) : null,
+                RevokedAt = grantState == "revoked" ? DateTimeOffset.UtcNow.AddHours(-1) : null });
+        }
+        await db.SaveChangesAsync();
+        var grantCount = await db.ScopedActionGrants.CountAsync();
+        var service = new ArtifactDocumentService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var actor = new ArtifactAgentActor(agent.Id, agent.AgentInstallationId.Value, "director", "1.18.3");
+        var request = new RequestArtifactAccessRequest([ArtifactActions.Read, ArtifactActions.Decide], "Review brief", "access");
+        var result = await service.RequestAccessAsync(organization.Id, actor, artifact.Id, request);
+        var retry = await service.RequestAccessAsync(organization.Id, actor, artifact.Id, request);
+        Assert.Equal(expected, result.Status);
+        Assert.Equal(result.Id, retry.Id);
+        Assert.Equal(grantCount, await db.ScopedActionGrants.CountAsync());
+        Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync());
+    }
+
     [Fact]
     public async Task Accepted_revision_remains_authoritative_while_a_new_draft_exists()
     {

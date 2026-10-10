@@ -1,4 +1,5 @@
 using CSweet.Api.Auth;
+using UpdateHiringPolicyRequest = CSweet.Agent.SDK.UpdateHiringPolicyRequest;
 using CSweet.Application.Communications;
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
@@ -11,6 +12,46 @@ public static class HiringEndpoints
     public static IEndpointRouteBuilder MapHiringEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/core/organizations/{organizationId:guid}/hiring");
+
+        group.MapGet("/policies/{installationId:guid}", async (Guid organizationId, Guid installationId,
+            HttpContext http, IHiringAutonomyService service, ICommunicationHubService communications, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue || (await communications.ResolveOrganizationUserIdAsync(organizationId, user.Value, token)) is null) return Results.Forbid();
+            try { return Results.Ok(await service.ReadPolicyAsync(organizationId, installationId, token)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+        group.MapPut("/policies/{installationId:guid}", async (Guid organizationId, Guid installationId,
+            UpdateHiringPolicyRequest request, HttpContext http, IHiringAutonomyService service, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue) return Results.Forbid();
+            try { return Results.Ok(await service.UpdatePolicyAsync(organizationId, installationId, user.Value,
+                request.Settings, request.ExpectedRevision, request.Rationale, token: token)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (ArgumentException e) { return Results.BadRequest(new { message = e.Message }); }
+            catch (InvalidOperationException e) { return Results.Conflict(new { message = e.Message }); }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Hiring preferences changed. Refresh before saving." }); }
+        });
+        group.MapPost("/policies/{installationId:guid}/plans/{requestId:guid}/apply", async (Guid organizationId,
+            Guid installationId, Guid requestId, HttpContext http, IHiringAutonomyService service, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue) return Results.Forbid();
+            try { await service.ApplyToPlanAsync(organizationId, installationId, requestId, user.Value, token); return Results.Ok(); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (ArgumentException e) { return Results.BadRequest(new { message = e.Message }); }
+            catch (InvalidOperationException e) { return Results.Conflict(new { message = e.Message }); }
+            catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Hiring preferences changed. Refresh before saving." }); }
+        });
+        group.MapGet("/recommendations/{recommendationId:guid}", async (Guid organizationId, Guid recommendationId,
+            HttpContext http, IHiringService service, ICommunicationHubService communications, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue || (await communications.ResolveOrganizationUserIdAsync(organizationId, user.Value, token)) is null) return Results.Forbid();
+            var recommendation = (await service.ListRecommendationsAsync(organizationId, token)).SingleOrDefault(x => x.Id == recommendationId);
+            return recommendation is null ? Results.NotFound() : Results.Ok(recommendation);
+        });
 
         group.MapGet("", async (
             Guid organizationId,

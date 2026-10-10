@@ -135,6 +135,7 @@ public sealed partial class ArtifactCapabilityHandler(
         db.CoreArtifacts.Add(artifact); db.ArtifactRevisions.Add(revision);
         foreach (var action in new[] { ArtifactActions.Read, ArtifactActions.Revise, ArtifactActions.Submit })
             db.ScopedActionGrants.Add(NewGrant(organizationId, artifact.Id, actor.InstallationId, action, now));
+        await GrantAssignedManagerReviewAsync(organizationId, artifact, actor, artifact.StewardOrganizationUserId, now, token);
         await db.SaveChangesAsync(token);
         await AuditAsync("artifact.created", "Completed", organizationId, artifact.Id, actor,
             new { revisionId = revision.Id, revision.ContentSha256, contentBytes = Encoding.UTF8.GetByteCount(revision.Content) }, token);
@@ -252,24 +253,7 @@ public sealed partial class ArtifactCapabilityHandler(
         Guid? reviewerInstallation = reviewerId.HasValue ? await db.CoreOrganizationUsers.Where(x =>
             x.Id == reviewerId && x.OrganizationId == organizationId && x.IsActive)
             .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token) : null;
-        // The creator's own active manager may review an explicitly assigned document.
-        // Merely naming an arbitrary reviewer never confers decision authority.
-        if (reviewerInstallation.HasValue && artifact.CreatedByOrganizationUserId == actor.OrganizationUserId &&
-            artifact.StewardOrganizationUserId == reviewerId && reviewerId != actor.OrganizationUserId &&
-            await db.CoreOrganizationUsers.AnyAsync(x => x.Id == actor.OrganizationUserId && x.OrganizationId == organizationId &&
-                x.IsActive && x.ReportsToOrganizationUserId == reviewerId, token))
-        {
-            foreach (var action in new[] { ArtifactActions.Read, ArtifactActions.Decide })
-                if (!await db.ScopedActionGrants.AnyAsync(x => x.OrganizationId == organizationId &&
-                    x.SubjectKind == GrantSubjectKind.AgentInstallation && x.SubjectId == reviewerInstallation.Value &&
-                    x.ScopeKind == GrantScopeKind.Artifact && x.ScopeId == artifact.Id && x.Action == action &&
-                    x.RevokedAt == null && (x.ExpiresAt == null || x.ExpiresAt > now), token))
-                {
-                    var grant = NewGrant(organizationId, artifact.Id, reviewerInstallation.Value, action, now);
-                    grant.GrantedBySubjectId = actor.InstallationId;
-                    db.ScopedActionGrants.Add(grant);
-                }
-        }
+        await GrantAssignedManagerReviewAsync(organizationId, artifact, actor, reviewerId, now, token);
         if (reviewerInstallation.HasValue && reviewerId != actor.OrganizationUserId)
             db.ArtifactReviewJobs.Add(new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = organizationId,
                 ArtifactId = artifact.Id, RevisionId = revision.Id, ConversationId = request.ConversationId ?? artifact.OriginConversationId,
@@ -504,6 +488,32 @@ public sealed partial class ArtifactCapabilityHandler(
         await AuditAsync(decide ? "artifact.package.accepted" : "artifact.package.submitted", "Completed",
             organizationId, package.Id, actor, new { package.Version }, token);
         return MapPackage(package);
+    }
+
+    private async Task GrantAssignedManagerReviewAsync(Guid organizationId, Artifact artifact,
+        ArtifactAgentActor actor, Guid? reviewerId, DateTimeOffset now, CancellationToken token)
+    {
+        Guid? reviewerInstallation = reviewerId.HasValue ? await db.CoreOrganizationUsers.Where(x =>
+            x.Id == reviewerId && x.OrganizationId == organizationId && x.IsActive)
+            .Select(x => x.AgentInstallationId).SingleOrDefaultAsync(token) : null;
+        // The creator's own active manager may review an explicitly assigned document.
+        // Merely naming an arbitrary reviewer never confers decision authority.
+        if (reviewerInstallation.HasValue && artifact.CreatedByOrganizationUserId == actor.OrganizationUserId &&
+            artifact.StewardOrganizationUserId == reviewerId && reviewerId != actor.OrganizationUserId &&
+            await db.CoreOrganizationUsers.AnyAsync(x => x.Id == actor.OrganizationUserId && x.OrganizationId == organizationId &&
+                x.IsActive && x.ReportsToOrganizationUserId == reviewerId, token))
+        {
+            foreach (var action in new[] { ArtifactActions.Read, ArtifactActions.Decide })
+                if (!await db.ScopedActionGrants.AnyAsync(x => x.OrganizationId == organizationId &&
+                    x.SubjectKind == GrantSubjectKind.AgentInstallation && x.SubjectId == reviewerInstallation.Value &&
+                    x.ScopeKind == GrantScopeKind.Artifact && x.ScopeId == artifact.Id && x.Action == action &&
+                    x.RevokedAt == null && (x.ExpiresAt == null || x.ExpiresAt > now), token))
+                {
+                    var grant = NewGrant(organizationId, artifact.Id, reviewerInstallation.Value, action, now);
+                    grant.GrantedBySubjectId = actor.InstallationId;
+                    db.ScopedActionGrants.Add(grant);
+                }
+        }
     }
 
     private async Task RequireFileGrantAsync(Guid organizationId, Guid artifactId, ArtifactAgentActor actor, string action, CancellationToken token)

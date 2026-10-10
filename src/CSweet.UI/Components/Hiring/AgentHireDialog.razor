@@ -1,0 +1,587 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using CSweet.Agent.SDK
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Llm
+@using CSweet.Contracts.Plugins
+@using CSweet.Domain.Core
+@using ContractAgentConfigurationFieldTypes = CSweet.Contracts.Agents.AgentConfigurationFieldTypes
+@inject HttpClient Http
+@inject ILlmProviderApiClient LlmProviderApi
+@inject AgentHireOperationState HireOperations
+@inject NavigationManager Navigation
+
+<MudDialog @bind-Visible="_reviewOpen" Options="_dialogOptions">
+    <DialogContent>
+        <section class="hire-dialog" aria-labelledby="hire-dialog-title">
+            <header class="hire-dialog-header">
+                <div class="hire-dialog-heading">
+                    <span class="hire-dialog-mark"><MudIcon Icon="@Icons.Material.Filled.PersonAdd" /></span>
+                    <div>
+                        <span class="hire-kicker">Agent catalog</span>
+                        <h2 id="hire-dialog-title">Bring @_employeeDisplayName onto the team.</h2>
+                        <p>Confirm the reporting details and agent settings before approving this hire.</p>
+                    </div>
+                </div>
+                <button type="button" class="hire-dialog-close" aria-label="Close hire review"
+                        disabled="@_reviewBusy" @onclick="CloseReviewAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.Close" />
+                </button>
+            </header>
+
+            @if (_reviewBusy && _preview is null)
+            {
+                <div class="hire-loading">
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                    <span>Preparing the hire review&hellip;</span>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_reviewError))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_reviewError</MudAlert>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_reviewStatus))
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                        <span>@_reviewStatus</span>
+                    </MudStack>
+                </MudAlert>
+            }
+
+            @if (_preview is not null)
+            {
+                <div class="hire-dialog-body">
+                    <section class="hire-agent-card" aria-label="Agent package summary">
+                        <div class="hire-agent-identity">
+                            <span class="hire-agent-avatar"><MudIcon Icon="@Icons.Material.Filled.SmartToy" /></span>
+                            <div>
+                                <span class="hire-kicker">Ready to hire</span>
+                                <h3>@_preview.AgentName</h3>
+                                <p>@_preview.RoleTitle</p>
+                            </div>
+                            <span class="hire-trust-badge"><MudIcon Icon="@Icons.Material.Filled.Verified" Size="Size.Small" /> @_preview.Trust</span>
+                        </div>
+                        <dl class="hire-agent-facts">
+                            <div><dt>Source</dt><dd>@_preview.Source</dd></div>
+                            <div><dt>Role</dt><dd>@_preview.RoleTitle</dd></div>
+                            <div><dt>Price</dt><dd>@(_preview.Price.HasValue ? $"{_preview.Price:0.##} {_preview.Currency}" : "No listed cost")</dd></div>
+                        </dl>
+                        <p class="hire-installation-note"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /> @_preview.InstallationConsequence</p>
+                    </section>
+
+                    <section class="hire-form-section" aria-labelledby="employee-details-title">
+                        <div class="hire-section-heading">
+                            <span>1</span>
+                            <div>
+                                <h3 id="employee-details-title">Employee details</h3>
+                                <p>Choose how this agent appears and where it sits in your organization.</p>
+                            </div>
+                        </div>
+                        <div class="hire-form-grid">
+                            <MudTextField T="string" Label="Name" @bind-Value="_employeeDisplayName"
+                                          Variant="Variant.Outlined" Required="true" MaxLength="160"
+                                          HelperText="Used in chats, teams, reporting relationships, and agent identity."
+                                          Disabled="_reviewBusy" Class="hire-form-wide" />
+                            <MudSelect T="Guid?" Label="Reports to" @bind-Value="_reportsToId"
+                                       Variant="Variant.Outlined" Required="true" Clearable="false"
+                                       Disabled="@(_reviewBusy || RecommendationId.HasValue)"
+                                       HelperText="@(RecommendationId.HasValue ? "Set by the approved hiring plan." : null)">
+                                @foreach (var manager in _people)
+                                {
+                                    <MudSelectItem T="Guid?" Value="@manager.Id">@manager.DisplayName</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudSelect T="Guid?" Label="Team assignment" @bind-Value="_teamId"
+                                       Variant="Variant.Outlined" Clearable="true" Disabled="@(_reviewBusy || RecommendationId.HasValue)"
+                                       HelperText="Optional. An AI employee can belong to one team for its lifetime.">
+                                @foreach (var team in _teams.Where(team => !team.IsArchived).OrderBy(team => team.Name))
+                                {
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </div>
+                    </section>
+
+                    <section class="hire-access-review" aria-labelledby="access-review-title">
+                        <button type="button" class="hire-disclosure-toggle" aria-expanded="@_grantDetailsOpen"
+                                aria-controls="hire-access-details" @onclick="ToggleGrantDetails">
+                            <span class="hire-disclosure-icon"><MudIcon Icon="@Icons.Material.Outlined.Security" /></span>
+                            <span class="hire-disclosure-copy">
+                                <strong id="access-review-title">Capabilities and access</strong>
+                                <small>@_preview.Capabilities.Count capabilities &middot; @_preview.RequestedCapabilities.Count platform grants &middot; @_preview.Subscriptions.Count event subscriptions</small>
+                            </span>
+                            <span class="hire-disclosure-action">@(_grantDetailsOpen ? "Hide details" : "Review details")</span>
+                            <MudIcon Icon="@(_grantDetailsOpen ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" />
+                        </button>
+                        @if (_grantDetailsOpen)
+                        {
+                            <div id="hire-access-details" class="hire-access-details">
+                                <div class="hire-access-group">
+                                    <h4>Capabilities</h4>
+                                    <div class="hire-access-values">
+                                        @foreach (var capability in _preview.Capabilities)
+                                        {
+                                            <code>@capability</code>
+                                        }
+                                    </div>
+                                </div>
+                                @if (_preview.RequestedCapabilities.Count > 0)
+                                {
+                                    <div class="hire-access-group hire-access-wide">
+                                        <h4>Requested platform access</h4>
+                                        <div class="hire-access-values">
+                                            @foreach (var capability in _preview.RequestedCapabilities)
+                                            {
+                                                <code>@capability</code>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                @if (_preview.Subscriptions.Count > 0)
+                                {
+                                    <div class="hire-access-group">
+                                        <h4>Event subscriptions</h4>
+                                        <div class="hire-access-values">
+                                            @foreach (var subscription in _preview.Subscriptions)
+                                            {
+                                                <code>@subscription</code>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                @if (_preview.NetworkAccess.Count > 0)
+                                {
+                                    <div class="hire-access-group">
+                                        <h4>Network access</h4>
+                                        <div class="hire-access-values">
+                                            @foreach (var network in _preview.NetworkAccess)
+                                            {
+                                                <code>@network</code>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                    @if (_preview.ConfigurationFields.Count > 0)
+                    {
+                        <section class="hire-form-section" aria-labelledby="agent-settings-title">
+                            <div class="hire-section-heading">
+                                <span>2</span>
+                                <div>
+                                    <h3 id="agent-settings-title">Agent settings</h3>
+                                    <p>Complete the settings declared by this agent before approving the hire.</p>
+                                </div>
+                            </div>
+                            <div class="hire-form-grid">
+                                @foreach (var field in _preview.ConfigurationFields.Where(IsConfigurationFieldVisible))
+                                {
+                                    <div class="hire-configuration-field">
+                                        @if (IsProviderField(field))
+                                        {
+                                            <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                                       ValueChanged="@(value => SetProviderAsync(field.Key, value))"
+                                                       Variant="Variant.Outlined" Disabled="_reviewBusy">
+                                                @foreach (var provider in _providers.Where(provider => provider.IsEnabled))
+                                                {
+                                                    <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else if (IsModelField(field))
+                                        {
+                                            <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                                       ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                                       Variant="Variant.Outlined" Disabled="@(_reviewBusy || SelectedProvider is null || _loadingModels)">
+                                                @foreach (var model in _models)
+                                                {
+                                                    <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <MudCheckBox T="bool" Label="@FieldLabel(field)" Value="@ConfigurationBoolean(field.Key)"
+                                                         ValueChanged="@(value => SetConfiguration(field.Key, value))" Disabled="_reviewBusy" />
+                                        }
+                                        else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <MudNumericField T="decimal?" Label="@FieldLabel(field)" Value="@ConfigurationNumber(field.Key)"
+                                                             ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                                             Variant="Variant.Outlined" Disabled="_reviewBusy" />
+                                        }
+                                        else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <MudSelect T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                                       ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                                       Variant="Variant.Outlined" Disabled="_reviewBusy">
+                                                @foreach (var option in field.Options ?? [])
+                                                {
+                                                    <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        }
+                                        else
+                                        {
+                                            <MudTextField T="string" Label="@FieldLabel(field)" Value="@ConfigurationString(field.Key)"
+                                                          ValueChanged="@(value => SetConfiguration(field.Key, value))"
+                                                          Variant="Variant.Outlined" Disabled="_reviewBusy" />
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(field.Description))
+                                        {
+                                            <small>@field.Description</small>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </section>
+                    }
+                </div>
+            }
+
+            @if (_preview is not null)
+            {
+                <footer class="hire-dialog-actions">
+                    <MudButton Variant="Variant.Text" OnClick="CloseReviewAsync" Disabled="_reviewBusy">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd"
+                               Disabled="@(_reviewBusy || !_reportsToId.HasValue || string.IsNullOrWhiteSpace(_employeeDisplayName) || HasMissingRequiredConfiguration)"
+                               OnClick="ConfirmHireAsync">
+                        Approve and hire
+                    </MudButton>
+                </footer>
+            }
+        </section>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public EventCallback Hired { get; set; }
+    private Guid? RecommendationId;
+    private string? _role;
+    private bool _reviewOpen;
+    private bool _reviewBusy;
+    private bool _grantDetailsOpen;
+    private string? _reviewError;
+    private string? _reviewStatus;
+    private MarketplaceHirePreviewResponse? _preview;
+    private AvailableAgent? _selectedAgent;
+    private string _employeeDisplayName = string.Empty;
+    private Guid? _reportsToId;
+    private Guid? _teamId;
+    private IReadOnlyList<OrganizationUserResponse> _people = [];
+    private IReadOnlyList<TeamSummaryResponse> _teams = [];
+    private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
+    private IReadOnlyList<string> _models = [];
+    private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
+    private bool _loadingModels;
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = false };
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private bool HasMissingRequiredConfiguration =>
+        _preview?.ConfigurationFields
+            .Where(configField => configField.Required && IsConfigurationFieldVisible(configField))
+            .Any(configField => !HasConfigurationValue(configField)) == true;
+
+    public async Task OpenAsync(AvailableAgent agent, string? role = null, Guid? recommendationId = null)
+    {
+        _role = role;
+        RecommendationId = recommendationId;
+        _selectedAgent = agent;
+        _reviewOpen = true;
+        _reviewBusy = true;
+        _grantDetailsOpen = false;
+        _reviewError = null;
+        _reviewStatus = null;
+        _preview = null;
+        _employeeDisplayName = agent.Name;
+        _reportsToId = null;
+        _teamId = null;
+        _configurationValues.Clear();
+        try
+        {
+            var peopleTask = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
+                $"api/core/organizations/{OrganizationId:D}/users");
+            var providersTask = LlmProviderApi.ListAsync();
+            var teamsTask = Http.GetFromJsonAsync<TeamDirectoryResponse>(
+                $"api/core/organizations/{OrganizationId:D}/teams?includeArchived=false");
+            await Task.WhenAll(peopleTask, providersTask, teamsTask);
+            _people = await peopleTask ?? [];
+            _providers = await providersTask;
+            _teams = (await teamsTask)?.Teams ?? [];
+            _reportsToId = _people
+                .OrderByDescending(person => person.PermissionLevel == (int)OrganizationPermissionLevel.Owner)
+                .ThenBy(person => person.DisplayName)
+                .Select(person => (Guid?)person.Id)
+                .FirstOrDefault();
+            await LoadPreviewAsync();
+        }
+        catch (Exception exception)
+        {
+            _reviewError = exception.Message;
+        }
+        finally
+        {
+            _reviewBusy = false;
+        }
+    }
+
+    private async Task LoadPreviewAsync()
+    {
+        if (_selectedAgent is null) return;
+        var supersededWorkflowId = _preview?.WorkflowId;
+        var role = string.IsNullOrWhiteSpace(_role)
+            ? _selectedAgent.RoleName ?? _selectedAgent.RoleAliases.FirstOrDefault() ?? _selectedAgent.Name
+            : _role.Trim();
+        var response = await Http.PostAsJsonAsync(
+            $"api/core/organizations/{OrganizationId:D}/hiring/marketplace/preview",
+            new PreviewMarketplaceHireRequest(
+                _selectedAgent.AgentReference,
+                role,
+                _employeeDisplayName,
+                _reportsToId,
+                $"marketplace-preview:{Guid.NewGuid():N}")
+            {
+                RecommendationId = RecommendationId,
+                TeamId = _teamId,
+                SupersedesWorkflowId = supersededWorkflowId
+            });
+        if (!response.IsSuccessStatusCode)
+        {
+            var failure = await response.Content.ReadFromJsonAsync<MarketplaceApiError>();
+            throw new InvalidOperationException(failure?.Message ?? "The agent hire could not be prepared.");
+        }
+        _preview = await response.Content.ReadFromJsonAsync<MarketplaceHirePreviewResponse>()
+            ?? throw new InvalidOperationException("The Marketplace hire preview was empty.");
+        if (RecommendationId.HasValue)
+        {
+            _reportsToId = _preview.ReportsToOrganizationUserId;
+            _teamId = _preview.TeamId;
+        }
+        await InitializeConfigurationAsync();
+    }
+
+    private async Task ConfirmHireAsync()
+    {
+        if (_preview is null) return;
+        _reviewBusy = true;
+        _reviewError = null;
+        _reviewStatus = null;
+        try
+        {
+            if (_preview.ReportsToOrganizationUserId != _reportsToId ||
+                _preview.TeamId != _teamId ||
+                !string.Equals(
+                    _preview.EmployeeDisplayName,
+                    _employeeDisplayName.Trim(),
+                    StringComparison.Ordinal))
+            {
+                await LoadPreviewAsync();
+                if (_preview is null) return;
+            }
+            var preview = _preview;
+            var request = new ConfirmHiringWorkflowRequest($"marketplace-confirm:{preview.WorkflowId:D}")
+            {
+                ConfigurationSettings = _configurationValues
+                    .Where(pair => pair.Value is not null)
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => JsonSerializer.SerializeToElement(pair.Value, SerializerOptions),
+                        StringComparer.Ordinal)
+            };
+            HireOperations.Start(
+                OrganizationId,
+                preview.WorkflowId,
+                _selectedAgent?.Name ?? preview.EmployeeDisplayName,
+                preview.EmployeeDisplayName,
+                request);
+            _reviewOpen = false;
+            _preview = null;
+            _selectedAgent = null;
+            await Hired.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            _reviewError = exception.Message;
+            _reviewStatus = null;
+        }
+        finally
+        {
+            _reviewBusy = false;
+        }
+    }
+
+    private async Task CloseReviewAsync()
+    {
+        var workflowId = _preview?.WorkflowId;
+        if (workflowId.HasValue)
+        {
+            try
+            {
+                await Http.PostAsync(
+                    $"api/core/organizations/{OrganizationId:D}/hiring/workflows/{workflowId:D}/cancel-preview",
+                    content: null);
+            }
+            catch
+            {
+                // Closing the local dialog must not trap the user if cancellation transport fails.
+            }
+        }
+        _reviewOpen = false;
+        _preview = null;
+        _selectedAgent = null;
+        _reviewError = null;
+        _reviewStatus = null;
+        _reportsToId = null;
+        _employeeDisplayName = string.Empty;
+        _configurationValues.Clear();
+        _models = [];
+    }
+
+    private void ToggleGrantDetails() => _grantDetailsOpen = !_grantDetailsOpen;
+
+    private async Task InitializeConfigurationAsync()
+    {
+        var existing = _configurationValues.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.Ordinal);
+        _configurationValues.Clear();
+        if (_preview is null)
+            return;
+        var provider = _providers.FirstOrDefault(candidate => candidate.IsEnabled);
+        foreach (var field in _preview.ConfigurationFields)
+        {
+            if (existing.TryGetValue(field.Key, out var existingValue) && existingValue is not null)
+                _configurationValues[field.Key] = existingValue;
+            else if (ConfigurationDefaultValue(field) is { } defaultValue)
+                _configurationValues[field.Key] = defaultValue;
+            else if (IsProviderField(field) && provider is not null)
+                _configurationValues[field.Key] = provider.Id.ToString();
+            else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = false;
+            else if (field.Type.Equals(ContractAgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))
+                _configurationValues[field.Key] = field.Options?.FirstOrDefault()?.Value;
+            else
+                _configurationValues[field.Key] = null;
+        }
+        var selectedProvider = SelectedProvider ?? provider;
+        if (selectedProvider is not null && _preview.ConfigurationFields.Any(IsModelField))
+        {
+            await LoadModelsAsync(selectedProvider);
+            SetDefaultModel(selectedProvider, overwrite: false);
+        }
+    }
+
+    private async Task SetProviderAsync(string key, string value)
+    {
+        _configurationValues[key] = value;
+        var provider = SelectedProvider;
+        if (provider is null)
+            return;
+        await LoadModelsAsync(provider);
+        SetDefaultModel(provider, overwrite: true);
+    }
+
+    private async Task LoadModelsAsync(LlmProviderProfileResponse provider)
+    {
+        _loadingModels = true;
+        try
+        {
+            var catalog = await LlmProviderApi.GetModelCatalogAsync(provider.Id);
+            _models = catalog.Models
+                .Select(model => model.Id)
+                .Append(provider.DefaultChatModel)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+        finally
+        {
+            _loadingModels = false;
+        }
+    }
+
+    private void SetDefaultModel(LlmProviderProfileResponse provider, bool overwrite)
+    {
+        if (_preview is null)
+            return;
+        var model = _models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
+            ? provider.DefaultChatModel
+            : _models.FirstOrDefault() ?? string.Empty;
+        foreach (var field in _preview.ConfigurationFields.Where(IsModelField))
+        {
+            if (overwrite || string.IsNullOrWhiteSpace(ConfigurationString(field.Key)))
+                _configurationValues[field.Key] = model;
+        }
+    }
+
+    private LlmProviderProfileResponse? SelectedProvider
+    {
+        get
+        {
+            var configField = _preview?.ConfigurationFields.FirstOrDefault(IsProviderField);
+            return configField is null || !Guid.TryParse(ConfigurationString(configField.Key), out var id)
+                ? null
+                : _providers.FirstOrDefault(provider => provider.Id == id && provider.IsEnabled);
+        }
+    }
+
+    private static bool IsProviderField(PluginConfigurationField field) =>
+        field.Type.Equals("provider", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmProvider, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsModelField(PluginConfigurationField field) =>
+        field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
+        field.Type.Equals(ContractAgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
+        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
+
+    private static string FieldLabel(PluginConfigurationField field) =>
+        field.Required ? $"{field.Label} (required)" : field.Label;
+
+    private static object? ConfigurationDefaultValue(PluginConfigurationField field)
+    {
+        if (field.DefaultValue is not { } value)
+            return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number when value.TryGetDecimal(out var number) => number,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private string ConfigurationString(string key) =>
+        _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
+
+    private bool ConfigurationBoolean(string key) =>
+        _configurationValues.GetValueOrDefault(key) is true;
+
+    private decimal? ConfigurationNumber(string key) =>
+        _configurationValues.GetValueOrDefault(key) as decimal?;
+
+    private void SetConfiguration(string key, object? value) =>
+        _configurationValues[key] = value;
+
+    private bool HasConfigurationValue(PluginConfigurationField field)
+    {
+        if (!_configurationValues.TryGetValue(field.Key, out var value) || value is null)
+            return false;
+        return field.Type.Equals(ContractAgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase) ||
+               field.Type.Equals(ContractAgentConfigurationFieldTypes.Number, StringComparison.OrdinalIgnoreCase) ||
+               !string.IsNullOrWhiteSpace(value.ToString());
+    }
+
+    private sealed record MarketplaceApiError(string? Error, string? Message, Guid? DefinitionId = null);
+
+}

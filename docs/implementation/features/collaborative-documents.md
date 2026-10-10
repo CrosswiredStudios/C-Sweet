@@ -29,6 +29,19 @@ automatically.
   artifact or revision ID remains the source of truth; rendered chat content is not a document.
 - The Documents page and chat artifact workspace consume the same API and models. A document
   created during a chat must therefore appear on the Documents page without copying or conversion.
+- `ApprovalDashboardService.GetAsync` routes a pending artifact to the reviewer in the
+  `ArtifactReviewJob` for its submitted revision, falling back to `Artifact.StewardOrganizationUserId`.
+  Agent reviews remain with the assigned agent even when queue delivery completes or fails;
+  a prior revision's job does not assign a new submission. Only unassigned artifacts fall back
+  to organization owners. Organization-wide document access does not make an internal review
+  a CEO inbox action. Cards identify the document creator instead of a generic system requester.
+- `ArtifactCapabilityHandler.GrantAssignedManagerReviewAsync` grants exact-file read and decision
+  access atomically at creation and submission when the creator names their active agent manager
+  as steward/reviewer. Naming an unrelated employee does not grant authority; creator edit/submit
+  access stays separate from manager review access.
+- Agent `ArtifactDocumentService.RequestAccessAsync` records an already-satisfied request as
+  approved without adding or extending grants or creating a pending inbox action. Expired,
+  revoked, and incomplete grants still require the normal access approval flow.
 
 ## UI and regression expectations
 

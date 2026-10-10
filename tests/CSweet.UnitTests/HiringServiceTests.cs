@@ -13,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class HiringServiceTests
+public sealed partial class HiringServiceTests
 {
     [Fact]
     public async Task CandidateSearchContext_IsOrganizationScopedAndUsesApprovedCategory()
@@ -1434,7 +1434,7 @@ public sealed class HiringServiceTests
 
     private sealed class RecordingDefinitionService : IAgentDefinitionService
     {
-        public Guid DefinitionId { get; } = Guid.NewGuid();
+        public Guid DefinitionId { get; init; } = Guid.NewGuid();
         public InstallAgentRequest? Request { get; private set; }
         public int ImportCount { get; private set; }
         public bool IsAvailableForHire { get; set; } = true;
@@ -1493,6 +1493,7 @@ public sealed class HiringServiceTests
     private sealed class RecordingOrganizationUserService(CSweetDbContext? db = null) : IOrganizationUserService
     {
         public CreateOrganizationUserRequest? CreatedRequest { get; private set; }
+        public bool PersistSuccessfulCreate { get; init; }
         public int CreateCount { get; private set; }
         public bool ThrowAfterPersistedCreate { get; set; }
 
@@ -1541,12 +1542,28 @@ public sealed class HiringServiceTests
                 await db.SaveChangesAsync(cancellationToken);
                 throw new InvalidOperationException("The employee committed before the response failed.");
             }
+            var resultUserId = Guid.NewGuid();
+            var resultInstallationId = request.AgentInstallationId ?? Guid.NewGuid();
+            if (PersistSuccessfulCreate && db is not null)
+            {
+                if (!request.AgentInstallationId.HasValue)
+                {
+                    var definition = await db.AgentDefinitions.SingleAsync(x => x.Id == request.AgentDefinitionId, cancellationToken);
+                    db.AgentInstallations.Add(new AgentInstallation { Id = resultInstallationId, InstallationKey = resultInstallationId,
+                        AgentDefinitionId = definition.Id, PackageVersionId = definition.PackageVersionId, BusinessId = organizationId.ToString("D") });
+                }
+                db.CoreOrganizationUsers.Add(new OrganizationUser { Id = resultUserId, OrganizationId = organizationId,
+                    ReportsToOrganizationUserId = request.ReportsToOrganizationUserId, RoleId = request.RoleId,
+                    AgentInstallationId = resultInstallationId, DisplayName = request.DisplayName,
+                    EmployeeType = EmployeeType.Agent, PermissionLevel = OrganizationPermissionLevel.Contributor, CreatedAt = DateTimeOffset.UtcNow });
+                await db.SaveChangesAsync(cancellationToken);
+            }
             return new CoreActionResponse(
                 true,
                 null,
                 "Created",
                 OrganizationUser: new OrganizationUserResponse(
-                    Guid.NewGuid(),
+                    resultUserId,
                     organizationId,
                     request.ReportsToOrganizationUserId,
                     request.RoleId,
@@ -1557,7 +1574,7 @@ public sealed class HiringServiceTests
                     request.PermissionLevel,
                     DateTimeOffset.UtcNow)
                 {
-                    AgentInstallationId = request.AgentInstallationId ?? Guid.NewGuid()
+                    AgentInstallationId = resultInstallationId
                 });
         }
 

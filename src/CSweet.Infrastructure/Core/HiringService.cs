@@ -19,7 +19,7 @@ using AgentCatalogSource = CSweet.Agent.SDK.AgentCatalogSource;
 
 namespace CSweet.Infrastructure.Core;
 
-public sealed class HiringService(
+public sealed partial class HiringService(
     CSweetDbContext db,
     IOrganizationUserService organizationUsers,
     IAuditEventWriter audit,
@@ -32,7 +32,7 @@ public sealed class HiringService(
     IResourceChangeService? resourceChanges = null,
     ITeamService? teams = null,
     IBusinessOnboardingService? businessOnboarding = null,
-    ILogger<HiringService>? logger = null) : IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
+    ILogger<HiringService>? logger = null) : IHiringAutonomyService, IHiringService, IAgentHireOrchestrator, IAgentHireOperationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     // Retained only for binary/source compatibility with older composition roots; imports now use definitions.
@@ -66,6 +66,18 @@ public sealed class HiringService(
         Guid requestingInstallationId,
         UpsertHiringRecommendationRequest request,
         CancellationToken cancellationToken = default)
+    {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
+        var result = await UpsertRecommendationCoreAsync(organizationId, requestingInstallationId, request, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<HiringRecommendationResponse> UpsertRecommendationCoreAsync(
+        Guid organizationId, Guid requestingInstallationId, UpsertHiringRecommendationRequest request,
+        CancellationToken cancellationToken)
     {
         var title = Required(request.Title, 256, nameof(request.Title));
         var objective = Required(request.Objective, 2048, nameof(request.Objective));
@@ -150,6 +162,18 @@ public sealed class HiringService(
         ResolveHiringRecommendationRequest request,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
+        var result = await ResolveRecommendationCoreAsync(organizationId, requestingInstallationId, request, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<HiringRecommendationResponse> ResolveRecommendationCoreAsync(
+        Guid organizationId, Guid requestingInstallationId, ResolveHiringRecommendationRequest request,
+        CancellationToken cancellationToken)
+    {
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var plan = await db.WorkforcePlans.SingleOrDefaultAsync(x =>
             x.Id == request.RecommendationId &&
@@ -216,6 +240,18 @@ public sealed class HiringService(
         Guid requestingInstallationId,
         WithdrawHiringRecommendationRequest request,
         CancellationToken cancellationToken = default)
+    {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
+        var result = await WithdrawRecommendationCoreAsync(organizationId, requestingInstallationId, request, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<HiringRecommendationResponse> WithdrawRecommendationCoreAsync(
+        Guid organizationId, Guid requestingInstallationId, WithdrawHiringRecommendationRequest request,
+        CancellationToken cancellationToken)
     {
         _ = Required(request.Reason, 2048, nameof(request.Reason));
         _ = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
@@ -856,6 +892,8 @@ public sealed class HiringService(
                 var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(
                     x => x.Id == operation.InitiatedByOrganizationUserId && x.ApplicationUserId.HasValue,
                     cancellationToken);
+                var workerWorkflow = await db.StaffingActionProposals.AsNoTracking().SingleAsync(x => x.Id == operation.WorkflowId, cancellationToken);
+                _executingDelegation = workerWorkflow.DelegatedInstallationId.HasValue;
                 var completed = await ConfirmWorkflowAsync(
                     operation.OrganizationId,
                     operation.WorkflowId,
@@ -873,6 +911,7 @@ public sealed class HiringService(
                 QueueOperationChanged(operation);
                 await db.SaveChangesAsync(cancellationToken);
                 if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+                _executingDelegation = false;
                 completedAtomically = true;
             }
         }
@@ -889,6 +928,7 @@ public sealed class HiringService(
         }
         finally
         {
+            _executingDelegation = false;
             if (!completedAtomically)
             {
                 operation.LeaseOwner = null;
@@ -897,6 +937,16 @@ public sealed class HiringService(
                 if (operation.Status != originalStatus || !string.Equals(operation.Error, originalError, StringComparison.Ordinal))
                     QueueOperationChanged(operation);
                 await db.SaveChangesAsync(CancellationToken.None);
+            }
+        }
+        if (completedAtomically)
+        {
+            var finished = await db.StaffingActionProposals.AsNoTracking().SingleAsync(x => x.Id == operation.WorkflowId, cancellationToken);
+            if (finished.DelegatedInstallationId is Guid chiefId && await db.WorkforcePlans.AnyAsync(x => x.Id == finished.WorkforcePlanId && x.Status == ProposalStatus.Pending && x.FulfilledHeadcount < x.Headcount, cancellationToken))
+            {
+                try { _ = await SubmitDelegatedAsync(operation.OrganizationId, chiefId, finished.WorkforcePlanId, cancellationToken); }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                { logger?.LogWarning(exception, "Remaining automatic hiring slots require review for recommendation {RecommendationId}.", finished.WorkforcePlanId); }
             }
         }
         return true;
@@ -921,7 +971,28 @@ public sealed class HiringService(
             },
             cancellationToken);
 
-    public async Task<HiringWorkflowResponse?> DecideWorkflowAsync(
+    public async Task<HiringWorkflowResponse?> DecideWorkflowAsync(Guid organizationId, Guid workflowId,
+        Guid applicationUserId, DecideHiringWorkflowRequest request, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({organizationId.ToString()}, 0))", cancellationToken);
+        try
+        {
+            var result = await DecideWorkflowCoreAsync(organizationId, workflowId, applicationUserId, request, cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch (AgentDefinitionBuildPendingException)
+        {
+            // The immutable package/definition snapshot must survive the asynchronous build wait.
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private async Task<HiringWorkflowResponse?> DecideWorkflowCoreAsync(
         Guid organizationId,
         Guid workflowId,
         Guid applicationUserId,
@@ -1029,6 +1100,11 @@ public sealed class HiringService(
         if (workflow.Status != ProposalStatus.Pending)
             throw new InvalidOperationException("The hiring workflow is no longer pending.");
 
+        if (workflow.DelegatedInstallationId.HasValue)
+        {
+            if (_executingDelegation) await ValidateDelegationAsync(workflow, cancellationToken);
+            else workflow.DelegatedInstallationId = null; // Explicit owner confirmation replaces delegation.
+        }
         var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions)
             ?? throw new InvalidOperationException("The hiring workflow snapshot is invalid.");
         var candidateId = ParseCandidateReference(workflow.CandidateId);
@@ -1036,6 +1112,34 @@ public sealed class HiringService(
             x.OrganizationId == organizationId, cancellationToken);
         if (workflow.ActionType == "marketplace-install-and-hire")
             await ValidateMarketplaceRecommendationRoleAsync(candidate, snapshot, cancellationToken);
+        if (workflow.WorkforcePlanId != Guid.Empty)
+        {
+            var livePlan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == workflow.WorkforcePlanId && x.OrganizationId == organizationId, cancellationToken);
+            if (livePlan.Status != ProposalStatus.Pending || livePlan.FulfilledHeadcount >= livePlan.Headcount)
+                throw new InvalidOperationException("The hiring recommendation is withdrawn or already fulfilled.");
+            if (livePlan.SourceResourceChangeRequestId is Guid sourcePlanId)
+            {
+                var approvedRole = await db.ResourceChangeRoles.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.ResourceChangeRequestId == sourcePlanId && x.RoleKey == livePlan.RoleKey && x.IsDesired &&
+                    x.Request!.OrganizationId == organizationId && x.Request.Status == ResourceChangeRequestStatus.Approved, cancellationToken)
+                    ?? throw new InvalidOperationException("The approved role is no longer available.");
+                var fulfilledSeats = await db.WorkforcePlans.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                    x.SourceResourceChangeRequestId == sourcePlanId && x.RoleKey == livePlan.RoleKey).SumAsync(x => x.FulfilledHeadcount, cancellationToken);
+                var previousHeadcount = await db.ResourceChangeRoles.AsNoTracking().Where(x =>
+                    x.ResourceChangeRequestId == sourcePlanId && x.RoleKey == livePlan.RoleKey && !x.IsDesired)
+                    .Select(x => (int?)x.Headcount).SingleOrDefaultAsync(cancellationToken) ?? 0;
+                var approvedNewSeats = Math.Max(0, approvedRole.Headcount - previousHeadcount);
+                if (fulfilledSeats >= approvedNewSeats || livePlan.Headcount > approvedNewSeats)
+                    throw new InvalidOperationException("The hire exceeds the approved role headcount.");
+                var approvedReportsTo = await ResolveApprovedReportsToAsync(organizationId, livePlan, snapshot.ReportsToOrganizationUserId, cancellationToken);
+                if (snapshot.TeamId != livePlan.TeamId || approvedRole.TeamId != livePlan.TeamId ||
+                    approvedReportsTo != snapshot.ReportsToOrganizationUserId)
+                    throw new InvalidOperationException("The approved team or reporting manager changed; create a new review.");
+                if (approvedRole.HumanRequired && !candidate.IsHuman ||
+                    ReadStrings(approvedRole.RequiredCapabilitiesJson).Except(snapshot.EmbeddedAgent?.ProvidedCapabilities ?? ReadStrings(candidate.CapabilitiesJson), StringComparer.Ordinal).Any())
+                    throw new InvalidOperationException("The candidate no longer satisfies the approved role requirements.");
+            }
+        }
         (Guid UserId, Guid InstallationId)? existingMarketplaceHire = null;
         if (workflow.ActionType == "marketplace-install-and-hire" && snapshot.EmbeddedAgent?.DefinitionId is Guid definitionId)
             existingMarketplaceHire = await FindExistingMarketplaceHireAsync(workflow, snapshot, definitionId, cancellationToken);
@@ -1661,7 +1765,14 @@ CompleteWorkflow:
             var budget = await db.Budgets.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.IsActive &&
                 x.ScopeType == BudgetScopeType.Organization && x.PeriodStart <= now && x.PeriodEnd > now &&
                 x.Currency == snapshot.Currency).OrderBy(x => x.LimitAmount).FirstOrDefaultAsync(token);
-            if (budget is null || snapshot.Price > budget.LimitAmount)
+            var committed = await db.StaffingActionProposals.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.Id != workflowId &&
+                (x.Status == ProposalStatus.Approved || x.Status == ProposalStatus.Pending && x.ApprovedByOrganizationUserId != null))
+                .Select(x => x.PayloadJson).ToListAsync(token);
+            var total = committed.Select(x => JsonSerializer.Deserialize<WorkflowSnapshot>(x, JsonOptions)!)
+                .Where(x => string.Equals(x.Currency, snapshot.Currency, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Price ?? 0);
+            if (profile?.MaximumMonthlyWorkforceSpend is { } totalCap && total + snapshot.Price > totalCap)
+                throw new InvalidOperationException("The hiring workflow exceeds the total workforce spending control.");
+            if (budget is null || total + snapshot.Price > budget.LimitAmount)
                 throw new InvalidOperationException("The hiring workflow no longer fits an active organization budget.");
         }
         if (candidate.Source == "InstalledPlugin")
@@ -1891,6 +2002,8 @@ CompleteWorkflow:
         {
             Priority = plan.Priority,
             HiringUrl = $"/organizations/{plan.OrganizationId:D}/marketplace?role={Uri.EscapeDataString(plan.Title)}&recommendationId={plan.Id:D}",
+            SelectedCatalogAgentJson = plan.SelectedCatalogAgentJson,
+            SelectionRationale = plan.SelectionRationale,
             SuggestedBy = suggestedBy,
             RoleKey = plan.RoleKey,
             Headcount = plan.Headcount,
@@ -2224,10 +2337,16 @@ CompleteWorkflow:
                 {
                     try
                     {
-                        var completed = await ConfirmWorkflowAsync(
-                            workflow.OrganizationId, workflow.Id, applicationUserId,
-                            new ConfirmHiringWorkflowRequest($"recover-marketplace-hire:{workflow.Id:D}"),
-                            cancellationToken);
+                        _executingDelegation = workflow.DelegatedInstallationId.HasValue;
+                        HiringWorkflowResponse? completed;
+                        try
+                        {
+                            completed = await ConfirmWorkflowAsync(
+                                workflow.OrganizationId, workflow.Id, applicationUserId,
+                                new ConfirmHiringWorkflowRequest($"recover-marketplace-hire:{workflow.Id:D}"),
+                                cancellationToken);
+                        }
+                        finally { _executingDelegation = false; }
                         if (completed?.ResultOrganizationUserId == employee.Value.UserId)
                         {
                             operation ??= NewOperation(workflow.Id, workflow.OrganizationId, owner.Id);
@@ -2269,6 +2388,24 @@ CompleteWorkflow:
 
     private void QueueOperationChanged(AgentHireOperation operation)
     {
+        var workflow = db.StaffingActionProposals.Local.FirstOrDefault(x => x.Id == operation.WorkflowId)
+            ?? db.StaffingActionProposals.AsNoTracking().FirstOrDefault(x => x.Id == operation.WorkflowId);
+        if (workflow?.DelegatedInstallationId is Guid chiefInstallation)
+        {
+            var chief = db.CoreOrganizationUsers.AsNoTracking().FirstOrDefault(x => x.OrganizationId == operation.OrganizationId && x.AgentInstallationId == chiefInstallation && x.IsActive);
+            var conversation = chief is null ? null : db.CoreConversations.AsNoTracking().FirstOrDefault(x => x.OrganizationId == operation.OrganizationId &&
+                x.AgentOrganizationUserId == chief.Id && x.InitiatedByOrganizationUserId == operation.InitiatedByOrganizationUserId && x.ArchivedAt == null);
+            var key = $"delegated-hire-status:{operation.Id:N}:{operation.RetryCount}:{operation.Status}";
+            if (conversation is not null && !db.CoreConversationMessages.Local.Any(x => x.IdempotencyKey == key) &&
+                !db.CoreConversationMessages.Any(x => x.ConversationId == conversation.Id && x.IdempotencyKey == key))
+            {
+                var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions);
+                db.CoreConversationMessages.Add(new ConversationMessage { Id = Guid.NewGuid(), ConversationId = conversation.Id,
+                    Role = ConversationRole.Assistant, SenderOrganizationUserId = chief!.Id, SourceProvider = "DelegatedHiring",
+                    IdempotencyKey = key, CorrelationId = operation.Id, CausationId = workflow.Id, CreatedAt = DateTimeOffset.UtcNow,
+                    Content = $"Automatic hiring for {snapshot?.RoleTitle}: {operation.Status}. {operation.Error}".Trim() });
+            }
+        }
         if (!operation.InitiatedByOrganizationUserId.HasValue) return;
         var now = DateTimeOffset.UtcNow;
         db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem

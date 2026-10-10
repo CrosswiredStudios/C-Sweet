@@ -1,0 +1,115 @@
+@page "/organizations/{OrganizationId:guid}/hiring-settings/{InstallationId:guid}"
+@using System.Net.Http.Json
+@using CSweet.Agent.SDK
+@inject HttpClient Http
+
+<PageTitle>Chief hiring settings</PageTitle>
+<MudPaper Class="pa-6" Outlined="true">
+    <MudText Typo="Typo.h4">Chief hiring settings</MudText>
+    <MudText Class="mb-4">These preferences apply to this Chief’s future approved plans. Only an owner can save changes.</MudText>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+    @if (_policy is not null)
+    {
+        <MudSelect T="HiringSelectionMode" Label="Hiring mode" @bind-Value="_mode">
+            <MudSelectItem Value="HiringSelectionMode.RecommendCandidates">Recommend candidates</MudSelectItem>
+            <MudSelectItem Value="HiringSelectionMode.ChooseCandidates">Choose candidates yourself</MudSelectItem>
+            <MudSelectItem Value="HiringSelectionMode.Automatic">Automatic hiring</MudSelectItem>
+        </MudSelect>
+        @if (_mode == HiringSelectionMode.Automatic)
+        {
+            <MudSelect T="AutomaticHiringLevel" Label="Automatic hiring authority" @bind-Value="_level">
+                <MudSelectItem Value="AutomaticHiringLevel.ApprovedPackages">Approved packages</MudSelectItem>
+                <MudSelectItem Value="AutomaticHiringLevel.WithinLimits">Within limits</MudSelectItem>
+                <MudSelectItem Value="AutomaticHiringLevel.BroadDelegation">Broad delegation</MudSelectItem>
+            </MudSelect>
+            @if (_level == AutomaticHiringLevel.BroadDelegation)
+            {
+                <MudAlert Severity="Severity.Warning">Broad delegation allows the Chief to install eligible packages and grant their requested capabilities and network access for approved roles. This carries the greatest risk.</MudAlert>
+            }
+            @if (_level == AutomaticHiringLevel.WithinLimits)
+            {
+                <MudNumericField T="decimal?" Label="Maximum cost per hire" Min="0" @bind-Value="_hireCost" />
+                <MudNumericField T="decimal?" Label="Maximum total hiring cost" Min="0" @bind-Value="_totalCost" />
+                <MudTextField Label="Currency" @bind-Value="_currency" />
+                <MudTextField Label="Allowed capability keys (one per line; blank allows none)" Lines="4" @bind-Value="_capabilities" />
+                <MudTextField Label="Allowed network access entries (one per line; blank allows none)" Lines="4" @bind-Value="_network" />
+            }
+        }
+        <MudSelect T="HiringPublisherPreference" Label="Publishers" @bind-Value="_publishers">
+            <MudSelectItem Value="HiringPublisherPreference.PreferFirstParty">Prefer first-party</MudSelectItem>
+            <MudSelectItem Value="HiringPublisherPreference.FirstPartyOnly">First-party only</MudSelectItem>
+            <MudSelectItem Value="HiringPublisherPreference.BestFit">Best fit regardless of publisher</MudSelectItem>
+        </MudSelect>
+        <MudTextField Label="Reason for this preference" @bind-Value="_rationale" />
+        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving" OnClick="SaveAsync">Save hiring preferences</MudButton>
+        @if (_saved) { <MudAlert Class="mt-4" Severity="Severity.Success">Preferences saved. You can return to your conversation with the Chief.</MudAlert> }
+        <MudDivider Class="my-4" />
+        <MudText>To apply this delegation to an already-approved plan, select it explicitly:</MudText>
+        <MudSelect T="Guid?" Label="Existing approved hiring plan" @bind-Value="_planId">
+            @foreach (var plan in _plans) { <MudSelectItem T="Guid?" Value="@((Guid?)plan.SourceResourceChangeRequestId)">@plan.Title</MudSelectItem> }
+        </MudSelect>
+        <MudButton Disabled="@(!_planId.HasValue || _saving)" OnClick="ApplyAsync">Apply saved preferences to this plan</MudButton>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid InstallationId { get; set; }
+    private HiringPolicyResponse? _policy;
+    private HiringSelectionMode _mode;
+    private AutomaticHiringLevel _level;
+    private HiringPublisherPreference _publishers;
+    private decimal? _hireCost, _totalCost;
+    private string _currency = "USD", _capabilities = "", _network = "", _rationale = "Owner-selected hiring preferences.";
+    private string? _error;
+    private bool _saving, _saved;
+    private Guid? _planId;
+    private IReadOnlyList<CSweet.Contracts.Core.HiringRecommendationResponse> _plans = [];
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _policy = await Http.GetFromJsonAsync<HiringPolicyResponse>(PolicyUrl);
+            if (_policy is null) return;
+            var settings = _policy.Settings;
+            _mode = settings.Mode; _level = settings.AutomaticLevel; _publishers = settings.Publishers;
+            _hireCost = settings.MaximumHireCost; _totalCost = settings.MaximumTotalCost;
+            _currency = settings.Currency ?? "USD";
+            _capabilities = string.Join('\n', settings.AllowedCapabilities ?? []);
+            _network = string.Join('\n', settings.AllowedNetworkAccess ?? []);
+            var dashboard = await Http.GetFromJsonAsync<CSweet.Contracts.Core.HiringDashboardResponse>($"api/core/organizations/{OrganizationId:D}/hiring");
+            _plans = dashboard?.Recommendations.Where(x => x.SourceResourceChangeRequestId.HasValue && x.RemainingHeadcount > 0)
+                .DistinctBy(x => x.SourceResourceChangeRequestId).ToArray() ?? [];
+        }
+        catch (HttpRequestException) { _error = "Hiring preferences are unavailable for this Chief or your account."; }
+    }
+    private string PolicyUrl => $"api/core/organizations/{OrganizationId:D}/hiring/policies/{InstallationId:D}";
+    private static string[] Entries(string value) => value.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
+    private async Task SaveAsync()
+    {
+        if (_policy is null) return;
+        _saving = true; _error = null; _saved = false;
+        try
+        {
+            var response = await Http.PutAsJsonAsync(PolicyUrl, new UpdateHiringPolicyRequest(
+                new(_mode, _level, _publishers, _hireCost, _totalCost, _currency, Entries(_capabilities), Entries(_network)), _policy.Revision, _rationale));
+            if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
+            _policy = await response.Content.ReadFromJsonAsync<HiringPolicyResponse>(); _saved = true;
+        }
+        catch (HttpRequestException) { _error = "Preferences could not be saved. Refresh and try again."; }
+        finally { _saving = false; }
+    }
+    private async Task ApplyAsync()
+    {
+        if (!_planId.HasValue) return;
+        _saving = true; _error = null; _saved = false;
+        try
+        {
+            var response = await Http.PostAsync($"{PolicyUrl}/plans/{_planId.Value:D}/apply", null);
+            _error = response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync();
+            _saved = response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException) { _error = "Preferences could not be applied. Refresh and try again."; }
+        finally { _saving = false; }
+    }
+}

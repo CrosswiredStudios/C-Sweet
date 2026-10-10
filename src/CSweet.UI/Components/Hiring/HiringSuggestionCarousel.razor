@@ -1,4 +1,11 @@
+@using SuggestedUserActionResponse = CSweet.Contracts.Communications.SuggestedUserActionResponse
+@using HiringRecommendationResponse = CSweet.Contracts.Core.HiringRecommendationResponse
 @using CSweet.Contracts.Communications
+@using System.Net.Http.Json
+@using System.Text.Json
+@using CSweet.Agent.SDK
+@using CSweet.Contracts.Core
+@inject HttpClient Http
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
@@ -47,6 +54,16 @@
                     @StatusLabel(completed, cancelled, superseded)
                 </span>
                 <strong>@RoleName(action)</strong>
+                @if (action.HiringRecommendationId is Guid recommendationId && _recommendations.GetValueOrDefault(recommendationId) is { } recommendation)
+                {
+                    @if (SelectedAgent(recommendation) is { } candidate)
+                    {
+                        <strong>@candidate.Name</strong>
+                        <span>@candidate.Publisher · @(candidate.Price is { } price ? $"{price} {candidate.Currency}" : "Cost unavailable")</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(recommendation.SelectionRationale)) { <p>@recommendation.SelectionRationale</p> }
+                    <small>Plan proposed by @(recommendation.RequestingEmployee ?? recommendation.SuggestedBy ?? "Unknown employee")</small>
+                }
                 <div class="hiring-suggestion-tile-action">
                     @if (completed)
                     {
@@ -72,11 +89,16 @@
                     }
                     else if (!ReadOnly)
                     {
+                        @if (action.HiringRecommendationId is Guid selectedId && _recommendations.GetValueOrDefault(selectedId) is { } selectedRecommendation && SelectedAgent(selectedRecommendation) is { } selectedAgent)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">Hire agent</MudButton>
+                        }
                         <MudButton Href="@action.NavigationUri"
                                    Variant="Variant.Filled"
                                    Color="Color.Primary"
                                    EndIcon="@Icons.Material.Outlined.ArrowForward">
-                            Browse candidates
+                            @(action.HiringRecommendationId is Guid id && SelectedAgent(_recommendations.GetValueOrDefault(id)) is not null ? "See other candidates" : "Browse candidates")
                         </MudButton>
                     }
                     else
@@ -88,11 +110,31 @@
         }
     </div>
 </section>
+<AgentHireDialog @ref="_hireDialog" OrganizationId="OrganizationId" Hired="RefreshAsync" />
 
 @code {
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public IReadOnlyList<SuggestedUserActionResponse> Actions { get; set; } = [];
     [Parameter] public bool ReadOnly { get; set; }
+
+    private AgentHireDialog? _hireDialog;
+    private readonly Dictionary<Guid, HiringRecommendationResponse> _recommendations = [];
+    protected override Task OnParametersSetAsync() => RefreshAsync();
+    private async Task RefreshAsync()
+    {
+        foreach (var id in Actions.Where(x => x.HiringRecommendationId.HasValue).Select(x => x.HiringRecommendationId!.Value).Distinct())
+        {
+            try
+            {
+                var value = await Http.GetFromJsonAsync<HiringRecommendationResponse>($"api/core/organizations/{OrganizationId:D}/hiring/recommendations/{id:D}");
+                if (value is not null) _recommendations[id] = value;
+            }
+            catch (HttpRequestException) { _recommendations.Remove(id); }
+        }
+    }
+    private static AvailableAgent? SelectedAgent(HiringRecommendationResponse? value) =>
+        string.IsNullOrWhiteSpace(value?.SelectedCatalogAgentJson) ? null :
+            JsonSerializer.Deserialize<AvailableAgent>(value.SelectedCatalogAgentJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
     private readonly string _titleId = $"hiring-suggestions-{Guid.NewGuid():N}";
     private ElementReference _rail;

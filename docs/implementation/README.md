@@ -38,6 +38,8 @@ Read these files in order:
 
 ## Feature plans
 
+- [Chief hiring autonomy](features/chief-hiring-autonomy.md) - owner policy, conversational setup, approved-plan delegation, shared hire review, and marketplace attribution.
+
 - [Project approval review](features/project-approval-review.md) - human-readable project proposals, inline Communications approval tools, exact decision binding and history.
 
 - [Memory System Implementation](./features/memory-system-implementation.md) - **current remaining-work plan**. Starts from the implemented runtime recovery, correction integrity and shared-correction writers; identifies repository/package alignment, then defines 21 remaining work packages across correctness/lifecycle/release acceptance, unified context/reconciliation/operator controls, and evaluated delivery/semantic/summary features. Use its register, dependencies and completion criteria for new work.

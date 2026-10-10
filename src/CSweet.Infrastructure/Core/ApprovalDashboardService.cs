@@ -248,22 +248,44 @@ public sealed class ApprovalDashboardService(
             .OrderByDescending(x => x.UpdatedAt)
             .Take(250)
             .ToListAsync(cancellationToken);
-        items.AddRange(artifacts.Select(artifact => new ApprovalDashboardItemResponse(
-            artifact.Id,
-            ApprovalDashboardKinds.Artifact,
-            $"Artifact: {artifact.Title}",
-            $"Version {artifact.Version} {artifact.Type}.",
-            artifact.ApprovalStatus.ToString(),
-            "System workflow",
-            ownerLabel,
-            artifact.CreatedAt,
-            artifact.ApprovalStatus == ApprovalStatus.Pending ? null : artifact.UpdatedAt,
-            $"/organizations/{organizationId:D}/documents?artifact={artifact.Id:D}",
-            artifact.ApprovalStatus == ApprovalStatus.Pending)
+        var artifactIds = artifacts.Select(x => x.Id).ToList();
+        var submittedRevisionIds = artifacts.Where(x => x.SubmittedRevisionId.HasValue)
+            .Select(x => x.SubmittedRevisionId!.Value).ToList();
+        var reviewJobs = await db.ArtifactReviewJobs.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && artifactIds.Contains(x.ArtifactId) &&
+                submittedRevisionIds.Contains(x.RevisionId))
+            .OrderByDescending(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
+        items.AddRange(artifacts.Select(artifact =>
         {
-            Artifact = new ArtifactApprovalCardResponse(
+            // Queue completion means the review was delivered, not that its assignment ended.
+            // An old revision's reviewer must never take ownership of a new submission.
+            var reviewerId = reviewJobs.FirstOrDefault(x => x.ArtifactId == artifact.Id &&
+                x.RevisionId == artifact.SubmittedRevisionId)?.ReviewerOrganizationUserId ??
+                artifact.StewardOrganizationUserId;
+            var assignedTo = reviewerId.HasValue ? Name(names, reviewerId.Value, "Assigned reviewer") : ownerLabel;
+            var canDecide = artifact.ApprovalStatus == ApprovalStatus.Pending &&
+                (reviewerId.HasValue ? reviewerId.Value == actor.Id :
+                    actor.PermissionLevel == OrganizationPermissionLevel.Owner);
+            return new ApprovalDashboardItemResponse(
                 artifact.Id,
-                artifact.SubmittedRevisionId)
+                ApprovalDashboardKinds.Artifact,
+                $"Artifact: {artifact.Title}",
+                $"Version {artifact.Version} {artifact.Type}.",
+                artifact.ApprovalStatus.ToString(),
+                artifact.CreatedByOrganizationUserId.HasValue
+                    ? Name(names, artifact.CreatedByOrganizationUserId.Value, artifact.CreatorDisplayName)
+                    : artifact.CreatorDisplayName,
+                assignedTo,
+                artifact.CreatedAt,
+                artifact.ApprovalStatus == ApprovalStatus.Pending ? null : artifact.UpdatedAt,
+                $"/organizations/{organizationId:D}/documents?artifact={artifact.Id:D}",
+                canDecide)
+            {
+                Artifact = new ArtifactApprovalCardResponse(
+                    artifact.Id,
+                    artifact.SubmittedRevisionId)
+            };
         }));
 
         var accessRequests = await db.ArtifactAccessRequests.AsNoTracking()

@@ -239,7 +239,7 @@ public sealed class ResourceChangeService(
                 .ToList();
             query = query.Where(x => statuses.Contains(x.Status));
         }
-        return new ResourceChangeReadResponse((await query.OrderByDescending(x => x.CreatedAt)
+        return new ResourceChangeReadResponse((await query.OrderByDescending(x => x.CreatedAt).Take(100)
             .ToListAsync(cancellationToken)).Select(ToResponse).ToList());
     }
 
@@ -282,6 +282,19 @@ public sealed class ResourceChangeService(
         Guid managerId,
         ResourceChangeDecisionRequest request,
         CancellationToken token)
+    {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(token) : null;
+        // Serialize plan supersession with delegated hire commits and policy revocation.
+        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({organizationId.ToString()}, 0))", token);
+        var result = await DecideCoreAsync(organizationId, managerId, request, token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return result;
+    }
+
+    private async Task<ResourceChangeRequestResponse> DecideCoreAsync(
+        Guid organizationId, Guid managerId, ResourceChangeDecisionRequest request, CancellationToken token)
     {
         var record = await db.ResourceChangeRequests.Include(x => x.Roles)
             .SingleOrDefaultAsync(x => x.Id == request.RequestId && x.OrganizationId == organizationId, token)

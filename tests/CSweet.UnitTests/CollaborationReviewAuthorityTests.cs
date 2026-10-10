@@ -12,6 +12,51 @@ namespace CSweet.UnitTests;
 public sealed class CollaborationReviewAuthorityTests
 {
     [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task CreationSharesReviewWithOnlyTheActiveAssignedManager(bool isManager, bool active)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var org = Guid.NewGuid(); var author = Guid.NewGuid(); var reviewer = Guid.NewGuid();
+        var installation = Guid.NewGuid(); var reviewerInstallation = Guid.NewGuid();
+        db.CoreOrganizationUsers.AddRange(
+            new() { Id = author, OrganizationId = org, AgentInstallationId = installation, EmployeeType = EmployeeType.Agent,
+                ReportsToOrganizationUserId = isManager ? reviewer : Guid.NewGuid() },
+            new() { Id = reviewer, OrganizationId = org, AgentInstallationId = reviewerInstallation,
+                EmployeeType = EmployeeType.Agent, IsActive = active });
+        db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = org,
+            SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = installation,
+            ScopeKind = GrantScopeKind.Organization, ScopeId = org, Action = ArtifactActions.Create });
+        await db.SaveChangesAsync();
+        var handler = new ArtifactCapabilityHandler(db, null!, new TestAuditEventWriter(), TimeProvider.System);
+        var session = new AgentSession("session", "producer", installation.ToString(), org.ToString(), "runtime", "tick",
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { PlatformCapabilities.ArtifactCreate }, 1));
+        var request = new RequestCapability { RequestId = "create", Capability = PlatformCapabilities.ArtifactCreate,
+            Payload = JsonPayload.From(new CreateArtifactDocument("Brief", "Draft", "production-brief", "create",
+                StewardOrganizationUserId: reviewer), new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var results = new List<CapabilityResult>();
+            await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
+            Assert.Equal(active, Assert.Single(results).Succeeded);
+        }
+        var actions = await db.ScopedActionGrants.Where(x => x.SubjectId == reviewerInstallation).Select(x => x.Action).ToListAsync();
+        Assert.Equal(isManager && active ? 2 : 0, actions.Count);
+        if (isManager && active)
+        {
+            Assert.Contains(ArtifactActions.Read, actions);
+            Assert.Contains(ArtifactActions.Decide, actions);
+            var artifact = Assert.Single(await db.CoreArtifacts.ToListAsync());
+            Assert.Equal(ArtifactDocumentStatus.Draft, artifact.DocumentStatus);
+            Assert.Equal(3, await db.ScopedActionGrants.CountAsync(x => x.SubjectId == installation && x.ScopeId == artifact.Id));
+            Assert.All(await db.ScopedActionGrants.Where(x => x.SubjectId == reviewerInstallation).ToListAsync(),
+                grant => Assert.Equal(installation, grant.GrantedBySubjectId));
+        }
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task SubmittedBriefGrantsReviewOnlyToItsCreatorsAssignedManager(bool isManager)

@@ -63,11 +63,29 @@ public sealed partial class WorkDeliveryService
                 if (children.All(descendants.Contains)) break;
                 descendants.UnionWith(children);
             }
-            if (key == "quality" && await db.WorkItemStageAssignments.AnyAsync(x => descendants.Contains(x.WorkItemId) &&
-                (x.StageKey == "development" || x.StageKey == "specialist-execution") &&
-                (x.OrganizationUserId == assignment.OrganizationUserId || assignment.AgentInstallationId.HasValue &&
-                    x.AgentInstallationId == assignment.AgentInstallationId), ct))
-                throw new InvalidOperationException("The QA reviewer must be independent of every scoped deliverable author.");
+            if (key == "quality")
+            {
+                var authors = await db.WorkItemStageAssignments.AsNoTracking().Where(x => descendants.Contains(x.WorkItemId) &&
+                    (x.StageKey == "development" || x.StageKey == "specialist-execution") &&
+                    (x.OrganizationUserId == assignment.OrganizationUserId || assignment.AgentInstallationId.HasValue &&
+                        x.AgentInstallationId == assignment.AgentInstallationId)).ToListAsync(ct);
+                foreach (var author in authors)
+                {
+                    var task = await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == author.WorkItemId && x.OrganizationId == org, ct);
+                    var taskBoard = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == task.BoardId && x.OrganizationId == org, ct);
+                    var review = await db.WorkItemStageAssignments.AsNoTracking().SingleOrDefaultAsync(x =>
+                        x.WorkItemId == task.Id && x.StageKey == "quality", ct);
+                    var delivery = task.DeliverySpecificationJson is { } deliveryJson ? Decode<WorkItemDeliverySpecification>(deliveryJson) : null;
+                    var requirements = author.RequirementsJson is { } requirementsJson ? Decode<WorkAssignmentRequirements>(requirementsJson) : null;
+                    // A manager must independently check QA's exact report before it can
+                    // contribute to aggregate acceptance; task self-review stays prohibited.
+                    var reviewedQaEvidence = review is not null && taskBoard.ManagerOrganizationUserId is not null && CSweet.Agent.SDK.DeliveryReviewIndependence.IsQaEvidenceArtifact(delivery?.DeliveryKind, requirements?.RequiredRoleKey) &&
+                        review?.OrganizationUserId == taskBoard.ManagerOrganizationUserId && review?.OrganizationUserId != author.OrganizationUserId &&
+                        (!author.AgentInstallationId.HasValue || review?.AgentInstallationId != author.AgentInstallationId);
+                    if (!reviewedQaEvidence)
+                        throw new InvalidOperationException("The QA reviewer must be independent of scoped product authors; QA evidence artifacts require a separate manager review.");
+                }
+            }
         }
     }
 

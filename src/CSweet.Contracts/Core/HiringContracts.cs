@@ -53,6 +53,8 @@ public sealed record HiringRecommendationResponse(
 {
     public int Priority { get; init; } = 50;
     public string HiringUrl { get; init; } = string.Empty;
+    public string? SelectedCatalogAgentJson { get; init; }
+    public string? SelectionRationale { get; init; }
     public string? SuggestedBy { get; init; }
     public string? RoleKey { get; init; }
     public int Headcount { get; init; } = 1;

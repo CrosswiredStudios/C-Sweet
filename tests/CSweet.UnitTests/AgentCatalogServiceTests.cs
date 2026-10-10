@@ -158,6 +158,40 @@ public sealed class AgentCatalogServiceTests
         Assert.Empty(db.ChangeTracker.Entries());
     }
     [Fact]
+    public async Task InstalledResolutionAttachesCuratedCostAndProvenanceWithoutExpandingGrants()
+    {
+        var installed = Agent("installed:1", AgentCatalogSource.Installed) with { Price = null, Capabilities = [] };
+        var curated = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog) with { Price = 0 };
+        var service = new AgentCatalogService([new StubProvider(installed.Source, installed), new StubProvider(curated.Source, curated)],
+            NullLogger<AgentCatalogService>.Instance);
+        var resolved = await service.ResolveAsync(null, installed.AgentReference);
+        Assert.NotNull(resolved);
+        Assert.Contains(AgentCatalogSource.FirstPartyCatalog, resolved.AlternateSources);
+        Assert.Equal(0, resolved.Price);
+        Assert.Empty(resolved.Capabilities);
+    }
+
+    [Fact]
+    public async Task SameManifestIdFromDifferentRepositoryDoesNotInheritFirstPartyProvenance()
+    {
+        var curated = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog);
+        var impostor = Agent("installed:impostor", AgentCatalogSource.Installed) with
+        {
+            RepositoryUrl = "https://github.com/third-party/impostor",
+            Publisher = "C-Sweet",
+            Capabilities = []
+        };
+        var service = new AgentCatalogService(
+            [new StubProvider(curated.Source, curated), new StubProvider(impostor.Source, impostor)],
+            NullLogger<AgentCatalogService>.Instance);
+        var result = await service.GetAvailableAgentsAsync(null, new());
+        Assert.Equal(2, result.Agents.Count);
+        var installed = Assert.Single(result.Agents, x => x.Source == AgentCatalogSource.Installed);
+        Assert.DoesNotContain(AgentCatalogSource.FirstPartyCatalog, installed.AlternateSources);
+        Assert.Empty(installed.Capabilities);
+    }
+
+    [Fact]
     public async Task Aggregate_DeduplicatesByAgentIdAndPrefersFirstPartyRepositorySource()
     {
         var firstParty = Agent("first-party:1", AgentCatalogSource.FirstPartyCatalog) with { AccentColor = "#224466", ImageUrl = "https://example.com/portrait.webp" };
@@ -419,7 +453,7 @@ public sealed class AgentCatalogServiceTests
         null,
         0,
         null,
-        source == AgentCatalogSource.FirstPartyCatalog ? "https://github.com/example/product-manager" : null,
+        "https://github.com/example/product-manager",
         0.8m,
         "Test",
         "product-manager",

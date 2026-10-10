@@ -4,6 +4,21 @@ This is the authoritative reference for the "HIRING PLAN / Hiring suggestions" w
 Communications when an agent attaches a Marketplace action to a message or chat turn, and for the
 company overview's hiring row.
 
+## Hiring autonomy and candidate review
+
+[Chief hiring autonomy](chief-hiring-autonomy.md) documents the authoritative owner policy,
+approval-time delegation, candidate selection, and automatic execution boundary.
+`WorkforcePlan.SelectedCatalogAgentJson` and `SelectionRationale` populate recommendation
+cards. `HiringSuggestionCarousel` and `Marketplace` both render `AgentHireDialog`, sharing
+preview, configuration, grants, cancellation and confirmation logic. A selected candidate
+shows **Hire agent** and **See other candidates**; otherwise the action remains **Browse
+candidates**. Existing lifecycle states continue to govern action availability.
+
+Marketplace context uses authorized server attribution and remains attached when search
+filters are cleared. **Browse outside this plan** explicitly detaches it. Unavailable or
+fulfilled recommendations disable contextual hiring. Automatic progress is persisted as
+`DelegatedHiring` conversation messages alongside hire-operation outbox events.
+
 ## Company overview hiring row
 
 `CommandCenter` renders the reorderable **Hiring** row through `CompanyHiringSummary`.
