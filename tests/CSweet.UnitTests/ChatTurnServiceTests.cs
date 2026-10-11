@@ -9,6 +9,66 @@ namespace CSweet.UnitTests;
 public sealed class ChatTurnServiceTests
 {
     [Theory]
+    [InlineData("Queued")]
+    [InlineData("StartingWorkload")]
+    [InlineData("WaitingForMcpSession")]
+    [InlineData("Stopping")]
+    [InlineData("Offline")]
+    public async Task RuntimeRecovery_DefersDurablyWithoutBlockingOtherChatsOrChangingAttempt(string stage)
+    {
+        await using var db = CreateDb();
+        var first = new ChatTurn { Id = Guid.NewGuid(), ConversationId = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2), Status = ChatTurnStatus.Queued };
+        var laterReply = new ChatTurn { Id = Guid.NewGuid(), ConversationId = first.ConversationId, CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1), Status = ChatTurnStatus.Queued };
+        var second = new ChatTurn { Id = Guid.NewGuid(), ConversationId = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow, Status = ChatTurnStatus.Queued };
+        db.ChatTurns.AddRange(first, laterReply, second);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+        Assert.Equal(first.Id, await service.ClaimNextAsync("worker"));
+        var runtime = new ReadinessRuntime(stage, false, false);
+        Assert.False(await CSweet.Api.Chat.ChatTurnWorker.PrepareRuntimeAsync(runtime, service, Guid.NewGuid(), first.Id,
+            TimeSpan.FromMinutes(1), CancellationToken.None));
+        Assert.Equal(ChatTurnStatus.Queued, first.Status);
+        Assert.Null(first.LeaseOwner);
+        Assert.Null(first.ErrorCode);
+        Assert.Null(first.CompletedAt);
+        Assert.Equal(second.Id, await service.ClaimNextAsync("other-worker"));
+        // A new worker scope after server restart discovers the saved waiting turn.
+        first.LeaseUntil = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        var replacement = new ChatTurnService(db);
+        Assert.Equal(first.Id, await replacement.ClaimNextAsync("replacement-worker"));
+        Assert.Equal(1, (await db.ChatTurns.SingleAsync(x => x.Id == first.Id)).Attempt);
+        Assert.True(await CSweet.Api.Chat.ChatTurnWorker.PrepareRuntimeAsync(new ReadinessRuntime("Ready", true, false),
+            replacement, Guid.NewGuid(), first.Id, TimeSpan.FromSeconds(1), CancellationToken.None));
+        Assert.Empty(await db.AgentWorkItems.ToListAsync());
+    }
+
+    [Fact]
+    public async Task RuntimeStartup_TerminalFailureIsNotDeferredAndCancellationIsNotReopened()
+    {
+        await using var db = CreateDb();
+        var turn = new ChatTurn { Id = Guid.NewGuid(), Status = ChatTurnStatus.Cancelled, CreatedAt = DateTimeOffset.UtcNow };
+        db.ChatTurns.Add(turn);
+        await db.SaveChangesAsync();
+        var service = new ChatTurnService(db);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => CSweet.Api.Chat.ChatTurnWorker.PrepareRuntimeAsync(
+            new ReadinessRuntime("Failed", false, true), service, Guid.NewGuid(), turn.Id, TimeSpan.FromSeconds(1), CancellationToken.None));
+        await service.DeferForRuntimeAsync(turn.Id, TimeSpan.FromSeconds(1));
+        Assert.Equal(ChatTurnStatus.Cancelled, turn.Status);
+        Assert.Null(await service.ClaimNextAsync("worker"));
+    }
+
+    private sealed class ReadinessRuntime(string stage, bool ready, bool terminal) : CSweet.Application.Setup.IAgentInteractiveRuntimeService
+    {
+        public Task<CSweet.Contracts.Agents.AgentRuntimeReadinessResponse> EnsureReadyAsync(Guid installationId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CSweet.Contracts.Agents.AgentRuntimeReadinessResponse(installationId, Guid.NewGuid(), stage, stage,
+                null, null, null, null, ready, terminal));
+        public Task<CSweet.Contracts.Agents.AgentRuntimeReadinessResponse> GetStatusAsync(Guid installationId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Readiness recovery must yield instead of polling in the worker.");
+    }
+
+    [Theory]
     [InlineData(AgentWorkStatus.Pending)]
     [InlineData(AgentWorkStatus.Leased)]
     [InlineData(AgentWorkStatus.Completed)]

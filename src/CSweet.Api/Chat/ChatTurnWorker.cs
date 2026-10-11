@@ -91,6 +91,7 @@ public sealed class ChatTurnWorker(
 
         using var hardTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         Task? workPump = null;
+        var waitingForRuntime = false;
         var remaining = RemainingTurnTime(turn.CreatedAt, options.Value.HardTimeout, DateTimeOffset.UtcNow);
         if (remaining <= TimeSpan.Zero)
             hardTimeout.Cancel();
@@ -98,6 +99,23 @@ public sealed class ChatTurnWorker(
             hardTimeout.CancelAfter(remaining);
         try
         {
+            var installationId = await conversations.GetAgentInstallationIdForEmployeeAsync(turn.TargetAgentOrganizationUserId, hardTimeout.Token)
+                ?? throw new InvalidOperationException("The agent employee is not linked to an installation.");
+            var existingDispatch = await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == turn.OrganizationId.ToString("D") && x.SourceType == "chat-turn" &&
+                x.SourceId == turnId.ToString("D") && x.IdempotencyKey == $"chat-turn:{turnId:D}:attempt:{turn.Attempt}", hardTimeout.Token);
+            // Recover already-dispatched results even while the employee is offline. For new
+            // work, check readiness before recalling memory and release the worker while waiting.
+            if (!existingDispatch && !await PrepareRuntimeAsync(runtime, turns, installationId, turnId,
+                    options.Value.CapabilityRetryDelay, hardTimeout.Token))
+            {
+                if (!await db.ChatTurnTraceEvents.AnyAsync(x => x.ChatTurnId == turnId && x.EventType == "runtime.waiting", hardTimeout.Token))
+                    await PublishTraceAsync(turns, turnId, "system", "runtime.waiting", "queued", "Waiting for agent startup",
+                        "Your reply is saved and will be delivered when the agent finishes starting or restarting.", cancellationToken: hardTimeout.Token);
+                waitingForRuntime = true;
+                return;
+            }
+
             await PublishTraceAsync(turns, turnId, "system", turn.Attempt > 1 ? "turn.restarted" : "turn.started", "running", turn.Attempt > 1 ? "Turn restarted" : "Turn started",
                 "The durable turn worker accepted this request.", new { turn.Attempt }, cancellationToken: hardTimeout.Token);
 
@@ -152,8 +170,6 @@ public sealed class ChatTurnWorker(
                     exception.Message, cancellationToken: hardTimeout.Token);
             }
 
-            var installationId = await conversations.GetAgentInstallationIdForEmployeeAsync(turn.TargetAgentOrganizationUserId, hardTimeout.Token)
-                ?? throw new InvalidOperationException("The agent employee is not linked to an installation.");
             var configuration = await configurations.GetAsync(installationId, hardTimeout.Token);
             var configuredProviderId = GetConfiguredProviderId(configuration);
             var providerId = configuredProviderId.HasValue && await conversations.IsProviderProfileEnabledAsync(configuredProviderId.Value, hardTimeout.Token)
@@ -163,6 +179,7 @@ public sealed class ChatTurnWorker(
 
             var output = new System.Text.StringBuilder();
             Guid? terminalResourceChangeRequestId = null;
+            Guid? terminalQuestionMessageId = null;
             var bypassMemory = false;
             string? fallbackReason = null;
             var memoryWasRecalled = !string.IsNullOrWhiteSpace(recalledMemory);
@@ -172,13 +189,6 @@ public sealed class ChatTurnWorker(
             var agentPrompt = preparedRecall.AgentPrompt;
             try
             {
-                var readiness = await WaitForRuntimeReadyAsync(
-                    runtime,
-                    installationId,
-                    options.Value.RuntimeStartupTimeout,
-                    options.Value.CapabilityRetryDelay,
-                    hardTimeout.Token);
-                if (!readiness.IsReady) throw new InvalidOperationException(readiness.Reason ?? "The agent runtime is not ready.");
                 if (await IsCancelledAsync(db, turnId, hardTimeout.Token))
                     return;
 
@@ -197,6 +207,7 @@ public sealed class ChatTurnWorker(
                     turn.Attempt,
                     turn.UserMessageId)
                 {
+                    CurrentMessageContent = preparedRecall.CurrentMessageContent,
                     Attachments = metadata.Attachments.Select(x => new UserMessageAttachment(
                         x.Id, x.MessageId, x.FileName, x.ContentType, x.SizeBytes, x.Sha256)).ToList(),
                     WorkContext = metadata.WorkContext
@@ -258,6 +269,14 @@ public sealed class ChatTurnWorker(
                             new { kind = chunk.Kind, code = chunk.Error },
                             cancellationToken: hardTimeout.Token);
                         throw new InvalidOperationException(chunk.Delta);
+                    }
+                    if (TryGetTerminalQuestionMessageId(chunk, out var questionMessageId))
+                    {
+                        terminalQuestionMessageId = questionMessageId;
+                        output.Clear();
+                        pendingOutput.Clear();
+                        await turns.ReplaceOutputAsync(turnId, string.Empty, hardTimeout.Token);
+                        break;
                     }
                     if (TryGetTerminalResourceChangeRequestId(chunk, out var resourceChangeRequestId))
                     {
@@ -355,7 +374,7 @@ public sealed class ChatTurnWorker(
                     await PublishTraceAsync(turns, turnId, "output", "output.delta", "running", "Assistant output",
                         ChatTraceSanitizer.SanitizeText(delta), cancellationToken: hardTimeout.Token);
                 }
-                if (output.Length == 0 && terminalResourceChangeRequestId is null)
+                if (output.Length == 0 && terminalResourceChangeRequestId is null && terminalQuestionMessageId is null)
                     throw new InvalidOperationException("The model provider returned an empty response.");
             }
             catch (Exception exception) when (exception is not OperationCanceledException && output.Length == 0)
@@ -368,7 +387,13 @@ public sealed class ChatTurnWorker(
                 return;
 
             ConversationMessage assistantEntity;
-            if (terminalResourceChangeRequestId is { } requestId)
+            if (terminalQuestionMessageId is { } questionId)
+            {
+                assistantEntity = await ResolveTerminalQuestionMessageAsync(db, turn, installationId, questionId, hardTimeout.Token)
+                    ?? throw new InvalidOperationException("The durable question message could not be resolved for this turn.");
+                assistantEntity.ChatTurnId = turnId;
+            }
+            else if (terminalResourceChangeRequestId is { } requestId)
             {
                 assistantEntity = await db.CoreConversationMessages.SingleOrDefaultAsync(x =>
                     x.ConversationId == conversation.Id &&
@@ -477,9 +502,12 @@ public sealed class ChatTurnWorker(
                 catch (OperationCanceledException) when (hardTimeout.IsCancellationRequested) { }
                 catch (Exception exception) { logger.LogWarning(exception, "Chat work progress pump ended for {TurnId}.", turnId); }
             }
-            outputRouter.Complete(turnId);
-            outputRouter.UnbindAlias(conversation.Id, turnId);
-            eventRouter.Complete(turnId);
+            if (!waitingForRuntime)
+            {
+                outputRouter.Complete(turnId);
+                outputRouter.UnbindAlias(conversation.Id, turnId);
+                eventRouter.Complete(turnId);
+            }
         }
     }
 
@@ -503,6 +531,23 @@ public sealed class ChatTurnWorker(
         return recent;
     }
 
+    internal static bool TryGetTerminalQuestionMessageId(ChatStreamChunk chunk, out Guid messageId)
+    {
+        messageId = Guid.Empty;
+        return chunk.IsFinal && chunk.Kind == "terminal-question-message" && chunk.Metadata is not null &&
+            chunk.Metadata.TryGetValue("messageId", out var value) && Guid.TryParse(value, out messageId) && messageId != Guid.Empty;
+    }
+
+    internal static Task<ConversationMessage?> ResolveTerminalQuestionMessageAsync(CSweetDbContext db, ChatTurn turn,
+        Guid installationId, Guid messageId, CancellationToken token) =>
+        db.CoreConversationMessages.SingleOrDefaultAsync(message => message.Id == messageId &&
+            message.ConversationId == turn.ConversationId && message.Role == ConversationRole.Assistant &&
+            message.SenderOrganizationUserId == turn.TargetAgentOrganizationUserId && message.CreatedAt >= turn.CreatedAt &&
+            (message.ChatTurnId == null || message.ChatTurnId == turn.Id) &&
+            db.ExecutiveDecisions.Any(decision => decision.ConversationMessageId == message.Id &&
+                decision.ConversationId == turn.ConversationId && decision.OrganizationId == turn.OrganizationId &&
+                decision.RequestingInstallationId == installationId), token);
+
     internal static bool TryGetTerminalResourceChangeRequestId(
         ChatStreamChunk chunk,
         out Guid requestId)
@@ -520,31 +565,20 @@ public sealed class ChatTurnWorker(
         TimeSpan hardTimeout,
         DateTimeOffset now) => createdAt.Add(hardTimeout) - now;
 
-    internal static async Task<AgentRuntimeReadinessResponse> WaitForRuntimeReadyAsync(
+    internal static async Task<bool> PrepareRuntimeAsync(
         IAgentInteractiveRuntimeService runtime,
+        IChatTurnService turns,
         Guid installationId,
-        TimeSpan startupTimeout,
+        Guid turnId,
         TimeSpan retryDelay,
         CancellationToken cancellationToken)
     {
         var readiness = await runtime.EnsureReadyAsync(installationId, cancellationToken);
-        if (readiness.IsReady || readiness.IsTerminal || startupTimeout <= TimeSpan.Zero)
-            return readiness;
-
-        var delay = retryDelay > TimeSpan.Zero ? retryDelay : TimeSpan.FromMilliseconds(100);
-        var waiting = Stopwatch.StartNew();
-        while (waiting.Elapsed < startupTimeout)
-        {
-            var remaining = startupTimeout - waiting.Elapsed;
-            if (remaining <= TimeSpan.Zero)
-                break;
-            await Task.Delay(remaining < delay ? remaining : delay, cancellationToken);
-            readiness = await runtime.GetStatusAsync(installationId, cancellationToken);
-            if (readiness.IsReady || readiness.IsTerminal)
-                return readiness;
-        }
-
-        return readiness;
+        if (readiness.IsReady) return true;
+        if (readiness.IsTerminal)
+            throw new InvalidOperationException(readiness.Reason ?? "The agent runtime failed to start.");
+        await turns.DeferForRuntimeAsync(turnId, retryDelay, cancellationToken);
+        return false;
     }
 
     private async Task FailAsync(IChatTurnService turns, Guid turnId, string code, string message, CancellationToken cancellationToken)

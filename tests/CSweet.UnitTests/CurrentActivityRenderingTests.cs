@@ -16,6 +16,22 @@ namespace CSweet.UnitTests;
 public sealed class CurrentActivityRenderingTests
 {
     [Fact]
+    public async Task CollapsedListKeepsLiveExecutionAheadOfExpiredAndWaitingRows()
+    {
+        await using var f = new Fixture();
+        var row = f.Handler.Item;
+        f.Handler.Items = [
+            row with { Key = "expired", Title = "Expired work", LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1) },
+            row with { Key = "waiting", Title = "Waiting work", State = "Waiting" },
+            row with { Key = "stale", Title = "Stale work", StartedAt = DateTimeOffset.UtcNow.AddHours(-1), LastProgressAt = null },
+            row with { Key = "running", Title = "Live execution" }];
+        var html = await f.RenderAsync();
+        Assert.True(html.IndexOf("Live execution", StringComparison.Ordinal) < html.IndexOf("Expired work", StringComparison.Ordinal));
+        Assert.Contains("Waiting work", html);
+        Assert.DoesNotContain("Stale work", html);
+    }
+
+    [Fact]
     public async Task PersonalTaskLinksUseBoardOwnerForCardAndPopover()
     {
         await using var f = new Fixture();
@@ -35,18 +51,23 @@ public sealed class CurrentActivityRenderingTests
     {
         await using var f = new Fixture();
         var partnerId = Guid.NewGuid();
-        f.Handler.Item = f.Handler.Item with { ActivityKind = "Collaboration", EmployeeRole = "Engineer",
+        var projectId = Guid.NewGuid();
+        f.Handler.Item = f.Handler.Item with { ActivityKind = "Collaboration", EmployeeRole = "Engineer", ProjectId = projectId, CollaborationName = "First playable <plan>",
             Collaborator = new(partnerId, "Casey <script>", "Architect"), TechnicalName = "com.csweet.agent.coordination.turn-requested.v1" };
         var html = await f.RenderAsync();
-        Assert.Contains("Collaborating", html);
+        Assert.Contains("Collaboration: First playable &lt;plan&gt;", html);
+        Assert.Contains($"/projects/{projectId}", html);
         Assert.Contains("Responding now", html);
         Assert.Contains("Casey &lt;script&gt;", html);
         Assert.DoesNotContain("<script>", html);
         Assert.Contains("Architect", html);
         Assert.Contains($"/employees/{partnerId}", html);
         Assert.Contains($"/work/boards/{f.Handler.Item.BoardId}?item={f.Handler.Item.WorkItemId}", html);
-        Assert.Contains("Technical details", html);
-        Assert.Contains("com.csweet.agent.coordination.turn-requested.v1</code>", html);
+        Assert.DoesNotContain("Technical details", html);
+        Assert.DoesNotContain("Recent progress", html);
+        Assert.DoesNotContain("com.csweet.agent.coordination.turn-requested.v1</code>", html);
+        Assert.Contains("Peek at provider stream", html);
+        Assert.Equal(2, html.Split($"/employees/{partnerId}").Length - 1); // Portrait and name.
         Assert.Equal(0, f.Handler.FeedRequests);
         if (Environment.GetEnvironmentVariable("CSWEET_ACTIVITY_CARD_PREVIEW") is string path) await File.WriteAllTextAsync(path, html);
     }
@@ -76,13 +97,13 @@ public sealed class CurrentActivityRenderingTests
     }
 
     [Fact]
-    public async Task CompactRowsShowExecutorHistoryAndDoNotLoadDiagnosticsUntilOpened()
+    public async Task CompactRowsShowExecutorWithoutOldDetailsAndLoadDiagnosticsOnlyWhenOpened()
     {
         await using var f = new Fixture();
         var html = await f.RenderAsync();
         Assert.Contains("Keyboard navigation", html); Assert.Contains("Morgan", html);
-        Assert.Contains("Read criteria", html); Assert.Contains("Updated focus", html);
-        Assert.DoesNotContain("activity-popover", html);
+        Assert.DoesNotContain("Read criteria", html); Assert.DoesNotContain("Updated focus", html);
+        Assert.DoesNotContain("data-activity-stream", html);
         Assert.Equal(0, f.Handler.FeedRequests);
         Assert.Contains("aria-pressed=\"true\"", html);
     }
@@ -94,7 +115,8 @@ public sealed class CurrentActivityRenderingTests
         await f.InvokeAsync("OpenAsync", f.Handler.Item);
         await f.InvokeAsync("RefreshFeedAsync");
         var html = await f.HtmlAsync();
-        Assert.Contains("Reasoning &amp; actions", html);
+        Assert.Contains("Provider stream", html);
+        Assert.Contains("data-activity-stream", html);
         Assert.Contains("first second &lt;script&gt;", html);
         Assert.DoesNotContain("<script>", html);
         Assert.DoesNotContain("first first", html);
@@ -113,6 +135,22 @@ public sealed class CurrentActivityRenderingTests
         var html = await f.HtmlAsync();
         Assert.DoesNotContain("first second", html);
         Assert.Contains("access has changed", html);
+    }
+
+    [Fact]
+    public async Task StreamToggleClosesAndUnauthorizedCardsDoNotFetchEvidence()
+    {
+        await using var f = new Fixture(); await f.RenderAsync();
+        await f.InvokeAsync("ToggleStreamAsync", f.Handler.Item);
+        Assert.Contains("first second", await f.HtmlAsync());
+        await f.InvokeAsync("ToggleStreamAsync", f.Handler.Item);
+        Assert.DoesNotContain("data-activity-stream", await f.HtmlAsync());
+        var reads = f.Handler.FeedRequests;
+        f.Handler.Item = f.Handler.Item with { CanInspect = false };
+        await f.InvokeAsync("RefreshAsync");
+        await f.InvokeAsync("ToggleStreamAsync", f.Handler.Item);
+        Assert.Contains("do not have access", await f.HtmlAsync());
+        Assert.Equal(reads, f.Handler.FeedRequests);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -151,6 +189,7 @@ public sealed class CurrentActivityRenderingTests
     }
     private sealed class Handler : HttpMessageHandler
     {
+        public IReadOnlyList<CurrentActivityItem>? Items { get; set; }
         public int FeedRequests { get; private set; }
         public bool Forbidden { get; set; }
         private readonly Guid first = Guid.NewGuid(), second = Guid.NewGuid();
@@ -169,7 +208,7 @@ public sealed class CurrentActivityRenderingTests
                     new(second, 1, "reasoning", "Reasoning", "Provider reasoning", "second <script>", DateTimeOffset.UtcNow, true, 2),
                     new(first, 2, "reasoning", "Reasoning", "Provider reasoning", "first ", DateTimeOffset.UtcNow, true, 1)], 2, false, false, false);
             }
-            else result = new CurrentActivityPage(DateTimeOffset.UtcNow, 1, [Item], null);
+            else result = new CurrentActivityPage(DateTimeOffset.UtcNow, Items?.Count ?? 1, Items ?? [Item], null);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(result, result.GetType()) });
         }
     }

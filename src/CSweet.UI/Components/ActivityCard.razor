@@ -5,20 +5,23 @@
         <div class="activity-card-title"><MudIcon Icon="@HeadingIcon" Size="Size.Small" /><strong>@Heading</strong></div>
         <div class="activity-card-controls">
             <span class="activity-card-status @StateClass">@FriendlyState <span aria-hidden="true">·</span> <time title="@Item.StartedAt.ToLocalTime().ToString("g")">@Age</time></span>
-            <button type="button" class="activity-inspect" data-current-activity-open="@Item.Key" aria-label="@($"Inspect {Heading}: {Item.Title}")" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)"><MudIcon Icon="@Icons.Material.Outlined.MoreHoriz" /></button>
         </div>
     </header>
+    @if (Item.ProjectId is Guid projectId)
+    {
+        <a class="activity-project-link" href="@($"/organizations/{OrganizationId}/projects/{projectId}")">@Item.Context<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
+    }
     @if (Item.WorkItemId.HasValue && Item.BoardId.HasValue)
     {
         <a class="activity-task-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)"><MudIcon Icon="@Icons.Material.Outlined.CheckBox" Size="Size.Small" />@Item.Title<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
         <div class="activity-card-context">@if (Item.Identifier is not null) { <span>@Item.Identifier · </span> }@Item.Context</div>
     }
     <div class="activity-card-agents @(Item.Collaborator is not null ? "collaborating" : "")">
-        <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" Status="@AgentStatus" />
+        <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" Status="@AgentStatus" Centered="@(Item.Collaborator is not null)" />
         @if (Item.Collaborator is { } other)
         {
             <span class="activity-card-connector" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.CompareArrows" Size="Size.Small" /></span>
-            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" />
+            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" Centered="true" />
         }
     </div>
     @if (State is "Waiting" or "Needs attention")
@@ -29,13 +32,13 @@
     {
         <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
     }
-    @if (Item.PreviousSteps.Count > 0)
+    <button type="button" class="activity-stream-toggle" data-current-activity-open="@Item.Key" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)">
+        <MudIcon Icon="@(IsSelected ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" Size="Size.Small" />
+        @(IsSelected ? "Close provider stream" : "Peek at provider stream")
+    </button>
+    @if (IsSelected)
     {
-        <details class="activity-card-details"><summary>Recent progress</summary><ul>@foreach (var step in Item.PreviousSteps) { <li>@step.Text</li> }</ul></details>
-    }
-    @if (Item.CanInspect && !string.IsNullOrWhiteSpace(Item.TechnicalName))
-    {
-        <details class="activity-card-details"><summary>Technical details</summary><code>@Item.TechnicalName</code></details>
+        @ChildContent
     }
 </article>
 
@@ -47,13 +50,14 @@
     [Parameter] public string Age { get; set; } = "";
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public EventCallback<CurrentActivityItem> Inspect { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
     private bool IsQueued => State == "Waiting" && (Action.StartsWith("Queued", StringComparison.Ordinal) || Action == "Waiting for an agent claim");
     private string FriendlyState => State == "Executing" ? "Working" : IsQueued ? "Queued" : State;
     private string StateClass => State == "Executing" ? "working" : State is "Needs attention" or "Recovering" or "Unconfirmed" ? "attention" : "waiting";
     private string AgentStatus => State == "Executing" ? Item.ActivityKind is "Collaboration" or "Chat" ? "Responding now" : "Working now" : FriendlyState;
     private string Heading => Item.ActivityKind switch
     {
-        "Collaboration" => "Collaborating",
+        "Collaboration" => $"Collaboration: {(!string.IsNullOrWhiteSpace(Item.CollaborationName) ? Item.CollaborationName : Item.Title == "Collaborating" ? "Agent coordination" : Item.Title)}",
         "Review" => State == "Executing" ? "Reviewing work" : IsQueued ? "Review queued" : "Review waiting",
         "Chat" => "Responding in Communications",
         "Model" => "Generating a response",

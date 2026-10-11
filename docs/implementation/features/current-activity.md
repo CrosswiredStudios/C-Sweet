@@ -1,8 +1,13 @@
 # Current Activity
 
 The Overview (`CommandCenter`) includes a reorderable **Current Activity** widget.
-New layouts place it after approvals. `DashboardWidgets.Restore` appends missing
-widgets to supported older layouts without changing the saved relative order.
+The widget occupies one-third of the grid at viewport widths of 1400px and above,
+half at 1001-1399px, and full width on narrower screens. The neighboring **Needs your
+attention** widget combines Decisions, Approvals, and Hiring with keyboard-accessible
+tabs. Its panels remain mounted to preserve drafts and expansion state. The overview
+appearance picker switches the entire page between the Aurora gradient and Black & Gold.
+`DashboardWidgets.Restore` merges legacy action queues at the first queue's saved
+position, preserving the relative order of the other widgets and appending missing activity.
 
 ## Projection and scope
 
@@ -15,7 +20,11 @@ Unlinked model calls are labelled background activity, never guessed onto an
 agent's most recently edited ticket. Parallel executors remain separate rows.
 
 The organization-scoped list is paged in groups of 50 after authorization and
-deduplication. Project work sorts first, then creation time and stable row key.
+deduplication. Confirmed executing work sorts first, followed by project category,
+creation time and stable row key. `ReadExecutionAsync` resolves provider queues and
+stale progress for potentially executing candidates before pagination, reusing those
+snapshots during rendering. Full provider stream bodies remain on demand. The client
+reapplies execution priority before its three-card preview as leases and progress age.
 The widget initially shows three activity cards; Show all opens a bounded scrolling
 list, with Load more for additional pages. `ActivityCard` uses readable headings for
 collaboration, review, Communications, model calls, and task work. Linked task titles
@@ -25,9 +34,15 @@ Open work item link. `EmployeePersonalBoard.RequestedItemId` opens only a ticket
 present in the authorized board response and preserves drafts across refreshes.
 `ActivityAgent` displays the existing employee
 portrait, name, role, and a labelled active state only while execution is confirmed.
-Waiting cards emphasize the reported dependency or queue reason. Up to two earlier
-reported progress/model phases are expandable under Recent progress; raw event names
-are available only under Technical details for diagnostic-authorized viewers.
+Both the portrait and name link to employee details. Collaboration headings use
+the authorized, sanitized session subject, falling back to the linked task title
+or “Agent coordination.” Project links use the authorized task board's WorkstreamId;
+missing associations never produce guessed project links. The active participant
+has a pulsing circle behind their portrait; reduced motion and Pause animation
+retain a static highlight. Waiting, recovering and unconfirmed rows do not pulse.
+Waiting cards emphasize the reported dependency or queue reason. Recent progress
+and Technical details disclosures have been removed from cards. Peek at provider
+stream opens the existing authorized feed inline and fetches only on demand.
 No synthetic progress or percentage completion is generated.
 
 For coordination deliveries, `CurrentActivityService` binds the two participants and
@@ -74,9 +89,10 @@ into one entry per response kind. The client retains at most 1,000 fragments and
 32,000 displayed characters per combined entry, with explicit truncation notices.
 The employee timeline retains access to older evidence.
 
-The popover supports expand, follow latest, manual refresh, Escape, outside-click
-dismissal, and focus restoration. Scrolling back pauses following without
-stopping capture. Narrow screens use an inset panel. Plain Razor text rendering
+The inline stream supports expand, follow latest, manual refresh, Escape within
+the widget, explicit dismissal, and focus restoration. Clicking elsewhere keeps
+the stream open. Scrolling back pauses following without stopping capture.
+The stream closes when its card leaves the current list. Plain Razor text rendering
 keeps model/tool content inert.
 
 ## Authorization and updates
@@ -100,7 +116,7 @@ filters, or attempts cancels stale requests.
 - `CSweet.Api/Core/CompanyDashboardEndpoints`: activity list, attempt feed, standalone model feed.
 - `CSweet.Infrastructure/Core/CurrentActivityService`: discovery, scope, authorization, state.
 - `CSweet.Infrastructure/Core/CurrentActivityFeedReader`: evidence projection and watermark paging.
-- `CSweet.UI/Components/CurrentActivity`: card list, popover, event reconciliation, fragment grouping.
+- `CSweet.UI/Components/CurrentActivity`: card list, inline provider stream, event reconciliation, fragment grouping.
 - `CSweet.UI/Components/ActivityCard`, `ActivityAgent`: activity-specific card layouts and employee identities.
 - `CSweet.UI/wwwroot/currentActivity.js`: scroll following, dismissal, focus restoration.
 - `CurrentActivityTests`, `CurrentActivityRenderingTests`, and `CompanyDashboard*Tests`:

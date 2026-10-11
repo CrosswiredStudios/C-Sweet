@@ -218,6 +218,46 @@
     margin-top: auto;
     color: #466052;
     font-size: .78rem;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.hiring-candidate {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid #e1dcf8;
+    border-radius: 9px;
+    background: #faf9ff;
+}
+
+.hiring-candidate img {
+    width: 64px;
+    height: 76px;
+    object-fit: cover;
+    border-radius: 8px;
+}
+
+.hiring-candidate > div {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.hiring-candidate small {
+    font-size: .6rem;
+    color: #6750d8;
+    font-weight: 800;
+}
+
+.hiring-candidate span {
+    font-size: .75rem;
+    color: #5d5769;
+}
+
+.hiring-suggestion-tile:has(.hiring-candidate) {
+    flex-basis: 24rem;
 }
 
 @media (max-width: 720px) {

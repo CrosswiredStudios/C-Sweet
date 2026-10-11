@@ -183,6 +183,7 @@ public sealed class ManagementReviewScheduler(
                         a.PositionKey == "chief-of-staff" && a.EndsAt == null))
                 .SingleOrDefaultAsync(token);
             if (chief is null) continue;
+            if (await ExecutiveBriefingService.DeferForOnboardingAsync(db, cycle.OrganizationId, chief.Id, token)) continue;
             var managerId = chief.ReportsToOrganizationUserId is { } configured && await db.CoreOrganizationUsers.AnyAsync(
                     x => x.Id == configured && x.OrganizationId == cycle.OrganizationId && x.IsActive, token)
                 ? configured
@@ -214,6 +215,8 @@ public sealed class ManagementReviewScheduler(
             .OrderBy(x => x.CreatedAt).Take(100).ToListAsync(token);
         foreach (var request in requests)
         {
+            if (request.TriggerType != "Manual" && await ExecutiveBriefingService.DeferForOnboardingAsync(
+                db, request.OrganizationId, request.RequestedFromOrganizationUserId, token)) continue;
             if (request.LastDispatchedAt > now.AddMinutes(-5)) continue;
             if (request.DispatchAttempts >= 3)
             {

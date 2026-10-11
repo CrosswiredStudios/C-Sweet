@@ -164,20 +164,24 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
     public async Task<Guid?> ClaimNextAsync(string leaseOwner, CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
-        var turn = await db.ChatTurns.Where(x => x.Status == ChatTurnStatus.Queued ||
+        var turn = await db.ChatTurns.Where(x => (x.Status == ChatTurnStatus.Queued && (x.LeaseUntil == null || x.LeaseUntil < now)) ||
                 (ActiveStatuses.Contains(x.Status) && x.LeaseUntil < now))
+            // Waiting on one employee must not let a later reply overtake it in the same chat.
+            .Where(x => !db.ChatTurns.Any(earlier => earlier.ConversationId == x.ConversationId &&
+                earlier.TargetAgentOrganizationUserId == x.TargetAgentOrganizationUserId &&
+                earlier.CreatedAt < x.CreatedAt && ActiveStatuses.Contains(earlier.Status)))
             .OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
         if (turn is null) return null;
         turn.LeaseOwner = leaseOwner;
         var recovering = turn.Status != ChatTurnStatus.Queued;
         turn.LeaseUntil = now.Add(InitialLeaseDuration);
-        var existingDispatch = recovering && await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
+        var existingDispatch = await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
             x.OrganizationId == turn.OrganizationId.ToString("D") && x.SourceType == "chat-turn" &&
             x.SourceId == turn.Id.ToString("D") &&
             x.IdempotencyKey == $"chat-turn:{turn.Id:D}:attempt:{turn.Attempt}", cancellationToken);
         // Recover the original durable dispatch, including its final progress, instead of
         // issuing a new side-effecting request because the response relay lost its lease.
-        if (!existingDispatch) turn.Attempt++;
+        if (turn.Attempt == 0 || (recovering && !existingDispatch)) turn.Attempt++;
         if (recovering)
         {
             turn.PartialResponse = string.Empty;
@@ -191,6 +195,34 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         turn.LeaseUntil = now.Add(InitialLeaseDuration);
         await db.SaveChangesAsync(cancellationToken);
         return turn.Id;
+    }
+
+    public async Task DeferForRuntimeAsync(Guid turnId, TimeSpan retryDelay, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var nextCheck = now.Add(retryDelay > TimeSpan.Zero ? retryDelay : TimeSpan.FromSeconds(1));
+        if (db.Database.IsRelational())
+        {
+            // The status predicate fences a cancellation committed concurrently with startup.
+            await db.ChatTurns.Where(x => x.Id == turnId && !TerminalStatuses.Contains(x.Status))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, ChatTurnStatus.Queued)
+                    .SetProperty(x => x.LeaseOwner, (string?)null)
+                    .SetProperty(x => x.LeaseUntil, (DateTimeOffset?)nextCheck)
+                    .SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            var tracked = db.ChatTurns.Local.FirstOrDefault(x => x.Id == turnId);
+            if (tracked is not null) await db.Entry(tracked).ReloadAsync(cancellationToken);
+            return;
+        }
+        var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+        // Cancellation and completed responses must never be reopened by a readiness check.
+        await db.Entry(turn).ReloadAsync(cancellationToken);
+        if (TerminalStatuses.Contains(turn.Status)) return;
+        turn.Status = ChatTurnStatus.Queued;
+        turn.LeaseOwner = null;
+        turn.LeaseUntil = nextCheck;
+        turn.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<ChatTurnTraceEventResponse> TraceAsync(Guid turnId, string category, string eventType, string status, string title, string? summary = null, object? details = null, string sensitivity = "Internal", long? durationMs = null, CancellationToken cancellationToken = default)

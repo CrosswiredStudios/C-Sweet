@@ -82,6 +82,8 @@ public sealed class ExecutiveBriefingService(
                             a.PositionKey == "chief-of-staff" && a.EndsAt == null))
             .Select(x => new { x.OrganizationId, x.Id }).SingleOrDefaultAsync(cancellationToken);
         if (chief is null) return Failure("chief_not_found", "The registered installation is not the active Chief of Staff.");
+        if (await DeferForOnboardingAsync(db, chief.OrganizationId, chief.Id, cancellationToken))
+            return Failure("onboarding_in_progress", "Finish Chief onboarding before automatic briefings begin.");
         var waiting = await db.ManagementCheckInRequests.Where(x => x.OrganizationId == chief.OrganizationId &&
                 x.CheckInType == "ExecutiveBriefing" && (x.Status == "Pending" || x.Status == "AwaitingReport"))
             .ToListAsync(cancellationToken);
@@ -130,6 +132,8 @@ public sealed class ExecutiveBriefingService(
         var chief = await CurrentChiefAsync(organizationId, cancellationToken);
         if (chief is null || expectedChiefId.HasValue && chief.Id != expectedChiefId.Value)
             return Failure("chief_not_found", "No matching active Chief of Staff is assigned.");
+        if (!bypassStartupSetting && await DeferForOnboardingAsync(db, organizationId, chief.Id, cancellationToken))
+            return Failure("onboarding_in_progress", "Finish Chief onboarding before automatic briefings begin.");
         var cycle = await db.ManagementCycles.SingleOrDefaultAsync(x => x.OrganizationId == organizationId, cancellationToken);
         if (cycle is null)
         {
@@ -166,6 +170,18 @@ public sealed class ExecutiveBriefingService(
         await db.CoreOrganizationUsers.SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.IsActive &&
             db.LeadershipAssignments.Any(a => a.OrganizationId == organizationId && a.OrganizationUserId == x.Id &&
                 a.PositionKey == "chief-of-staff" && a.EndsAt == null), token);
+
+    public static async Task<bool> DeferForOnboardingAsync(CSweetDbContext db, Guid organizationId, Guid chiefId, CancellationToken token)
+    {
+        var onboarding = await db.AgentOnboardingEventOutbox.AsNoTracking().Where(x =>
+            x.OrganizationId == organizationId && x.AgentOrganizationUserId == chiefId &&
+            x.Status != CSweet.Domain.Communications.AgentOnboardingEventOutboxStatus.Cancelled)
+            .Select(x => (CSweet.Domain.Communications.AgentOnboardingEventOutboxStatus?)x.Status).FirstOrDefaultAsync(token);
+        if (onboarding is null) return false; // Preserve established installations without onboarding records.
+        if (onboarding != CSweet.Domain.Communications.AgentOnboardingEventOutboxStatus.Delivered) return true;
+        var installation = await db.CoreOrganizationUsers.Where(x => x.Id == chiefId).Select(x => x.AgentInstallationId).SingleAsync(token);
+        return !await db.ChiefHiringPolicies.AnyAsync(x => x.OrganizationId == organizationId && x.InstallationId == installation && x.SetupComplete, token);
+    }
 
     private async Task<Guid?> ResolveManagerIdAsync(OrganizationUser chief, CancellationToken token)
     {

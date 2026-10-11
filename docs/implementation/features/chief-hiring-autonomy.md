@@ -32,6 +32,22 @@ hire. Policy changes cannot expand an existing plan implicitly.
 
 ## Conversation and owner settings
 
+`ChatTurnWorker` sends the bound `CurrentMessageContent` alongside the complete model
+prompt. `MemoryRecallDispatchEvidence.ValidatePromptPayload` verifies its hash against
+the frozen current-message source. The Chief's `ReadCurrentUserMessage` uses that field
+for deterministic hiring setup, avoiding preference changes inferred from quoted history
+or retrieved memory. Older platforms use the final current-message prompt wrapper.
+
+Hiring setup answers finish with a `terminal-question-message` progress record naming
+the saved next-question message. `ChatTurnWorker.ResolveTerminalQuestionMessageAsync`
+validates its conversation, Chief sender, requesting installation, creation time and
+turn association, then reuses it as the turn response without appending an acknowledgement.
+
+`ExecutiveBriefingService.DeferForOnboardingAsync` prevents activation, runtime-startup,
+and scheduled briefings for a newly onboarded Chief until lifecycle delivery and owner
+hiring setup are complete. `ManagementReviewScheduler` applies the same check when
+dispatching queued automatic briefings. Explicit manual requests remain available.
+
 `ChiefOfStaffAgent.HiringPolicy.cs` asks one existing executive-decision widget at a time,
 after Chief profile setup and before company focus. The sequence is mode, automatic level
 if relevant, bounded costs/permissions if relevant, then publisher preference. Explicit

@@ -6,6 +6,16 @@ its trace, and agent-side records.
 
 ## Turn lifecycle
 
+`ChatTurnWorker.PrepareRuntimeAsync` keeps new replies queued while the agent is queued,
+starting, reconnecting or stopping for recovery. `ChatTurnService.DeferForRuntimeAsync`
+persists the next discovery time in `LeaseUntil` and releases the worker so other chats
+can proceed. Later replies to that employee in the same conversation remain ordered.
+Reclaims preserve the same attempt; memory recall is prepared only after
+readiness, and existing durable dispatches can recover results even while the runtime
+is offline. The former 30-second startup window no longer produces a failure response.
+Terminal startup failures and the original `ChatTurnOptions.HardTimeout` safety limit
+remain failures. Cancellation is preserved; `runtime.waiting` explains the queued state.
+
 `ChatTurnTraceSequence.NextAsync` allocates diagnostic sequences with an atomic database
 increment. Both `ChatTurnService.TraceAsync` and `AgentMemoryService.AppendTurnMemoryTraceAsync`
 use it; long-lived tracked turns must not allocate sequences themselves. Otherwise background
@@ -107,6 +117,8 @@ Endpoint equivalents: `GET /communications/hub/chats/{chatId}/turns[/{turnId}[/t
 `POST .../retry`, `POST .../cancel` (`CommunicationChatTurnEndpoints`).
 
 ## Recovery
+
+The October 10 Prism Break Producer handoff failed in the Creative Director's final acknowledgement after the Producer completed and the planning package was approved. A concurrent package-submitted event advanced the project operating state from revision 4 to 5. `McpAgentRuntimeClient.InvokeAsync` previously classified every MCP tool error as `Unavailable`, so `VideoGameCreativeDirectorAgent.SaveStateAsync` could not catch the typed `Conflict` and reread/merge. SDK 3.62.2 preserves typed capability errors from legacy enum names and current `platform.capability.*` metadata; Creative Director 1.18.4 pins this fix. Deploy the updated agent runtime, then resume the existing failed coordination session through `AgentCoordinationService.ResumeForManagerAsync` (Communications recovery), preserving its transcript and approved artifacts. Routine project reviews do not resume a terminal nonretryable coordination failure.
 
 All supported provider types use the shared response contract described in
 [Uniform provider responses](features/provider-response-compatibility.md).

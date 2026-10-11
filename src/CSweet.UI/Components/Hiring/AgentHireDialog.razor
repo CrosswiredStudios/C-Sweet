@@ -304,6 +304,7 @@
         _reportsToId = null;
         _teamId = null;
         _configurationValues.Clear();
+        await InvokeAsync(StateHasChanged);
         try
         {
             var peopleTask = Http.GetFromJsonAsync<IReadOnlyList<OrganizationUserResponse>>(
@@ -329,6 +330,7 @@
         finally
         {
             _reviewBusy = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

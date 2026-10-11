@@ -124,6 +124,7 @@
     private async Task ReviewHireAsync()
     {
         _profileOpen = false;
+        await InvokeAsync(StateHasChanged);
         await ReviewHireRequested.InvokeAsync(Agent);
     }
     public async ValueTask DisposeAsync()

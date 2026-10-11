@@ -6,7 +6,7 @@
 @implements IDisposable
 
 <PageTitle>Company overview - C-Sweet</PageTitle>
-<div class="company-overview">
+<div class="company-overview" data-activity-theme="@_activityTheme">
     <MudPaper Elevation="0" Class="page-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Company overview</MudText>
@@ -14,12 +14,13 @@
             <MudText Color="Color.Secondary">Decisions, company health, and the latest from your project leads.</MudText>
         </div>
         <div class="overview-actions">
+            <select class="activity-theme-picker" aria-label="Overview appearance" @bind="_activityTheme"><option value="aurora">Aurora Light</option><option value="gold">Black &amp; Gold</option></select>
             <MudButton Href="@($"/organizations/{OrganizationId}/executive-briefings")" Variant="Variant.Text">Briefing settings</MudButton>
             <MudButton OnClick="RefreshAsync" Disabled="_loading" StartIcon="@Icons.Material.Outlined.Refresh">Refresh</MudButton>
         </div>
     </MudPaper>
     <div class="overview-toolbar">
-        <span>Drag a row by its handle, or use the arrows to reorder.</span>
+        <span>Drag a widget by its handle, or use the arrows to reorder.</span>
         <MudButton OnClick="ResetOrderAsync" Disabled="@(_saving || !_layoutLoaded)" Size="Size.Small">Reset order</MudButton>
     </div>
     <div role="status" aria-live="polite" class="layout-status">@_layoutMessage</div>
@@ -27,19 +28,16 @@
     {
         <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-3" />
     }
+    <div class="overview-widgets">
     @foreach (var widget in _order)
     {
         var index = _order.IndexOf(widget);
-        <section @key="widget" class="overview-widget @(_dragging == widget ? "is-dragging" : "")"
+        <section @key="widget" class="overview-widget @(widget + "-widget") @(_dragging == widget ? "is-dragging" : "")"
                  aria-label="@Title(widget)" @ondragover:preventDefault @ondrop="() => DropAsync(widget)">
             <header class="widget-header">
                 <div class="widget-heading">
                     <span class="drag-handle" draggable="@(_layoutLoaded && !_saving ? "true" : "false")" @ondragstart="() => _dragging = widget" @ondragend="() => _dragging = null" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" /></span>
                     <MudText Typo="Typo.h6">@Title(widget)</MudText>
-                    @if (widget == "approvals" && _approvals is not null)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="@(PendingApprovals.Any() ? Color.Warning : Color.Default)">@PendingApprovals.Count() pending</MudChip>
-                    }
                 </div>
                 <div class="widget-controls">
                     <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {Title(widget)} up")" Disabled="@(index == 0 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index - 1)" />
@@ -47,12 +45,53 @@
                 </div>
             </header>
             <div class="widget-content">
-                @if (widget == "hiring")
+                @if (widget == "attention")
                 {
-                    <CompanyHiringSummary @key="OrganizationId" OrganizationId="OrganizationId"
-                        Approvals="PendingHiringApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
-                        ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
-                        ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")" />
+                    <div class="attention-tabs" role="tablist" aria-label="Action queues">
+                        @for (var tabIndex = 0; tabIndex < AttentionTabs.Length; tabIndex++)
+                        {
+                            var tab = tabIndex;
+                            <button @ref="_attentionTabButtons[tab]" type="button" role="tab" id="@($"attention-tab-{tab}")"
+                                    aria-controls="@($"attention-panel-{tab}")" aria-selected="@(_attentionTab == tab ? "true" : "false")"
+                                    tabindex="@(_attentionTab == tab ? 0 : -1)" @onclick="() => _attentionTab = tab" @onkeydown="e => NavigateAttentionAsync(e, tab)">
+                                @AttentionTabs[tab]
+                                @if (tab == 1 && _approvals is not null) { <span class="tab-count">@PendingApprovals.Count()</span> }
+                                @if (tab == 2 && _approvals is not null && _hiring is not null) { <span class="tab-count">@(PendingHiringApprovals.Count() + PendingRecommendations.Count())</span> }
+                            </button>
+                        }
+                    </div>
+                    <div class="attention-panel" role="tabpanel" id="attention-panel-0" aria-labelledby="attention-tab-0" aria-label="Decisions" tabindex="0" hidden="@(_attentionTab != 0)">
+                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" />
+                    </div>
+                    <div class="attention-panel" role="tabpanel" id="attention-panel-1" aria-labelledby="attention-tab-1" aria-label="CEO approvals" tabindex="0" hidden="@(_attentionTab != 1)">
+                        @if (_errors.GetValueOrDefault("approvals") is { } approvalError)
+                        {
+                            <MudAlert Severity="Severity.Warning">@approvalError Use Refresh to try again.</MudAlert>
+                        }
+                        else if (_approvals is not null)
+                        {
+                            <p class="queue-summary">@PendingApprovals.Count() pending</p>
+                            @if (!PendingApprovals.Any())
+                            {
+                                <div class="empty-inline"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><MudText>No approvals need your action.</MudText></div>
+                            }
+                            @foreach (var approval in PendingApprovals.Take(5))
+                            {
+                                <div class="approval-row">
+                                    <div><MudText Typo="Typo.subtitle1">@approval.Title</MudText><MudText Color="Color.Secondary">@approval.Summary</MudText><MudText Typo="Typo.caption">@approval.RequestedBy · Requested @approval.CreatedAt.ToLocalTime().ToString("g")</MudText></div>
+                                    <MudButton Href="@ApprovalsHref" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
+                                </div>
+                            }
+                            <MudButton Href="@ApprovalsHref" Size="Size.Small" Class="mt-2">View all approvals</MudButton>
+                        }
+                        else { <MudText>Loading approvals…</MudText> }
+                    </div>
+                    <div class="attention-panel" role="tabpanel" id="attention-panel-2" aria-labelledby="attention-tab-2" aria-label="Hiring" tabindex="0" hidden="@(_attentionTab != 2)">
+                        <CompanyHiringSummary @key="OrganizationId" OrganizationId="OrganizationId"
+                            Approvals="PendingHiringApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
+                            ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
+                            ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")" />
+                    </div>
                 }
                 else if (ErrorFor(widget) is { } error)
                 {
@@ -63,25 +102,6 @@
                     <EmployeePortraitScope OrganizationId="OrganizationId">
                         <CurrentActivity OrganizationId="OrganizationId" RefreshVersion="_activityRefreshVersion" />
                     </EmployeePortraitScope>
-                }
-                else if (widget == "decisions")
-                {
-                    <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" />
-                }
-                else if (widget == "approvals" && _approvals is not null)
-                {
-                    @if (!PendingApprovals.Any())
-                    {
-                        <div class="empty-inline"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><MudText>No approvals need your action.</MudText></div>
-                    }
-                    @foreach (var approval in PendingApprovals.Take(5))
-                    {
-                        <div class="approval-row">
-                            <div><MudText Typo="Typo.subtitle1">@approval.Title</MudText><MudText Color="Color.Secondary">@approval.Summary</MudText><MudText Typo="Typo.caption">@approval.RequestedBy · Requested @approval.CreatedAt.ToLocalTime().ToString("g")</MudText></div>
-                            <MudButton Href="@ApprovalsHref" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
-                        </div>
-                    }
-                    <MudButton Href="@ApprovalsHref" Size="Size.Small" Class="mt-2">View all approvals</MudButton>
                 }
                 else if (widget == "finance" && _dashboard is not null)
                 {
@@ -154,6 +174,7 @@
             </div>
         </section>
     }
+    </div>
 </div>
 
 @code {
@@ -170,6 +191,17 @@
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
     private int _activityRefreshVersion;
+    private string _activityTheme = "aurora";
+    private static readonly string[] AttentionTabs = ["Decisions", "Approvals", "Hiring"];
+    private readonly ElementReference[] _attentionTabButtons = new ElementReference[3];
+    private int _attentionTab;
+    private async Task NavigateAttentionAsync(KeyboardEventArgs e, int tab)
+    {
+        var next = e.Key switch { "ArrowRight" => (tab + 1) % 3, "ArrowLeft" => (tab + 2) % 3, "Home" => 0, "End" => 2, _ => -1 };
+        if (next < 0) return;
+        _attentionTab = next;
+        await _attentionTabButtons[next].FocusAsync(preventScroll: true);
+    }
     private string ApprovalsHref => $"/organizations/{OrganizationId}/approvals";
     private IEnumerable<ApprovalDashboardItemResponse> ActionableApprovals => (_approvals?.Items ?? [])
         .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
@@ -193,7 +225,7 @@
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
         _organization = null; _approvals = null; _hiring = null; _dashboard = null; _portfolio = null;
-        _refreshQueued = false;
+        _refreshQueued = false; _attentionTab = 0;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
         await RefreshAsync();
     }
@@ -289,7 +321,7 @@
         await RefreshAsync();
         if (!_disposed) StateHasChanged();
     });
-    private static string Title(string key) => key switch { "decisions" => "Pending Decisions", "hiring" => "Hiring", "approvals" => "CEO approvals", "activity" => "Current Activity", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
+    private static string Title(string key) => key switch { "attention" => "Needs your attention", "activity" => "Current Activity", "finance" => "Finances", "legal" => "Legal", _ => "Projects & products" };
     private static string Money(decimal? value) => value?.ToString("N2") ?? "Not reported";
     private static string DueLabel(DateOnly date)
     {

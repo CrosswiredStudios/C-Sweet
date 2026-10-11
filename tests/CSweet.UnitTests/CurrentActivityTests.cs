@@ -53,7 +53,8 @@ public sealed class CurrentActivityTests
         var session = new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
             InitiatorOrganizationUserId = partner.Id, InitiatorInstallationId = partner.AgentInstallationId.Value,
             TargetOrganizationUserId = f.Agent.Id, TargetInstallationId = f.Agent.AgentInstallationId!.Value,
-            CurrentOrganizationUserId = f.Agent.Id, CurrentAgentWorkItemId = work.Id, SourceWorkItemId = f.Ticket.Id };
+            CurrentOrganizationUserId = f.Agent.Id, CurrentAgentWorkItemId = work.Id, SourceWorkItemId = f.Ticket.Id,
+            Subject = "First playable planning" };
         f.Db.AddRange(role, partner, session);
         if (!canInspect) f.Owner.PermissionLevel = OrganizationPermissionLevel.Contributor;
         await f.Db.SaveChangesAsync();
@@ -61,6 +62,8 @@ public sealed class CurrentActivityTests
         Assert.Equal("Collaboration", row.ActivityKind);
         Assert.Equal(f.Ticket.Id, row.WorkItemId);
         Assert.Equal(f.Ticket.Title, row.Title);
+        Assert.Equal((await f.Db.WorkBoards.SingleAsync()).WorkstreamId, row.ProjectId);
+        Assert.Equal(canInspect ? session.Subject : null, row.CollaborationName);
         Assert.Equal("Executing", row.State);
         Assert.DoesNotContain("Awaiting a project decision", row.CurrentAction);
         if (canInspect)
@@ -286,6 +289,30 @@ public sealed class CurrentActivityTests
         Assert.Equal(56, first.Total); Assert.Equal(50, first.Items.Count); Assert.Equal(6, second.Items.Count); Assert.Null(second.NextOffset);
         Assert.Equal(56, first.Items.Concat(second.Items).Select(x => x.Key).Distinct().Count());
         Assert.Equal("Project", first.Items[0].Category);
+    }
+
+    [Fact]
+    public async Task ExecutingWorkPrecedesQueuedAndStaleProjectWorkAcrossPages()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        // A leased project can still be waiting on provider capacity.
+        var queued = await f.RunAsync(f.Attempt.Id, f.Ticket.Id);
+        (await f.Db.AgentRunLogs.SingleAsync(x => x.Id == queued)).Status = "Queued";
+        for (var i = 0; i < 55; i++)
+            f.Db.AgentRunLogs.Add(new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = f.Org,
+                EmployeeId = f.Agent.Id, AgentInstallationId = f.Agent.AgentInstallationId,
+                StartedAt = DateTimeOffset.UtcNow.AddHours(-2).AddMinutes(i), Status = "Running" });
+        var running = new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            EmployeeId = f.Agent.Id, AgentInstallationId = f.Agent.AgentInstallationId,
+            StartedAt = DateTimeOffset.UtcNow, Status = "Running" };
+        f.Db.Add(running); await f.Db.SaveChangesAsync();
+        var first = await f.Service.ReadAsync(f.Org, f.User);
+        var second = await f.Service.ReadAsync(f.Org, f.User, first.NextOffset!.Value);
+        Assert.Equal(running.Id, first.Items[0].ModelRunId);
+        Assert.Equal("Executing", first.Items[0].State);
+        Assert.Equal("Waiting", first.Items[1].State);
+        Assert.All(first.Items.Skip(2).Concat(second.Items), row => Assert.Equal("Unconfirmed", row.State));
+        Assert.Equal(57, first.Items.Concat(second.Items).Select(x => x.Key).Distinct().Count());
     }
 
     private sealed class Grants : IScopedActionAuthorizationService

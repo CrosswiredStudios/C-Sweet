@@ -4,20 +4,12 @@ export function sync(root, reference, key, follow) {
     let state = bindings.get(root);
     if (!state) {
         state = { reference, key: null, feed: null, scrolling: false };
-        state.outside = event => {
-            if (!state.key) return;
-            const panel = root.querySelector('[data-activity-popover]');
-            const opener = event.target.closest?.('[data-current-activity-open]');
-            if (panel && !panel.contains(event.target) && !(opener && root.contains(opener)))
-                state.reference.invokeMethodAsync('CloseDetails').catch(() => {});
-        };
         state.keyboard = event => {
-            if (event.key === 'Escape' && state.key) {
+            if (event.key === 'Escape' && state.key && root.contains(event.target)) {
                 event.preventDefault();
                 state.reference.invokeMethodAsync('CloseDetails').catch(() => {});
             }
         };
-        document.addEventListener('pointerdown', state.outside);
         document.addEventListener('keydown', state.keyboard);
         bindings.set(root, state);
     }
@@ -47,7 +39,6 @@ export function sync(root, reference, key, follow) {
 export function dispose(root) {
     const state = bindings.get(root);
     if (!state) return;
-    document.removeEventListener('pointerdown', state.outside);
     document.removeEventListener('keydown', state.keyboard);
     state.feed?.removeEventListener('scroll', state.scroll);
     bindings.delete(root);

@@ -49,6 +49,7 @@ internal sealed record UserMessageReceived(
     int Attempt = 0,
     Guid MessageId = default)
 {
+    public string? CurrentMessageContent { get; init; }
     public IReadOnlyList<UserMessageAttachment> Attachments { get; init; } = [];
     public AgentWorkContext? WorkContext { get; init; }
 }

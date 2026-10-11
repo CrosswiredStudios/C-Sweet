@@ -19,6 +19,32 @@ namespace CSweet.UnitTests;
 public sealed partial class AgentMemoryServiceTests
 {
     [MemoryPostgresFact]
+    public async Task RuntimeWaiting_PostgresDeferralSurvivesReconnectAndConcurrentCancellation()
+    {
+        await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
+        var turn = await SeedRecallTurnAsync(fixture);
+        await using var workerDb = fixture.Context();
+        await workerDb.ChatTurns.Where(x => x.Id == turn.Id).ExecuteUpdateAsync(s => s
+            .SetProperty(x => x.Status, ChatTurnStatus.Queued).SetProperty(x => x.Attempt, 0));
+        var turns = new ChatTurnService(workerDb);
+        Assert.Equal(turn.Id, await turns.ClaimNextAsync("before-restart"));
+        var attempt = (await workerDb.ChatTurns.SingleAsync(x => x.Id == turn.Id)).Attempt;
+        await turns.DeferForRuntimeAsync(turn.Id, TimeSpan.FromMinutes(1));
+        await using var replacementDb = fixture.Context();
+        var replacement = new ChatTurnService(replacementDb);
+        Assert.Null(await replacement.ClaimNextAsync("after-restart"));
+        await replacementDb.ChatTurns.Where(x => x.Id == turn.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.LeaseUntil, DateTimeOffset.UtcNow.AddSeconds(-1)));
+        Assert.Equal(turn.Id, await replacement.ClaimNextAsync("after-restart"));
+        Assert.Equal(attempt, (await replacementDb.ChatTurns.SingleAsync(x => x.Id == turn.Id)).Attempt);
+        await replacementDb.ChatTurns.Where(x => x.Id == turn.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, ChatTurnStatus.Cancelled));
+        // The original worker still tracks a nonterminal snapshot.
+        await turns.DeferForRuntimeAsync(turn.Id, TimeSpan.FromMinutes(1));
+        Assert.Equal(ChatTurnStatus.Cancelled, (await workerDb.ChatTurns.SingleAsync(x => x.Id == turn.Id)).Status);
+    }
+
+    [MemoryPostgresFact]
     public async Task ChatAndBackgroundMemoryTraceWriters_DoNotCollideOnStaleTurns()
     {
         await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
@@ -93,7 +119,7 @@ public sealed partial class AgentMemoryServiceTests
         services.AddScoped<IAgentMemoryService>(p => fixture.Service(p.GetRequiredService<CSweetDbContext>(), new UsageProviderFactory()));
         services.AddScoped<AgentWorkInbox>(p => new AgentWorkInbox(p.GetRequiredService<CSweetDbContext>(), protection, TimeProvider.System));
         services.AddSingleton<IAgentInstallationConfigurationService>(new StaticInstallationConfigurationService(fixture.InstallationId, fixture.ProviderId, "test-model"));
-        services.AddSingleton<IAgentInteractiveRuntimeService>(new ResetMessageReadyRuntime());
+        services.AddSingleton<IAgentInteractiveRuntimeService>(new OfflineRecoveryRuntime());
         services.AddSingleton<IAuditEventWriter>(new ResetMessageAudit());
         using var provider = services.BuildServiceProvider();
         var worker = new ChatTurnWorker(provider.GetRequiredService<IServiceScopeFactory>(), new ChatStreamRouter(),
@@ -112,5 +138,13 @@ public sealed partial class AgentMemoryServiceTests
         Assert.Equal(1, completed.Attempt);
         Assert.Equal(response, (await verify.CoreConversationMessages.SingleAsync(x => x.Id == completed.AssistantMessageId)).Content);
         Assert.Equal(existing.Id, (await verify.AgentWorkItems.SingleAsync(x => x.SourceId == turn.Id.ToString("D"))).Id);
+    }
+
+    private sealed class OfflineRecoveryRuntime : IAgentInteractiveRuntimeService
+    {
+        public Task<CSweet.Contracts.Agents.AgentRuntimeReadinessResponse> EnsureReadyAsync(Guid installationId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Completed durable work must recover without requiring a running agent.");
+        public Task<CSweet.Contracts.Agents.AgentRuntimeReadinessResponse> GetStatusAsync(Guid installationId, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Completed durable work must recover without requiring a running agent.");
     }
 }

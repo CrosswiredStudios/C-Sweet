@@ -58,8 +58,16 @@
                 {
                     @if (SelectedAgent(recommendation) is { } candidate)
                     {
-                        <strong>@candidate.Name</strong>
-                        <span>@candidate.Publisher · @(candidate.Price is { } price ? $"{price} {candidate.Currency}" : "Cost unavailable")</span>
+                        <div class="hiring-candidate" aria-label="Recommended candidate">
+                            <img src="@CandidateImage(candidate)" alt="@candidate.Name" loading="lazy" referrerpolicy="no-referrer"
+                                 @onerror="@(() => _failedImages.Add(candidate.AgentReference))" />
+                            <div>
+                                <small>RECOMMENDED AGENT</small>
+                                <strong>@candidate.Name</strong>
+                                <span>@candidate.Publisher</span>
+                                <span>@(candidate.Price is { } price ? $"{price} {candidate.Currency}" : "Cost unavailable")</span>
+                            </div>
+                        </div>
                     }
                     @if (!string.IsNullOrWhiteSpace(recommendation.SelectionRationale)) { <p>@recommendation.SelectionRationale</p> }
                     <small>Plan proposed by @(recommendation.RequestingEmployee ?? recommendation.SuggestedBy ?? "Unknown employee")</small>
@@ -92,13 +100,13 @@
                         @if (action.HiringRecommendationId is Guid selectedId && _recommendations.GetValueOrDefault(selectedId) is { } selectedRecommendation && SelectedAgent(selectedRecommendation) is { } selectedAgent)
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                       OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">Hire agent</MudButton>
+                                       OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">Hire</MudButton>
                         }
                         <MudButton Href="@action.NavigationUri"
-                                   Variant="Variant.Filled"
+                                   Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    EndIcon="@Icons.Material.Outlined.ArrowForward">
-                            @(action.HiringRecommendationId is Guid id && SelectedAgent(_recommendations.GetValueOrDefault(id)) is not null ? "See other candidates" : "Browse candidates")
+                            Browse Candidates
                         </MudButton>
                     }
                     else
@@ -119,6 +127,10 @@
 
     private AgentHireDialog? _hireDialog;
     private readonly Dictionary<Guid, HiringRecommendationResponse> _recommendations = [];
+    private readonly HashSet<string> _failedImages = [];
+    private string CandidateImage(AvailableAgent agent) =>
+        !_failedImages.Contains(agent.AgentReference) && MarketplaceAgentPresentation.IsAgentImageUrl(agent.ImageUrl)
+            ? agent.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
     protected override Task OnParametersSetAsync() => RefreshAsync();
     private async Task RefreshAsync()
     {

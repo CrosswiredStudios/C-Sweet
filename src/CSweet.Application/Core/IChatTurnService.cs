@@ -12,6 +12,7 @@ public interface IChatTurnService
     Task<bool> CancelAsync(Guid organizationId, Guid turnId, CancellationToken cancellationToken = default);
     Task<ChatTurnStartResponse?> RetryAsync(Guid organizationId, Guid turnId, CancellationToken cancellationToken = default);
     Task<Guid?> ClaimNextAsync(string leaseOwner, CancellationToken cancellationToken = default);
+    Task DeferForRuntimeAsync(Guid turnId, TimeSpan retryDelay, CancellationToken cancellationToken = default);
     Task<ChatTurnTraceEventResponse> TraceAsync(Guid turnId, string category, string eventType, string status, string title, string? summary = null, object? details = null, string sensitivity = "Internal", long? durationMs = null, CancellationToken cancellationToken = default);
     Task SetStatusAsync(Guid turnId, string status, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default);
     Task AppendOutputAsync(Guid turnId, string delta, CancellationToken cancellationToken = default);

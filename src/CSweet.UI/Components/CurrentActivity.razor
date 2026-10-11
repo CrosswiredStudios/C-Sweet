@@ -4,7 +4,7 @@
 @inject AppRealtimeState Realtime
 @inject IJSRuntime JavaScript
 
-<div class="current-activity" @ref="_root">
+<div class="current-activity @(!_animate ? "motion-paused" : "")" @ref="_root">
     <div class="activity-toolbar">
         <div class="activity-counts">
             @if (_page is not null)
@@ -28,32 +28,19 @@
     <div class="activity-rows @(_expanded ? "expanded" : "")">
         @foreach (var item in VisibleRows)
         {
-            <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" Inspect="OpenAsync" />
-        }
-    </div>
-    @if (_page is not null && _rows.Count > 0)
+            <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" Inspect="ToggleStreamAsync">
+    @if (_selected is { } selected && selected.Key == item.Key)
     {
-        <footer class="activity-footer">
-            <span>Checked @Age(_page.CheckedAt) ago · @(VisibleRows.Count()) of @_page.Total</span>
-            @if (!_expanded && _page.Total > 3) { <button type="button" @onclick="() => _expanded = true">Show all @_page.Total</button> }
-            else if (_expanded) { <button type="button" @onclick="() => _expanded = false">Show fewer</button> }
-            @if (_expanded && _page.NextOffset.HasValue) { <button type="button" disabled="@_loading" @onclick="LoadMoreAsync">Load more work</button> }
-        </footer>
-    }
-    @if (_selected is { } selected)
-    {
-        <section class="activity-popover @(_wide ? "wide" : "")" role="dialog" aria-label="Activity details" data-activity-popover>
-            <header class="activity-popover-header"><div><div class="activity-meta">@(selected.Identifier ?? selected.Category) · @selected.Context</div><h3>@selected.Title</h3></div><button type="button" class="activity-icon-button" data-activity-close aria-label="Close activity details" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
-            <div class="activity-person"><span class="activity-avatar"><PersonAvatarContent EmployeeId="selected.EmployeeId" IsAgent="true" Initials="@Initials(selected.EmployeeName)" /></span><a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">@selected.EmployeeName</a><span class="activity-status @StateClass(selected)">@DisplayState(selected)</span></div>
-            <p class="activity-current-detail">@DisplayAction(selected)</p>
-            <div class="activity-feed-header"><h4>Reasoning &amp; actions</h4><button type="button" aria-expanded="@(_wide ? "true" : "false")" @onclick="() => _wide = !_wide">@(_wide ? "Compact" : "Expand")</button></div>
+        <section class="activity-stream @(_wide ? "wide" : "")" role="region" aria-label="Provider stream" data-activity-stream>
+            <header class="activity-popover-header"><div><h3>Provider stream</h3><div class="activity-meta">@(selected.Provider ?? "No correlated model call") @selected.Model</div></div><button type="button" class="activity-icon-button" data-activity-close aria-label="Close provider stream" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
+            <div class="activity-feed-header"><span class="activity-meta">@selected.EmployeeName</span><button type="button" aria-expanded="@(_wide ? "true" : "false")" @onclick="() => _wide = !_wide">@(_wide ? "Compact" : "Expand")</button></div>
             @if (!selected.CanInspect) { <p class="activity-notice">You can see this work item, but do not have access to this employee's diagnostics.</p> }
             else if (selected.AttemptId is null && selected.ModelRunId is null) { <p class="activity-notice">No current execution attempt is available. Work may be waiting for an agent claim or recovery.</p> }
             else
             {
                 @if (_feedError is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_feedError</MudAlert> }
                 @if (_feedLoading && _feed.Count == 0) { <MudProgressLinear Indeterminate="true" /> }
-                <div class="activity-feed" data-activity-feed role="log" aria-label="Reasoning and actions feed" aria-live="@(_follow ? "polite" : "off")" aria-relevant="additions text">
+                <div class="activity-feed" data-activity-feed role="log" aria-label="Provider output and actions" aria-live="@(_follow ? "polite" : "off")" aria-relevant="additions text">
                     @foreach (var entry in FeedRows)
                     {
                         <article class="activity-feed-entry" @key="entry.Key"><div><span>@entry.Label</span><time title="@entry.OccurredAt.ToLocalTime().ToString("g")">@entry.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time></div><p>@entry.Text</p></article>
@@ -65,11 +52,24 @@
                 @if (_feedOmitted) { <p class="activity-notice">Showing a bounded recent feed. Earlier content is available in the employee timeline.</p> }
                 @if (_evidenceUnavailable) { <p class="activity-notice">Some captured evidence is unavailable or could not be verified.</p> }
             }
-            <footer class="activity-details-footer"><div>Provider / model<strong>@(selected.Provider ?? "No correlated model call")</strong><span>@selected.Model</span></div><div>Execution<strong>@(selected.Attempt > 0 ? $"Attempt {selected.Attempt}" : "Not claimed")</strong><span>Last progress: @(selected.LastProgressAt.HasValue ? Age(selected.LastProgressAt.Value) + " ago" : "Not reported")</span></div></footer>
             <div class="activity-detail-links">
                 @if (selected.BoardId.HasValue) { <a href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, selected)">Open work item</a> }
                 <a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">Employee details</a>
             </div>
         </section>
     }
+            </ActivityCard>
+        }
+    </div>
+    @if (_page is not null && _rows.Count > 0)
+    {
+        <footer class="activity-footer">
+            <span>Checked @Age(_page.CheckedAt) ago · @(VisibleRows.Count()) of @_page.Total</span>
+            <button type="button" aria-pressed="@(!_animate ? "true" : "false")" @onclick="() => _animate = !_animate">@(_animate ? "Pause animation" : "Resume animation")</button>
+            @if (!_expanded && _page.Total > 3) { <button type="button" @onclick="() => _expanded = true">Show all @_page.Total</button> }
+            else if (_expanded) { <button type="button" @onclick="() => _expanded = false">Show fewer</button> }
+            @if (_expanded && _page.NextOffset.HasValue) { <button type="button" disabled="@_loading" @onclick="LoadMoreAsync">Load more work</button> }
+        </footer>
+    }
+
 </div>

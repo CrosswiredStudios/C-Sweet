@@ -11,7 +11,8 @@ public sealed record CurrentActivityItem(string Key, Guid? WorkItemId, Guid? Boa
     DateTimeOffset? LastProgressAt, DateTimeOffset? LeaseExpiresAt, string? Provider, string? Model,
     bool CanInspect, IReadOnlyList<CurrentActivityStep> PreviousSteps, Guid? ModelRunId = null,
     string ActivityKind = "Work", string? EmployeeRole = null, CurrentActivityParticipant? Collaborator = null,
-    string? TechnicalName = null, Guid? PersonalBoardOwnerId = null);
+    string? TechnicalName = null, Guid? PersonalBoardOwnerId = null, Guid? ProjectId = null,
+    string? CollaborationName = null);
 
 public sealed record CurrentActivityParticipant(Guid EmployeeId, string EmployeeName, string? Role);
 

@@ -9,6 +9,39 @@ namespace CSweet.UnitTests;
 public sealed class ExecutiveBriefingServiceTests
 {
     [Fact]
+    public async Task NewChief_DefersAutomaticBriefingsUntilOwnerPreferencesAreSavedButAllowsManualRequests()
+    {
+        await using var db = CreateDb();
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example", Status = OrganizationStatus.Active };
+        var owner = Person(organization.Id, "Owner", EmployeeType.Human, OrganizationPermissionLevel.Owner);
+        var chief = Person(organization.Id, "Chief", EmployeeType.Agent, OrganizationPermissionLevel.Manager);
+        chief.AgentInstallationId = Guid.NewGuid(); chief.ReportsToOrganizationUserId = owner.Id;
+        var onboarding = new CSweet.Domain.Communications.AgentOnboardingEventOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, AgentOrganizationUserId = chief.Id,
+            HiringOrganizationUserId = owner.Id, ConversationId = Guid.NewGuid()
+        };
+        db.AddRange(organization, owner, chief, onboarding, new LeadershipAssignment
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, OrganizationUserId = chief.Id,
+            PositionKey = "chief-of-staff", StartsAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        var service = new ExecutiveBriefingService(db, new TestAuditEventWriter(), TimeProvider.System);
+        Assert.False((await service.QueueActivationAsync(organization.Id, chief.Id)).Succeeded);
+        Assert.False((await service.QueueRuntimeStartupAsync(chief.AgentInstallationId.Value, Guid.NewGuid())).Succeeded);
+        Assert.Empty(await db.ManagementCheckInRequests.ToListAsync());
+        Assert.True((await service.QueueManualAsync(organization.Id)).Succeeded);
+        onboarding.Status = CSweet.Domain.Communications.AgentOnboardingEventOutboxStatus.Delivered;
+        await db.SaveChangesAsync();
+        Assert.False((await service.QueueActivationAsync(organization.Id, chief.Id)).Succeeded);
+        db.ChiefHiringPolicies.Add(new ChiefHiringPolicy { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            InstallationId = chief.AgentInstallationId.Value, SetupComplete = true });
+        await db.SaveChangesAsync();
+        Assert.True((await service.QueueActivationAsync(organization.Id, chief.Id)).Succeeded);
+    }
+
+    [Fact]
     public async Task ManualRequest_IsDurableAndIdempotentRuntimeStartupUsesCooldown()
     {
         await using var db = CreateDb();

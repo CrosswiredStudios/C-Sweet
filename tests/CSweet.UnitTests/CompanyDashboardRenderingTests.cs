@@ -14,23 +14,28 @@ namespace CSweet.UnitTests;
 public sealed class CompanyDashboardRenderingTests
 {
     [Fact]
-    public async Task FirstRunRendersFullRowsAndHiringActionsInSavedOrder()
+    public async Task FirstRunMergesActionQueuesAndPreservesSavedWidgetOrder()
     {
         var html = await Render(false);
         Assert.Contains("Hire a finance agent", html);
         Assert.Contains("Hire a legal agent", html);
         Assert.Contains("No approvals need your action", html);
         Assert.Contains("No projects yet", html);
-        Assert.Equal(7, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget").Count);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget ").Count);
         Assert.Contains("No hiring approvals need your action", html);
         Assert.Contains("No pending hiring suggestions", html);
         Assert.Contains("Move Current Activity up", html);
         Assert.Contains("No active agent work", html);
-        Assert.Contains("Move Pending Decisions up", html);
+        Assert.Contains("Move Needs your attention up", html);
         Assert.Contains("No decisions need your response", html);
         Assert.True(html.IndexOf("aria-label=\"Legal\"", StringComparison.Ordinal) < html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal));
         Assert.Contains("Move Legal down", html);
         Assert.Contains("Briefing settings", html);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "role=\"tab\"").Count);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "role=\"tabpanel\"").Count);
+        Assert.Contains("Overview appearance", html);
+        Assert.Contains("data-activity-theme=\"aurora\"", html);
+        if (Environment.GetEnvironmentVariable("CSWEET_OVERVIEW_PREVIEW") is string path) await File.WriteAllTextAsync(path, html);
     }
     [Fact]
     public async Task PopulatedReportsKeepUnknownAmountsUnknownAndEncodeLeadUpdates()
@@ -84,7 +89,7 @@ public sealed class CompanyDashboardRenderingTests
         Assert.DoesNotContain("Fulfilled suggestion", html);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, ">Plan approval<").Cast<System.Text.RegularExpressions.Match>());
         Assert.True(hiring.IndexOf("Developer", StringComparison.Ordinal) < hiring.IndexOf("Lower priority", StringComparison.Ordinal));
-        var ceo = html[html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal)..html.IndexOf("aria-label=\"Finances\"", StringComparison.Ordinal)];
+        var ceo = html[html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal)..html.IndexOf("aria-label=\"Hiring\"", StringComparison.Ordinal)];
         Assert.Contains("Other approval", ceo);
         Assert.Contains("1 pending", ceo);
         Assert.DoesNotContain("Plan approval", ceo);

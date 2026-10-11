@@ -11,7 +11,7 @@ approval-time delegation, candidate selection, and automatic execution boundary.
 `WorkforcePlan.SelectedCatalogAgentJson` and `SelectionRationale` populate recommendation
 cards. `HiringSuggestionCarousel` and `Marketplace` both render `AgentHireDialog`, sharing
 preview, configuration, grants, cancellation and confirmation logic. A selected candidate
-shows **Hire agent** and **See other candidates**; otherwise the action remains **Browse
+shows **Hire** and **Browse Candidates**; otherwise the action remains **Browse
 candidates**. Existing lifecycle states continue to govern action availability.
 
 Marketplace context uses authorized server attribution and remains attached when search
@@ -37,8 +37,8 @@ active managers and owners in that organization. Suggestions with remaining head
 are ordered by priority, then creation date, and link to their existing `HiringUrl`.
 Both groups preview five items with independent expansion, loading, and error states.
 
-`DashboardWidgets` places Hiring after Pending Decisions for new/default layouts;
-existing four-, five-, and six-widget layouts retain their order and append Hiring.
+`DashboardWidgets` groups Hiring, Approvals, and Decisions in the tabbed **Needs your
+attention** widget. Legacy layouts merge these queues at the first saved queue position.
 `CSweetDbContext.CaptureHiringRecommendationEvents` captures `WorkforcePlan` changes
 into the same save's application realtime outbox as
 `AppRealtimeEvents.HiringRecommendationsChanged`. `CommandCenter` re-reads current
@@ -191,3 +191,5 @@ manager-versus-owner policy between the dashboard and `ApprovalEndpoints`: owner
 does not override Manager Approval. Missing configuration defaults to Manager Approval;
 inactive requesters do not supply manager authority. Connector requests retain their
 exact assigned-approver binding and expiry checks.
+
+`ChiefOfStaffAgent.CommitResponseWithHiringActionAsync` persists candidate selection and the turn-bound suggestion before `AgentTurnStreamWriter.CommitAsync`. A final commit ends the interactive turn and may stop the work attempt; required card creation must not run after it. `HiringSuggestionCarousel` renders the candidate portrait, publisher, cost, selection rationale, and plan proposer, and opens the same `AgentHireDialog` used by Marketplace.

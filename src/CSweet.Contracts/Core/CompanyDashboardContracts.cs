@@ -20,16 +20,21 @@ public sealed record CompanyDashboardResponse(ReportingWidget<FinanceReport> Fin
 public sealed record DashboardLayoutRequest(IReadOnlyList<string> Order);
 public static class DashboardWidgets
 {
-    public static IReadOnlyList<string> DefaultOrder { get; } = Array.AsReadOnly(new[] { "decisions", "hiring", "approvals", "activity", "finance", "legal", "projects" });
+    public static IReadOnlyList<string> DefaultOrder { get; } = Array.AsReadOnly(new[] { "attention", "activity", "finance", "legal", "projects" });
     public static bool IsValid(IReadOnlyList<string>? order) => order is not null && order.Count == DefaultOrder.Count &&
         order.Distinct(StringComparer.Ordinal).Count() == DefaultOrder.Count && order.All(DefaultOrder.Contains);
     public static IReadOnlyList<string> Restore(IReadOnlyList<string>? order)
     {
         if (IsValid(order)) return order!;
-        // Append newly introduced widgets without disturbing a user's saved arrangement.
-        if (order is { Count: 4 or 5 or 6 } && !order.Contains("hiring") && order.Distinct(StringComparer.Ordinal).Count() == order.Count &&
-            new[] { "approvals", "finance", "legal", "projects" }.All(order.Contains) && order.All(DefaultOrder.Contains))
-            return order.Concat(new[] { "decisions", "activity", "hiring" }.Where(x => !order.Contains(x))).ToArray();
+        // Merge legacy action queues at the first queue's saved position.
+        string[] legacy = ["decisions", "hiring", "approvals", "activity", "finance", "legal", "projects"];
+        if (order is { Count: >= 4 and <= 7 } && order.Distinct(StringComparer.Ordinal).Count() == order.Count &&
+            new[] { "approvals", "finance", "legal", "projects" }.All(order.Contains) && order.All(legacy.Contains) &&
+            (order.Count == 7 || !order.Contains("hiring")))
+        {
+            var merged = order.Select(x => x is "decisions" or "hiring" or "approvals" ? "attention" : x).Distinct().ToList();
+            return merged.Concat(DefaultOrder.Where(x => !merged.Contains(x))).ToArray();
+        }
         return DefaultOrder;
     }
 }

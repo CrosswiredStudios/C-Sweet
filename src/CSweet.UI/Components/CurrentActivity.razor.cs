@@ -28,8 +28,16 @@ public partial class CurrentActivity
     private IJSObjectReference? _module;
     private DotNetObjectReference<CurrentActivity>? _reference;
     private PeriodicTimer? _clock;
+    private bool _animate = true;
 
-    private IEnumerable<CurrentActivityItem> VisibleRows => _expanded ? _rows : _rows.Take(3);
+    private IEnumerable<CurrentActivityItem> VisibleRows
+    {
+        get
+        {
+            var ordered = _rows.OrderBy(x => DisplayState(x) == "Executing" ? 0 : 1);
+            return _expanded ? ordered : ordered.Take(3);
+        }
+    }
     private IEnumerable<CurrentActivityFeedEntry> FeedRows => _feed.GroupBy(x => x.Key).Select(group =>
     {
         var first = group.OrderBy(x => x.Sequence).First();
@@ -94,8 +102,7 @@ public partial class CurrentActivity
                     else { _selected = updated; if (!updated.CanInspect) ResetFeed(); }
                 }
                 else if (page.NextOffset is null)
-                    _selected = selected with { State = "No longer active", CurrentAction = "This work is no longer in the current activity list." };
-                // Keep an open completed attempt inspectable; every feed read reauthorizes access.
+                    CloseDetails(); // An inline stream cannot outlive its containing card.
                 await RefreshFeedAsync();
             }
         }
@@ -125,6 +132,13 @@ public partial class CurrentActivity
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is HttpRequestException or JsonException) { if (!token.IsCancellationRequested) _error = "More activity could not be loaded. Refresh to try again."; }
         finally { if (!token.IsCancellationRequested) _loading = false; }
+    }
+
+    private Task ToggleStreamAsync(CurrentActivityItem item)
+    {
+        if (_selected?.Key != item.Key) return OpenAsync(item);
+        CloseDetails();
+        return Task.CompletedTask;
     }
 
     private async Task OpenAsync(CurrentActivityItem item) { ResetFeed(); _selected = item; _wide = false; _follow = true; await RefreshFeedAsync(); }
@@ -226,8 +240,6 @@ public partial class CurrentActivity
         item.State == "Executing" && DateTimeOffset.UtcNow - (item.LastProgressAt ?? item.StartedAt) > TimeSpan.FromMinutes(5) ? "Unconfirmed" : item.State;
     private static string DisplayAction(CurrentActivityItem item) => DisplayState(item) != item.State ?
         DisplayState(item) == "Recovering" ? "Execution lease expired; awaiting recovery" : "No recent task progress reported" : item.CurrentAction;
-    private static string StateClass(CurrentActivityItem item) => DisplayState(item) == "Executing" ? "executing" : "waiting";
-    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
     private static string Age(DateTimeOffset time)
     {
         var age = DateTimeOffset.UtcNow - time;

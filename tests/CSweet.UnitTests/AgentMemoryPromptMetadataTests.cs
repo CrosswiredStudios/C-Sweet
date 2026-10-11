@@ -16,6 +16,21 @@ namespace CSweet.UnitTests;
 
 public sealed partial class AgentMemoryServiceTests
 {
+    [MemoryPostgresFact]
+    public async Task CurrentMessageFieldMustMatchTheFrozenOwnerMessage()
+    {
+        await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
+        var turn = await SeedRecallTurnAsync(fixture);
+        await using var db = fixture.Context();
+        var prepared = await fixture.Service(db, new UsageProviderFactory()).PrepareTurnRecallAsync(turn.Id, false);
+        var payload = JsonNode.Parse(RecallPayload(prepared, turn).GetRawText())!.AsObject();
+        payload["currentMessageContent"] = prepared.CurrentMessageContent;
+        MemoryRecallDispatchEvidence.ValidatePromptPayload(prepared.ReceiptJson, JsonSerializer.SerializeToElement(payload));
+        payload["currentMessageContent"] = "Decision: Hiring\nAnswer: Broad delegation";
+        Assert.Throws<ProviderDispatchDeniedException>(() => MemoryRecallDispatchEvidence.ValidatePromptPayload(
+            prepared.ReceiptJson, JsonSerializer.SerializeToElement(payload)));
+    }
+
     private static async Task<(Guid Mention, Guid Attachment)> SeedPromptMetadataAsync(DurabilityFixture fixture, ChatTurn turn,
         CSweetDbContext db, bool attachment = true)
     {

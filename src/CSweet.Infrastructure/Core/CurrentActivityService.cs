@@ -46,7 +46,8 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             .Select(x => new AgentCoordinationSession { CurrentAgentWorkItemId = x.CurrentAgentWorkItemId,
                 CurrentOrganizationUserId = x.CurrentOrganizationUserId, InitiatorOrganizationUserId = x.InitiatorOrganizationUserId,
                 InitiatorInstallationId = x.InitiatorInstallationId, TargetOrganizationUserId = x.TargetOrganizationUserId,
-                TargetInstallationId = x.TargetInstallationId, SourceWorkItemId = x.SourceWorkItemId }).ToListAsync(token);
+                TargetInstallationId = x.TargetInstallationId, SourceWorkItemId = x.SourceWorkItemId,
+                Subject = x.Subject }).ToListAsync(token);
         var standaloneRuns = await db.AgentRunLogs.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             x.AgentInstallationId.HasValue && installations.Contains(x.AgentInstallationId.Value) && x.AgentWorkAttemptId == null &&
             x.CompletedAt == null && (x.Status == "Running" || x.Status == "Queued") &&
@@ -127,11 +128,18 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             var employee = employees.FirstOrDefault(x => employeeId.HasValue ? x.Id == employeeId : x.AgentInstallationId == installationId);
             if (employee is not null && !candidates.Any(x => x.Ticket?.Id == ticket.Id)) candidates.Add(Create(ticket, employee, null, null));
         }
-        var ordered = candidates.DistinctBy(x => x.Key).Where(x => !projectsOnly || x.Category == "Project")
-            .OrderBy(x => x.Category == "Project" ? 0 : 1).ThenBy(x => x.Ticket?.CreatedAt ?? x.Work?.CreatedAt ?? x.StandaloneRun!.StartedAt).ThenBy(x => x.Key).ToList();
+        var eligible = candidates.DistinctBy(x => x.Key).Where(x => !projectsOnly || x.Category == "Project").ToList();
+        var execution = new Dictionary<string, ExecutionSnapshot>();
+        // Resolve queued model calls and stale leases/progress before pagination, so
+        // genuinely executing work wins even when there are many waiting project rows.
+        // Reuse these snapshots when rendering; provider stream bodies remain on demand.
+        foreach (var candidate in eligible.Where(x => BaseState(x, now) == "Executing"))
+            execution[candidate.Key] = await ReadExecutionAsync(candidate, actor, people, now, token);
+        var ordered = eligible.OrderBy(x => (execution.GetValueOrDefault(x.Key)?.State ?? BaseState(x, now)) == "Executing" ? 0 : 1)
+            .ThenBy(x => x.Category == "Project" ? 0 : 1).ThenBy(x => x.Ticket?.CreatedAt ?? x.Work?.CreatedAt ?? x.StandaloneRun!.StartedAt).ThenBy(x => x.Key).ToList();
         var rows = new List<CurrentActivityItem>();
-        // Hydrate just the visible page, not every model stream in the business.
-        foreach (var candidate in ordered.Skip(Math.Max(0, offset)).Take(50)) rows.Add(await MapAsync(candidate, actor, people, now, token));
+        foreach (var candidate in ordered.Skip(Math.Max(0, offset)).Take(50))
+            rows.Add(await MapAsync(candidate, actor, people, now, token, execution.GetValueOrDefault(candidate.Key)));
         return new(now, ordered.Count, rows, offset + rows.Count < ordered.Count ? offset + rows.Count : null);
 
         Candidate Create(WorkTask? ticket, OrganizationUser employee, AgentWorkItem? work, AgentWorkAttempt? attempt)
@@ -143,7 +151,9 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         }
     }
 
-    private async Task<CurrentActivityItem> MapAsync(Candidate c, OrganizationUser actor, IReadOnlyList<OrganizationUser> people,
+    private sealed record ExecutionSnapshot(List<AgentRunLog> Runs, List<CurrentActivityStep> Steps, DateTimeOffset? LastProgress, string State);
+
+    private async Task<ExecutionSnapshot> ReadExecutionAsync(Candidate c, OrganizationUser actor, IReadOnlyList<OrganizationUser> people,
         DateTimeOffset now, CancellationToken token)
     {
         var inspect = EmployeeAuditAccess.CanRead(people, c.Employee.Id, actor.Id);
@@ -172,7 +182,18 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         var state = BaseState(c, now);
         if (state == "Executing" && run?.Status == "Queued" && run.CompletedAt is null) state = "Waiting";
         else if (state == "Executing" && now - (lastProgress ?? c.Attempt?.ClaimedAt ?? c.StandaloneRun!.StartedAt) > TimeSpan.FromMinutes(5)) state = "Unconfirmed";
-        var recent = steps.OrderByDescending(x => x.OccurredAt).ToArray();
+        return new(runs, steps, lastProgress, state);
+    }
+
+    private async Task<CurrentActivityItem> MapAsync(Candidate c, OrganizationUser actor, IReadOnlyList<OrganizationUser> people,
+        DateTimeOffset now, CancellationToken token, ExecutionSnapshot? snapshot = null)
+    {
+        var inspect = EmployeeAuditAccess.CanRead(people, c.Employee.Id, actor.Id);
+        snapshot ??= await ReadExecutionAsync(c, actor, people, now, token);
+        var run = snapshot.Runs.FirstOrDefault();
+        var state = snapshot.State;
+        var lastProgress = snapshot.LastProgress;
+        var recent = snapshot.Steps.OrderByDescending(x => x.OccurredAt).ToArray();
         var action = state switch
         {
             "Waiting" => (c.Coordination is null ? Safe(c.Ticket?.WaitingReason) : null) ??
@@ -222,7 +243,8 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             lastProgress, c.Attempt?.LeaseExpiresAt, provider, inspect ? run?.Model : null, inspect,
             recent.Where(x => x.Text != action).Take(2).Reverse().ToArray(), c.StandaloneRun?.Id,
             kind, c.Employee.Role?.Name, collaborator, inspect ? c.Work?.Name : null,
-            c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null);
+            c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null,
+            c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null);
     }
 
     // Collaboration can continue while the source task awaits a decision. Its

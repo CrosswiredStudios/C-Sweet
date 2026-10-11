@@ -75,7 +75,9 @@ public sealed partial class MemoryRecallDispatchEvidence
                 payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("message", out var message) ||
                 message.ValueKind != JsonValueKind.String || Hash(message.GetString()!) != receipt.Prompt!.AgentPromptHash) throw Denied();
             if (payload.EnumerateObject().Any(x => x.Name is not ("providerProfileId" or "conversationId" or "userId" or "message" or "context" or
-                "turnId" or "attempt" or "messageId" or "attachments" or "workContext"))) throw Denied();
+                "turnId" or "attempt" or "messageId" or "attachments" or "workContext" or "currentMessageContent"))) throw Denied();
+            if (payload.TryGetProperty("currentMessageContent", out var current) &&
+                (current.ValueKind != JsonValueKind.String || Hash(current.GetString()!) != receipt.Prompt.Inputs[^1].SourceHash)) throw Denied();
             ValidateMetadataPayload(receipt.Binding, receipt.Prompt!.Auxiliary!, payload);
         }
         catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException or FormatException)
