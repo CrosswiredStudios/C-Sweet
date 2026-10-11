@@ -7,10 +7,11 @@
 
 <PageTitle>Source Control</PageTitle>
 
-<MudContainer @key="OrganizationId" MaxWidth="MaxWidth.Large" Class="source-workspace py-6">
+<MudContainer @key="OrganizationId" MaxWidth="MaxWidth.False" Class="aurora-page business-workspace source-workspace">
     <div class="source-surface @(RepositoryId is null ? null : "repository-open")">
     <div class="source-header">
         <div>
+            <MudText Typo="Typo.overline">Code &amp; collaboration</MudText>
             <MudText Typo="Typo.h3">Source control</MudText>
             <MudText Class="source-description">Your repositories, the latest work, and who has access.</MudText>
         </div>

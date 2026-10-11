@@ -4,6 +4,8 @@
 @inject HttpClient Http
 
 <PageTitle>Chief hiring settings</PageTitle>
+<div class="aurora-page business-workspace business-form-page">
+<MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" StartIcon="@Icons.Material.Outlined.ArrowBack" Class="mb-4">Back to hiring</MudButton>
 <MudPaper Class="pa-6" Outlined="true">
     <MudText Typo="Typo.h4">Chief hiring settings</MudText>
     <MudText Class="mb-4">These preferences apply to this Chief’s future approved plans. Only an owner can save changes.</MudText>
@@ -51,6 +53,8 @@
         <MudButton Disabled="@(!_planId.HasValue || _saving)" OnClick="ApplyAsync">Apply saved preferences to this plan</MudButton>
     }
 </MudPaper>
+
+</div>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }

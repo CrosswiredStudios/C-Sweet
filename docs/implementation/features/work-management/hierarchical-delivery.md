@@ -52,8 +52,23 @@ Normal Creative Director/Producer and Software PM/Architect kickoff and lightwei
 
 ## Clean installation and checks
 
+SDK 3.63.0 `DeliveryBuildReadiness` permits Release build-readiness without a separate hire.
+Hierarchical staffing prefers a Build Release Engineer, then a Technical Director or Developer
+advertising explicit stage support and V2 execution. The shared handler requests configured
+certified builds for every exact candidate repository and returns durable pending identities.
+Source authors may request these builds; independent product QA and technical review remain
+required. Producer 2.19.5, Technical Director 2.14.4, Software Developer 1.15.2 and Game Engineer
+3.2.3 pin this SDK. Publish SDK first, then release and update the agents through the normal
+owner-operated process. No deployment or public release permission is added.
+
 Select a **new database explicitly** and apply `HierarchicalDeliveryPlans` and `HierarchicalDeliveryFindings` through normal EF migrations. No running-execution migration, automatic wipe, live publication, deployment or public release is included.
 
 Build/test/pack WorkManagement.Contracts 3.25.0 and Agent.SDK 3.59.0. Restore consumers from verified packages with both `UseLocalCSweetWorkManagementContracts=false` and `UseLocalCSweetAgentSdk=false`. Use `CSweet.Agent.Sdk`. `scripts/verify-hierarchical-agents.py` runs changed agents' package-consumer tests, self-tests and packing into the local validation feed. Import version-matched manifests and select the latest hierarchical profile revision for a new project.
 
 `HierarchicalDeliveryServiceTests` exercises code/artifact aggregate lifecycles, independence, stale candidates, pause/cancel/idempotency and partial promotion. `HierarchicalDeliveryPostgresTests` creates only randomly named loopback databases for clean migrations, revision contention and outbox rollback; configure `CSWEET_COMPUTE_TEST_DATABASE`. `HierarchicalGitDeliveryTests` uses real Git for shared releases, optional epics, reviewed rework, stale targets, author bypasses and receipt replay. `GitHubAppClientTests` verifies unsupported guarantees produce blocks without unsafe writes.
+
+## Team compute and review URLs
+
+HierarchicalProjectDelivery.PrepareAsync selects an eligible Technical Director advertising work.execution.compute-test.v1 and pins ReadinessMode = compute-test in the release branch. Certified recipes are optional for sprint activation on this path. DeliveryComputeTest discovers project defaults and source-compatible execution options, transfers the exact candidate, builds/runs it in owned compute, and publishes a health-checked local review URL. WorkDeliveryService.Compute verifies the authoritative archive, exact command and current provider receipts before advancing to independent QA. awaiting-compute persists pending operations and bounded recovery deadlines without spending the failure budget. Technical Director TeamCompute discovers certified alternatives, retains project compute options and sends current test URLs to the project manager and identified CEO. ProjectReleases exposes those links with reachability and expiry. No automatic network grant or public hosting is introduced.
+
+Publish WorkManagement.Contracts 3.26.0 then Agent.SDK 3.64.0; deploy C-Sweet and update Producer 2.19.6, Technical Director 2.15.0 and Software Developer 1.15.3 through the owner-operated release process. Live Hyper-V and game acceptance remain owner testing; code verification does not provision live resources.

@@ -12,7 +12,7 @@
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Enterprise extensions</MudText>
             <MudText Typo="Typo.h3">Plugins</MudText>
-            <MudText Color="Color.Secondary">Import immutable agent, connector, and communication-provider packages. Nothing runs until an administrator approves the manifest and grants.</MudText>
+            <MudText Color="Color.Secondary">Connect new capabilities. Review each package and its access grants before installation.</MudText>
         </div>
         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Refresh</MudButton>
     </MudPaper>
@@ -110,7 +110,7 @@
         <div class="configuration-section-header">
             <div>
                 <MudText Typo="Typo.h6">Installed plugins</MudText>
-                <MudText Color="Color.Secondary">Communication providers are system-scoped, always-on runtimes with durable storage under <code>/data</code>.</MudText>
+                <MudText Color="Color.Secondary">Manage installed extensions and their runtime status.</MudText>
             </div>
             <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_installations.Count</MudChip>
         </div>
@@ -120,7 +120,7 @@
         }
         else if (_installations.Count == 0)
         {
-            <MudText Color="Color.Secondary">No plugins are installed. The default topology starts no communication-provider containers.</MudText>
+            <MudText Color="Color.Secondary">No plugins installed yet. Preview a package to get started.</MudText>
         }
         else
         {

@@ -7,10 +7,14 @@
 
 <PageTitle>Account security - C-Sweet</PageTitle>
 
-<MudPaper Elevation="1" Class="surface-panel">
+<div class="setup-shell">
+<div class="page-header"><div>
     <MudText Typo="Typo.overline" Color="Color.Primary">Account</MudText>
     <MudText Typo="Typo.h4">Security</MudText>
     <MudText Color="Color.Secondary">@AuthSession.Current?.Email</MudText>
+</div></div>
+<MudPaper Elevation="0" Class="surface-panel">
+    <MudText Typo="Typo.h6">Account recovery</MudText>
     <div class="setup-check-list mt-4">
         <MudText>Email verified: @(AuthSession.Current?.IsEmailConfirmed == true ? "Yes" : "No")</MudText>
         <MudText>Email recovery available: @(AuthSession.Current?.EmailRecoveryAvailable == true ? "Yes" : "No — configure and test email delivery first")</MudText>
@@ -34,9 +38,11 @@
         </MudStack>
     }
 
-    <MudDivider Class="my-6" />
+</MudPaper>
+<MudPaper Elevation="0" Class="surface-panel">
     <EmailDeliverySetupStep ContextLabel="Email delivery profiles" ShowNavigation="false" />
 </MudPaper>
+</div>
 
 @code {
     private bool _busy;

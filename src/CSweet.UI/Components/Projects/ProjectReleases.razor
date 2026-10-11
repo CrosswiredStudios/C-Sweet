@@ -69,7 +69,16 @@
                     @foreach (var stage in execution.Stages)
                     {
                         <p>@stage.StageKey Â· @stage.Status Â· @PersonName(stage.OrganizationUserId) Â· @stage.LastOutcomeCode</p>
-                        @if (stage.LatestOutcome is { } outcome) { <p>@outcome.Summary</p> }
+                        @if (stage.LatestOutcome is { } outcome)
+                        {
+                            <p>@outcome.Summary</p>
+                            @foreach (var test in ComputeLinks(outcome, execution.Candidate?.Digest))
+                            {
+                                @if (test.UrlExpiresAt > DateTimeOffset.UtcNow)
+                                { <p><a href="@test.Url" target="_blank" rel="noopener noreferrer">Open test application</a> · Available on the compute host · expires @test.UrlExpiresAt.ToLocalTime()</p> }
+                                else { <p>The test link has expired.</p> }
+                            }
+                        }
                     }
                     @if (execution.Status is "WaitingForHuman" or "WaitingForApproval" && execution.Stages.LastOrDefault()?.OrganizationUserId == _currentUser)
                     { <button type="button" disabled="@_busy" @onclick="@(() => OpenDecision(plan, execution))">Review exact candidate</button> }
@@ -165,6 +174,17 @@
 </section>
 
 @code {
+    private static IReadOnlyList<WorkDeliveryComputeEvidence> ComputeLinks(WorkExecutionOutcomeV1 outcome, string? digest)
+    {
+        if (outcome.OutcomeCode != "approved" || outcome.Output.ValueKind != System.Text.Json.JsonValueKind.Object) return [];
+        try {
+            var review = System.Text.Json.JsonSerializer.Deserialize<WorkDeliveryReviewResult>(outcome.Output,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            return review is not null && review.CandidateDigest == digest ? review.ComputeTests.Where(x => Uri.TryCreate(x.Url, UriKind.Absolute, out var uri) &&
+                uri.Scheme == "http" && uri.Host == "127.0.0.1").ToArray() : [];
+        } catch (System.Text.Json.JsonException) { return []; }
+    }
+
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public Guid ProjectId { get; set; }
     private IReadOnlyList<WorkDeliveryPlanResponse> _plans = [];

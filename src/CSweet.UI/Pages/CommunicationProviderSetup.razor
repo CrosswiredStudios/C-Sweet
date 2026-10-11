@@ -7,10 +7,10 @@
 
 <PageTitle>Discord connection - C-Sweet</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Medium" Class="py-8">
+<MudContainer MaxWidth="MaxWidth.False" Class="settings-page-container">
     <MudButton Href="/settings/communications" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Class="mb-3">Connected apps</MudButton>
     <MudText Typo="Typo.h4">Discord connection</MudText>
-    <MudText Color="Color.Secondary" Class="mb-6">Configure Discord as an optional mirror of C-Sweet communications. The in-app hub remains authoritative.</MudText>
+    <MudText Color="Color.Secondary" Class="mb-6">Connect a server, link your identity, and review the channels C-Sweet will manage.</MudText>
 
     @if (!string.IsNullOrWhiteSpace(_message)) { <MudAlert Severity="@_severity" Variant="Variant.Outlined" Class="mb-4">@_message</MudAlert> }
     @if (_loading) { <MudProgressLinear Indeterminate="true" /> }

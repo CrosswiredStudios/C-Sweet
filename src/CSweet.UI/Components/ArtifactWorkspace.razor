@@ -79,6 +79,8 @@
                 </div>
             </MudTabPanel>
             <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
+                @if (detail.Revisions.Count == 0)
+                { <MudText Color="Color.Secondary" Class="pa-4">No earlier revisions. Saved changes will appear here.</MudText> }
                 <MudList T="ArtifactRevisionResponse" Dense="true">
                     @foreach (var revision in detail.Revisions)
                     {
@@ -103,7 +105,7 @@
                 @foreach (var grant in detail.Grants.Where(x => x.RevokedAt is null))
                 {
                     <div class="artifact-access-row">
-                        <strong>@grant.SubjectDisplayName</strong><span>@grant.Action</span>
+                        <strong>@grant.SubjectDisplayName</strong><span>@PermissionLabel(grant.Action)</span>
                         <MudIconButton Icon="@Icons.Material.Outlined.RemoveCircleOutline" Size="Size.Small"
                                        Disabled="@_busy" OnClick="@(() => RevokeAsync(grant))" aria-label="Revoke access" />
                     </div>
@@ -115,16 +117,16 @@
                     </MudAlert>
                 }
                 <MudDivider Class="my-3" />
-                <MudText Typo="Typo.subtitle2">Share exact document</MudText>
-                <MudSelect T="string" @bind-Value="_shareSubjectKind" Label="Principal type" Variant="Variant.Outlined" Class="mt-2">
+                <MudText Typo="Typo.subtitle2">Share this document</MudText>
+                <MudSelect T="string" @bind-Value="_shareSubjectKind" Label="Share with" Variant="Variant.Outlined" Class="mt-2">
                     <MudSelectItem T="string" Value="@("OrganizationUser")">Human employee</MudSelectItem>
                     <MudSelectItem T="string" Value="@("AgentInstallation")">Agent installation</MudSelectItem>
                 </MudSelect>
                 <MudTextField @bind-Value="_shareSubjectId" Label="Employee or installation ID" Variant="Variant.Outlined" Class="mt-2" />
                 <MudSelect T="string" @bind-Value="_shareAction" Label="Permission" Variant="Variant.Outlined" Class="mt-2">
-                    @foreach (var action in ArtifactActions.FileActions.Order()) { <MudSelectItem T="string" Value="action">@action</MudSelectItem> }
+                    @foreach (var action in ArtifactActions.FileActions.Order()) { <MudSelectItem T="string" Value="action">@PermissionLabel(action)</MudSelectItem> }
                 </MudSelect>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ShareAsync" Class="mt-2">Grant exact-file access</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ShareAsync" Class="mt-2">Grant access</MudButton>
             </MudTabPanel>
         </MudTabs>
 
@@ -150,6 +152,11 @@
 </aside>
 
 @code {
+    private static string PermissionLabel(string action) => action switch
+    {
+        ArtifactActions.Read => "View document", ArtifactActions.Revise => "Edit document",
+        ArtifactActions.Submit => "Submit for review", ArtifactActions.Decide => "Review and approve", _ => action
+    };
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public Guid ArtifactId { get; set; }
     [Parameter] public EventCallback Closed { get; set; }

@@ -6,12 +6,12 @@
 
 <PageTitle>Security - C-Sweet</PageTitle>
 
-<MudPaper Elevation="1" Class="surface-panel security-audit-page">
+<div class="aurora-page business-workspace security-audit-page">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="security-audit-heading">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Company controls</MudText>
             <MudText Typo="Typo.h4">Security</MudText>
-            <MudText Color="Color.Secondary">Immutable event history for people, agents, broker traffic, and platform capabilities.</MudText>
+            <MudText Color="Color.Secondary">Inspect business activity, access decisions, and verified event history.</MudText>
         </div>
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
                    Disabled="_loading" OnClick="ReloadAsync">Refresh</MudButton>
@@ -38,7 +38,7 @@
         </MudSelect>
         <MudTextField Label="Search" @bind-Value="_search" Variant="Variant.Outlined"
                       Placeholder="Event, actor, correlation…" Adornment="Adornment.End"
-                      AdornmentIcon="@Icons.Material.Outlined.Search" OnKeyDown="OnSearchKeyDown" />
+                      AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" Clearable="true" />
         <MudSwitch T="bool" Value="_groupModelResponses" ValueChanged="OnGroupModelResponsesChanged" Color="Color.Primary"
                    Label="Group model response chunks" />
     </div>
@@ -98,7 +98,7 @@
             </MudButton>
         }
     }
-</MudPaper>
+</div>
 
 <MudDialog @bind-Visible="_detailOpen" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
     <TitleContent><MudText Typo="Typo.h6">Security event</MudText></TitleContent>
@@ -122,26 +122,29 @@
     private string _range = "24h", _category = "", _outcome = "", _actorKind = "", _search = "";
     private string? _nextCursor, _error; private bool _groupModelResponses = true, _loading, _loadingMore, _forbidden, _detailOpen, _detailLoading;
     private SecurityEventDetailResponse? _detail;
+    private long _loadVersion;
 
     protected override async Task OnParametersSetAsync() { await ReloadAsync(); if (EventId is Guid id) await OpenDetailAsync(id, false); }
     private async Task ReloadAsync() { _items.Clear(); _nextCursor = null; await LoadAsync(false); }
     private Task LoadMoreAsync() => LoadAsync(true);
     private async Task LoadAsync(bool append)
     {
+        var version = ++_loadVersion;
         if (append) _loadingMore = true; else _loading = true;
         _error = null; _forbidden = false;
         try
         {
             var response = await Http.GetAsync(BuildUrl(append ? _nextCursor : null));
+            if (version != _loadVersion) return;
             if (response.StatusCode == HttpStatusCode.Forbidden) { _forbidden = true; return; }
             response.EnsureSuccessStatusCode();
             var page = await response.Content.ReadFromJsonAsync<SecurityEventPageResponse>();
-            if (page is null) return;
+            if (page is null || version != _loadVersion) return;
             if (!append) _items.Clear();
             _items.AddRange(page.Items); _nextCursor = page.NextCursor;
         }
-        catch (Exception exception) { _error = exception.Message; }
-        finally { _loading = false; _loadingMore = false; }
+        catch (Exception exception) { if (version == _loadVersion) _error = exception.Message; }
+        finally { if (version == _loadVersion) { _loading = false; _loadingMore = false; } }
     }
     private string BuildUrl(string? cursor)
     {
@@ -159,7 +162,7 @@
     private Task OnOutcomeChanged(string value) { _outcome = value; return ReloadAsync(); }
     private Task OnActorChanged(string value) { _actorKind = value; return ReloadAsync(); }
     private Task OnGroupModelResponsesChanged(bool value) { _groupModelResponses = value; return ReloadAsync(); }
-    private async Task OnSearchKeyDown(KeyboardEventArgs args) { if (args.Key == "Enter") await ReloadAsync(); }
+
     private static string FormatTime(DateTimeOffset value) => value.ToLocalTime().ToString("g");
     private static string ActivityLabel(SecurityEventSummaryResponse value) =>
         string.IsNullOrWhiteSpace(value.Summary) ? value.EventType : value.Summary;

@@ -7,7 +7,7 @@
         <div>
             <MudText Typo="Typo.overline">@ContextLabel</MudText>
             <h1 id="genai-provider-step-title">Connect generative AI providers.</h1>
-            <p>Give approved agents least-privilege access to image and video generation or editing. This step is optional.</p>
+            <p>@(ShowNavigation ? "Give approved agents access to image and video generation. This step is optional." : "Manage image and video providers available to approved agents.")</p>
         </div>
         <div class="provider-count" aria-live="polite">
             <strong>@_profiles.Count</strong>
@@ -41,7 +41,7 @@
                 <div class="provider-empty-state">
                     <MudIcon Icon="@Icons.Material.Outlined.PermMedia" />
                     <strong>Your provider roster is empty</strong>
-                    <span>Choose a service on the right, or skip this optional step.</span>
+                    <span>@(ShowNavigation ? "Choose a service, or skip this optional step." : "Choose a service to connect your first provider.")</span>
                 </div>
             }
             else

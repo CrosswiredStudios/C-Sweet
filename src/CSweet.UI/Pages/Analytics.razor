@@ -5,12 +5,12 @@
 
 <PageTitle>Analytics - C-Sweet</PageTitle>
 
-<div class="analytics-page">
+<div class="aurora-page business-workspace analytics-page">
     <MudPaper Elevation="0" Class="page-header analytics-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Business intelligence</MudText>
             <MudText Typo="Typo.h3">Analytics</MudText>
-            <MudText Color="Color.Secondary">Understand how your agent workforce uses inference resources.</MudText>
+            <MudText Color="Color.Secondary">Understand usage, delivery time, and the work behind the numbers.</MudText>
         </div>
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
                    Disabled="_loading" OnClick="LoadAsync">Refresh</MudButton>
@@ -74,7 +74,9 @@
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Employee">
-                            <MudText Typo="Typo.body2"><strong>@context.EmployeeName</strong></MudText>
+                            @if (context.EmployeeId is Guid employeeId)
+                            { <MudLink Href="@($"/organizations/{OrganizationId}/employees/{employeeId}")">@context.EmployeeName</MudLink> }
+                            else { <MudText Typo="Typo.body2"><strong>@context.EmployeeName</strong></MudText> }
                             <MudText Typo="Typo.caption" Color="Color.Secondary">@context.AgentKey</MudText>
                             @if (!context.IsActive)
                             {

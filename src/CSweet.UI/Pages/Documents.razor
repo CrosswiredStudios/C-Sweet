@@ -7,13 +7,13 @@
 
 <PageTitle>Documents - C-Sweet</PageTitle>
 
-<div class="documents-page @(_selectedId.HasValue ? "workspace-open" : null)">
+<div class="aurora-page business-workspace documents-page @(_selectedId.HasValue ? "workspace-open" : null)">
     <main class="documents-library">
         <header class="documents-heading">
             <div>
                 <MudText Typo="Typo.overline" Color="Color.Primary">COMPANY KNOWLEDGE</MudText>
                 <MudText Typo="Typo.h4">Documents</MudText>
-                <MudText Color="Color.Secondary">Browse durable work products without searching through old chats.</MudText>
+                <MudText Color="Color.Secondary">Your team’s documents, reviews, and shared knowledge.</MudText>
             </div>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.NoteAdd" OnClick="@(() => _creating = true)">New document</MudButton>
         </header>
@@ -25,8 +25,12 @@
             <MudSelect T="string" Label="Status" Value="_status" ValueChanged="StatusChanged" Variant="Variant.Outlined">
                 <MudSelectItem T="string" Value="@string.Empty">All statuses</MudSelectItem>
                 @foreach (var value in new[] { "Draft", "InReview", "Approved", "ChangesRequested" })
-                { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+                { <MudSelectItem T="string" Value="@value">@DocumentStatusLabel(value)</MudSelectItem> }
             </MudSelect>
+        </div>
+        <details class="business-filter-disclosure">
+            <summary>More filters @if (ExtraFilterCount > 0) { <span>(@ExtraFilterCount active)</span> }</summary>
+            <div class="documents-advanced-filters">
             <MudSelect T="Guid?" Label="Package" Value="_packageId" ValueChanged="PackageChanged" Variant="Variant.Outlined">
                 <MudSelectItem T="Guid?" Value="@((Guid?)null)">All packages</MudSelectItem>
                 @foreach (var package in _packages) { <MudSelectItem T="Guid?" Value="package.Id">@package.Name</MudSelectItem> }
@@ -36,7 +40,9 @@
             <MudTextField @bind-Value="_creator" Label="Creator or steward" Variant="Variant.Outlined" Immediate="true"
                           DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
             <MudCheckBox T="bool" Value="_includeArchived" Label="Include archived" ValueChanged="ArchivedChanged" />
-        </div>
+            </div>
+        </details>
+        @if (HasFilters) { <MudButton Class="mb-3" OnClick="ClearFiltersAsync" StartIcon="@Icons.Material.Outlined.FilterAltOff">Clear filters</MudButton> }
 
         @if (_packageId.HasValue && _packages.SingleOrDefault(x => x.Id == _packageId) is { } selectedPackage)
         {
@@ -134,6 +140,17 @@
     private string _search = "", _status = "", _documentType = "", _creator = "", _newTitle = "", _newType = "document", _newContent = "# New document\n", _newFolderName = "";
     private bool _includeArchived, _loading, _creating, _creatingFolder, _editingFolder;
     private string? _error;
+    private int ExtraFilterCount => (_packageId.HasValue ? 1 : 0) + (!string.IsNullOrWhiteSpace(_documentType) ? 1 : 0) + (!string.IsNullOrWhiteSpace(_creator) ? 1 : 0) + (_includeArchived ? 1 : 0);
+    private bool HasFilters => ExtraFilterCount > 0 || !string.IsNullOrWhiteSpace(_search) || !string.IsNullOrWhiteSpace(_status) || _folderId.HasValue;
+    private static string DocumentStatusLabel(string value) => value switch { "InReview" => "In review", "ChangesRequested" => "Changes requested", _ => value };
+    private async Task ClearFiltersAsync()
+    {
+        _search = _status = _documentType = _creator = "";
+        _packageId = _folderId = null;
+        _includeArchived = false;
+        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents" + (_selectedId.HasValue ? $"?artifact={_selectedId:D}" : ""), false, true);
+        await Task.WhenAll(ReloadAsync(), LoadFoldersAsync(), LoadPackagesAsync());
+    }
 
     protected override async Task OnParametersSetAsync()
     {

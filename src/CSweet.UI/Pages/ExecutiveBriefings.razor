@@ -2,6 +2,7 @@
 @using CSweet.Contracts.Core
 @inject HttpClient Http
 <PageTitle>Executive briefings - C-Sweet</PageTitle>
+<div class="aurora-page business-workspace business-form-page">
 <MudPaper Elevation="0" Class="page-header">
     <div><MudText Typo="Typo.h3">Executive briefings</MudText><MudText Color="Color.Secondary">Configure your Chief of Staff's briefing schedule and review delivery history.</MudText></div>
     <MudButton Href="@($"/organizations/{OrganizationId}/command-center")">Back to overview</MudButton>
@@ -64,6 +65,8 @@ else
 
 
 }
+</div>
+
 @code {
     [Parameter]
     public Guid OrganizationId { get; set; }

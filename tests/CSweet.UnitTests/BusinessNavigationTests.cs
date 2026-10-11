@@ -64,27 +64,28 @@ public sealed class BusinessNavigationTests
         Assert.Contains("/organizations/{OrganizationId:guid}/analytics", RoutesFor<CSweet.UI.Pages.Analytics>());
         Assert.Contains("/settings/llm-providers", RoutesFor<CSweet.UI.Pages.LlmProviders>());
         Assert.Contains("/settings/agents", RoutesFor<CSweet.UI.Pages.Agents>());
-        Assert.Contains("/settings/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());
+        Assert.Contains("/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());
+        Assert.DoesNotContain("/settings/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());
         Assert.Contains("/settings/agents/runtime", RoutesFor<CSweet.UI.Pages.AgentRuntimeSettings>());
         Assert.Contains("/settings/security", RoutesFor<CSweet.UI.Pages.AccountSecurity>());
 
         var legacyRoutes = RoutesFor<CSweet.UI.Pages.LegacyRouteRedirect>();
-        Assert.Contains("/settings", legacyRoutes);
+        Assert.Contains("/settings", RoutesFor<CSweet.UI.Pages.Settings>());
         Assert.Contains("/llm-providers", legacyRoutes);
         Assert.Contains("/agents", legacyRoutes);
+        Assert.Contains("/settings/agents/marketplace", legacyRoutes);
         Assert.Contains("/configuration", legacyRoutes);
         Assert.Contains("/account/security", legacyRoutes);
         Assert.Contains("/organizations", legacyRoutes);
     }
 
     [Fact]
-    public void SettingsPages_UseTheSettingsDialogLayout()
+    public void SettingsPages_UseTheSettingsWorkspaceLayout()
     {
         Type[] settingsPages =
         [
             typeof(CSweet.UI.Pages.LlmProviders),
             typeof(CSweet.UI.Pages.Agents),
-            typeof(CSweet.UI.Pages.AgentMarketplace),
             typeof(CSweet.UI.Pages.AgentRuntimeSettings),
             typeof(CSweet.UI.Pages.Plugins),
             typeof(CSweet.UI.Pages.CommunicationSettings),
@@ -99,6 +100,12 @@ public sealed class BusinessNavigationTests
                     .Cast<LayoutAttribute>()
                     .Single()
                     .LayoutType));
+        Assert.Equal(
+            typeof(CSweet.UI.Layout.MainLayout),
+            typeof(CSweet.UI.Pages.AgentMarketplace).GetCustomAttributes(typeof(LayoutAttribute), inherit: false)
+                .Cast<LayoutAttribute>()
+                .Single()
+                .LayoutType);
     }
 
     private static IReadOnlyList<string> RoutesFor<T>() =>

@@ -7,15 +7,16 @@
 <section class="appearance-settings">
     <MudText Typo="Typo.overline">Preferences</MudText>
     <MudText Typo="Typo.h4">Appearance</MudText>
-    <p>Choose the look of your workspace. Applies to Overview, Projects and their detail tabs, and navigation.</p>
-    <label for="workspace-theme">Theme</label>
-    <select id="workspace-theme" value="@AppearanceState.Theme" @onchange="ChangeTheme">
-        <option value="aurora">Aurora Light</option>
-        <option value="gold">Black &amp; Gold</option>
-    </select>
-    <div class="appearance-preview @AppearanceState.Theme" aria-hidden="true">
-        <div class="preview-nav"><span></span><span></span><span></span></div>
-        <div class="preview-content"><strong>Your workspace</strong><div class="preview-card">A little clarity.<br />A little atmosphere.<i></i><i></i></div></div>
+    <p>Choose a look for your business workspace, Settings, and navigation.</p>
+    <div class="appearance-options" role="group" aria-label="Workspace theme">
+        @foreach (var theme in new[] { (Key: "aurora", Label: "Aurora Light", Description: "Soft color, luminous surfaces."), (Key: "gold", Label: "Black & Gold", Description: "Deep black, warm gold, crisp white.") })
+        {
+            <button type="button" class="appearance-option @(AppearanceState.Theme == theme.Key ? "selected" : "")" aria-pressed="@((AppearanceState.Theme == theme.Key).ToString().ToLowerInvariant())" @onclick="@(() => AppearanceState.SetThemeAsync(theme.Key))">
+                <span class="appearance-preview @theme.Key" aria-hidden="true"><span class="preview-nav"><span></span><span></span><span></span></span><span class="preview-content"><strong>Your workspace</strong><span class="preview-card">A little clarity.<br />A little atmosphere.<i></i><i></i></span></span></span>
+                <span class="appearance-option-label"><strong>@theme.Label</strong><span>@(AppearanceState.Theme == theme.Key ? "Selected" : "Select theme")</span></span>
+                <small>@theme.Description</small>
+            </button>
+        }
     </div>
     <p role="status">@(AppearanceState.PersistenceUnavailable ? "Theme applied for this session. Browser storage is unavailable, so it may reset when you return." : "Your preference is saved automatically in this browser.")</p>
 </section>
@@ -23,7 +24,6 @@
 @code {
     protected override void OnInitialized() => AppearanceState.Changed += OnChanged;
     protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await AppearanceState.InitializeAsync(); }
-    private Task ChangeTheme(ChangeEventArgs args) => AppearanceState.SetThemeAsync(args.Value?.ToString() ?? "aurora");
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => AppearanceState.Changed -= OnChanged;
 }

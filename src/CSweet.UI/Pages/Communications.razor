@@ -17,8 +17,12 @@
 <EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>Communications - C-Sweet</PageTitle>
 
-<div class="communications-document-layout">
-<div class="hub-page">
+<div class="aurora-page business-workspace communications-document-layout">
+<div class="hub-page @(_mobileConversations ? "show-conversations" : null)">
+    <button type="button" class="hub-mobile-navigation" aria-expanded="@(_mobileConversations.ToString().ToLowerInvariant())" aria-controls="business-conversations" @onclick="() => _mobileConversations = !_mobileConversations">
+        <MudIcon Icon="@Icons.Material.Outlined.Forum" Size="Size.Small" /> @(_mobileConversations ? "Back to conversation" : "Conversations")
+        <MudIcon Icon="@(_mobileConversations ? Icons.Material.Outlined.Close : Icons.Material.Outlined.ExpandMore)" Size="Size.Small" />
+    </button>
     @if (_loading)
     {
         <div class="hub-centered"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><span>Opening communications…</span></div>
@@ -34,7 +38,7 @@
     }
     else
     {
-        <aside class="hub-sidebar">
+        <aside class="hub-sidebar" id="business-conversations">
             <div class="hub-perspective">
                 <label for="communications-perspective">View communications as</label>
                 <div class="hub-perspective-select">
@@ -658,11 +662,16 @@
                 else
                 {
                     <footer class="hub-composer">
+                        <div class="hub-composer-surface">
+                        <ConversationMediaUploader @key="(OrganizationId, _selected.Id, PerspectiveAgentId)"
+                            OrganizationId="@OrganizationId" ConversationId="@_selected.Id" Compact="true"
+                            Attachments="@_pendingAttachments" Disabled="@(_sending || ComposerBlocked)"
+                            Uploaded="AttachmentUploadedAsync" StateChanged="AttachmentStateChangedAsync" />
                         <div class="hub-composer-input">
                             <MudTextField T="string" InputId="communication-composer"
                                           Value="_draft" ValueChanged="OnDraftChangedAsync"
-                                          Placeholder="@ComposerPlaceholder" Variant="Variant.Outlined"
-                                          Lines="2" Immediate="true" OnKeyDown="OnComposerKeyDown"
+                                          Placeholder="@ComposerPlaceholder" aria-label="@ComposerPlaceholder" Variant="Variant.Text" Underline="false"
+                                          Lines="1" Sizing="InputSizing.Auto" MaxLines="6" Immediate="true" OnKeyDown="OnComposerKeyDown"
                                           Disabled="@(_sending || ComposerBlocked)" />
                             @if (_mentionOpen)
                             {
@@ -685,7 +694,7 @@
                                     @foreach (var attachment in _pendingAttachments)
                                     {
                                         <span>@attachment.FileName <small>@FormatAttachmentBytes(attachment.SizeBytes)</small>
-                                            <button type="button" title="Remove attachment" @onclick="@(() => RemoveAttachment(attachment.Id))">×</button>
+                                            <button type="button" title="Remove attachment" aria-label="@($"Remove {attachment.FileName}")" @onclick="@(() => RemoveAttachment(attachment.Id))">×</button>
                                         </span>
                                     }
                                 </div>
@@ -693,21 +702,18 @@
                         </div>
                         @if (BlockingTurn is { } activeTurn)
                         {
-                            <MudButton Variant="Variant.Filled" Color="Color.Error"
-                                       OnClick="@(() => StopTurnAsync(activeTurn))"
-                                       Disabled="@_stoppingTurn" EndIcon="@Icons.Material.Filled.StopCircle">
-                                @(_stoppingTurn ? "Stopping" : "Stop")
-                            </MudButton>
+                            <MudIconButton Class="hub-composer-send" Variant="Variant.Filled" Color="Color.Error"
+                                           Icon="@Icons.Material.Filled.Stop" OnClick="@(() => StopTurnAsync(activeTurn))"
+                                           Disabled="@_stoppingTurn" aria-label="@(_stoppingTurn ? "Stopping response" : "Stop response")"
+                                           title="Stop response" />
                         }
                         else
                         {
-                            <ConversationMediaUploader @key="(OrganizationId, _selected.Id, PerspectiveAgentId)"
-                                OrganizationId="@OrganizationId" ConversationId="@_selected.Id"
-                                Attachments="@_pendingAttachments" Disabled="@(_sending || ComposerBlocked)"
-                                Uploaded="AttachmentUploadedAsync" StateChanged="AttachmentStateChangedAsync" />
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
-                                       Disabled="@(_sending || _uploadingAttachments || (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))" EndIcon="@Icons.Material.Filled.Send">Send</MudButton>
+                            <MudIconButton Class="hub-composer-send" Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
+                                           Icon="@Icons.Material.Filled.ArrowUpward" aria-label="Send message" title="Send message"
+                                           Disabled="@(_sending || ComposerBlocked || _uploadingAttachments || (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))" />
                         }
+                        </div>
                     </footer>
                 }
             }
@@ -717,7 +723,7 @@
         {
             <div class="hub-dialog-backdrop" @onclick="CloseEditor">
                 <section class="hub-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-editor-title" @onclick:stopPropagation="true">
-                    <header><div><span>@(_editing is null ? "NEW CHANNEL" : "CHANNEL SETTINGS")</span><h2 id="chat-editor-title">@(_editing is null ? "Create a place to work" : $"Manage #{_editing.Title}")</h2></div><button @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Filled.Close" /></button></header>
+                    <header><div><span>@(_editing is null ? "NEW CHANNEL" : "CHANNEL SETTINGS")</span><h2 id="chat-editor-title">@(_editing is null ? "Create a place to work" : $"Manage #{_editing.Title}")</h2></div><button aria-label="Close channel settings" @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Filled.Close" /></button></header>
                     @if (!string.IsNullOrWhiteSpace(_editorError)) { <MudAlert Severity="Severity.Error" Dense="true">@_editorError</MudAlert> }
                     <MudTextField Label="Channel name" @bind-Value="_editorTitle" Variant="Variant.Outlined" Immediate="true" />
                     <MudTextField Label="Description" @bind-Value="_editorDescription" Variant="Variant.Outlined" Lines="2" />
@@ -832,6 +838,7 @@
 </EmployeePortraitScope>
 
 @code {
+    private bool _mobileConversations;
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid? ChatId { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "perspective")]
@@ -1082,6 +1089,7 @@
 
     private async Task SwitchChatAsync(CommunicationChatResponse chat, bool updateLocation)
     {
+        _mobileConversations = false;
         _thinkingDialogOpen = false;
         _notice = null;
         if (_selected?.Id != chat.Id)

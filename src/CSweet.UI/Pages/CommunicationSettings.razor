@@ -7,10 +7,10 @@
 
 <PageTitle>Communications - C-Sweet Settings</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="settings-page-container">
-    <MudText Typo="Typo.h4">Communication surfaces</MudText>
+<MudContainer MaxWidth="MaxWidth.False" Class="settings-page-container">
+    <MudText Typo="Typo.h4">Communications</MudText>
     <MudText Color="Color.Secondary" Class="mb-6">
-        C-Sweet's in-app inbox is always available. Connect additional surfaces for each company or disconnect them without deleting C-Sweet conversation history.
+        Connect apps for your company. Your conversations stay available in C-Sweet.
     </MudText>
 
     @if (!string.IsNullOrWhiteSpace(_message))
@@ -35,7 +35,7 @@
                     <MudIcon Icon="@Icons.Material.Outlined.Chat" Color="Color.Primary" Size="Size.Large" />
                     <MudText Typo="Typo.h6" Class="mt-2">C-Sweet app</MudText>
                     <MudChip T="string" Color="Color.Success" Size="Size.Small">Always active</MudChip>
-                    <MudText Typo="Typo.body2" Class="mt-3">The authoritative inbox for messages, notifications, approvals, and agent activity. This surface cannot be disconnected.</MudText>
+                    <MudText Typo="Typo.body2" Class="mt-3">Your inbox for messages, approvals, and agent activity. Always available in C-Sweet.</MudText>
                 </MudPaper>
             </MudItem>
             <MudItem xs="12" md="6">
@@ -64,8 +64,6 @@
                     }
                 </MudPaper>
             </MudItem>
-            <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-5"><MudText Typo="Typo.h6">Slack</MudText><MudChip T="string" Size="Size.Small">Coming soon</MudChip></MudPaper></MudItem>
-            <MudItem xs="12" md="6"><MudPaper Outlined="true" Class="pa-5"><MudText Typo="Typo.h6">WhatsApp</MudText><MudChip T="string" Size="Size.Small">Coming soon</MudChip></MudPaper></MudItem>
         </MudGrid>
 
         @if (_showDisconnect && _discord is not null)

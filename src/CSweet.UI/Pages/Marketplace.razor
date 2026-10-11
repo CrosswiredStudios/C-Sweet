@@ -14,14 +14,15 @@
 @inject AgentHireOperationState HireOperations
 @inject NavigationManager Navigation
 
-<PageTitle>Agent Catalog - C-Sweet</PageTitle>
+<PageTitle>Agent Marketplace - C-Sweet</PageTitle>
 
-<div class="command-center-shell">
+<div class="aurora-page business-workspace marketplace-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.h3">Agent catalog</MudText>
+            <MudText Typo="Typo.overline">Grow your team</MudText>
+            <MudText Typo="Typo.h3">Agent marketplace</MudText>
             <MudText Color="Color.Secondary">
-                Browse installed, local-directory, first-party, and marketplace agents through one catalog.
+                Find the right expertise. Review capabilities, then hire for your team.
             </MudText>
         </div>
         <MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")"
@@ -56,7 +57,7 @@
         <MudGrid>
             <MudItem xs="12" md="4">
                 <MudTextField T="string" Label="Search agents or capabilities"
-                              @bind-Value="_search" Variant="Variant.Outlined"
+                              @bind-Value="_search" Immediate="true" OnKeyDown="SearchKeyDown" Variant="Variant.Outlined"
                               Adornment="Adornment.Start"
                               AdornmentIcon="@Icons.Material.Outlined.Search" />
             </MudItem>
@@ -125,14 +126,12 @@
         }
         else
         {
-            <MudGrid>
+            <div class="marketplace-agent-grid">
                 @foreach (var agent in _result.Agents)
                 {
-                    <MudItem xs="12" md="6" lg="4">
-                        <MarketplaceAgentCard @key="agent.AgentReference" Agent="agent" OrganizationId="OrganizationId" ReviewHireRequested="@(CanContextHire ? EventCallback.Factory.Create<AvailableAgent>(this, ReviewHireAsync) : default)" />
-                    </MudItem>
+                    <MarketplaceAgentCard @key="agent.AgentReference" Agent="agent" OrganizationId="OrganizationId" ReviewHireRequested="@(CanContextHire ? EventCallback.Factory.Create<AvailableAgent>(this, ReviewHireAsync) : default)" />
                 }
-            </MudGrid>
+            </div>
         }
     }
 </div>
@@ -153,6 +152,7 @@
     private string? _role;
     private string? _category;
     private string _sort = "relevance";
+    private async Task SearchKeyDown(KeyboardEventArgs args) { if (args.Key == "Enter" && !_loading) await SearchAsync(); }
     private string? _appliedRouteRole;
     private AgentHireDialog? _hireDialog;
     private HiringRecommendationResponse? _hiringContext;

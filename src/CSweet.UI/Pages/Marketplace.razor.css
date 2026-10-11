@@ -1,0 +1,12 @@
+.marketplace-agent-grid {
+    display: grid;
+    /* Keep empty tracks so a short result set doesn't stretch the portraits. */
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+    gap: 24px;
+    align-items: stretch;
+}
+
+.marketplace-agent-grid ::deep .agent-brand-art > img {
+    object-fit: contain;
+    object-position: center;
+}

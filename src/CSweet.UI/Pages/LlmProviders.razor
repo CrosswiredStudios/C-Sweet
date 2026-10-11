@@ -13,14 +13,14 @@
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Provider management</MudText>
             <MudText Typo="Typo.h3">LLM Providers</MudText>
-            <MudText Color="Color.Secondary">Connect model providers, validate capability checks, and manage saved provider profiles.</MudText>
+            <MudText Color="Color.Secondary">Connect language models, check capabilities, and track usage.</MudText>
         </div>
         <MudStack Row="true" Class="setup-actions llm-provider-header-actions">
             <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isBusy" OnClick="LoadAsync" StartIcon="@Icons.Material.Filled.Refresh">
                 Refresh
             </MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="StartNewProvider" StartIcon="@Icons.Material.Filled.Add">
-                New Provider
+                Add provider
             </MudButton>
         </MudStack>
     </MudPaper>
@@ -55,7 +55,7 @@
         <MudPaper Elevation="1" Class="surface-panel agents-list-panel">
             <div class="configuration-section-header">
                 <div>
-                    <MudText Typo="Typo.h6">Saved Providers</MudText>
+                    <MudText Typo="Typo.h6">Saved providers</MudText>
                     <MudText Color="Color.Secondary">Configured model endpoints.</MudText>
                 </div>
                 <MudStack Row="true" AlignItems="AlignItems.Center">
@@ -99,7 +99,7 @@
     @if (_usageSummary is not null && _usageSummary.RecentChatTurns.Count > 0)
     {
         <MudPaper Elevation="1" Class="surface-panel mt-4">
-            <MudText Typo="Typo.h6">Recent chat-turn inference</MudText>
+            <MudText Typo="Typo.h6">Recent model usage</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
                 Each row groups every billable model call caused by one user message, including tool follow-ups and memory enrichment.
             </MudText>
@@ -332,7 +332,7 @@
     private bool _supportsVision;
     private bool _isEnabled = true;
 
-    private string EditorTitle => _selectedProfile is null ? "New Provider" : _selectedProfile.Name;
+    private string EditorTitle => _selectedProfile is null ? "Add provider" : _selectedProfile.Name;
     private string EditorSubtitle => _selectedProfile is null ? "Create a provider profile." : _selectedProfile.Id.ToString();
     private string EditorChipLabel => _selectedProfile is null ? "Create" : ProviderStateLabel(_selectedProfile);
     private Color EditorChipColor => _selectedProfile is null ? Color.Primary : ProviderStateColor(_selectedProfile);

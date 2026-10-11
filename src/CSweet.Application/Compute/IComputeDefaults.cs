@@ -1,6 +1,12 @@
 namespace CSweet.Application.Compute;
 
-public sealed record ComputeDefaults(string State, Guid? WorkstreamId, string? TemplateId, string? ErrorCode);
+public sealed record ComputeDefaults(string State, Guid? WorkstreamId, string? TemplateId, string? ErrorCode)
+{
+    public IReadOnlyList<string> Features { get; init; } = [];
+    public IReadOnlyList<string> CachedImages { get; init; } = [];
+    public string LinkReachability { get; init; } = "unavailable";
+    public int MaximumLifetimeSeconds { get; init; }
+}
 
 public interface IComputeDefaults
 {

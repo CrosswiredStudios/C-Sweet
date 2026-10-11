@@ -5,14 +5,14 @@
 
 <PageTitle>Compute - C-Sweet</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6 compute-page">
+<MudContainer MaxWidth="MaxWidth.False" Class="aurora-page business-workspace compute-page">
     <div class="compute-heading">
         <div>
             <MudText Typo="Typo.overline">Business resources</MudText>
             <MudText Typo="Typo.h4">Compute</MudText>
-            <MudText Color="Color.Secondary">Test instances requested by your agents.</MudText>
+            <MudText Color="Color.Secondary">Monitor the environments your agents use to build and test.</MudText>
         </div>
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="LoadAsync">Refresh</MudButton>
+
     </div>
     <div class="compute-freshness" role="status">
         @if (_dashboard is not null)
@@ -22,7 +22,7 @@
     </div>
     @if (_error is not null)
     {
-        <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_error <MudButton OnClick="LoadAsync" Disabled="_loading" Color="Color.Inherit">Try again</MudButton></MudAlert>
     }
     @if (_dashboard is null && _loading)
     {

@@ -1,6 +1,6 @@
-@page "/settings"
 @page "/llm-providers"
 @page "/agents"
+@page "/settings/agents/marketplace"
 @page "/configuration"
 @page "/account/security"
 @page "/organizations"
@@ -13,6 +13,7 @@
         var destination = path.ToLowerInvariant() switch
         {
             "agents" => "/settings/agents",
+            "settings/agents/marketplace" => "/agents/marketplace",
             "configuration" => "/settings/agents/runtime",
             "account/security" => "/settings/security",
             "organizations" => "/",

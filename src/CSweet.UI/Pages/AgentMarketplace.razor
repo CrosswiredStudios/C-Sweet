@@ -1,5 +1,5 @@
-@page "/settings/agents/marketplace"
-@layout SettingsLayout
+@page "/agents/marketplace"
+@layout MainLayout
 @using System.Net.Http.Json
 @using CSweet.Agent.SDK
 @inject HttpClient Http
@@ -12,7 +12,7 @@
             <MudText Typo="Typo.overline" Color="Color.Primary">Build your agent workforce</MudText>
             <MudText Typo="Typo.h3">Agent catalog</MudText>
             <MudText Color="Color.Secondary">
-                Discover local, C-Sweet first-party, and marketplace agents through one catalog.
+                Find the right agents for your team.
             </MudText>
         </div>
         <MudButton Variant="Variant.Outlined"
@@ -51,7 +51,7 @@
                         <MudText Typo="Typo.overline" Color="Color.Primary">Built by C-Sweet</MudText>
                         <MudText Typo="Typo.h4" id="first-party-agents-heading">First-party agents</MudText>
                         <MudText Color="Color.Secondary">
-                            Curated metadata backed by importable GitHub repositories.
+                            Agents built and maintained by C-Sweet.
                         </MudText>
                     </div>
                     <MudIcon Icon="@Icons.Material.Outlined.Verified" Color="Color.Primary" />

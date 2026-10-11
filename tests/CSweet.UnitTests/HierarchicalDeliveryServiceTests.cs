@@ -17,6 +17,75 @@ namespace CSweet.UnitTests;
 public sealed class HierarchicalDeliveryServiceTests
 {
     [Theory]
+    [InlineData("current", true)]
+    [InlineData("expired", false)]
+    [InlineData("generation-changed", false)]
+    [InlineData("replaced-application", false)]
+    public async Task AcceptedComputeEvidenceMustStillDescribeTheCurrentLiveCandidate(string condition, bool valid)
+    {
+        await using var f = await Fixture.Create(false);
+        await f.Activate(await f.Configure()); await f.CompleteTasks(); await f.Service.PulseAsync();
+        var plan = await f.Db.WorkDeliveryPlans.Include(x => x.Executions).ThenInclude(x => x.Stages).ThenInclude(x => x.Attempts).SingleAsync();
+        var execution = plan.Executions.First(x => x.CandidateJson != null);
+        var candidate = JsonSerializer.Deserialize<WorkDeliveryCandidate>(execution.CandidateJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var installation = Guid.NewGuid(); var environment = Guid.NewGuid(); var command = Guid.NewGuid();
+        var proof = new WorkDeliveryComputeEvidence(candidate.Repositories[0].RepositoryId, candidate.Repositories[0].CandidateCommitSha,
+            new string('a',64), environment,1,command,Guid.NewGuid(),"http://127.0.0.1:1234/",
+            DateTimeOffset.UtcNow.AddHours(condition=="expired" ? -1 : 1));
+        f.Db.Add(new CSweet.Domain.Compute.ComputeEnvironment { Id=environment,OrganizationId=f.Org,InstallationId=installation,
+            ProviderId="test-provider",ProviderNodeId=Guid.NewGuid(),
+            WorkstreamId=f.Project,Generation=condition=="generation-changed" ? 2 : 1,
+            State=CSweet.Domain.Compute.ComputeLifecycleState.Ready,LeaseExpiresAt=DateTimeOffset.MaxValue });
+        var now=DateTimeOffset.UtcNow;
+        f.Db.Add(new CSweet.Domain.Compute.ComputeOperation { Id=command,OrganizationId=f.Org,InstallationId=installation,EnvironmentId=environment,
+            Action="compute.execute.v1",WorkloadJson="csweet-candidate:exact",CreatedAt=now,Status="Completed" });
+        if(condition=="replaced-application")
+            f.Db.Add(new CSweet.Domain.Compute.ComputeOperation { Id=Guid.NewGuid(),OrganizationId=f.Org,InstallationId=installation,EnvironmentId=environment,
+                Action="compute.execute.v1",WorkloadJson="csweet-candidate:replacement",CreatedAt=now.AddSeconds(1),Status="Pending" });
+        var stage=new WorkStageExecution { Id=Guid.NewGuid(),StageKey="build-readiness",AgentInstallationId=installation,
+            Status=WorkStageExecutionStatus.Completed,LastOutcomeCode="approved" };
+        var attempt=new WorkExecutionAttempt { Id=Guid.NewGuid(),StageExecutionId=stage.Id,Status=WorkExecutionAttemptStatus.Completed };
+        var review=new WorkDeliveryReviewResult(candidate.Digest,true,"Ready",[],[]) { ComputeTests=[proof] };
+        attempt.ResultJson=JsonSerializer.Serialize(new WorkExecutionOutcomeV1(stage.Id,attempt.Id,"Completed","approved","Ready",
+            JsonSerializer.SerializeToElement(review,new JsonSerializerOptions(JsonSerializerDefaults.Web)),[],[]),new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        stage.Attempts.Add(attempt); execution.Stages.Add(stage); f.Db.Add(stage); await f.Db.SaveChangesAsync();
+        if(valid) await f.Service.RequireCandidateCurrentAsync(plan,execution,default);
+        else await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.RequireCandidateCurrentAsync(plan,execution,default));
+    }
+
+    [Fact]
+    public async Task ComputeTestActivatesWithoutCertificationButCannotApproveWithoutReceipts()
+    {
+        await using var f = await Fixture.Create(false);
+        var request = f.Request();
+        request = request with {
+            Branches = request.Branches.Select(b => b.Scope == "Release" ? b with { ReadinessMode = "compute-test" } : b).ToArray(),
+            Assignments = request.Assignments.Select(a => a.Scope == "Release" ? a with {
+                Stages = a.Stages.Append(new WorkStageAssignment("build-readiness", "Human", f.Technical.Id)).ToArray() } : a).ToArray() };
+        var draft = await f.Configure(request); await f.Activate(draft); await f.CompleteTasks();
+        WorkDeliveryExecutionResponse? release = null;
+        for (var pass = 0; pass < 20; pass++) {
+            await f.Service.PulseAsync(); var plan = await f.Read();
+            release = plan.Executions.FirstOrDefault(x => x.Scope == "Release" && x.CurrentStageKey == "build-readiness");
+            if (release is not null) break;
+            var review = plan.Executions.FirstOrDefault(x => x.Status == "WaitingForHuman");
+            if (review is not null) { await f.Approve(review); continue; }
+            var acceptance = plan.Executions.FirstOrDefault(x => x.Status == "WaitingForApproval");
+            if (acceptance is not null) await f.Accept(acceptance);
+        }
+        Assert.NotNull(release);
+        var complete = f.Review(release!);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.CompleteReviewAsync(f.Org, f.Technical.Id, complete));
+        var rejected = complete with { IdempotencyKey = "compute-remediation",
+            Result = complete.Result with { Approved = false, Summary = "Runnable test package missing",
+                Criteria = [new("Requirement works", false, "Developer must supply a runnable package")], Findings = ["Supply runnable package"] } };
+        var blocked = await f.Service.CompleteReviewAsync(f.Org, f.Technical.Id, rejected);
+        Assert.Single(blocked.Findings);
+        Assert.Contains(blocked.Scopes.Single(x => x.Scope == "Release").Stages, x => x.StageKey == "quality");
+        Assert.Contains(blocked.Scopes.Single(x => x.Scope == "Release").Stages, x => x.StageKey == "technical-review");
+    }
+
+    [Theory]
     [InlineData("Artifact", "game-quality-assurance", true, true)]
     [InlineData("Artifact", "software-qa", true, true)]
     [InlineData("Code", "game-quality-assurance", true, false)]
@@ -373,9 +442,9 @@ public sealed class HierarchicalDeliveryServiceTests
             [new("Story", Story.Id, Board.Id, [new("quality", "Human", Qa.Id)]),
              new("Epic", Epic.Id, Board.Id, [new("technical-review", "Human", Technical.Id)]),
              new("Release", null, Board.Id, [new("quality", "Human", Qa.Id), new("technical-review", "Human", Technical.Id)])], "configure");
-        public async Task<WorkDeliveryPlanResponse> Configure()
+        public async Task<WorkDeliveryPlanResponse> Configure(ConfigureWorkDeliveryPlanRequest? request = null)
         {
-            var result = await Service.ConfigureAsync(Org, Manager.Id, Request()); PlanId = result.Id;
+            var result = await Service.ConfigureAsync(Org, Manager.Id, request ?? Request()); PlanId = result.Id;
             Task = await Db.CoreWorkTasks.SingleAsync(x => x.Id == Task.Id);
             Task.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(Artifact ? Guid.Empty : Repositories[0],
                 ["Deliver requirement"], ["Requirement works"]) { BaseBranch = Artifact ? "" : "codex/story/one", DeliveryKind = Artifact ? "Artifact" : "Code", DeliveryPlanId = PlanId }, Json);

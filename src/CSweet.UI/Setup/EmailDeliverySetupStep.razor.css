@@ -6,7 +6,7 @@
 .email-provider-count { display: grid; flex: 0 0 8.5rem; justify-items: end; }
 .email-provider-count strong { color: var(--cs-navy); font-size: 2.8rem; line-height: 1; }
 .email-provider-count span { margin-top: .3rem; color: var(--cs-muted); font-size: .72rem; font-weight: 700; }
-.email-provider-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .86fr); border: 1px solid var(--cs-border); border-radius: 16px; background: #fff; }
+.email-provider-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .86fr); border: 1px solid var(--cs-border); border-radius: 16px; background: var(--activity-raised, #fff); }
 .email-provider-roster, .email-provider-picker { min-width: 0; padding: 1.5rem; }
 .email-provider-roster { border-right: 1px solid var(--cs-border); }
 .email-section-heading { justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
@@ -32,7 +32,7 @@
 .email-profile-actions button:hover, .email-close:hover { background: #f1f4f6; color: var(--cs-navy); }
 .email-profile-actions button:disabled { opacity: .5; cursor: default; }
 .email-profile-actions ::deep .mud-icon-root { font-size: 1.05rem; }
-.email-provider-choice { display: grid; width: 100%; grid-template-columns: 2.65rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .85rem; border: 1px solid var(--cs-border); border-radius: 12px; background: #fff; color: inherit; cursor: pointer; text-align: left; }
+.email-provider-choice { display: grid; width: 100%; grid-template-columns: 2.65rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .85rem; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--activity-raised, #fff); color: inherit; cursor: pointer; text-align: left; }
 .email-provider-choice:hover { transform: translateY(-1px); border-color: var(--cs-navy); box-shadow: 0 7px 18px rgba(24, 35, 63, .08); }
 .email-provider-choice.preview { background: #fbfcfd; }
 .email-choice-mark { width: 2.65rem; height: 2.65rem; }

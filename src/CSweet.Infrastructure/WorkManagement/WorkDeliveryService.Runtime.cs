@@ -65,12 +65,25 @@ public sealed partial class WorkDeliveryService
         if (execution.Status == "WaitingForEvidence")
         {
             await RequireCandidateCurrentAsync(plan, execution, ct);
-            var pending = Decode<WorkExecutionOutcomeV1>(execution.Stages.Last().Attempts.Last().ResultJson!).Output.Deserialize<WorkDeliveryBuildPending>(Json)!;
-            var builds = await db.DeliveryBuilds.AsNoTracking().Where(x => pending.BuildIds.Contains(x.Id) && x.OrganizationId == plan.OrganizationId).ToListAsync(ct);
-            if (builds.Count != pending.BuildIds.Count) throw new InvalidOperationException("The pending candidate build is unavailable.");
-            if (builds.Any(x => x.Status is "Queued" or "Claimed" or "Running")) return;
-            if (builds.Any(x => x.Status != "Succeeded")) throw new InvalidOperationException("A candidate build failed; inspect its certified-provider evidence and authorize remediation.");
-            await CreateReviewAsync(plan, execution, scope, "build-readiness", ct);
+            var retained = Decode<WorkExecutionOutcomeV1>(execution.Stages.Last().Attempts.Last().ResultJson!);
+            if (retained.OutcomeCode == "awaiting-compute")
+            {
+                var wait = retained.Output.Deserialize<WorkDeliveryComputePending>(Json)!;
+                var operations = await db.Set<CSweet.Domain.Compute.ComputeOperation>().AsNoTracking()
+                    .Where(x => x.OrganizationId == plan.OrganizationId && wait.OperationIds.Contains(x.Id)).ToListAsync(ct);
+                if (operations.Count != wait.OperationIds.Count) throw new InvalidOperationException("A pending compute operation is unavailable.");
+                if ((operations.Count == 0 || operations.Any(x => x.Status is "Pending" or "Dispatching")) && wait.RetryAt > clock.GetUtcNow()) return;
+                await CreateReviewAsync(plan, execution, scope, "build-readiness", ct);
+            }
+            else
+            {
+                var pending = retained.Output.Deserialize<WorkDeliveryBuildPending>(Json)!;
+                var builds = await db.DeliveryBuilds.AsNoTracking().Where(x => pending.BuildIds.Contains(x.Id) && x.OrganizationId == plan.OrganizationId).ToListAsync(ct);
+                if (builds.Count != pending.BuildIds.Count) throw new InvalidOperationException("The pending candidate build is unavailable.");
+                if (builds.Any(x => x.Status is "Queued" or "Claimed" or "Running")) return;
+                if (builds.Any(x => x.Status != "Succeeded")) throw new InvalidOperationException("A candidate build failed; inspect its certified-provider evidence and authorize remediation.");
+                await CreateReviewAsync(plan, execution, scope, "build-readiness", ct);
+            }
         }
         if (execution.Status == "WaitingForChildren")
         {
@@ -105,6 +118,15 @@ public sealed partial class WorkDeliveryService
             var outcome = value.Deserialize<WorkExecutionOutcomeV1>(Json) ?? throw new InvalidOperationException("The delivery result is missing.");
             if (outcome.StageExecutionId != stage.Id || outcome.AttemptId != attempt.Id || outcome.Disposition != WorkExecutionDispositions.Completed)
                 throw new InvalidOperationException(outcome.Summary.Length > 0 ? outcome.Summary : "The result does not match its authoritative attempt.");
+            if (stage.StageKey == "build-readiness" && outcome.OutcomeCode == "awaiting-compute")
+            {
+                var pending = outcome.Output.Deserialize<WorkDeliveryComputePending>(Json)!;
+                await ValidateComputeWaitAsync(plan, execution, stage, pending, ct);
+                attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.ResultJson = Encode(outcome); attempt.CompletedAt = clock.GetUtcNow();
+                stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = outcome.OutcomeCode; stage.LastSummary = outcome.Summary;
+                execution.Status = "WaitingForEvidence"; execution.BlockedReason = outcome.Summary; execution.Revision++;
+                return;
+            }
             if (stage.StageKey == "build-readiness" && outcome.OutcomeCode == "awaiting-build")
             {
                 var pending = outcome.Output.Deserialize<WorkDeliveryBuildPending>(Json)!;
@@ -122,7 +144,7 @@ public sealed partial class WorkDeliveryService
                 throw new InvalidOperationException("The review result does not bind the current candidate and outcome.");
             ValidateCriteria(scope.Planning.AcceptanceCriteria, review.Approved, review.Summary, review.Criteria, review.Findings);
             if (stage.StageKey == "quality") ValidateQualityEvidence(Candidate(execution)!, review);
-            if (stage.StageKey == "build-readiness") await ValidateBuildIdentitiesAsync(plan, execution, review.BuildIds, true, ct);
+            if (stage.StageKey == "build-readiness") await ValidateReadinessAsync(plan, execution, stage, review, ct);
             await RequireCandidateCurrentAsync(plan, execution, ct);
             attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.ResultJson = Encode(outcome); attempt.CompletedAt = clock.GetUtcNow();
             stage.Status = WorkStageExecutionStatus.Completed; stage.CompletedAt = clock.GetUtcNow();
@@ -291,7 +313,7 @@ public sealed partial class WorkDeliveryService
                     digest.GetString() == Candidate(execution)!.Digest).ToArray(), [], Candidate(execution))
             { OrganizationUserId = stage.OrganizationUserId!.Value, AgentInstallationId = installation,
               PlanningRevision = scope.PlanningRevision, PermittedOutcomes = stage.StageKey == "build-readiness"
-                  ? ["approved", "changes_requested", "awaiting-build"] : ["approved", "changes_requested"] };
+                  ? ["approved", "changes_requested", "awaiting-build", "awaiting-compute"] : ["approved", "changes_requested"] };
         // Persist the canonical stage before admission checks read it. The outer
         // transaction commits the stage, inbox work and event outbox together.
         await SaveDeliveryAsync(ct);
@@ -308,6 +330,12 @@ public sealed partial class WorkDeliveryService
         if (completed.StageKey == "build-readiness")
         {
             var result = Decode<WorkExecutionOutcomeV1>(completed.Attempts.Last().ResultJson!).Output.Deserialize<WorkDeliveryReviewResult>(Json)!;
+            execution.BlockedReason = null;
+            if (result.ComputeTests.Count > 0)
+            {
+                await CreateReviewAsync(plan, execution, scope, "quality", ct);
+                return;
+            }
             var builds = await db.DeliveryBuilds.AsNoTracking().Where(x => result.BuildIds.Contains(x.Id) && x.OrganizationId == plan.OrganizationId).ToListAsync(ct);
             var candidate = Candidate(execution)! with { Repositories = Candidate(execution)!.Repositories
                 .Select(r => r with { BuildId = builds.Single(b => b.RepositoryId == r.RepositoryId && b.SourceRevision == r.CandidateCommitSha).Id }).ToArray(), Digest = "" };

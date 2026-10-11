@@ -10,7 +10,7 @@
         <div>
             <MudText Typo="Typo.overline">@ContextLabel</MudText>
             <h1 id="email-provider-step-title">Connect email delivery providers.</h1>
-            <p>Add one or more SMTP profiles for verification, recovery, invitations, and future business messaging. This step is optional.</p>
+            <p>@(ShowNavigation ? "Add an email provider for verification, recovery, and invitations. This step is optional." : "Configure email delivery for verification, recovery, and invitations.")</p>
         </div>
         <div class="email-provider-count" aria-live="polite">
             <strong>@_profiles.Count</strong>
@@ -35,7 +35,7 @@
                 </div>
                 @if (_profiles.Count > 0)
                 {
-                    <span class="email-ready-badge">Optional step ready</span>
+                    <span class="email-ready-badge">@(ShowNavigation ? "Optional step ready" : "Profiles configured")</span>
                 }
             </div>
 
@@ -48,7 +48,7 @@
                 <div class="email-empty-state">
                     <MudIcon Icon="@Icons.Material.Outlined.AlternateEmail" />
                     <strong>No email profiles yet</strong>
-                    <span>Choose Custom SMTP on the right, or skip this optional step.</span>
+                    <span>@(ShowNavigation ? "Choose Custom SMTP, or skip this optional step." : "Connect an SMTP provider to enable email delivery.")</span>
                 </div>
             }
             else
@@ -94,7 +94,7 @@
                     <span><strong>Custom SMTP</strong><small>Connect any standard SMTP server.</small></span>
                     <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
                 </button>
-                @foreach (var preview in PreviewProviders)
+                @foreach (var preview in PreviewProviders.Where(_ => ShowNavigation))
                 {
                     <button type="button" class="email-provider-choice preview" disabled="@_busy" @onclick="() => OpenPreview(preview)">
                         <span class="email-choice-mark @preview.Key">@preview.Mark</span>

@@ -6,8 +6,8 @@
 @implements IAsyncDisposable
 
 <PageTitle>Business calendar</PageTitle>
-<div class="calendar-page">
-    <header class="calendar-header"><div><h1>Calendar</h1><p>Plan the business. Keep work moving.</p></div>
+<div class="aurora-page business-workspace calendar-page">
+    <header class="calendar-header"><div><span class="business-eyebrow">Plan ahead</span><h1>Calendar</h1><p>Plan the business. Keep work moving.</p></div>
         @if (_calendar?.CanCreate == true) { <button class="primary" @onclick="NewEvent">New event</button> }
     </header>
     @if (_error is not null) { <div role="alert" class="calendar-error">@_error <button @onclick="Load">Refresh calendar</button></div> }

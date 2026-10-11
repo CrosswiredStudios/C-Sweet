@@ -3,9 +3,10 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 
-<div class="conversation-media-upload">
+<div class="conversation-media-upload @(Compact ? "compact" : null)">
     <label class="hub-attachment-button" title="Attach a video, image, document or captions">
-        <MudIcon Icon="@Icons.Material.Outlined.AttachFile" />
+        <MudIcon Icon="@(Compact ? Icons.Material.Outlined.Add : Icons.Material.Outlined.AttachFile)" />
+        @if (!Compact) { <span>Attach file</span> }
         <input @ref="_input" type="file" accept="@MediaAttachmentPolicy.Accept" @onchange="SelectAsync"
                disabled="@(Disabled || _busy || !_initialized)" aria-label="@(_ticket is null ? "Attach file" : "Select original file to resume")" />
     </label>
@@ -37,6 +38,7 @@
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public Guid ConversationId { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Compact { get; set; }
     [Parameter] public IReadOnlyList<MediaAssetResponse> Attachments { get; set; } = [];
     [Parameter] public EventCallback<ConversationMediaUploaded> Uploaded { get; set; }
     [Parameter] public EventCallback<ConversationUploadState> StateChanged { get; set; }

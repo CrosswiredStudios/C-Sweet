@@ -121,7 +121,13 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 await grants.PutAsync(organizationId, id, new(0, installationId, projectId, action, constraints, lifetime == 0 ? DateTimeOffset.MaxValue : clock.GetUtcNow().AddDays(30)), token);
         }
         if (transaction is not null) await transaction.CommitAsync(token);
-        return new("Ready", projectId, setup.TemplateId, null);
+        var definition = JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)!;
+        return new("Ready", projectId, setup.TemplateId, null)
+        {
+            Features = definition.Features.Order(StringComparer.Ordinal).ToArray(),
+            CachedImages = definition.Features.Contains("docker-apps-v1") ? ["csweet/python:3.12", "csweet/node:22"] : [],
+            LinkReachability = "local-machine", MaximumLifetimeSeconds = lifetime
+        };
     }
 
     public async Task ActivateAccessAsync(ComputeLocalSetup setup, CancellationToken token)

@@ -115,7 +115,10 @@ public sealed partial class WorkDeliveryService
                 throw new ArgumentException("Only release promotion may target the default branch.");
             if (branch.Scope == WorkExecutionScopes.Release && branch.TargetBranch != repository.DefaultBranch)
                 throw new ArgumentException("A release must promote to its repository's default branch.");
-            if (scope.Stages.Any(x => x.StageKey == "build-readiness") && (branch.Build is not { } build ||
+            if (branch.ReadinessMode is not ("certified-build" or "compute-test") ||
+                branch.ReadinessMode == "compute-test" && (branch.Scope != WorkExecutionScopes.Release || branch.Build is not null))
+                throw new ArgumentException("Select certified packaging or a compute test for release readiness.");
+            if (scope.Stages.Any(x => x.StageKey == "build-readiness") && branch.ReadinessMode != "compute-test" && (branch.Build is not { } build ||
                 build.ToolchainDefinitionId == Guid.Empty || build.ProviderInstallationId == Guid.Empty ||
                 string.IsNullOrWhiteSpace(build.RecipeKey) || string.IsNullOrWhiteSpace(build.TargetKey) || build.Configuration.ValueKind != JsonValueKind.Object))
                 throw new ArgumentException("Bind a certified build provider, recipe, target and configuration for every release repository.");
@@ -317,6 +320,7 @@ public sealed partial class WorkDeliveryService
         if (candidate.ScopeRevision != plan.ScopeRevision) throw new InvalidOperationException("The candidate's scope is stale.");
         var buildIds = candidate.Repositories.Where(x => x.BuildId.HasValue).Select(x => x.BuildId!.Value).ToArray();
         if (buildIds.Length > 0) await ValidateBuildIdentitiesAsync(plan, execution, buildIds, true, ct);
+        await ValidateCurrentComputeTestAsync(plan, execution, ct);
         foreach (var entry in candidate.Repositories)
         {
             var repository = await RepositoryAsync(plan.OrganizationId, entry.RepositoryId, ct);

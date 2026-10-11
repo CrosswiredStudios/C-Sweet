@@ -32,7 +32,7 @@ public sealed partial class WorkDeliveryService
         var scope = Scopes(plan).Single(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId);
         ValidateCriteria(scope.Planning.AcceptanceCriteria, request.Result.Approved, request.Result.Summary, request.Result.Criteria, request.Result.Findings);
         if (stage.StageKey == "quality") ValidateQualityEvidence(Candidate(execution)!, request.Result);
-        if (stage.StageKey == "build-readiness") await ValidateBuildIdentitiesAsync(plan, execution, request.Result.BuildIds, true, ct);
+        if (stage.StageKey == "build-readiness") await ValidateReadinessAsync(plan, execution, stage, request.Result, ct);
         await ValidateCurrentScopeAsync(plan, ct); await RequireCandidateCurrentAsync(plan, execution, ct);
         stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = request.Result.Approved ? "approved" : "changes_requested";
         stage.LastSummary = Encode(request.Result); stage.CompletedAt = clock.GetUtcNow(); stage.UpdatedAt = clock.GetUtcNow();
