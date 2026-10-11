@@ -24,9 +24,33 @@ internal static class WorkDeliveryToolSchemas
         };
         var schema = Json.GetJsonSchemaAsNode(type);
         schema["type"] = "object";
+        ExpandLocalReferences(schema, schema.DeepClone());
         Normalize(schema);
         schema["additionalProperties"] = false;
         return JsonSerializer.SerializeToElement(schema);
+    }
+    // The .NET exporter reuses repeated record types with property-path references.
+    // Our bounded broker validator accepts root definitions only; inline these acyclic request types.
+    private static void ExpandLocalReferences(JsonNode? node, JsonNode root, int depth = 0)
+    {
+        if (depth > 32) throw new InvalidOperationException("Delivery request schema nesting exceeds the supported limit.");
+        if (node is JsonObject obj)
+        {
+            if (obj["$ref"] is JsonValue reference)
+            {
+                var path = reference.GetValue<string>();
+                if (!path.StartsWith("#/", StringComparison.Ordinal)) throw new InvalidOperationException("Only local delivery schema references are supported.");
+                JsonNode? target = root;
+                foreach (var segment in path[2..].Split('/'))
+                    target = target?[segment.Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal)];
+                if (target is not JsonObject definition) throw new InvalidOperationException("Unknown delivery schema reference.");
+                obj.Remove("$ref");
+                foreach (var property in definition) obj[property.Key] = property.Value?.DeepClone();
+            }
+            foreach (var property in obj.ToArray()) ExpandLocalReferences(property.Value, root, depth + 1);
+        }
+        else if (node is JsonArray array)
+            foreach (var child in array) ExpandLocalReferences(child, root, depth + 1);
     }
     private static void Normalize(JsonNode? node)
     {

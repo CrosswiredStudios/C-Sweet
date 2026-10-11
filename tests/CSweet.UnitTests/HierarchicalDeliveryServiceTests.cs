@@ -17,6 +17,42 @@ namespace CSweet.UnitTests;
 public sealed class HierarchicalDeliveryServiceTests
 {
     [Theory]
+    [InlineData("Artifact", true, true, true)]
+    [InlineData("Code", true, true, false)]
+    [InlineData("Artifact", false, true, false)]
+    [InlineData("Artifact", true, false, false)]
+    public async Task DraftQaReportProposalsResolveInitializationOrderButCannotAuthorizeExecution(string kind, bool managerReview, bool matchingAuthor, bool allowed)
+    {
+        await using var f = await Fixture.Create(true);
+        var author = await f.Db.WorkItemStageAssignments.SingleAsync(x => x.WorkItemId == f.Task.Id && x.StageKey == "development");
+        author.OrganizationUserId = f.Qa.Id;
+        author.RequirementsJson = JsonSerializer.Serialize(new WorkAssignmentRequirements("game-quality-assurance", [], [], []), WorkDeliveryService.Json);
+        f.Db.Remove(await f.Db.WorkItemStageAssignments.SingleAsync(x => x.WorkItemId == f.Task.Id && x.StageKey == "quality"));
+        f.Task.PlanningSpecificationJson = JsonSerializer.Serialize(new WorkItemPlanningSpecification(["Report"], ["Verified"]) { DeliveryKind = kind }, WorkDeliveryService.Json);
+        await f.Db.SaveChangesAsync();
+        var request = f.Request() with { TaskAssignments = [new(f.Task.Id,
+            [new("development", "Human", matchingAuthor ? f.Qa.Id : f.Author.Id) { Requirements = new("game-quality-assurance", [], [], []) },
+             new("quality", "Human", managerReview ? f.Manager.Id : f.Qa.Id)])] };
+        if (!allowed)
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => f.Configure(request));
+            Assert.Contains(f.Task.Title, error.Message); Assert.Contains("separate quality review", error.Message);
+            Assert.Empty(await f.Db.WorkDeliveryPlans.ToListAsync()); return;
+        }
+        var draft = await f.Configure(request);
+        Assert.Equal("Draft", draft.Status); Assert.Empty(draft.Executions);
+        var delivery = f.Task.DeliverySpecificationJson;
+        f.Task.DeliverySpecificationJson = null; await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Activate(draft));
+        f.Task.DeliverySpecificationJson = delivery; await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Activate(draft));
+        f.Db.WorkItemStageAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id, WorkItemId = f.Task.Id,
+            StageKey = "quality", PrincipalKind = WorkOrchestrationPrincipalKind.Human, OrganizationUserId = f.Manager.Id });
+        await f.Db.SaveChangesAsync();
+        Assert.Equal("Active", (await f.Activate(draft)).Status);
+    }
+
+    [Theory]
     [InlineData("current", true)]
     [InlineData("expired", false)]
     [InlineData("generation-changed", false)]

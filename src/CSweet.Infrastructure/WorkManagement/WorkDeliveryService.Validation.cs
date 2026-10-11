@@ -11,7 +11,8 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed partial class WorkDeliveryService
 {
-    private async Task ValidateAssignmentsAsync(Guid org, WorkDeliveryScopeSnapshot scope, CancellationToken ct)
+    private async Task ValidateAssignmentsAsync(Guid org, WorkDeliveryScopeSnapshot scope, CancellationToken ct,
+        IReadOnlyList<WorkDeliveryTaskAssignment>? proposals = null)
     {
         var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x => x.Id == scope.BoardId && x.OrganizationId == org && x.ArchivedAt == null, ct)
             ?? throw new InvalidOperationException("The scope board is unavailable.");
@@ -76,17 +77,44 @@ public sealed partial class WorkDeliveryService
                     var review = await db.WorkItemStageAssignments.AsNoTracking().SingleOrDefaultAsync(x =>
                         x.WorkItemId == task.Id && x.StageKey == "quality", ct);
                     var delivery = task.DeliverySpecificationJson is { } deliveryJson ? Decode<WorkItemDeliverySpecification>(deliveryJson) : null;
+                    var planning = task.PlanningSpecificationJson is { } planningJson ? Decode<WorkItemPlanningSpecification>(planningJson) : null;
                     var requirements = author.RequirementsJson is { } requirementsJson ? Decode<WorkAssignmentRequirements>(requirementsJson) : null;
+                    var proposed = proposals?.SingleOrDefault(x => x.ItemId == task.Id);
+                    var proposedAuthor = proposed?.Stages.SingleOrDefault(x => x.StageKey == author.StageKey);
+                    var proposedReview = proposed?.Stages.SingleOrDefault(x => x.StageKey == "quality");
+                    // A draft can validate the manager review that will be finalized after its ID exists.
+                    // A proposal never grants execution; activation and runtime use persisted assignments only.
+                    var draftManagerReview = delivery is null && proposedAuthor is not null && proposedReview is not null &&
+                        proposedAuthor.OrganizationUserId == author.OrganizationUserId && proposedAuthor.AgentInstallationId == author.AgentInstallationId &&
+                        proposedAuthor.Requirements?.RequiredRoleKey == requirements?.RequiredRoleKey &&
+                        proposedReview.OrganizationUserId == taskBoard.ManagerOrganizationUserId &&
+                        proposedReview.OrganizationUserId != author.OrganizationUserId &&
+                        (!author.AgentInstallationId.HasValue || proposedReview.AgentInstallationId != author.AgentInstallationId) &&
+                        await IsCurrentManagerReviewAsync(org, taskBoard, proposedReview, ct);
                     // A manager must independently check QA's exact report before it can
                     // contribute to aggregate acceptance; task self-review stays prohibited.
-                    var reviewedQaEvidence = review is not null && taskBoard.ManagerOrganizationUserId is not null && CSweet.Agent.SDK.DeliveryReviewIndependence.IsQaEvidenceArtifact(delivery?.DeliveryKind, requirements?.RequiredRoleKey) &&
-                        review?.OrganizationUserId == taskBoard.ManagerOrganizationUserId && review?.OrganizationUserId != author.OrganizationUserId &&
-                        (!author.AgentInstallationId.HasValue || review?.AgentInstallationId != author.AgentInstallationId);
+                    var reviewedQaEvidence = taskBoard.ManagerOrganizationUserId is not null && CSweet.Agent.SDK.DeliveryReviewIndependence.IsQaEvidenceArtifact(delivery?.DeliveryKind ?? planning?.DeliveryKind, requirements?.RequiredRoleKey) &&
+                        (draftManagerReview || review is not null && review.OrganizationUserId == taskBoard.ManagerOrganizationUserId && review.OrganizationUserId != author.OrganizationUserId &&
+                        (!author.AgentInstallationId.HasValue || review.AgentInstallationId != author.AgentInstallationId));
                     if (!reviewedQaEvidence)
-                        throw new InvalidOperationException("The QA reviewer must be independent of scoped product authors; QA evidence artifacts require a separate manager review.");
+                        throw new InvalidOperationException($"Task '{task.Title}' ({task.Id}) conflicts with aggregate QA reviewer {assignment.OrganizationUserId}. Product authors cannot review their own work. QA-authored Artifact reports require a separate quality review by board manager {taskBoard.ManagerOrganizationUserId}; include that proposed assignment when configuring the draft, then finalize it before activation.");
                 }
             }
         }
+    }
+
+    private async Task<bool> IsCurrentManagerReviewAsync(Guid org, WorkBoard board, WorkStageAssignment review, CancellationToken ct)
+    {
+        var manager = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == board.ManagerOrganizationUserId &&
+            x.OrganizationId == org && x.IsActive && x.ArchivedAt == null, ct);
+        if (manager is null || !await db.ProjectParticipants.AnyAsync(x => x.OrganizationId == org && x.WorkstreamId == board.WorkstreamId &&
+            x.OrganizationUserId == manager.Id && x.RemovedAt == null, ct)) return false;
+        if (manager.EmployeeType == EmployeeType.Human)
+            return review.PrincipalKind == "Human" && review.AgentInstallationId is null;
+        if (review.PrincipalKind != "AgentInstallation" || manager.AgentInstallationId != review.AgentInstallationId || review.AgentInstallationId is null) return false;
+        var manifest = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == review.AgentInstallationId && x.BusinessId == org.ToString() &&
+            x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active).Select(x => x.PackageVersion!.ManifestJson).SingleOrDefaultAsync(ct);
+        return manifest is not null && ProvidesV2(manifest);
     }
 
     private static bool ProvidesV2(string manifest)

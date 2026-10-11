@@ -115,10 +115,14 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             !previous.ChildIds.Order().SequenceEqual(scope.ChildIds.Order()) ||
             !previous.ChildPlanningRevisions.OrderBy(x => x.Key).SequenceEqual(scope.ChildPlanningRevisions.OrderBy(x => x.Key)))))
             throw new UnauthorizedAccessException("An architect cannot approve changed child membership or acceptance criteria; the assigned manager must amend scope.");
+        var taskIds = scopes.Where(x => x.Scope == WorkExecutionScopes.Story).SelectMany(x => x.ChildIds).ToHashSet();
+        if (request.TaskAssignments.Count > 500 || request.TaskAssignments.Select(x => x.ItemId).Distinct().Count() != request.TaskAssignments.Count ||
+            request.TaskAssignments.Any(x => !taskIds.Contains(x.ItemId) || x.Stages.Select(s => s.StageKey).Distinct().Count() != x.Stages.Count))
+            throw new ArgumentException("Proposed task assignments must uniquely identify tasks in the approved release scope.");
         foreach (var scope in scopes)
         {
             await AuthorizeBoardAsync(org, actorId, scope.BoardId, WorkBoardActions.Configure, ct);
-            await ValidateAssignmentsAsync(org, scope, ct);
+            await ValidateAssignmentsAsync(org, scope, ct, request.TaskAssignments);
         }
         await ValidateBranchesAsync(org, scopes, request.Branches, ct);
         if (request.PlanId.HasValue) await RevokeTaskArtifactGrantsAsync(plan, ct);

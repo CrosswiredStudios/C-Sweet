@@ -26,7 +26,8 @@ public sealed class HierarchicalDeliverySchemaTests
         {
             [WorkDeliveryCapabilities.Read] = new ReadWorkDeliveryPlansRequest(id),
             [WorkDeliveryCapabilities.Configure] = new ConfigureWorkDeliveryPlanRequest(id, "Release", id, [id], [],
-                [new("Release", null, id, [new("quality", "Human", id)])], "configure"),
+                [new("Release", null, id, [new("quality", "Human", id)])], "configure")
+                { TaskAssignments = [new(id, [new("development", "Human", id), new("quality", "Human", Guid.NewGuid())])] },
             [WorkDeliveryCapabilities.Control] = new ControlWorkDeliveryPlanRequest(id, 1, "activate", "activate"),
             [WorkDeliveryCapabilities.Accept] = new DecideWorkDeliveryAcceptanceRequest(id, id, 1, "digest", true, "Verified", criteria, [], "accept"),
             [WorkDeliveryCapabilities.Recover] = new RecoverWorkDeliveryRequest(id, id, 1, "recover", "Provider restored"),
