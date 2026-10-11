@@ -1,6 +1,43 @@
 # Producer ↔ Creative Director handoff stall
 
-Last updated: **2026-10-09 PDT**. The incidents below have different causes; verification of one does not establish recovery for another.
+Last updated: **2026-10-10 PDT**. The incidents below have different causes; verification of one does not establish recovery for another.
+
+## October 10: Technical Director proposal validation blocks delivery
+
+**Status: Technical Director 2.14.3 prepared and locally verified; live upgrade/retry pending.**
+
+For Prism Break (`4b6be99a-32c7-44e9-b879-149fe8e6af33`), the retried pitch/production-brief
+coordination completed at 21:23 PDT. The subsequent technical decomposition session
+(`1cb383cf-2a1a-4c2f-ba56-06f835d53e09`) blocked at 21:45 after three model attempts.
+All three used the configured 128,000 output-token allowance; their output usage was
+19,404, 14,203 and 18,359 tokens. The earlier 8,192-token cap did not cause this block.
+
+The retained first response includes unsupported `game-audio` / `sound-design` skills and
+a cycle between `feat-perf-release` and its child `task-perf-playtest-build`. The final
+response makes content stories `CT-001` and `CT-002` their own parents. The validator
+correctly rejected these proposals, but `SpecialistAgent.GeneratePlanningAsync` supplied
+the same generic hierarchy error rather than identifying the offending fields and cycle.
+Producer `IsSettledPlanningBlock` then retains a blocked personal commitment after bounded
+generation recovery. Attention reviews completing successfully do not mean delivery resumed.
+
+At investigation, the project board contained zero work items and Production Sprint 1 was
+Planned. The normal Producer flow must accept a valid technical proposal before materializing
+work and activating execution. Repository setup was also reported Pending in the planning
+inputs; that must be resolved before repository-dependent execution, but does not prevent
+creating the backlog.
+
+Technical Director 2.14.3 adds `PlanningValidation.PlanValidationIssues` as the shared
+acceptance/correction diagnostic, names invalid values and references, reports actual cycle
+paths, and handles null work items through bounded correction. PlanningConstructionGuidance adds an ordered construction checklist and a typed, validator-tested example to every initial and correction pass; it preserves accepted scope and canonical identities while separating containment from sequencing. `ProductionPlanning` explains
+that containment participates in cycle detection. Existing authority, scope, hierarchy and
+QA requirements remain enforced. Regression tests cover self-parent repair and actionable
+terminal diagnostics. Verification: 126 unit tests, self-test, NuGet version and Linux bundle.
+
+Rollout: install Technical Director 2.14.3, then resume the blocked technical planning
+collaboration through the authorized recovery flow. Verify that the new proposal is accepted,
+canonical board work is created, sprint readiness is satisfied and execution is dispatched.
+An agent upgrade alone does not clear the retained Producer planning block. Do not manufacture
+work or mark a sprint active by database edits to bypass proposal/readiness checks.
 
 ## October 9: invalid project proposal and initial-hiring replenishment
 

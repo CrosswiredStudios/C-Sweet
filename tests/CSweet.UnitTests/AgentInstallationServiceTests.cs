@@ -155,9 +155,11 @@ public sealed class AgentInstallationServiceTests
 
         var configuration = await dbContext.AgentInstallationConfigurations
             .SingleAsync(x => x.AgentInstallationId == installation.Id);
-        var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(configuration.SettingsJson);
-        Assert.Equal(providerId.ToString("D"), settings!["llmProviderId"]);
-        Assert.Equal("test-model", settings["llmModel"]);
+        var settings = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(configuration.SettingsJson);
+        Assert.Equal(providerId.ToString("D"), settings!["llmProviderId"].GetString());
+        Assert.Equal("test-model", settings["llmModel"].GetString());
+        Assert.Equal(256000, settings["maxContextWindowTokens"].GetInt32());
+        Assert.Equal(128000, settings["maxOutputTokens"].GetInt32());
     }
 
     [Fact]
@@ -640,7 +642,7 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
-    public async Task UpdateAndApprove_NormalizesLegacyOutputBudgetToSignedDefault()
+    public async Task UpdateAndApprove_PreservesConfiguredBudgetInsteadOfPackageDefaults()
     {
         await using var dbContext = CreateDbContext();
         var current = await SeedAsync(dbContext, requiresConfiguration: true);
@@ -665,7 +667,7 @@ public sealed class AgentInstallationServiceTests
             ["llmProviderId"] = JsonSerializer.SerializeToElement(providerId.ToString("D")),
             ["llmModel"] = JsonSerializer.SerializeToElement("test-model"),
             ["maxContextWindowTokens"] = JsonSerializer.SerializeToElement(128000),
-            ["maxOutputTokens"] = JsonSerializer.SerializeToElement(128000)
+            ["maxOutputTokens"] = JsonSerializer.SerializeToElement(64000)
         };
         var service = CreateService(dbContext);
         var installed = await service.InstallAsync(current.Id, ValidRequest() with
@@ -701,7 +703,7 @@ public sealed class AgentInstallationServiceTests
         var normalized = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(configuration.SettingsJson)!;
 
         Assert.Equal(128000, normalized["maxContextWindowTokens"].GetInt32());
-        Assert.Equal(8000, normalized["maxOutputTokens"].GetInt32());
+        Assert.Equal(64000, normalized["maxOutputTokens"].GetInt32());
     }
 
     [Fact]

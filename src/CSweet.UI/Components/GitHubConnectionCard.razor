@@ -1,0 +1,58 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+
+<MudPaper Outlined="true" Class="pa-4" Style="height:100%">
+    <MudStack Spacing="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Custom.Brands.GitHub" />
+            <MudText Typo="Typo.h5">@Installation.AccountLogin</MudText>
+        </MudStack>
+        <MudText Typo="Typo.body2">GitHub @(Installation.AccountType == "Organization" ? "organization" : "personal account")</MudText>
+        <MudText Color="@(Installation.Suspended ? Color.Warning : Color.Success)">@(Installation.Suspended ? "Suspended on GitHub" : "Connected to GitHub")</MudText>
+        @if (Installation.Businesses.Count == 0) { <MudText Typo="Typo.body2">Not yet assigned to a C-Sweet business.</MudText> }
+        @foreach (var business in Installation.Businesses)
+        {
+            <MudButton Href="@($"/organizations/{business.BusinessId:D}/source-control")">@business.BusinessName · Manage connection</MudButton>
+        }
+        <MudStack Row="true" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Outlined" OnClick="LoadRepositoriesAsync" Disabled="_loading">@(_repositories is null ? "View repository access" : "Refresh repository access")</MudButton>
+        </MudStack>
+        @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+        @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+        @if (_repositories is not null)
+        {
+            <MudText Typo="Typo.body2">@_repositories.Count repositories allowed by GitHub</MudText>
+            @if (_repositories.Count == 0) { <MudText>No repositories are currently exposed to this connection.</MudText> }
+            <div style="max-height:320px;overflow:auto" aria-label="GitHub repository access">
+                @foreach (var repository in _repositories)
+                {
+                    <div class="py-2">
+                        <MudText>@repository.FullName</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@(repository.IsPrivate ? "Private" : "Public")@(repository.IsArchived ? " · Archived" : "") · @(repository.SelectedForBusiness ? "Selected for a business" : "Available to assign to a business")</MudText>
+                    </div>
+                }
+            </div>
+            @if (_repositories.Count == 1000) { <MudText Typo="Typo.caption">Showing up to 1,000 repositories.</MudText> }
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public PlatformGitHubInstallationSummary Installation { get; set; } = default!;
+    protected override async Task OnInitializedAsync() => await LoadRepositoriesAsync();
+    private bool _loading;
+    private string? _error;
+    private IReadOnlyList<PlatformGitHubRepositoryAccess>? _repositories;
+    private async Task LoadRepositoriesAsync()
+    {
+        _loading = true; _error = null; _repositories = null;
+        try
+        {
+            using var response = await Http.GetAsync($"api/source-control/platform-setup/installations/{Installation.InstallationId}/repositories");
+            await GitHubPlatformWizardFlow.EnsureSuccessAsync(response);
+            _repositories = await response.Content.ReadFromJsonAsync<IReadOnlyList<PlatformGitHubRepositoryAccess>>() ?? [];
+        }
+        catch (Exception) { _error = "Repository access could not be checked. Refresh to try again."; }
+        finally { _loading = false; }
+    }
+}

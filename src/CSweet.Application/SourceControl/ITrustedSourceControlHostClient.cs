@@ -7,6 +7,8 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<IReadOnlyList<TrustedInstallationDescriptor>> ListInstallationsAsync(CancellationToken ct = default) =>
+        throw new NotSupportedException("GitHost must be updated to discover GitHub installations.");
     Task<DeliveryBranchResult> DeliveryBranchAsync(DeliveryBranchOperation request, CancellationToken ct = default) =>
         throw new InvalidOperationException("Delivery branch operations are unavailable.");
     Task<InternalGitBackupJob> QueueInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Background backups are unavailable.");

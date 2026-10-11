@@ -33,8 +33,8 @@ public sealed class CompanyDashboardRenderingTests
         Assert.Contains("Briefing settings", html);
         Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "role=\"tab\"").Count);
         Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "role=\"tabpanel\"").Count);
-        Assert.Contains("Overview appearance", html);
-        Assert.Contains("data-activity-theme=\"aurora\"", html);
+        Assert.DoesNotContain("Overview appearance", html);
+        Assert.Contains("company-overview aurora-page", html);
         if (Environment.GetEnvironmentVariable("CSWEET_OVERVIEW_PREVIEW") is string path) await File.WriteAllTextAsync(path, html);
     }
     [Fact]

@@ -10,6 +10,22 @@ namespace CSweet.UnitTests;
 public sealed class GitHubAppClientTests
 {
     [Fact]
+    public async Task InstallationDiscoveryReadsAllPagesAndKeepsSuspensionStatus()
+    {
+        var page = JsonSerializer.Serialize(Enumerable.Range(1, 100).Select(id => new
+        {
+            id, account = new { id, login = "account-" + id, type = "User" }, suspended_at = (string?)null
+        }));
+        var handler = new SequenceHandler(Json(HttpStatusCode.OK, page), Json(HttpStatusCode.OK,
+            "[{\"id\":101,\"account\":{\"id\":101,\"login\":\"studio\",\"type\":\"Organization\"},\"suspended_at\":\"2026-10-11T00:00:00Z\"}]"));
+        var installations = await CreateClient(handler).ListInstallationsAsync(default);
+        Assert.Equal(101, installations.Count);
+        Assert.True(installations.Last().Suspended);
+        Assert.All(handler.Requests, r => Assert.Equal("/app/installations", r.Path));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
     public async Task HierarchicalActivationFailsBeforeChangingBranchesOrExistingProtectionsWithoutProviderGuarantees()
     {
         var handler = new SequenceHandler();

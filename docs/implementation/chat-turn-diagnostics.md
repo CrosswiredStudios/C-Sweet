@@ -118,6 +118,20 @@ Endpoint equivalents: `GET /communications/hub/chats/{chatId}/turns[/{turnId}[/t
 
 ## Recovery
 
+The October 10 Naomi/Gabriel pitch-refinement session `e2dd55a1-6c0d-4131-bded-37e747f9ea92`
+exhausted three deliveries of Naomi's reply. The first two attempts reported `JsonReaderException`
+and each consumed 8,192 output tokens; the final attempt reported `InvalidOperationException`
+with diagnostic `b7f2adb2-db1b-4b3e-ab6a-f7708f4d02be`. The response bodies and original final
+stack were not retained, so truncation and the particular failed field validation are not proven.
+`ReviewProducerPitchAsync` requested a hidden 8,192-token cap despite the agent's 128,000-token
+output default. `PlatformLlmCapabilityHandler.StreamAsync` now uses the installation's effective
+`AgentTokenBudget` for all agent inference, overriding legacy per-call caps. Deploy the platform
+correction before using manager recovery to resume the saved collaboration and pending speaker.
+This does not prove that a larger budget alone repairs invalid JSON. Separate remaining issues:
+`AgentWorkFailure.DescribeCollaborationFailure` promises automatic recovery for invalid-operation
+failures excluded by `AgentCoordinationService.RecoverTransientFailuresAsync`, and
+`RequireProgressingHandoff` repeatedly throws during attention reviews of a failed session.
+
 The October 10 Prism Break Producer handoff failed in the Creative Director's final acknowledgement after the Producer completed and the planning package was approved. A concurrent package-submitted event advanced the project operating state from revision 4 to 5. `McpAgentRuntimeClient.InvokeAsync` previously classified every MCP tool error as `Unavailable`, so `VideoGameCreativeDirectorAgent.SaveStateAsync` could not catch the typed `Conflict` and reread/merge. SDK 3.62.2 preserves typed capability errors from legacy enum names and current `platform.capability.*` metadata; Creative Director 1.18.4 pins this fix. Deploy the updated agent runtime, then resume the existing failed coordination session through `AgentCoordinationService.ResumeForManagerAsync` (Communications recovery), preserving its transcript and approved artifacts. Routine project reviews do not resume a terminal nonretryable coordination failure.
 
 All supported provider types use the shared response contract described in

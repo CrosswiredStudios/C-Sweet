@@ -2,20 +2,24 @@
 @using CSweet.UI.Components.Projects
 
 <article class="resource-section" aria-label="@Title">
-    <header><div><h2>@Title</h2><p>@Description</p></div><span>@Visible.Count() records</span></header>
+    <header><div><h2>@Title</h2>@if (!string.IsNullOrWhiteSpace(Description)) { <p>@Description</p> }</div><span>@Visible.Count() of @Resources.Count</span></header>
+    @if (Resources.Count > 0)
+    {
+        <div class="resource-toolbar"><label class="resource-search">Search <input aria-label="@($"Search {Title}")" placeholder="Search by name, type, or status" @bind="_search" @bind:event="oninput" /></label><label class="resource-sort">Sort <select @bind="_sort"><option value="attention">Needs attention first</option><option value="recent">Recently updated</option><option value="name">Name</option></select></label></div>
+    }
     @if (Groups.Length > 1)
     {
         <nav aria-label="@($"{Title} sections")" class="resource-filters">
             @foreach (var group in Groups)
             {
-                <button type="button" aria-pressed="@(_selected == group)" @onclick="@(() => _selected = group)">@group</button>
+                <button type="button" aria-pressed="@((_selected == group).ToString().ToLowerInvariant())" @onclick="@(() => _selected = group)">@group <span>@Resources.Count(x => group == "All" || Group(x.ResourceType) == group)</span></button>
             }
         </nav>
     }
     @if (ShowPreviews && (_selected is "All" or "Previews")) { <ProjectPreviewLinks Resources="@Visible.ToList()" /> }
     @if (!Visible.Any())
     {
-        <div class="resource-empty"><MudIcon Icon="@Icon" Size="Size.Large" /><h3>No @EmptyLabel yet</h3><p>@EmptyText</p></div>
+        <div class="resource-empty"><MudIcon Icon="@Icon" Size="Size.Large" /><h3>@(string.IsNullOrWhiteSpace(_search) ? $"No {EmptyLabel} yet" : "No matching results")</h3><p>@(string.IsNullOrWhiteSpace(_search) ? EmptyText : "Try another name, type, or status.")</p>@if (!string.IsNullOrWhiteSpace(_search)) { <button type="button" @onclick='@(() => _search = "")'>Clear search</button> }</div>
     }
     else
     {
@@ -28,8 +32,10 @@
                     @if (resource.OccurredAt.HasValue) { <time datetime="@resource.OccurredAt.Value.ToString("O")">@resource.OccurredAt.Value.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</time> }
                 </div>
                 <details><summary>Record details</summary><dl>
-                    <dt>Type</dt><dd>@resource.TypeKey</dd><dt>Revision</dt><dd>@(resource.Revision?.ToString() ?? "Not provided")</dd>
-                    <dt>Hash</dt><dd>@(resource.Sha256 ?? "Not provided")</dd><dt>Provider</dt><dd>@(resource.ProviderPackageId is null ? "Not provided" : $"{resource.ProviderPackageId} · {resource.ProviderPackageVersion}")</dd>
+                    @if (!string.IsNullOrWhiteSpace(resource.TypeKey)) { <dt>Type</dt><dd>@resource.TypeKey</dd> }
+                    @if (resource.Revision.HasValue) { <dt>Revision</dt><dd>@resource.Revision</dd> }
+                    @if (!string.IsNullOrWhiteSpace(resource.Sha256)) { <dt>Hash</dt><dd>@resource.Sha256</dd> }
+                    @if (!string.IsNullOrWhiteSpace(resource.ProviderPackageId)) { <dt>Provider</dt><dd>@resource.ProviderPackageId · @resource.ProviderPackageVersion</dd> }
                     <dt>Resource ID</dt><dd>@resource.Id</dd>
                 </dl></details>
             </article>
@@ -46,14 +52,28 @@
     [Parameter] public string[] Groups { get; set; } = ["All"];
     [Parameter] public bool ShowPreviews { get; set; }
     private string _selected = "All";
+    private string _search = "", _sort = "attention";
     private string? _loadedTitle;
     protected override void OnParametersSet()
     {
-        if (_loadedTitle != Title || !Groups.Contains(_selected)) _selected = Groups.FirstOrDefault() ?? "All";
+        if (_loadedTitle != Title || !Groups.Contains(_selected)) { _selected = Groups.FirstOrDefault() ?? "All"; _search = ""; }
         _loadedTitle = Title;
     }
     private string EmptyLabel => (_selected == "All" ? Title : _selected).ToLowerInvariant();
-    private IEnumerable<ProjectInspectionResource> Visible => Resources.Where(x => _selected == "All" || Group(x.ResourceType) == _selected);
+    private IEnumerable<ProjectInspectionResource> Visible
+    {
+        get
+        {
+            var rows = Resources.Where(x => (_selected == "All" || Group(x.ResourceType) == _selected) &&
+                $"{x.Title} {x.ResourceType} {x.Status}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
+            return _sort switch
+            {
+                "name" => rows.OrderBy(x => x.Title, StringComparer.OrdinalIgnoreCase),
+                "recent" => rows.OrderByDescending(x => x.OccurredAt),
+                _ => rows.OrderByDescending(x => x.Status is "Blocked" or "Failed" or "Pending" or "AwaitingApproval" or "InReview").ThenByDescending(x => x.OccurredAt)
+            };
+        }
+    }
     private static string Group(string type) => type switch
     {
         "Team" => "Teams", "Supervision" => "Supervision", "Document" => "Documents", "DocumentReview" => "Reviews",
@@ -66,7 +86,7 @@
         foreach (var (key, label) in new[] { ("TargetDate", "Target"), ("DueAt", "Due"), ("ParticipantCount", "Participants"), ("MessageCount", "Messages"), ("Disposition", "Outcome"), ("ContentType", "Format"), ("TargetKey", "Target"), ("StartsAt", "Starts") })
         {
             var value = ProjectPresentation.Metadata(resource, key, "");
-            if (value.Length > 0) yield return (label, value);
+            if (value.Length > 0) yield return (label, key is "TargetDate" or "DueAt" or "StartsAt" && DateTimeOffset.TryParse(value, out var date) ? date.LocalDateTime.ToString("MMM d, yyyy · h:mm tt") : value);
         }
     }
 }

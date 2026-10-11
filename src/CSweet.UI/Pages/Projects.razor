@@ -9,26 +9,21 @@
 @implements IDisposable
 
 <PageTitle>@(_project?.Project.Title ?? "Projects") - C-Sweet</PageTitle>
-<div class="projects-workspace">
-    <nav class="project-breadcrumb" aria-label="Breadcrumb"><a href="@PortfolioHref">Projects</a>@if (WorkstreamId.HasValue) { <span>/</span><span>@(_project?.Project.Title ?? "Project")</span> }</nav>
+<div class="projects-workspace aurora-page @(WorkstreamId.HasValue ? "project-detail-workspace" : "portfolio-workspace")">
+    @if (WorkstreamId.HasValue || HubView != "portfolio") { <nav class="project-breadcrumb" aria-label="Breadcrumb"><a href="@PortfolioHref">Projects</a><span>/</span><span>@(WorkstreamId.HasValue ? _project?.Project.Title ?? "Project" : HubView == "boards" ? "All boards" : "Personal boards")</span></nav> }
     <header class="project-header">
         <div>
+            @if (!WorkstreamId.HasValue) { <span class="portfolio-eyebrow">Your company at work</span> }
             <h1>@(WorkstreamId.HasValue ? _project?.Project.Title ?? "Project" : "Projects")</h1>
             @if (_project is not null && WorkstreamId.HasValue)
             {
-                <div class="project-meta"><span class="project-status">@_project.Project.Status</span><span>@ProjectPresentation.Metadata(_project.Project, "LifecycleStage")</span><span>@ProjectPresentation.Profile(_project.Project.TypeKey)</span></div>
+                <div class="project-meta"><span class="project-status">@_project.Project.Status</span><span>@ProjectPresentation.Metadata(_project.Project, "LifecycleStage")</span></div>
             }
-            else { <p>Projects and everyday work, in one place.</p> }
+            else { <p>A clear view of your projects.</p> }
         </div>
         @if (WorkstreamId.HasValue) { <MudButton Href="@($"{ProjectHref(WorkstreamId.Value)}/members")" Variant="Variant.Outlined">Manage members</MudButton> }
         else { <MudButton Href="@($"{PortfolioHref}/new")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">New project</MudButton> }
     </header>
-    @if (!WorkstreamId.HasValue)
-    {
-        <nav class="workspace-views" aria-label="Projects views">
-            @foreach (var (key, label) in HubViews) { <a href="@($"{PortfolioHref}?view={key}")" aria-current="@(HubView == key ? "page" : null)">@label</a> }
-        </nav>
-    }
     @if (!WorkstreamId.HasValue && HubView is "boards" or "personal")
     {
         <WorkBoards @key="(OrganizationId, HubView)" OrganizationId="OrganizationId" Embedded="true" DirectoryView="@HubView" />
@@ -42,32 +37,16 @@
             <nav class="project-tabs" aria-label="Project sections">
                 @foreach (var (key, label) in Tabs) { <a href="@TabHref(key)" aria-current="@(CurrentTab == key ? "page" : null)">@label</a> }
             </nav>
-            <section aria-label="@Tabs.First(x => x.Key == CurrentTab).Label">
+            <section class="project-section" aria-label="@Tabs.First(x => x.Key == CurrentTab).Label" @key="(OrganizationId, WorkstreamId, CurrentTab)">
             @switch (CurrentTab)
             {
                 case "overview":
-                    <div class="project-metrics">@foreach (var metric in HealthMetrics().Take(4)) { <div><span>@metric.Label</span><strong>@metric.Value</strong></div> }</div>
-                    <div class="project-overview">
-                        <div class="project-stack">
-                            <article class="project-panel"><h2>Project brief</h2><p class="project-goal">@ProjectPresentation.Metadata(_project.Project, "Outcome", "No goal has been provided.")</p><div class="project-meta"><span>Target · @TargetDate</span></div><details><summary>Profile &amp; record details</summary><p>@_project.Project.TypeKey · Revision @_project.Project.Revision</p><p class="record-hash">@_project.Project.Sha256</p><p>Updated @_project.Project.OccurredAt?.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</p></details></article>
-                            <article class="project-panel"><div class="panel-heading"><h2>Work &amp; people</h2><a href="@TabHref("work")">View work →</a></div>
-                                @foreach (var board in ProjectBoards) { <div class="project-row"><div><h3>@board.Title</h3><small>Project board · @board.Status</small></div><a href="@BoardHref(board.Id)">Open board →</a></div> }
-                                @if (!ProjectBoards.Any()) { <p>No boards linked to this project yet.</p> }
-                                @foreach (var team in _project.Teams.Where(x => x.ResourceType == "Team")) { <div class="project-row"><div><h3>@team.Title</h3><small>@team.Status</small></div><a href="@TabHref("people")">View people →</a></div> }
-                            </article>
-                            <article class="project-panel"><div class="panel-heading"><h2>Recent activity</h2><a href="@TabHref("audit")">View audit →</a></div>@foreach (var entry in _project.Audit.Take(3)) { <div class="project-row"><div><h3>@(string.IsNullOrWhiteSpace(entry.Summary) ? entry.EventType : entry.Summary)</h3><small>@Actor(entry) · @entry.OccurredAt.LocalDateTime.ToString("MMM d · h:mm tt")</small></div></div> }@if (_project.Audit.Count == 0) { <p>No recorded project activity yet.</p> }</article>
-                        </div>
-                        <article class="project-panel delivery-panel"><div class="panel-heading"><h2>Delivery readiness</h2><span class="project-status @(_project.Health.ReleaseReady ? "" : "is-pending")">@(_project.Health.ReleaseReady ? "Ready" : "Not ready")</span></div>
-                            @foreach (var metric in HealthMetrics().Skip(4).Take(3)) { <div class="project-row"><span>@metric.Label</span><strong>@metric.Value</strong></div> }
-                            @if (!_project.Evidence.Any(x => x.ResourceType == "Build")) { <p>No build has been recorded.</p> }
-                            <p class="project-note">Readiness comes from release evidence. Zero reported failures does not mean the project is ready.</p><a href="@TabHref("delivery")">View delivery →</a>
-                        </article>
-                    </div>
+                    <ProjectOverview Project="_project" ProjectHref="@ProjectHref(WorkstreamId.Value)" />
                     break;
                 case "efficiency": <WorkEfficiencyPanel OrganizationId="OrganizationId" WorkstreamId="WorkstreamId" /> break;
                 case "people":
-                    <div class="project-note">Project assignments do not change reporting relationships. Manage members to choose the project manager and participants.</div>
-                    <ProjectResourceSection Title="People & supervision" Resources="_project.Teams" Groups='@(new[] { "All", "Teams", "Supervision" })' EmptyText="Teams and supervision assignments linked to this project will appear here." Icon="@Icons.Material.Outlined.Groups" />
+
+                    <ProjectResourceSection Title="People & supervision" Description="Project teams and their reporting assignments. Use Manage members to update staffing." Resources="_project.Teams" Groups='@(new[] { "All", "Teams", "Supervision" })' EmptyText="Teams and supervision assignments linked to this project will appear here." Icon="@Icons.Material.Outlined.Groups" />
                     break;
                 case "work":
                     @if (ProjectBoards.Any())
@@ -77,17 +56,16 @@
                     }
                     else { <div class="project-empty"><h2>No project boards yet</h2><p>Manage operational boards in the board directory.</p><a href="@($"{PortfolioHref}?view=boards")">Open all boards →</a></div> }
                     break;
-                case "documents": <ProjectResourceSection Title="Documents & reviews" Resources="_project.Documents" Groups='@(new[] { "All", "Documents", "Reviews" })' EmptyText="Linked project documents and their review outcomes will appear here." Icon="@Icons.Material.Outlined.Description" /> break;
-                case "communications": <ProjectResourceSection Title="Communications" Resources="_project.Communications" EmptyText="Conversations linked to this project will appear with their latest activity and participants." Icon="@Icons.Material.Outlined.Forum" /> break;
-                case "decisions": <ProjectResourceSection Title="Decisions & governance" Resources="_project.Governance" Groups='@(new[] { "All", "Decisions", "Milestones", "Gates", "Authority" })' EmptyText="Linked decisions, milestones, gates, and authority records will appear here. Missing records do not grant authority." Icon="@Icons.Material.Outlined.Flag" /> break;
+                case "documents": <ProjectResourceSection Title="Documents & reviews" Description="Open the brief, inspect deliverables, and follow review outcomes." Resources="_project.Documents" Groups='@(new[] { "All", "Documents", "Reviews" })' EmptyText="Linked project documents and their review outcomes will appear here." Icon="@Icons.Material.Outlined.Description" /> break;
+                case "communications": <ProjectResourceSection Title="Communications" Description="Conversations connected to this project." Resources="_project.Communications" EmptyText="Conversations linked to this project will appear with their latest activity and participants." Icon="@Icons.Material.Outlined.Forum" /> break;
+                case "decisions": <ProjectResourceSection Title="Decisions & governance" Description="Inspect decisions, milestones, and the gates governing delivery." Resources="_project.Governance" Groups='@(new[] { "All", "Decisions", "Milestones", "Gates", "Authority" })' EmptyText="Linked decisions, milestones, gates, and authority records will appear here. Missing records do not grant authority." Icon="@Icons.Material.Outlined.Flag" /> break;
                 case "delivery":
-                    <ProjectReleases OrganizationId="OrganizationId" ProjectId="WorkstreamId!.Value" />
-                    <div class="delivery-toolbar"><MudButton OnClick="RefreshAsync" Disabled="_loading" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh">Refresh delivery status</MudButton></div>
-                    <ProjectResourceSection Title="Delivery" Resources="_project.Evidence" Groups='@(new[] { "All", "Builds", "Previews", "Media", "Evaluations", "Release" })' ShowPreviews="true" EmptyText="Builds, previews, media, evaluations, and release evidence linked to this project will appear here." Icon="@Icons.Material.Outlined.Inventory2" />
+                    <ProjectReleases OrganizationId="OrganizationId" ProjectId="WorkstreamId!.Value" WorkResources="_project.Work" />
+                    <ProjectResourceSection Title="Delivery evidence" Description="Builds, previews, and checks supporting release readiness." Resources="_project.Evidence" Groups='@(new[] { "All", "Builds", "Previews", "Media", "Evaluations", "Release" })' ShowPreviews="true" EmptyText="Builds, previews, media, evaluations, and release evidence linked to this project will appear here." Icon="@Icons.Material.Outlined.Inventory2" />
                     break;
                 case "audit":
-                    <div class="panel-heading"><h2>Audit timeline</h2><span>@FilteredAudit.Count() events</span></div>
-                    <div class="project-filters audit-filters"><MudTextField @bind-Value="_auditActor" Label="Actor" Immediate="true" Variant="Variant.Outlined" /><MudTextField @bind-Value="_auditResource" Label="Resource or event" Immediate="true" Variant="Variant.Outlined" /><MudTextField @bind-Value="_auditCorrelation" Label="Correlation or causation" Immediate="true" Variant="Variant.Outlined" /><MudTextField @bind-Value="_auditOutcome" Label="Outcome" Immediate="true" Variant="Variant.Outlined" /></div>
+                    <div class="panel-heading"><div><h2>Audit timeline</h2><p class="section-description">A chronological record of project activity.</p></div><span>@FilteredAudit.Count() events</span></div><label class="audit-toggle"><input type="checkbox" @bind="_showRoutineReads" /> Show routine reads</label>
+                    <details class="audit-filter-disclosure"><summary>Filter activity</summary><div class="project-filters audit-filters"><MudTextField @bind-Value="_auditActor" Label="Actor" Immediate="true" Variant="Variant.Outlined" /><MudTextField @bind-Value="_auditResource" Label="Resource or event" Immediate="true" Variant="Variant.Outlined" /><MudTextField @bind-Value="_auditCorrelation" Label="Correlation or causation" Immediate="true" Variant="Variant.Outlined" /><MudTextField @bind-Value="_auditOutcome" Label="Outcome" Immediate="true" Variant="Variant.Outlined" /></div></details>
                     <div class="project-panel audit-timeline">@foreach (var entry in FilteredAudit) { <article class="audit-entry"><div class="panel-heading"><h3>@(string.IsNullOrWhiteSpace(entry.Summary) ? entry.EventType : entry.Summary)</h3><span class="project-status">@entry.Outcome</span></div><p>@Actor(entry) · @entry.OccurredAt.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</p><details><summary>Event details</summary><dl><dt>Event</dt><dd>@entry.EventType</dd><dt>Resource</dt><dd>@entry.EntityType @entry.EntityId</dd><dt>Correlation</dt><dd>@entry.CorrelationId</dd><dt>Causation</dt><dd>@entry.ParentEventId</dd><dt>Trace</dt><dd>@entry.TraceId</dd><dt>Hash</dt><dd>@entry.RecordHash</dd></dl></details></article> }@if (!FilteredAudit.Any()) { <p>No audit entries match these filters.</p> }</div>
                     break;
             }
@@ -95,13 +73,60 @@
         }
         else if (_portfolio is not null)
         {
-            <div class="portfolio-toolbar"><MudTextField @bind-Value="_search" Label="Search projects" Immediate="true" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" /><MudSelect T="string" @bind-Value="_health" Label="Health" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All health</MudSelectItem><MudSelectItem Value='@("blocked")'>Blocked</MudSelectItem><MudSelectItem Value='@("decision")'>Decision needed</MudSelectItem><MudSelectItem Value='@("build-failed")'>Build failed</MudSelectItem><MudSelectItem Value='@("on-track")'>No reported blockers</MudSelectItem></MudSelect><MudButton OnClick="@(() => _showFilters = !_showFilters)" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.FilterList">Filters</MudButton></div>
+            <div class="portfolio-toolbar"><MudTextField @bind-Value="_search" Label="Search projects" Immediate="true" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" /><MudSelect T="string" @bind-Value="_health" Label="Health" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All health</MudSelectItem><MudSelectItem Value='@("blocked")'>Blocked</MudSelectItem><MudSelectItem Value='@("decision")'>Decision needed</MudSelectItem><MudSelectItem Value='@("build-failed")'>Build failed</MudSelectItem><MudSelectItem Value='@("on-track")'>No reported blockers</MudSelectItem></MudSelect><MudButton OnClick="@(() => _showFilters = !_showFilters)" Variant="Variant.Outlined" aria-expanded="@_showFilters.ToString().ToLowerInvariant()" aria-controls="portfolio-filters" StartIcon="@Icons.Material.Outlined.FilterList">Filters</MudButton></div>
             @if (_showFilters)
             {
-                <div class="project-filters"><MudSelect T="string" @bind-Value="_profile" Label="Profile" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All profiles</MudSelectItem>@foreach (var value in _portfolio.Projects.Select(x => x.ProfileKey).OfType<string>().Distinct()) { <MudSelectItem Value="@value">@ProjectPresentation.Profile(value)</MudSelectItem> }</MudSelect><MudSelect T="string" @bind-Value="_lifecycle" Label="Phase" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All phases</MudSelectItem>@foreach (var value in _portfolio.Projects.Select(x => x.LifecycleStage).Distinct()) { <MudSelectItem Value="@value">@value</MudSelectItem> }</MudSelect><MudSelect T="string" @bind-Value="_manager" Label="Manager" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All managers</MudSelectItem>@foreach (var person in _portfolio.Projects.Where(x => x.AccountableManagerOrganizationUserId.HasValue).DistinctBy(x => x.AccountableManagerOrganizationUserId)) { <MudSelectItem Value="@(person.AccountableManagerOrganizationUserId!.Value.ToString())">@(person.AccountableManagerName ?? "Unavailable manager")</MudSelectItem> }</MudSelect><MudSelect T="string" @bind-Value="_team" Label="Team" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All</MudSelectItem><MudSelectItem Value='@("assigned")'>Assigned</MudSelectItem><MudSelectItem Value='@("missing")'>Missing</MudSelectItem></MudSelect><MudSelect T="string" @bind-Value="_release" Label="Release readiness" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">Any readiness</MudSelectItem><MudSelectItem Value='@("ready")'>Ready</MudSelectItem><MudSelectItem Value='@("not-ready")'>Not ready</MudSelectItem></MudSelect><MudCheckBox @bind-Value="_onlyBlockers" Label="Has blockers" /><MudCheckBox @bind-Value="_targetDue" Label="Target due or overdue" /><MudButton OnClick="ClearFilters">Clear filters</MudButton></div>
+                <div id="portfolio-filters" class="project-filters"><MudSelect T="string" @bind-Value="_profile" Label="Profile" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All profiles</MudSelectItem>@foreach (var value in _portfolio.Projects.Select(x => x.ProfileKey).OfType<string>().Distinct()) { <MudSelectItem Value="@value">@ProjectPresentation.Profile(value)</MudSelectItem> }</MudSelect><MudSelect T="string" @bind-Value="_lifecycle" Label="Phase" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All phases</MudSelectItem>@foreach (var value in _portfolio.Projects.Select(x => x.LifecycleStage).Distinct()) { <MudSelectItem Value="@value">@value</MudSelectItem> }</MudSelect><MudSelect T="string" @bind-Value="_manager" Label="Manager" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All managers</MudSelectItem>@foreach (var person in _portfolio.Projects.Where(x => x.AccountableManagerOrganizationUserId.HasValue).DistinctBy(x => x.AccountableManagerOrganizationUserId)) { <MudSelectItem Value="@(person.AccountableManagerOrganizationUserId!.Value.ToString())">@(person.AccountableManagerName ?? "Unavailable manager")</MudSelectItem> }</MudSelect><MudSelect T="string" @bind-Value="_team" Label="Team" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">All</MudSelectItem><MudSelectItem Value='@("assigned")'>Assigned</MudSelectItem><MudSelectItem Value='@("missing")'>Missing</MudSelectItem></MudSelect><MudSelect T="string" @bind-Value="_release" Label="Release readiness" Variant="Variant.Outlined"><MudSelectItem Value="@string.Empty">Any readiness</MudSelectItem><MudSelectItem Value='@("ready")'>Ready</MudSelectItem><MudSelectItem Value='@("not-ready")'>Not ready</MudSelectItem></MudSelect><MudCheckBox @bind-Value="_onlyBlockers" Label="Has blockers" /><MudCheckBox @bind-Value="_targetDue" Label="Target due or overdue" /><MudButton OnClick="ClearFilters">Clear filters</MudButton></div>
             }
             <div class="panel-heading portfolio-count"><h2>All projects <span>@FilteredProjects.Count()</span></h2></div>
-            <div class="portfolio-list">@foreach (var project in FilteredProjects) { <article class="portfolio-project"><div class="portfolio-columns"><div><h2><a href="@ProjectHref(project.Id)">@project.Name</a></h2><p>@project.Outcome</p><div class="project-meta"><span class="project-status">@project.Status</span><span>@ProjectPresentation.Profile(project.ProfileKey)@if (project.ProfileVersion.HasValue) { <span> · v@(project.ProfileVersion)</span> }</span></div></div><div><small>Phase</small><p>@project.LifecycleStage</p><small>@(project.TargetDate.HasValue ? project.TargetDate.Value.LocalDateTime.ToString("MMM d, yyyy") : "Target not set")</small></div><div><small>Delivery</small><p><span class="project-status @(project.ReleaseReady ? "" : "is-pending")">@(project.ReleaseReady ? "Ready" : "Not ready")</span></p><small>@(project.LatestBuildStatus ?? "No build yet")</small></div><div><small>Manager</small><p>@(project.AccountableManagerName ?? "Not assigned")</p><small>@project.ActiveTeams teams</small></div></div><footer><span>@project.OpenItems open work</span><span>@project.BlockedItems blocked</span><span>@project.PendingGates pending gates</span><span>@project.OpenDecisions open decisions</span><a href="@ProjectHref(project.Id)">Open project →</a></footer></article> }</div>
+            <div class="portfolio-list">
+                @foreach (var project in FilteredProjects)
+                {
+                    <article class="portfolio-project" @key="project.Id" aria-label="@project.Name">
+                        <div class="portfolio-main">
+                            <div class="portfolio-brief">
+                                <div class="portfolio-identity">
+                                    <span class="project-emblem" aria-hidden="true"><i></i><i></i><i></i></span>
+                                    <div><h2><a href="@ProjectHref(project.Id)">@project.Name</a></h2><p class="portfolio-profile">@ProjectPresentation.Profile(project.ProfileKey)@if (project.ProfileVersion.HasValue) { <span> · v@(project.ProfileVersion)</span> }</p></div>
+                                    <span class="project-status">@project.Status</span>
+                                </div>
+                                <p class="portfolio-outcome">@(string.IsNullOrWhiteSpace(project.Outcome) ? "No project brief yet." : project.Outcome)</p>
+                                @if (!string.IsNullOrWhiteSpace(project.Outcome))
+                                {
+                                    <details class="portfolio-full-brief"><summary>Read full brief</summary><p>@project.Outcome</p></details>
+                                }
+                            </div>
+                            <aside class="portfolio-delivery" aria-label="Delivery readiness">
+                                <span class="portfolio-label">Delivery readiness</span>
+                                <strong class="readiness-label">@(project.ReleaseReady ? "Ready" : "Not ready")</strong>
+                                <span>@(project.LatestBuildStatus is { Length: > 0 } build ? $"Latest build · {build}" : "No build recorded yet")</span>
+                                <a href="@($"{ProjectHref(project.Id)}?tab=delivery")">View delivery <span aria-hidden="true">↗</span></a>
+                            </aside>
+                        </div>
+                        <dl class="portfolio-facts">
+                            <div><dt>Current phase</dt><dd><span class="phase-dot" aria-hidden="true"></span>@project.LifecycleStage</dd></div>
+                            <div><dt>Target date</dt><dd>@(project.TargetDate.HasValue ? project.TargetDate.Value.LocalDateTime.ToString("MMM d, yyyy") : "Not set")</dd></div>
+                            <div><dt>Project manager</dt><dd>
+                                @if (project.AccountableManagerOrganizationUserId is Guid managerId)
+                                {
+                                    <a class="portfolio-manager" href="@($"/organizations/{OrganizationId:D}/employees/{managerId:D}")"><span class="manager-avatar" aria-hidden="true">@Initials(project.AccountableManagerName)</span>@(project.AccountableManagerName ?? "View employee")</a>
+                                }
+                                else { <span>Not assigned</span> }
+                            </dd></div>
+                            <div><dt>Team</dt><dd><a href="@($"{ProjectHref(project.Id)}?tab=people")">@project.ActiveTeams active @(project.ActiveTeams == 1 ? "team" : "teams")</a></dd></div>
+                        </dl>
+                        <footer>
+                            <div class="portfolio-signals">
+                                <a href="@($"{ProjectHref(project.Id)}?tab=work")">@project.OpenItems open work</a>
+                                <a href="@($"{ProjectHref(project.Id)}?tab=work")" class="@(project.BlockedItems > 0 ? "has-blockers" : null)">@project.BlockedItems blocked</a>
+                                <a href="@($"{ProjectHref(project.Id)}?tab=decisions")">@project.PendingGates pending gates</a>
+                                <a href="@($"{ProjectHref(project.Id)}?tab=decisions")">@project.OpenDecisions open decisions</a>
+                            </div>
+                            <a class="portfolio-open" href="@ProjectHref(project.Id)">Open project <span aria-hidden="true">→</span></a>
+                        </footer>
+                    </article>
+                }
+            </div>
             @if (!FilteredProjects.Any()) { <div class="project-empty"><h2>No matching projects</h2><p>No authorized projects match your search and filters.</p><MudButton OnClick="ClearFilters">Clear filters</MudButton></div> }
         }
     }
@@ -117,14 +142,14 @@
     [Parameter, SupplyParameterFromQuery(Name = "sprint")] public Guid? SprintId { get; set; }
     private ProjectPortfolioResponse? _portfolio;
     private ProjectInspectionResponse? _project;
-    private bool _loading, _disposed, _showFilters, _onlyBlockers, _targetDue;
+    private bool _loading, _disposed, _showFilters, _onlyBlockers, _targetDue, _showRoutineReads;
     private string? _error;
     private int _request;
     private (Guid, Guid?)? _scope;
     private string _search = "", _profile = "", _lifecycle = "", _manager = "", _health = "", _team = "", _release = "";
     private string _auditActor = "", _auditResource = "", _auditCorrelation = "", _auditOutcome = "";
     private static readonly (string Key, string Label)[] Tabs = [("overview", "Overview"), ("efficiency", "Efficiency"), ("people", "People"), ("work", "Work"), ("documents", "Documents"), ("communications", "Communications"), ("decisions", "Decisions"), ("delivery", "Delivery"), ("audit", "Audit")];
-    private static readonly (string Key, string Label)[] HubViews = [("portfolio", "Portfolio"), ("boards", "All boards"), ("personal", "Personal boards")];
+    private static string Initials(string? name) => string.IsNullOrWhiteSpace(name) ? "?" : string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(part => char.ToUpperInvariant(part[0])));
     private string HubView => View is "boards" or "personal" ? View : "portfolio";
     private string CurrentTab => ProjectPresentation.Tab(Tab);
     private string PortfolioHref => $"/organizations/{OrganizationId:D}/projects";
@@ -133,7 +158,6 @@
     private string BoardHref(Guid id) => $"{TabHref("work")}&board={id:D}";
     private IReadOnlyList<ProjectInspectionResource> ProjectBoards => _project?.Work.Where(x => x.ResourceType == "Board").ToList() ?? [];
     private Guid? SelectedBoardId => ProjectBoards.FirstOrDefault(x => x.Id == BoardId)?.Id ?? ProjectBoards.FirstOrDefault()?.Id;
-    private string TargetDate => _project is not null && DateTimeOffset.TryParse(ProjectPresentation.Metadata(_project.Project, "TargetDate", ""), out var date) ? date.LocalDateTime.ToString("MMM d, yyyy") : "Not set";
     private void SelectBoard(ChangeEventArgs args) { if (Guid.TryParse(args.Value?.ToString(), out var id)) Navigation.NavigateTo(BoardHref(id)); }
     protected override void OnInitialized() { Realtime.EventReceived += OnRealtimeEvent; Realtime.Reconnected += OnReconnect; Realtime.Connected += OnReconnect; }
     protected override async Task OnParametersSetAsync()
@@ -166,10 +190,9 @@
         .Where(x => !_targetDue || x.TargetDate <= DateTimeOffset.UtcNow)
         .Where(x => _health switch { "blocked" => x.BlockedItems > 0, "decision" => x.OpenDecisions > 0, "build-failed" => x.LatestBuildStatus == "Failed", "on-track" => x.BlockedItems == 0 && x.OpenDecisions == 0 && x.LatestBuildStatus != "Failed", _ => true })
         .Where(x => _release switch { "ready" => x.ReleaseReady, "not-ready" => !x.ReleaseReady, _ => true });
-    private IEnumerable<ProjectAuditEntry> FilteredAudit => (_project?.Audit ?? []).Where(x => Contains($"{x.ActorDisplayName} {x.ActorAgentId} {x.ActorInstallationId}", _auditActor) && Contains($"{x.EventType} {x.EntityType} {x.EntityId}", _auditResource) && Contains($"{x.CorrelationId} {x.ParentEventId} {x.TraceId}", _auditCorrelation) && Contains(x.Outcome, _auditOutcome));
+    private IEnumerable<ProjectAuditEntry> FilteredAudit => (_project?.Audit ?? []).Where(x => _showRoutineReads || !ProjectPresentation.IsRoutineRead(x)).OrderByDescending(x => x.OccurredAt).Where(x => Contains($"{x.ActorDisplayName} {x.ActorAgentId} {x.ActorInstallationId}", _auditActor) && Contains($"{x.EventType} {x.EntityType} {x.EntityId}", _auditResource) && Contains($"{x.CorrelationId} {x.ParentEventId} {x.TraceId}", _auditCorrelation) && Contains(x.Outcome, _auditOutcome));
     private static string Actor(ProjectAuditEntry entry) => entry.ActorDisplayName ?? entry.ActorAgentId ?? entry.ActorKind;
     private static bool Contains(string? value, string filter) => string.IsNullOrWhiteSpace(filter) || (value?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
     private void ClearFilters() { _search = _profile = _lifecycle = _manager = _health = _team = _release = ""; _onlyBlockers = _targetDue = false; }
-    private IEnumerable<(string Label, object Value)> HealthMetrics() => _project is null ? [] : [("Open work", _project.Health.OpenItems), ("Blocked work", _project.Health.BlockedItems), ("Pending gates", _project.Health.PendingGates), ("Open decisions", _project.Health.OpenDecisions), ("Documents in review", _project.Health.DocumentsInReview), ("Failed builds", _project.Health.FailedBuilds), ("Blocking validations", _project.Health.BlockingValidations)];
     public void Dispose() { _disposed = true; ++_request; Realtime.EventReceived -= OnRealtimeEvent; Realtime.Reconnected -= OnReconnect; Realtime.Connected -= OnReconnect; }
 }

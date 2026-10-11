@@ -12,8 +12,8 @@
                 <ChildContent>
                     <div class="board-filters" role="group" aria-label="Board filters" @onclick:stopPropagation="true">
                         <div class="filter-heading"><strong>Board filters</strong><button type="button" class="icon-action" aria-label="Close filters" @onclick="CloseFiltersAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" /></button></div>
-                        <span class="field-label">Status</span><div class="filter-options"><button type="button" aria-pressed="@(_draftStatuses.Count == 0)" @onclick="@(() => _draftStatuses.Clear())">Any status</button>
-                            @foreach (var column in Present.Columns) { <button type="button" aria-pressed="@_draftStatuses.Contains(column.Status)" @onclick="@(() => ToggleStatusFilter(column.Status))">@column.Label</button> }
+                        <span class="field-label">Status</span><div class="filter-options"><button type="button" aria-pressed="@((_draftStatuses.Count == 0).ToString().ToLowerInvariant())" @onclick="@(() => _draftStatuses.Clear())">Any status</button>
+                            @foreach (var column in Present.Columns) { <button type="button" aria-pressed="@(_draftStatuses.Contains(column.Status).ToString().ToLowerInvariant())" @onclick="@(() => ToggleStatusFilter(column.Status))">@column.Label</button> }
                         </div>
                         <label class="property"><span class="field-label">Priority</span><select aria-label="Priority" @bind="_draftPriority"><option value="">Any priority</option>@foreach (var priority in Priorities) { <option value="@priority">@priority</option> }</select></label>
                         @if (IncludeArchivedChanged.HasDelegate || IncludeArchived) { <label class="property"><span class="field-label">Archive</span><select aria-label="Archive" @bind="_draftArchive"><option value="current">Current tickets</option><option value="all">Include archived</option><option value="archived">Archived only</option></select></label> }

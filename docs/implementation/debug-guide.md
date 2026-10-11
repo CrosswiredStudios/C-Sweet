@@ -101,6 +101,30 @@ dotnet run --project src/CSweet.WorkerHost
 
 ## Inference request size configuration
 
+### Agent token budgets
+
+`AgentTokenBudget` supplies editable `maxContextWindowTokens` (256,000 by default) and
+`maxOutputTokens` (128,000 by default) through `AgentConfigurationRules` and
+`AgentInstallationConfigurationService`. LLM agents expose these fields even when an older
+package omitted them. Definition defaults and employee overrides use the same configuration
+and restore paths as other agent settings. Existing saved values are preserved.
+
+`PlatformLlmCapabilityHandler.StreamAsync` resolves the authenticated installation's effective
+output budget for every provider call. Per-call `ChatOptions.MaxOutputTokens`, including legacy
+hardcoded workflow budgets, and provider-profile output defaults do not override it. The former
+`CSweet:Llm:Queue:DefaultMaximumOutputTokens` fallback is removed. This platform correction applies
+to existing agent packages after rebuilding/restarting AgentHost; repackaging each agent is not
+required. Configuration updates are read on subsequent inference calls.
+
+Both values must be positive whole numbers, with output below total context. Invalid saved values
+produce an actionable configuration error rather than being silently clamped. The context setting
+remains the agent harness's planning/compaction budget; it does not enlarge the provider model's
+actual context capacity. Provider rejection of an unsupported budget remains a failure, without
+an automatic retry at a smaller budget. Provider-profile defaults still apply to ordinary
+non-agent provider clients.
+
+### Request size limits
+
 `CSweet.AgentHost` reads `CSweet:Llm:Queue:MaximumRequestBytes` and
 `CSweet:Llm:Queue:MaximumMessageCharacters`. Both default to **0**, meaning no
 application-level inference byte or text-size limit. Set a positive integer to enforce a cap;
@@ -193,6 +217,62 @@ For a complete debug experience, create `.vscode/launch.json`:
 ```
 
 ## Troubleshooting
+
+### Pages freeze after an unread-message refresh times out
+
+If the browser console reports `TaskCanceledException: net_http_request_timedout, 100`,
+`CommunicationUnreadState.OnBusinessChanged`, and `[MONO] Process terminated`, an HTTP
+timeout escaped the unread refresh's background event handler and terminated the Blazor
+runtime. `CommunicationUnreadState.ReloadAsync` must handle `OperationCanceledException`
+even when the caller's cancellation token is not cancelled: `HttpClient.Timeout` uses its
+own cancellation. The refresh retains the previous counts and releases its lock so a later
+business change or realtime event can retry. `NotificationSoundTests.UnreadState_HttpTimeoutRetainsCountsAndAllowsTheNextRefresh`
+exercises a real HTTP timeout and successful recovery. Rebuild the frontend and reload the
+browser to recover a terminated runtime. Investigate API connectivity separately if requests
+continue to time out.
+
+### Employees remains on "Loading employees" while API health succeeds
+
+`OrganizationUserService` depends on personal work, and collaboration depends on hiring and
+employee services. Eagerly injecting `IAgentCoordinationService` into `WorkItemMutationEngine`
+closes that construction cycle through the `IPersonalTodoService` factory in
+`DependencyInjection.AddCSweetInfrastructure`. The factory hides the cycle from normal
+constructor validation and requests can stall before executing the employee query.
+
+Register the mutation engine with a deferred collaboration factory, resolving collaboration
+only during recovery operations. `InfrastructureDependencyInjectionTests.EmployeeAndCollaborationServicesResolveWithoutAConstructionCycle`
+checks both service resolution orders; `AgentCoordinationServiceTests.ManagerTicketRequeueResumesSpecialistAndPreservesVisibleDiagnosis`
+verifies deferred resolution still resumes the specialist. Rebuild and restart affected
+service hosts to load the corrected registration; browser reloads alone cannot fix this cycle.
+
+### Always-on agent startup retries and server restart recovery
+
+`AgentRuntimeManager.HandleAlwaysOnTermination` schedules transient MCP/transport startup
+failures using persisted `AgentSchedule.NextTickAt`. The delay doubles after each failure,
+starting at 30 seconds and remaining at 30 minutes once the maximum is reached. These retries
+continue beyond three failures. `EnsureAlwaysOnRuntimesAsync` respects the due time, so the
+five-second schedule reconciliation loop does not bypass backoff. A successful MCP session
+resets the failure count through `AgentRuntimeSignalService.RecordMcpSessionEstablishedAsync`.
+
+Configure `CSweet:AgentRuntime:StartupRetryInitialDelaySeconds` and
+`CSweet:AgentRuntime:StartupRetryMaximumDelaySeconds` in WorkerHost configuration (or the
+corresponding environment variables with `__` separators). Values are bounded to one second
+through one day, with the maximum at least the initial delay.
+
+`AgentRuntimeStartupCleanupWorker.StartAsync` calls
+`AgentRuntimeStartupCleanupService.RecoverTransientStartupFailuresAsync` once per server
+start. Enabled always-on installations with a transient failed startup and no active runtime
+become due immediately, including legacy failures previously suppressed after three attempts.
+The original failure and failure count remain visible. The schedule update and runtime
+diagnostic event are saved together; the existing schedule worker discovers due state even
+without a connected agent. Broker availability and runtime eligibility still govern launch;
+another startup failure returns to backoff. Disabled agents, manual cancellations, and fatal
+package failures are not reopened by this recovery. An explicit **Retry startup** or corrected
+configuration remains the recovery path for those package failures.
+
+`AgentRuntimeManagerStartupRecoveryTests` covers increasing and capped delays, scheduler due
+time enforcement, restart recovery of legacy timeout diagnostics, duplicate discovery, and
+disabled/fatal cases. No token budget is changed by startup recovery.
 
 ### Hired agent is offline and has not sent an introduction
 
@@ -742,3 +822,17 @@ Deploy Headquarters with Office.Contracts 0.9.0 and Office 0.8.0 (Node, RuntimeH
 ## Single QA agent blocked by recursive QA report review
 
 SDK 3.62.0 HierarchicalProjectDelivery assigns QA-owned Artifact reports to the board manager for exact-criterion review, while aggregate QA excludes product authors. WorkDeliveryService.ValidateAssignmentsAsync allows report ownership only with separate board-manager review; code and other artifact authors remain ineligible for aggregate QA. Producer 2.19.3 executes ArtifactDeliveryReview and converts DeliveryStaffingException into an actionable staffing gap. Rebuild/restart the platform and upgrade the Producer before retrying its blocked staffing/preflight through normal recovery. This does not prove the live sprint is ready, remove other missing roles, or waive QA evidence.
+
+The October 11 Production Sprint 1 preflight still failed with Producer 2.19.3 because
+`SpecialistAgent` published QA-owned report planning with the default `DeliveryKind = Code`.
+Producer 2.19.4 explicitly records `Artifact` for these proposals and uses
+`QaReportPlanning.RepairQaReportPlanningAsync` before `StaffWorkflowAsync` calls hierarchical
+delivery. The current board manager repairs legacy unstarted report planning with revision checks,
+preserving criteria, dependencies, provenance and ownership. Bound deliveries, active/historical
+executions and terminal tasks are preserved. The regression suite exercises the actual SDK
+staffing path with one QA author, separate manager report review, aggregate QA and replay.
+The owner must push the Producer repository, let its release CI finish, install 2.19.4, then
+retry the existing preflight/recovery. Verify report planning and delivery become Artifact,
+the report quality reviewer is the Producer, and product QA remains independent. A later
+staffing or certified-build blocker remains a separate prerequisite; this correction does not
+waive it. Local package tests do not establish live sprint activation.

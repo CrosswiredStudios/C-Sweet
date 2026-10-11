@@ -5,7 +5,7 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 <section class="employee-timeline" aria-label="Employee timeline">
-    <header class="timeline-heading"><div><h2>Timeline</h2><p>Activity from the audit ledger</p></div><MudButton StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="ReloadAsync">Refresh</MudButton></header>
+    <header class="timeline-heading"><div><h2>Timeline</h2><p>Work, conversations, and runtime events</p></div><MudButton StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="ReloadAsync">Refresh</MudButton></header>
     <div class="timeline-filters">
         <label>Period<select value="@_days" @onchange="ChangeRangeAsync"><option value="90">Last 90 days</option><option value="7">Last 7 days</option><option value="1">Last 24 hours</option><option value="0">All history</option></select></label>
         <label>Event type<select value="@_category" @onchange="ChangeCategoryAsync"><option value="">All events</option>@foreach (var category in Categories) { <option value="@category">@category</option> }</select></label>
@@ -26,7 +26,7 @@
                 <div class="timeline-date">@day.Key.ToString("dddd, MMMM d")</div>
                 @foreach (var item in day)
                 {
-                    <button type="button" class="timeline-row @(_selectedId == item.Id ? "selected" : "")" @onclick="@(() => SelectAsync(item.Id))" aria-pressed="@(_selectedId == item.Id)">
+                    <button type="button" class="timeline-row @(_selectedId == item.Id ? "selected" : "")" @onclick="@(() => SelectAsync(item.Id))" aria-pressed="@((_selectedId == item.Id).ToString().ToLowerInvariant())">
                         <time title="@item.OccurredAt.UtcDateTime.ToString("O")">@item.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time>
                         <span class="timeline-symbol"><MudIcon Icon="@Icon(item.Category)" Size="Size.Small" /></span>
                         <span class="timeline-row-text"><strong>@RowLabel(item)</strong>@if (item.ModelResponseChunkCount is int chunks) { <span>@chunks.ToString("N0") chunks · combined response</span> }<span>@(item.Summary is not null && item.Summary != item.EventType ? item.Summary : item.ActorDisplayName) @(!string.IsNullOrWhiteSpace(item.TargetDisplayName) ? $"→ {item.TargetDisplayName}" : "")</span></span>

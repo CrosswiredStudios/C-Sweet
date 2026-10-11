@@ -216,6 +216,7 @@ public sealed class WorkBoardWorkspaceTests
             { [nameof(WorkBoardWorkspace.Detail)] = board, [nameof(WorkBoardWorkspace.Sprints)] = sprints, [nameof(WorkBoardWorkspace.InitialSprintId)] = initialSprintId }));
             return component.ToHtmlString();
         });
+        if (Environment.GetEnvironmentVariable("CSWEET_DETAIL_PREVIEWS") is string path) await File.WriteAllTextAsync(Path.Combine(path, "detail-board-component.html"), html);
         return (html, requests);
     }
     private sealed class Handler(List<string> requests, HttpStatusCode status, Wire.WorkSprintExecutionResponse? execution) : HttpMessageHandler

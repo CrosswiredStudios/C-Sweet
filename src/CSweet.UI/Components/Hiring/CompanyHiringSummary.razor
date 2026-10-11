@@ -11,7 +11,7 @@
         </div>
         @if (ApprovalError is not null)
         {
-            <MudAlert Severity="Severity.Warning">@ApprovalError Use Refresh to try again.</MudAlert>
+            <MudAlert Severity="Severity.Warning">@ApprovalError</MudAlert>
         }
         else if (!ApprovalsLoaded)
         {
@@ -50,7 +50,7 @@
         </div>
         @if (RecommendationError is not null)
         {
-            <MudAlert Severity="Severity.Warning">@RecommendationError Use Refresh to try again.</MudAlert>
+            <MudAlert Severity="Severity.Warning">@RecommendationError</MudAlert>
         }
         else if (!RecommendationsLoaded)
         {

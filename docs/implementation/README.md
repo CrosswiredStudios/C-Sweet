@@ -90,6 +90,7 @@ Cross-cutting features are documented as a phased series in their own folder:
   agent work-item error, and console locations to diagnose a failed Communications answer.
 
 - [Repository directory](./features/repository-directory.md) - repository activity, project associations, C-Sweet access semantics, and click-only access popovers.
+- [GitHub connection wizard](./features/github-connection-wizard.md) - compact platform setup, automatic callback completion, business repository selection, and optional creation setup.
 
 ## Recommended implementation order
 

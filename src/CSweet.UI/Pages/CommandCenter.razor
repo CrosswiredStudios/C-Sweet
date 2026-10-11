@@ -6,7 +6,7 @@
 @implements IDisposable
 
 <PageTitle>Company overview - C-Sweet</PageTitle>
-<div class="company-overview" data-activity-theme="@_activityTheme">
+<div class="company-overview aurora-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Company overview</MudText>
@@ -14,19 +14,20 @@
             <MudText Color="Color.Secondary">Decisions, company health, and the latest from your project leads.</MudText>
         </div>
         <div class="overview-actions">
-            <select class="activity-theme-picker" aria-label="Overview appearance" @bind="_activityTheme"><option value="aurora">Aurora Light</option><option value="gold">Black &amp; Gold</option></select>
             <MudButton Href="@($"/organizations/{OrganizationId}/executive-briefings")" Variant="Variant.Text">Briefing settings</MudButton>
-            <MudButton OnClick="RefreshAsync" Disabled="_loading" StartIcon="@Icons.Material.Outlined.Refresh">Refresh</MudButton>
+            @if (_errors.Count > 0)
+            {
+                <MudButton OnClick="RefreshAsync" Disabled="_loading">Retry failed updates</MudButton>
+            }
         </div>
     </MudPaper>
-    <div class="overview-toolbar">
-        <span>Drag a widget by its handle, or use the arrows to reorder.</span>
-        <MudButton OnClick="ResetOrderAsync" Disabled="@(_saving || !_layoutLoaded)" Size="Size.Small">Reset order</MudButton>
-    </div>
-    <div role="status" aria-live="polite" class="layout-status">@_layoutMessage</div>
+    @if (_layoutMessage is not null)
+    {
+        <div role="alert" class="layout-status">@_layoutMessage</div>
+    }
     @if (_loading)
     {
-        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-3" />
+        <div class="overview-loading" aria-label="Updating overview"><MudProgressLinear Indeterminate="true" Color="Color.Primary" /></div>
     }
     <div class="overview-widgets">
     @foreach (var widget in _order)
@@ -66,7 +67,7 @@
                     <div class="attention-panel" role="tabpanel" id="attention-panel-1" aria-labelledby="attention-tab-1" aria-label="CEO approvals" tabindex="0" hidden="@(_attentionTab != 1)">
                         @if (_errors.GetValueOrDefault("approvals") is { } approvalError)
                         {
-                            <MudAlert Severity="Severity.Warning">@approvalError Use Refresh to try again.</MudAlert>
+                            <MudAlert Severity="Severity.Warning">@approvalError</MudAlert>
                         }
                         else if (_approvals is not null)
                         {
@@ -95,7 +96,7 @@
                 }
                 else if (ErrorFor(widget) is { } error)
                 {
-                    <MudAlert Severity="Severity.Warning">@error Use Refresh to try again.</MudAlert>
+                    <MudAlert Severity="Severity.Warning">@error</MudAlert>
                 }
                 else if (widget == "activity")
                 {
@@ -191,7 +192,6 @@
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
     private int _activityRefreshVersion;
-    private string _activityTheme = "aurora";
     private static readonly string[] AttentionTabs = ["Decisions", "Approvals", "Hiring"];
     private readonly ElementReference[] _attentionTabButtons = new ElementReference[3];
     private int _attentionTab;
@@ -251,7 +251,7 @@
                 _layoutLoaded = true; _layoutMessage = null;
             }, token));
         if (token.IsCancellationRequested) return;
-        if (_errors.ContainsKey("layout")) _layoutMessage = "Could not load your saved layout. Refresh to enable reordering.";
+        if (_errors.ContainsKey("layout")) _layoutMessage = "Could not load your saved layout. Retry failed updates to enable reordering.";
         _loading = false;
         if (_refreshQueued)
         {
@@ -289,18 +289,16 @@
         var dragged = _dragging; _dragging = null;
         if (dragged is not null && dragged != target) await MoveAsync(dragged, _order.IndexOf(target));
     }
-    private Task ResetOrderAsync() => SaveOrderAsync(DashboardWidgets.DefaultOrder.ToList());
     private async Task SaveOrderAsync(List<string> next)
     {
         if (_saving || !_layoutLoaded) return;
         var organizationId = OrganizationId;
         var previous = _order.ToList();
-        _order = next; _saving = true; _layoutMessage = "Saving order…";
+        _order = next; _saving = true; _layoutMessage = null;
         try
         {
             using var response = await Http.PutAsJsonAsync($"api/core/organizations/{organizationId}/dashboard/layout", new DashboardLayoutRequest(next));
             response.EnsureSuccessStatusCode();
-            if (OrganizationId == organizationId) _layoutMessage = "Widget order saved.";
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {

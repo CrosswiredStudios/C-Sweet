@@ -9,6 +9,13 @@ remain in the new non-secret configuration schema. Saved provider and model sele
 take precedence over manifest defaults. Removed settings are dropped; retained values
 are kept for review even when the new schema makes them invalid.
 
+`AgentTokenBudget.Fields` also supplies the platform-owned context/output fields for LLM
+packages that do not declare them. Definition and installation upgrades preserve those
+settings and employee overrides even when absent from the package manifest. A new package's
+smaller default or numeric maximum cannot reduce the user's token budget. Invalid output/context
+relationships require configuration repair; `NormalizeRelationalConfiguration` does not
+replace token values with package defaults.
+
 `AgentConfigurationRules.IsLocallyReadyAsync` applies required-field, dependency, type,
 option, numeric-range, and enabled-provider checks using the manifest and local database.
 It does not request the provider's live model catalog. For a built, signed package,

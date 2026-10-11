@@ -46,7 +46,9 @@ public sealed class CommunicationUnreadState(HttpClient http, IBusinessContext b
                 $"api/organizations/{organizationId}/communications/hub/unread-summary", cancellationToken);
             if (summary is not null) Apply(summary);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        // HttpClient timeouts also cancel the request, without cancelling the caller's token.
+        // Background event handlers must retain the last count instead of letting that timeout escape.
+        catch (OperationCanceledException) { }
         catch (HttpRequestException) { }
         catch (InvalidOperationException) { }
         finally { _reloadLock.Release(); }

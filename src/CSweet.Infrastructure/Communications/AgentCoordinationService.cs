@@ -498,7 +498,9 @@ public sealed class AgentCoordinationService(
             responseTurn.AgentWorkItemId = session.CurrentAgentWorkItemId;
         }
 
-        await new WorkItemMutationEngine(db, TimeProvider.System).WakeCoordinationWaitsAsync(session, cancellationToken);
+        var commitments = new WorkItemMutationEngine(db, TimeProvider.System);
+        await commitments.RecordCoordinationDiscussionAsync(session, cancellationToken);
+        await commitments.WakeCoordinationWaitsAsync(session, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
@@ -552,6 +554,7 @@ public sealed class AgentCoordinationService(
             .Where(x => x.Status == DomainStatus.Failed && x.UpdatedAt <= cutoff &&
                 x.FinalSummary != null && (x.FinalSummary.Contains("retryable=true") ||
                     x.FinalSummary.Contains("code=platform.capability.unavailable") ||
+                    x.FinalSummary.Contains(AgentWorkInbox.DeadlineElapsedBeforeClaimReason) ||
                     x.FinalSummary.Contains(Core.MemoryRuntimeResetRequiredException.SafeMessage)))
             .OrderBy(x => x.UpdatedAt).ToListAsync(cancellationToken);
         var recovered = 0;
@@ -565,7 +568,25 @@ public sealed class AgentCoordinationService(
             if (failed is null || failed.Status != AgentWorkStatus.DeadLetter) continue;
             var attempts = deliveries.Where(x => x.CausationId == failed.CausationId).Sum(x => x.AttemptCount);
             if (attempts >= 12) continue;
-            if (failed.LastError == Core.MemoryRuntimeResetRequiredException.SafeMessage)
+            if (failed.LastError == AgentWorkInbox.DeadlineElapsedBeforeClaimReason)
+            {
+                // No lease means no agent action occurred. Preserve the expired receipt,
+                // and issue a fresh delivery only once its intended speaker is connected.
+                // An elapsed execution deadline after a claim is deliberately excluded.
+                if (failed.AttemptCount != 0 || failed.DeadlineAt > now ||
+                    await db.AgentWorkAttempts.AnyAsync(x => x.AgentWorkItemId == failed.Id, cancellationToken) ||
+                    !await db.AgentRuntimeInstances.AnyAsync(x => x.AgentInstallationId == failed.AgentInstallationId &&
+                        x.Status == AgentRuntimeStatus.Running && x.McpSessionEstablishedAt != null &&
+                        x.MemoryResetRequestedAt == null, cancellationToken)) continue;
+                try
+                {
+                    if (await ResolveParticipantsAsync(session.OrganizationId, session.InitiatorOrganizationUserId,
+                        session.InitiatorInstallationId, session.TargetOrganizationUserId, cancellationToken) != session.TargetInstallationId)
+                        continue;
+                }
+                catch (Exception error) when (error is UnauthorizedAccessException or InvalidOperationException) { continue; }
+            }
+            else if (failed.LastError == Core.MemoryRuntimeResetRequiredException.SafeMessage)
             {
                 // A delivered turn may have mutated durable state. Resume the same speaker
                 // and transcript, never replay its lease or reuse the contaminated runtime.
@@ -658,14 +679,14 @@ public sealed class AgentCoordinationService(
         var session = await QuerySession().SingleOrDefaultAsync(x =>
             x.Id == request.SessionId && x.OrganizationId == organizationId,
             cancellationToken) ?? throw new KeyNotFoundException("The coordination session was not found.");
+        if (session.InitiatorOrganizationUserId != actorOrganizationUserId ||
+            session.InitiatorInstallationId != actorInstallationId)
+            throw new UnauthorizedAccessException("Only the initiating agent may resume this coordination session.");
         if (string.Equals(session.LastResumeIdempotencyKey, request.IdempotencyKey, StringComparison.Ordinal))
         {
             if (transaction is not null) await transaction.RollbackAsync(cancellationToken);
             return await MapAsync(session, cancellationToken);
         }
-        if (session.InitiatorOrganizationUserId != actorOrganizationUserId ||
-            session.InitiatorInstallationId != actorInstallationId)
-            throw new UnauthorizedAccessException("Only the initiating agent may resume this coordination session.");
         if (session.Revision != request.ExpectedRevision)
             throw new InvalidOperationException("The coordination session changed before it could be resumed.");
         if (session.Status is not (DomainStatus.Failed or DomainStatus.Blocked))
@@ -677,7 +698,20 @@ public sealed class AgentCoordinationService(
                 x.CorrelationId == session.Id.ToString("D") && x.Status == AgentWorkStatus.DeadLetter)
                 .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken)
             : null;
-        var retryTarget = failedDelivery?.AgentInstallationId == session.TargetInstallationId;
+        // A blocked board proposal with no artifact needs a fresh specialist response.
+        // Replaying the initiator's summarization only repeats the old blocker.
+        var blockedTarget = session.Status == DomainStatus.Blocked && session.SourceKind == "Board" &&
+            session.Turns.Where(x => x.SpeakerOrganizationUserId == session.TargetOrganizationUserId)
+                .OrderByDescending(x => x.Ordinal).FirstOrDefault() is
+                { Disposition: AgentCoordinationDispositions.Blocked, ArtifactType: null };
+        if (blockedTarget)
+        {
+            var currentTarget = await ResolveParticipantsAsync(organizationId, actorOrganizationUserId,
+                actorInstallationId, session.TargetOrganizationUserId, cancellationToken);
+            if (currentTarget != session.TargetInstallationId)
+                throw new InvalidOperationException("The coordination target installation changed; start a new authorized collaboration.");
+        }
+        var retryTarget = failedDelivery?.AgentInstallationId == session.TargetInstallationId || blockedTarget;
         var installationId = retryTarget ? session.TargetInstallationId : session.InitiatorInstallationId;
         var speakerId = retryTarget ? session.TargetOrganizationUserId : session.InitiatorOrganizationUserId;
         var wasFailed = session.Status == DomainStatus.Failed;
@@ -693,7 +727,7 @@ public sealed class AgentCoordinationService(
         session.UpdatedAt = now;
         await db.SaveChangesAsync(cancellationToken);
         session.CurrentAgentWorkItemId = await EnqueueTurnAsync(
-            session, installationId, speakerId, cancellationToken);
+            session, installationId, speakerId, cancellationToken, request.Reason.Trim());
         await db.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapAsync(session, cancellationToken);
@@ -756,9 +790,11 @@ public sealed class AgentCoordinationService(
 
     private async Task<Guid> EnqueueTurnAsync(
         DomainSession session, Guid installationId, Guid currentUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? recoveryReason = null)
     {
         var request = await BuildTurnRequestAsync(session, currentUserId, cancellationToken);
+        if (recoveryReason is not null)
+            request = request with { Objective = request.Objective + "\nRecovery request (within existing scope and authority): " + recoveryReason };
         var eventId = Guid.NewGuid();
         if (session.SourceKind == "WorkItem" && session.SourceWorkItemId is not null &&
             session.SourceConversationId is null && session.SourceChatTurnId is null && session.SourceMessageId is null)

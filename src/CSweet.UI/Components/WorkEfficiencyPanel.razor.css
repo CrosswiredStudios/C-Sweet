@@ -16,3 +16,5 @@
 .efficiency-expand { background: transparent; border: 0; cursor: pointer; color: inherit; font-size: 1.2rem; }
 .efficiency-work-link small { display: inline-block; min-width: 3.5rem; text-transform: uppercase; text-decoration: none; font-size: .68rem; color: var(--mud-palette-text-secondary); }
 .efficiency-table td small { color: var(--mud-palette-text-secondary); }
+.efficiency-coverage { font-size:.8rem; color:var(--mud-palette-text-secondary); }.efficiency-coverage summary { cursor:pointer; padding:6px 0; }.efficiency-coverage p { margin:10px 0; max-width:85ch; line-height:1.7; }
+.efficiency-empty { padding:48px 24px; text-align:center; background:var(--mud-palette-surface); border:1px dashed var(--mud-palette-divider); border-radius:20px; }.efficiency-empty p { margin-top:12px; color:var(--mud-palette-text-secondary); }

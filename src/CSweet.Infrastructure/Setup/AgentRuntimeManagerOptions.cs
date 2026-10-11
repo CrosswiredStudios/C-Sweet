@@ -6,6 +6,8 @@ public sealed class AgentRuntimeManagerOptions
     public const string CurrentDevelopmentCertificationSuiteVersion = "csweet-hardware-vm-smoke-v14";
     public string RequiredCertificationSuiteVersion { get; set; } = CurrentDevelopmentCertificationSuiteVersion;
     public bool CleanupWorkloadsOnStartup { get; set; } = true;
+    public int StartupRetryInitialDelaySeconds { get; set; } = 30;
+    public int StartupRetryMaximumDelaySeconds { get; set; } = 1800;
     public string WorkspaceSnapshotStorePath { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "CSweet",

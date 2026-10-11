@@ -1,5 +1,6 @@
 <section class="employee-directory-view" role="tabpanel" aria-label="Employee directory">
-    <MudTextField T="string" Value="Filter.Search" ValueChanged="ChangeSearchAsync" Placeholder="Search employees by name, role, or agent..." Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Class="employee-directory-search" />
+    <MudTextField T="string" Value="Filter.Search" ValueChanged="ChangeSearchAsync" Immediate="true" Label="Search employees" Placeholder="Name, role, or agent" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Class="employee-directory-search" />
+    <details class="directory-filter-disclosure"><summary>Filters</summary>
     <div class="employee-directory-filters">
         <MudSelect T="string" Label="Role" Value="Filter.Role" ValueChanged="ChangeRoleAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
             <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
@@ -30,6 +31,7 @@
         </MudSelect>
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.RestartAlt" Disabled="@Filter.IsClear" OnClick="ClearAsync">Clear filters</MudButton>
     </div>
+    </details>
     <div class="employee-directory-count">@ResultLabel</div>
     @if (FilteredEmployees.Count == 0)
     {

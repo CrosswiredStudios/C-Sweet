@@ -10,6 +10,9 @@ using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.WorkManagement;
+using CSweet.Application.WorkManagement;
+using Wire = CSweet.WorkManagement.Contracts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -20,6 +23,215 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCoordinationServiceTests
 {
+    [Theory]
+    [InlineData("ready", true)]
+    [InlineData("offline", false)]
+    [InlineData("claimed", false)]
+    [InlineData("attempt-record", false)]
+    [InlineData("revoked", false)]
+    [InlineData("disabled", false)]
+    [InlineData("execution-timeout", false)]
+    [InlineData("cancelled", false)]
+    [InlineData("cooldown", false)]
+    public async Task ExpiredUnclaimedCoordinationRecoversOnlyConnectedAuthorizedSpeaker(string scenario, bool recover)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var now = DateTimeOffset.UtcNow;
+        var stored = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
+        stored.Turns.Single().Content = "Accepted brief and the pending specialist questions.";
+        var work = await fixture.Inbox.EnqueueAsync(fixture.OrganizationId.ToString("D"), fixture.TargetInstallationId,
+            CSweet.Domain.Setup.AgentWorkKind.Event, AgentCoordinationEvents.TurnRequested,
+            JsonSerializer.SerializeToElement(new { sessionId = fixture.SessionId }), "expired-unclaimed-turn", now.AddHours(1),
+            correlationId: fixture.SessionId.ToString("D"), causationId: stored.Turns.Single().Id.ToString("D"),
+            sourceType: "agent-coordination", sourceId: Guid.NewGuid().ToString("D"));
+        work.DeadlineAt = now.AddHours(-1);
+        work.Status = AgentWorkStatus.DeadLetter;
+        work.AttemptCount = scenario == "claimed" ? 1 : 0;
+        work.LastError = scenario == "execution-timeout" ? "The agent work deadline elapsed." : AgentWorkInbox.DeadlineElapsedBeforeClaimReason;
+        stored.Status = scenario == "cancelled" ? AgentCoordinationStatus.Cancelled : AgentCoordinationStatus.Failed;
+        stored.FinalSummary = "Collaboration failed because an agent turn could not continue: " + work.LastError;
+        stored.UpdatedAt = scenario == "cooldown" ? now : now.AddMinutes(-5);
+        stored.CurrentAgentWorkItemId = null;
+        stored.CurrentOrganizationUserId = null;
+        if (scenario != "revoked")
+            foreach (var installationId in new[] { fixture.InitiatorInstallationId, fixture.TargetInstallationId })
+                fixture.Db.AgentInstallationGrants.Add(new AgentInstallationGrant
+                {
+                    Id = Guid.NewGuid(), AgentInstallationId = installationId,
+                    RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { CommunicationCapabilities.CoordinationRead, CommunicationCapabilities.CoordinationRespond })
+                });
+        if (scenario == "disabled")
+            (await fixture.Db.AgentInstallations.SingleAsync(x => x.Id == fixture.TargetInstallationId)).IsEnabled = false;
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = fixture.TargetInstallationId,
+            QueuedAt = now.AddMinutes(-2)
+        };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, now.AddMinutes(-2));
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, now.AddMinutes(-1));
+        if (scenario != "offline") runtime.TransitionTo(AgentRuntimeStatus.Running, now.AddMinutes(-1));
+        fixture.Db.AgentRuntimeInstances.Add(runtime);
+        if (scenario == "attempt-record")
+            fixture.Db.AgentWorkAttempts.Add(new AgentWorkAttempt
+            {
+                Id = Guid.NewGuid(), AgentWorkItemId = work.Id, RuntimeInstanceId = runtime.Id,
+                Attempt = 1, ClaimedAt = now.AddHours(-2), LeaseExpiresAt = now.AddHours(-1), FinishedAt = now.AddHours(-1)
+            });
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(recover ? 1 : 0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Equal(0, await fixture.Service.RecoverTransientFailuresAsync(now));
+        Assert.Equal(AgentWorkStatus.DeadLetter, work.Status);
+        Assert.Equal("Accepted brief and the pending specialist questions.", stored.Turns.Single().Content);
+        var pending = await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync();
+        if (recover)
+        {
+            var fresh = Assert.Single(pending);
+            Assert.NotEqual(work.Id, fresh.Id);
+            Assert.Equal(fixture.TargetInstallationId, fresh.AgentInstallationId);
+            Assert.Equal(work.CausationId, fresh.CausationId);
+            Assert.True(fresh.DeadlineAt > now);
+            Assert.Equal(fixture.TargetId, stored.CurrentOrganizationUserId);
+            Assert.Equal(AgentCoordinationStatus.Active, stored.Status);
+        }
+        else Assert.Empty(pending);
+    }
+
+    [Theory]
+    [InlineData("Board", false, true)]
+    [InlineData("Board", true, false)]
+    [InlineData("Chat", false, false)]
+    public async Task BlockedRetryRequestsFreshSpecialistOnlyForMissingBoardResponse(string source, bool artifact, bool specialist)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var session = await SeedBlockedBoardAsync(fixture);
+        session.SourceKind = source;
+        if (artifact) session.Turns.Last().ArtifactType = "decision.v1";
+        await fixture.Db.SaveChangesAsync();
+        var request = new ResumeAgentCoordinationRequest(session.Id, session.Revision, "Explain the issue and proposed repair.", "fresh-retry");
+        var first = await fixture.Service.ResumeAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId, request);
+        var replay = await fixture.Service.ResumeAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId, request);
+        Assert.Equal(first.Revision, replay.Revision);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ResumeAsync(fixture.OrganizationId,
+            fixture.TargetId, fixture.TargetInstallationId, request));
+        Assert.Equal(specialist ? fixture.TargetId : fixture.InitiatorId, first.CurrentOrganizationUserId);
+        Assert.Equal(2, first.Turns.Count);
+        var pending = Assert.Single(await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync());
+        var lease = await fixture.Inbox.ClaimAsync(new McpAgentSession { Id = Guid.NewGuid(), RuntimeInstanceId = Guid.NewGuid(),
+            TickId = Guid.NewGuid(), AgentInstallationId = pending.AgentInstallationId, OrganizationId = fixture.OrganizationId.ToString("D") }, CancellationToken.None);
+        var payload = lease!.Payload.Deserialize<AgentCoordinationTurnRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Contains(request.Reason, payload!.Objective);
+        Assert.Equal(source == "Board" ? session.SourceBoardId : null, payload.BoardSource?.BoardId);
+    }
+
+    [Fact]
+    public async Task ManagerTicketRequeueResumesSpecialistAndPreservesVisibleDiagnosis()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var session = await SeedBlockedBoardAsync(fixture);
+        var resolutions = 0;
+        var engine = new WorkItemMutationEngine(fixture.Db, TimeProvider.System, coordinationFactory: () =>
+        {
+            resolutions++;
+            return fixture.Service;
+        });
+        Assert.Equal(0, resolutions);
+        var item = await SeedCommitmentAsync(fixture, engine, session);
+        await engine.RequeueAsync(fixture.OrganizationId, new(fixture.ManagerId, null), new(item.Id, item.Revision, "human-retry"));
+        Assert.Equal(WorkTaskStatus.Ready, item.Status);
+        Assert.Null(item.BlockReason);
+        Assert.Equal(AgentCoordinationStatus.Active, session.Status);
+        Assert.True(resolutions > 0);
+        Assert.Equal(fixture.TargetId, session.CurrentOrganizationUserId);
+        var comments = await fixture.Db.WorkItemComments.Where(x => x.WorkItemId == item.Id).ToListAsync();
+        Assert.Contains(comments, x => x.Body.Contains("Precise planning diagnostic") && x.CoordinationSessionId == session.Id);
+        Assert.Contains(comments, x => x.Kind == "coordination.recovery");
+        Assert.Single(await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync());
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId,
+            new(session.Id, session.Revision, session.NextTurnOrdinal, "Blocked", "Repair needs an approved dependency decision.", "new-diagnostic"));
+        Assert.Contains(await fixture.Db.WorkItemComments.Where(x => x.WorkItemId == item.Id).ToListAsync(),
+            x => x.Body.Contains("Repair needs an approved dependency decision.") && x.CoordinationSessionId == session.Id);
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+            new(session.Id, session.Revision, session.NextTurnOrdinal, "Blocked", "Awaiting the dependency decision.", "owner-block"));
+        item.Status = WorkTaskStatus.Blocked; item.BlockReason = "Awaiting the dependency decision.";
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+        await fixture.Db.SaveChangesAsync();
+        var revision = session.Revision;
+        await engine.ReconcileAsync();
+        Assert.Equal(WorkTaskStatus.Blocked, item.Status);
+        Assert.Equal(revision, session.Revision);
+    }
+
+    [Theory]
+    [InlineData("unchanged", false)]
+    [InlineData("owner-update", false)]
+    [InlineData("specialist-update", true)]
+    [InlineData("specialist-disabled", false)]
+    [InlineData("specialist-revoked", false)]
+    [InlineData("other-session", false)]
+    [InlineData("completed", true)]
+    public async Task CommitmentAttentionRecoversOnlyRelevantCurrentChanges(string scenario, bool recover)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var session = await SeedBlockedBoardAsync(fixture);
+        var engine = new WorkItemMutationEngine(fixture.Db, TimeProvider.System, fixture.Service);
+        var item = await SeedCommitmentAsync(fixture, engine, session);
+        var target = await fixture.Db.AgentInstallations.SingleAsync(x => x.Id == fixture.TargetInstallationId);
+        if (scenario.StartsWith("specialist")) target.UpdatedAt = DateTimeOffset.UtcNow;
+        if (scenario == "specialist-disabled") target.IsEnabled = false;
+        if (scenario == "specialist-revoked")
+            (await fixture.Db.AgentInstallationGrants.SingleAsync(x => x.AgentInstallationId == target.Id)).RequiredCapabilitiesJson = "[]";
+        if (scenario == "owner-update")
+            (await fixture.Db.AgentInstallations.SingleAsync(x => x.Id == fixture.InitiatorInstallationId)).UpdatedAt = DateTimeOffset.UtcNow;
+        if (scenario == "other-session") item.PersonalWorkContextJson = JsonSerializer.Serialize(new Wire.PersonalTodoWorkContext(
+            BoardId: session.SourceBoardId, CoordinationSessionId: Guid.NewGuid()), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        if (scenario == "completed") { session.Status = AgentCoordinationStatus.Completed; session.UpdatedAt = DateTimeOffset.UtcNow; }
+        await fixture.Db.SaveChangesAsync();
+        await engine.ReconcileAsync();
+        await engine.ReconcileAsync();
+        Assert.Equal(recover ? WorkTaskStatus.Ready : WorkTaskStatus.Blocked, item.Status);
+        Assert.Equal(scenario == "specialist-update" ? 1 : 0,
+            await fixture.Db.AgentWorkItems.CountAsync(x => x.Status == AgentWorkStatus.Pending));
+        var comments = await fixture.Db.WorkItemComments.Where(x => x.WorkItemId == item.Id).ToListAsync();
+        Assert.Equal(comments.Count, comments.Select(x => x.IdempotencyKey).Distinct().Count());
+        if (scenario != "other-session") Assert.Contains(comments, x => x.Body.Contains("Precise planning diagnostic"));
+    }
+
+    private static async Task<DomainCoordinationSession> SeedBlockedBoardAsync(Fixture fixture)
+    {
+        var session = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
+        session.SourceKind = "Board"; session.SourceBoardId = Guid.NewGuid();
+        session.Status = AgentCoordinationStatus.Blocked; session.CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        session.UpdatedAt = session.CompletedAt.Value; session.CurrentOrganizationUserId = null;
+        session.Revision = 2; session.NextTurnOrdinal = 2; session.IsFinalization = true;
+        var blockedTurn = new DomainCoordinationTurn { Id = Guid.NewGuid(), SessionId = session.Id, EventId = Guid.NewGuid(),
+            SpeakerOrganizationUserId = fixture.TargetId, Ordinal = 1, Disposition = "Blocked",
+            Content = "Precise planning diagnostic: dependency cycle. Needs a corrected proposal.", IdempotencyKey = "blocked", CreatedAt = session.UpdatedAt };
+        session.Turns.Add(blockedTurn);
+        fixture.Db.AgentCoordinationTurns.Add(blockedTurn);
+        fixture.Db.WorkBoards.Add(new() { Id = session.SourceBoardId.Value, OrganizationId = fixture.OrganizationId, Kind = WorkBoardKind.Standard });
+        foreach (var installationId in new[] { fixture.InitiatorInstallationId, fixture.TargetInstallationId })
+            fixture.Db.AgentInstallationGrants.Add(new() { Id = Guid.NewGuid(), AgentInstallationId = installationId,
+                RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { CommunicationCapabilities.CoordinationRead, CommunicationCapabilities.CoordinationRespond }),
+                ProvidedCapabilitiesJson = "[]", EventSubscriptionsJson = "[]", NetworkAccessJson = "[]", ResourceLimitsJson = "{}", ApprovedAt = session.UpdatedAt });
+        foreach (var installation in await fixture.Db.AgentInstallations.ToListAsync()) installation.UpdatedAt = session.UpdatedAt.AddMinutes(-1);
+        await fixture.Db.SaveChangesAsync();
+        return session;
+    }
+
+    private static async Task<WorkTask> SeedCommitmentAsync(Fixture fixture, WorkItemMutationEngine engine, DomainCoordinationSession session)
+    {
+        var added = await engine.AddAsync(fixture.OrganizationId, new(fixture.InitiatorId, fixture.InitiatorInstallationId),
+            new("Coordinate delivery", "Reconcile specialist response", "Normal", null, "commitment")
+            { WorkContext = new(BoardId: session.SourceBoardId, CoordinationSessionId: session.Id) });
+        var item = await fixture.Db.CoreWorkTasks.SingleAsync(x => x.Id == added.Id);
+        item.Status = WorkTaskStatus.Blocked; item.BlockReason = "Specialist proposal is invalid";
+        item.UpdatedAt = DateTimeOffset.UtcNow.AddSeconds(-10);
+        item.BoardColumnId = await fixture.Db.WorkBoardColumns.Where(x => x.BoardId == item.BoardId &&
+            x.Category == WorkBoardColumnCategory.Blocked).Select(x => x.Id).SingleAsync();
+        await fixture.Db.SaveChangesAsync();
+        return item;
+    }
+
     [Fact]
     public async Task BoardPlanningDeliversAuthoritativeProjectContextToTarget()
     {

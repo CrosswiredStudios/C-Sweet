@@ -62,6 +62,9 @@ app.MapPost("/internal/v2/configuration/activate", async (
         true, active.AppId, active.Revision, active.AppSlug, active.AppName));
 });
 
+app.MapGet("/internal/v2/installations", async (GitHubAppClient github, CancellationToken ct) =>
+    Results.Ok(await github.ListInstallationsAsync(ct)));
+
 app.MapPost("/internal/v2/installations/describe", async (
     GitHubInstallationRequest request,
     GitHubAppClient github,

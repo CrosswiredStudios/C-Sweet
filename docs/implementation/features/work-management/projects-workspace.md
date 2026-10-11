@@ -5,7 +5,40 @@
 `boards`, or `personal`. Board and personal directory views load through
 `WorkBoards.razor` independently of project inspection permissions.
 
+The portfolio has no top-level board tabs. Project boards are reached from the
+project Work section; personal boards live in employee details. Existing directory
+URLs remain supported, including the project Work section's All boards fallback.
+`Projects.razor` presents real inspection data in Aurora cards with a clamped
+outcome, expandable full brief, delivery readiness, phase, target, manager link,
+and health links. Search and expanded filters retain their original behavior.
+
+`AppearanceState` stores the browser preference under `csweet.appearance`.
+`Appearance.razor` exposes the selector at `/settings/appearance`. `MainLayout`
+loads it after interactive render and applies `data-appearance`; shared
+`.aurora-page` tokens in `app.css` style Overview, the Projects portfolio and all project detail tabs,
+and the layout attribute styles navigation. Page-local theme selectors are removed.
+Storage failures keep the choice for the session and show a persistence notice.
+
 ## Project sections
+
+`ProjectOverview` provides linked health counts, an expandable brief, board/team
+navigation, release readiness and recent changes. Routine successful read activity
+is omitted from the overview; `ProjectPresentation.IsRoutineRead` also powers the
+Audit tab's optional read-event filter. Failed reads remain visible. Full event
+identifiers, hashes and correlations remain in expandable audit details.
+
+`ProjectResourceSection` adds name/type/status search, group counts and sorting by
+attention, recency or name. Unavailable technical fields are omitted rather than
+rendered as repeated placeholders. Dates are formatted for display; resource
+deep links remain authoritative. `ProjectReleases` separates actionable execution
+status from expandable candidate evidence and scope topology, preserving exact
+candidate review, recovery and release controls. Existing realtime updates remain.
+
+`Projects.razor.css` scopes Aurora styling to the embedded Work and Efficiency
+components. The Work board keeps its original commands and grants. In
+`WorkEfficiencyPanel`, a missing selected project/item shows an empty state rather
+than company totals. Measurement context is expandable; project views omit company
+overhead and label the existing export explicitly as a business report.
 
 The project route retains its project ID and uses `tab` for Overview, Efficiency,
 People, Work, Documents, Communications, Decisions, Delivery, and Audit.

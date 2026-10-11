@@ -9,6 +9,9 @@ See [verified results and package handoff](hierarchical-delivery-validation.md) 
 See [Projects workspace](projects-workspace.md) for the consolidated portfolio,
 board directories, project sections, and sprint planning UI.
 
+See [commitment collaboration recovery](collaboration-recovery.md) for generic
+blocked-ticket requeue, specialist-update recovery and visible agent discussion.
+
 ## Code map
 
 - `src/CSweet.Domain/Core/WorkTask.cs` - canonical work-item entity. Named `WorkTask`

@@ -150,6 +150,7 @@ public sealed class PlatformGitHubAppCredential
     public Guid Id { get; set; }
     public PlatformGitHubAppKind Kind { get; set; }
     public string OwnerLogin { get; set; } = string.Empty;
+    public string OwnerType { get; set; } = "Organization";
     public long AppId { get; set; }
     public string AppName { get; set; } = string.Empty;
     public string AppSlug { get; set; } = string.Empty;

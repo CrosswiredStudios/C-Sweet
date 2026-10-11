@@ -15,6 +15,19 @@ namespace CSweet.UnitTests;
 public sealed class SourceControlWorkspaceRenderingTests
 {
     [Fact]
+    public async Task GitHubSetupStartsWithCompactCardInsteadOfExpandedInstructions()
+    {
+        var html = await RenderAsync<SourceControlPlatformSetupWizard>(new WorkspaceApi(), new()
+        {
+            [nameof(SourceControlPlatformSetupWizard.Setup)] = new PlatformSourceControlSetupResponse(new(false, false, null), null)
+        });
+        Assert.Contains("Set up GitHub", html);
+        Assert.DoesNotContain("Start guided setup", html);
+        Assert.DoesNotContain("central GitHub organization", html);
+        Assert.DoesNotContain("Source Access permissions", html);
+    }
+
+    [Fact]
     public async Task LandingPageLoadsRepositoriesWithoutLoadingAdministration()
     {
         var api = new WorkspaceApi();
@@ -138,7 +151,8 @@ public sealed class SourceControlWorkspaceRenderingTests
         var api = new WorkspaceApi { Onboarding = new(Guid.NewGuid(), null, "ExistingGitHub", "Pending", "authorize-source-access", DateTimeOffset.UtcNow.AddHours(1)) };
         var html = await RenderAsync<SourceControl>(api, new() { [nameof(SourceControl.OrganizationId)] = api.Business });
         Assert.Matches("source-tab active[^>]*aria-current=\"page\"[^>]*>Connections", html);
-        Assert.Contains("Source-control setup is not finished", html);
+        Assert.Contains("Connect GitHub", html);
+        Assert.DoesNotContain("Source-control setup is not finished", html);
     }
 
     [Fact]

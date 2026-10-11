@@ -19,7 +19,7 @@
             <MudText Typo="Typo.overline">Overview</MudText>
             <dl>
                 <div><dt>Reports to</dt><dd>@(Employee.ManagerName ?? "Nobody")</dd></div>
-                <div><dt>Subordinates</dt><dd>@Employee.DirectReportCount</dd></div>
+                <div><dt>Direct reports</dt><dd>@Employee.DirectReportCount</dd></div>
                 <div><dt>Type</dt><dd>@(Employee.IsAgent ? "Agent" : "Human")</dd></div>
             </dl>
         </section>
@@ -55,7 +55,7 @@
             }
         </section>
         <section>
-            <MudText Typo="Typo.overline">Actions</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{Employee.Source.OrganizationId}/employees/{Employee.Id}")">View profile</MudButton>
             <EmployeeActionMenu Employee="Employee" ShowDirectChat="false" ActionRequested="ActionRequested" />
         </section>
     }

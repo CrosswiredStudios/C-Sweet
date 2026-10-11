@@ -11651,6 +11651,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("OwnerType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Organization");
+
                     b.Property<string>("ProtectedClientSecret")
                         .IsRequired()
                         .HasMaxLength(4096)

@@ -89,112 +89,87 @@
                         </div>
                         @if (_dashboard.CanManageSourceControl)
                         {
-                            <MudButton Variant="Variant.Outlined" OnClick="() => _showGitHubSetup = !_showGitHubSetup">@(_showGitHubSetup ? "Close setup" : "View setup")</MudButton>
+                            <MudButton Variant="Variant.Outlined" OnClick="OpenGitHubWizard">Connect GitHub</MudButton>
                         }
                     </div>
                 </div>
-                @if (_dashboard.CanManageSourceControl && (_showGitHubSetup || _dashboard.ActiveOnboarding is not null))
-                {
-                    <div class="source-editor">
-                        <h2>GitHub setup</h2>
-                @if (_dashboard.ActiveOnboarding is { } onboarding)
-                {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Filled">
-                        <MudText Typo="Typo.subtitle2">Source-control setup is not finished</MudText>
-                        <MudText Typo="Typo.body2">
-                            Current step: @StepLabel(onboarding.CurrentStep). Setup is saved and can be resumed safely.
-                        </MudText>
-                    </MudAlert>
-                }
-
-                @if (_dashboard.ActiveOnboarding is { ConnectionId: { } setupConnectionId } setup &&
-                     setup.CurrentStep is "choose-projects" or "configure-managed-projects")
-                {
-                    <MudPaper Outlined="true" Class="pa-4">
-                <MudText Typo="Typo.h5">@StepLabel(setup.CurrentStep)</MudText>
-                @if (_loadingSetup)
-                {
-                    <MudProgressLinear Indeterminate="true" Class="mt-3" />
-                }
-                else if (_availableProjects.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                        @(setup.CurrentStep == "choose-projects"
-                            ? "GitHub did not return any available repositories. Check which projects the Source Access App can use."
-                            : "No template projects are available. Mark an account project as a template and grant the Provisioner App access to it.")
-                    </MudAlert>
-                }
-                else
-                {
-                    <MudSelect T="string" Label="@(setup.CurrentStep == "choose-projects" ? "Repositories" : "Starter projects")"
-                               MultiSelection="true" @bind-SelectedValues="_selectedProjectIds" Class="mt-3"
-                               HelperText="Only projects verified through this exact GitHub App installation are shown.">
-                        @foreach (var project in _availableProjects)
+            </section>
+        }
+        @if (_dashboard.CanManageSourceControl)
+        {
+            <MudDialog @bind-Visible="_showGitHubSetup" Options="GitHubDialogOptions">
+                <TitleContent><MudText Typo="Typo.h6">Connect GitHub</MudText></TitleContent>
+                <DialogContent>
+                    <MudStack Spacing="3" aria-live="polite">
+                        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+                        @if (_loadingSetup || _savingSetup) { <MudProgressLinear Indeterminate="true" /> }
+                        @if (_connectedAccount is not null)
                         {
-                            <MudSelectItem T="string" Value="@project.RepositoryId">
-                                @project.Name (@project.CodeProjectPath)
-                            </MudSelectItem>
+                            <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Large" />
+                            <MudText Typo="Typo.h5">Connected to @_connectedAccount</MudText>
+                            <MudText>@(_creationConfigured ? "Repository creation is enabled." : $"{_connectedRepositoryCount} repositories are ready.")</MudText>
                         }
-                    </MudSelect>
-
-                    @if (setup.CurrentStep == "configure-managed-projects")
-                    {
-                        <MudGrid Class="mt-2">
-                            <MudItem xs="12" md="6">
-                                <MudTextField @bind-Value="_namePrefix" Label="Project name prefix"
-                                              HelperText="C-Sweet uses this automatically when naming private repositories." />
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudNumericField T="int" @bind-Value="_maximumProjects" Label="Maximum managed projects"
-                                                 Min="1" Max="500" />
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudSelect T="Guid" @bind-Value="_defaultTeamId" Label="Default software team">
-                                    @foreach (var team in _teams)
+                        else if (_dashboard.ActiveOnboarding is { ConnectionId: { } connectionId } setup &&
+                                 setup.CurrentStep is "choose-projects" or "configure-managed-projects")
+                        {
+                            <MudText Typo="Typo.h5">@(_dashboard.Connections.FirstOrDefault(c => c.Id == connectionId)?.AccountLogin)</MudText>
+                            @if (_availableProjects.Count == 0 && !_loadingSetup)
+                            {
+                                <MudAlert Severity="Severity.Info">@(setup.CurrentStep == "choose-projects" ? "No repositories are available. Add repositories to the app on GitHub, then retry." : "Choose a template repository on GitHub before enabling creation.")</MudAlert>
+                                <MudButton Disabled="_loadingSetup" OnClick="LoadAsync">Retry</MudButton>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2">@(setup.CurrentStep == "choose-projects" ? (_availableProjects.Count > 500 ? "Choose repositories to connect to this business." : "The repositories you allowed on GitHub are selected. Click Done to connect them.") : "Choose a template and team for new repositories.")</MudText>
+                                @if (setup.CurrentStep == "choose-projects" && _availableProjects.Count > 500)
+                                {
+                                    <MudAlert Severity="Severity.Info">Choose up to 500 repositories for this business.</MudAlert>
+                                }
+                                <MudSelect T="string" Label="@(setup.CurrentStep == "choose-projects" ? "Repositories" : "Templates")"
+                                           MultiSelection="true" @bind-SelectedValues="_selectedProjectIds" ToStringFunc="RepositoryName" Disabled="_savingSetup">
+                                    @foreach (var project in _availableProjects)
                                     {
-                                        <MudSelectItem T="Guid" Value="@team.Id">@team.Name — lead: @team.LeadDisplayName</MudSelectItem>
+                                        <MudSelectItem T="string" Value="@project.RepositoryId">@project.Name</MudSelectItem>
                                     }
                                 </MudSelect>
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudSwitch T="bool" @bind-Value="_managerApprovalRequired" Color="Color.Primary">
-                                    Require a manager before creating each project
-                                </MudSwitch>
-                            </MudItem>
-                        </MudGrid>
-                    }
-
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3"
-                               Disabled="_savingSetup" OnClick="@(() => SaveProjectSetupAsync(setupConnectionId, setup.CurrentStep))">
-                        @(setup.CurrentStep == "choose-projects" ? "Save repositories" : "Finish full-access setup")
-                    </MudButton>
-                }
-                    </MudPaper>
-                }
-
-
-                        @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
-                        {
-                            <p class="source-help">An administrator needs to configure GitHub before accounts can be connected. C-Sweet storage is already available.</p>
-                            <MudButton Variant="Variant.Outlined" Href="/settings/source-control">Open platform settings</MudButton>
+                                @if (setup.CurrentStep == "configure-managed-projects")
+                                {
+                                    <MudSelect T="Guid" Label="Team" @bind-Value="_defaultTeamId" Disabled="_savingSetup">
+                                        @foreach (var team in _teams)
+                                        {
+                                            <MudSelectItem T="Guid" Value="@team.Id">@team.Name</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                    <MudExpansionPanels Elevation="0">
+                                        <MudExpansionPanel Text="Creation options">
+                                            <MudTextField @bind-Value="_namePrefix" Label="Repository name prefix" Disabled="_savingSetup" />
+                                            <MudNumericField T="int" @bind-Value="_maximumProjects" Label="Repository limit" Min="1" Max="500" Disabled="_savingSetup" />
+                                            <MudSwitch T="bool" @bind-Value="_managerApprovalRequired" Disabled="_savingSetup">Require manager approval</MudSwitch>
+                                        </MudExpansionPanel>
+                                    </MudExpansionPanels>
+                                }
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                           Disabled="@(_savingSetup || _loadingSetup || _selectedProjectIds.Count == 0 || _selectedProjectIds.Count > (setup.CurrentStep == "configure-managed-projects" ? 20 : 500) || (setup.CurrentStep == "configure-managed-projects" && _defaultTeamId == Guid.Empty))"
+                                           OnClick="@(() => SaveProjectSetupAsync(connectionId, setup.CurrentStep))">Done</MudButton>
+                            }
                         }
                         else
                         {
-                            <div class="source-setting-row">
-                                <div class="source-row-copy"><h3>Connect existing repositories</h3><p>Choose which private repositories C-Sweet can access.</p></div>
-                                <MudButton Variant="Variant.Outlined" Disabled="_starting" OnClick="@(() => StartAsync("ExistingGitHub"))">Connect GitHub</MudButton>
-                            </div>
-                            @if (_dashboard.PlatformReadiness.ManagedGitHubAvailable)
+                            <MudText Typo="Typo.h5">Connect your GitHub account</MudText>
+                            <MudText>Choose your account and the repositories C-Sweet can work with on GitHub.</MudText>
+                            <MudCheckBox T="bool" @bind-Value="_allowRepositoryCreation" Label="Allow C-Sweet to create repositories" Disabled="_starting" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Optional. We’ll guide you through the required GitHub approvals.</MudText>
+                            @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
                             {
-                                <div class="source-setting-row">
-                                    <div class="source-row-copy"><h3>Create repositories from templates</h3><p>Allow code access and repository creation within your approved rules.</p></div>
-                                    <MudButton Variant="Variant.Outlined" Disabled="_starting" OnClick="@(() => StartAsync("ManagedGitHub"))">Set up creation</MudButton>
-                                </div>
+                                <MudText Typo="Typo.body2">A C-Sweet administrator must complete the one-time GitHub setup.</MudText>
                             }
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Custom.Brands.GitHub"
+                                       Disabled="_starting" OnClick="ContinueConnectionAsync">Continue to GitHub</MudButton>
                         }
-                    </div>
-                }
-            </section>
+                    </MudStack>
+                </DialogContent>
+                <DialogActions><MudButton Disabled="@(_starting || _savingSetup)" OnClick="() => _showGitHubSetup = false">@(_connectedAccount is null ? "Close" : "Done")</MudButton></DialogActions>
+            </MudDialog>
         }
         @if (_section == WorkspaceSection.Activity && _dashboard.CanManageSourceControl)
         {
@@ -245,10 +220,18 @@
     [Parameter] public Guid? RepositoryId { get; set; }
     [SupplyParameterFromQuery(Name = "reference")] public string? SelectedReference { get; set; }
     [SupplyParameterFromQuery(Name = "file")] public string? SelectedFile { get; set; }
+    [SupplyParameterFromQuery(Name = "connectGitHub")] public bool ConnectGitHub { get; set; }
+    [SupplyParameterFromQuery(Name = "allowRepositoryCreation")] public bool AllowRepositoryCreation { get; set; }
 
     private enum WorkspaceSection { Repositories, Connections, Activity, Settings }
     private WorkspaceSection _section;
     private bool _creating, _showGitHubSetup;
+    private string? _connectedAccount;
+    private int _connectedRepositoryCount;
+    private bool _creationConfigured;
+    private Guid? _selectionSession;
+    private static readonly DialogOptions GitHubDialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
+    private void OpenGitHubWizard() { _connectedAccount = null; _showGitHubSetup = true; }
     private enum RepositorySetting { None, Defaults, Creation, Backups }
     private RepositorySetting _setting;
     private void ToggleSetting(RepositorySetting setting) => _setting = _setting == setting ? RepositorySetting.None : setting;
@@ -265,13 +248,14 @@
     private void BeginCreate() { _section = WorkspaceSection.Repositories; _creating = true; }
     private SourceControlDashboardResponse? _dashboard;
     private bool _loading;
-    private bool _starting;
+    private bool _starting, _allowRepositoryCreation;
     private bool _loadingSetup;
     private bool _savingSetup;
     private string? _error;
     private IReadOnlyList<AvailableSourceControlRepository> _availableProjects = [];
     private IReadOnlyList<TeamSummaryResponse> _teams = [];
     private IReadOnlyCollection<string> _selectedProjectIds = [];
+    private string RepositoryName(string id) => _availableProjects.FirstOrDefault(p => p.RepositoryId == id)?.Name ?? id;
     private string _namePrefix = "csweet";
     private int _maximumProjects = 20;
     private bool _managerApprovalRequired = true;
@@ -289,8 +273,9 @@
         {
             _section = WorkspaceSection.Repositories; _creating = false; _showGitHubSetup = false; _setting = RepositorySetting.None;
             _loadedBusiness = business; _dashboard = null; _availableProjects = []; _teams = [];
-            _selectedProjectIds = []; _defaultTeamId = Guid.Empty; _namePrefix = "csweet";
+            _selectionSession = null; _connectedAccount = null; _selectedProjectIds = []; _defaultTeamId = Guid.Empty; _namePrefix = "csweet";
             _maximumProjects = 20; _managerApprovalRequired = true;
+            _allowRepositoryCreation = AllowRepositoryCreation;
         }
         _loading = true;
         _error = null;
@@ -301,8 +286,13 @@
             if (version != _loadVersion || business != OrganizationId) return;
             var firstLoad = _dashboard is null;
             _dashboard = dashboard;
+            if (firstLoad && ConnectGitHub && _dashboard?.CanManageSourceControl == true)
+                _showGitHubSetup = true;
             if (firstLoad && RepositoryId is null && _dashboard?.ActiveOnboarding is not null)
+            {
                 _section = WorkspaceSection.Connections;
+                _showGitHubSetup = _dashboard.CanManageSourceControl;
+            }
             if (_dashboard is { CanManageSourceControl: true,
                                 ActiveOnboarding: { ConnectionId: { } connectionId } active } &&
                 active.CurrentStep is "choose-projects" or "configure-managed-projects")
@@ -333,12 +323,19 @@
     private async Task LoadProjectSetupAsync(Guid connectionId, bool templates, Guid business, long version)
     {
         _loadingSetup = true;
+        _availableProjects = [];
         try
         {
             var projects = await Http.GetFromJsonAsync<IReadOnlyList<AvailableSourceControlRepository>>(
                 $"api/organizations/{business:D}/source-control/connections/{connectionId:D}/available-projects?templates={templates.ToString().ToLowerInvariant()}") ?? [];
             if (version != _loadVersion || business != OrganizationId) return;
             _availableProjects = projects;
+            if (_selectionSession != _dashboard?.ActiveOnboarding?.SessionId)
+            {
+                _selectionSession = _dashboard?.ActiveOnboarding?.SessionId;
+                // GitHub already collected repository consent. Only template choice needs another decision.
+                _selectedProjectIds = templates || projects.Count > 500 ? [] : projects.Select(p => p.RepositoryId).ToList();
+            }
             if (templates)
             {
                 var directory = await Http.GetFromJsonAsync<TeamDirectoryResponse>(
@@ -348,6 +345,11 @@
                 if (_defaultTeamId == Guid.Empty && _teams.Count > 0)
                     _defaultTeamId = _teams[0].Id;
             }
+        }
+        catch (Exception)
+        {
+            if (version == _loadVersion && business == OrganizationId)
+                _error = "Repositories could not be loaded. Retry when GitHub is available.";
         }
         finally
         {
@@ -381,6 +383,9 @@
                 if (!response.IsSuccessStatusCode)
                     throw new InvalidOperationException(await response.Content.ReadAsStringAsync());
             }
+            _connectedAccount = _dashboard?.Connections.FirstOrDefault(c => c.Id == connectionId)?.AccountLogin;
+            _connectedRepositoryCount = _selectedProjectIds.Count;
+            _creationConfigured = step == "configure-managed-projects";
             _selectedProjectIds = [];
             await LoadAsync();
         }
@@ -392,6 +397,17 @@
         {
             _savingSetup = false;
         }
+    }
+
+    private Task ContinueConnectionAsync()
+    {
+        if (!_dashboard!.PlatformReadiness.ExistingGitHubAvailable ||
+            (_allowRepositoryCreation && !_dashboard.PlatformReadiness.ManagedGitHubAvailable))
+        {
+            Navigation.NavigateTo($"/settings/source-control?business={OrganizationId:D}&allowRepositoryCreation={_allowRepositoryCreation.ToString().ToLowerInvariant()}");
+            return Task.CompletedTask;
+        }
+        return StartAsync(_allowRepositoryCreation ? "ManagedGitHub" : "ExistingGitHub");
     }
 
     private async Task StartAsync(string mode)

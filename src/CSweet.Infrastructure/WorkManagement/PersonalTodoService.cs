@@ -15,8 +15,12 @@ using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
-public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvider clock) : IWorkItemMutationEngine
+public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvider clock,
+    CSweet.Application.Communications.IAgentCoordinationService? coordination = null,
+    Func<CSweet.Application.Communications.IAgentCoordinationService>? coordinationFactory = null) : IWorkItemMutationEngine
 {
+    private CSweet.Application.Communications.IAgentCoordinationService? Coordination =>
+        coordination ?? coordinationFactory?.Invoke();
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan ClaimDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan AgentFailureRecoveryWindow = TimeSpan.FromHours(24);
@@ -84,6 +88,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             .ToListAsync(cancellationToken);
         var now = clock.GetUtcNow();
         await CoalesceAvailableDeliveriesAsync(now, cancellationToken);
+        await RecoverBlockedCoordinationCommitmentsAsync(now, cancellationToken);
         await RecoverAgentUpdatedBlockedWorkAsync(now, cancellationToken);
         await RecoverProviderBlockedWorkAsync(now, cancellationToken);
         await RecoverAgentFailureWithBackoffAsync(now, cancellationToken);
@@ -681,6 +686,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         Guid organizationId, PersonalTodoActor actor, Wire.RequeuePersonalTodoItemRequest request,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var item = await LoadPersonalItemAsync(organizationId, request.ItemId, actor, cancellationToken);
         RequireIndependentExecution(item);
         await RequireGrantAsync(organizationId, item.BoardId!.Value, actor, PersonalTodoActions.Requeue, cancellationToken);
@@ -690,6 +697,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             throw new InvalidOperationException(
                 "Only blocked or unclaimed in-progress personal work can be requeued.");
         RequireRevision(item, request.ExpectedRevision);
+        await ResumeBlockedCommitmentCoordinationAsync(item, request.IdempotencyKey, cancellationToken);
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         item.Status = WorkTaskStatus.Ready;
         item.BoardColumnId = board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo).Id;
@@ -701,6 +709,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         await QueueAvailableAsync(organizationId, owner, board.Id, item.Id, item.UpdatedAt,
             cancellationToken);
         await SaveChangesWithRealtimeAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 

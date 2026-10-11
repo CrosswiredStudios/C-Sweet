@@ -11,6 +11,43 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentInstallationConfigurationServiceTests
 {
+    [Fact]
+    public async Task LegacyLlmBudgetsAreVisibleAndSupportDefinitionDefaultsAndEmployeeOverrides()
+    {
+        await using var db = CreateDbContext();
+        var installation = await SeedInstallationAsync(db, "token-budgets");
+        installation.PackageVersion!.ManifestJson = JsonSerializer.Serialize(new
+        {
+            requires = new[] { new { name = CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream } },
+            configuration = Array.Empty<object>()
+        });
+        await db.SaveChangesAsync();
+        var definition = installation.AgentDefinition!;
+        var employee = await db.CoreOrganizationUsers.SingleAsync();
+        var service = new AgentInstallationConfigurationService(db, new TestAuditEventWriter());
+        var view = await service.GetDefinitionAsync(definition.Id);
+        Assert.Contains(view.Fields, x => x.Key == "maxContextWindowTokens");
+        Assert.Contains(view.Fields, x => x.Key == "maxOutputTokens");
+        Assert.Equal(256000, view.EffectiveValues["maxContextWindowTokens"].GetInt32());
+        Assert.Equal(128000, view.EffectiveValues["maxOutputTokens"].GetInt32());
+        await service.SaveDefinitionAsync(definition.Id, new PutAgentDefinitionConfigurationRequest("1.0",
+            new Dictionary<string, JsonElement>
+            {
+                ["maxContextWindowTokens"] = JsonSerializer.SerializeToElement(512000),
+                ["maxOutputTokens"] = JsonSerializer.SerializeToElement(200000)
+            }, ExpectedRevision: 1));
+        await service.SaveEmployeeOverridesAsync(employee.OrganizationId, employee.Id,
+            new PutAgentConfigurationOverridesRequest(new Dictionary<string, JsonElement>
+            {
+                ["maxOutputTokens"] = JsonSerializer.SerializeToElement(150000)
+            }, ExpectedRevision: 0));
+        var effective = await service.ResolveInstallationAsync(installation.Id);
+        Assert.Equal(512000, effective.Settings["maxContextWindowTokens"].GetInt32());
+        Assert.Equal(150000, effective.Settings["maxOutputTokens"].GetInt32());
+        await service.RestoreEmployeeOverrideAsync(employee.OrganizationId, employee.Id, "maxOutputTokens", 1);
+        Assert.Equal(200000, (await service.ResolveInstallationAsync(installation.Id)).Settings["maxOutputTokens"].GetInt32());
+    }
+
     [Theory]
     [InlineData(true, true)]
     [InlineData(true, false)]

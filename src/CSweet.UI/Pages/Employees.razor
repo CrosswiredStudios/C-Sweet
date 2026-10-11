@@ -12,11 +12,12 @@
 <EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>Employees - C-Sweet</PageTitle>
 
-<div class="command-center-shell employees-page">
+<div class="command-center-shell aurora-page employee-workspace employees-page">
     <MudPaper Elevation="0" Class="page-header employees-page-header">
         <div>
+            <MudText Typo="Typo.overline">People &amp; agents</MudText>
             <MudText Typo="Typo.h3">Employees</MudText>
-            <MudText Color="Color.Secondary">A reporting graph of human teammates and agent employees.</MudText>
+            <MudText Color="Color.Secondary">Your team, connected. Find people, explore teams, and plan your next hire.</MudText>
         </div>
         <MudStack Row="true" Spacing="2" Class="employees-header-actions">
             @if (!IsHiringTab)
@@ -41,7 +42,7 @@
         else
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
-                Agents maintain a prioritized list of roles worth hiring next.
+                Review proposed team changes and find your next hire.
                 <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">Browse the agent marketplace</MudLink>.
             </MudAlert>
             @if (_hiringDashboard?.ResourceChanges.Count > 0)
@@ -54,7 +55,7 @@
                             <MudStack Spacing="2">
                                 <div class="hiring-heading">
                                     <div>
-                                        <MudText Typo="Typo.overline">@request.Status · revision @request.ContextRevision</MudText>
+                                        <MudText Typo="Typo.overline">Team proposal · revision @request.ContextRevision</MudText>
                                         <MudText Typo="Typo.h5">@request.ProductGoal</MudText>
                                         <MudText Color="Color.Secondary">@request.Rationale</MudText>
                                     </div>
@@ -95,7 +96,7 @@
             {
                 <MudPaper Class="pa-6" Elevation="0" Outlined="true">
                     <MudText Typo="Typo.h6">No hiring recommendation yet</MudText>
-                    <MudText Color="Color.Secondary">The Chief of Staff will maintain the ranked staffing backlog here and surface only the top need in chat.</MudText>
+                    <MudText Color="Color.Secondary">New staffing recommendations will appear here when your team identifies a need.</MudText>
                 </MudPaper>
             }
             else
@@ -118,15 +119,15 @@
                                 }
                                 @if (recommendation.SourceResourceChangeRequestId.HasValue)
                                 {
-                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    <details class="hiring-provenance"><summary>Request details</summary><MudText Typo="Typo.caption" Color="Color.Secondary">
                                         Requested by @(recommendation.RequestingEmployee ?? "delivery manager")
                                         · team @(recommendation.RequestingTeam ?? recommendation.TeamId?.ToString("D") ?? "not scoped")
                                         · assigned to @(recommendation.AssignedApprover ?? "manager")
                                         · decided by @(recommendation.ActualDecisionMaker ?? "pending")
                                         · source @recommendation.SourceResourceChangeRequestId
-                                    </MudText>
+                                    </MudText></details>
                                 }
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">Candidate sourcing, security review, installation, and approval continue in Marketplace.</MudText>
+
                             </MudStack>
                         </MudPaper>
                     }
@@ -152,7 +153,10 @@
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@_actionError</MudAlert>
         }
-        <EmployeeViewToggle Value="_activeView" ValueChanged="ChangeViewAsync" />
+        <div class="employees-view-bar">
+            <EmployeeViewToggle Value="_activeView" ValueChanged="ChangeViewAsync" />
+            <span class="employees-census">@_employees.Count employees <span aria-hidden="true">·</span> @PresentedEmployees.Count(x => x.IsAgent) agents <span aria-hidden="true">·</span> @_teamDirectory.Teams.Count(x => !x.IsArchived) teams</span>
+        </div>
         @if (_activeView == EmployeeViewKind.Graph)
         {
             <EmployeeGraphView Employees="PresentedEmployees"

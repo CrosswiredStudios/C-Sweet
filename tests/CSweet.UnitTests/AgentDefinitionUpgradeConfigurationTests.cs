@@ -30,11 +30,12 @@ public sealed partial class AgentDefinitionLifecycleTests
         var definition = SeedDefinition(db, current, ActivationMode.OnDemand);
         definition.Configuration!.SettingsJson = JsonSerializer.Serialize(new
         {
-            provider = provider.Id.ToString("D"), model = "previously-selected-model"
+            provider = provider.Id.ToString("D"), model = "previously-selected-model",
+            maxContextWindowTokens = 512000, maxOutputTokens = 200000
         });
         var hire = RuntimeInstallation(current, Guid.NewGuid().ToString("D"));
         hire.AgentDefinitionId = definition.Id;
-        hire.Configuration!.SettingsJson = "{\"model\":\"employee-selected-model\"}";
+        hire.Configuration!.SettingsJson = "{\"model\":\"employee-selected-model\",\"maxOutputTokens\":150000}";
         definition.Installations.Add(hire);
         var update = CreateUpdatePackage(current, "1.1.0");
         if (alreadyBuilt)
@@ -59,10 +60,13 @@ public sealed partial class AgentDefinitionLifecycleTests
         var settings = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(saved.SettingsJson)!;
         Assert.Equal(provider.Id.ToString("D"), settings["provider"].GetString());
         Assert.Equal("previously-selected-model", settings["model"].GetString());
+        Assert.Equal(512000, settings["maxContextWindowTokens"].GetInt32());
+        Assert.Equal(200000, settings["maxOutputTokens"].GetInt32());
         Assert.Equal(2, saved.Revision);
         var employee = await db.AgentInstallations.Include(x => x.Configuration).SingleAsync();
         Assert.Equal(alreadyBuilt ? update.Id : current.Id, employee.PackageVersionId);
-        Assert.Equal("{\"model\":\"employee-selected-model\"}", employee.Configuration!.SettingsJson);
+        Assert.Equal(150000,
+            JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(employee.Configuration!.SettingsJson)!["maxOutputTokens"].GetInt32());
         Assert.Equal("employee-selected-model",
             JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(employee.Configuration.SettingsJson)!["model"].GetString());
         Assert.Equal(alreadyBuilt ? (Guid?)null : update.Id, builds.QueuedPackageVersionId);
@@ -123,7 +127,9 @@ public sealed partial class AgentDefinitionLifecycleTests
         Assert.Equal(0, catalog.Calls);
         Assert.Equal(current.Id, (await db.AgentInstallations.SingleAsync()).PackageVersionId);
         var saved = await db.AgentDefinitionConfigurations.SingleAsync();
-        Assert.Equal(definition.Configuration!.SettingsJson, saved.SettingsJson);
+        var original = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(definition.Configuration!.SettingsJson)!;
+        var retained = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(saved.SettingsJson)!;
+        foreach (var pair in original) Assert.Equal(pair.Value.GetRawText(), retained[pair.Key].GetRawText());
         Assert.Equal(2, saved.Revision);
 
         if (incompatibility == "missing-required")

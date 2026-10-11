@@ -38,6 +38,13 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        // Standalone installation returns only refresh the provider-backed inventory.
+        // They never authorize a business connection or trust a query-string installation ID.
+        if (string.IsNullOrWhiteSpace(State) && InstallationId > 0)
+        {
+            Navigation.NavigateTo("/settings/source-control", forceLoad: true);
+            return;
+        }
         if (string.IsNullOrWhiteSpace(State) || string.IsNullOrWhiteSpace(Code) || InstallationId <= 0 ||
             !TryReadState(State, out var organizationId, out var sessionId))
         {

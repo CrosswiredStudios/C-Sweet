@@ -38,6 +38,7 @@ internal static class SourceControlModelConfiguration
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.OwnerLogin).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.OwnerType).HasMaxLength(20).HasDefaultValue("Organization").IsRequired();
             entity.Property(x => x.AppName).HasMaxLength(100).IsRequired();
             entity.Property(x => x.AppSlug).HasMaxLength(100).IsRequired();
             entity.Property(x => x.InstallUrl).HasMaxLength(2048).IsRequired();

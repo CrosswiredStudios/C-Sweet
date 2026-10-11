@@ -1,4 +1,7 @@
 using CSweet.AI.Providers;
+using CSweet.Application.Core;
+using CSweet.Application.Communications;
+using CSweet.Application.WorkManagement;
 using CSweet.Infrastructure;
 using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Setup;
@@ -11,6 +14,29 @@ namespace CSweet.UnitTests;
 
 public sealed class InfrastructureDependencyInjectionTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EmployeeAndCollaborationServicesResolveWithoutAConstructionCycle(bool employeesFirst)
+    {
+        var builder = CreateInfrastructureBuilder();
+        builder.AddCSweetInfrastructure();
+        using var host = builder.Build();
+        using var scope = host.Services.CreateScope();
+
+        await Task.Run(() =>
+        {
+            if (employeesFirst)
+                scope.ServiceProvider.GetRequiredService<IOrganizationUserService>();
+            else
+                scope.ServiceProvider.GetRequiredService<IAgentCoordinationService>();
+
+            Assert.NotNull(scope.ServiceProvider.GetRequiredService<IOrganizationUserService>());
+            Assert.NotNull(scope.ServiceProvider.GetRequiredService<IAgentCoordinationService>());
+            Assert.NotNull(scope.ServiceProvider.GetRequiredService<IPersonalTodoService>());
+        }).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     [Fact]
     public async Task HostWithInvalidWorkspaceSyncLimitsStartsUntilWorkspaceSyncIsUsed()
     {

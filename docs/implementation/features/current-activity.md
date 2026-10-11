@@ -4,8 +4,17 @@ The Overview (`CommandCenter`) includes a reorderable **Current Activity** widge
 The widget occupies one-third of the grid at viewport widths of 1400px and above,
 half at 1001-1399px, and full width on narrower screens. The neighboring **Needs your
 attention** widget combines Decisions, Approvals, and Hiring with keyboard-accessible
-tabs. Its panels remain mounted to preserve drafts and expansion state. The overview
-appearance picker switches the entire page between the Aurora gradient and Black & Gold.
+tabs. Its panels remain mounted to preserve drafts and expansion state. Settings →
+Appearance switches Overview and the Projects portfolio between the Aurora gradient
+and Black & Gold. `AppearanceState` persists the shared preference in browser storage;
+the Overview header no longer contains its own appearance picker.
+`app.css` removes the overview's outer container gutter and the hidden desktop
+toolbar offset, so the background reaches the viewport edges beside navigation.
+The shared navigation uses dark plum and lavender accents, switching to charcoal
+and gold with the overview's Black & Gold theme. Cards retain their inner spacing.
+Widgets sharing a grid row stretch to the tallest widget. The compact page header
+omits reorder guidance, save confirmations, reset, and manual refresh; existing
+realtime and reconnect subscriptions keep data current. Failed updates retain a retry action.
 `DashboardWidgets.Restore` merges legacy action queues at the first queue's saved
 position, preserving the relative order of the other widgets and appending missing activity.
 

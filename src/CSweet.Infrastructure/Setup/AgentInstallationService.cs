@@ -211,7 +211,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         installation.PackageVersion = packageVersion;
         installation.Grant = grant;
         installation.Schedule = schedule;
-        if (manifest.Configuration.Any(field => !field.Secret))
+        if (AgentTokenBudget.Fields(manifest).Any(field => !field.Secret))
         {
             installation.Configuration = CreateConfiguration(
                 installation.Id,
@@ -465,9 +465,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var previousConfiguration = await _dbContext.AgentInstallationConfigurations
             .AsNoTracking()
             .SingleOrDefaultAsync(x => x.AgentInstallationId == installation.Id, cancellationToken);
-        if (nextManifest.Configuration.Any(field => !field.Secret))
+        if (AgentTokenBudget.Fields(nextManifest).Any(field => !field.Secret))
         {
-            var nextConfigurationKeys = nextManifest.Configuration
+            var nextConfigurationKeys = AgentTokenBudget.Fields(nextManifest)
                 .Where(field => !field.Secret)
                 .Select(field => field.Key)
                 .ToHashSet(StringComparer.Ordinal);
@@ -600,7 +600,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
         await ActivateWorkstreamProfilesAsync(manifest, cancellationToken);
-        if (manifest.Configuration.Any(field => !field.Secret))
+        if (AgentTokenBudget.Fields(manifest).Any(field => !field.Secret))
         {
             staged.Configuration ??= CreateConfiguration(
                 staged.Id,
@@ -1295,7 +1295,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         bool allowUnknownSettings,
         CancellationToken cancellationToken)
     {
-        var publicFields = manifest.Configuration
+        settings = AgentTokenBudget.WithDefaults(manifest, settings);
+        var publicFields = AgentTokenBudget.Fields(manifest)
             .Where(field => !field.Secret)
             .ToDictionary(field => field.Key, StringComparer.Ordinal);
         var unknownKeys = settings.Keys
@@ -1307,6 +1308,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException(
                 $"Agent configuration contains unsupported setting(s): {string.Join(", ", unknownKeys)}.");
         }
+
+        if (AgentTokenBudget.AppliesTo(manifest)) AgentTokenBudget.ResolveOutput(settings);
 
         foreach (var field in publicFields.Values)
         {
@@ -1353,7 +1356,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                     $"'{field.Label}' must be a scalar configuration value.");
             }
 
-            ValidateCapabilitySchemaConstraints(manifest, field, value);
+            if (field.Key is not (AgentTokenBudget.ContextKey or AgentTokenBudget.OutputKey))
+                ValidateCapabilitySchemaConstraints(manifest, field, value);
         }
 
         foreach (var field in publicFields.Values.Where(x => !string.IsNullOrWhiteSpace(x.LessThanFieldKey)))
@@ -1381,10 +1385,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             IReadOnlyDictionary<string, JsonElement> settings)
     {
         var normalized = settings.ToDictionary(x => x.Key, x => x.Value.Clone(), StringComparer.Ordinal);
-        var fields = manifest.Configuration.ToDictionary(x => x.Key, StringComparer.Ordinal);
+        var fields = AgentTokenBudget.Fields(manifest).ToDictionary(x => x.Key, StringComparer.Ordinal);
         var changed = new List<string>();
-        foreach (var field in manifest.Configuration.Where(x => !string.IsNullOrWhiteSpace(x.LessThanFieldKey)))
+        foreach (var field in fields.Values.Where(x => !string.IsNullOrWhiteSpace(x.LessThanFieldKey)))
         {
+            // Invalid user budgets need an explicit configuration correction, never a package default.
+            if (field.Key is AgentTokenBudget.ContextKey or AgentTokenBudget.OutputKey) continue;
             if (!fields.TryGetValue(field.LessThanFieldKey!, out var target) ||
                 !normalized.TryGetValue(field.Key, out var value) ||
                 !normalized.TryGetValue(target.Key, out var limitValue) ||

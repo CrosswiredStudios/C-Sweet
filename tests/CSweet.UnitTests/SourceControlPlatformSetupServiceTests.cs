@@ -17,6 +17,189 @@ namespace CSweet.UnitTests;
 public sealed class SourceControlPlatformSetupServiceTests
 {
     [Fact]
+    public async Task InstalledAccountAndRepositoriesAreVisibleBeforeAnyBusinessConnectionExists()
+    {
+        await using var db = CreateDb();
+        var host = new ConfigurableHost("source", "Source")
+        {
+            Installations = [new(7, 42, "octocat", "User", false, null)],
+            Repositories = [new(11, "octocat", "game", "octocat/game", "", "main", true, false, false)]
+        };
+        db.PlatformGitHubAppCredentials.Add(new()
+        {
+            Id = Guid.NewGuid(), Kind = PlatformGitHubAppKind.SourceAccess, OwnerLogin = "octocat", OwnerType = "User",
+            Status = PlatformGitHubAppCredentialStatus.Active, AppId = 42, InstallUrl = "https://github.com/apps/source/installations/new"
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService(db, host, host, new ManifestClient(new(42, "Source", "source", "", "", "", "octocat", "User")));
+        var access = await service.GetAccessOverviewAsync();
+        Assert.Equal("octocat", Assert.Single(access.Installations).AccountLogin);
+        Assert.Empty(access.Installations[0].Businesses);
+        Assert.Equal("octocat/game", Assert.Single(await service.ListInstallationRepositoryAccessAsync(7)).FullName);
+        Assert.Empty(db.SourceControlConnections);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ListInstallationRepositoryAccessAsync(999));
+        Assert.Single(host.RepositoryInstallationIds);
+        host.Installations = [];
+        Assert.Empty((await service.GetAccessOverviewAsync()).Installations);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ListInstallationRepositoryAccessAsync(7));
+    }
+
+    [Fact]
+    public async Task ConnectionInventoryUsesCurrentInstallationGrantsAndExcludesDisconnectedAccounts()
+    {
+        await using var db = CreateDb();
+        var business = new CSweet.Domain.Core.Organization { Id = Guid.NewGuid(), Name = "Studio" };
+        db.CoreOrganizations.Add(business);
+        var connection = new SourceControlConnection
+        {
+            Id = Guid.NewGuid(), OrganizationId = business.Id, Provider = SourceControlProvider.GitHub,
+            AccountLogin = "octocat", AccountType = "User", Status = SourceControlConnectionStatus.Connected,
+            SourceAccessInstallationId = 7, Mode = SourceControlConnectionMode.ExistingGitHub
+        };
+        db.SourceControlConnections.Add(connection);
+        db.SourceControlConnections.Add(new()
+        {
+            Id = Guid.NewGuid(), OrganizationId = business.Id, Provider = SourceControlProvider.GitHub,
+            AccountLogin = "disconnected", Status = SourceControlConnectionStatus.Disconnected, SourceAccessInstallationId = 8
+        });
+        db.SourceControlRepositories.Add(new()
+        {
+            Id = Guid.NewGuid(), OrganizationId = business.Id, ConnectionId = connection.Id,
+            ExternalRepositoryId = "11", ProviderRepositoryKey = "11", CanonicalPath = "octocat/game", Status = SourceControlRepositoryStatus.Ready
+        });
+        await db.SaveChangesAsync();
+        var host = new ConfigurableHost("source", "Source")
+        {
+            Repositories = [new(11, "octocat", "game", "octocat/game", "", "main", true, false, false),
+                new(12, "octocat", "old", "octocat/old", "", "main", false, true, false),
+                new(13, "other", "foreign", "other/foreign", "", "main", true, false, false)]
+        };
+        var service = CreateService(db, host, host, new ManifestClient(new(42, "Source", "source", "", "", "", "octocat", "User")));
+        Assert.Equal("Studio", Assert.Single(await service.ListConnectionsAsync()).BusinessName);
+        var granted = await service.ListRepositoryAccessAsync(connection.Id);
+        Assert.Equal(2, granted.Count);
+        Assert.True(granted[0].SelectedForBusiness);
+        Assert.True(granted[1].IsArchived);
+        Assert.False(granted[1].SelectedForBusiness);
+        host.Repositories = [];
+        Assert.Empty(await service.ListRepositoryAccessAsync(connection.Id));
+        Assert.All(host.RepositoryInstallationIds, id => Assert.Equal(7, id));
+        connection.Status = SourceControlConnectionStatus.Disconnected;
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ListRepositoryAccessAsync(connection.Id));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StartPersistsCreationChoiceAndResumeKeepsOriginalChoice(bool allowCreation)
+    {
+        await using var db = CreateDb();
+        var host = new ConfigurableHost("source", "Source");
+        var service = CreateService(db, host, host, new ManifestClient(new(
+            42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "secret", "octocat", "User")));
+        var user = Guid.NewGuid();
+        var setup = await service.StartAsync(user, new("https://csweet.example", AllowRepositoryCreation: allowCreation));
+        Assert.Equal(allowCreation, setup.Session!.ProvisionerRequested);
+        Assert.Equal(allowCreation, (await service.GetAsync(user)).Session!.ProvisionerRequested);
+        var resumed = await service.StartAsync(user, new("https://csweet.example", AllowRepositoryCreation: !allowCreation));
+        Assert.Equal(setup.Session.SessionId, resumed.Session!.SessionId);
+        Assert.Equal(allowCreation, resumed.Session.ProvisionerRequested);
+    }
+
+    [Fact]
+    public async Task PersonalSetupNeedsNoLoginAndStoresTheOwnerReturnedByGitHub()
+    {
+        await using var db = CreateDb();
+        var source = new ConfigurableHost("source", "Source");
+        var service = CreateService(db, source, source, new ManifestClient(new(
+            42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "secret", "octocat", "User")));
+        var user = Guid.NewGuid();
+        var setup = await service.StartAsync(user, new("https://csweet.example"));
+        setup = await service.ConfirmOrganizationAsync(user, setup.Session!.SessionId,
+            new(null, true, setup.Session.Revision));
+        setup = await service.ConfirmReviewAsync(user, setup.Session!.SessionId,
+            PlatformGitHubAppKind.SourceAccess, new(true, setup.Session.Revision));
+        var launch = await service.CreateManifestAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.SourceAccess);
+        Assert.Equal("/settings/apps/new", new Uri(launch.PostUrl).AbsolutePath);
+        await service.CompleteManifestAsync(user, "code", HttpUtility.ParseQueryString(new Uri(launch.PostUrl).Query)["state"]!);
+        var credential = Assert.Single(db.PlatformGitHubAppCredentials);
+        Assert.Equal("octocat", credential.OwnerLogin);
+        Assert.Equal("User", credential.OwnerType);
+        Assert.Equal(PlatformGitHubAppCredentialStatus.Verified, credential.Status);
+        setup = await service.GetAsync(user);
+        setup = await service.ConfirmAppAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.SourceAccess, new(true, setup.Session.Revision));
+        setup = await service.ChooseProvisionerAsync(user, setup.Session!.SessionId, new(false, setup.Session.Revision));
+        setup = await service.ActivateAsync(user, setup.Session!.SessionId, new(true, setup.Session.Revision));
+        Assert.True(setup.Readiness.ExistingGitHubAvailable);
+
+        // Later creation setup must keep using the personal endpoint, not /organizations/octocat/.
+        setup = await service.StartAsync(user, new("https://csweet.example"));
+        Assert.Empty(setup.Session!.GitHubOrganization);
+        setup = await service.ChooseProvisionerAsync(user, setup.Session.SessionId, new(true, setup.Session.Revision));
+        setup = await service.ConfirmReviewAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.Provisioner, new(true, setup.Session.Revision));
+        launch = await service.CreateManifestAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.Provisioner);
+        Assert.Equal("/settings/apps/new", new Uri(launch.PostUrl).AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData(null, "someone", "Organization")]
+    [InlineData("central-org", "other-org", "Organization")]
+    [InlineData("central-org", "central-org", "User")]
+    [InlineData(null, "", "User")]
+    public async Task CallbackRejectsMissingOrMismatchedOwner(string? requestedOrganization, string ownerLogin, string ownerType)
+    {
+        await using var db = CreateDb();
+        var host = new ConfigurableHost("source", "Source");
+        var service = CreateService(db, host, host, new ManifestClient(new(
+            42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "secret", ownerLogin, ownerType)));
+        var user = Guid.NewGuid();
+        var setup = await service.StartAsync(user, new("https://csweet.example"));
+        setup = await service.ConfirmOrganizationAsync(user, setup.Session!.SessionId, new(requestedOrganization, true, setup.Session.Revision));
+        setup = await service.ConfirmReviewAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.SourceAccess, new(true, setup.Session.Revision));
+        var launch = await service.CreateManifestAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.SourceAccess);
+        var state = HttpUtility.ParseQueryString(new Uri(launch.PostUrl).Query)["state"]!;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CompleteManifestAsync(user, "code", state));
+        Assert.Empty(db.PlatformGitHubAppCredentials);
+        Assert.False((await service.GetAsync(user)).Readiness.ExistingGitHubAvailable);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CompleteManifestAsync(user, "code", state));
+    }
+
+    [Theory]
+    [InlineData("octocat", true)]
+    [InlineData("different-user", false)]
+    public async Task PersonalProvisionerMustBelongToTheVerifiedSourceAppOwner(string provisionerOwner, bool succeeds)
+    {
+        await using var db = CreateDb();
+        var host = new ConfigurableHost("provisioner", "Provisioner");
+        var service = CreateService(db, host, host, new ManifestClient(new(
+            43, "Provisioner", "provisioner", CreatePrivateKeyPem(), "Iv1.provisioner", "secret", provisionerOwner, "User")));
+        db.PlatformGitHubAppCredentials.Add(new()
+        {
+            Id = Guid.NewGuid(), Kind = PlatformGitHubAppKind.SourceAccess, OwnerLogin = "octocat", OwnerType = "User",
+            Status = PlatformGitHubAppCredentialStatus.Active, AppId = 42, ClientId = "Iv1.source", ProtectedClientSecret = "protected",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, ExpiresAt = DateTimeOffset.UtcNow.AddDays(1)
+        });
+        await db.SaveChangesAsync();
+        var user = Guid.NewGuid();
+        var setup = await service.StartAsync(user, new("https://csweet.example"));
+        setup = await service.ChooseProvisionerAsync(user, setup.Session!.SessionId, new(true, setup.Session.Revision));
+        setup = await service.ConfirmReviewAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.Provisioner, new(true, setup.Session.Revision));
+        var launch = await service.CreateManifestAsync(user, setup.Session!.SessionId, PlatformGitHubAppKind.Provisioner);
+        var completion = service.CompleteManifestAsync(user, "code", HttpUtility.ParseQueryString(new Uri(launch.PostUrl).Query)["state"]!);
+        if (succeeds)
+        {
+            await completion;
+            Assert.Equal("octocat", db.PlatformGitHubAppCredentials.Single(c => c.Kind == PlatformGitHubAppKind.Provisioner).OwnerLogin);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => completion);
+            Assert.Single(db.PlatformGitHubAppCredentials);
+        }
+    }
+
+    [Fact]
     public async Task GuidedSourceAccessFlowBuildsLeastPrivilegeManifestAndActivatesWithoutReturningKey()
     {
         await using var db = CreateDb();
@@ -26,7 +209,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var service = CreateService(db, sourceHost, provisionerHost,
             new ManifestClient(new PlatformGitHubManifestConversion(
                 1234, "C-Sweet Source Access", "csweet-source", privateKeyPem,
-                "Iv1.source", "source-secret")));
+                "Iv1.source", "source-secret", "central-org", "Organization")));
         var userId = Guid.NewGuid();
 
         var setup = await service.StartAsync(userId,
@@ -98,7 +281,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var host = new ConfigurableHost("source", "Source");
         var service = CreateService(db, host, host,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret")));
+                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret", "central-org", "Organization")));
         var userId = Guid.NewGuid();
 
         var setup = await service.StartAsync(userId,
@@ -131,7 +314,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var host = new ConfigurableHost("source", "Source");
         var service = CreateService(db, host, host,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret")));
+                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret", "central-org", "Organization")));
         var owner = Guid.NewGuid();
         var setup = await service.StartAsync(owner,
             new StartPlatformSourceControlSetupRequest("https://csweet.example"));
@@ -158,7 +341,7 @@ public sealed class SourceControlPlatformSetupServiceTests
         var host = new ConfigurableHost("source", "Source");
         var service = CreateService(db, host, host,
             new ManifestClient(new PlatformGitHubManifestConversion(
-                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret")));
+                42, "Source", "source", CreatePrivateKeyPem(), "Iv1.source", "source-secret", "central-org", "Organization")));
 
         await service.StartAsync(Guid.NewGuid(),
             new StartPlatformSourceControlSetupRequest("https://csweet.example"));
@@ -204,6 +387,10 @@ public sealed class SourceControlPlatformSetupServiceTests
     private sealed class ConfigurableHost(string slug, string name)
         : ITrustedSourceControlHostClient, ITrustedProvisioningHostClient
     {
+        public IReadOnlyList<TrustedRepositoryDescriptor> Repositories { get; set; } = [];
+        public IReadOnlyList<TrustedInstallationDescriptor> Installations { get; set; } = [];
+        public Task<IReadOnlyList<TrustedInstallationDescriptor>> ListInstallationsAsync(CancellationToken ct = default) => Task.FromResult(Installations);
+        public List<long> RepositoryInstallationIds { get; } = [];
         public TrustedGitHubAppConfigurationStatus Status { get; private set; } =
             new(false, null, 0, null, null, null);
 
@@ -223,7 +410,11 @@ public sealed class SourceControlPlatformSetupServiceTests
             return Task.FromResult(Status);
         }
         public Task<TrustedInstallationDescriptor> DescribeInstallationAsync(long installationId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<TrustedRepositoryDescriptor>> ListRepositoriesAsync(long installationId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<TrustedRepositoryDescriptor>> ListRepositoriesAsync(long installationId, CancellationToken cancellationToken = default)
+        {
+            RepositoryInstallationIds.Add(installationId);
+            return Task.FromResult(Repositories);
+        }
         public Task<TrustedMergeResult> MergeAsync(TrustedMergeRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TrustedWorkspaceSnapshot> PrepareWorkspaceAsync(TrustedWorkspaceSnapshotRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TrustedRepositoryProvisioningResult> ProvisionAsync(TrustedRepositoryProvisioningRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();

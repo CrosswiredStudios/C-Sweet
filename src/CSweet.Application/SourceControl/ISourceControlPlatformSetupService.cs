@@ -18,6 +18,10 @@ public sealed record PlatformGitHubUserAuthorizationConfiguration(
 
 public interface ISourceControlPlatformSetupService : ISourceControlPlatformConfigurationProvider
 {
+    Task<PlatformGitHubAccessOverview> GetAccessOverviewAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<PlatformGitHubRepositoryAccess>> ListInstallationRepositoryAccessAsync(long installationId, CancellationToken ct = default);
+    Task<IReadOnlyList<PlatformGitHubConnectionSummary>> ListConnectionsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PlatformGitHubRepositoryAccess>> ListRepositoryAccessAsync(Guid connectionId, CancellationToken cancellationToken = default);
     Task<PlatformSourceControlSetupResponse> GetAsync(
         Guid applicationUserId,
         CancellationToken cancellationToken = default);
@@ -85,4 +89,6 @@ public sealed record PlatformGitHubManifestConversion(
     string AppSlug,
     string PrivateKeyPem,
     string ClientId,
-    string ClientSecret);
+    string ClientSecret,
+    string OwnerLogin,
+    string OwnerType);

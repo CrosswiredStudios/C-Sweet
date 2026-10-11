@@ -368,7 +368,11 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkerService, WorkerService>();
         builder.Services.AddScoped<IWorkTaskService, WorkTaskService>();
         builder.Services.AddScoped<IWorkBoardService, WorkBoardService>();
-        builder.Services.AddScoped<IWorkItemMutationEngine, WorkItemMutationEngine>();
+        // Collaboration -> hiring -> employees -> personal work comes back to this engine.
+        // Resolve collaboration only when a recovery operation needs it, after construction.
+        builder.Services.AddScoped<IWorkItemMutationEngine>(services => new WorkItemMutationEngine(
+            services.GetRequiredService<CSweetDbContext>(), services.GetRequiredService<TimeProvider>(),
+            coordinationFactory: () => services.GetRequiredService<IAgentCoordinationService>()));
         builder.Services.AddScoped<IPersonalTodoService>(services =>
             new PersonalTodoService(services.GetRequiredService<IWorkItemMutationEngine>()));
         builder.Services.AddScoped<IEmployeeHierarchyAccessService, EmployeeHierarchyAccessService>();

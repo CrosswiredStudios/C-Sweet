@@ -23,6 +23,18 @@ public static class SourceControlEndpoints
         var platform = endpoints.MapGroup("/api/source-control/platform-setup")
             .RequireAuthorization("SourceControlAdministration");
 
+        platform.MapGet("/access", async (HttpContext http, ISourceControlPlatformSetupService service, CancellationToken ct) =>
+            await ExecuteAsync(http, _ => service.GetAccessOverviewAsync(ct)));
+        platform.MapGet("/installations/{installationId:long}/repositories", async (
+            long installationId, HttpContext http, ISourceControlPlatformSetupService service, CancellationToken ct) =>
+            await ExecuteAsync(http, _ => service.ListInstallationRepositoryAccessAsync(installationId, ct)));
+
+        platform.MapGet("/connections", async (ISourceControlPlatformSetupService service, CancellationToken ct) =>
+            Results.Ok(await service.ListConnectionsAsync(ct)));
+        platform.MapGet("/connections/{connectionId:guid}/repositories", async (
+            Guid connectionId, HttpContext http, ISourceControlPlatformSetupService service, CancellationToken ct) =>
+            await ExecuteAsync(http, _ => service.ListRepositoryAccessAsync(connectionId, ct)));
+
         platform.MapGet("/", async (
             HttpContext http,
             ISourceControlPlatformSetupService service,

@@ -12,6 +12,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -139,30 +140,29 @@ public sealed partial class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        // Provider configuration is the control-plane limit. A fixed 32K cap here
-        // prevented agents from using larger budgets explicitly configured by users.
-        var maximumOutputTokens = profile.MaxOutputTokens is > 0
-            ? profile.MaxOutputTokens.Value
-            : _options.DefaultMaximumOutputTokens;
-        if (input.MaxOutputTokens is < 1)
+        // The authenticated installation's effective configuration owns all agent token budgets.
+        // Ignore legacy per-call caps and provider-profile defaults: neither may silently reduce
+        // the user's saved budget. Unsupported model budgets surface as provider errors.
+        int effectiveMaxOutputTokens = 0;
+        string? budgetError = null;
+        if (!Guid.TryParse(session.InstallationId, out var budgetInstallationId))
+            budgetError = "The agent installation identity is invalid.";
+        else
         {
-            yield return Failure(request.RequestId,
-                $"The requested output-token budget must be between 1 and {maximumOutputTokens} for the selected provider.");
-            yield break;
+            try
+            {
+                var configuration = await _configurations.ResolveInstallationAsync(budgetInstallationId, requestToken);
+                effectiveMaxOutputTokens = AgentTokenBudget.ResolveOutput(configuration.Settings);
+            }
+            catch (AgentInstallationException exception)
+            {
+                budgetError = exception.Message;
+            }
         }
-        // MaxOutputTokens is a caller preference and an upper bound, not a requirement that
-        // the provider produce that many tokens. Keep a portable agent running when its saved
-        // preference exceeds a newly selected provider's control-plane limit.
-        var effectiveMaxOutputTokens = input.MaxOutputTokens.HasValue
-            ? Math.Min(input.MaxOutputTokens.Value, maximumOutputTokens)
-            : (int?)null;
-        if (effectiveMaxOutputTokens != input.MaxOutputTokens)
+        if (budgetError is not null)
         {
-            _logger.LogInformation(
-                "Capped platform LLM request {RequestId} output tokens from {RequestedMaxOutputTokens} to provider limit {MaximumOutputTokens}.",
-                request.RequestId,
-                input.MaxOutputTokens,
-                maximumOutputTokens);
+            yield return Failure(request.RequestId, budgetError);
+            yield break;
         }
 
         var selectedModel = string.IsNullOrWhiteSpace(input.Model)

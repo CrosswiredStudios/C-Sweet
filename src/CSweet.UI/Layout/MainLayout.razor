@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@inject AppearanceState Appearance
+@implements IDisposable
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
@@ -7,7 +9,7 @@
 <AppRealtimeCoordinator />
 <AgentHireOperationTray />
 
-<MudLayout>
+<MudLayout data-appearance="@Appearance.Theme">
     <MudAppBar Elevation="0" Dense="true" Color="Color.Surface" Class="app-bar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
         <div class="app-mobile-brand">
@@ -35,6 +37,10 @@
 
 @code {
     private bool _drawerOpen = true;
+    protected override void OnInitialized() => Appearance.Changed += OnAppearanceChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await Appearance.InitializeAsync(); }
+    private void OnAppearanceChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Appearance.Changed -= OnAppearanceChanged;
 
     private readonly MudTheme _theme = new()
     {

@@ -20,11 +20,12 @@ public sealed class GitHubAppManifestClient(HttpClient http) : IPlatformGitHubMa
             ?? throw new InvalidOperationException("GitHub returned an empty App manifest conversion.");
         if (payload.Id <= 0 || string.IsNullOrWhiteSpace(payload.Pem) ||
             string.IsNullOrWhiteSpace(payload.Slug) || string.IsNullOrWhiteSpace(payload.Name) ||
-            string.IsNullOrWhiteSpace(payload.ClientId) || string.IsNullOrWhiteSpace(payload.ClientSecret))
+            string.IsNullOrWhiteSpace(payload.ClientId) || string.IsNullOrWhiteSpace(payload.ClientSecret) ||
+            payload.Owner is null || string.IsNullOrWhiteSpace(payload.Owner.Login) || payload.Owner.Type is not ("User" or "Organization"))
             throw new InvalidOperationException("GitHub returned an incomplete App manifest conversion.");
         return new PlatformGitHubManifestConversion(
             payload.Id, payload.Name, payload.Slug, payload.Pem,
-            payload.ClientId, payload.ClientSecret);
+            payload.ClientId, payload.ClientSecret, payload.Owner.Login, payload.Owner.Type);
     }
 
     private sealed record ConversionPayload(
@@ -33,5 +34,8 @@ public sealed class GitHubAppManifestClient(HttpClient http) : IPlatformGitHubMa
         string Slug,
         string Pem,
         [property: JsonPropertyName("client_id")] string ClientId,
-        [property: JsonPropertyName("client_secret")] string ClientSecret);
+        [property: JsonPropertyName("client_secret")] string ClientSecret,
+        OwnerPayload? Owner);
+
+    private sealed record OwnerPayload(string Login, string Type);
 }

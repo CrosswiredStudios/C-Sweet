@@ -1,0 +1,56 @@
+@using CSweet.Contracts.Core
+
+<div class="project-health-links" aria-label="Project health">
+    @foreach (var metric in Metrics)
+    {
+        <a href="@Link(metric.Tab)"><span>@metric.Label</span><strong>@metric.Count</strong><small>@metric.Action <span aria-hidden="true">↗</span></small></a>
+    }
+</div>
+<div class="project-overview-grid">
+    <div class="overview-primary">
+        <article class="overview-panel brief-panel">
+            <div class="overview-heading"><h2>Project brief</h2><span class="eyebrow">The objective</span></div>
+            <p class="brief-excerpt">@Brief</p>
+            <details class="full-brief"><summary>Read full brief</summary><p>@Brief</p></details>
+            <div class="brief-facts"><div><small>Current phase</small><strong>@ProjectPresentation.Metadata(Project.Project, "LifecycleStage")</strong></div><div><small>Target date</small><strong>@TargetDate</strong></div></div>
+            <details class="project-record"><summary>About this project</summary><dl><dt>Profile</dt><dd>@ProjectPresentation.Profile(Project.Project.TypeKey)</dd><dt>Revision</dt><dd>@Project.Project.Revision</dd><dt>Updated</dt><dd>@Project.Project.OccurredAt?.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</dd>@if (!string.IsNullOrWhiteSpace(Project.Project.Sha256)) { <dt>Record hash</dt><dd>@Project.Project.Sha256</dd> }</dl></details>
+        </article>
+        <article class="overview-panel">
+            <div class="overview-heading"><h2>Work &amp; people</h2><a href="@Link("work")">View work ↗</a></div>
+            @foreach (var board in Project.Work.Where(x => x.ResourceType == "Board"))
+            { <a class="overview-row" href="@($"{Link("work")}&board={board.Id:D}")"><div><strong>@board.Title</strong><small>Project board · @board.Status</small></div><span aria-hidden="true">↗</span></a> }
+            @foreach (var team in Project.Teams.Where(x => x.ResourceType == "Team"))
+            { <a class="overview-row" href="@Link("people")"><div><strong>@team.Title</strong><small>Team · @team.Status</small></div><span aria-hidden="true">↗</span></a> }
+            @if (!Project.Work.Any(x => x.ResourceType == "Board") && !Project.Teams.Any(x => x.ResourceType == "Team"))
+            { <p class="muted">No boards or teams linked yet.</p><a href="@($"{ProjectHref}/members")">Manage members →</a> }
+        </article>
+    </div>
+    <div class="overview-secondary">
+        <article class="overview-panel readiness-panel">
+            <span class="eyebrow">Delivery readiness</span>
+            <h2 class="readiness-title">@(Project.Health.ReleaseReady ? "Ready for release" : "Not ready")</h2>
+            <p class="muted">@(Project.Health.ReleaseReady ? "Release evidence confirms readiness." : "Review the evidence and outstanding checks before release.")</p>
+            @if (Project.Health.FailedBuilds > 0) { <a class="overview-row" href="@Link("delivery")"><span>Failed builds</span><strong>@Project.Health.FailedBuilds</strong></a> }
+            @if (Project.Health.BlockingValidations > 0) { <a class="overview-row" href="@Link("delivery")"><span>Blocking validations</span><strong>@Project.Health.BlockingValidations</strong></a> }
+            @if (Project.Health.DocumentsInReview > 0) { <a class="overview-row" href="@Link("documents")"><span>Documents in review</span><strong>@Project.Health.DocumentsInReview</strong></a> }
+            @if (!Project.Evidence.Any(x => x.ResourceType == "Build")) { <p class="readiness-note">No build has been recorded.</p> }
+            <a class="overview-action" href="@Link("delivery")">Inspect delivery <span aria-hidden="true">→</span></a>
+        </article>
+        <article class="overview-panel">
+            <div class="overview-heading"><h2>Recent activity</h2><a href="@Link("audit")">View audit ↗</a></div>
+            @foreach (var entry in RecentActivity)
+            { <div class="activity-entry"><span class="activity-dot" aria-hidden="true"></span><div><strong>@(string.IsNullOrWhiteSpace(entry.Summary) ? entry.EventType : entry.Summary)</strong><small>@(entry.ActorDisplayName ?? entry.ActorKind) · @entry.OccurredAt.LocalDateTime.ToString("MMM d · h:mm tt")</small></div></div> }
+            @if (!RecentActivity.Any()) { <p class="muted">No project changes recorded yet. Routine reads remain available in Audit.</p> }
+        </article>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProjectInspectionResponse Project { get; set; } = default!;
+    [Parameter, EditorRequired] public string ProjectHref { get; set; } = "";
+    private string Link(string tab) => $"{ProjectHref}?tab={tab}";
+    private string Brief => ProjectPresentation.Metadata(Project.Project, "Outcome", "No project brief has been provided.");
+    private string TargetDate => DateTimeOffset.TryParse(ProjectPresentation.Metadata(Project.Project, "TargetDate", ""), out var date) ? date.LocalDateTime.ToString("MMM d, yyyy") : "Not set";
+    private IEnumerable<ProjectAuditEntry> RecentActivity => Project.Audit.Where(x => !ProjectPresentation.IsRoutineRead(x)).OrderByDescending(x => x.OccurredAt).Take(4);
+    private (string Label, int Count, string Tab, string Action)[] Metrics => [("Open work", Project.Health.OpenItems, "work", "Explore board"), ("Blocked work", Project.Health.BlockedItems, "work", "Inspect work"), ("Pending gates", Project.Health.PendingGates, "decisions", "Review gates"), ("Open decisions", Project.Health.OpenDecisions, "decisions", "View decisions")];
+}

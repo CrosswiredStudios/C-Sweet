@@ -20,7 +20,7 @@ public sealed class EmployeeTimelineRenderingTests
     {
         var html = await RenderAsync(false);
         Assert.Contains("Message received", html);
-        Assert.Contains("Activity from the audit ledger", html);
+        Assert.Contains("Work, conversations, and runtime events", html);
         Assert.Contains("audit-inspector", html);
         Assert.Contains("&lt;script&gt;", html);
         Assert.DoesNotContain("<script>", html);

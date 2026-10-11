@@ -4,7 +4,7 @@
 
 <section class="efficiency-panel" aria-label="Work efficiency">
     <div class="efficiency-toolbar">
-        <div><MudText Typo="Typo.h6">Work efficiency</MudText><MudText Typo="Typo.caption">Provider attempts, lifetime delivery, and rework</MudText></div>
+        <div><MudText Typo="Typo.h6">Work efficiency</MudText><MudText Typo="Typo.caption">Usage, delivery time, and rework</MudText></div>
         <MudSelect T="string" Label="Usage period" Value="_window" ValueChanged="ChangeWindow" Dense="true" Class="efficiency-period">
             <MudSelectItem Value="@("lifetime")">Lifetime</MudSelectItem>
             <MudSelectItem Value="@("7d")">Last 7 days</MudSelectItem>
@@ -23,7 +23,7 @@
     }
     @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
-    @if (_report is not null)
+    @if (_report is not null && (SelectedScope is not null || !WorkstreamId.HasValue && !WorkItemId.HasValue))
     {
         var total = SelectedScope?.Total ?? _report.BusinessTotal;
         <div class="efficiency-stats">
@@ -33,7 +33,7 @@
             <div class="efficiency-stat"><small>Active agent time</small><strong>@Duration(total.ActiveAgentTimeMs)</strong><small>Confirmed effort · selected period · parallel agents add together</small></div>
         </div>
         @if (_report.Truncated) { <MudAlert Severity="Severity.Warning">Partial report. Narrow the date range before using totals for comparison.</MudAlert> }
-        <MudText Typo="Typo.caption">@_report.CoverageNote</MudText>
+        <details class="efficiency-coverage"><summary>How these numbers are measured</summary><p>@_report.CoverageNote</p></details>
         <div class="efficiency-table">
             <table>
                 <thead><tr><th>Work</th><th>Status</th><th>Total tokens</th><th>Model calls</th><th>Elapsed time <small>(lifetime)</small></th><th>Active agent time</th></tr></thead>
@@ -84,13 +84,14 @@
                 }
             </MudPaper>
         }
-        <MudText Typo="Typo.caption" Class="mt-4">Business overhead: @_report.BusinessOverhead.TotalTokens.ToString("N0") tokens · Unattributed: @_report.Unattributed.TotalTokens.ToString("N0") · Historical calls with partial instrumentation: @_report.BusinessTotal.LegacyCalls.ToString("N0")</MudText>
+        @if (!WorkstreamId.HasValue && !WorkItemId.HasValue) { <MudText Typo="Typo.caption" Class="mt-4">Business overhead: @_report.BusinessOverhead.TotalTokens.ToString("N0") tokens · Unattributed: @_report.Unattributed.TotalTokens.ToString("N0") · Historical calls with partial instrumentation: @_report.BusinessTotal.LegacyCalls.ToString("N0")</MudText> }
         <div class="efficiency-toolbar mt-3">
-            <MudLink Href="@($"api/organizations/{OrganizationId}/analytics/efficiency/export{ReportQuery()}")" download="work-efficiency.csv">Export CSV</MudLink>
-            <MudLink Href="benchmarks">Compare businesses</MudLink>
+            <MudLink Href="@($"api/organizations/{OrganizationId}/analytics/efficiency/export{ReportQuery()}")" download="work-efficiency.csv">Export business report (CSV)</MudLink>
+            @if (!WorkstreamId.HasValue && !WorkItemId.HasValue) { <MudLink Href="benchmarks">Compare businesses</MudLink> }
             <MudText Typo="Typo.caption">Generated @_report.GeneratedAt.ToLocalTime().ToString("g")</MudText>
         </div>
     }
+    @if (_report is not null && (WorkstreamId.HasValue || WorkItemId.HasValue) && SelectedScope is null) { <div class="efficiency-empty"><h3>No usage recorded for this project yet</h3><p>Try a different reporting period.</p></div> }
 </section>
 
 @code {

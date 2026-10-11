@@ -66,6 +66,24 @@ public sealed partial class GitHubAppClient(
     GitHubAppCredentialProvider credentials,
     TimeProvider timeProvider)
 {
+    public async Task<IReadOnlyList<GitHubInstallationDescriptor>> ListInstallationsAsync(CancellationToken cancellationToken)
+    {
+        var result = new List<GitHubInstallationDescriptor>();
+        for (var page = 1; page <= 10; page++)
+        {
+            using var request = CreateAppRequest(HttpMethod.Get, $"app/installations?per_page=100&page={page}");
+            using var response = await http.SendAsync(request, cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+            var payload = await response.Content.ReadFromJsonAsync<List<InstallationPayload>>(cancellationToken)
+                ?? throw new InvalidOperationException("GitHub returned no installation list.");
+            result.AddRange(payload.Select(x => new GitHubInstallationDescriptor(x.Id, x.Account.Id,
+                x.Account.Login, x.Account.Type, x.SuspendedAt is not null,
+                x.SuspendedBy is null ? null : $"Suspended by {x.SuspendedBy.Login}.")));
+            if (payload.Count < 100) break;
+        }
+        return result;
+    }
+
     public async Task<GitHubAppIdentity> ValidateCredentialAsync(
         long appId,
         string privateKeyBase64,

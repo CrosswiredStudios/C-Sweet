@@ -8,17 +8,17 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 
-<section class="project-panel" aria-label="Project releases">
-    <div class="panel-heading"><h2>Releases</h2><button type="button" disabled="@_busy" @onclick="LoadAsync">Refresh releases</button></div>
-    @if (_error is not null) { <p role="alert" class="project-note">@_error</p> }
+<section class="project-releases" aria-label="Project releases">
+    <div class="panel-heading"><div><h2>Releases</h2><p>Define scope, follow execution, and review release candidates.</p></div><button class="release-primary" type="button" disabled="@_busy" @onclick="@(() => OpenConfigurationAsync(null))">Define release scope</button></div>
+    @if (_error is not null) { <p role="alert" class="project-note">@_error <button type="button" disabled="@_busy" @onclick="LoadAsync">Retry</button></p> }
     @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
-    <button type="button" disabled="@_busy" @onclick="@(() => OpenConfigurationAsync(null))">Define release scope</button>
+
     @if (!_loading && _plans.Count == 0) { <p>No delivery plan has been recorded. The project manager must define release scope, independent reviewers and repository branches before starting delivery.</p> }
     @foreach (var plan in _plans)
     {
-        <article class="mt-4" @key="plan.Id">
+        <article class="release-plan" @key="plan.Id">
             <h3>@plan.Name <span class="project-status">@plan.Status</span></h3>
-            <p>Responsible manager: @PersonName(plan.ManagerOrganizationUserId) · scope revision @plan.ScopeRevision</p>
+            <p class="release-meta">Managed by @PersonName(plan.ManagerOrganizationUserId)</p>
             <p>@plan.Scopes.Count(x => x.Scope == "Story") stories · @plan.EpicItemIds.Count epics · @plan.Branches.Select(x => x.RepositoryId).Distinct().Count() repositories</p>
             @if (_currentUser == plan.ManagerOrganizationUserId)
             {
@@ -34,10 +34,10 @@
                     }
                 </div>
             }
-            <details><summary>Scope and branch topology</summary>
+            <details class="release-technical"><summary>Scope and branch topology</summary><p>scope revision @plan.ScopeRevision</p>
                 @foreach (var scope in plan.Scopes.Where(x => x.ItemId.HasValue))
                 {
-                    <p><a href="@ItemLink(scope.BoardId, scope.ItemId!.Value)">@scope.Scope @scope.ItemId</a> · @scope.ChildIds.Count required children · planning revision @scope.PlanningRevision</p>
+                    <p><a href="@ItemLink(scope.BoardId, scope.ItemId!.Value)">@ItemTitle(scope.ItemId, scope.Scope)</a> · @scope.ChildIds.Count required children · planning revision @scope.PlanningRevision</p>
                 }
                 <table><thead><tr><th>Repository</th><th>Scope</th><th>Source</th><th>Integration target</th></tr></thead><tbody>
                 @foreach (var branch in plan.Branches) { <tr><td>@branch.RepositoryId</td><td>@branch.Scope</td><td><code>@branch.SourceBranch</code></td><td><code>@branch.TargetBranch</code></td></tr> }
@@ -45,18 +45,18 @@
             </details>
             @foreach (var finding in plan.Findings)
             {
-                <p>Remediation · @finding.Status · @finding.Summary · finding <code>@finding.Id</code></p>
+                <p class="release-finding">Remediation · @finding.Status · @finding.Summary</p>
                 @foreach (var task in finding.RemediationTaskIds) { <span>QA-verified task @task </span> }
             }
             @foreach (var execution in plan.Executions.Where(x => x.Status != "Superseded"))
             {
-                <details class="mt-3" open="@(execution.Status is "Blocked" or "PartiallyPromoted" or "WaitingForApproval" or "WaitingForHuman")">
-                    <summary>@execution.Scope · @(execution.ItemId?.ToString() ?? plan.Name) · @execution.Status · @execution.CurrentStageKey</summary>
+                <details class="release-execution" open="@(execution.Status is "Blocked" or "PartiallyPromoted" or "WaitingForApproval" or "WaitingForHuman")">
+                    <summary>@execution.Scope · @ItemTitle(execution.ItemId, plan.Name) · @execution.Status · @execution.CurrentStageKey</summary>
                     @if (execution.ItemId is { } itemId) { <a href="@ItemLink(execution.BoardId, itemId)">Open work item</a> }
                     @if (execution.BlockedReason is not null) { <p role="alert">@execution.BlockedReason</p> }
                     @if (execution.Candidate is { } candidate)
                     {
-                        <p>Reviewed/tested candidate: <code>@candidate.Digest</code> · scope revision @candidate.ScopeRevision</p>
+                        <details class="candidate-evidence" open="@(execution.Status == "PartiallyPromoted")"><summary>Reviewed/tested candidate</summary><p><code>@candidate.Digest</code> · scope revision @candidate.ScopeRevision</p>
                         <table><thead><tr><th>Repository</th><th>Candidate commit</th><th>Promotion</th><th>Recovery state</th></tr></thead><tbody>
                         @foreach (var repository in candidate.Repositories)
                         {
@@ -64,7 +64,7 @@
                             <tr><td>@repository.RepositoryId</td><td><code>@repository.CandidateCommitSha</code>@if(repository.BuildId is { } buildId){<span> · build @buildId</span>}</td><td>@(receipt?.Status ?? "Awaiting validation")</td><td>@receipt?.Error</td></tr>
                         }
                         </tbody></table>
-                        @foreach (var document in candidate.Documents) { <p>Document @document.ArtifactId · revision <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }
+                        @foreach (var document in candidate.Documents) { <p>Document @document.ArtifactId · revision <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }</details>
                     }
                     @foreach (var stage in execution.Stages)
                     {
@@ -182,7 +182,9 @@
     private string _buildIds = "";
     private string Api => $"api/organizations/{OrganizationId:D}/work/delivery";
     private string ItemLink(Guid board, Guid item) => $"/organizations/{OrganizationId:D}/work/boards/{board:D}?item={item:D}";
-    private string PersonName(Guid? id) => _people.FirstOrDefault(x => x.Id == id)?.Name ?? id?.ToString() ?? "Unassigned";
+    [Parameter] public IReadOnlyList<ProjectInspectionResource> WorkResources { get; set; } = [];
+    private string ItemTitle(Guid? id, string fallback) => WorkResources.FirstOrDefault(x => x.Id == id)?.Title ?? _boards.SelectMany(x => x.Items).FirstOrDefault(x => x.Id == id)?.Title ?? fallback;
+    private string PersonName(Guid? id) => _people.FirstOrDefault(x => x.Id == id)?.Name ?? (id.HasValue ? "Assigned employee" : "Unassigned");
     protected override void OnInitialized() { Realtime.EventReceived += OnRealtime; Realtime.Reconnected += OnReconnect; }
     private void OnRealtime(AppRealtimeEventEnvelope e) { if(e.OrganizationId == OrganizationId && e.EventType == AppRealtimeEvents.WorkDeliveryChanged) _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
     private void OnReconnect() => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });

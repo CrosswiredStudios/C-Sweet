@@ -29,7 +29,6 @@ public sealed class PlatformLlmJobOptions
     /// <summary>Maximum message characters; zero disables this limit.</summary>
     public int MaximumMessageCharacters { get; set; }
     public int MaximumToolCount { get; set; } = 256;
-    public int DefaultMaximumOutputTokens { get; set; } = 32_768;
 }
 
 public interface IPlatformLlmJobExecutor

@@ -87,6 +87,13 @@ public sealed partial class AgentRuntimeManager(
             Reason = reason,
             OccurredAt = now
         });
+        if (activationMode == ActivationMode.AlwaysOn)
+        {
+            var schedule = await dbContext.AgentSchedules.SingleAsync(x => x.AgentInstallationId == installationId, cancellationToken);
+            // Consume the retry deadline with the queued runtime. A later schedule tick
+            // must not treat this same retry as an overlapping request and cancel it.
+            if (schedule.ConsecutiveStartupFailures > 0) schedule.NextTickAt = null;
+        }
         dbContext.AgentRuntimeInstances.Add(instance);
         try
         {
@@ -194,6 +201,7 @@ public sealed partial class AgentRuntimeManager(
     }
     public async Task<int> EnsureAlwaysOnRuntimesAsync(CancellationToken cancellationToken = default)
     {
+        var now = DateTimeOffset.UtcNow;
         var installationIds = await dbContext.AgentInstallations
             .AsNoTracking()
             .Where(x => x.IsEnabled &&
@@ -201,6 +209,7 @@ public sealed partial class AgentRuntimeManager(
                 x.Schedule.IsEnabled &&
                 x.Schedule.ActivationMode == ActivationMode.AlwaysOn &&
                 x.Schedule.AutomaticStartSuppressedAt == null &&
+                (x.Schedule.ConsecutiveStartupFailures == 0 || x.Schedule.NextTickAt == null || x.Schedule.NextTickAt <= now) &&
                 !x.RuntimeInstances.Any(runtime =>
                     runtime.Status == AgentRuntimeStatus.Queued ||
                     WorkloadActiveStatuses.Contains(runtime.Status)))
@@ -1042,7 +1051,7 @@ public sealed partial class AgentRuntimeManager(
             $"Runtime ended as {status}: {instance.Reason}", cancellationToken: cancellationToken);
     }
 
-    private static void HandleAlwaysOnTermination(
+    private void HandleAlwaysOnTermination(
         AgentRuntimeInstance instance,
         AgentRuntimeStatus terminal,
         DateTimeOffset occurredAt,
@@ -1066,6 +1075,18 @@ public sealed partial class AgentRuntimeManager(
         if (startupFailed)
         {
             schedule.ConsecutiveStartupFailures++;
+            if (AgentStartupRecovery.IsTransient(instance))
+            {
+                schedule.AutomaticStartSuppressedAt = null;
+                schedule.NextTickAt = occurredAt + AgentStartupRecovery.RetryDelay(schedule.ConsecutiveStartupFailures, options.Value);
+                dbContext.AgentRuntimeEvents.Add(new AgentRuntimeEvent
+                {
+                    Id = Guid.NewGuid(), AgentRuntimeInstanceId = instance.Id, Status = terminal,
+                    OccurredAt = occurredAt,
+                    Reason = $"Transient startup failure; automatic retry scheduled for {schedule.NextTickAt:O}."
+                });
+                return;
+            }
             if (schedule.ConsecutiveStartupFailures >= MaximumAlwaysOnStartupAttempts)
             {
                 schedule.AutomaticStartSuppressedAt = occurredAt;

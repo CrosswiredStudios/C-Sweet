@@ -2,6 +2,7 @@
 @layout SettingsLayout
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IJSRuntime JS
 
 <PageTitle>Source Control Settings - C-Sweet</PageTitle>
 
@@ -11,8 +12,7 @@
             <MudText Typo="Typo.overline" Color="Color.Primary">Enterprise platform</MudText>
             <MudText Typo="Typo.h3">Source control</MudText>
             <MudText Color="Color.Secondary">
-                Manage internal Git storage and inspect service readiness. GitHub is an optional integration
-                for businesses that want to use their own account.
+                Manage repository storage and connect GitHub.
             </MudText>
         </div>
         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh"
@@ -38,22 +38,52 @@
     else
     {
         @if (_storageError is not null) { <MudAlert Severity="Severity.Warning" Class="mb-4">@_storageError</MudAlert> }
+        <MudGrid>
         @if (_storage is not null)
         {
-            <MudPaper Outlined="true" Class="pa-4 mb-4">
+            <MudItem xs="12" md="6">
+            <MudPaper Outlined="true" Class="pa-4" Style="height:100%">
                 <MudText Typo="Typo.h5">Internal Git storage</MudText>
                 <MudAlert Severity="@(_storage.Ready ? Severity.Success : Severity.Warning)" Class="my-3">
                     @(_storage.Ready ? "Repository storage is ready." : _storage.Error)
                 </MudAlert>
+                <MudExpansionPanels Elevation="0">
+                <MudExpansionPanel Text="Storage details">
                 <MudText>Repositories: @_storage.RepositoryRoot</MudText>
                 <MudText>Temporary work: @_storage.TemporaryRoot</MudText>
                 <MudText>LFS configuration: @_storage.LfsProvider · @_storage.LfsLocation</MudText>
                 <MudText>Backup storage: @_storage.BackupProvider · @_storage.BackupLocation</MudText>
                 <MudText Color="Color.Secondary" Class="mt-3">Storage paths are configured on GitHost under CSweet:SourceControl:Storage. Use a host directory or mounted NAS share for repositories. LFS and backup configuration supports filesystem or S3-compatible endpoints such as MinIO. Choose each business's default provider and manage repository backups on its source-control page. New businesses default to internal Git. Object-store configuration shown here is not a connectivity check.</MudText>
                 <MudText Color="Color.Secondary">Relocation requires a maintenance window: stop writes, copy and verify data, update configuration, and restart. A custom repository root requires ExpectedStoreId and a matching .csweet-git-store marker.</MudText>
+                </MudExpansionPanel>
+                </MudExpansionPanels>
+            </MudPaper>
+            </MudItem>
+        }
+        @foreach (var installation in _access?.Installations ?? [])
+        {
+            <MudItem xs="12" md="6"><GitHubConnectionCard @key="installation.InstallationId" Installation="installation" /></MudItem>
+        }
+        @if (_setup is not null && (!_setup.Readiness.ExistingGitHubAvailable || GitHubPlatformWizardFlow.IsPending(_setup)))
+        {
+            <MudItem xs="12" md="6"><SourceControlPlatformSetupWizard Setup="_setup" SetupChanged="HandleSetupChanged" BusinessId="BusinessId" AllowRepositoryCreation="AllowRepositoryCreation" /></MudItem>
+        }
+        </MudGrid>
+        @if (_connectionsError is not null) { <MudAlert Severity="Severity.Warning" Class="mt-4">@_connectionsError</MudAlert> }
+        @if (_access is { Installations.Count: 0 })
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-4">
+                <MudText Typo="Typo.h6">Connect your GitHub account</MudText>
+                <MudText>The app is configured, but GitHub has not granted it access to an account. Install it and choose which repositories to expose.</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@ConnectAccountUrl" Class="mt-3">Connect account on GitHub</MudButton>
             </MudPaper>
         }
-        <MudText Typo="Typo.h5" Class="my-3">Optional GitHub integration</MudText>
+        @if (_setup?.Readiness.ExistingGitHubAvailable == true && !GitHubPlatformWizardFlow.IsPending(_setup))
+        {
+            <MudExpansionPanels Class="mt-4" Elevation="0"><MudExpansionPanel Text="GitHub app configuration">
+                <SourceControlPlatformSetupWizard Setup="_setup" SetupChanged="HandleSetupChanged" BusinessId="BusinessId" AllowRepositoryCreation="AllowRepositoryCreation" />
+            </MudExpansionPanel></MudExpansionPanels>
+        }
         @if (_setupError is not null) { <MudAlert Severity="Severity.Warning">@_setupError</MudAlert> }
         @if (_setup?.Readiness.ConfigurationMode == "ExternallyManaged")
         {
@@ -62,16 +92,41 @@
                 have not been imported into C-Sweet.
             </MudAlert>
         }
-        @if (_setup is not null) { <SourceControlPlatformSetupWizard Setup="_setup" SetupChanged="HandleSetupChanged" /> }
     }
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "business")] public Guid? BusinessId { get; set; }
+    [SupplyParameterFromQuery(Name = "allowRepositoryCreation")] public bool AllowRepositoryCreation { get; set; }
     private PlatformSourceControlSetupResponse? _setup;
     private InternalGitStorageStatus? _storage;
     private bool _loading = true;
     private bool _accessDenied;
     private string? _storageError, _setupError;
+    private string? _connectionsError;
+    private PlatformGitHubAccessOverview? _access;
+    private Guid? _returnBusinessId;
+    private bool _returnTargetRestored;
+    private string? ConnectAccountUrl => (BusinessId ?? _returnBusinessId) is { } businessId
+        ? $"/organizations/{businessId:D}/source-control?connectGitHub=true&allowRepositoryCreation={(_setup?.Session?.ProvisionerRequested ?? AllowRepositoryCreation).ToString().ToLowerInvariant()}"
+        : _access?.InstallUrl;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_returnTargetRestored || _setup?.Readiness.ExistingGitHubAvailable != true || GitHubPlatformWizardFlow.IsPending(_setup)) return;
+        _returnTargetRestored = true;
+        try
+        {
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/githubWizard.js");
+            try
+            {
+                var stored = await module.InvokeAsync<string?>("takeBusinessId");
+                if (Guid.TryParse(stored, out var businessId)) { _returnBusinessId = businessId; StateHasChanged(); }
+            }
+            finally { await module.DisposeAsync(); }
+        }
+        catch (JSException) { }
+    }
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
@@ -80,14 +135,30 @@
         _loading = true;
         _accessDenied = false; _storage = null; _setup = null;
         _storageError = null; _setupError = null;
+        _access = null; _connectionsError = null;
         try
         {
             var state = await CSweet.UI.Services.SourceControlSettingsState.LoadAsync(Http);
             _storage = state.Storage; _setup = state.Setup; _accessDenied = state.AccessDenied;
             _storageError = state.StorageError; _setupError = state.SetupError;
+            if (!_accessDenied && _setup?.Readiness.ExistingGitHubAvailable == true)
+            {
+                await LoadAccessAsync();
+            }
         }
         finally { _loading = false; }
     }
 
-    private void HandleSetupChanged(PlatformSourceControlSetupResponse updated) => _setup = updated;
+    private async Task HandleSetupChanged(PlatformSourceControlSetupResponse updated)
+    {
+        _setup = updated;
+        if (updated.Readiness.ExistingGitHubAvailable) await LoadAccessAsync();
+    }
+    private async Task LoadAccessAsync()
+    {
+        _access = null; _connectionsError = null;
+        try { _access = await Http.GetFromJsonAsync<PlatformGitHubAccessOverview>("api/source-control/platform-setup/access")
+            ?? throw new InvalidOperationException("No GitHub access overview was returned."); }
+        catch (Exception) { _connectionsError = "GitHub installation discovery failed. Check that GitHost is updated and running, then refresh. App configuration alone does not confirm account access."; }
+    }
 }

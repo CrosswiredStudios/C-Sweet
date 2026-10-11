@@ -134,14 +134,17 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
     }
 
     [Theory]
-    [InlineData(128000, 128000, 128000)]
-    [InlineData(128000, 128001, 128000)]
-    [InlineData(4096, 4097, 4096)]
-    [InlineData(null, 32768, 32768)]
-    [InlineData(null, 32769, 32768)]
-    [InlineData(128000, 0, -1)]
-    [InlineData(128000, null, null)]
-    public async Task StreamAsync_UsesConfiguredProviderOutputLimit(int? configured, int? requested, int? effective)
+    [InlineData(128000, 8192, null, 128000)]
+    [InlineData(4096, 4097, 96000, 96000)]
+    [InlineData(null, 32768, null, 128000)]
+    [InlineData(null, 0, 32000, 32000)]
+    [InlineData(4096, null, 160000, 160000)]
+    [InlineData(128000, 200000, 2000, 2000)]
+    [InlineData(4096, null, null, 128000)]
+    [InlineData(128000, 8192, 0, -1)]
+    [InlineData(128000, 8192, 256000, -1)]
+    public async Task StreamAsync_UsesAgentBudgetInsteadOfCallerOrProviderCaps(
+        int? configured, int? requested, int? agentOutput, int effective)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -167,21 +170,28 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         };
         var results = new List<CapabilityResult>();
         await SeedDispatchAuthorityAsync(db, session);
-        await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
-        if (effective != -1)
+        if (agentOutput.HasValue)
         {
-            Assert.NotEmpty(results);
-            Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
-            Assert.NotNull(client.ReceivedOptions);
-            Assert.Equal(effective, client.ReceivedOptions.MaxOutputTokens);
+            db.AgentInstallationConfigurations.Add(new AgentInstallationConfiguration
+            {
+                Id = Guid.NewGuid(), AgentInstallationId = Guid.Parse(session.InstallationId),
+                SettingsJson = JsonSerializer.Serialize(new { maxContextWindowTokens = 256000, maxOutputTokens = agentOutput })
+            });
+            await db.SaveChangesAsync();
         }
-        else
+        await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None)) results.Add(result);
+        if (effective == -1)
         {
             var failure = Assert.Single(results);
             Assert.False(failure.Succeeded);
-            Assert.Contains("output-token budget", failure.Error);
+            Assert.Contains("agent configuration", failure.Error);
             Assert.Null(client.ReceivedOptions);
+            return;
         }
+        Assert.NotEmpty(results);
+        Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
+        Assert.NotNull(client.ReceivedOptions);
+        Assert.Equal(effective, client.ReceivedOptions.MaxOutputTokens);
     }
 
     [Fact]
@@ -415,7 +425,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
             StringComparison.Ordinal);
         Assert.Contains("Be concise.", chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
         Assert.Equal(0.2f, chatClient.ReceivedOptions?.Temperature);
-        Assert.Equal(640, chatClient.ReceivedOptions?.MaxOutputTokens);
+        Assert.Equal(128000, chatClient.ReceivedOptions?.MaxOutputTokens);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
         var agentUsage = Assert.Single(globalUsage.Agents, x => x.AgentKey == "test-agent");

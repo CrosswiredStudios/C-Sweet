@@ -28,6 +28,64 @@ public sealed class SourceControlPlatformSetupService(
     private readonly IDataProtector _clientSecretProtector = dataProtectionProvider.CreateProtector(
         "CSweet.PlatformGitHubAppClientSecrets.v1");
 
+    public async Task<PlatformGitHubAccessOverview> GetAccessOverviewAsync(CancellationToken ct = default)
+    {
+        var installations = await sourceHost.ListInstallationsAsync(ct);
+        var businesses = await ListConnectionsAsync(ct);
+        var mappings = await db.SourceControlConnections.AsNoTracking().Where(x => x.Provider == SourceControlProvider.GitHub &&
+            x.Status != SourceControlConnectionStatus.Disconnected).Select(x => new { x.Id, x.SourceAccessInstallationId }).ToListAsync(ct);
+        return new(await GetInstallUrlAsync(PlatformGitHubAppKind.SourceAccess, ct), installations.OrderBy(x => x.AccountLogin)
+            .Select(x => new PlatformGitHubInstallationSummary(x.InstallationId, x.AccountLogin, x.AccountType, x.Suspended,
+                businesses.Where(b => mappings.Any(m => m.Id == b.ConnectionId && m.SourceAccessInstallationId == x.InstallationId)).ToList())).ToList());
+    }
+
+    public async Task<IReadOnlyList<PlatformGitHubRepositoryAccess>> ListInstallationRepositoryAccessAsync(long installationId, CancellationToken ct = default)
+    {
+        var installation = (await sourceHost.ListInstallationsAsync(ct)).SingleOrDefault(x => x.InstallationId == installationId)
+            ?? throw new InvalidOperationException("This installation is no longer accessible to the C-Sweet GitHub app.");
+        if (installation.Suspended) throw new InvalidOperationException("This GitHub installation is suspended.");
+        var grants = await sourceHost.ListRepositoriesAsync(installationId, ct);
+        var selected = (await (from repository in db.SourceControlRepositories.AsNoTracking()
+                              join connection in db.SourceControlConnections.AsNoTracking() on repository.ConnectionId equals connection.Id
+                              where connection.SourceAccessInstallationId == installationId && connection.Status != SourceControlConnectionStatus.Disconnected &&
+                                  repository.Status != SourceControlRepositoryStatus.Disconnected
+                              select repository.ExternalRepositoryId).ToListAsync(ct)).ToHashSet(StringComparer.Ordinal);
+        return grants.Where(x => string.Equals(x.Owner, installation.AccountLogin, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.FullName).Take(1000).Select(x => new PlatformGitHubRepositoryAccess(x.RepositoryId.ToString(),
+                x.FullName, x.IsPrivate, x.IsArchived, selected.Contains(x.RepositoryId.ToString()))).ToList();
+    }
+
+    public async Task<IReadOnlyList<PlatformGitHubConnectionSummary>> ListConnectionsAsync(CancellationToken cancellationToken = default)
+    {
+        return await (from connection in db.SourceControlConnections.AsNoTracking()
+                      join business in db.CoreOrganizations.AsNoTracking() on connection.OrganizationId equals business.Id
+                      where connection.Provider == SourceControlProvider.GitHub && connection.SourceAccessInstallationId != null &&
+                            connection.Status != SourceControlConnectionStatus.Disconnected
+                      orderby connection.AccountLogin, business.Name
+                      select new PlatformGitHubConnectionSummary(connection.Id, business.Id, business.Name,
+                          connection.AccountLogin, connection.AccountType, connection.Status.ToString(),
+                          connection.Mode == SourceControlConnectionMode.ManagedGitHub && connection.ProvisionerInstallationId != null))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PlatformGitHubRepositoryAccess>> ListRepositoryAccessAsync(Guid connectionId, CancellationToken cancellationToken = default)
+    {
+        var connection = await db.SourceControlConnections.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == connectionId && x.Provider == SourceControlProvider.GitHub &&
+            x.Status != SourceControlConnectionStatus.Disconnected, cancellationToken)
+            ?? throw new InvalidOperationException("This GitHub connection is no longer available.");
+        if (connection.SourceAccessInstallationId is not { } installationId)
+            throw new InvalidOperationException("Connect the GitHub account before viewing repository access.");
+        var granted = await sourceHost.ListRepositoriesAsync(installationId, cancellationToken);
+        var selected = (await db.SourceControlRepositories.AsNoTracking().Where(x =>
+            x.ConnectionId == connectionId && x.Status != SourceControlRepositoryStatus.Disconnected)
+            .Select(x => x.ExternalRepositoryId).ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        return granted.Where(x => string.Equals(x.Owner, connection.AccountLogin, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.FullName).Take(1000).Select(x => new PlatformGitHubRepositoryAccess(
+                x.RepositoryId.ToString(), x.FullName, x.IsPrivate, x.IsArchived, selected.Contains(x.RepositoryId.ToString())))
+            .ToList();
+    }
+
     public async Task<SourceControlPlatformReadiness> GetReadinessAsync(
         CancellationToken cancellationToken = default)
     {
@@ -147,11 +205,12 @@ public sealed class SourceControlPlatformSetupService(
             ManifestCallbackUrl = manifestCallbackUrl,
             Status = PlatformSourceControlSetupStatus.InProgress,
             CurrentStep = activeSource is not null ? "capabilities" : "organization",
-            GitHubOrganization = activeSource?.OwnerLogin ?? string.Empty,
+            GitHubOrganization = activeSource?.OwnerType == "User" ? string.Empty : activeSource?.OwnerLogin ?? string.Empty,
             SourceAccessCredentialId = activeSource?.Id,
             PrerequisitesConfirmed = activeSource is not null,
             SourceAccessPermissionsConfirmed = activeSource is not null,
             SourceAccessAppConfirmed = activeSource is not null,
+            ProvisionerRequested = request.AllowRepositoryCreation,
             CreatedAt = now,
             UpdatedAt = now,
             ExpiresAt = now.AddHours(24)
@@ -171,7 +230,8 @@ public sealed class SourceControlPlatformSetupService(
         var session = await RequireSessionAsync(applicationUserId, sessionId, cancellationToken);
         RequireRevision(session, request.ExpectedRevision);
         if (!request.PrerequisitesConfirmed)
-            throw new ArgumentException("Confirm that you can create GitHub Apps for this organization.");
+            throw new ArgumentException("Confirm GitHub App setup before continuing.");
+        if (session.CurrentStep != "organization") throw InvalidStep();
         var organization = NormalizeOrganization(request.OrganizationLogin);
         session.GitHubOrganization = organization;
         session.PrerequisitesConfirmed = true;
@@ -229,7 +289,10 @@ public sealed class SourceControlPlatformSetupService(
         Touch(session);
         await db.SaveChangesAsync(cancellationToken);
         var manifest = BuildManifest(session, kind);
-        var postUrl = $"https://github.com/organizations/{Uri.EscapeDataString(session.GitHubOrganization)}/settings/apps/new?state={Uri.EscapeDataString(state)}";
+        var registrationUrl = string.IsNullOrEmpty(session.GitHubOrganization)
+            ? "https://github.com/settings/apps/new"
+            : $"https://github.com/organizations/{Uri.EscapeDataString(session.GitHubOrganization)}/settings/apps/new";
+        var postUrl = $"{registrationUrl}?state={Uri.EscapeDataString(state)}";
         return new PlatformGitHubManifestLaunchResponse(
             postUrl, JsonSerializer.Serialize(manifest, JsonOptions), session.StateExpiresAt.Value);
     }
@@ -264,12 +327,27 @@ public sealed class SourceControlPlatformSetupService(
         try
         {
             var conversion = await manifests.ConvertAsync(code, cancellationToken);
+            var ownerLogin = NormalizeOrganization(conversion.OwnerLogin);
+            if (string.IsNullOrEmpty(ownerLogin) ||
+                (string.IsNullOrEmpty(session.GitHubOrganization)
+                    ? conversion.OwnerType != "User"
+                    : conversion.OwnerType != "Organization" ||
+                      !string.Equals(ownerLogin, session.GitHubOrganization, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("GitHub returned an app owned by a different account than the selected setup destination.");
+            if (kind == PlatformGitHubAppKind.Provisioner)
+            {
+                var sourceCredential = await RequireCredentialAsync(session, PlatformGitHubAppKind.SourceAccess, cancellationToken);
+                if (sourceCredential.OwnerType != conversion.OwnerType ||
+                    !string.Equals(sourceCredential.OwnerLogin, ownerLogin, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Both GitHub Apps must be owned by the same account. Continue using the account that created the source access app.");
+            }
             var privateKeyBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(conversion.PrivateKeyPem));
             credential = new PlatformGitHubAppCredential
             {
                 Id = Guid.NewGuid(),
                 Kind = kind,
-                OwnerLogin = session.GitHubOrganization,
+                OwnerLogin = ownerLogin,
+                OwnerType = conversion.OwnerType,
                 AppId = conversion.AppId,
                 AppName = conversion.AppName,
                 AppSlug = conversion.AppSlug,
@@ -697,8 +775,10 @@ public sealed class SourceControlPlatformSetupService(
             throw new DbUpdateConcurrencyException("The setup changed. Refresh before continuing.");
     }
 
-    private static string NormalizeOrganization(string value)
+    private static string NormalizeOrganization(string? value)
     {
+        // An omitted organization registers the app under the signed-in personal account.
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
         var result = value.Trim();
         if (result.Length is < 1 or > 39 || result[0] == '-' || result[^1] == '-' ||
             result.Any(x => !char.IsAsciiLetterOrDigit(x) && x != '-'))

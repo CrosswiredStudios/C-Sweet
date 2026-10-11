@@ -154,9 +154,8 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
 
             if (installation.Configuration is not null)
             {
-                var configurationKeys = AgentConfigurationRules
-                    .DeserializeManifest(definition.PackageVersion!.ManifestJson)
-                    .Configuration
+                var configurationKeys = AgentTokenBudget.Fields(AgentConfigurationRules
+                    .DeserializeManifest(definition.PackageVersion!.ManifestJson))
                     .Where(x => !x.Secret)
                     .Select(x => x.Key)
                     .ToHashSet(StringComparer.Ordinal);

@@ -56,8 +56,7 @@ builder.Services.AddScoped<PlatformLlmCapabilityHandler>();
 var llmQueue = builder.Configuration.GetSection(PlatformLlmJobOptions.SectionName).Get<PlatformLlmJobOptions>() ?? new();
 if (llmQueue.MaximumConcurrentRequests < 1 || llmQueue.MaximumQueuedRequests < 1 ||
     llmQueue.GenerationTimeoutSeconds < 0 || llmQueue.MaximumRequestBytes < 0 ||
-    llmQueue.MaximumMessageCount < 1 || llmQueue.MaximumMessageCharacters < 0 || llmQueue.MaximumToolCount < 1 ||
-    llmQueue.DefaultMaximumOutputTokens < 1)
+    llmQueue.MaximumMessageCount < 1 || llmQueue.MaximumMessageCharacters < 0 || llmQueue.MaximumToolCount < 1)
     throw new InvalidOperationException("The LLM queue limits are invalid.");
 builder.Services.AddSingleton(llmQueue);
 builder.Services.AddScoped<IPlatformLlmJobExecutor, PlatformLlmJobExecutor>();

@@ -55,6 +55,7 @@ public sealed partial class AgentWorkInbox(
     internal static readonly ConcurrentDictionary<Guid, SemaphoreSlim> ClaimLocks = new();
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(3);
+    internal const string DeadlineElapsedBeforeClaimReason = "The work deadline elapsed before the item could be claimed.";
     private const int MaximumPayloadBytes = 256 * 1024;
     private const int MaximumProgressBytes = 64 * 1024;
     private const int MaximumResultBytes = 1024 * 1024;
@@ -269,7 +270,7 @@ public sealed partial class AgentWorkInbox(
         foreach (var expiredItem in expiredPending)
         {
             expiredItem.Status = AgentWorkStatus.DeadLetter;
-            expiredItem.LastError = "The work deadline elapsed before the item could be claimed.";
+            expiredItem.LastError = DeadlineElapsedBeforeClaimReason;
             await RecordTicketFailureAsync(expiredItem, expiredItem.AttemptCount, expiredItem.LastError, now, cancellationToken);
             await FailCoordinationForWorkAsync(expiredItem, expiredItem.LastError, now, cancellationToken);
             AgentRuntimeMetrics.Work("dead_lettered", expiredItem.Kind);

@@ -1,5 +1,16 @@
 namespace CSweet.Contracts.SourceControl;
 
+public sealed record PlatformGitHubInstallationSummary(long InstallationId, string AccountLogin,
+    string AccountType, bool Suspended, IReadOnlyList<PlatformGitHubConnectionSummary> Businesses);
+public sealed record PlatformGitHubAccessOverview(string InstallUrl, IReadOnlyList<PlatformGitHubInstallationSummary> Installations);
+
+public sealed record PlatformGitHubConnectionSummary(
+    Guid ConnectionId, Guid BusinessId, string BusinessName, string AccountLogin,
+    string AccountType, string Status, bool RepositoryCreationEnabled);
+
+public sealed record PlatformGitHubRepositoryAccess(
+    string RepositoryId, string FullName, bool IsPrivate, bool IsArchived, bool SelectedForBusiness);
+
 public sealed record SourceControlDashboardResponse(
     IReadOnlyList<SourceControlConnectionSummary> Connections,
     IReadOnlyList<SourceControlRepositorySummary> Repositories,
@@ -52,9 +63,10 @@ public sealed record PlatformGitHubAppSummary(
 
 public sealed record StartPlatformSourceControlSetupRequest(
     string PublicBaseUrl,
-    string? ManifestCallbackUrl = null);
+    string? ManifestCallbackUrl = null,
+    bool? AllowRepositoryCreation = null);
 public sealed record ConfirmPlatformOrganizationRequest(
-    string OrganizationLogin,
+    string? OrganizationLogin,
     bool PrerequisitesConfirmed,
     long ExpectedRevision);
 public sealed record ConfirmPlatformAppReviewRequest(bool Confirmed, long ExpectedRevision);

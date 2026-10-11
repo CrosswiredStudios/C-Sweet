@@ -33,13 +33,13 @@ internal static class AgentConfigurationRules
     public static Dictionary<string, JsonElement> GetManifestDefaults(PluginManifest manifest)
     {
         var defaults = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var field in manifest.Configuration.Where(x => !x.Secret && x.DefaultValue.HasValue))
+        foreach (var field in AgentTokenBudget.Fields(manifest).Where(x => !x.Secret && x.DefaultValue.HasValue))
             defaults[field.Key] = field.DefaultValue!.Value.Clone();
         return defaults;
     }
 
     public static IReadOnlyList<AgentConfigurationField> ToFields(PluginManifest manifest) =>
-        manifest.Configuration.Where(x => !x.Secret).Select(x => new AgentConfigurationField(
+        AgentTokenBudget.Fields(manifest).Where(x => !x.Secret).Select(x => new AgentConfigurationField(
             x.Key,
             x.Label,
             NormalizeType(x.Type),
@@ -63,11 +63,13 @@ internal static class AgentConfigurationRules
         IModelCatalogClient? modelCatalog = null,
         bool validateSupportedModels = false)
     {
-        var fields = manifest.Configuration.Where(x => !x.Secret)
+        var fields = AgentTokenBudget.Fields(manifest).Where(x => !x.Secret)
             .ToDictionary(x => x.Key, StringComparer.Ordinal);
         var unknown = settings.Keys.Where(key => !fields.ContainsKey(key)).Order().ToArray();
         if (unknown.Length > 0)
             throw new AgentInstallationException($"Unsupported configuration setting(s): {string.Join(", ", unknown)}.");
+
+        if (AgentTokenBudget.AppliesTo(manifest)) AgentTokenBudget.ResolveOutput(settings);
 
         foreach (var field in fields.Values.Where(x => !string.IsNullOrWhiteSpace(x.DependsOnFieldKey)))
         {
@@ -192,7 +194,7 @@ internal static class AgentConfigurationRules
         _ => true
     };
 
-    private static string NormalizeType(string type) => type.Trim().ToLowerInvariant() switch
+    internal static string NormalizeType(string type) => type.Trim().ToLowerInvariant() switch
     {
         "string" or "text" => AgentConfigurationFieldTypes.Text,
         "textarea" => AgentConfigurationFieldTypes.TextArea,

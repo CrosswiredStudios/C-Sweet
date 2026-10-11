@@ -10,6 +10,16 @@ public sealed class TrustedSourceControlHostClient(
     HttpClient http,
     IOptions<TrustedServiceAuthenticationOptions> authentication) : ITrustedSourceControlHostClient
 {
+    public async Task<IReadOnlyList<TrustedInstallationDescriptor>> ListInstallationsAsync(CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("internal/v2/installations", ct);
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "GitHost", "internal/v2/installations", ct);
+        var items = await response.Content.ReadFromJsonAsync<List<GitHubInstallationDescriptor>>(ct)
+            ?? throw new InvalidOperationException("GitHost returned no GitHub installations.");
+        return items.Select(x => new TrustedInstallationDescriptor(x.InstallationId, x.AccountId,
+            x.AccountLogin, x.AccountType, x.Suspended, x.SuspendedReason)).ToList();
+    }
+
     public Task<DeliveryBranchResult> DeliveryBranchAsync(DeliveryBranchOperation request, CancellationToken ct = default) =>
         SendInternalAsync<DeliveryBranchOperation, DeliveryBranchResult>("internal/v3/delivery/branches", request, ct);
     public Task<GitHubSnapshotResult> ApplyGitHubSnapshotAsync(GitHubSnapshotOperation request, CancellationToken ct = default) =>

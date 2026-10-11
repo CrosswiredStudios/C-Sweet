@@ -43,9 +43,10 @@ public sealed partial class AgentInstallationConfigurationService(
             throw new AgentConfigurationConflictException(configuration.Revision);
 
         var manifest = AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson);
+        request = request with { Settings = AgentTokenBudget.WithDefaults(manifest, request.Settings) };
         await AgentConfigurationRules.ValidateAsync(db, manifest, request.Settings, requireRequired: true,
             cancellationToken, modelCatalog, validateSupportedModels: true);
-        var oldDefaults = Deserialize(configuration.SettingsJson);
+        var oldDefaults = DefinitionDefaults(definition);
         if (SettingsEqual(oldDefaults, request.Settings))
         {
             var canActivate = definition.PackageVersion!.Status == AgentPackageVersionStatus.Built &&
@@ -122,7 +123,7 @@ public sealed partial class AgentInstallationConfigurationService(
             throw new AgentConfigurationConflictException(currentRevision);
 
         var manifest = AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson);
-        var defaults = Deserialize(definition.Configuration!.SettingsJson);
+        var defaults = DefinitionDefaults(definition);
         var previousOverrides = Deserialize(configuration?.SettingsJson);
         var previousEffective = Merge(defaults, previousOverrides);
         var effective = Merge(defaults, request.Overrides);
@@ -148,7 +149,7 @@ public sealed partial class AgentInstallationConfigurationService(
         {
             configuration.Revision++;
         }
-        configuration.SchemaVersion = definition.Configuration.SchemaVersion;
+        configuration.SchemaVersion = definition.Configuration!.SchemaVersion;
         configuration.SettingsJson = Serialize(sparse);
         configuration.UpdatedAt = now;
         if (effectiveChanged)
@@ -171,7 +172,7 @@ public sealed partial class AgentInstallationConfigurationService(
         var currentRevision = employee.AgentInstallation.Configuration?.Revision ?? 0;
         if (currentRevision != expectedRevision)
             throw new AgentConfigurationConflictException(currentRevision);
-        var defaults = Deserialize(employee.AgentInstallation.AgentDefinition!.Configuration?.SettingsJson);
+        var defaults = DefinitionDefaults(employee.AgentInstallation.AgentDefinition!);
         var previousEffective = Merge(defaults, overrides);
         if (overrides.Remove(key))
         {
@@ -199,7 +200,7 @@ public sealed partial class AgentInstallationConfigurationService(
         var currentRevision = configuration?.Revision ?? 0;
         if (currentRevision != expectedRevision)
             throw new AgentConfigurationConflictException(currentRevision);
-        var defaults = Deserialize(employee.AgentInstallation.AgentDefinition!.Configuration?.SettingsJson);
+        var defaults = DefinitionDefaults(employee.AgentInstallation.AgentDefinition!);
         var previousEffective = Merge(defaults, Deserialize(configuration?.SettingsJson));
         if (configuration is not null && Deserialize(configuration.SettingsJson).Count > 0)
         {
@@ -229,6 +230,11 @@ public sealed partial class AgentInstallationConfigurationService(
             ? Deserialize(installation.Configuration?.SettingsJson)
             : Merge(Deserialize(installation.AgentDefinition.Configuration?.SettingsJson),
                 Deserialize(installation.Configuration?.SettingsJson));
+        var manifestJson = await db.AgentPackageVersions.AsNoTracking()
+            .Where(x => x.Id == installation.PackageVersionId).Select(x => x.ManifestJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        var manifest = AgentConfigurationRules.DeserializeManifest(manifestJson);
+        settings = AgentTokenBudget.WithDefaults(manifest, settings);
         var schemaVersion = installation.AgentDefinition?.Configuration?.SchemaVersion
                             ?? installation.Configuration?.SchemaVersion ?? "1";
         await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ApplyAsync(db, installationId,
@@ -295,7 +301,7 @@ public sealed partial class AgentInstallationConfigurationService(
         IReadOnlyDictionary<string, JsonElement> overrides, long? expectedRevision)
     {
         var manifest = AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson);
-        var defaults = Deserialize(definition.Configuration?.SettingsJson);
+        var defaults = AgentTokenBudget.WithDefaults(manifest, Deserialize(definition.Configuration?.SettingsJson));
         var effective = Merge(defaults, overrides);
         return new AgentConfigurationView(
             definition.AgentId, definition.PackageVersion.Version, definition.Configuration?.SchemaVersion ?? "1",
@@ -406,6 +412,9 @@ public sealed partial class AgentInstallationConfigurationService(
     private static Dictionary<string, JsonElement> Deserialize(string? json) =>
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json ?? "{}", JsonOptions)
         ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+    private static Dictionary<string, JsonElement> DefinitionDefaults(AgentDefinition definition) =>
+        AgentTokenBudget.WithDefaults(AgentConfigurationRules.DeserializeManifest(definition.PackageVersion?.ManifestJson),
+            Deserialize(definition.Configuration?.SettingsJson));
     private static string Serialize(IReadOnlyDictionary<string, JsonElement> values) => JsonSerializer.Serialize(values, JsonOptions);
     private static bool SettingsEqual(IReadOnlyDictionary<string, JsonElement> left, IReadOnlyDictionary<string, JsonElement> right) =>
         left.Count == right.Count && left.All(pair => right.TryGetValue(pair.Key, out var value) && JsonEqual(pair.Value, value));

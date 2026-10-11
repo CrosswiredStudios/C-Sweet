@@ -14,6 +14,19 @@ public sealed class AgentRuntimeStartupCleanupWorker(
         try
         {
             await using var scope = scopeFactory.CreateAsyncScope();
+            var recovered = await scope.ServiceProvider.GetRequiredService<AgentRuntimeStartupCleanupService>()
+                .RecoverTransientStartupFailuresAsync(cancellationToken);
+            logger.LogInformation("Made {Count} transient agent startup failure(s) eligible for retry after server restart.", recovered);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Agent startup recovery failed; normal scheduled retries will continue.");
+        }
+
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
             await scope.ServiceProvider
                 .GetRequiredService<AgentRuntimeStartupCleanupService>()
                 .CleanupAsync(cancellationToken);

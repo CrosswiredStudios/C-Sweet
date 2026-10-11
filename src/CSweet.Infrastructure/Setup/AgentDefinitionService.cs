@@ -76,7 +76,7 @@ public sealed class AgentDefinitionService(
         if (definition.Configuration is not null)
         {
             var old = DeserializeSettings(definition.Configuration.SettingsJson);
-            var compatibleKeys = manifest.Configuration.Where(x => !x.Secret).Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+            var compatibleKeys = AgentTokenBudget.Fields(manifest).Where(x => !x.Secret).Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
             foreach (var pair in old.Where(x => compatibleKeys.Contains(x.Key)))
                 settings[pair.Key] = pair.Value.Clone();
         }
@@ -247,7 +247,7 @@ public sealed class AgentDefinitionService(
 
         var manifest = AgentConfigurationRules.DeserializeManifest(nextPackage.ManifestJson);
         var settings = AgentConfigurationRules.GetManifestDefaults(manifest);
-        var compatibleKeys = manifest.Configuration
+        var compatibleKeys = AgentTokenBudget.Fields(manifest)
             .Where(x => !x.Secret)
             .Select(x => x.Key)
             .ToHashSet(StringComparer.Ordinal);

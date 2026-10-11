@@ -75,7 +75,7 @@
                         }
                         else
                         {
-                            @if (comment.AuthorKind == AgentAuthorKind)
+                            @if (comment.AuthorKind == AgentAuthorKind || comment.AuthorKind == "AutomationIdentity")
                             {
                                 <ChatMarkdown Content="@comment.Body" />
                             }

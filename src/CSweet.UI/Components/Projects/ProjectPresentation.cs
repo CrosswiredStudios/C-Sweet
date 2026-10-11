@@ -5,6 +5,13 @@ namespace CSweet.UI.Components.Projects;
 
 public static class ProjectPresentation
 {
+    public static bool IsRoutineRead(ProjectAuditEntry entry) =>
+        entry.Outcome is not ("Failed" or "Error" or "Denied" or "Cancelled" or "Blocked") &&
+        (entry.EventType.EndsWith(".read", StringComparison.OrdinalIgnoreCase) ||
+        entry.EventType.EndsWith(".listed", StringComparison.OrdinalIgnoreCase) ||
+        entry.Summary.StartsWith("Completed ", StringComparison.OrdinalIgnoreCase) &&
+        entry.Summary.EndsWith(".read.", StringComparison.OrdinalIgnoreCase));
+
     public static string Metadata(ProjectInspectionResource resource, string key, string fallback = "Not set")
     {
         if (resource.Metadata.ValueKind != JsonValueKind.Object) return fallback;

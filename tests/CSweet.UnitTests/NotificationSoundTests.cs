@@ -105,14 +105,58 @@ public sealed class NotificationSoundTests
         }
     }
 
+    [Fact]
+    public async Task UnreadState_HttpTimeoutRetainsCountsAndAllowsTheNextRefresh()
+    {
+        var businesses = new TestBusinessContext();
+        var handler = new UnreadHandler { Total = 3 };
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://localhost"),
+            Timeout = TimeSpan.FromMilliseconds(100)
+        };
+        await using var realtime = new AppRealtimeState(http);
+        using var state = new CommunicationUnreadState(http, businesses, realtime);
+        await state.InitializeAsync();
+        var changes = 0;
+        state.Changed += () => changes++;
+
+        handler.Stall = true;
+        await state.ReloadAsync(CancellationToken.None);
+
+        Assert.True(handler.RequestCanceled);
+        Assert.Equal(3, state.TotalUnreadCount);
+        Assert.Equal(0, changes);
+
+        handler.Stall = false;
+        handler.Total = 4;
+        await state.ReloadAsync();
+
+        Assert.Equal(4, state.TotalUnreadCount);
+        Assert.Equal(1, changes);
+    }
+
     private sealed class UnreadHandler : HttpMessageHandler
     {
         public int Total { get; set; }
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        public bool Stall { get; set; }
+        public bool RequestCanceled { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (Stall)
+            {
+                try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+                catch (OperationCanceledException)
+                {
+                    RequestCanceled = true;
+                    throw;
+                }
+            }
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new CommunicationUnreadSummaryResponse(Total, new Dictionary<Guid, int>()))
-            });
+            };
+        }
     }
 
     private sealed record JsCall(string Identifier, object?[] Args);
