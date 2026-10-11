@@ -1,5 +1,22 @@
 # Phase 7 - Business Onboarding
 
+## Current first-run entry point
+
+The system setup flow precedes business creation. `SetupService.RequiredSteps` and
+`CSweet.UI/Pages/Setup.razor` expose four steps: Welcome, Agent hosting, AI models,
+and optional Images & video. The final media screen finishes setup directly,
+including when the user chooses **Finish without media**. Email delivery and
+communication integrations remain available in Settings.
+
+`SetupService.EnsureSeededAsync` retains historical step records while marking
+removed steps non-required; `GetStatusAsync` only returns active steps.
+`CompleteFirstRunAsync` requires an enabled model provider and the required
+steps, without reading or completing the removed communication step.
+
+`SetupLayout` uses `AppearanceState` for the saved Aurora or Black & Gold theme.
+`OnboardingWorkspaceRenderingTests`, `SetupServiceTests`, and
+`SetupWizardStateTests` cover the active flow and completion behavior.
+
 ## Goal
 
 Create the first business onboarding flow that captures enough company context for C-Sweet to create default roles, a strategic objective, an empty universal work board, and a default local worker.

@@ -2,13 +2,11 @@
 @layout SetupLayout
 @using CSweet.Contracts.Llm
 @using CSweet.Contracts.Setup
-@using System.Net.Http.Json
 @using CSweet.Domain.Setup
 @using CSweet.UI.Setup
 @inject ISetupApiClient SetupApi
 @inject ILlmProviderApiClient LlmProviderApi
 @inject NavigationManager Navigation
-@inject HttpClient Http
 
 <PageTitle>C-Sweet Setup</PageTitle>
 
@@ -31,6 +29,11 @@
     {
         <MudPaper Elevation="1" Class="setup-card">
             <nav class="setup-progress" aria-label="Setup progress">
+                <div class="setup-progress-heading">
+                    <span>GET STARTED</span>
+                    <h2>Your workspace,<br />ready for work.</h2>
+                    <p>Connect the essentials. Add the extras when you need them.</p>
+                </div>
                 <ol>
                     @foreach (var step in SetupSteps)
                     {
@@ -53,20 +56,25 @@
                                         @step.Number
                                     }
                                 </span>
-                                <span class="setup-progress-label">@step.Title</span>
+                                <span class="setup-progress-copy"><span class="setup-progress-label">@step.Title</span><small>@step.Description</small></span>
                             </button>
                         </li>
                     }
                 </ol>
+                <p class="setup-progress-note"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /> Your completed steps are saved.</p>
             </nav>
 
-            <div class="setup-stage" @key="_activeStepKey">
+            <div class="setup-stage" @key="_activeStepKey" aria-busy="@_isBusy">
                 @if (_status?.IsFirstRunComplete == true)
                 {
-                    <MudAlert Severity="Severity.Success" Variant="Variant.Filled">Setup is complete. Redirecting to business onboarding...</MudAlert>
+                    <MudAlert Severity="Severity.Success" Variant="Variant.Filled">Your workspace is ready. Opening your businesses…</MudAlert>
                 }
                 else
                 {
+                    @if (!string.IsNullOrWhiteSpace(_stepMessage) && _activeStepKey != "agent-execution")
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="setup-step-error">@_stepMessage</MudAlert>
+                    }
                     @RenderActiveStep()
                 }
             </div>
@@ -77,12 +85,10 @@
 @code {
     private static readonly IReadOnlyList<WizardStep> SetupSteps =
     [
-        new(1, "welcome", "Welcome", "Start here"),
-        new(2, "agent-execution", "Agent Execution", "Connect capacity"),
-        new(3, "llm-provider", "LLM Providers", "Connect endpoints"),
-        new(4, "genai-provider", "GenAI Providers", "Optional"),
-        new(5, "email-delivery", "Email Delivery", "Optional"),
-        new(6, "communications", "Communications", "Optional")
+        new(1, "welcome", "Welcome", "What to expect"),
+        new(2, "agent-execution", "Agent hosting", "Required · Connect a machine"),
+        new(3, "llm-provider", "AI models", "Required · Connect a provider"),
+        new(4, "genai-provider", "Images & video", "Optional")
     ];
 
     private SetupStatusResponse? _status;
@@ -92,7 +98,6 @@
     private bool _isBusy;
     private string? _pageError;
     private string? _stepMessage;
-    private CommunicationSetupOptionsResponse? _communicationOptions;
 
     private Guid? _providerProfileId;
     private bool _localProviderDiscoveryAttempted;
@@ -111,7 +116,6 @@
         {
             _status = await SetupApi.GetStatusAsync();
             _profiles = await LlmProviderApi.ListAsync();
-            _communicationOptions = await Http.GetFromJsonAsync<CommunicationSetupOptionsResponse>("api/setup/communications/options");
             _providerProfileId ??= _profiles.LastOrDefault()?.Id;
 
             if (_status.IsFirstRunComplete)
@@ -140,8 +144,6 @@
     private void BackToWelcome() => SelectStep("welcome");
     private void BackToExecution() => SelectStep("agent-execution");
     private void BackToProvider() => SelectStep("llm-provider");
-    private void BackToGenAiProvider() => SelectStep("genai-provider");
-    private void BackToEmailDelivery() => SelectStep("email-delivery");
 
     private RenderFragment RenderActiveStep() => _activeStepKey switch
     {
@@ -149,8 +151,6 @@
         "agent-execution" => AgentExecutionStep,
         "llm-provider" => LlmProviderStep,
         "genai-provider" => GenAiProviderStep,
-        "email-delivery" => EmailDeliveryStep,
-        "communications" => CommunicationsStep,
         _ => WelcomeStep
     };
 
@@ -170,18 +170,10 @@
                                                                          OnContinue="@ContinueFromProviderAsync"
                                                                          OnBack="@BackToExecution" />;
 
-    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
+    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep IsFinalStep="true" IsCompleting="@_isBusy" AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
                                                                               LocalProviderDiscoveryAttempted="@HandleLocalGenAiProviderDiscoveryAttempted"
                                                                               OnContinue="@ContinueFromGenAiProviderAsync"
                                                                               OnBack="@BackToProvider" />;
-
-    private RenderFragment EmailDeliveryStep =>
-        @<EmailDeliverySetupStep OnBack="@BackToGenAiProvider" OnContinue="@ContinueFromEmailDeliveryAsync" />;
-
-    private RenderFragment CommunicationsStep => @<CommunicationsSetupStep Options="@_communicationOptions"
-                                                                              OnBack="@BackToEmailDelivery"
-                                                                              CompletionMessage="@_stepMessage"
-                                                                              OnContinue="@CompleteCommunicationsAsync" />;
 
     private Task HandleProfilesChangedAsync(IReadOnlyList<LlmProviderProfileResponse> profiles)
     {
@@ -215,15 +207,7 @@
         await CompleteStepAsync("agent-execution", "llm-provider");
     }
 
-    private Task ContinueFromGenAiProviderAsync() =>
-        CompleteStepAsync("genai-provider", "email-delivery");
-
-    private Task ContinueFromEmailDeliveryAsync() => CompleteStepAsync("email-delivery", "communications");
-
-    private async Task CompleteCommunicationsAsync()
-    {
-        await FinishSetupAsync();
-    }
+    private Task ContinueFromGenAiProviderAsync() => FinishSetupAsync();
 
     private async Task FinishSetupAsync()
     {
@@ -232,6 +216,12 @@
 
         try
         {
+            var step = await SetupApi.CompleteStepAsync("genai-provider");
+            if (!step.Succeeded)
+            {
+                _stepMessage = step.Message ?? "We couldn't save this step. Please try again.";
+                return;
+            }
             var result = await SetupApi.CompleteSetupAsync();
             _status = result.Status ?? _status;
 
@@ -242,6 +232,10 @@
             }
 
             _stepMessage = result.Message ?? "Setup could not be completed.";
+        }
+        catch
+        {
+            _stepMessage = "We couldn't finish setup. Check your connection and try again.";
         }
         finally
         {
@@ -290,7 +284,7 @@
 
     private bool CanSelectStep(string key)
     {
-        return _status is not null && SetupWizardState.CanNavigateToStep(
+        return !_isBusy && _status is not null && SetupWizardState.CanNavigateToStep(
             SetupSteps.Select(step => step.Key).ToList(),
             _status,
             key);

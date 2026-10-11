@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject AppearanceState Appearance
 @inject IAuthenticationApiClient AuthenticationApi
 @inject AuthSessionStore AuthSession
 @inject NavigationManager Navigation
@@ -8,12 +10,13 @@
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<div class="setup-layout-shell">
+<div class="setup-appearance" data-appearance="@Appearance.Theme">
+<div class="setup-layout-shell aurora-page onboarding-workspace">
     <header class="setup-layout-header">
         <div class="setup-layout-brand" aria-label="C-Sweet setup">
             <img src="images/icon_dark.svg" alt="" />
             <span class="setup-layout-brand-name">C-Sweet</span>
-            <span class="setup-layout-brand-context">Quick setup</span>
+            <span class="setup-layout-brand-context">Workspace setup</span>
         </div>
         <div class="setup-layout-account">
             @if (!string.IsNullOrWhiteSpace(AuthSession.Current?.Email))
@@ -33,8 +36,14 @@
         @Body
     </main>
 </div>
+</div>
 
 @code {
+    protected override void OnInitialized() => Appearance.Changed += OnAppearanceChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await Appearance.InitializeAsync(); }
+    private void OnAppearanceChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Appearance.Changed -= OnAppearanceChanged;
+
     private readonly MudTheme _theme = new()
     {
         PaletteLight = new PaletteLight

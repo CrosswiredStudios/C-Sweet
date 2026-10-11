@@ -40,13 +40,13 @@ public class SetupWizardStateTests
             defaultChatProviderId: null,
             ("welcome", true),
             ("llm-provider", true),
-            ("communications", true));
+            ("genai-provider", true));
 
         var step = SetupWizardState.FirstIncompleteStepKey(
-            ["welcome", "llm-provider", "communications"],
+            ["welcome", "llm-provider", "genai-provider"],
             status);
 
-        Assert.Equal("communications", step);
+        Assert.Equal("genai-provider", step);
     }
 
     [Fact]
@@ -57,13 +57,13 @@ public class SetupWizardStateTests
             ("welcome", true),
             ("agent-execution", false),
             ("llm-provider", false),
-            ("communications", false));
-        string[] steps = ["welcome", "agent-execution", "llm-provider", "communications"];
+            ("genai-provider", false));
+        string[] steps = ["welcome", "agent-execution", "llm-provider", "genai-provider"];
 
         Assert.True(SetupWizardState.CanNavigateToStep(steps, status, "welcome"));
         Assert.True(SetupWizardState.CanNavigateToStep(steps, status, "agent-execution"));
         Assert.False(SetupWizardState.CanNavigateToStep(steps, status, "llm-provider"));
-        Assert.False(SetupWizardState.CanNavigateToStep(steps, status, "communications"));
+        Assert.False(SetupWizardState.CanNavigateToStep(steps, status, "genai-provider"));
     }
 
     [Fact]

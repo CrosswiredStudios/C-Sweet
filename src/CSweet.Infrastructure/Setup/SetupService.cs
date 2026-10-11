@@ -11,11 +11,9 @@ public sealed class SetupService : ISetupService
     public static readonly IReadOnlyList<(string Key, string DisplayName, bool IsRequired)> RequiredSteps =
     [
         ("welcome", "Welcome", true),
-        ("agent-execution", "Agent Execution", true),
-        ("llm-provider", "LLM Provider", true),
-        ("genai-provider", "GenAI Provider", false),
-        ("email-delivery", "Email Delivery", false),
-        ("communications", "Communications", false)
+        ("agent-execution", "Agent hosting", true),
+        ("llm-provider", "AI models", true),
+        ("genai-provider", "Images & video", false)
     ];
 
     private readonly CSweetDbContext _dbContext;
@@ -217,11 +215,6 @@ public sealed class SetupService : ISetupService
         var now = DateTimeOffset.UtcNow;
         configuration.IsFirstRunComplete = true;
         configuration.UpdatedAt = now;
-
-        var communicationsStep = await _dbContext.OnboardingSteps.SingleAsync(x => x.Key == "communications", cancellationToken);
-        communicationsStep.IsComplete = true;
-        communicationsStep.CompletedAt ??= now;
-        communicationsStep.UpdatedAt = now;
 
         _dbContext.AuditEvents.Add(new AuditEvent
         {

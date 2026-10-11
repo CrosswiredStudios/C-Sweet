@@ -17,10 +17,11 @@ public class SetupServiceTests
 
         Assert.False(status.IsFirstRunComplete);
         Assert.Null(status.DefaultChatProviderId);
-        Assert.Equal(6, status.Steps.Count);
+        Assert.Equal(4, status.Steps.Count);
         Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "llm-provider" && !x.IsComplete);
-        Assert.Contains(status.Steps, x => x.Key == "communications" && !x.IsRequired && !x.IsComplete);
+        Assert.Contains(status.Steps, x => x.Key == "genai-provider" && !x.IsRequired && !x.IsComplete);
+        Assert.DoesNotContain(status.Steps, x => x.Key is "email-delivery" or "communications");
         Assert.DoesNotContain(status.Steps, x => x.Key == "model-capability-test");
         Assert.DoesNotContain(status.Steps, x => x.Key == "storage");
         Assert.DoesNotContain(status.Steps, x => x.Key == "worker-runtime");
@@ -87,8 +88,30 @@ public class SetupServiceTests
 
         Assert.True(result.Succeeded);
         Assert.True((await dbContext.SystemConfigurations.SingleAsync()).IsFirstRunComplete);
-        Assert.True((await dbContext.OnboardingSteps.SingleAsync(x => x.Key == "communications")).IsComplete);
+        Assert.DoesNotContain(result.Status!.Steps, x => x.Key is "email-delivery" or "communications");
         Assert.Contains(await dbContext.AuditEvents.ToListAsync(), x => x.EventType == "setup.first_run.completed");
+    }
+
+    [Fact]
+    public async Task RemovedIntegrationStepsDoNotBlockExistingInstallations()
+    {
+        await using var dbContext = CreateDbContext();
+        var service = new SetupService(dbContext);
+        await service.EnsureSeededAsync();
+        foreach (var key in new[] { "email-delivery", "communications" })
+            dbContext.OnboardingSteps.Add(new OnboardingStep { Id = Guid.NewGuid(), Key = key, DisplayName = key, IsRequired = true });
+        dbContext.LlmProviderProfiles.Add(CreateEnabledProvider());
+        await dbContext.SaveChangesAsync();
+
+        var status = await service.GetStatusAsync();
+        Assert.Equal(4, status.Steps.Count);
+        Assert.All(await dbContext.OnboardingSteps.Where(x => x.Key == "email-delivery" || x.Key == "communications").ToListAsync(),
+            step => { Assert.False(step.IsRequired); Assert.False(step.IsComplete); });
+        await CompletePriorRequiredStepsAsync(dbContext);
+
+        var result = await service.CompleteFirstRunAsync();
+        Assert.True(result.Succeeded);
+        Assert.True(result.Status!.IsFirstRunComplete);
     }
 
     private static CSweetDbContext CreateDbContext()
