@@ -1,5 +1,6 @@
 @page "/organizations/{OrganizationId:guid}/command-center"
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.Compute
 @using CSweet.Contracts.Realtime
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
@@ -52,6 +53,8 @@
                         <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true"
                             ProjectIncidents="@(_approvals?.ProjectIncidents ?? [])" Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
                             ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
+                            ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
+                            ComputeError="@_errors.GetValueOrDefault("compute")" ComputeHasMore="@(_compute is { CanManageNetwork: true, HasMore: true })"
                             ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
                             RefreshRequested="RefreshAsync" />
                     </EmployeePortraitScope>
@@ -145,6 +148,7 @@
     private OrganizationResponse? _organization;
     private ApprovalDashboardResponse? _approvals;
     private HiringBacklogResponse? _hiring;
+    private ComputeDashboard? _compute;
     private CompanyDashboardResponse? _dashboard;
     private ProjectPortfolioResponse? _portfolio;
     private List<string> _order = DashboardWidgets.DefaultOrder.ToList();
@@ -160,6 +164,10 @@
     private IEnumerable<HiringRecommendationResponse> PendingRecommendations => (_hiring?.Recommendations ?? [])
         .Where(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase) && x.RemainingHeadcount > 0)
         .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt);
+    private IReadOnlyList<ComputeResourceStatus> ComputeAccessRequests => _compute is { CanManageNetwork: true } compute
+        ? compute.Resources.Where(x => !x.LocalLinkAllowed && x.LeaseExpiresAt > compute.CheckedAt &&
+            x.State is not ("Destroyed" or "Destroying") && x.DesiredState != "Destroyed").OrderBy(x => x.UpdatedAt).ToList()
+        : [];
 
     protected override void OnInitialized()
     {
@@ -171,7 +179,7 @@
     {
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
-        _organization = null; _approvals = null; _hiring = null; _dashboard = null; _portfolio = null;
+        _organization = null; _approvals = null; _hiring = null; _compute = null; _dashboard = null; _portfolio = null;
         _refreshQueued = false;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
         await RefreshAsync();
@@ -190,6 +198,7 @@
             LoadAsync<OrganizationResponse>($"api/organizations/{organizationId}", "organization", x => _organization = x, token),
             LoadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", "approvals", x => _approvals = x, token),
             LoadAsync<HiringBacklogResponse>($"{prefix}/dashboard/hiring", "hiring", x => _hiring = x, token),
+            LoadAsync<ComputeDashboard>($"api/organizations/{organizationId}/compute", "compute", x => _compute = x, token),
             LoadAsync<CompanyDashboardResponse>($"{prefix}/dashboard", "reports", x => _dashboard = x, token),
             LoadAsync<ProjectPortfolioResponse>($"{prefix}/workstreams/inspection", "projects", x => _portfolio = x, token),
             _layoutLoaded ? Task.CompletedTask : LoadAsync<DashboardLayoutRequest>($"{prefix}/dashboard/layout", "layout", x =>
@@ -256,7 +265,7 @@
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (_disposed || envelope.OrganizationId != OrganizationId) return;
-        if (envelope.EventType is AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+        if (envelope.EventType is AppRealtimeEvents.ComputeChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
             QueueRefresh();
     }
     private void QueueRefresh() => _ = InvokeAsync(async () =>

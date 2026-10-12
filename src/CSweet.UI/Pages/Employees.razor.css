@@ -15,6 +15,8 @@
 .hiring-chips span { padding: 3px 8px; border-radius: 999px; background: var(--mud-palette-background-grey); font-size: .72rem; }
 
 .aurora-page.employee-workspace.employees-page { gap:14px; padding:24px 28px 36px; }
+.employees-page:has(.employee-graph-view) { min-height:0; }
+.employees-heading,.employees-navigation { flex-shrink:0; }
 .employees-heading { display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
 .employees-heading h1 { margin:0; font-size:1.8rem; letter-spacing:-.04em; font-weight:700; }
 .employees-navigation { display:flex; gap:4px; border-bottom:1px solid var(--activity-border); padding-bottom:10px; }

@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
+using CSweet.Contracts.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Persistence;
@@ -25,6 +27,7 @@ public sealed partial class CSweetDbContext
     private void CaptureComputeEvents()
     {
         ChangeTracker.DetectChanges();
+        var changedOrganizations = new HashSet<Guid>();
         foreach (var operation in ChangeTracker.Entries<ComputeOperation>().Where(x => x.State == EntityState.Added).Select(x => x.Entity).ToArray())
         {
             var environment = ComputeEnvironments.Local.SingleOrDefault(x => x.Id == operation.EnvironmentId)
@@ -47,6 +50,7 @@ public sealed partial class CSweetDbContext
                 nameof(ComputeEnvironment.LeaseExpiresAt), nameof(ComputeEnvironment.TeardownConfirmedAt) }
                 .Any(name => !Equals(entry.OriginalValues[name], entry.CurrentValues[name]))) continue;
             var environment = entry.Entity;
+            changedOrganizations.Add(environment.OrganizationId);
             if (entry.State != EntityState.Added)
                 environment.Revision = Math.Max(environment.Revision, checked(entry.Property(x => x.Revision).OriginalValue + 1));
             var key = $"compute:{environment.Id:D}:{environment.Revision}";
@@ -60,6 +64,25 @@ public sealed partial class CSweetDbContext
                 IdempotencyKey = key, Status = AgentPlatformEventOutboxStatus.Pending,
                 OccurredAt = environment.UpdatedAt, NextAttemptAt = environment.UpdatedAt
             });
+        }
+        foreach (var entry in ChangeTracker.Entries<ScopedActionGrant>().Where(x =>
+            x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted &&
+            x.Entity.Action is "network.inbound.v1" or "network.publish-port.v1").ToArray())
+        {
+            changedOrganizations.Add(entry.Entity.OrganizationId);
+        }
+        foreach (var organization in changedOrganizations)
+        {
+            var recipients = CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization &&
+                x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null).Select(x => x.Id).ToHashSet();
+            foreach (var entry in ChangeTracker.Entries<OrganizationUser>().Where(x => x.Entity.OrganizationId == organization))
+            {
+                if (entry.State == EntityState.Deleted || entry.Entity.EmployeeType != EmployeeType.Human ||
+                    !entry.Entity.IsActive || entry.Entity.ArchivedAt != null) recipients.Remove(entry.Entity.Id);
+                else if (entry.State is EntityState.Added or EntityState.Modified) recipients.Add(entry.Entity.Id);
+            }
+            QueueApplicationRealtimeEvent(organization, null, null, AppRealtimeEvents.ComputeChanged,
+                $"organizations/{organization:D}/compute", "{}", DateTimeOffset.UtcNow, recipients);
         }
     }
 }

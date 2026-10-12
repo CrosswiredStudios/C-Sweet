@@ -148,7 +148,7 @@
                     </MudTd>
                     <MudTd DataLabel="Last change">@context.UpdatedAt.ToLocalTime().ToString("g")</MudTd>
                     <MudTd DataLabel="Browser access">
-                        <div class="compute-access">
+                        <div class="compute-access" id="@($"compute-access-{context.Id:D}")">
                             @if (context.LeaseExpiresAt <= dashboard.CheckedAt || context.State is "Destroyed" or "Destroying")
                             {
                                 <strong>Test link unavailable</strong>

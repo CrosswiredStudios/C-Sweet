@@ -1429,6 +1429,18 @@ body { color: var(--cs-navy); }
     border-radius: 0;
 }
 
+/* Give the reporting chart the space left after the page header and any alert. */
+.mud-main-content .content:has(> .employees-page .employee-graph-view) {
+    height: calc(100dvh - var(--mud-appbar-height) * .75);
+    min-height: 0;
+}
+.mud-main-content .content:has(> .employees-page .employee-graph-view) > .execution-capacity-alert {
+    flex-shrink: 0;
+}
+@media (min-width: 961px) {
+    .mud-main-content .content:has(> .employees-page .employee-graph-view) { height: 100dvh; }
+}
+
 /* The communications hub owns its internal scrolling and needs the full
    layout viewport instead of the standard page gutter. */
 .mud-main-content .content:has(.hub-page) {

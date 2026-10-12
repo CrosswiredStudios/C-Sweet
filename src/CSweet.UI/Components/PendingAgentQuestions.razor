@@ -1,5 +1,6 @@
 @using CSweet.Contracts.Communications
 @using CSweet.Contracts.Core
+@using CSweet.Contracts.Compute
 @using CSweet.Contracts.Realtime
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
@@ -44,13 +45,19 @@
         else if (!ApprovalsLoaded) { <MudText Color="Color.Secondary">Loading approvals…</MudText> }
         @if (RecommendationError is not null) { <MudAlert Severity="Severity.Warning">@RecommendationError</MudAlert> }
         else if (!RecommendationsLoaded) { <MudText Color="Color.Secondary">Loading hiring suggestions…</MudText> }
-        @if (_loaded && _error is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && PendingCount == 0)
+        @if (ComputeError is not null) { <MudAlert Severity="Severity.Warning">@ComputeError</MudAlert> }
+        else if (!ComputeLoaded) { <MudText Color="Color.Secondary">Loading compute permissions…</MudText> }
+        @if (ComputeHasMore)
+        {
+            <MudText Color="Color.Secondary">Showing the most recent compute instances. <MudLink Href="@($"/organizations/{OrganizationId}/compute")">Review Compute for more instances</MudLink>.</MudText>
+        }
+        @if (_loaded && _error is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && ComputeLoaded && ComputeError is null && !ComputeHasMore && PendingCount == 0)
         {
             <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>Nothing needs your attention.</span></div>
         }
         else
         {
-            <div class="attention-list" aria-label="Decisions, approvals, and hiring">
+            <div class="attention-list" aria-label="Decisions, approvals, hiring, and compute permissions">
                 @foreach (var question in _questions)
                 {
                     <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Answered="OnAnsweredAsync" />
@@ -77,12 +84,21 @@
                         <MudButton Href="@incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
                     </AttentionRequestCard>
                 }
+                @foreach (var resource in ComputeResources.Take(_showAll ? ComputeResources.Count : 5))
+                {
+                    <AttentionRequestCard @key="resource.Id" Kind="Compute" Name="@resource.Agent" Context="@resource.Project"
+                        Prompt="Allow a local test link" PromptMeta="@($"{resource.OperatingSystem} · {resource.Id.ToString("N")[..8]}")"
+                        Description="Allow the agent to share a browser link so you can test the app on this computer."
+                        Status="This computer only · This instance only · Expires with the instance. No public or outbound internet access.">
+                        <MudButton Href="@($"/organizations/{OrganizationId}/compute#compute-access-{resource.Id:D}")" Variant="Variant.Outlined" Color="Color.Primary">Review access</MudButton>
+                    </AttentionRequestCard>
+                }
                 @foreach (var recommendation in Recommendations.Take(_showAll ? Recommendations.Count : 5))
                 {
                     <OverviewHiringCandidateCard @key="recommendation.Id" OrganizationId="OrganizationId" Recommendation="recommendation" Hired="RefreshRequested" />
                 }
             </div>
-            @if (ProjectIncidents.Count > 5 || PendingApprovals.Count > 5 || Recommendations.Count > 5)
+            @if (ProjectIncidents.Count > 5 || PendingApprovals.Count > 5 || Recommendations.Count > 5 || ComputeResources.Count > 5)
             {
                 <MudButton OnClick="() => _showAll = !_showAll" aria-expanded="@_showAll" Size="Size.Small">@(_showAll ? "Show fewer items" : $"Show all items ({PendingCount})")</MudButton>
             }
@@ -99,10 +115,14 @@
     [Parameter] public bool RecommendationsLoaded { get; set; } = true;
     [Parameter] public string? ApprovalError { get; set; }
     [Parameter] public string? RecommendationError { get; set; }
+    [Parameter] public IReadOnlyList<ComputeResourceStatus> ComputeResources { get; set; } = [];
+    [Parameter] public bool ComputeLoaded { get; set; } = true;
+    [Parameter] public string? ComputeError { get; set; }
+    [Parameter] public bool ComputeHasMore { get; set; }
     [Parameter] public EventCallback RefreshRequested { get; set; }
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
         .Where(x => !_completedApprovals.Contains(x.Id) && x.CanDecide && x.Status == "Pending").ToList();
-    private int PendingCount => _questions.Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count;
+    private int PendingCount => _questions.Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count + ComputeResources.Count;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

@@ -1,11 +1,15 @@
 .employee-graph-canvas-shell {
     position: relative;
+    display: flex;
+    flex: 1;
     min-width: 0;
+    min-height: 0;
 }
 
 .employee-graph-canvas {
     position: relative;
-    height: clamp(30rem, 62vh, 46rem);
+    flex: 1;
+    min-height: 0;
     min-width: 0;
     overflow: hidden;
     border: 1px solid var(--cs-border);
@@ -76,7 +80,6 @@ foreignObject.team-filter-dimmed {
 
 @media (max-width: 640px) {
     .employee-graph-canvas {
-        height: 27rem;
         border-radius: 10px;
     }
 
