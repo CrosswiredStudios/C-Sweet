@@ -124,15 +124,30 @@ public sealed class CompanyDashboardRenderingTests
         Assert.Contains("&lt;script&gt;unsafe&lt;/script&gt;", html);
         Assert.DoesNotContain("<script>", html);
         Assert.Contains("align-actions-right", html);
+        Assert.DoesNotContain("Interviewing agents", html);
+        Assert.DoesNotContain("candidate-preparation", html);
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("broken json")]
-    public async Task UnselectedOrInvalidCandidatesStillOfferContextualBrowsing(string? candidateJson)
+    [InlineData(null, null, "Interviewing agents")]
+    [InlineData(" ", " ", "Interviewing agents")]
+    [InlineData(null, "Choose the candidate for this approved role.", "Candidate review")]
+    [InlineData(null, "No eligible candidate is available under your publisher preference.", "Candidate review")]
+    [InlineData(null, "This approved role requires a human.", "Candidate review")]
+    [InlineData("broken json", null, "Recommendation unavailable")]
+    [InlineData("null", null, "Recommendation unavailable")]
+    [InlineData("{}", null, "Recommendation unavailable")]
+    public async Task UnselectedOrInvalidCandidatesShowSelectionProgressAndKeepContextualBrowsing(
+        string? candidateJson, string? rationale, string expectedStatus)
     {
-        var recommendation = Recommendation("Creative Director", 1) with { SelectedCatalogAgentJson = candidateJson };
+        var recommendation = Recommendation("Creative Director", 1) with
+        { SelectedCatalogAgentJson = candidateJson, SelectionRationale = rationale };
         var html = await Render(false, recommendations: [recommendation]);
+        Assert.Contains(expectedStatus, html);
+        Assert.Contains("candidate-preparation", html);
+        Assert.Contains("role=\"status\"", html);
+        if (!string.IsNullOrWhiteSpace(rationale)) Assert.Contains(rationale, html);
+        if (expectedStatus != "Interviewing agents") Assert.DoesNotContain("Interviewing agents", html);
         Assert.Contains("Browse Candidates", html);
         Assert.Contains($"recommendationId={recommendation.Id}", html);
         Assert.DoesNotContain("Recommended agent", html);

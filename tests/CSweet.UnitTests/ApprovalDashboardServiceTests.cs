@@ -12,6 +12,39 @@ namespace CSweet.UnitTests;
 
 public sealed class ApprovalDashboardServiceTests
 {
+    [Fact]
+    public async Task DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var org = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, ApplicationUserId = Guid.NewGuid(),
+            DisplayName = "CEO", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner };
+        var producer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, DisplayName = "Producer", EmployeeType = EmployeeType.Agent };
+        var project = new Workstream { Id = Guid.NewGuid(), OrganizationId = org, Name = "Stalled project" };
+        var incident = new ProjectIncident { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = project.Id,
+            ProducerEmployeeId = producer.Id, CurrentRecipientId = owner.Id, Reason = "Scope changed", Facts = "Pinned revision is stale",
+            RecommendedAction = "Reconcile existing draft", DetectedAt = now, ReviewAt = now.AddMinutes(5) };
+        db.AddRange(owner, producer, project, incident);
+        await db.SaveChangesAsync();
+        var service = new ApprovalDashboardService(db, new StubResourceChangeService([]), new HiringService(db, null!, null!));
+        Assert.Empty((await service.GetAsync(org, owner.ApplicationUserId!.Value)).ProjectIncidents);
+        var chat = Guid.NewGuid();
+        db.ProjectIncidentDeliveries.Add(new() { Id = Guid.NewGuid(), IncidentId = incident.Id, RecipientId = owner.Id,
+            SenderId = producer.Id, Revision = 1, DeliveredAt = now, ConversationId = chat });
+        await db.SaveChangesAsync();
+        var result = await service.GetAsync(org, owner.ApplicationUserId.Value);
+        var attention = Assert.Single(result.ProjectIncidents);
+        Assert.Equal(0, result.PendingCount); Assert.Empty(result.Items);
+        Assert.Equal("Producer", attention.ReporterName); Assert.EndsWith(chat.ToString(), attention.ActionUri);
+        owner.PermissionLevel = OrganizationPermissionLevel.Manager; await db.SaveChangesAsync();
+        Assert.Empty((await service.GetAsync(org, owner.ApplicationUserId.Value)).ProjectIncidents);
+        owner.PermissionLevel = OrganizationPermissionLevel.Owner; incident.CurrentRecipientId = producer.Id;
+        await db.SaveChangesAsync(); Assert.Empty((await service.GetAsync(org, owner.ApplicationUserId.Value)).ProjectIncidents);
+        incident.CurrentRecipientId = owner.Id; incident.Status = "Resolved"; await db.SaveChangesAsync();
+        Assert.Empty((await service.GetAsync(org, owner.ApplicationUserId.Value)).ProjectIncidents);
+    }
+
     [Theory]
     [InlineData("agent-steward", false, false)]
     [InlineData("agent-steward", true, false)]

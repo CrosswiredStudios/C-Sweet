@@ -120,17 +120,62 @@ public sealed class OverviewHiringCandidateTests
         Assert.Equal("Naomi Chen", preview.EmployeeDisplayName);
         Assert.Equal(organization, activator.Dialog!.OrganizationId);
     }
+    [Fact]
+    public async Task SelectionRefreshReplacesInterviewingWithTheCandidateAndClearsItForManualChoice()
+    {
+        var organization = Guid.NewGuid();
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Creative Director", "Own creative direction", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        { RemainingHeadcount = 1, HiringUrl = "/marketplace?recommendationId=approved-plan" };
+        var activator = new CapturingActivator();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        services.AddSingleton<IComponentActivator>(activator);
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigation>();
+        services.AddSingleton(new HttpClient(new Handler()) { BaseAddress = new Uri("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        ParameterView Parameters(HiringRecommendationResponse value) => ParameterView.FromDictionary(new Dictionary<string, object?>
+        { ["OrganizationId"] = organization, ["Recommendation"] = value });
+        var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<OverviewHiringCandidateCard>(Parameters(recommendation)));
+        var interviewing = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("Interviewing agents", interviewing);
+        Assert.DoesNotContain("Hire Naomi Chen", interviewing);
+
+        var selected = recommendation with
+        {
+            SelectedCatalogAgentJson = """{"agentReference":"catalog:naomi","name":"Naomi Chen","publisher":"C-Sweet"}""",
+            SelectionRationale = "Matches the approved role."
+        };
+        await renderer.Dispatcher.InvokeAsync(() => ((IComponent)activator.CandidateCard!).SetParametersAsync(Parameters(selected)));
+        var ready = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.DoesNotContain("Interviewing agents", ready);
+        Assert.DoesNotContain("candidate-preparation", ready);
+        Assert.Contains("Hire Naomi Chen", ready);
+        Assert.Contains("Matches the approved role.", ready);
+
+        var manual = recommendation with { SelectionRationale = "Choose the candidate for this approved role." };
+        await renderer.Dispatcher.InvokeAsync(() => ((IComponent)activator.CandidateCard!).SetParametersAsync(Parameters(manual)));
+        var choosing = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("Candidate review", choosing);
+        Assert.Contains(manual.SelectionRationale, choosing);
+        Assert.DoesNotContain("Interviewing agents", choosing);
+        Assert.DoesNotContain("Naomi Chen", choosing);
+        Assert.Contains("Browse Candidates", choosing);
+    }
+
     private sealed class CapturingActivator : IComponentActivator
     {
         public List<MudButton> Buttons { get; } = [];
         public List<AttentionRequestCard> AttentionCards { get; } = [];
         public AgentHireDialog? Dialog { get; private set; }
+        public OverviewHiringCandidateCard? CandidateCard { get; private set; }
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
             if (component is MudButton button) Buttons.Add(button);
             if (component is AttentionRequestCard attention) AttentionCards.Add(attention);
             if (component is AgentHireDialog dialog) Dialog = dialog;
+            if (component is OverviewHiringCandidateCard candidateCard) CandidateCard = candidateCard;
             return component;
         }
     }

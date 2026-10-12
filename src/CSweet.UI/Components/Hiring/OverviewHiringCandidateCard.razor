@@ -22,9 +22,24 @@
                 }
             </div>
         }
-        else if (!string.IsNullOrWhiteSpace(Recommendation.SelectionRationale))
+        else
         {
-            <p class="selection-context">@Recommendation.SelectionRationale</p>
+            <div class="overview-candidate candidate-preparation" role="status" aria-live="polite" aria-atomic="true">
+                <div class="candidate-identity">
+                    <span class="candidate-preparation-icon" aria-hidden="true">
+                        @if (IsInterviewing)
+                        {
+                            <MudProgressCircular Indeterminate="true" Size="Size.Medium" Color="Color.Primary" />
+                        }
+                        else
+                        {
+                            <MudIcon Icon="@Icons.Material.Outlined.PersonSearch" Size="Size.Large" Color="Color.Primary" />
+                        }
+                    </span>
+                    <div><span class="candidate-kicker">Candidate selection</span><strong>@PreparationTitle</strong></div>
+                </div>
+                <div class="candidate-rationale"><p>@PreparationDescription</p></div>
+            </div>
         }
         @if (!string.IsNullOrWhiteSpace(Recommendation.Objective))
         {
@@ -55,6 +70,15 @@
     private AvailableAgent? _candidate;
     private string? _candidateJson;
     private bool _imageFailed;
+    private bool IsInterviewing => _candidate is null && string.IsNullOrWhiteSpace(_candidateJson) &&
+        string.IsNullOrWhiteSpace(Recommendation.SelectionRationale);
+    private string PreparationTitle => IsInterviewing ? "Interviewing agents"
+        : !string.IsNullOrWhiteSpace(_candidateJson) ? "Recommendation unavailable" : "Candidate review";
+    private string PreparationDescription => IsInterviewing
+        ? "We're reviewing candidates for this role. A recommendation will appear here when it's ready."
+        : !string.IsNullOrWhiteSpace(_candidateJson)
+            ? "The recommended agent could not be displayed. Browse candidates to review available agents."
+            : Recommendation.SelectionRationale!;
     private string Recommender => !string.IsNullOrWhiteSpace(Recommendation.SuggestedBy) ? Recommendation.SuggestedBy
         : !string.IsNullOrWhiteSpace(Recommendation.RequestingEmployee) ? Recommendation.RequestingEmployee : "Hiring suggestion";
     private Guid? RecommenderId => Portraits?.FindEmployee(Recommender);

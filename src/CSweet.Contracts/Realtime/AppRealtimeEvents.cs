@@ -5,6 +5,7 @@ namespace CSweet.Contracts.Realtime;
 public static class AppRealtimeEvents
 {
     public const string AuditChanged = "com.csweet.app.audit.changed.v1";
+    public const string ProjectIncidentChanged = "com.csweet.app.project-incident.changed.v1";
     public const string ApprovalChanged = "com.csweet.app.approval.changed.v1";
     public const string HiringRecommendationsChanged = "com.csweet.app.hiring-recommendations.changed.v1";
     public const string NotificationCreated = "com.csweet.app.notification.created.v1";

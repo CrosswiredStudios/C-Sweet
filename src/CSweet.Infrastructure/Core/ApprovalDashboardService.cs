@@ -13,7 +13,7 @@ namespace CSweet.Infrastructure.Core;
 public sealed class ApprovalDashboardService(
     CSweetDbContext db,
     IResourceChangeService resourceChanges,
-    IHiringService hiring) : IApprovalDashboardService
+    IHiringService hiring, ProjectHealthService? projectHealth = null) : IApprovalDashboardService
 {
     public async Task<ApprovalDashboardResponse> GetAsync(
         Guid organizationId,
@@ -360,7 +360,11 @@ public sealed class ApprovalDashboardService(
         return new ApprovalDashboardResponse(
             actor.Id,
             ordered.Count(x => IsPending(x.Status) && x.CanDecide),
-            ordered);
+            ordered)
+        {
+            ProjectIncidents = await (projectHealth ?? new(db, new(db, TimeProvider.System), TimeProvider.System))
+                .ReadAttentionAsync(organizationId, actor.Id, cancellationToken)
+        };
     }
 
     internal static ManagedAgentActionApprovalResponse? ReadManagedAction(ActionProposal proposal)

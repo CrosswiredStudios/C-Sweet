@@ -50,6 +50,7 @@ public sealed partial class ProjectHealthService
                     DeduplicationKey = messageKey, CreatedAt = now });
             }
             delivery.ConversationId = chat.Id; delivery.DeliveredAt = now;
+            QueueAttentionChange(incident, recipient.Id);
             // Message, unread/realtime capture, notification and receipt commit together.
             await db.SaveChangesAsync(token);
         }

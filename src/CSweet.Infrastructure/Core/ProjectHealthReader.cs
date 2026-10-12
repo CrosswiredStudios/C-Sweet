@@ -14,7 +14,7 @@ internal sealed record HealthFailure(string Key, string Reason, Guid? TicketId, 
 internal sealed record HealthObservation(bool Active, string? Waiting, DateTimeOffset LastProgress,
     IReadOnlyList<HealthFailure> Failures, IReadOnlySet<string> Recovered, IReadOnlyList<ProjectDiagnosticEvidence> Evidence);
 
-public sealed class ProjectHealthReader(CSweetDbContext db, TimeProvider clock)
+public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider clock)
 {
     internal async Task<HealthObservation> ObserveAsync(Workstream project, CancellationToken token, bool initialize = false)
     {
@@ -123,8 +123,19 @@ public sealed class ProjectHealthReader(CSweetDbContext db, TimeProvider clock)
                 Safe($"{session.Subject}: {session.Status}. {session.FinalSummary}"));
             failures.Add(new(key, "Planning coordination stopped", session.SourceWorkItemId, [fact])); evidence.Add(fact);
         }
+        await ObserveDeliveryPlansAsync(project, boards, failures, recovered, evidence, token);
         foreach (var ticket in tickets)
         {
+            var recoveryKey = $"recovery-wait:{ticket.Id:N}";
+            var recoveryConflict = ticket.Status is not (WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) &&
+                ticket.WaitingReason?.StartsWith("Delivery planning needs attention:", StringComparison.Ordinal) == true;
+            if (!recoveryConflict) recovered.Add(recoveryKey);
+            else if (!failures.Any(x => x.Key.StartsWith("delivery-plan:", StringComparison.Ordinal)))
+            {
+                var conflict = new ProjectDiagnosticEvidence(nameof(WorkTask), ticket.Id, ticket.UpdatedAt,
+                    Safe($"{ticket.Identifier ?? ticket.Title}: {ticket.WaitingReason}"), $"/organizations/{project.OrganizationId}/work/boards/{ticket.BoardId}");
+                failures.Add(new(recoveryKey, "Delivery recovery stopped on a recorded planning conflict", ticket.Id, [conflict])); evidence.Add(conflict);
+            }
             var key = $"ticket:{ticket.Id:N}";
             if (ticket.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) { recovered.Add(key); continue; }
             if (ticket.Status != WorkTaskStatus.Failed && !(ticket.Status == WorkTaskStatus.Blocked && !string.IsNullOrWhiteSpace(ticket.BlockReason) &&

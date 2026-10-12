@@ -8,8 +8,8 @@ public static class PersonalBoardPresentation
 {
     public static readonly (string Label, string Status)[] Columns =
     [
-        ("Backlog", Wire.PersonalTodoStatuses.Backlog), ("To Do", Wire.PersonalTodoStatuses.Ready),
-        ("Doing", Wire.PersonalTodoStatuses.Running), ("Testing", "WaitingForApproval"), ("Blocked", Wire.PersonalTodoStatuses.Blocked),
+        ("Backlog", Wire.PersonalTodoStatuses.Backlog), ("Ready", Wire.PersonalTodoStatuses.Ready),
+        ("Doing", Wire.PersonalTodoStatuses.Running), ("Awaiting approval", "WaitingForApproval"), ("Blocked", Wire.PersonalTodoStatuses.Blocked),
         ("Done", Wire.PersonalTodoStatuses.Completed), ("Cancelled", Wire.PersonalTodoStatuses.Cancelled)
     ];
 
@@ -47,6 +47,7 @@ public static class PersonalBoardPresentation
     public static bool Matches(Wire.PersonalTodoItem item, IReadOnlySet<string> statuses,
         string priority, string archive) =>
         (statuses.Count == 0 || statuses.Contains(item.Status)) &&
+        (item.Status != Wire.PersonalTodoStatuses.Cancelled || statuses.Contains(item.Status) || archive != "current") &&
         (priority.Length == 0 || Priority(item.Priority) == priority) &&
         (archive == "all" || (archive == "archived" ? item.ArchivedAt.HasValue : !item.ArchivedAt.HasValue));
 

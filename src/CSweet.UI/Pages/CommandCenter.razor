@@ -50,7 +50,7 @@
                 {
                     <EmployeePortraitScope OrganizationId="OrganizationId">
                         <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true"
-                            Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
+                            ProjectIncidents="@(_approvals?.ProjectIncidents ?? [])" Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
                             ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
                             ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
                             RefreshRequested="RefreshAsync" />
@@ -256,7 +256,7 @@
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (_disposed || envelope.OrganizationId != OrganizationId) return;
-        if (envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+        if (envelope.EventType is AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
             QueueRefresh();
     }
     private void QueueRefresh() => _ = InvokeAsync(async () =>

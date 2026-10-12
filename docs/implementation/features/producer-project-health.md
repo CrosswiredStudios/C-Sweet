@@ -133,3 +133,15 @@ The generic SDK accessor is `ManagementIncident.MonitoringManagerEmployeeId`. Th
 `ProducerEmployeeId` wire/storage name remains for compatibility. The old explicit helper remains
 available, but new agents should inherit the manager base. See the SDK's `docs/manager-agents.md`
 for the manifest and subclass recipe.
+
+## Stalled delivery and Overview attention
+
+`ProjectHealthReader.ObserveDeliveryPlansAsync` compares Draft aggregate planning pins, child membership and child planning revisions against current project-board records. A stale draft produces one `delivery-plan:<id>` incident even if a manager labels recovery Running, schedules another review or performs other model work. `CSweetDbContext.CaptureProjectHealthSignals` records delivery status/scope changes atomically to wake health review. Matching authoritative pins or terminal cancellation/completion resolve the episode; an unchanged retry or acknowledgement does not.
+
+`ProjectHealthService.NotifyAsync` and `DeliverAsync` enqueue `AppRealtimeEvents.ProjectIncidentChanged` with state/receipt updates. The event targets the current recipient and prior human report recipients, and contains only identity/revision wake hints. `ReadAttentionAsync` checks current organization membership, recipient routing and incident access; only delivered Open reports appear in `ApprovalDashboardResponse.ProjectIncidents`. `CommandCenter` refreshes on this event and reconnect. `PendingAgentQuestions` counts these reports and links native Communications via “Read manager report”; these are separate from approval decisions. Reports disappear after authoritative recovery, without conflating unread or dismissed notifications with incident resolution.
+
+## Prismatic Break recovery diagnosis (2026-10-11 Pacific)
+
+The Victor Lin / Gabriel Reyes technical decomposition collaboration generated four successful sessions for the same accepted planning fingerprint as three continuation decisions arrived. The provider calls consumed approximately 23 minutes and 53,039 output tokens. The delivery draft remained pinned to earlier aggregate/task planning revisions after the canonical backlog changed. Workflow and sprint-preflight commitments repeatedly scheduled the same scope conflict as Running; no sprint execution had started at inspection. The previous health reader did not compare delivery-plan pins, and Overview consumed questions/approvals/hiring only.
+
+Update platform code and Producer 2.19.8 (Agent SDK 3.64.2) together. Allow the durable recovery callback to reread current accepted planning and reconcile the existing draft. If the retained commitment still waits, the reporting manager may issue `Retry staffing: updated draft reconciliation` through the authorized manager chat path. Do not delete the plan, recreate tickets, fabricate estimates, bypass independent QA, or directly edit persisted revisions. Finish configuration, each affected task finalization and authoritative preflight as separate resumable steps. A plan activation does not itself establish that a sprint has started; verify the sprint execution record after preflight succeeds.

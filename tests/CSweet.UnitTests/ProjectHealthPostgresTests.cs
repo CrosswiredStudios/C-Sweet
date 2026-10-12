@@ -27,10 +27,13 @@ public sealed class ProjectHealthPostgresTests
                 db.ProjectIncidents.Add(NewIncident());
                 db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, EventType = "test",
                     IdempotencyKey = Guid.NewGuid().ToString(), OccurredAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
+                db.ApplicationRealtimeOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = org,
+                    EventType = CSweet.Contracts.Realtime.AppRealtimeEvents.ProjectIncidentChanged,
+                    Subject = $"organizations/{org}/projects/{project}", OccurredAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
                 await db.SaveChangesAsync(); await transaction.RollbackAsync();
             }
             db.ChangeTracker.Clear();
-            Assert.Empty(await db.ProjectIncidents.ToListAsync()); Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync());
+            Assert.Empty(await db.ProjectIncidents.ToListAsync()); Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync()); Assert.Empty(await db.ApplicationRealtimeOutbox.ToListAsync());
             db.ProjectIncidents.Add(NewIncident()); await db.SaveChangesAsync();
             db.ProjectIncidents.Add(NewIncident()); await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
             db.ChangeTracker.Clear();

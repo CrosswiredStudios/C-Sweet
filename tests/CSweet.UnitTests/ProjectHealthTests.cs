@@ -246,6 +246,8 @@ public sealed class ProjectHealthTests
         Assert.Null(incident.EscalateAt);
         await f.Service.DeliverAsync(default); await f.Service.DeliverAsync(default);
         Assert.Single(f.Db.CoreConversationMessages); Assert.Single(f.Db.UserNotifications);
+        Assert.Contains(f.Db.ApplicationRealtimeOutbox, x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ProjectIncidentChanged &&
+            x.RecipientOrganizationUserId == f.Ceo.Id);
         Assert.Contains(incident.Id.ToString(), f.Db.CoreConversationMessages.Single().Content);
         Assert.Equal(3, JsonSerializer.Deserialize<ManagementIncidentHop[]>(incident.HistoryJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!.Length);
     }
@@ -333,6 +335,49 @@ public sealed class ProjectHealthTests
         public DateTimeOffset Now = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
         public override DateTimeOffset GetUtcNow() => Now;
     }
+    [Fact]
+    public async Task PlanningConflictReportsEvenWhenRunningAndRepeatedReviewMovesTheDeadline()
+    {
+        await using var f = await Fixture.Create();
+        var ticket = f.Ticket(WorkTaskStatus.Running); ticket.NextReviewAt = f.Clock.Now.AddMinutes(20);
+        ticket.WaitingReason = "Delivery planning needs attention: independent review assignment rejected";
+        f.Db.Add(ticket); await f.Db.SaveChangesAsync(); await f.Review();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        var deadline = incident.EscalateAt;
+        ticket.NextReviewAt = f.Clock.Now.AddHours(1); await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Single(f.Db.ProjectIncidents); Assert.Equal(deadline, incident.EscalateAt);
+        ticket.WaitingReason = null; ticket.NextReviewAt = null;
+        await f.Db.SaveChangesAsync(); await f.Review(); Assert.Equal("Resolved", incident.Status);
+    }
+
+    [Fact]
+    public async Task OutdatedDeliveryScopeCreatesOneIncidentDespiteScheduledRecoveryAndResolvesFromCurrentPins()
+    {
+        await using var f = await Fixture.Create();
+        var parent = f.Ticket(WorkTaskStatus.Ready); parent.Kind = WorkItemKind.Story; parent.PlanningRevision = 2;
+        var child = f.Ticket(WorkTaskStatus.Ready); child.ParentWorkTaskId = parent.Id; child.PlanningRevision = 4;
+        var retry = f.Ticket(WorkTaskStatus.Running); retry.WaitingReason = "Delivery planning needs attention: scope changed";
+        retry.NextReviewAt = f.Clock.Now.AddMinutes(20);
+        var snapshot = new CSweet.WorkManagement.Contracts.WorkDeliveryScopeSnapshot("Story", parent.Id, f.Board.Id,
+            1, [child.Id], new(["Requirement"], ["Verified"]), [])
+            { ChildPlanningRevisions = new Dictionary<Guid, long> { [child.Id] = 2 } };
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var plan = new WorkDeliveryPlan { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+            ManagerOrganizationUserId = f.Producer.Id, ScopesJson = System.Text.Json.JsonSerializer.Serialize(new[] { snapshot }, json),
+            CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        f.Db.AddRange(parent, child, retry, plan); await f.Db.SaveChangesAsync(); await f.Review();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        Assert.Equal($"delivery-plan:{plan.Id:N}", incident.Fingerprint);
+        Assert.Contains("pinned planning revision 2, current 4", incident.Facts);
+        await f.Review(); Assert.Single(f.Db.ProjectIncidents);
+        Assert.Contains(f.Db.ApplicationRealtimeOutbox, x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ProjectIncidentChanged);
+        plan.ScopesJson = System.Text.Json.JsonSerializer.Serialize(new[] { snapshot with { PlanningRevision = 2,
+            ChildPlanningRevisions = new Dictionary<Guid, long> { [child.Id] = 4 } } }, json);
+        plan.Status = "Active";
+        await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Equal("Resolved", incident.Status);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public Clock Clock { get; } = new();

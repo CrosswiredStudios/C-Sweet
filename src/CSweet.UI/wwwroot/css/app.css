@@ -2224,7 +2224,7 @@ body { color: var(--cs-navy); }
 @media (max-width: 600px) { .hiring-plan-popover { left: 16px !important; } }
 
 /* Theme tokens also flow into the activity cards and provider stream. */
-.aurora-page, body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
+.hire-profile-dialog, body:has(.hire-profile-dialog) .mud-popover, .aurora-page, body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
 body:has(.company-overview.aurora-page) .hiring-plan-popover {
     --mud-palette-background: var(--activity-panel); --mud-palette-background-gray: var(--activity-tint);
     --mud-palette-action-default-hover: var(--activity-tint); --mud-palette-table-hover: var(--activity-tint);
@@ -2242,6 +2242,8 @@ body:has(.company-overview.aurora-page) .hiring-plan-popover {
         radial-gradient(ellipse at 94% 18%, #eac2dd99, transparent 45%),
         radial-gradient(ellipse at 44% 75%, #c6e8eaa6, transparent 55%), #f6f3fb;
 }
+body:has(.mud-layout[data-appearance=gold]) .hire-profile-dialog,
+body:has(.mud-layout[data-appearance=gold]):has(.hire-profile-dialog) .mud-popover,
 .setup-appearance[data-appearance=gold] .aurora-page,
 body:has(.setup-appearance[data-appearance=gold]) :is(.mud-dialog,.mud-popover),
 .mud-layout[data-appearance=gold] .aurora-page, body:has(.mud-layout[data-appearance=gold] :is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
@@ -2622,3 +2624,8 @@ body:has(.business-workspace) .mud-dialog :is(button,input,select,textarea):focu
  .aurora-page.onboarding-workspace .provider-roster { padding-right:0; border-right:0; }
 }
 @media(max-width:600px) { .aurora-page.onboarding-workspace :is(.provider-step-header,.provider-step-actions,.provider-step-actions > div) { flex-wrap:wrap; gap:16px; } .aurora-page.onboarding-workspace .provider-count { flex-basis:auto; justify-items:start; } }
+
+/* The hiring sheet is portalled outside the page and follows the saved appearance. */
+.mud-dialog.hire-profile-dialog { border:1px solid var(--activity-border); border-radius:24px; overflow:hidden; width:min(620px,calc(100vw - 32px)); box-shadow:0 24px 90px #160e3438; }
+.mud-dialog.hire-profile-dialog .mud-dialog-content { padding:0; overflow:hidden; }
+@media(max-width:600px) { .mud-dialog.hire-profile-dialog { margin:12px; width:calc(100vw - 24px); max-height:calc(100dvh - 24px); } }

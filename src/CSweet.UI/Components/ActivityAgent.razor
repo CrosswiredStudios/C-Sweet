@@ -16,7 +16,9 @@
     [Parameter] public bool IsActive { get; set; }
     [Parameter] public bool Centered { get; set; }
     [Parameter] public string? Status { get; set; }
-    private string? RoleTitle => Role ?? Portraits?.FindRole(EmployeeId);
+    private string? RoleTitle => string.IsNullOrWhiteSpace(Role)
+        ? Portraits?.FindRole(EmployeeId)
+        : Portraits?.RoleTitle(Role, Role) ?? Role;
     private string EmployeeHref => $"/organizations/{OrganizationId}/employees/{EmployeeId}";
     private string Initials => string.Concat(Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
 }

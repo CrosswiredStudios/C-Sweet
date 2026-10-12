@@ -55,6 +55,10 @@ public partial class EmployeePersonalBoard
 
     private const int CompletedColumnLimit = 20;
 
+    private IEnumerable<(string Label, string Status)> VisibleColumns => Present.Columns
+        .Where(x => x.Status != Wire.PersonalTodoStatuses.Cancelled ||
+            _statuses.Contains(Wire.PersonalTodoStatuses.Cancelled) || _archive != "current");
+
     private IReadOnlyList<Wire.PersonalTodoItem> FilteredItems => Board.Items
         .Where(x => Present.Matches(x, _statuses, _priority, _archive)).OrderBy(x => x.Rank).ToList();
     private IReadOnlyList<Wire.PersonalTodoItem> ItemsFor(string status)

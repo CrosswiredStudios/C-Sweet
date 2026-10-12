@@ -17,6 +17,7 @@ public sealed class ComputeAutomaticSetupTests
     public async Task Legacy_default_lifetime_upgrades_once_without_overwriting_customized_grants()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        await SeedLegacyAccessAsync(f);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             { ["CSweet:Compute:Defaults:MaximumLifetimeSeconds"] = "3600" }).Build();
         var legacy = new ComputeDefaultsService(f.Db, TimeProvider.System,
@@ -40,17 +41,17 @@ public sealed class ComputeAutomaticSetupTests
         Assert.DoesNotContain(await f.Db.ScopedActionGrants.Where(x => x.ScopeId == access.WorkstreamId).Select(x => x.Action).ToListAsync(), x => x.StartsWith("network."));
     }
     [Fact]
-    public async Task Approved_agent_gets_one_durable_setup_and_platform_selected_scope()
+    public async Task Approved_agent_prepares_host_once_without_creating_a_project_or_personal_scope()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
         var service = Create(f);
         await service.EnsureRequestedAsync(f.Installation, default);
         await service.EnsureRequestedAsync(f.Installation, default);
         var setup = Assert.Single(await f.Db.Set<ComputeLocalSetup>().ToListAsync());
-        var access = Assert.Single(await f.Db.Set<ComputeAgentAccess>().ToListAsync());
-        Assert.Equal(setup.Id, access.SetupId);
+        Assert.Empty(await f.Db.Set<ComputeAgentAccess>().ToListAsync());
+        Assert.Equal(f.Workstream, Assert.Single(await f.Db.Workstreams.ToListAsync()).Id);
         Assert.Equal("Pending", (await service.ReadAsync(f.Organization, f.Installation, default)).State);
-        Assert.NotEqual(f.Workstream, access.WorkstreamId);
+        Assert.Null((await service.ReadAsync(f.Organization, f.Installation, default)).WorkstreamId);
         Assert.Single(await f.Db.AuditOutbox.Where(x => x.SourceEntityType == null).Where(x => x.RequestJson.Contains("preparation-requested")).ToListAsync());
     }
 
@@ -58,6 +59,7 @@ public sealed class ComputeAutomaticSetupTests
     public async Task Activation_creates_only_approved_bounded_grants_and_one_wake_without_reviving_revocation()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        await SeedLegacyAccessAsync(f);
         var service = Create(f); await service.EnsureRequestedAsync(f.Installation, default);
         var setup = await f.Db.Set<ComputeLocalSetup>().SingleAsync(); setup.State = "Ready"; setup.TemplateId = "linux-local-test";
         await service.ActivateAccessAsync(setup, default);
@@ -71,7 +73,8 @@ public sealed class ComputeAutomaticSetupTests
         Assert.NotNull(grant.RevokedAt);
         Assert.Single(await f.Db.AgentPlatformEventOutbox.Where(x => x.EventType == "com.csweet.compute.available.v1").ToListAsync());
         var defaults = await service.ReadAsync(f.Organization, f.Installation, default);
-        Assert.Equal("Ready", defaults.State); Assert.Equal(access.WorkstreamId, defaults.WorkstreamId);
+        Assert.Equal("Pending", defaults.State); Assert.Null(defaults.WorkstreamId);
+        Assert.Equal("project_required", defaults.ErrorCode);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ReadAsync(Guid.NewGuid(), f.Installation, default));
     }
 
@@ -79,6 +82,7 @@ public sealed class ComputeAutomaticSetupTests
     public async Task Declaring_network_capabilities_never_creates_network_grants_automatically()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        await SeedLegacyAccessAsync(f);
         var approval = await f.Db.AgentInstallationGrants.SingleAsync();
         var actions = JsonSerializer.Deserialize<List<string>>(approval.RequiredCapabilitiesJson)!;
         actions.AddRange([InfrastructureActions.Inbound, InfrastructureActions.PublishPort, InfrastructureActions.Outbound, InfrastructureActions.PrivateNetwork]);
@@ -120,10 +124,24 @@ public sealed class ComputeAutomaticSetupTests
     private static ComputeDefaultsService Create(ComputeBrokerTests.Fixture f) => new(f.Db, TimeProvider.System,
         new ComputeGrantAdministration(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()));
 
+    // Retained records from previous versions still support environment recovery and grant upgrades.
+    // New setup must never create these records.
+    private static async Task SeedLegacyAccessAsync(ComputeBrokerTests.Fixture f)
+    {
+        var setup = new ComputeLocalSetup { Id = Guid.NewGuid(), OrganizationId = f.Organization };
+        f.Db.Add(setup);
+        var legacyProject = Guid.NewGuid();
+        f.Db.Workstreams.Add(new() { Id = legacyProject, OrganizationId = f.Organization, Name = "Legacy compute workspace" });
+        f.Db.Add(new ComputeAgentAccess { Id = f.Installation, OrganizationId = f.Organization,
+            SetupId = setup.Id, WorkstreamId = legacyProject });
+        await f.Db.SaveChangesAsync();
+    }
+
     [Fact]
     public async Task Docker_upgrade_waits_for_confirmed_teardown_and_blocks_old_template_defaults()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync(); await f.Send();
+        await SeedLegacyAccessAsync(f);
         var approval = await f.Db.AgentInstallationGrants.SingleAsync();
         var actions = JsonSerializer.Deserialize<List<string>>(approval.RequiredCapabilitiesJson)!;
         actions.Add("source-control.personal-work.prepare.v1"); approval.RequiredCapabilitiesJson = JsonSerializer.Serialize(actions);
@@ -146,6 +164,7 @@ public sealed class ComputeAutomaticSetupTests
     public async Task Legacy_automatic_network_grants_are_retired_but_owner_edits_are_preserved()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        await SeedLegacyAccessAsync(f);
         var service = Create(f); await service.EnsureRequestedAsync(f.Installation, default);
         var setup = await f.Db.Set<ComputeLocalSetup>().SingleAsync(); setup.State = "Ready"; setup.TemplateId = "ubuntu-clean";
         await service.ActivateAccessAsync(setup, default);

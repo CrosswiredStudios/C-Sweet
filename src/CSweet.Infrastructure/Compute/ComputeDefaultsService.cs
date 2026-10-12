@@ -32,41 +32,26 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive &&
             x.ArchivedAt == null && x.EmployeeType == EmployeeType.Agent, token);
         if (actor is null) return;
-        var existingAccess = await db.Set<ComputeAgentAccess>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == installationId, token);
-        if (existingAccess is not null)
-        {
-            if (retryFailed)
-            {
-                var prior = await db.Set<ComputeLocalSetup>().SingleAsync(x => x.Id == existingAccess.SetupId, token);
-                if (prior.State == "Failed")
-                {
-                    prior.State = "Pending"; prior.ErrorCode = null; prior.HandoffHash = null; prior.HandoffExpiresAt = null;
-                    prior.Revision++; prior.UpdatedAt = clock.GetUtcNow(); await db.SaveChangesAsync(token);
-                }
-            }
-            return;
-        }
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
         var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         var now = clock.GetUtcNow();
+        var changed = setup is null || retryFailed && setup.State == "Failed";
         if (setup is null)
             db.Add(setup = new ComputeLocalSetup { Id = Guid.NewGuid(), OrganizationId = organizationId, CreatedAt = now, UpdatedAt = now });
-        if (await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequiresProjectAsync(organizationId, installationId, token))
+        else if (retryFailed && setup.State == "Failed")
         {
-            // Infrastructure preparation is not a delivery project. Project-bound access is resolved
-            // separately after authorized setup; do not create an agent-owned synthetic Workstream.
-            await db.SaveChangesAsync(token);
+            setup.State = "Pending"; setup.ErrorCode = null; setup.HandoffHash = null; setup.HandoffExpiresAt = null;
+            setup.Revision++; setup.UpdatedAt = now;
+        }
+        // Host preparation is organization infrastructure, never an agent-owned project.
+        // Execution grants are resolved against an authorized existing project in ReadProjectAsync.
+        if (!changed)
+        {
             if (transaction is not null) await transaction.CommitAsync(token);
             return;
         }
-        var workstreamId = StableId($"compute-workspace:{installationId:D}");
-        db.Workstreams.Add(new Workstream { Id = workstreamId, OrganizationId = organizationId,
-            AccountableManagerOrganizationUserId = actor.Id, Name = "Application testing",
-            Outcome = "Run and test software in isolated, temporary compute environments.", LifecycleStage = "Active",
-            CreatedAt = now, UpdatedAt = now });
-        db.Add(new ComputeAgentAccess { Id = installationId, OrganizationId = organizationId, SetupId = setup.Id,
-            WorkstreamId = workstreamId, CreatedAt = now });
         var auditId = Guid.NewGuid();
         db.AuditOutbox.Add(new() { Id = auditId, CreatedAt = now, RequestJson = JsonSerializer.Serialize(
             new AuditEventWriteRequest("compute.workspace.preparation-requested.v1", Category: "Infrastructure",
@@ -83,25 +68,28 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.Id == installationId && x.BusinessId == organizationId.ToString("D") && x.IsEnabled &&
             x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready, token);
         if (installation is null || !Approved(installation).Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
-        var access = await db.Set<ComputeAgentAccess>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == installationId && x.OrganizationId == organizationId, token);
-        if (access is null) return new("Pending", null, null, null);
-        var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync(x => x.Id == access.SetupId, token);
-        if (setup.State == "Ready") await ActivateAccessAsync(setup, token);
-        if (setup.State == "Ready" && Approved(installation).Contains("source-control.personal-work.prepare.v1"))
-        {
-            var template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.TemplateId == setup.TemplateId, token);
-            if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)?.Features.Contains("docker") != true)
-                return new("Pending", access.WorkstreamId, null, "docker_preparation_pending");
-        }
-        return new(setup.State == "Ready" && access.GrantsCreatedAt is null ? "Pending" : setup.State, access.WorkstreamId, setup.State == "Ready" ? setup.TemplateId : null, setup.ErrorCode);
+        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive &&
+            x.ArchivedAt == null && x.EmployeeType == EmployeeType.Agent, token)
+            ?? throw new UnauthorizedAccessException();
+        // Legacy callers may omit the project only when there is one current assignment.
+        // Never return a synthetic scope or guess between multiple projects.
+        var projects = await ProjectScopes(organizationId, actor.Id).Select(x => x.Id).Take(2).ToListAsync(token);
+        if (projects.Count == 1) return await ReadProjectAsync(organizationId, installationId, projects[0], token);
+        var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
+        return new(setup?.State is "Failed" or "Running" ? setup.State : "Pending", null, null,
+            setup?.ErrorCode ?? (projects.Count == 0 ? "project_required" : "project_selection_required"));
     }
 
     public async Task<ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
     {
-        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive, token);
-        var board = await db.ProjectDeliveryBindings.Where(x => x.OrganizationId == organizationId && x.WorkstreamId == projectId).Select(x => x.BoardId).SingleAsync(token);
-        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireAsync(organizationId, actor.Id, board, token);
-        var installation = await db.AgentInstallations.Include(x => x.Grant).SingleAsync(x => x.Id == installationId && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, token);
+        var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            x.AgentInstallationId == installationId && x.IsActive && x.ArchivedAt == null && x.EmployeeType == EmployeeType.Agent, token)
+            ?? throw new UnauthorizedAccessException();
+        await RequireProjectAsync(organizationId, installationId, actor.Id, projectId, token);
+        var installation = await db.AgentInstallations.Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installationId &&
+            x.BusinessId == organizationId.ToString("D") && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active &&
+            x.SetupState == PluginSetupState.Ready, token) ?? throw new UnauthorizedAccessException();
         var approved = Approved(installation);
         if (!approved.Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
         var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
@@ -111,8 +99,9 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             return new("Pending", projectId, null, "docker_preparation_pending");
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
         await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
-        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireAsync(organizationId, actor.Id, board, token);
+        await RequireProjectAsync(organizationId, installationId, actor.Id, projectId, token);
         var lifetime = configuration?.GetValue<int?>("CSweet:Compute:Defaults:MaximumLifetimeSeconds") ?? 0;
+        if (lifetime < 0) throw new InvalidOperationException("Compute maximum lifetime must be zero (until released) or positive.");
         var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], ["x64"], [setup.TemplateId], AllowedPublishedPorts: [8080]);
         foreach (var action in Actions.Where(approved.Contains))
         {
@@ -128,6 +117,30 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             CachedImages = definition.Features.Contains("docker-apps-v1") ? ["csweet/python:3.12", "csweet/node:22"] : [],
             LinkReachability = "local-machine", MaximumLifetimeSeconds = lifetime
         };
+    }
+
+    private IQueryable<Workstream> ProjectScopes(Guid organizationId, Guid employeeId) =>
+        db.Workstreams.Where(project => project.OrganizationId == organizationId &&
+            (project.Status == WorkstreamStatus.Active || project.Status == WorkstreamStatus.Approved) &&
+            (project.AccountableManagerOrganizationUserId == employeeId ||
+             db.WorkstreamSupervisionAssignments.Any(x => x.OrganizationId == organizationId && x.WorkstreamId == project.Id &&
+                 x.SupervisorOrganizationUserId == employeeId && x.EndsAt == null) ||
+             db.WorkstreamTeamAssignments.Any(assignment => assignment.OrganizationId == organizationId && assignment.WorkstreamId == project.Id &&
+                 assignment.EndsAt == null && db.OrganizationTeams.Any(team => team.Id == assignment.TeamId &&
+                     team.OrganizationId == organizationId && team.ArchivedAt == null) &&
+                 db.TeamMemberships.Any(member => member.OrganizationId == organizationId && member.TeamId == assignment.TeamId &&
+                     member.OrganizationUserId == employeeId && member.EndedAt == null))));
+
+    private async Task RequireProjectAsync(Guid organizationId, Guid installationId, Guid employeeId, Guid projectId, CancellationToken token)
+    {
+        if (!await ProjectScopes(organizationId, employeeId).AnyAsync(x => x.Id == projectId, token))
+            throw new UnauthorizedAccessException("The active project is outside the employee scope.");
+        var policy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock);
+        if (!await policy.RequiresProjectAsync(organizationId, installationId, token)) return;
+        var board = await db.ProjectDeliveryBindings.Where(x => x.OrganizationId == organizationId && x.WorkstreamId == projectId)
+            .Select(x => (Guid?)x.BoardId).SingleOrDefaultAsync(token)
+            ?? throw new InvalidOperationException("project.required: Prepare the existing project's delivery board before testing.");
+        await policy.RequireAsync(organizationId, employeeId, board, token);
     }
 
     public async Task ActivateAccessAsync(ComputeLocalSetup setup, CancellationToken token)
@@ -206,15 +219,21 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 IdempotencyKey = $"compute-available:{access.Id:D}:{setup.Revision}:{(policyChanged ? "until-release" : "initial")}", Status = AgentPlatformEventOutboxStatus.Pending,
                 OccurredAt = now, NextAttemptAt = now });
         }
-        // Project-bound agents do not have a synthetic ComputeAgentAccess row. Wake their
-        // current participants when host preparation becomes ready, using a stable event identity.
-        var projectAgents = await (from participant in db.ProjectParticipants
-            join person in db.CoreOrganizationUsers on participant.OrganizationUserId equals person.Id
-            join project in db.Workstreams on participant.WorkstreamId equals project.Id
-            where participant.OrganizationId == setup.OrganizationId && participant.RemovedAt == null &&
-                person.IsActive && person.ArchivedAt == null && person.AgentInstallationId != null &&
-                (project.Status == WorkstreamStatus.Active || project.Status == WorkstreamStatus.Approved)
-            select person.AgentInstallationId!.Value).Distinct().ToListAsync(token);
+        // Wake current project employees, including established team assignments without
+        // delivery bindings. A stable event identity makes readiness reconciliation idempotent.
+        var projectAgents = await db.CoreOrganizationUsers.Where(person => person.OrganizationId == setup.OrganizationId &&
+            person.IsActive && person.ArchivedAt == null && person.AgentInstallationId != null &&
+            db.Workstreams.Any(project => project.OrganizationId == setup.OrganizationId &&
+                (project.Status == WorkstreamStatus.Active || project.Status == WorkstreamStatus.Approved) &&
+                (project.AccountableManagerOrganizationUserId == person.Id ||
+                 db.ProjectParticipants.Any(participant => participant.OrganizationId == setup.OrganizationId &&
+                     participant.WorkstreamId == project.Id && participant.OrganizationUserId == person.Id && participant.RemovedAt == null) ||
+                 db.WorkstreamSupervisionAssignments.Any(x => x.OrganizationId == setup.OrganizationId && x.WorkstreamId == project.Id &&
+                     x.SupervisorOrganizationUserId == person.Id && x.EndsAt == null) ||
+                 db.WorkstreamTeamAssignments.Any(assignment => assignment.OrganizationId == setup.OrganizationId && assignment.WorkstreamId == project.Id &&
+                     assignment.EndsAt == null && db.TeamMemberships.Any(member => member.OrganizationId == setup.OrganizationId &&
+                         member.TeamId == assignment.TeamId && member.OrganizationUserId == person.Id && member.EndedAt == null)))))
+            .Select(person => person.AgentInstallationId!.Value).Distinct().ToListAsync(token);
         foreach (var agent in projectAgents)
         {
             var eventId = StableId($"project-compute-available:{agent:D}:{setup.Revision}");

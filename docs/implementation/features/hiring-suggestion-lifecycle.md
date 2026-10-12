@@ -70,7 +70,14 @@ columns with a vertical divider, stacking with a horizontal divider on narrow sc
 The right-aligned **Hire** action opens the shared `AgentHireDialog` with the selected
 candidate, role title, and recommendation ID. **Browse Candidates** uses `HiringUrl`,
 retaining the approved plan context. Missing or malformed candidate data leaves browsing
-available without fabricating a candidate or cost. The dialog's `Hired` callback refreshes
+available without fabricating a candidate or cost. While both candidate data and selection
+rationale are empty, `OverviewHiringCandidateCard.IsInterviewing` shows **Interviewing agents**
+with an indeterminate progress indicator in the same tinted candidate panel. Realtime refreshes
+replace that panel's contents with the selected agent when available. A completed selection
+without a candidate (manual choice, human-required coverage, or no eligible match) shows
+**Candidate review** with the persisted rationale, without a progress indicator. Malformed or
+incomplete candidate data shows **Recommendation unavailable** and retains contextual browsing.
+The preparation panel is a polite live status region. The dialog's `Hired` callback refreshes
 the dashboard backlog. The header attributes the suggestion to `SuggestedBy` (the recommending
 employee), using that employee's portrait. When `RequestingEmployee` differs, the header
 shows the recommender's installed role and a secondary **Role requested by** line names the

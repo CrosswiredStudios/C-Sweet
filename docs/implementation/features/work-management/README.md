@@ -183,6 +183,13 @@ remain later automation extensions.
 
 ## Personal boards
 
+`PersonalBoardPresentation` labels the personal workflow Backlog, Ready, Doing,
+Awaiting approval, Blocked, and Done. `EmployeePersonalBoard` keeps these columns
+in one horizontally scrolling row at every screen size. Cancelled work is hidden
+by default and available by selecting the Cancelled status filter or an archived
+view. Deferred commitments show their waiting reason and next review on the card;
+waiting remains separate from the `WaitingForApproval` handoff state.
+
 Personal boards (`WorkBoardKind.Personal`) are per-owner boards managed by
 `IPersonalTodoService`/`IWorkItemMutationEngine` (`WorkItemMutationEngine` in
 `src/CSweet.Infrastructure/WorkManagement/PersonalTodoService.cs`) and exposed

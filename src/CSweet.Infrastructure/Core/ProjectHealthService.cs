@@ -236,11 +236,25 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
                 IdempotencyKey = $"project-health:{incident.Id:N}:{incident.Revision}:{recipient.Id:N}",
                 DataJson = JsonSerializer.Serialize(new ProjectHealthHint(incident.WorkstreamId, incident.Id, incident.Revision), Json),
                 OccurredAt = clock.GetUtcNow(), NextAttemptAt = clock.GetUtcNow() });
+        var priorRecipients = await db.ProjectIncidentDeliveries.Where(x => x.IncidentId == incident.Id && x.DeliveredAt != null)
+            .Select(x => x.RecipientId).Distinct().ToArrayAsync(token);
+        foreach (var recipientId in priorRecipients.Append(incident.CurrentRecipientId).Distinct())
+            QueueAttentionChange(incident, recipientId);
         db.QueueAudit(new("project-health.incident.changed", OrganizationId: incident.OrganizationId,
             EntityType: nameof(ProjectIncident), EntityId: incident.Id, Summary: incident.Reason,
             Payload: JsonSerializer.SerializeToUtf8Bytes(Map(incident), Json), ContentType: "application/json",
             OccurredAt: clock.GetUtcNow(), Employees: [new(incident.CurrentRecipientId), new(incident.ProducerEmployeeId)]));
     }
+
+    private void QueueAttentionChange(ProjectIncident incident, Guid recipientId) => db.ApplicationRealtimeOutbox.Add(new()
+    {
+        Id = Guid.NewGuid(), OrganizationId = incident.OrganizationId,
+        RecipientOrganizationUserId = recipientId,
+        EventType = CSweet.Contracts.Realtime.AppRealtimeEvents.ProjectIncidentChanged,
+        Subject = $"organizations/{incident.OrganizationId}/projects/{incident.WorkstreamId}",
+        DataJson = JsonSerializer.Serialize(new { incidentId = incident.Id, incident.Revision }, Json),
+        OccurredAt = clock.GetUtcNow(), NextAttemptAt = clock.GetUtcNow()
+    });
 
     private void QueueHumanDelivery(ProjectIncident incident, Guid recipient, Guid sender) => db.ProjectIncidentDeliveries.Add(new() {
         Id = Guid.NewGuid(), IncidentId = incident.Id, RecipientId = recipient, SenderId = sender, Revision = incident.Revision,

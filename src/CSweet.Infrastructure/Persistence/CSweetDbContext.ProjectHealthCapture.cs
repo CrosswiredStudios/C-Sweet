@@ -54,6 +54,9 @@ public sealed partial class CSweetDbContext
                 project = execution is null ? null : HealthProjectForTask(CoreWorkTasks.Find(execution.WorkItemId));
                 id = x.Id; detail = $"Stage {x.StageKey}: {x.Status}. {x.LastError} {x.LastSummary}";
                 progress = x.Status == WorkStageExecutionStatus.Completed; break;
+            case WorkDeliveryPlan x when Changed(nameof(x.Status), nameof(x.ScopesJson)):
+                project = x.WorkstreamId; id = x.Id; detail = $"Delivery plan {x.Name}: {x.Status}. Scope revision {x.ScopeRevision}.";
+                progress = x.Status is "Active" or "Completed"; break;
             case WorkSprint x when Changed(nameof(x.Status)):
                 project = WorkBoards.Find(x.BoardId)?.WorkstreamId; id = x.Id;
                 detail = $"Sprint {x.Name}: {x.Status}"; progress = x.Status == WorkSprintStatus.Completed; break;

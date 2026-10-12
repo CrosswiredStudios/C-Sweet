@@ -105,4 +105,10 @@ public sealed record SourceControlApprovalCardResponse(
 public sealed record ApprovalDashboardResponse(
     Guid CurrentOrganizationUserId,
     int PendingCount,
-    IReadOnlyList<ApprovalDashboardItemResponse> Items);
+    IReadOnlyList<ApprovalDashboardItemResponse> Items)
+{
+    public IReadOnlyList<ProjectIncidentAttentionResponse> ProjectIncidents { get; init; } = [];
+}
+
+public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId, string ProjectName,
+    string ReporterName, string Reason, string Facts, string RecommendedAction, string ActionUri, DateTimeOffset DetectedAt);

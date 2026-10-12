@@ -15,6 +15,7 @@
                         <span class="field-label">Status</span><div class="filter-options"><button type="button" aria-pressed="@((_draftStatuses.Count == 0).ToString().ToLowerInvariant())" @onclick="@(() => _draftStatuses.Clear())">Any status</button>
                             @foreach (var column in Present.Columns) { <button type="button" aria-pressed="@(_draftStatuses.Contains(column.Status).ToString().ToLowerInvariant())" @onclick="@(() => ToggleStatusFilter(column.Status))">@column.Label</button> }
                         </div>
+                        <p class="filter-hint">Select Cancelled or include archived tickets to see cancelled work.</p>
                         <label class="property"><span class="field-label">Priority</span><select aria-label="Priority" @bind="_draftPriority"><option value="">Any priority</option>@foreach (var priority in Priorities) { <option value="@priority">@priority</option> }</select></label>
                         @if (IncludeArchivedChanged.HasDelegate || IncludeArchived) { <label class="property"><span class="field-label">Archive</span><select aria-label="Archive" @bind="_draftArchive"><option value="current">Current tickets</option><option value="all">Include archived</option><option value="archived">Archived only</option></select></label> }
                         <div class="filter-footer"><button type="button" class="text-action" @onclick="ResetDraftFilters">Clear filters</button><button type="button" class="board-button primary-button" @onclick="ApplyFiltersAsync">Apply filters</button></div>
@@ -25,8 +26,8 @@
         </div>
     </div>
     @if (!string.IsNullOrWhiteSpace(_error) && !_dialogOpen) { <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert> }
-    <div class="employee-personal-kanban">
-        @foreach (var column in Present.Columns)
+    <div class="employee-personal-kanban" tabindex="0" role="region" aria-label="Personal board columns, scroll horizontally">
+        @foreach (var column in VisibleColumns)
         {
             var items = ItemsFor(column.Status);
             var total = TotalFor(column.Status);
@@ -38,6 +39,10 @@
                         <span class="ticket-reference"><span>@Short(item.Id) · <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@item.Kind" /></span>@if (CanDrag(item)) { <MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /> }</span>
                         <strong class="ticket-title"><StructuredMentionText Text="@item.Title" Mentions="@item.MentionSpans" Field="@Wire.WorkItemMentionFields.Title" /></strong>
                         @if (!string.IsNullOrWhiteSpace(item.Description)) { <span class="ticket-description">@Present.Excerpt(Present.Description(item.Description))</span> }
+                        @if (item.Wait is { } cardWait)
+                        {
+                            <span class="ticket-wait"><strong>Waiting</strong> · @cardWait.Reason<span>Next review @cardWait.NextReviewAt.ToLocalTime().ToString("g")</span></span>
+                        }
                         <span class="ticket-footer"><span class="ticket-priority">@Present.Priority(item.Priority)</span><span class="ticket-owner">@Present.Initials(Board.OwnerDisplayName)</span></span>
                         @if (item.ArchivedAt.HasValue) { <span class="ticket-attention archived"><MudIcon Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" />Archived</span> }
                         else if (item.Status == Wire.PersonalTodoStatuses.Blocked) { <span class="ticket-attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />Needs attention</span> }
@@ -59,7 +64,7 @@
                 <div class="task-breadcrumb"><span><MudIcon Icon="@Icons.Material.Outlined.Layers" Size="Size.Small" />Personal work / <strong>@(_creating ? "New task" : Short(_selectedItem?.Id))</strong></span><button type="button" class="icon-action" disabled="@_busy" aria-label="Close ticket" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></div>
                 <h2>@(_creating ? "Create personal task" : _selectedItem?.Title)</h2>
                 @if (_selectedItem is { } typedItem) { <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@typedItem.Kind" /> }
-                <span class="task-status @(_selectedItem?.Status == Wire.PersonalTodoStatuses.Blocked ? "warning" : "")">@(_creating ? "To Do" : _selectedItem?.ArchivedAt.HasValue == true ? "Archived" : Present.StatusLabel(_selectedItem?.Status ?? ""))</span>
+                <span class="task-status @(_selectedItem?.Status == Wire.PersonalTodoStatuses.Blocked ? "warning" : "")">@(_creating ? "Ready" : _selectedItem?.ArchivedAt.HasValue == true ? "Archived" : Present.StatusLabel(_selectedItem?.Status ?? ""))</span>
             </header>
             @if (!string.IsNullOrWhiteSpace(_error)) { <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert> }
             @if (_creating)
