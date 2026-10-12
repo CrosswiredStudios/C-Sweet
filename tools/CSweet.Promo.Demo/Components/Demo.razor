@@ -1,0 +1,76 @@
+@page "/demo/{Campaign}/{Scene}"
+@inject DemoData Data
+@inject AppearanceState Appearance
+
+@if (_ready)
+{
+<LayoutView Layout="typeof(MainLayout)">
+    <div class="demo-label">Sample data · condensed workflow</div>
+    <div id="capture" data-campaign="@Campaign" data-scene="@Scene">
+    @switch (Scene)
+    {
+        case "chat":
+            <CSweet.UI.Pages.Communications OrganizationId="Data.OrganizationId" ChatId="Data.ChatId" />
+            break;
+        case "team":
+            <EmployeePortraitScope OrganizationId="Data.OrganizationId">
+            <section class="aurora-page employee-workspace employees-page">
+                <header class="page-header"><div><MudText Typo="Typo.overline">People &amp; agents</MudText><MudText Typo="Typo.h3">Employees</MudText><MudText Color="Color.Secondary">Your team, connected. Find people, explore teams, and plan your next hire.</MudText></div></header>
+                <div class="employee-directory">@foreach (var employee in Data.Employees) { <EmployeeDirectoryCard Employee="employee" /> }</div>
+            </section>
+            </EmployeePortraitScope>
+            break;
+        case "plan":
+            <section class="projects-workspace aurora-page project-detail-workspace">
+                <header class="project-header"><div><span class="portfolio-eyebrow">Your company at work</span><h1>@Data.ProjectName</h1><p>@Data.CompanyName</p></div></header>
+                <ProjectOverview Project="Data.Project" ProjectHref="@($"/demo/{Campaign}/board")" />
+            </section>
+            break;
+        case "board":
+            <EmployeePortraitScope OrganizationId="Data.OrganizationId">
+            <section class="projects-workspace aurora-page project-detail-workspace">
+                <header class="project-header"><div><span class="portfolio-eyebrow">Your company at work</span><h1>@Data.ProjectName</h1></div></header>
+                <WorkBoardWorkspace Detail="Data.Board" Sprints="Data.Sprints" Embedded="true" />
+            </section>
+            </EmployeePortraitScope>
+            break;
+        case "document":
+        case "report":
+            <section class="aurora-page business-workspace communications-document-layout demo-document">
+                <ArtifactWorkspace OrganizationId="Data.OrganizationId" ArtifactId="Data.DocumentId" />
+            </section>
+            break;
+        case "approval":
+            <section class="aurora-page business-workspace demo-approval">
+                <header class="project-header"><div><span class="portfolio-eyebrow">Signal Studio · YouTube</span><h1>Review the next move.</h1></div></header>
+                <ConnectorActionApprovalCard OrganizationId="Data.OrganizationId" Card="Data.CommentApproval" CanDecide="true" />
+            </section>
+            break;
+        case "calendar":
+            <CSweet.UI.Pages.Calendar OrganizationId="Data.OrganizationId" />
+            break;
+        case "evidence":
+            <section class="projects-workspace aurora-page project-detail-workspace">
+                <header class="project-header"><div><span class="portfolio-eyebrow">@Data.ProjectName</span><h1>Documents &amp; reviews</h1></div></header>
+                <ProjectResourceSection Title="Delivery evidence" Description="Inspect the documents and checks supporting the next decision." Resources="Data.Evidence" />
+            </section>
+            break;
+        default:
+            <p role="alert">Unknown demo scene: @Scene</p>
+            break;
+    }
+    </div>
+</LayoutView>
+}
+
+@code {
+    [Parameter] public string Campaign { get; set; } = "software";
+    [Parameter] public string Scene { get; set; } = "chat";
+    private bool _ready;
+    protected override async Task OnParametersSetAsync()
+    {
+        Data.Select(Campaign, Scene);
+        await Appearance.SetThemeAsync(Campaign == "game" ? "gold" : "aurora");
+        _ready = true;
+    }
+}

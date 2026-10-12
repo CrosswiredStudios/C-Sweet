@@ -1,0 +1,20 @@
+.attention-request { padding: 18px 20px; border: 1px solid var(--mud-palette-divider); border-left: 4px solid var(--mud-palette-primary); border-radius: 13px; background: var(--mud-palette-surface); overflow-wrap: anywhere; }
+.attention-request.approval { border-left-color: var(--mud-palette-warning); }
+.attention-request.hiring { border-left-color: var(--mud-palette-success); }
+.request-person { display: flex; align-items: center; gap: 12px; }
+.request-avatar { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; overflow: hidden; background: var(--mud-palette-primary-hover); color: var(--mud-palette-primary); }
+.request-avatar ::deep img { width: 100%; height: 100%; object-fit: cover; }
+.request-identity { min-width: 0; display: flex; flex-direction: column; }
+.request-identity strong { font-size: .9rem; font-weight: 600; }
+.request-identity span, .request-footer > span { font-size: .78rem; color: var(--mud-palette-text-secondary); }
+.request-kind { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; font-size: .75rem; font-weight: 600; white-space: nowrap; color: var(--mud-palette-primary); background: var(--mud-palette-primary-hover); }
+.approval .request-kind { color: var(--mud-palette-warning-darken); background: var(--mud-palette-warning-hover); }
+.hiring .request-kind { color: var(--mud-palette-success-darken); background: var(--mud-palette-success-hover); }
+h3 { font-size: 1rem; line-height: 1.5; font-weight: 600; margin: 15px 0 14px; white-space: pre-wrap; }
+.request-title { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.request-title > span { color: var(--mud-palette-text-secondary); font-size: .78rem; }
+p { margin: 0 0 14px; color: var(--mud-palette-text-secondary); font-size: .875rem; white-space: pre-wrap; }
+.request-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.request-actions { flex-shrink: 0; }
+.align-actions-right .request-actions { margin-left: auto; max-width: 100%; }
+@media (max-width: 600px) { .attention-request { padding: 16px; } .request-person { flex-wrap: wrap; } .request-kind { margin-left: 56px; } .request-footer { align-items: flex-start; flex-direction: column; } }

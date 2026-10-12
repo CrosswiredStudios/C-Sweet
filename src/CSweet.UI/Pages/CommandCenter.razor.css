@@ -8,6 +8,9 @@
 .overview-widget { grid-column: span 12; width: 100%; min-width: 0; background: var(--aurora-widget); border: 1px solid var(--aurora-widget-border); border-radius: 23px; box-shadow: 0 12px 32px #3c284d0b; backdrop-filter: blur(20px); }
 .overview-widget.is-dragging { opacity: .55; }
 .overview-widget.activity-widget, .overview-widget.attention-widget { grid-column: span 6; }
+.overview-widget.activity-widget { height: 560px; display: flex; flex-direction: column; align-self: start; overflow: hidden; }
+.activity-widget .widget-header { flex-shrink: 0; }
+.activity-widget .widget-content { flex: 1; min-height: 0; }
 @media(min-width: 1400px) {
     .overview-widget.activity-widget { grid-column: span 4; }
     .overview-widget.attention-widget { grid-column: span 8; }
@@ -15,16 +18,6 @@
 @media(max-width: 1000px) {
     .overview-widget.activity-widget, .overview-widget.attention-widget { grid-column: span 12; }
 }
-.attention-tabs { display: flex; gap: 4px; padding: 5px; border: 1px solid var(--activity-border); border-radius: 14px; background: var(--activity-tint); }
-.attention-tabs button { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; border: 0; border-radius: 10px; padding: 10px 8px; background: transparent; color: var(--activity-muted); font: inherit; font-size: .875rem; cursor: pointer; transition: background .18s ease, color .18s ease, box-shadow .18s ease; }
-.attention-tabs button[aria-selected=true] { color: var(--activity-text); background: var(--activity-raised); box-shadow: 0 2px 8px #30263f12; }
-.attention-tabs button:hover { color: var(--activity-accent); }
-.attention-tabs button:focus-visible { outline: 2px solid var(--activity-accent); outline-offset: 3px; }
-.tab-count { font-size: .7rem; font-variant-numeric: tabular-nums; border-radius: 20px; padding: 1px 6px; background: var(--activity-tint); color: var(--activity-accent); }
-.attention-panel { padding-top: 22px; }
-.attention-panel[hidden] { display: none; }
-.queue-summary { color: var(--activity-muted); font-size: .8rem; margin: 0 0 12px; }
-@media(prefers-reduced-motion: reduce) { .attention-tabs button { transition: none; } }
 .activity-widget .widget-header { border-color: var(--activity-border); flex-wrap: wrap; gap: 8px; }
 .activity-widget .widget-controls { flex-wrap: wrap; margin-left: auto; }
 .activity-widget .drag-handle { color: var(--activity-muted); }

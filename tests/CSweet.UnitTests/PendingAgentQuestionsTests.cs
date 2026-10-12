@@ -17,7 +17,7 @@ public sealed class PendingAgentQuestionsTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task OverviewGroupsAgentQuestionsAndInboxRendersResponseControls(bool summary)
+    public async Task OverviewShowsQuestionCardsAndInboxKeepsResponseControls(bool summary)
     {
         var org = Guid.NewGuid();
         var agent = Guid.NewGuid();
@@ -28,6 +28,7 @@ public sealed class PendingAgentQuestionsTests
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new QuestionsHandler(questions)) { BaseAddress = new Uri("http://localhost/") });
         services.AddSingleton<AppRealtimeState>();
         await using var provider = services.BuildServiceProvider();
@@ -36,21 +37,30 @@ public sealed class PendingAgentQuestionsTests
             (await renderer.RenderComponentAsync<PendingAgentQuestions>(ParameterView.FromDictionary(new Dictionary<string, object?>
             { ["OrganizationId"] = org, ["SummaryOnly"] = summary }))).ToHtmlString());
         Assert.Contains("Producer", html);
-        Assert.Contains("2 pending questions", html);
         if (summary)
         {
-            Assert.Contains("2 awaiting response", html);
-            Assert.Contains($"/organizations/{org}/approvals?tab=decisions", html);
+            Assert.Contains("2 pending", html);
+            Assert.Contains("Project question 1", html);
+            Assert.Contains("Project question 2", html);
+            Assert.Contains("Choose an answer", html);
+            Assert.Contains("request-avatar", html);
+            Assert.DoesNotContain("approvals?tab=decisions", html);
             Assert.DoesNotContain("Send response", html);
         }
         else
         {
+            Assert.Contains("2 pending questions", html);
             Assert.Contains("Project question 1", html);
             Assert.Contains("Project question 2", html);
             Assert.Contains("Send response", html);
             Assert.Contains("View conversation", html);
             Assert.Contains("type=\"radio\"", html);
         }
+    }
+    private sealed class TestNavigation : NavigationManager
+    {
+        public TestNavigation() => Initialize("http://localhost/", "http://localhost/");
+        protected override void NavigateToCore(string uri, bool forceLoad) { }
     }
     private sealed class QuestionsHandler(List<PendingAgentQuestionResponse> questions) : HttpMessageHandler
     {

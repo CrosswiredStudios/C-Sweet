@@ -20,7 +20,7 @@ public partial class CurrentActivity
     private readonly List<CurrentActivityFeedEntry> _feed = [];
     private readonly HashSet<(Guid, string)> _seen = [];
     private CancellationTokenSource _requests = new(), _feedRequests = new();
-    private bool _projectsOnly, _expanded, _loading, _disposed, _connected, _refreshQueued, _pumping;
+    private bool _projectsOnly, _loading, _disposed, _connected, _refreshQueued, _pumping;
     private bool _wide, _follow = true, _feedLoading, _feedHasMore, _feedOmitted, _evidenceUnavailable;
     private string? _error, _feedError;
     private long _sequence;
@@ -30,14 +30,7 @@ public partial class CurrentActivity
     private PeriodicTimer? _clock;
     private bool _animate = true;
 
-    private IEnumerable<CurrentActivityItem> VisibleRows
-    {
-        get
-        {
-            var ordered = _rows.OrderBy(x => DisplayState(x) == "Executing" ? 0 : 1);
-            return _expanded ? ordered : ordered.Take(3);
-        }
-    }
+    private IEnumerable<CurrentActivityItem> VisibleRows => _rows.OrderBy(x => DisplayState(x) == "Executing" ? 0 : 1);
     private IEnumerable<CurrentActivityFeedEntry> FeedRows => _feed.GroupBy(x => x.Key).Select(group =>
     {
         var first = group.OrderBy(x => x.Sequence).First();
@@ -81,7 +74,6 @@ public partial class CurrentActivity
         _loading = true; _error = null;
         try
         {
-            var target = Math.Max(50, _rows.Count);
             var items = new List<CurrentActivityItem>();
             CurrentActivityPage? page;
             var offset = 0;
@@ -90,8 +82,10 @@ public partial class CurrentActivity
                 page = await Http.GetFromJsonAsync<CurrentActivityPage>(ListUrl(offset), token) ?? throw new HttpRequestException("Empty activity response.");
                 if (token.IsCancellationRequested) return;
                 items.AddRange(page.Items);
+                if (page.NextOffset is int nextOffset && nextOffset <= offset)
+                    throw new HttpRequestException("Activity pagination did not advance.");
                 offset = page.NextOffset ?? 0;
-            } while (offset > 0 && items.Count < target);
+            } while (offset > 0);
             _page = page; _rows.Clear(); _rows.AddRange(items.DistinctBy(x => x.Key));
             if (_selected is { } selected)
             {
@@ -120,20 +114,6 @@ public partial class CurrentActivity
     }
 
     private string ListUrl(int offset) => $"api/core/organizations/{OrganizationId}/dashboard/activity?offset={offset}&projectsOnly={_projectsOnly.ToString().ToLowerInvariant()}";
-    private async Task LoadMoreAsync()
-    {
-        if (_loading || _page?.NextOffset is not int offset) return;
-        var token = _requests.Token; _loading = true;
-        try
-        {
-            var page = await Http.GetFromJsonAsync<CurrentActivityPage>(ListUrl(offset), token);
-            if (page is not null && !token.IsCancellationRequested) { _page = page; foreach (var item in page.Items) if (_rows.All(x => x.Key != item.Key)) _rows.Add(item); }
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception error) when (error is HttpRequestException or JsonException) { if (!token.IsCancellationRequested) _error = "More activity could not be loaded. Refresh to try again."; }
-        finally { if (!token.IsCancellationRequested) _loading = false; }
-    }
-
     private Task ToggleStreamAsync(CurrentActivityItem item)
     {
         if (_selected?.Key != item.Key) return OpenAsync(item);

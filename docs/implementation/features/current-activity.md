@@ -12,7 +12,9 @@ the Overview header no longer contains its own appearance picker.
 toolbar offset, so the background reaches the viewport edges beside navigation.
 The shared navigation uses dark plum and lavender accents, switching to charcoal
 and gold with the overview's Black & Gold theme. Cards retain their inner spacing.
-Widgets sharing a grid row stretch to the tallest widget. The compact page header
+The Current Activity widget keeps a fixed 560px outer height across loading, empty,
+and populated states, with its header and footer outside the scrolling list. Other
+widgets sharing a grid row stretch to the tallest widget. The compact page header
 omits reorder guidance, save confirmations, reset, and manual refresh; existing
 realtime and reconnect subscriptions keep data current. Failed updates retain a retry action.
 `DashboardWidgets.Restore` merges legacy action queues at the first queue's saved
@@ -33,9 +35,12 @@ deduplication. Confirmed executing work sorts first, followed by project categor
 creation time and stable row key. `ReadExecutionAsync` resolves provider queues and
 stale progress for potentially executing candidates before pagination, reusing those
 snapshots during rendering. Full provider stream bodies remain on demand. The client
-reapplies execution priority before its three-card preview as leases and progress age.
-The widget initially shows three activity cards; Show all opens a bounded scrolling
-list, with Load more for additional pages. `ActivityCard` uses readable headings for
+reapplies execution priority across the full list as leases and progress age.
+`CurrentActivity.RefreshAsync` automatically follows the authorized 50-item pages
+to the end and deduplicates row keys before replacing the displayed list. Filters,
+organization changes, and disposal cancel stale page reads. The full list is always
+available by scrolling, with no Show all, Show fewer, or Load more work action.
+`ActivityCard` uses readable headings for
 collaboration, review, Communications, model calls, and task work. Linked task titles
 open the board's `item` deep link. Personal tasks use the authorized board owner's
 employee page with `tab=personal-board&item=...`, including the diagnostic panel's
@@ -49,6 +54,9 @@ or “Agent coordination.” Project links use the authorized task board's Works
 missing associations never produce guessed project links. The active participant
 has a pulsing circle behind their portrait; reduced motion and Pause animation
 retain a static highlight. Waiting, recovering and unconfirmed rows do not pulse.
+`ActivityCard` places the current action or “What's needed” beside the agent identity
+in a compact summary row; needs-attention rows retain their attention label. Narrow
+cards stack the summary using container queries, including collaboration layouts.
 Waiting cards emphasize the reported dependency or queue reason. Recent progress
 and Technical details disclosures have been removed from cards. Peek at provider
 stream opens the existing authorized feed inline and fetches only on demand.

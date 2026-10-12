@@ -1,0 +1,15 @@
+{
+  "name": "csweet-promo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "capture": "node --experimental-strip-types capture.ts",
+    "preview": "node --experimental-strip-types serve.ts",
+    "render": "node --experimental-strip-types render.ts",
+    "audio": "python audio.py",
+    "verify": "node --experimental-strip-types verify.ts",
+    "test": "node --experimental-strip-types --test timeline.test.ts"
+  },
+  "devDependencies": { "playwright": "1.64.0" },
+  "engines": { "node": ">=22.18.0" }
+}

@@ -19,13 +19,13 @@
             <button type="button" class="activity-refresh" aria-label="Refresh current activity" @onclick="RefreshAsync" disabled="@_loading"><MudIcon Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" /></button>
         </div>
     </div>
-    @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert> }
-    @if (_loading && _page is null) { <MudProgressLinear Indeterminate="true" /> }
-    @if (_page is not null && _rows.Count == 0)
-    {
-        <div class="activity-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /><span>No active agent work is visible in this scope.</span></div>
-    }
-    <div class="activity-rows @(_expanded ? "expanded" : "")">
+    <div class="activity-rows" role="region" aria-label="Current activity list" tabindex="0" aria-busy="@(_loading ? "true" : "false")">
+        @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert> }
+        @if (_loading && _page is null) { <MudProgressLinear Indeterminate="true" /> }
+        @if (_page is not null && _rows.Count == 0)
+        {
+            <div class="activity-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /><span>No active agent work is visible in this scope.</span></div>
+        }
         @foreach (var item in VisibleRows)
         {
             <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" Inspect="ToggleStreamAsync">
@@ -61,15 +61,9 @@
             </ActivityCard>
         }
     </div>
-    @if (_page is not null && _rows.Count > 0)
-    {
-        <footer class="activity-footer">
-            <span>Checked @Age(_page.CheckedAt) ago · @(VisibleRows.Count()) of @_page.Total</span>
-            <button type="button" aria-pressed="@(!_animate ? "true" : "false")" @onclick="() => _animate = !_animate">@(_animate ? "Pause animation" : "Resume animation")</button>
-            @if (!_expanded && _page.Total > 3) { <button type="button" @onclick="() => _expanded = true">Show all @_page.Total</button> }
-            else if (_expanded) { <button type="button" @onclick="() => _expanded = false">Show fewer</button> }
-            @if (_expanded && _page.NextOffset.HasValue) { <button type="button" disabled="@_loading" @onclick="LoadMoreAsync">Load more work</button> }
-        </footer>
-    }
+    <footer class="activity-footer">
+        <span>@if (_page is not null) { <text>Checked @Age(_page.CheckedAt) ago · @_rows.Count of @_page.Total</text> }</span>
+        <button type="button" aria-pressed="@(!_animate ? "true" : "false")" @onclick="() => _animate = !_animate">@(_animate ? "Pause animation" : "Resume animation")</button>
+    </footer>
 
 </div>

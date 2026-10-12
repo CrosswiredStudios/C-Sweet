@@ -29,6 +29,7 @@
 .app-nav-shell ::deep .mud-nav-link,
 .nav-footer ::deep .mud-nav-link {
     min-height: 3.25rem;
+    align-items: center;
     border-radius: 9px;
     margin-bottom: 0.3rem;
     padding-inline: 0.9rem;

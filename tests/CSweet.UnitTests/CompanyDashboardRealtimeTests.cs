@@ -68,24 +68,22 @@ public sealed class CompanyDashboardRealtimeTests
     }
 
     [Fact]
-    public async Task ExpansionControlsShowAllAndCollapseEachGroupIndependently()
+    public async Task ExpansionShowsAndCollapsesTheMixedQueue()
     {
         var handler = new Handler { ItemCount = 6 };
         await using var fixture = new Fixture(handler);
         var output = await fixture.RenderAsync(Guid.NewGuid());
         Assert.DoesNotContain(">Plan 5<", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
         var buttons = fixture.Activator.Buttons.Where(x => x.UserAttributes?.ContainsKey("aria-expanded") == true).ToArray();
-        Assert.Equal(2, buttons.Length);
+        Assert.Single(buttons);
         await fixture.Renderer.Dispatcher.InvokeAsync(() => buttons[0].OnClick.InvokeAsync(new MouseEventArgs()));
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains(">Plan 5<", html);
-        Assert.DoesNotContain(">Suggestion 5<", html);
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => buttons[1].OnClick.InvokeAsync(new MouseEventArgs()));
-        Assert.Contains(">Suggestion 5<", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        Assert.Contains(">Suggestion 5<", html);
         await fixture.Renderer.Dispatcher.InvokeAsync(() => buttons[0].OnClick.InvokeAsync(new MouseEventArgs()));
         html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.DoesNotContain(">Plan 5<", html);
-        Assert.Contains(">Suggestion 5<", html);
+        Assert.DoesNotContain(">Suggestion 5<", html);
     }
 
     private sealed class Fixture : IAsyncDisposable

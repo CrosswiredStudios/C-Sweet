@@ -13,6 +13,8 @@ public sealed class EmployeePortraits
     private readonly Dictionary<Guid, string> _images = new();
     private readonly Dictionary<Guid, string> _roles = new();
     private readonly Dictionary<Guid, string> _accents = new();
+    private readonly Dictionary<string, Guid> _employeeNames = new(StringComparer.OrdinalIgnoreCase);
+    public Guid? FindEmployee(string? name) => name is not null && _employeeNames.TryGetValue(name, out var id) ? id : null;
     public string? Find(Guid? employeeId) => employeeId is { } id && _images.TryGetValue(id, out var image) ? image : null;
 
     public string? FindRole(Guid? employeeId) => employeeId is { } id && _roles.TryGetValue(id, out var role) ? role : null;
@@ -22,6 +24,10 @@ public sealed class EmployeePortraits
         IReadOnlyList<AgentInstallationResponse> installations, IReadOnlyList<AvailableAgent> agents)
     {
         var result = new EmployeePortraits();
+        foreach (var group in employees.GroupBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (group.Count() == 1 && group.Single().EmployeeType == 1) result._employeeNames[group.Key] = group.Single().Id;
+        }
         foreach (var group in agents.Where(x => !string.IsNullOrWhiteSpace(x.RoleKey) && !string.IsNullOrWhiteSpace(x.RoleName))
                      .GroupBy(x => x.RoleKey!, StringComparer.Ordinal))
         {

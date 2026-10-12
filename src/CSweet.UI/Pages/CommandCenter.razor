@@ -48,51 +48,13 @@
             <div class="widget-content">
                 @if (widget == "attention")
                 {
-                    <div class="attention-tabs" role="tablist" aria-label="Action queues">
-                        @for (var tabIndex = 0; tabIndex < AttentionTabs.Length; tabIndex++)
-                        {
-                            var tab = tabIndex;
-                            <button @ref="_attentionTabButtons[tab]" type="button" role="tab" id="@($"attention-tab-{tab}")"
-                                    aria-controls="@($"attention-panel-{tab}")" aria-selected="@(_attentionTab == tab ? "true" : "false")"
-                                    tabindex="@(_attentionTab == tab ? 0 : -1)" @onclick="() => _attentionTab = tab" @onkeydown="e => NavigateAttentionAsync(e, tab)">
-                                @AttentionTabs[tab]
-                                @if (tab == 1 && _approvals is not null) { <span class="tab-count">@PendingApprovals.Count()</span> }
-                                @if (tab == 2 && _approvals is not null && _hiring is not null) { <span class="tab-count">@(PendingHiringApprovals.Count() + PendingRecommendations.Count())</span> }
-                            </button>
-                        }
-                    </div>
-                    <div class="attention-panel" role="tabpanel" id="attention-panel-0" aria-labelledby="attention-tab-0" aria-label="Decisions" tabindex="0" hidden="@(_attentionTab != 0)">
-                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" />
-                    </div>
-                    <div class="attention-panel" role="tabpanel" id="attention-panel-1" aria-labelledby="attention-tab-1" aria-label="CEO approvals" tabindex="0" hidden="@(_attentionTab != 1)">
-                        @if (_errors.GetValueOrDefault("approvals") is { } approvalError)
-                        {
-                            <MudAlert Severity="Severity.Warning">@approvalError</MudAlert>
-                        }
-                        else if (_approvals is not null)
-                        {
-                            <p class="queue-summary">@PendingApprovals.Count() pending</p>
-                            @if (!PendingApprovals.Any())
-                            {
-                                <div class="empty-inline"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><MudText>No approvals need your action.</MudText></div>
-                            }
-                            @foreach (var approval in PendingApprovals.Take(5))
-                            {
-                                <div class="approval-row">
-                                    <div><MudText Typo="Typo.subtitle1">@approval.Title</MudText><MudText Color="Color.Secondary">@approval.Summary</MudText><MudText Typo="Typo.caption">@approval.RequestedBy · Requested @approval.CreatedAt.ToLocalTime().ToString("g")</MudText></div>
-                                    <MudButton Href="@ApprovalsHref" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
-                                </div>
-                            }
-                            <MudButton Href="@ApprovalsHref" Size="Size.Small" Class="mt-2">View all approvals</MudButton>
-                        }
-                        else { <MudText>Loading approvals…</MudText> }
-                    </div>
-                    <div class="attention-panel" role="tabpanel" id="attention-panel-2" aria-labelledby="attention-tab-2" aria-label="Hiring" tabindex="0" hidden="@(_attentionTab != 2)">
-                        <CompanyHiringSummary @key="OrganizationId" OrganizationId="OrganizationId"
-                            Approvals="PendingHiringApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
+                    <EmployeePortraitScope OrganizationId="OrganizationId">
+                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true"
+                            Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
                             ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
-                            ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")" />
-                    </div>
+                            ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
+                            RefreshRequested="RefreshAsync" />
+                    </EmployeePortraitScope>
                 }
                 else if (ErrorFor(widget) is { } error)
                 {
@@ -192,24 +154,9 @@
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
     private int _activityRefreshVersion;
-    private static readonly string[] AttentionTabs = ["Decisions", "Approvals", "Hiring"];
-    private readonly ElementReference[] _attentionTabButtons = new ElementReference[3];
-    private int _attentionTab;
-    private async Task NavigateAttentionAsync(KeyboardEventArgs e, int tab)
-    {
-        var next = e.Key switch { "ArrowRight" => (tab + 1) % 3, "ArrowLeft" => (tab + 2) % 3, "Home" => 0, "End" => 2, _ => -1 };
-        if (next < 0) return;
-        _attentionTab = next;
-        await _attentionTabButtons[next].FocusAsync(preventScroll: true);
-    }
-    private string ApprovalsHref => $"/organizations/{OrganizationId}/approvals";
     private IEnumerable<ApprovalDashboardItemResponse> ActionableApprovals => (_approvals?.Items ?? [])
         .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
         .OrderBy(x => x.CreatedAt);
-    private static bool IsHiringApproval(ApprovalDashboardItemResponse item) =>
-        item.Kind is ApprovalDashboardKinds.ResourceChange or ApprovalDashboardKinds.HiringWorkflow;
-    private IEnumerable<ApprovalDashboardItemResponse> PendingApprovals => ActionableApprovals.Where(x => !IsHiringApproval(x));
-    private IEnumerable<ApprovalDashboardItemResponse> PendingHiringApprovals => ActionableApprovals.Where(IsHiringApproval);
     private IEnumerable<HiringRecommendationResponse> PendingRecommendations => (_hiring?.Recommendations ?? [])
         .Where(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase) && x.RemainingHeadcount > 0)
         .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt);
@@ -225,7 +172,7 @@
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
         _organization = null; _approvals = null; _hiring = null; _dashboard = null; _portfolio = null;
-        _refreshQueued = false; _attentionTab = 0;
+        _refreshQueued = false;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
         await RefreshAsync();
     }

@@ -1,0 +1,10 @@
+/* Only the demo stage geometry is controlled here. Product components retain their source styles. */
+html,body { margin:0; }
+#capture { min-height:850px; }
+.demo-label { position:fixed; right:26px; top:12px; z-index:1400; font:11px Arial,sans-serif; letter-spacing:.06em; color:#68738a; }
+.employee-directory { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; margin-top:26px; }
+.demo-document { min-height:900px; display:flex; justify-content:center; padding:24px; }
+.demo-document .artifact-workspace { position:relative!important; inset:auto!important; width:100%!important; max-width:1080px!important; height:850px; }
+.demo-approval { padding:36px; min-height:850px; }
+.demo-approval > .mud-paper { max-width:900px; }
+.mud-layout[data-appearance=gold] .demo-label { color:#b3aea4; }

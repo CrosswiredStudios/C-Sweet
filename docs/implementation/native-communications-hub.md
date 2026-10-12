@@ -32,6 +32,21 @@ Agents may also attach a platform-resolved workflow action with `platform.user-a
 
 ## Project decision routing
 
+On company Overview, `CommandCenter` places `PendingAgentQuestions` inside
+`EmployeePortraitScope`. Each pending question renders `AgentQuestionCard` in Overview
+mode, using the requesting employee ID with `PersonAvatarContent` for the installed
+agent portrait and showing the full prompt. **Choose an answer** opens a menu with the
+decision's options and recommendation/description labels. Choosing a predefined option
+posts to the existing decision response endpoint with the card's stable idempotency key,
+then removes that decision immediately, reloads authoritative pending questions, and shows
+confirmation on Overview. `PendingAgentQuestions.OnAnsweredAsync` remembers completed
+decision IDs for the current organization so a racing or stale read cannot reintroduce
+them; organization changes clear that set. `AgentQuestionCard` also blocks further
+submissions after success. Only a confirmed successful answer removes the card.
+Errors keep the card actionable for retry. **Something Else** (when free text is allowed)
+and `provide-direction` options open the question's conversation for text entry without
+posting an answer. The normal Approvals decision inbox retains its expanded response form.
+
 `WorkstreamGovernanceCapabilityHandler.RequestDecisionAsync` records a decision and emits
 `DecisionRequestedV1` for subscribed project agents. `WorkstreamDecisionChatReview.PresentAsync`
 creates a human review card only when the requesting agent reports directly to an active

@@ -21,24 +21,36 @@ fulfilled recommendations disable contextual hiring. Automatic progress is persi
 
 ## Company overview hiring row
 
-`CommandCenter` renders the reorderable **Hiring** row through `CompanyHiringSummary`.
-Its **Approvals awaiting you** group contains pending, decidable `ResourceChange` and
-`HiringWorkflow` items from `ApprovalDashboardService`. Those items are excluded from
-the overview's **CEO approvals** preview and count, while the full inbox and sidebar
-retain their existing counts and authority rules. Review links supply `approvalId` to
+`CommandCenter` renders one **Needs your attention** queue through `PendingAgentQuestions`
+and `AttentionRequestCard`. Pending, decidable `ResourceChange` and `HiringWorkflow`
+items from `ApprovalDashboardService` use the **Hiring** card design; other actionable
+approvals use **Approval**. The full inbox and sidebar retain their existing counts and
+authority rules. Review links supply `approvalId` to
 `Approvals`, which puts the actionable selected request first and highlights it. A
 completed, unavailable, or non-decidable request produces a notice without expanding access.
 
-The **Hiring suggestions** group reads the company's pending recommendation backlog,
+Hiring suggestion cards read the company's pending recommendation backlog,
 including recommendations never materialized as chat actions. `CompanyDashboardEndpoints`
 maps `GET /api/core/organizations/{organizationId}/dashboard/hiring` to
 `IHiringService.ListRecommendationsAsync` and returns `HiringBacklogResponse` only to
 active managers and owners in that organization. Suggestions with remaining headcount
 are ordered by priority, then creation date, and link to their existing `HiringUrl`.
-Both groups preview five items with independent expansion, loading, and error states.
+The queue previews five approvals and five recommendations with a shared expansion
+control. Approval, recommendation, and question loading/errors remain independent.
 
-`DashboardWidgets` groups Hiring, Approvals, and Decisions in the tabbed **Needs your
-attention** widget. Legacy layouts merge these queues at the first saved queue position.
+`OverviewHiringCandidateCard` shows the selected candidate from `SelectedCatalogAgentJson`,
+including portrait, publisher, listed cost (or **Cost unavailable**), and
+`SelectionRationale` inside one tinted panel. Candidate identity and rationale sit in two
+columns with a vertical divider, stacking with a horizontal divider on narrow screens.
+The right-aligned **Hire** action opens the shared `AgentHireDialog` with the selected
+candidate, role title, and recommendation ID. **Browse Candidates** uses `HiringUrl`,
+retaining the approved plan context. Missing or malformed candidate data leaves browsing
+available without fabricating a candidate or cost. The dialog's `Hired` callback refreshes
+the dashboard backlog. `EmployeePortraits.FindEmployee` resolves proposer portraits only
+for an unambiguous employee name in the current organization.
+
+`DashboardWidgets` groups Hiring, Approvals, and Decisions in the **Needs your
+attention** widget without tabs. Legacy layouts merge these queues at the first saved queue position.
 `CSweetDbContext.CaptureHiringRecommendationEvents` captures `WorkforcePlan` changes
 into the same save's application realtime outbox as
 `AppRealtimeEvents.HiringRecommendationsChanged`. `CommandCenter` re-reads current

@@ -16,7 +16,7 @@ namespace CSweet.UnitTests;
 public sealed class CurrentActivityRenderingTests
 {
     [Fact]
-    public async Task CollapsedListKeepsLiveExecutionAheadOfExpiredAndWaitingRows()
+    public async Task FullListKeepsLiveExecutionAheadOfExpiredAndWaitingRows()
     {
         await using var f = new Fixture();
         var row = f.Handler.Item;
@@ -28,7 +28,68 @@ public sealed class CurrentActivityRenderingTests
         var html = await f.RenderAsync();
         Assert.True(html.IndexOf("Live execution", StringComparison.Ordinal) < html.IndexOf("Expired work", StringComparison.Ordinal));
         Assert.Contains("Waiting work", html);
-        Assert.DoesNotContain("Stale work", html);
+        Assert.Contains("Stale work", html);
+        Assert.Equal(4, html.Split("data-activity-kind=").Length - 1);
+        Assert.DoesNotContain("Show all", html);
+        Assert.DoesNotContain("Show fewer", html);
+        Assert.DoesNotContain("Load more work", html);
+    }
+
+    [Fact]
+    public async Task FullListAutomaticallyReadsEveryPageAndDeduplicatesRows()
+    {
+        await using var f = new Fixture();
+        var items = Enumerable.Range(0, 121).Select(i => f.Handler.Item with { Key = $"task:{i}", Title = $"Activity {i}" }).ToList();
+        items.Insert(50, items[0]); // A row replayed across a page boundary.
+        f.Handler.Items = items;
+        var html = await f.RenderAsync();
+        Assert.Equal(new[] { 0, 50, 100 }, f.Handler.ListOffsets);
+        Assert.Equal(121, html.Split("data-activity-kind=").Length - 1);
+        Assert.Contains("Activity 120", html);
+        Assert.Equal(0, f.Handler.FeedRequests);
+        Assert.DoesNotContain("Show all", html);
+        Assert.DoesNotContain("Load more work", html);
+    }
+
+    [Fact]
+    public async Task RefreshReplacesFullListWhenItShrinksAndGrowsAndClosesRemovedStream()
+    {
+        await using var f = new Fixture();
+        var items = Enumerable.Range(0, 75).Select(i => f.Handler.Item with { Key = $"task:{i}", Title = $"Activity {i}" }).ToArray();
+        f.Handler.Items = items;
+        await f.RenderAsync();
+        await f.InvokeAsync("OpenAsync", items[^1]);
+        Assert.Contains("data-activity-stream", await f.HtmlAsync());
+        f.Handler.Items = items.Take(2).ToArray();
+        await f.InvokeAsync("RefreshAsync");
+        var html = await f.HtmlAsync();
+        Assert.Equal(2, html.Split("data-activity-kind=").Length - 1);
+        Assert.DoesNotContain("data-activity-stream", html);
+        f.Handler.Items = items;
+        await f.InvokeAsync("RefreshAsync");
+        Assert.Equal(75, (await f.HtmlAsync()).Split("data-activity-kind=").Length - 1);
+        f.Handler.Items = [];
+        await f.InvokeAsync("RefreshAsync");
+        html = await f.HtmlAsync();
+        Assert.Contains("No active agent work", html);
+        Assert.Contains("activity-footer", html);
+    }
+
+    [Fact]
+    public async Task ChangingFilterCancelsRemainingPagesWithoutDisplayingOldScope()
+    {
+        await using var f = new Fixture();
+        f.Handler.Items = Enumerable.Range(0, 75).Select(i => f.Handler.Item with { Key = $"task:{i}", Title = $"Old scope {i}" }).ToArray();
+        f.Handler.ProjectsItems = [f.Handler.Item with { Key = "project:1", Title = "Project scope" }];
+        f.Handler.BlockedOffset = 50;
+        var rendering = f.RenderAsync();
+        await f.Handler.BlockedRead.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await f.InvokeAsync("FilterAsync", true);
+        await rendering;
+        var html = await f.HtmlAsync();
+        Assert.Contains("Project scope", html);
+        Assert.DoesNotContain("Old scope", html);
+        Assert.Equal(1, html.Split("data-activity-kind=").Length - 1);
     }
 
     [Fact]
@@ -91,7 +152,7 @@ public sealed class CurrentActivityRenderingTests
             CurrentAction = "Queued while this employee handles another request" };
         var html = await f.RenderAsync();
         Assert.Contains("Review queued", html);
-        Assert.Contains("What&#x27;s next", html);
+        Assert.Contains("What&#x27;s needed", html);
         Assert.DoesNotContain("activity-task-link", html);
         Assert.DoesNotContain("Working now", html);
     }
@@ -190,6 +251,10 @@ public sealed class CurrentActivityRenderingTests
     private sealed class Handler : HttpMessageHandler
     {
         public IReadOnlyList<CurrentActivityItem>? Items { get; set; }
+        public IReadOnlyList<CurrentActivityItem>? ProjectsItems { get; set; }
+        public List<int> ListOffsets { get; } = [];
+        public int? BlockedOffset { get; set; }
+        public TaskCompletionSource BlockedRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int FeedRequests { get; private set; }
         public bool Forbidden { get; set; }
         private readonly Guid first = Guid.NewGuid(), second = Guid.NewGuid();
@@ -197,19 +262,31 @@ public sealed class CurrentActivityRenderingTests
             Guid.NewGuid(), "Morgan", "Keyboard navigation", "ENG-142", "Project", "Customer portal", "Executing", "Running checks",
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(3), "Test provider", "test-model", true,
             [new("a", "Progress", "Read criteria", DateTimeOffset.UtcNow.AddMinutes(-2)), new("b", "Progress", "Updated focus", DateTimeOffset.UtcNow.AddMinutes(-1))]);
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             object result;
             if (request.RequestUri!.AbsolutePath.EndsWith("/feed"))
             {
                 FeedRequests++;
-                if (Forbidden) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+                if (Forbidden) return new HttpResponseMessage(HttpStatusCode.Forbidden);
                 result = new CurrentActivityFeedPage([
                     new(second, 1, "reasoning", "Reasoning", "Provider reasoning", "second <script>", DateTimeOffset.UtcNow, true, 2),
                     new(first, 2, "reasoning", "Reasoning", "Provider reasoning", "first ", DateTimeOffset.UtcNow, true, 1)], 2, false, false, false);
             }
-            else result = new CurrentActivityPage(DateTimeOffset.UtcNow, Items?.Count ?? 1, Items ?? [Item], null);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(result, result.GetType()) });
+            else
+            {
+                var offset = int.Parse(request.RequestUri.Query.TrimStart('?').Split('&').Single(x => x.StartsWith("offset=", StringComparison.Ordinal))["offset=".Length..]);
+                ListOffsets.Add(offset);
+                if (BlockedOffset == offset)
+                {
+                    BlockedRead.TrySetResult();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                }
+                var items = request.RequestUri.Query.Contains("projectsOnly=true", StringComparison.Ordinal) ? ProjectsItems ?? Items ?? [Item] : Items ?? [Item];
+                var page = items.Skip(offset).Take(50).ToArray();
+                result = new CurrentActivityPage(DateTimeOffset.UtcNow, items.Count, page, offset + page.Length < items.Count ? offset + page.Length : null);
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(result, result.GetType()) };
         }
     }
     private sealed class Navigation : NavigationManager { public Navigation() => Initialize("http://localhost/", "http://localhost/"); protected override void NavigateToCore(string uri, bool forceLoad) { } }

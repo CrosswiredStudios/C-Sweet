@@ -1,8 +1,8 @@
-.current-activity { position: relative; color: var(--activity-text, var(--mud-palette-text-primary)); }
+.current-activity { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--activity-text, var(--mud-palette-text-primary)); }
 .motion-paused ::deep .activity-agent-avatar.active::before { animation: none; opacity: .18; }
 .activity-toolbar, .activity-counts, .activity-filters, .activity-meta, .activity-footer, .activity-popover-header, .activity-person, .activity-feed-header, .activity-feed-controls, .activity-feed-entry > div, .activity-detail-links { display: flex; align-items: center; gap: 10px; }
 .activity-toolbar, .activity-footer, .activity-popover-header, .activity-feed-header, .activity-feed-controls, .activity-feed-entry > div { justify-content: space-between; }
-.activity-toolbar { flex-wrap: wrap; margin-bottom: 12px; }
+.activity-toolbar { flex-wrap: wrap; flex-shrink: 0; margin-bottom: 12px; }
 .activity-counts { flex-wrap: wrap; font-size: .8rem; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-counts strong { color: var(--activity-text, var(--mud-palette-text-primary)); font-weight: 500; }
 .activity-connection { font-size: .75rem; }
@@ -13,8 +13,7 @@ button { font: inherit; cursor: pointer; }
 .activity-filters button { border: 0; background: transparent; color: var(--activity-muted, var(--mud-palette-text-secondary)); border-radius: 5px; padding: 5px 9px; font-size: .75rem; }
 .activity-filters button[aria-pressed=true] { background: var(--activity-panel, var(--mud-palette-surface)); color: var(--activity-text, var(--mud-palette-text-primary)); box-shadow: 0 1px 3px #00000012; }
 .activity-refresh { display: inline-flex; }
-.activity-rows { display: grid; gap: 12px; padding-bottom: 12px; }
-.activity-rows.expanded { max-height: 640px; overflow: auto; overscroll-behavior: contain; }
+.activity-rows { display: grid; align-content: start; flex: 1; min-height: 0; gap: 12px; padding: 0 6px 12px 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: var(--activity-border, var(--mud-palette-divider)) transparent; }
 .activity-avatar { width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; background: var(--activity-tint, var(--mud-palette-background-gray)); }
 .activity-status { flex-shrink: 0; border-radius: 5px; padding: 3px 7px; font-size: .7rem; background: var(--mud-palette-warning-hover); color: var(--mud-palette-warning-darken); }
 .activity-status.executing { background: var(--mud-palette-success-hover); color: var(--mud-palette-success-darken); }
@@ -23,7 +22,7 @@ button { font: inherit; cursor: pointer; }
 .activity-meta a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .activity-icon-button { border: 0; padding: 3px; background: transparent; color: var(--activity-muted, var(--mud-palette-text-secondary)); align-self: start; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; min-height: 30px; }
 .activity-icon-button:hover { background: var(--mud-palette-action-default-hover); }
-.activity-footer { border-top: 1px solid var(--activity-border, var(--mud-palette-divider)); padding-top: 12px; flex-wrap: wrap; font-size: .73rem; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
+.activity-footer { flex-shrink: 0; border-top: 1px solid var(--activity-border, var(--mud-palette-divider)); padding-top: 12px; flex-wrap: wrap; font-size: .73rem; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-footer button, .activity-feed-header button, .activity-feed-controls button { background: transparent; border: 0; color: var(--activity-accent, var(--mud-palette-primary)); padding: 4px 0; font-size: .8rem; }
 .activity-empty { display: flex; align-items: center; gap: 10px; padding: 18px 0; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-stream { min-width: 0; margin-top: 10px; padding: 16px; border: 1px solid var(--activity-border, var(--mud-palette-divider)); border-radius: 14px; background: var(--activity-panel, var(--mud-palette-surface)); }

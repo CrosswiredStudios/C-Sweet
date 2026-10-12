@@ -1,0 +1,74 @@
+@using AvailableAgent = CSweet.Agent.SDK.AvailableAgent
+@using CSweet.Contracts.Core
+@using System.Text.Json
+
+<AttentionRequestCard Kind="Hiring" EmployeeId="ProposerId" Name="@Proposer" Context="@Context"
+    Prompt="@Recommendation.Title" PromptMeta="@($"{Recommendation.RemainingHeadcount} of {Recommendation.Headcount} positions remaining")" RightAlignedActions="true">
+    <BodyContent>
+        @if (_candidate is not null)
+        {
+            <div class="overview-candidate" aria-label="Recommended candidate">
+                <div class="candidate-identity">
+                    <img src="@CandidateImage" alt="@_candidate.Name" loading="lazy" referrerpolicy="no-referrer" @onerror="() => _imageFailed = true" />
+                    <div><span class="candidate-kicker">Recommended agent</span><strong>@_candidate.Name</strong><span>@_candidate.Publisher</span><span>@(_candidate.Price is { } price ? $"{price:0.##} {_candidate.Currency}" : "Cost unavailable")</span></div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Recommendation.SelectionRationale))
+                {
+                    <div class="candidate-rationale"><span class="candidate-kicker">Why this agent</span><p>@Recommendation.SelectionRationale</p></div>
+                }
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(Recommendation.SelectionRationale))
+        {
+            <p class="selection-context">@Recommendation.SelectionRationale</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(Recommendation.Objective))
+        {
+            <details class="candidate-scope"><summary>Role scope</summary><p>@Recommendation.Objective</p></details>
+        }
+    </BodyContent>
+    <ChildContent>
+        <div class="candidate-actions">
+            @if (_candidate is not null)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenHireAsync">Hire @_candidate.Name</MudButton>
+            }
+            <MudButton Href="@Recommendation.HiringUrl" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">Browse Candidates</MudButton>
+        </div>
+    </ChildContent>
+</AttentionRequestCard>
+@if (_candidate is not null)
+{
+    <AgentHireDialog @ref="_hireDialog" OrganizationId="OrganizationId" Hired="Hired" />
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public HiringRecommendationResponse Recommendation { get; set; } = default!;
+    [Parameter] public EventCallback Hired { get; set; }
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+    private AgentHireDialog? _hireDialog;
+    private AvailableAgent? _candidate;
+    private string? _candidateJson;
+    private bool _imageFailed;
+    private string Proposer => Recommendation.RequestingEmployee ?? Recommendation.SuggestedBy ?? "Hiring suggestion";
+    private Guid? ProposerId => Portraits?.FindEmployee(Proposer);
+    private string? Context => Recommendation.RequestingTeam ?? Portraits?.FindRole(ProposerId);
+    private string CandidateImage => !_imageFailed && MarketplaceAgentPresentation.IsAgentImageUrl(_candidate?.ImageUrl)
+        ? _candidate!.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
+    protected override void OnParametersSet()
+    {
+        if (_candidateJson == Recommendation.SelectedCatalogAgentJson) return;
+        _candidateJson = Recommendation.SelectedCatalogAgentJson;
+        _candidate = null; _imageFailed = false;
+        if (string.IsNullOrWhiteSpace(_candidateJson)) return;
+        try
+        {
+            var candidate = JsonSerializer.Deserialize<AvailableAgent>(_candidateJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (!string.IsNullOrWhiteSpace(candidate?.AgentReference) && !string.IsNullOrWhiteSpace(candidate.Name)) _candidate = candidate;
+        }
+        catch (JsonException) { }
+    }
+    private Task OpenHireAsync() => _candidate is not null && _hireDialog is not null
+        ? _hireDialog.OpenAsync(_candidate, Recommendation.Title, Recommendation.Id) : Task.CompletedTask;
+}

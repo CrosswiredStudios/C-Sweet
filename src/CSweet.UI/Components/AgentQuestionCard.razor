@@ -1,6 +1,42 @@
 @using CSweet.Contracts.Communications
 @inject HttpClient Http
+@inject IJSRuntime JS
 
+@if (_submitted) { }
+else
+{
+<div @ref="_dismissalElement" class="question-dismissal">
+@if (Overview)
+{
+    <AttentionRequestCard Kind="Decision" EmployeeId="Question.AgentOrganizationUserId" Name="@Question.AgentName"
+        Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt" Status="Awaiting your response">
+        <MudMenu Label="@(_busy ? "Sending answer…" : "Choose an answer")" Variant="Variant.Filled" Color="Color.Primary"
+                 EndIcon="@Icons.Material.Outlined.ExpandMore" Disabled="_busy" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+            @foreach (var option in Question.Decision.Options)
+            {
+                @if (Question.Decision.AllowFreeText && option.Id == "provide-direction")
+                {
+                    <MudMenuItem Href="@ConversationHref"><strong>@option.Label</strong><div class="option-description">Continue in the conversation</div></MudMenuItem>
+                }
+                else
+                {
+                    <MudMenuItem Disabled="_busy" OnClick="() => AnswerOptionAsync(option.Id)">
+                        <strong>@option.Label</strong>@if (option.Recommended) { <small>Recommended</small> }
+                        @if (!string.IsNullOrWhiteSpace(option.Description)) { <div class="option-description">@option.Description</div> }
+                    </MudMenuItem>
+                }
+            }
+            @if (Question.Decision.AllowFreeText)
+            {
+                <MudDivider />
+                <MudMenuItem Href="@ConversationHref" Icon="@Icons.Material.Outlined.ChatBubbleOutline">Something Else<div class="option-description">Continue in the conversation</div></MudMenuItem>
+            }
+        </MudMenu>
+    </AttentionRequestCard>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_error</MudAlert> }
+}
+else
+{
 <article class="question-card" aria-label="@($"Question from {Question.AgentName}")">
     <details>
     <summary>
@@ -34,20 +70,34 @@
     </div>
     </details>
 </article>
+}
+</div>
+}
 
 @code {
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
     [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool Overview { get; set; }
     [Parameter, EditorRequired] public PendingAgentQuestionResponse Question { get; set; } = default!;
-    [Parameter] public EventCallback Answered { get; set; }
+    [Parameter] public EventCallback<Guid> Answered { get; set; }
     private const string Other = "__other__";
     private string? _selected, _direction, _error;
-    private bool _busy;
+    private bool _busy, _submitted;
+    private ElementReference _dismissalElement;
+    private bool _answerConfirmed;
     private readonly string _answerKey = Guid.NewGuid().ToString("N");
     private bool NeedsText => Question.Decision.AllowFreeText && (_selected == Other || _selected == "provide-direction");
+    private string ConversationHref => $"/organizations/{OrganizationId}/communications/{Question.ConversationId}";
+    private async Task AnswerOptionAsync(string option)
+    {
+        if (_busy || _submitted || _answerConfirmed) return;
+        Select(option);
+        await SubmitAsync();
+    }
     private void Select(string option) { _selected = option; _error = null; }
     private async Task SubmitAsync()
     {
-        if (_busy || _selected is null || (NeedsText && string.IsNullOrWhiteSpace(_direction))) return;
+        if (_busy || _submitted || _answerConfirmed || _selected is null || (NeedsText && string.IsNullOrWhiteSpace(_direction))) return;
         _busy = true; _error = null;
         try
         {
@@ -55,7 +105,21 @@
                 $"api/organizations/{OrganizationId}/communications/hub/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/respond",
                 new AnswerExecutiveDecisionRequest(NeedsText ? null : _selected, NeedsText ? _direction : null, _answerKey));
             var result = await response.Content.ReadFromJsonAsync<AnswerExecutiveDecisionResponse>();
-            if (response.IsSuccessStatusCode && result?.Succeeded == true) await Answered.InvokeAsync();
+            if (response.IsSuccessStatusCode && result?.Succeeded == true)
+            {
+                _answerConfirmed = true;
+                try
+                {
+                    await using var module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/questionDismissal.js");
+                    if (module is not null) await module.InvokeVoidAsync("dismiss", _dismissalElement);
+                }
+                catch (Exception ex) when (ex is JSException or OperationCanceledException or InvalidOperationException)
+                {
+                    // A confirmed answer still dismisses if browser animation is unavailable.
+                }
+                _submitted = true;
+                await Answered.InvokeAsync(Question.Decision.Id);
+            }
             else _error = result?.Message ?? "Could not send your response. Refresh to check whether this question is still pending.";
         }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)

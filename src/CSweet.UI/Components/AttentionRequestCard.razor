@@ -1,0 +1,37 @@
+<article class="attention-request @Kind.ToLowerInvariant()" aria-label="@($"{Kind} from {Name}")">
+    <div class="request-person">
+        <span class="request-avatar" aria-hidden="true">
+            @if (EmployeeId.HasValue)
+            {
+                <PersonAvatarContent EmployeeId="EmployeeId" IsAgent="true" />
+            }
+            else { <MudIcon Icon="@Icon" /> }
+        </span>
+        <div class="request-identity"><strong>@Name</strong>@if (!string.IsNullOrWhiteSpace(Context)) { <span>@Context</span> }</div>
+        <span class="request-kind"><MudIcon Icon="@Icon" Size="Size.Small" />@Kind</span>
+    </div>
+    <div class="request-title"><h3>@Prompt</h3>@if (!string.IsNullOrWhiteSpace(PromptMeta)) { <span>@PromptMeta</span> }</div>
+    @if (!string.IsNullOrWhiteSpace(Description)) { <p>@Description</p> }
+    @BodyContent
+    <div class="request-footer @(RightAlignedActions ? "align-actions-right" : "")"><span>@Status</span><div class="request-actions">@ChildContent</div></div>
+</article>
+
+@code {
+    [Parameter] public string Kind { get; set; } = "Decision";
+    [Parameter] public Guid? EmployeeId { get; set; }
+    [Parameter] public string Name { get; set; } = "";
+    [Parameter] public string? Context { get; set; }
+    [Parameter] public string Prompt { get; set; } = "";
+    [Parameter] public string? PromptMeta { get; set; }
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public string? Status { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? BodyContent { get; set; }
+    [Parameter] public bool RightAlignedActions { get; set; }
+    private string Icon => Kind switch
+    {
+        "Approval" => Icons.Material.Outlined.VerifiedUser,
+        "Hiring" => Icons.Material.Outlined.PersonAdd,
+        _ => Icons.Material.Outlined.HelpOutline
+    };
+}

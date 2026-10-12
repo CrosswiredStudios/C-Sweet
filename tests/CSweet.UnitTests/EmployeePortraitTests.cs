@@ -27,6 +27,9 @@ public sealed class EmployeePortraitTests
         Assert.Null(portraits.Find(human.Id));
         Assert.Null(portraits.Find(missing.Id));
         Assert.Null(portraits.Find(null));
+        Assert.Null(portraits.FindEmployee("My assistant"));
+        Assert.Equal(second.Id, portraits.FindEmployee("Operations lead"));
+        Assert.Null(portraits.FindEmployee("Unknown employee"));
     }
 
     [Fact]

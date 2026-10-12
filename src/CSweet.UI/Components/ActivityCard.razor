@@ -16,22 +16,24 @@
         <a class="activity-task-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)"><MudIcon Icon="@Icons.Material.Outlined.CheckBox" Size="Size.Small" />@Item.Title<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
         <div class="activity-card-context">@if (Item.Identifier is not null) { <span>@Item.Identifier · </span> }@Item.Context</div>
     }
-    <div class="activity-card-agents @(Item.Collaborator is not null ? "collaborating" : "")">
-        <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" Status="@AgentStatus" Centered="@(Item.Collaborator is not null)" />
-        @if (Item.Collaborator is { } other)
+    <div class="activity-card-summary @(Item.Collaborator is not null ? "collaborating" : "")">
+        <div class="activity-card-agents @(Item.Collaborator is not null ? "collaborating" : "")">
+            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" Status="@AgentStatus" Centered="@(Item.Collaborator is not null)" />
+            @if (Item.Collaborator is { } other)
+            {
+                <span class="activity-card-connector" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.CompareArrows" Size="Size.Small" /></span>
+                <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" Centered="true" />
+            }
+        </div>
+        @if (State is "Waiting" or "Needs attention")
         {
-            <span class="activity-card-connector" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.CompareArrows" Size="Size.Small" /></span>
-            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" Centered="true" />
+            <div class="activity-card-reason"><span>@(State == "Needs attention" ? "What needs attention" : "What's needed")</span><p>@Action</p></div>
+        }
+        else
+        {
+            <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
         }
     </div>
-    @if (State is "Waiting" or "Needs attention")
-    {
-        <div class="activity-card-reason"><span>@(State == "Needs attention" ? "What needs attention" : IsQueued ? "What's next" : "What's needed")</span><p>@Action</p></div>
-    }
-    else
-    {
-        <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
-    }
     <button type="button" class="activity-stream-toggle" data-current-activity-open="@Item.Key" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)">
         <MudIcon Icon="@(IsSelected ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" Size="Size.Small" />
         @(IsSelected ? "Close provider stream" : "Peek at provider stream")

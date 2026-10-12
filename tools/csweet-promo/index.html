@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>C-Sweet · Cinematic promo studio</title><link rel="stylesheet" href="studio.css"></head>
+<body>
+<header class="studio-header"><div><strong>C-Sweet</strong><span>Promo studio</span></div><nav><label>Campaign <select id="campaign"><option value="software">Software · Northstar</option><option value="youtube">YouTube · Signal</option><option value="game">Game · Orbit</option></select></label><label>Format <select id="format"><option value="landscape">Landscape · 50s</option><option value="vertical">Vertical · 25s</option></select></label></nav></header>
+<main class="studio"><div id="viewport"><div id="stage" aria-label="Promo preview"></div></div></main>
+<footer class="studio-controls"><button id="play">Play</button><label class="scrub-label">Timeline <input id="scrub" type="range" min="0" max="50" step="0.033333333333"></label><output id="time">0:00 / 0:50</output><label><input id="sound" type="checkbox"> Audio</label></footer>
+<p class="studio-note">Fictional demo businesses · real C-Sweet components · condensed workflows. Space: play/pause. Arrow keys: step one frame.</p>
+<audio id="audio" preload="auto"></audio><script type="module" src="stage.ts"></script>
+</body></html>

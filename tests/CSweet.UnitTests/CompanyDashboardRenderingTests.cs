@@ -19,20 +19,17 @@ public sealed class CompanyDashboardRenderingTests
         var html = await Render(false);
         Assert.Contains("Hire a finance agent", html);
         Assert.Contains("Hire a legal agent", html);
-        Assert.Contains("No approvals need your action", html);
+        Assert.Contains("Nothing needs your attention", html);
         Assert.Contains("No projects yet", html);
         Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"overview-widget ").Count);
-        Assert.Contains("No hiring approvals need your action", html);
-        Assert.Contains("No pending hiring suggestions", html);
         Assert.Contains("Move Current Activity up", html);
         Assert.Contains("No active agent work", html);
         Assert.Contains("Move Needs your attention up", html);
-        Assert.Contains("No decisions need your response", html);
-        Assert.True(html.IndexOf("aria-label=\"Legal\"", StringComparison.Ordinal) < html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal));
+        Assert.True(html.IndexOf("aria-label=\"Legal\"", StringComparison.Ordinal) < html.IndexOf("aria-label=\"Pending attention items\"", StringComparison.Ordinal));
         Assert.Contains("Move Legal down", html);
         Assert.Contains("Briefing settings", html);
-        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "role=\"tab\"").Count);
-        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "role=\"tabpanel\"").Count);
+        Assert.DoesNotContain("role=\"tab\"", html);
+        Assert.DoesNotContain("role=\"tabpanel\"", html);
         Assert.DoesNotContain("Overview appearance", html);
         Assert.Contains("company-overview aurora-page", html);
         if (Environment.GetEnvironmentVariable("CSWEET_OVERVIEW_PREVIEW") is string path) await File.WriteAllTextAsync(path, html);
@@ -56,7 +53,7 @@ public sealed class CompanyDashboardRenderingTests
         var html = await Render(false, true);
         Assert.Contains("could not be loaded", html);
         Assert.DoesNotContain("Hire a finance agent", html);
-        Assert.Contains("No approvals need your action", html);
+        Assert.Contains("Nothing needs your attention", html);
     }
     [Fact]
     public async Task HiringGroupsOnlyActionableApprovalsAndShowsTheBacklogWithoutChatActions()
@@ -73,7 +70,7 @@ public sealed class CompanyDashboardRenderingTests
         var html = await Render(false, approvals: [plan, hire, Approval("Other approval", ApprovalDashboardKinds.AgentAction),
             Approval("Not yours", ApprovalDashboardKinds.ResourceChange) with { CanDecide = false },
             Approval("Old plan", ApprovalDashboardKinds.ResourceChange) with { Status = "Approved" }], recommendations: suggestions);
-        var hiring = html[html.IndexOf("aria-label=\"Hiring\"", StringComparison.Ordinal)..];
+        var hiring = html[html.IndexOf("aria-label=\"Pending attention items\"", StringComparison.Ordinal)..];
         Assert.Contains("Plan approval", hiring);
         Assert.Contains("Hire approval", hiring);
         Assert.Contains($"approvalId={plan.Id:D}", hiring);
@@ -89,10 +86,10 @@ public sealed class CompanyDashboardRenderingTests
         Assert.DoesNotContain("Fulfilled suggestion", html);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, ">Plan approval<").Cast<System.Text.RegularExpressions.Match>());
         Assert.True(hiring.IndexOf("Developer", StringComparison.Ordinal) < hiring.IndexOf("Lower priority", StringComparison.Ordinal));
-        var ceo = html[html.IndexOf("aria-label=\"CEO approvals\"", StringComparison.Ordinal)..html.IndexOf("aria-label=\"Hiring\"", StringComparison.Ordinal)];
-        Assert.Contains("Other approval", ceo);
-        Assert.Contains("1 pending", ceo);
-        Assert.DoesNotContain("Plan approval", ceo);
+        Assert.Contains("Other approval", hiring);
+        Assert.Contains("5 pending", hiring);
+        Assert.Contains("attention-request approval", hiring);
+        Assert.Contains("attention-request hiring", hiring);
     }
 
     [Theory]
@@ -108,13 +105,47 @@ public sealed class CompanyDashboardRenderingTests
     }
 
     [Fact]
-    public async Task HiringPreviewLimitsEachGroupAndOffersIndependentExpansion()
+    public async Task HiringCandidateShowsPortraitPublisherCostAndRationaleWithinTheCandidatePanel()
+    {
+        var recommendation = Recommendation("Creative Director", 1) with
+        {
+            SuggestedBy = "Evelyn Brooks",
+            SelectedCatalogAgentJson = """{"agentReference":"catalog:creative-director","name":"Naomi Chen","publisher":"C-Sweet","price":null,"imageUrl":"https://example.com/naomi.jpg"}""",
+            SelectionRationale = "Matches the approved role. <script>unsafe</script>"
+        };
+        var html = await Render(false, recommendations: [recommendation]);
+        Assert.Contains("https://example.com/naomi.jpg", html);
+        Assert.Contains("Naomi Chen", html);
+        Assert.Contains("Cost unavailable", html);
+        Assert.Contains("Hire Naomi Chen", html);
+        Assert.Contains("Browse Candidates", html);
+        Assert.Contains("Role scope", html);
+        Assert.Contains("candidate-rationale", html);
+        Assert.Contains("&lt;script&gt;unsafe&lt;/script&gt;", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.Contains("align-actions-right", html);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("broken json")]
+    public async Task UnselectedOrInvalidCandidatesStillOfferContextualBrowsing(string? candidateJson)
+    {
+        var recommendation = Recommendation("Creative Director", 1) with { SelectedCatalogAgentJson = candidateJson };
+        var html = await Render(false, recommendations: [recommendation]);
+        Assert.Contains("Browse Candidates", html);
+        Assert.Contains($"recommendationId={recommendation.Id}", html);
+        Assert.DoesNotContain("Recommended agent", html);
+        Assert.DoesNotContain("Hire Naomi", html);
+    }
+
+    [Fact]
+    public async Task MixedQueueLimitsLongListsAndOffersExpansion()
     {
         var approvals = Enumerable.Range(0, 6).Select(i => Approval($"Plan {i}", ApprovalDashboardKinds.ResourceChange)).ToArray();
         var recommendations = Enumerable.Range(0, 6).Select(i => Recommendation($"Suggestion {i}", i + 1)).ToArray();
         var html = await Render(false, approvals: approvals, recommendations: recommendations);
-        Assert.Contains("Show all approvals (6)", html);
-        Assert.Contains("Show all suggestions (6)", html);
+        Assert.Contains("Show all items (12)", html);
         Assert.DoesNotContain(">Plan 5<", html);
         Assert.DoesNotContain(">Suggestion 5<", html);
     }
@@ -134,6 +165,7 @@ public sealed class CompanyDashboardRenderingTests
         bool failApprovals = false, bool failHiring = false)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();

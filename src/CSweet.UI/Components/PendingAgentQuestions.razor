@@ -1,38 +1,31 @@
 @using CSweet.Contracts.Communications
+@using CSweet.Contracts.Core
 @using CSweet.Contracts.Realtime
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 @implements IDisposable
 
-<section class="pending-decisions @(SummaryOnly ? "decision-summary" : "decision-inbox")" aria-label="Pending Decisions">
+<section class="pending-decisions @(SummaryOnly ? "decision-summary" : "decision-inbox")" aria-label="@(SummaryOnly ? "Pending attention items" : "Pending Decisions")">
     <div class="decisions-toolbar">
         <div>
             @if (!SummaryOnly) { <h2>Pending Decisions</h2> }
             <p>@(SummaryOnly ? "Keep your team moving with a response." : "Review requests for direction and respond without leaving this page.")</p>
         </div>
-        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="LoadAsync" aria-label="Refresh decisions" />
+        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="RefreshAsync" aria-label="@(SummaryOnly ? "Refresh attention items" : "Refresh decisions")" />
     </div>
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     else if (_loading && !_loaded) { <MudProgressLinear Indeterminate="true" /> }
-    else if (_questions.Count == 0)
+    else if (_questions.Count == 0 && !SummaryOnly)
     {
         <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>No decisions need your response.</span></div>
     }
     else
     {
-        <div class="decisions-count"><span>@_questions.Count pending questions</span><span>@_questions.Select(x => x.AgentOrganizationUserId).Distinct().Count() agents</span></div>
-        @if (SummaryOnly)
-        {
-            @foreach (var agent in _questions.GroupBy(x => new { x.AgentOrganizationUserId, x.AgentName }))
-            {
-                <div class="decision-agent-row">
-                    <div class="agent-mark" aria-hidden="true">@agent.Key.AgentName[..1]</div>
-                    <div class="agent-description"><strong>@agent.Key.AgentName</strong><span>@agent.Count() awaiting response</span></div>
-                    <MudButton Href="@($"/organizations/{OrganizationId}/approvals?tab=decisions")" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Review</MudButton>
-                </div>
-            }
-        }
-        else
+        <div class="decisions-count">
+            @if (SummaryOnly) { <span>@PendingCount pending</span> }
+            else { <span>@_questions.Count pending questions</span><span>@_questions.Select(x => x.AgentOrganizationUserId).Distinct().Count() agents</span> }
+        </div>
+        @if (!SummaryOnly)
         {
             <div class="decision-list">
                 @foreach (var question in _questions)
@@ -42,13 +35,58 @@
             </div>
         }
     }
-    @if (_answered) { <MudAlert Severity="Severity.Success" Dense="true" Class="mt-3">Response sent. The agent can continue from your answer.</MudAlert> }
+    @if (SummaryOnly)
+    {
+        @if (ApprovalError is not null) { <MudAlert Severity="Severity.Warning">@ApprovalError</MudAlert> }
+        else if (!ApprovalsLoaded) { <MudText Color="Color.Secondary">Loading approvals…</MudText> }
+        @if (RecommendationError is not null) { <MudAlert Severity="Severity.Warning">@RecommendationError</MudAlert> }
+        else if (!RecommendationsLoaded) { <MudText Color="Color.Secondary">Loading hiring suggestions…</MudText> }
+        @if (_loaded && _error is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && PendingCount == 0)
+        {
+            <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>Nothing needs your attention.</span></div>
+        }
+        else
+        {
+            <div class="attention-list" aria-label="Decisions, approvals, and hiring">
+                @foreach (var question in _questions)
+                {
+                    <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Answered="OnAnsweredAsync" />
+                }
+                @foreach (var approval in Approvals.Take(_showAll ? Approvals.Count : 5))
+                {
+                    var hiring = approval.Kind is ApprovalDashboardKinds.ResourceChange or ApprovalDashboardKinds.HiringWorkflow;
+                    <AttentionRequestCard @key="approval.Id" Kind="@(hiring ? "Hiring" : "Approval")" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
+                        Prompt="@approval.Title" Description="@approval.Summary" Status="@($"Requested {approval.CreatedAt.ToLocalTime():g}")">
+                        <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">@(hiring ? "Review hire" : "Review approval")</MudButton>
+                    </AttentionRequestCard>
+                }
+                @foreach (var recommendation in Recommendations.Take(_showAll ? Recommendations.Count : 5))
+                {
+                    <OverviewHiringCandidateCard @key="recommendation.Id" OrganizationId="OrganizationId" Recommendation="recommendation" Hired="RefreshRequested" />
+                }
+            </div>
+            @if (Approvals.Count > 5 || Recommendations.Count > 5)
+            {
+                <MudButton OnClick="() => _showAll = !_showAll" aria-expanded="@_showAll" Size="Size.Small">@(_showAll ? "Show fewer items" : $"Show all items ({PendingCount})")</MudButton>
+            }
+        }
+    }
 </section>
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool SummaryOnly { get; set; }
+    [Parameter] public IReadOnlyList<ApprovalDashboardItemResponse> Approvals { get; set; } = [];
+    [Parameter] public IReadOnlyList<HiringRecommendationResponse> Recommendations { get; set; } = [];
+    [Parameter] public bool ApprovalsLoaded { get; set; } = true;
+    [Parameter] public bool RecommendationsLoaded { get; set; } = true;
+    [Parameter] public string? ApprovalError { get; set; }
+    [Parameter] public string? RecommendationError { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+    private int PendingCount => _questions.Count + Approvals.Count + Recommendations.Count;
+    private bool _showAll;
+    private readonly HashSet<Guid> _completedDecisions = [];
     private IReadOnlyList<PendingAgentQuestionResponse> _questions = [];
-    private bool _loading, _loaded, _disposed, _answered;
+    private bool _loading, _loaded, _disposed;
     private string? _error;
     private long _loadVersion;
     private Guid? _loadedOrganization;
@@ -61,7 +99,8 @@
     {
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
-        _questions = []; _loaded = false; _answered = false;
+        _questions = []; _loaded = false; _showAll = false;
+        _completedDecisions.Clear();
         await LoadAsync();
     }
     private async Task LoadAsync()
@@ -72,13 +111,24 @@
         try
         {
             var items = await Http.GetFromJsonAsync<List<PendingAgentQuestionResponse>>($"api/organizations/{organization}/communications/questions/pending") ?? [];
-            if (!_disposed && version == _loadVersion) { _questions = items; _loaded = true; }
+            if (!_disposed && version == _loadVersion)
+            {
+                _questions = items.Where(x => !_completedDecisions.Contains(x.Decision.Id) && string.Equals(x.Decision.Status, "Pending", StringComparison.OrdinalIgnoreCase)).ToList();
+                _loaded = true;
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
         { if (version == _loadVersion) _error = "Could not load pending questions. Use Refresh questions to try again."; }
         finally { if (version == _loadVersion) _loading = false; }
     }
-    private async Task OnAnsweredAsync() { _answered = true; await LoadAsync(); }
+    private async Task OnAnsweredAsync(Guid decisionId)
+    {
+        _completedDecisions.Add(decisionId);
+        _questions = _questions.Where(x => x.Decision.Id != decisionId).ToList();
+        StateHasChanged();
+        await LoadAsync();
+    }
+    private async Task RefreshAsync() { await Task.WhenAll(LoadAsync(), RefreshRequested.InvokeAsync()); }
     private void OnEvent(AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == OrganizationId && envelope.EventType == CommunicationEvents.DecisionUpdated) OnReconnect();
