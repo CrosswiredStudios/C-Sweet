@@ -8,6 +8,7 @@
 .candidate-rationale { border-left: 1px solid var(--mud-palette-divider); padding-left: 18px; text-align: left; }
 .candidate-rationale p { margin: 5px 0 0; font-size: .875rem; line-height: 1.6; white-space: pre-wrap; }
 .candidate-scope { margin: 14px 0 20px; }
+.role-requester { margin: 0 0 14px; color: var(--mud-palette-text-secondary); font-size: .8rem; line-height: 1.5; }
 .candidate-scope summary { color: var(--mud-palette-primary); font-weight: 600; font-size: .8rem; cursor: pointer; }
 .candidate-scope p, .selection-context { color: var(--mud-palette-text-secondary); font-size: .875rem; line-height: 1.6; white-space: pre-wrap; }
 .candidate-scope p { margin-top: 10px; }

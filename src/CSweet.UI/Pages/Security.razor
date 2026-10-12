@@ -71,7 +71,12 @@
             <RowTemplate>
                 <MudTd DataLabel="Time"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id, _groupModelResponses))">@FormatTime(context.OccurredAt)</button></MudTd>
                 <MudTd DataLabel="Activity">
-                    <MudText Typo="Typo.body2"><strong>@ActivityLabel(context)</strong></MudText>
+                    <MudText Typo="Typo.body2">
+                        @if (context.ActivityHref is { } href)
+                        { <MudLink Href="@href"><strong>@ActivityLabel(context)</strong></MudLink> }
+                        else
+                        { <strong>@ActivityLabel(context)</strong> }
+                    </MudText>
                     @if (context.ModelResponseChunkCount is int chunks)
                     {
                         <MudText Typo="Typo.caption" Color="Color.Secondary">@chunks.ToString("N0") part@(chunks == 1 ? "" : "s") combined</MudText>

@@ -89,6 +89,8 @@ public sealed partial class SecurityAuditService(
         var actorEmployees = page.ToDictionary(x => x.Id, x => x.ActorKind != "Agent" ? null :
             agentEmployees.FirstOrDefault(e => e.Id == x.ActorOrganizationUserId) ??
             (x.ActorInstallationId.HasValue ? agentEmployees.FirstOrDefault(e => e.AgentInstallationId == x.ActorInstallationId) : null));
+        var activityLinks = await ResolveActivityLinksAsync(organizationId, page,
+            actorEmployees.ToDictionary(x => x.Key, x => x.Value?.Id), cancellationToken);
         var items = page.Select(x => new SecurityEventSummaryResponse(
             x.Id, x.Sequence, x.OccurredAt, x.Category, x.Direction, x.Outcome, query.GroupModelResponses && IsModelResponse(x) ? "model.response" : x.EventType,
             x.ActorKind, actorEmployees[x.Id] is { DisplayName.Length: > 0 } actor ? actor.DisplayName : ActorLabel(x), x.TargetDisplayName ?? x.TargetAgentId, x.Summary,
@@ -96,7 +98,8 @@ public sealed partial class SecurityAuditService(
             x.EntityType, x.EntityId, x.ActorOrganizationUserId == query.EmployeeId && query.EmployeeId.HasValue ? "Actor" :
                 roles.Where(a => a.AuditEventId == x.Id).OrderBy(a => a.Role == "Actor" ? 0 : a.Role == "Recipient" ? 1 : 2).FirstOrDefault()?.Role,
             query.GroupModelResponses && IsModelResponse(x) ? chunkCounts.GetValueOrDefault(x.EntityId!.Value) : null,
-            actorEmployees[x.Id]?.Id, AuditActivityDescriptions.Describe(x, query.GroupModelResponses && IsModelResponse(x)))).ToList();
+            actorEmployees[x.Id]?.Id, AuditActivityDescriptions.Describe(x, query.GroupModelResponses && IsModelResponse(x)),
+            activityLinks.GetValueOrDefault(x.Id))).ToList();
         return new SecurityEventPageResponse(items,
             hasMore && page.Count > 0 ? (query.OrderByOccurrence ? Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new OccurrenceCursor(page[^1].OccurredAt, page[^1].Sequence))) : EncodeCursor(page[^1].Sequence)) : null);
     }

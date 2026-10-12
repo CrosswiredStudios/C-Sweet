@@ -2,9 +2,13 @@
 @using CSweet.Contracts.Core
 @using System.Text.Json
 
-<AttentionRequestCard Kind="Hiring" EmployeeId="ProposerId" Name="@Proposer" Context="@Context"
+<AttentionRequestCard Kind="Hiring" EmployeeId="RecommenderId" Name="@Recommender" Context="@Context"
     Prompt="@Recommendation.Title" PromptMeta="@($"{Recommendation.RemainingHeadcount} of {Recommendation.Headcount} positions remaining")" RightAlignedActions="true">
     <BodyContent>
+        @if (HasSeparateRequester)
+        {
+            <p class="role-requester">Role requested by @Recommendation.RequestingEmployee@if (!string.IsNullOrWhiteSpace(Recommendation.RequestingTeam)) { <span> · @Recommendation.RequestingTeam</span> }</p>
+        }
         @if (_candidate is not null)
         {
             <div class="overview-candidate" aria-label="Recommended candidate">
@@ -51,9 +55,13 @@
     private AvailableAgent? _candidate;
     private string? _candidateJson;
     private bool _imageFailed;
-    private string Proposer => Recommendation.RequestingEmployee ?? Recommendation.SuggestedBy ?? "Hiring suggestion";
-    private Guid? ProposerId => Portraits?.FindEmployee(Proposer);
-    private string? Context => Recommendation.RequestingTeam ?? Portraits?.FindRole(ProposerId);
+    private string Recommender => !string.IsNullOrWhiteSpace(Recommendation.SuggestedBy) ? Recommendation.SuggestedBy
+        : !string.IsNullOrWhiteSpace(Recommendation.RequestingEmployee) ? Recommendation.RequestingEmployee : "Hiring suggestion";
+    private Guid? RecommenderId => Portraits?.FindEmployee(Recommender);
+    private bool HasSeparateRequester => !string.IsNullOrWhiteSpace(Recommendation.RequestingEmployee) &&
+        !string.Equals(Recommendation.RequestingEmployee, Recommender, StringComparison.OrdinalIgnoreCase);
+    private string? Context => HasSeparateRequester ? Portraits?.FindRole(RecommenderId)
+        : Recommendation.RequestingTeam ?? Portraits?.FindRole(RecommenderId);
     private string CandidateImage => !_imageFailed && MarketplaceAgentPresentation.IsAgentImageUrl(_candidate?.ImageUrl)
         ? _candidate!.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
     protected override void OnParametersSet()

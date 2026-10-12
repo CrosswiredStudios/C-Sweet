@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
+using CSweet.UI.Components;
 using CSweet.UI.Components.Hiring;
 using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
@@ -15,6 +18,72 @@ namespace CSweet.UnitTests;
 
 public sealed class OverviewHiringCandidateTests
 {
+    [Theory]
+    [InlineData("Evelyn Brooks", "Naomi Chen", "Video Game Team", "Evelyn Brooks", true)]
+    [InlineData("Evelyn Brooks", "Naomi Chen", null, "Evelyn Brooks", true)]
+    [InlineData("Evelyn Brooks", "Evelyn Brooks", "Video Game Team", "Evelyn Brooks", false)]
+    [InlineData("Evelyn Brooks", null, null, "Evelyn Brooks", false)]
+    [InlineData(null, "Naomi Chen", "Video Game Team", "Naomi Chen", false)]
+    [InlineData("", "Naomi Chen", "Video Game Team", "Naomi Chen", false)]
+    [InlineData(null, null, null, "Hiring suggestion", false)]
+    public async Task AttributionShowsTheRecommenderAndSeparatelyIdentifiesTheRoleRequester(
+        string? suggestedBy, string? requester, string? team, string expectedName, bool separateRequester)
+    {
+        var organization = Guid.NewGuid();
+        var evelynInstallation = Guid.NewGuid(); var naomiInstallation = Guid.NewGuid();
+        var evelyn = new OrganizationUserResponse(Guid.NewGuid(), organization, null, null, null, "Evelyn Brooks", null, 1, 0, DateTimeOffset.UtcNow)
+            { AgentInstallationId = evelynInstallation };
+        var naomi = evelyn with { Id = Guid.NewGuid(), DisplayName = "Naomi Chen", AgentInstallationId = naomiInstallation };
+        var portraits = EmployeePortraits.Build([evelyn, naomi],
+            [Installation(evelynInstallation, "Chief of Staff", "evelyn"), Installation(naomiInstallation, "Creative Director", "naomi")], []);
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Video Game Producer", "Own delivery", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        {
+            SuggestedBy = suggestedBy, RequestingEmployee = requester, RequestingTeam = team,
+            RemainingHeadcount = 1, HiringUrl = "/marketplace?recommendationId=approved-plan"
+        };
+        var activator = new CapturingActivator();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        services.AddSingleton<IComponentActivator>(activator);
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigation>();
+        services.AddSingleton(new HttpClient(new Handler()) { BaseAddress = new Uri("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        RenderFragment child = builder =>
+        {
+            builder.OpenComponent<OverviewHiringCandidateCard>(0);
+            builder.AddAttribute(1, nameof(OverviewHiringCandidateCard.OrganizationId), organization);
+            builder.AddAttribute(2, nameof(OverviewHiringCandidateCard.Recommendation), recommendation);
+            builder.CloseComponent();
+        };
+        var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<CascadingValue<EmployeePortraits>>(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { ["Value"] = portraits, ["ChildContent"] = child })));
+        var html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        var attention = Assert.Single(activator.AttentionCards);
+        Assert.Equal(expectedName, attention.Name);
+        Assert.Contains($"Hiring from {expectedName}", html);
+        if (expectedName == "Hiring suggestion") Assert.Null(attention.EmployeeId);
+        else
+        {
+            var employee = expectedName == evelyn.DisplayName ? evelyn : naomi;
+            Assert.Equal(employee.Id, attention.EmployeeId);
+            var role = expectedName == evelyn.DisplayName ? "Chief of Staff" : "Creative Director";
+            Assert.Equal(!separateRequester && team is not null ? team : role, attention.Context);
+            Assert.Contains(portraits.Find(employee.Id)!, html);
+            Assert.DoesNotContain(portraits.Find(employee.Id == evelyn.Id ? naomi.Id : evelyn.Id)!, html);
+        }
+        if (separateRequester)
+        {
+            Assert.Contains($"Role requested by {requester}", html);
+            if (team is not null) Assert.Contains(team, html);
+        }
+        else Assert.DoesNotContain("Role requested by", html);
+        Assert.Equal(recommendation.HiringUrl, Assert.Single(activator.Buttons, x => x.Href is not null).Href);
+    }
+
+    private static AgentInstallationResponse Installation(Guid id, string role, string image) =>
+        JsonSerializer.Deserialize<AgentInstallationResponse>($$"""{"Id":"{{id}}","AgentId":"{{image}}","RoleName":"{{role}}","ImageUrl":"https://example.com/{{image}}.jpg"}""")!;
+
     [Fact]
     public async Task HireOpensTheSharedReviewWithTheSelectedCandidateAndPlanContext()
     {
@@ -54,11 +123,13 @@ public sealed class OverviewHiringCandidateTests
     private sealed class CapturingActivator : IComponentActivator
     {
         public List<MudButton> Buttons { get; } = [];
+        public List<AttentionRequestCard> AttentionCards { get; } = [];
         public AgentHireDialog? Dialog { get; private set; }
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
             if (component is MudButton button) Buttons.Add(button);
+            if (component is AttentionRequestCard attention) AttentionCards.Add(attention);
             if (component is AgentHireDialog dialog) Dialog = dialog;
             return component;
         }

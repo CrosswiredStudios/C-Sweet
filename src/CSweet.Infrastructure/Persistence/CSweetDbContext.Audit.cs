@@ -57,6 +57,7 @@ public sealed partial class CSweetDbContext
     internal AuditEventWriteRequest? DescribeAuditSource(EntityEntry entry, bool historical = false)
     {
         Guid? organization = null, installation = null, employee = null;
+        Guid? activityWorkItemId = null, activityConversationId = null, activityPerspectiveEmployeeId = null;
         Guid id;
         string category, eventType, outcome = "Completed";
         string? correlation = null;
@@ -75,6 +76,18 @@ public sealed partial class CSweetDbContext
             if (work is null) return;
             organization = Guid.TryParse(work.OrganizationId, out var org) ? org : null;
             installation = work.AgentInstallationId; correlation = work.CorrelationId;
+            var contexts = WorkExecutionContexts.Local.Concat(WorkExecutionContexts.AsNoTracking()
+                    .Where(x => x.AgentWorkItemId == work.Id && x.OrganizationId == organization).ToList())
+                .DistinctBy(x => x.Id).Select(x => x.WorkItemId ?? x.RootWorkItemId).Distinct().ToArray();
+            if (contexts.Length == 1) activityWorkItemId = contexts[0];
+            if (activityWorkItemId is null && work.SourceType is "WorkStageExecution" or "WorkDeliveryStage" &&
+                Guid.TryParse(work.SourceId, out var stageId) && Find<WorkStageExecution>(stageId) is { } stage &&
+                stage.AgentInstallationId == work.AgentInstallationId)
+            {
+                var itemId = stage.ItemExecutionId is { } execution ? Find<WorkItemExecution>(execution)?.WorkItemId :
+                    stage.DeliveryExecutionId is { } delivery ? Find<WorkDeliveryExecution>(delivery)?.WorkItemId : null;
+                if (itemId is { } ticketId && Find<WorkTask>(ticketId)?.OrganizationId == organization) activityWorkItemId = ticketId;
+            }
         }
         switch (entry.Entity)
         {
@@ -83,6 +96,7 @@ public sealed partial class CSweetDbContext
                 var chat = Find<Conversation>(message.ConversationId);
                 if (chat is null) return null;
                 id = message.Id; organization = chat.OrganizationId; category = "Communication";
+                activityConversationId = message.ConversationId;
                 eventType = entry.State == EntityState.Deleted ? "communication.message.deleted" :
                     entry.State == EntityState.Modified && !historical ? "communication.message.edited" : "communication.message.sent";
                 when = entry.State == EntityState.Added || historical ? message.CreatedAt : when;
@@ -107,6 +121,8 @@ public sealed partial class CSweetDbContext
             case ChatTurn turn:
                 if (!Changed(nameof(turn.Status))) return null;
                 id = turn.Id; organization = turn.OrganizationId; employee = turn.TargetAgentOrganizationUserId;
+                activityConversationId = turn.ConversationId;
+                activityPerspectiveEmployeeId = turn.TargetAgentOrganizationUserId;
                 category = "ChatTurn"; outcome = turn.Status.ToString(); eventType = "chat.turn." + outcome.ToLowerInvariant();
                 when = turn.UpdatedAt; correlation = turn.Id.ToString("D");
                 contentFreeWork = true;
@@ -116,6 +132,8 @@ public sealed partial class CSweetDbContext
                 var traceTurn = Find<ChatTurn>(trace.ChatTurnId);
                 if (traceTurn is null) return null;
                 id = trace.Id; organization = traceTurn.OrganizationId; employee = traceTurn.TargetAgentOrganizationUserId;
+                activityConversationId = traceTurn.ConversationId;
+                activityPerspectiveEmployeeId = traceTurn.TargetAgentOrganizationUserId;
                 category = "ChatTrace"; eventType = trace.EventType; outcome = trace.Status;
                 when = trace.OccurredAt; correlation = trace.ChatTurnId.ToString("D");
                 contentFreeWork = true; eventType = "chat.trace.recorded"; outcome = "Recorded";
@@ -130,6 +148,8 @@ public sealed partial class CSweetDbContext
             case AgentWorkAttempt attempt:
                 if (!Changed(nameof(attempt.FinishedAt))) return null;
                 id = attempt.Id; ResolveWork(Find<AgentWorkItem>(attempt.AgentWorkItemId)); category = "AgentWork";
+                if (Find<CSweet.Domain.Analytics.WorkExecutionContext>(attempt.Id) is { } attemptContext)
+                    activityWorkItemId = attemptContext.WorkItemId ?? attemptContext.RootWorkItemId;
                 eventType = attempt.FinishedAt.HasValue ? "agent.work.attempt.stopped" : "agent.work.attempt.started";
                 when = attempt.FinishedAt ?? attempt.ClaimedAt; outcome = attempt.Error is null ? (attempt.FinishedAt.HasValue ? "Completed" : "Running") : "Failed";
                 contentFreeWork = historical || RequiresContentFreeWorkAudit(Find<AgentWorkItem>(attempt.AgentWorkItemId));
@@ -137,17 +157,21 @@ public sealed partial class CSweetDbContext
             case CSweet.Domain.Analytics.WorkLifecycleEvent lifecycle:
                 if (entry.State != EntityState.Added) return null;
                 id = lifecycle.Id; organization = lifecycle.OrganizationId; category = "WorkItem";
+                if (lifecycle.ResourceKind == "WorkItem") activityWorkItemId = lifecycle.ResourceId;
                 eventType = "work.lifecycle.recorded"; when = lifecycle.OccurredAt; outcome = lifecycle.Status;
                 break;
             case CSweet.Domain.Analytics.WorkExecutionInterval interval:
                 if (!Changed(nameof(interval.EndedAt))) return null;
                 id = interval.Id; organization = interval.OrganizationId; category = "AgentWork";
+                activityWorkItemId = interval.WorkItemId;
                 eventType = interval.EndedAt.HasValue ? "work.execution.paused" : "work.execution.started";
                 when = interval.EndedAt ?? interval.StartedAt; outcome = interval.EndReason ?? "Running";
                 break;
             case AgentWorkProgress progress:
                 if (entry.State != EntityState.Added && !historical) return null;
                 id = progress.Id; ResolveWork(Find<AgentWorkItem>(progress.AgentWorkItemId)); category = "AgentWork";
+                if (Find<CSweet.Domain.Analytics.WorkExecutionContext>(progress.AgentWorkAttemptId) is { } progressContext)
+                    activityWorkItemId = progressContext.WorkItemId ?? progressContext.RootWorkItemId;
                 eventType = "agent.work.progress"; when = progress.OccurredAt; outcome = "Running";
                 contentFreeWork = historical || RequiresContentFreeWorkAudit(Find<AgentWorkItem>(progress.AgentWorkItemId));
                 if (!contentFreeWork) extra = DecodeWork(progress.ProtectedValue);
@@ -155,6 +179,7 @@ public sealed partial class CSweetDbContext
             case WorkTask ticket:
                 if (!Changed(nameof(ticket.Status), nameof(ticket.AssignedEmployeeId), nameof(ticket.AssignedAgentInstallationId))) return null;
                 id = ticket.Id; organization = ticket.OrganizationId; installation = ticket.AssignedAgentInstallationId; employee = ticket.AssignedEmployeeId;
+                activityWorkItemId = ticket.Id;
                 if (!historical && entry.State == EntityState.Modified) Associate(entry.Property(nameof(ticket.AssignedEmployeeId)).OriginalValue as Guid?);
                 category = "WorkItem"; outcome = ticket.Status.ToString(); eventType = "work.item." + outcome.ToLowerInvariant();
                 when = ticket.UpdatedAt; correlation = ticket.CorrelationId;
@@ -162,6 +187,7 @@ public sealed partial class CSweetDbContext
             case WorkItemActivity activity:
                 if (entry.State != EntityState.Added && !historical) return null;
                 id = activity.Id; organization = activity.OrganizationId; category = "WorkItem"; eventType = activity.EventType;
+                activityWorkItemId = activity.WorkItemId;
                 when = activity.OccurredAt;
                 var activityTicket = Find<WorkTask>(activity.WorkItemId);
                 employee = historical ? null : activityTicket?.AssignedEmployeeId; installation = historical ? null : activityTicket?.AssignedAgentInstallationId;
@@ -171,6 +197,8 @@ public sealed partial class CSweetDbContext
                 if (entry.State != EntityState.Added && !historical) return null;
                 id = orchestration.Id; organization = orchestration.OrganizationId; category = "WorkItem";
                 eventType = orchestration.EventType; when = orchestration.OccurredAt;
+                if (orchestration.ItemExecutionId is { } itemExecutionId)
+                    activityWorkItemId = Find<WorkItemExecution>(itemExecutionId)?.WorkItemId;
                 if (orchestration.StageExecutionId is Guid stageId && Find<WorkStageExecution>(stageId) is { } stage)
                 { employee = stage.OrganizationUserId; installation = stage.AgentInstallationId; }
                 else if (orchestration.ItemExecutionId is Guid executionId && Find<WorkItemExecution>(executionId) is { } execution &&
@@ -181,6 +209,8 @@ public sealed partial class CSweetDbContext
             case AgentRunLog run:
                 if (!Changed(nameof(run.Status), nameof(run.CompletedAt))) return null;
                 id = run.Id; organization = run.OrganizationId; employee = run.EmployeeId; installation = run.AgentInstallationId;
+                activityWorkItemId = run.WorkItemId; activityConversationId = run.ConversationId;
+                activityPerspectiveEmployeeId = run.EmployeeId;
                 category = "Model"; eventType = run.CompletedAt.HasValue ? "model.call.completed" : "model.call.started";
                 outcome = run.Status; when = run.CompletedAt ?? run.StartedAt; correlation = run.ChatTurnId?.ToString("D") ?? run.Id.ToString("D");
                 contentFreeWork = historical || RequiresContentFreeModelAudit(run);
@@ -240,6 +270,8 @@ public sealed partial class CSweetDbContext
                 ChatTurnTraceEvent traceEntry => traceEntry.Title,
                 _ => eventType
             }, OccurredAt: when, CorrelationId: correlation,
+            MetadataJson: activityWorkItemId.HasValue || activityConversationId.HasValue
+                ? JsonSerializer.Serialize(new { activityWorkItemId, activityConversationId, activityPerspectiveEmployeeId }) : null,
             Actor: actor ?? new("Platform", DisplayName: "C-Sweet platform", InstallationId: installation),
             ContentType: "application/json", Payload: Encoding.UTF8.GetBytes(sanitized),
             UseAmbientOrganization: false, EventId: entry.State == EntityState.Added || historical ? AuditSourceId(identity) : AuditMutationId(identity), Employees: associations.Distinct().ToArray());

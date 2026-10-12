@@ -71,8 +71,13 @@ The right-aligned **Hire** action opens the shared `AgentHireDialog` with the se
 candidate, role title, and recommendation ID. **Browse Candidates** uses `HiringUrl`,
 retaining the approved plan context. Missing or malformed candidate data leaves browsing
 available without fabricating a candidate or cost. The dialog's `Hired` callback refreshes
-the dashboard backlog. `EmployeePortraits.FindEmployee` resolves proposer portraits only
-for an unambiguous employee name in the current organization.
+the dashboard backlog. The header attributes the suggestion to `SuggestedBy` (the recommending
+employee), using that employee's portrait. When `RequestingEmployee` differs, the header
+shows the recommender's installed role and a secondary **Role requested by** line names the
+plan requester and `RequestingTeam`. Otherwise the team remains in the header context.
+Recommendations without a known recommender fall back to the requester, then a generic hiring
+label; same-person requests do not repeat attribution. `EmployeePortraits.FindEmployee`
+resolves recommender portraits only for an unambiguous employee name in the current organization.
 
 `DashboardWidgets` groups Hiring, Approvals, and Decisions in the **Needs your
 attention** widget without tabs. Legacy layouts merge these queues at the first saved queue position.

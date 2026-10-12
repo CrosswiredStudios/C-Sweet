@@ -325,13 +325,15 @@ public static class McpGatewayEndpoints
             Capability = tool.Capability,
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(arguments, JsonOptions))
         };
+        var auditContext = await CurrentCapabilityAuditContextAsync(db, session, cancellationToken);
         var startedEventId = await audit.AppendAsync(new AuditEventWriteRequest(
             "agent.capability.started", "AgentCapability", Outcome: "Running",
             OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
-            EntityId: await CurrentCapabilityAttemptAsync(db, session, cancellationToken),
+            EntityId: auditContext.AttemptId,
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
-            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription }),
+            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription,
+                activityWorkItemId = auditContext.WorkItemId, activityConversationId = CapabilityConversationId(tool, arguments) }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
@@ -503,13 +505,15 @@ public static class McpGatewayEndpoints
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(arguments, JsonOptions))
         };
 
+        var auditContext = await CurrentCapabilityAuditContextAsync(db, session, cancellationToken);
         var startedEventId = await audit.AppendAsync(new AuditEventWriteRequest(
             "agent.capability.started", "AgentCapability", Outcome: "Running",
             OrganizationId: RuntimeAuditIdentity.OrganizationId(session), EntityType: "Capability",
-            EntityId: await CurrentCapabilityAttemptAsync(db, session, cancellationToken),
+            EntityId: auditContext.AttemptId,
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
-            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription }),
+            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription,
+                activityWorkItemId = auditContext.WorkItemId, activityConversationId = CapabilityConversationId(tool, arguments) }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
@@ -951,15 +955,22 @@ public static class McpGatewayEndpoints
             cancellationToken);
     }
 
-    private static async Task<Guid?> CurrentCapabilityAttemptAsync(CSweetDbContext db, AgentSession session, CancellationToken token)
+    internal static Guid? CapabilityConversationId(McpToolDescriptor tool, JsonElement arguments) =>
+        tool.Capability == "communication.message.send.v1" && arguments.ValueKind == JsonValueKind.Object &&
+        arguments.TryGetProperty("chatId", out var chat) && chat.ValueKind == JsonValueKind.String && chat.TryGetGuid(out var id) ? id : null;
+
+    private static async Task<(Guid? AttemptId, Guid? WorkItemId)> CurrentCapabilityAuditContextAsync(CSweetDbContext db, AgentSession session, CancellationToken token)
     {
-        if (!Guid.TryParse(session.RuntimeInstanceId, out var runtime) || !Guid.TryParse(session.InstallationId, out var installation)) return null;
+        if (!Guid.TryParse(session.RuntimeInstanceId, out var runtime) || !Guid.TryParse(session.InstallationId, out var installation)) return (null, null);
         var now = DateTimeOffset.UtcNow;
         var active = await db.AgentWorkAttempts.AsNoTracking().Where(x => x.RuntimeInstanceId == runtime &&
             x.FinishedAt == null && x.LeaseExpiresAt > now && x.AgentWorkItem!.AgentInstallationId == installation &&
             x.AgentWorkItem.OrganizationId == session.BusinessId).Select(x => x.Id).Take(2).ToArrayAsync(token);
         // Ambiguous concurrent execution is explicitly uncorrelated, never attributed by employee or proximity.
-        return active.Length == 1 ? active[0] : null;
+        if (active.Length != 1 || !Guid.TryParse(session.BusinessId, out var organization)) return (null, null);
+        var workItem = await db.WorkExecutionContexts.AsNoTracking().Where(x => x.Id == active[0] && x.OrganizationId == organization)
+            .Select(x => x.WorkItemId ?? x.RootWorkItemId).SingleOrDefaultAsync(token);
+        return (active[0], workItem);
     }
 
     private static Task<Guid> WriteCapabilityAuditAsync(
