@@ -74,7 +74,7 @@ public sealed class CompanyDashboardRealtimeTests
         await using var fixture = new Fixture(handler);
         var output = await fixture.RenderAsync(Guid.NewGuid());
         Assert.DoesNotContain(">Plan 5<", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
-        var buttons = fixture.Activator.Buttons.Where(x => x.UserAttributes?.ContainsKey("aria-expanded") == true).ToArray();
+        var buttons = fixture.Activator.Buttons.Where(x => x.UserAttributes?.ContainsKey("aria-expanded") == true && x.Class != "requested-hires").ToArray();
         Assert.Single(buttons);
         await fixture.Renderer.Dispatcher.InvokeAsync(() => buttons[0].OnClick.InvokeAsync(new MouseEventArgs()));
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);

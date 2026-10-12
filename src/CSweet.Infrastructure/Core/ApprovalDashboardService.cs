@@ -38,6 +38,9 @@ public sealed class ApprovalDashboardService(
             .Where(x => x.AgentInstallationId.HasValue)
             .GroupBy(x => x.AgentInstallationId!.Value)
             .ToDictionary(x => x.Key, x => x.First().DisplayName);
+        var installationEmployees = people.Where(x => x.AgentInstallationId.HasValue)
+            .GroupBy(x => x.AgentInstallationId!.Value).Where(x => x.Count() == 1)
+            .ToDictionary(x => x.Key, x => x.Single().Id);
         var ownerNames = people
             .Where(x => x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner)
             .Select(x => x.DisplayName)
@@ -54,6 +57,10 @@ public sealed class ApprovalDashboardService(
         var teamRequests = await resourceChanges.ListForDashboardAsync(
             organizationId,
             cancellationToken);
+        var requestTeamIds = teamRequests.Where(x => x.TeamId.HasValue).Select(x => x.TeamId!.Value).Distinct().ToList();
+        var requestTeamNames = await db.OrganizationTeams.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && requestTeamIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
         items.AddRange(teamRequests.Select(request => new ApprovalDashboardItemResponse(
             request.Id,
             ApprovalDashboardKinds.ResourceChange,
@@ -69,7 +76,8 @@ public sealed class ApprovalDashboardService(
             request.ManagerOrganizationUserId == actor.Id,
             request)
         {
-            RequestingTeam = request.TeamName ?? request.TeamId?.ToString("D"),
+            RequesterOrganizationUserId = request.RequesterOrganizationUserId,
+            RequestingTeam = request.TeamId.HasValue ? requestTeamNames.GetValueOrDefault(request.TeamId.Value) ?? request.TeamName : request.TeamName,
             ActualDecisionMaker = request.DecidedByOrganizationUserId.HasValue
                 ? Name(names, request.DecidedByOrganizationUserId.Value, "Decision maker")
                 : null,
@@ -115,6 +123,11 @@ public sealed class ApprovalDashboardService(
         }));
 
         var hiringCards = await hiring.ListApprovalCardsAsync(organizationId, cancellationToken: cancellationToken);
+        var hiringTeamIds = hiringCards.Values.Where(x => x.TeamId.HasValue)
+            .Select(x => x.TeamId!.Value).Distinct().ToList();
+        var hiringTeamNames = await db.OrganizationTeams.AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && hiringTeamIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
         var hiringWorkflowIds = hiringCards.Keys.ToList();
         var hiringWorkflows = await db.StaffingActionProposals.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && hiringWorkflowIds.Contains(x.Id))
@@ -138,7 +151,12 @@ public sealed class ApprovalDashboardService(
             actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
             workflow.Status == ProposalStatus.Pending &&
             workflow.SubmittedAt.HasValue,
-            HiringWorkflow: card);
+            HiringWorkflow: card)
+            {
+                RequesterOrganizationUserId = installationEmployees.TryGetValue(workflow.RequestingInstallationId, out var employeeId)
+                    ? employeeId : null,
+                RequestingTeam = card.TeamId.HasValue ? hiringTeamNames.GetValueOrDefault(card.TeamId.Value) : null
+            };
         }));
 
         var sourceApprovals = await db.SourceControlApprovals.AsNoTracking()

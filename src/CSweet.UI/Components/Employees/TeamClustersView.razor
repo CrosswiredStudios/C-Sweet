@@ -27,11 +27,11 @@
             <article class="team-cluster @(FocusTeamId == team.Id ? "focused" : null)" style="@($"--team-color:{color}")" aria-labelledby="@($"team-{team.Id:N}")">
                 <header>
                     <div>
-                        <MudText Typo="Typo.overline">@(team.IsArchived ? "Archived team" : "Active team")</MudText>
+                        <MudText Typo="Typo.overline">@(team.TeamKey == LeadershipTeamPresentation.TeamKey ? "Automatic membership" : team.IsArchived ? "Archived team" : "Active team")</MudText>
                         <MudText Typo="Typo.h5" id="@($"team-{team.Id:N}")">@team.Name</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">@team.Description</MudText>
                     </div>
-                    @if (Directory.CanManageTeams)
+                    @if (Directory.CanManageTeams && team.TeamKey != LeadershipTeamPresentation.TeamKey)
                     {
                         <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="@($"Manage {team.Name}")">
                             <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Edit, team.Id)))">Edit team</MudMenuItem>
@@ -51,7 +51,10 @@
                     <span><strong>@team.ActiveMemberCount</strong> members</span>
                     <span>@team.HumanMemberCount human</span>
                     <span>@team.AgentMemberCount agent</span>
-                    <span>revision @team.Revision</span>
+                    @if (team.TeamKey != LeadershipTeamPresentation.TeamKey)
+                    {
+                        <span>revision @team.Revision</span>
+                    }
                     @if (team.BoardId.HasValue)
                     {
                         <span>linked board</span>
@@ -90,7 +93,7 @@
                                     <em>@membership.EmployeeType</em>
                                 </span>
                             </button>
-                            @if (Directory.CanManageTeams && !membership.IsLead && !team.IsArchived)
+                            @if (Directory.CanManageTeams && team.TeamKey != LeadershipTeamPresentation.TeamKey && !membership.IsLead && !team.IsArchived)
                             {
                                 <MudIconButton Icon="@Icons.Material.Outlined.PersonRemove" Size="Size.Small"
                                                aria-label="@($"Remove {membership.DisplayName} from {team.Name}")"

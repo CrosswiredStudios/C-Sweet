@@ -137,6 +137,7 @@
     [Parameter, EditorRequired] public HiringWorkflowApprovalResponse Workflow { get; set; } = default!;
     [Parameter] public bool CanDecide { get; set; }
     [Parameter] public EventCallback DecisionCompleted { get; set; }
+    [Parameter] public EventCallback<bool> BusyChanged { get; set; }
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan AgentBuildTimeout = TimeSpan.FromMinutes(30);
@@ -186,7 +187,9 @@
 
     private async Task DecideAsync(string decision)
     {
+        if (_busy || !CanDecide || Workflow.Status != "Pending" || _disposeCts.IsCancellationRequested) return;
         _busy = true;
+        await BusyChanged.InvokeAsync(true);
         _error = null;
         _status = null;
         try
@@ -233,6 +236,7 @@
         finally
         {
             _busy = false;
+            await BusyChanged.InvokeAsync(false);
         }
     }
 

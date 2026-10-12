@@ -17,6 +17,50 @@ namespace CSweet.UnitTests;
 public sealed partial class EmployeeAuditTimelineTests
 {
     [Fact]
+    public async Task BrowseDescribesLegacyActionsWithoutRewritingSealedEvidence()
+    {
+        await using var f = new Fixture();
+        const string original = "com.csweet.video-game-creative-director invoked read_resource_changes (platform.management.resource-change.read.v1).";
+        var id = await f.Writer.AppendAsync(new("agent.capability.started", "AgentCapability", Outcome: "Running",
+            OrganizationId: f.Org, Summary: original,
+            MetadataJson: "{\"capability\":\"platform.management.resource-change.read.v1\"}"));
+        var item = Assert.Single((await f.Reader.BrowseAsync(f.Org, new())).Items);
+        Assert.Equal("Read team change requests", item.ActivityDescription);
+        Assert.Equal("Running", item.Outcome);
+        Assert.Equal(original, item.Summary);
+        var detail = (await f.Reader.GetAsync(f.Org, id))!;
+        Assert.Equal(original, detail.Summary);
+        Assert.Equal("agent.capability.started", detail.EventType);
+        Assert.Equal("Verified", detail.IntegrityStatus);
+    }
+
+    [Fact]
+    public async Task AgentActorUsesEmployeeNameAndPortraitIdentityWithoutChangingAuditEvidence()
+    {
+        await using var f = new Fixture();
+        var installation = Guid.NewGuid();
+        var employee = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            EmployeeType = EmployeeType.Agent, AgentInstallationId = installation, DisplayName = "Ada" };
+        f.Db.Add(employee);
+        await f.Db.SaveChangesAsync();
+        foreach (var actor in new[] {
+            new AuditActor("Agent", OrganizationUserId: employee.Id, DisplayName: "Engineer"),
+            new AuditActor("Agent", InstallationId: installation, DisplayName: "Engineer") })
+            await f.Writer.AppendAsync(new("test", OrganizationId: f.Org, Actor: actor));
+        await f.Writer.AppendAsync(new("test", OrganizationId: f.Org,
+            Actor: new AuditActor("Human", DisplayName: "Owner")));
+        var page = await f.Reader.BrowseAsync(f.Org, new());
+        Assert.All(page.Items.Where(x => x.ActorKind == "Agent"), item => {
+            Assert.Equal("Ada", item.ActorDisplayName);
+            Assert.Equal(employee.Id, item.ActorEmployeeId);
+        });
+        Assert.Equal("Owner", page.Items.Single(x => x.ActorKind == "Human").ActorDisplayName);
+        var detail = await f.Reader.GetAsync(f.Org, page.Items.First(x => x.ActorKind == "Agent").Id);
+        Assert.Equal("Engineer", detail!.ActorDisplayName);
+        Assert.Equal("Verified", detail.IntegrityStatus);
+    }
+
+    [Fact]
     public async Task SingleLedgerEventAppearsForActorAndRecipientWithFullProtectedEvidence()
     {
         await using var f = new Fixture();
@@ -201,6 +245,7 @@ public sealed partial class EmployeeAuditTimelineTests
         var item = Assert.Single(first.Items);
         Assert.Equal(completed, item.Id); Assert.Equal("model.response", item.EventType);
         Assert.Equal(105, item.ModelResponseChunkCount); Assert.Equal("Completed", item.Outcome);
+        Assert.Equal("Model response", item.ActivityDescription);
         var second = await f.Reader.BrowseAsync(f.Org, query with { Cursor = first.NextCursor });
         Assert.Equal(otherRun, Assert.Single(second.Items).EntityId); Assert.Null(second.NextCursor);
         Assert.Single((await f.Reader.BrowseAsync(f.Org, query with { Outcome = "Completed" })).Items);

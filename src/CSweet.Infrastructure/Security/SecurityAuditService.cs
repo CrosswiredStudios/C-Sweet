@@ -80,13 +80,23 @@ public sealed partial class SecurityAuditService(
         var chunkCounts = responseIds.Length == 0 ? new Dictionary<Guid, int>() :
             await scopedEvents.Where(x => x.EntityType == "AgentRunLog" && x.EntityId.HasValue && responseIds.Contains(x.EntityId.Value) && x.EventType == "model.response.chunk")
                 .GroupBy(x => x.EntityId!.Value).Select(x => new { Id = x.Key, Count = x.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, cancellationToken);
+        var actorEmployeeIds = page.Where(x => x.ActorKind == "Agent" && x.ActorOrganizationUserId.HasValue).Select(x => x.ActorOrganizationUserId!.Value).Distinct().ToArray();
+        var actorInstallationIds = page.Where(x => x.ActorKind == "Agent" && x.ActorInstallationId.HasValue).Select(x => x.ActorInstallationId!.Value).Distinct().ToArray();
+        var agentEmployees = await db.Set<CSweet.Domain.Core.OrganizationUser>().AsNoTracking()
+            .Where(x => x.OrganizationId == organizationId && x.EmployeeType == CSweet.Domain.Core.EmployeeType.Agent &&
+                (actorEmployeeIds.Contains(x.Id) || (x.AgentInstallationId.HasValue && actorInstallationIds.Contains(x.AgentInstallationId.Value))))
+            .ToListAsync(cancellationToken);
+        var actorEmployees = page.ToDictionary(x => x.Id, x => x.ActorKind != "Agent" ? null :
+            agentEmployees.FirstOrDefault(e => e.Id == x.ActorOrganizationUserId) ??
+            (x.ActorInstallationId.HasValue ? agentEmployees.FirstOrDefault(e => e.AgentInstallationId == x.ActorInstallationId) : null));
         var items = page.Select(x => new SecurityEventSummaryResponse(
             x.Id, x.Sequence, x.OccurredAt, x.Category, x.Direction, x.Outcome, query.GroupModelResponses && IsModelResponse(x) ? "model.response" : x.EventType,
-            x.ActorKind, ActorLabel(x), x.TargetDisplayName ?? x.TargetAgentId, x.Summary,
+            x.ActorKind, actorEmployees[x.Id] is { DisplayName.Length: > 0 } actor ? actor.DisplayName : ActorLabel(x), x.TargetDisplayName ?? x.TargetAgentId, x.Summary,
             x.CorrelationId, IntegrityStatus(x, x.PreviousRecordHash is null || existingHashes.Contains(x.PreviousRecordHash)),
             x.EntityType, x.EntityId, x.ActorOrganizationUserId == query.EmployeeId && query.EmployeeId.HasValue ? "Actor" :
                 roles.Where(a => a.AuditEventId == x.Id).OrderBy(a => a.Role == "Actor" ? 0 : a.Role == "Recipient" ? 1 : 2).FirstOrDefault()?.Role,
-            query.GroupModelResponses && IsModelResponse(x) ? chunkCounts.GetValueOrDefault(x.EntityId!.Value) : null)).ToList();
+            query.GroupModelResponses && IsModelResponse(x) ? chunkCounts.GetValueOrDefault(x.EntityId!.Value) : null,
+            actorEmployees[x.Id]?.Id, AuditActivityDescriptions.Describe(x, query.GroupModelResponses && IsModelResponse(x)))).ToList();
         return new SecurityEventPageResponse(items,
             hasMore && page.Count > 0 ? (query.OrderByOccurrence ? Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new OccurrenceCursor(page[^1].OccurredAt, page[^1].Sequence))) : EncodeCursor(page[^1].Sequence)) : null);
     }

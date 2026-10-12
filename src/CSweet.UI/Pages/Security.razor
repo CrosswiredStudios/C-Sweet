@@ -6,6 +6,7 @@
 
 <PageTitle>Security - C-Sweet</PageTitle>
 
+<EmployeePortraitScope OrganizationId="OrganizationId">
 <div class="aurora-page business-workspace security-audit-page">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="security-audit-heading">
         <div>
@@ -71,7 +72,10 @@
                 <MudTd DataLabel="Time"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id, _groupModelResponses))">@FormatTime(context.OccurredAt)</button></MudTd>
                 <MudTd DataLabel="Activity">
                     <MudText Typo="Typo.body2"><strong>@ActivityLabel(context)</strong></MudText>
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">@ActivityMeta(context)</MudText>
+                    @if (context.ModelResponseChunkCount is int chunks)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@chunks.ToString("N0") part@(chunks == 1 ? "" : "s") combined</MudText>
+                    }
                     @if (context.Category == "DocumentAccess" && context.EntityId.HasValue)
                     {
                         @if (context.EventType.Contains(".package.", StringComparison.Ordinal))
@@ -80,7 +84,15 @@
                         { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?artifact={context.EntityId:D}")">Open document</MudLink> }
                     }
                 </MudTd>
-                <MudTd DataLabel="Actor"><MudText Typo="Typo.body2">@context.ActorDisplayName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.ActorKind</MudText></MudTd>
+                <MudTd DataLabel="Actor">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        @if (context.ActorKind == "Agent")
+                        {
+                            <span class="security-actor-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="context.ActorEmployeeId" IsAgent="true" /></span>
+                        }
+                        <div><MudText Typo="Typo.body2">@context.ActorDisplayName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.ActorKind</MudText></div>
+                    </MudStack>
+                </MudTd>
                 <MudTd DataLabel="Target">@Value(context.TargetDisplayName)</MudTd>
                 <MudTd DataLabel="Direction">@context.Direction</MudTd>
                 <MudTd DataLabel="Outcome"><MudChip T="string" Size="Size.Small" Color="@OutcomeColor(context.Outcome)">@context.Outcome</MudChip></MudTd>
@@ -111,6 +123,8 @@
     </DialogContent>
     <DialogActions><MudButton OnClick="@(() => _detailOpen = false)">Close</MudButton></DialogActions>
 </MudDialog>
+
+</EmployeePortraitScope>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
@@ -165,9 +179,7 @@
 
     private static string FormatTime(DateTimeOffset value) => value.ToLocalTime().ToString("g");
     private static string ActivityLabel(SecurityEventSummaryResponse value) =>
-        string.IsNullOrWhiteSpace(value.Summary) ? value.EventType : value.Summary;
-    private static string ActivityMeta(SecurityEventSummaryResponse value) =>
-        value.ModelResponseChunkCount is int chunks ? $"{value.EventType} · {value.Category} · {chunks} chunk{(chunks == 1 ? "" : "s")}" : $"{value.EventType} · {value.Category}";
+        value.ActivityDescription ?? value.Summary ?? AuditActionDescriptions.Humanize(value.EventType);
     private static string ActorLabel(SecurityEventDetailResponse value) => value.ActorDisplayName ?? value.ActorAgentId ?? value.ActorApplicationUserId?.ToString("D") ?? value.ActorKind;
     private static string Value(object? value) => value?.ToString() ?? "—";
     private static Color OutcomeColor(string value) => value is "Denied" or "Rejected" or "Failed" or "Dropped" ? Color.Error : value is "Received" or "Authorized" ? Color.Info : Color.Success;

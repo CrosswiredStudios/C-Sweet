@@ -312,3 +312,7 @@ It uses organization-scoped employee records for display names and falls back
 to the ticket's direct assignment when no current execution exists. The
 accountable owner is separate from the person or agent assigned to execute the
 current stage.
+
+## Leadership in Employees
+
+`LeadershipTeamPresentation.Build` derives the automatic Leadership grouping from active employees with the CEO role and their active direct reports. `Employees.PresentedTeams` supplies it to Teams, Graph, Directory, and employee membership chips. Reporting changes are reflected when employee data reloads; existing businesses need no migration. Leadership supports search and filtering but has no manual membership, archive, board, or grant operations. Delivery team memberships remain independent, including the agent lifetime assignment restriction enforced by `TeamService`.

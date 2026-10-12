@@ -3,49 +3,38 @@
 
 <PageTitle>Enterprise - C-Sweet</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="page-stack enterprise-page">
-    <header class="enterprise-header">
-        <div>
-            <MudText Typo="Typo.overline">Enterprise</MudText>
-            <MudText Typo="Typo.h2">All your businesses, one clear view.</MudText>
-            <MudText Typo="Typo.h6" Color="Color.Secondary">
-                Choose where to focus, or manage the businesses that make up your enterprise.
-            </MudText>
-        </div>
-        <img class="enterprise-logo" src="images/icon.svg" alt="" />
-    </header>
-
+<div class="aurora-page business-workspace enterprise-workspace">
     <Organizations CreateRequested="@CreateRequested" />
-    <MudPaper Outlined="true" Class="pa-4 my-4">
-        <MudText Typo="Typo.h6">Business benchmarks</MudText>
-        <MudText Typo="Typo.body2">Compare model and agent performance from a shared goal and hiring plan.</MudText>
-        <MudButton Href="benchmarks" Variant="Variant.Outlined" Class="mt-3">Open benchmarks</MudButton>
-    </MudPaper>
-
-    <MudPaper Elevation="1" Class="surface-panel enterprise-status">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="3">
-            <div>
-                <MudText Typo="Typo.subtitle1">Platform status</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">API connectivity</MudText>
-            </div>
-            <MudChip T="string" Color="@ApiStatusColor" Variant="Variant.Filled">@ApiStatusLabel</MudChip>
-        </MudStack>
+    <section class="enterprise-tools" aria-label="Enterprise tools">
+        <div>
+            <h2><MudIcon Icon="@Icons.Material.Outlined.Science" Size="Size.Small" />Business benchmarks</h2>
+            <p>Compare models and agents against the same goal.</p>
+        </div>
+        <MudButton Href="benchmarks" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.NorthEast">Explore benchmarks</MudButton>
+    </section>
+    <footer class="enterprise-footer">
+        <div class="enterprise-connectivity" role="status">
+            <MudIcon Icon="@ApiStatusIcon" Color="@ApiStatusColor" Size="Size.Small" />
+            <span>@ApiStatusLabel</span>
+        </div>
+        <MudButton Href="settings" EndIcon="@Icons.Material.Outlined.ArrowForward">Workspace settings</MudButton>
         @if (_apiStatus == false)
         {
-            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-4">
-                The API service cannot be reached. Check that the backend is running and try again.
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="enterprise-connectivity-error">
+                The API service cannot be reached. Check that the backend is running.
             </MudAlert>
         }
-    </MudPaper>
-</MudContainer>
+    </footer>
+</div>
 
 @code {
     [Parameter, SupplyParameterFromQuery(Name = "create")]
     public bool CreateRequested { get; set; }
 
     private bool? _apiStatus;
-    private string ApiStatusLabel => _apiStatus switch { true => "Connected", false => "Disconnected", _ => "Checking..." };
+    private string ApiStatusLabel => _apiStatus switch { true => "API connected", false => "API disconnected", _ => "Checking connection…" };
     private Color ApiStatusColor => _apiStatus switch { true => Color.Success, false => Color.Error, _ => Color.Default };
+    private string ApiStatusIcon => _apiStatus switch { true => Icons.Material.Outlined.CheckCircle, false => Icons.Material.Outlined.CloudOff, _ => Icons.Material.Outlined.Sync };
 
     protected override async Task OnInitializedAsync()
     {

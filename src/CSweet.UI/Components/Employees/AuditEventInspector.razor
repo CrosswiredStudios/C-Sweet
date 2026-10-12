@@ -33,6 +33,8 @@
         <MudTabPanel Text="Context">
             <dl>
                 <dt>Event</dt><dd>@Event.EventType</dd>
+                <dt>Category</dt><dd>@Event.Category</dd>
+                @if (!string.IsNullOrWhiteSpace(Event.Summary)) { <dt>Recorded summary</dt><dd>@Event.Summary</dd> }
                 <dt>Actor</dt><dd>@(Event.ActorDisplayName ?? Event.ActorAgentId ?? Event.ActorKind)</dd>
                 <dt>Target</dt><dd>@(Event.TargetDisplayName ?? Event.TargetAgentId ?? "—")</dd>
                 <dt>Entity</dt><dd>@Event.EntityType · @Event.EntityId</dd>

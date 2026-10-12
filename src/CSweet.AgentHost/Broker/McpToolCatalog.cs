@@ -46,7 +46,10 @@ public sealed record McpToolDescriptor(
     int MaximumOutputBytes = 1024 * 1024,
     string QuotaClass = "standard",
     string ApprovalBehavior = "none",
-    string OwningService = "platform");
+    string OwningService = "platform")
+{
+    public string ActivityDescription => CSweet.Contracts.Security.AuditActionDescriptions.ForTool(Name);
+}
 
 public sealed class McpToolCatalog(
     IEnumerable<IPlatformCapabilityHandler> handlers,

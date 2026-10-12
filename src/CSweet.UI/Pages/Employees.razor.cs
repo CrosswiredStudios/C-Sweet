@@ -101,6 +101,8 @@ public partial class Employees
     private string? _resourceFeedback;
     private bool IsHiringTab => string.Equals(Tab, "hiring", StringComparison.OrdinalIgnoreCase);
 
+    private TeamDirectoryResponse PresentedTeams => LeadershipTeamPresentation.Build(_teamDirectory, _employees, _roles);
+
     private IReadOnlyList<EmployeeViewModel> PresentedEmployees => EmployeePresentationService.Build(
         _employees,
         _roles,
@@ -108,7 +110,7 @@ public partial class Employees
         _agentInstallations,
         _runtimeStatuses,
         _managingRuntimeInstallationId,
-        _teamDirectory);
+        PresentedTeams);
 
     private IReadOnlyList<AgentChoice> AvailableAgents => _agentDefinitions
         .Where(x => x.IsEnabled)

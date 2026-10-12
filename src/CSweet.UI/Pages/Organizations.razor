@@ -1,94 +1,78 @@
 @using CSweet.Contracts.BusinessOnboarding
 @using CSweet.Contracts.Core
-@using Microsoft.JSInterop
 @implements IDisposable
 @inject IOrganizationApiClient OrganizationApi
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject NavigationManager Navigation
-@inject IJSRuntime JSRuntime
 @inject IBusinessContext BusinessContext
 
-<div class="setup-shell">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="page-header">
-        <MudText Typo="Typo.h3">Businesses</MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness" OnClick="ShowCreateForm">
-            New Business
-        </MudButton>
-    </MudStack>
-
-    @if (!string.IsNullOrWhiteSpace(_deleteMessage))
-    {
-        <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="business-delete-message">
-            @_deleteMessage
-        </MudAlert>
-    }
-
-    @if (_loading)
-    {
-        <MudPaper Elevation="1" Class="surface-panel">
-            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-            <MudText Color="Color.Secondary">Loading businesses...</MudText>
-        </MudPaper>
-    }
-    else if (_organizations.Count == 0)
-    {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No businesses yet. Create your first business to get started.
-        </MudAlert>
-    }
-    else
-    {
-        <MudGrid>
-            @foreach (var org in _organizations)
-            {
-                <MudItem xs="12" md="6" lg="4">
-                    <div class="organization-card-shell" aria-busy="@(IsDeleting(org.Id) ? "true" : "false")">
-                    <MudCard Elevation="1" Class="@OrganizationCardClass(org.Id)">
-                        <MudCardContent>
-                            <MudText Typo="Typo.h6">@org.Name</MudText>
-                            @if (!string.IsNullOrEmpty(org.Industry))
-                            {
-                                <MudText Typo="Typo.body2" Color="Color.Secondary">Industry: @org.Industry</MudText>
-                            }
-                            @if (!string.IsNullOrEmpty(org.Stage))
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Secondary" Variant="Variant.Outlined">@org.Stage</MudChip>
-                            }
-                            @if (IsChiefOnboarding(org.Id))
-                            {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined"
-                                         Icon="@Icons.Material.Filled.PersonAdd">Chief of Staff installing</MudChip>
-                            }
-                            @if (!string.IsNullOrEmpty(org.Mission))
-                            {
-                                <MudText Class="mt-2">@Truncate(org.Mission, 150)</MudText>
-                            }
-                        </MudCardContent>
-                        <MudCardActions>
-                            @if (IsDeleting(org.Id))
-                            {
-                                <div class="business-delete-progress" role="status" aria-live="polite">
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Error" />
-                                    <span>Deleting business…</span>
+<div class="enterprise-businesses">
+    <header class="enterprise-heading">
+        <div><span class="business-kicker">Enterprise</span><h1>Your enterprise.</h1><p>Choose a business. Pick up where you left off.</p></div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="ShowCreateForm">New business</MudButton>
+    </header>
+    <section aria-labelledby="enterprise-businesses-title">
+        <div class="business-collection-heading"><h2 id="enterprise-businesses-title">Your businesses</h2>
+            @if (!_loading && _loadError is null) { <span>@_organizations.Count @(_organizations.Count == 1 ? "business" : "businesses")</span> }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_deleteMessage))
+        {
+            <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mb-4" role="status">@_deleteMessage</MudAlert>
+        }
+        @if (_loading)
+        {
+            <div class="business-empty" role="status"><MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" /><p>Loading businesses…</p></div>
+        }
+        else if (_loadError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_loadError <MudButton OnClick="LoadAsync">Retry</MudButton></MudAlert>
+        }
+        else if (_organizations.Count == 0)
+        {
+            <div class="business-empty"><MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Large" /><h3>Your next venture starts here.</h3><p>Create a business, then hire a Chief of Staff to help you get started.</p><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ShowCreateForm" StartIcon="@Icons.Material.Filled.Add">Create your first business</MudButton></div>
+        }
+        else
+        {
+            <div class="business-collection">
+                @foreach (var org in _organizations.OrderByDescending(x => x.Id == BusinessContext.SelectedBusiness?.Id))
+                {
+                    <article @key="org.Id" class="business-tile @(org.Id == BusinessContext.SelectedBusiness?.Id ? "business-tile-focused" : string.Empty)" aria-label="@org.Name" aria-busy="@(IsDeleting(org.Id) ? "true" : "false")">
+                        <div class="business-tile-menu">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" aria-label="@($"Manage {org.Name}")" Disabled="@IsDeleting(org.Id)">
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => ShowEditForm(org)">Edit business</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" Disabled="@(_deletingOrganizationId is not null)" OnClick="() => RequestDelete(org)">Delete business…</MudMenuItem>
+                            </MudMenu>
+                        </div>
+                        <div class="business-tile-main">
+                            <span class="business-monogram" aria-hidden="true">@BusinessInitials(org.Name)</span>
+                            <div class="business-tile-copy">
+                                @if (org.Id == BusinessContext.SelectedBusiness?.Id) { <span class="business-focus-label"><MudIcon Icon="@Icons.Material.Outlined.CenterFocusStrong" Size="Size.Small" />Focused business</span> }
+                                <h3>@org.Name</h3>
+                                @if (!string.IsNullOrWhiteSpace(org.Mission)) { <p>@Truncate(org.Mission, 180)</p> }
+                                <div class="business-metadata">
+                                    @if (!string.IsNullOrWhiteSpace(org.Industry)) { <span>@org.Industry</span> }
+                                    @if (!string.IsNullOrWhiteSpace(org.Stage)) { <span>@org.Stage</span> }
                                 </div>
-                            }
+                                @if (IsChiefOnboarding(org.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.PersonAdd">Chief of Staff installing</MudChip> }
+                                else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">Hire a Chief of Staff</MudButton> }
+                            </div>
+                        </div>
+                        <footer class="business-tile-footer">
+                            @if (IsDeleting(org.Id)) { <div class="business-delete-progress" role="status"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Error" /><span>Deleting business…</span></div> }
                             else
                             {
-                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => NavigateToCommandCenter(org.Id)">Open</MudButton>
-                                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small" OnClick="() => ShowEditForm(org)">Edit</MudButton>
-                                <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
-                                           Disabled="@(_deletingOrganizationId is not null)" OnClick="() => ConfirmDelete(org)">Delete</MudButton>
+                                <div class="business-shortcuts"><MudButton Href="@($"/organizations/{org.Id}/projects")" StartIcon="@Icons.Material.Outlined.Layers">Projects</MudButton><MudButton Href="@($"/organizations/{org.Id}/employees")" StartIcon="@Icons.Material.Outlined.People">Employees</MudButton></div>
+                                <MudButton Href="@($"/organizations/{org.Id}/command-center")" Color="Color.Primary" Variant="Variant.Filled" EndIcon="@Icons.Material.Outlined.NorthEast">Open business</MudButton>
                             }
-                        </MudCardActions>
-                    </MudCard>
-                    </div>
-                </MudItem>
-            }
-        </MudGrid>
-    }
+                        </footer>
+                    </article>
+                }
+            </div>
+        }
+    </section>
 </div>
 
-<MudDialog Visible="_showForm" VisibleChanged="OnDialogVisibilityChanged" Options="_dialogOptions">
+<MudDialog Visible="_showForm" VisibleChanged="OnDialogVisibilityChanged" Options="_dialogOptions" DefaultFocus="DefaultFocus.FirstChild">
     <DialogContent>
         <section class="business-dialog" aria-labelledby="business-dialog-title">
             <header class="business-dialog-header">
@@ -98,7 +82,7 @@
                         <span class="business-kicker">@(_editingOrg is null ? "New business" : "Business profile")</span>
                         <h2 id="business-dialog-title">@(_editingOrg is null ? "Start a new business." : $"Edit {_editingOrg.Name}")</h2>
                         <p>@(_editingOrg is null
-                            ? "Give C-Sweet the essentials, then hire your Chief of Staff from the agent marketplace."
+                            ? "Give your venture a name and a clear mission."
                             : "Keep the business context your team and agents use up to date.")</p>
                     </div>
                 </div>
@@ -109,17 +93,12 @@
 
             <div class="business-dialog-stage">
                 <section class="business-profile-step">
-                    <div class="business-step-heading">
-                        <span class="business-kicker">Basic information</span>
-                        <h3>Start with the business itself.</h3>
-                        <p>A short mission statement gives every employee and agent a shared north star. You can refine it later. After creation you will hire a Chief of Staff from the agent marketplace.</p>
-                    </div>
                     <div class="business-form-grid">
-                        <MudTextField Label="Business name" @bind-Value="_formName" Required="true" Placeholder="Acme Corp"
+                        <MudTextField Label="Business name" @bind-Value="_formName" Required="true" Placeholder="Name your business" Immediate="true" MaxLength="256" AutoFocus="true"
                                       Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
-                        <MudTextField Label="Industry" @bind-Value="_formIndustry" Placeholder="Software, retail, healthcare..."
+                        <MudTextField Label="Industry" @bind-Value="_formIndustry" Placeholder="e.g. Creative & Product" MaxLength="160" Class="business-form-wide"
                                       Variant="Variant.Outlined" Disabled="@_saving" />
-                        <MudTextField Label="Mission statement" @bind-Value="_formMission" Lines="4"
+                        <MudTextField Label="Mission" @bind-Value="_formMission" Lines="3" MaxLength="4096"
                                       Placeholder="Describe who you serve, what you help them achieve, and why it matters."
                                       HelperText="Aim for one or two clear sentences."
                                       Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
@@ -132,6 +111,7 @@
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_formError</MudAlert>
             }
 
+            @if (_editingOrg is null) { <p class="business-next-step"><MudIcon Icon="@Icons.Material.Outlined.PersonAdd" Size="Size.Small" />Next, choose a Chief of Staff from the marketplace.</p> }
             <footer class="business-dialog-actions">
                 @if (_editingOrg is not null)
                 {
@@ -143,7 +123,7 @@
                 else
                 {
                     <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddBusiness"
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                Disabled="@(_saving || !IsBasicInfoComplete)" OnClick="CreateBusinessAsync">
                         @(_saving ? "Creating business…" : "Create business")
                     </MudButton>
@@ -153,8 +133,18 @@
     </DialogContent>
 </MudDialog>
 
+<MudDialog Visible="_showDelete" VisibleChanged="@(visible => { if (!visible) CancelDelete(); })" Options="_dialogOptions" DefaultFocus="DefaultFocus.FirstChild">
+    <DialogContent>
+        <section class="business-dialog business-delete-dialog" aria-labelledby="business-delete-title">
+            <header class="business-dialog-header"><div><span class="business-kicker">Business management</span><h2 id="business-delete-title">Delete business?</h2></div><MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CancelDelete" aria-label="Cancel deletion" /></header>
+            <p>Delete <strong>@_deleteCandidate?.Name</strong> and all of its associated business data? This cannot be undone.</p>
+            <footer class="business-dialog-actions"><MudButton Variant="Variant.Outlined" OnClick="CancelDelete">Keep business</MudButton><MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBusinessAsync">Delete business</MudButton></footer>
+        </section>
+    </DialogContent>
+</MudDialog>
+
 @code {
-    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true };
+    private DialogOptions _dialogOptions => new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = !_saving, BackdropClick = false, NoHeader = true };
 
     [Parameter] public bool CreateRequested { get; set; }
 
@@ -171,12 +161,16 @@
     private string _formMission = string.Empty;
     private string? _formError;
     private string? _deleteMessage;
+    private string? _loadError;
+    private OrganizationResponse? _deleteCandidate;
+    private bool _showDelete;
 
     private bool IsBasicInfoComplete => !string.IsNullOrWhiteSpace(_formName);
 
     protected override async Task OnInitializedAsync()
     {
         BusinessOnboardingOperations.Changed += OnBusinessOnboardingChanged;
+        BusinessContext.Changed += OnBusinessContextChanged;
         await LoadAsync();
         if (CreateRequested) ShowCreateForm();
     }
@@ -189,13 +183,14 @@
     private async Task LoadAsync()
     {
         _loading = true;
+        _loadError = null;
         try
         {
             _organizations = await OrganizationApi.ListAsync();
         }
         catch (Exception exception)
         {
-            _formError = $"Unable to load businesses: {exception.Message}";
+            _loadError = $"Unable to load businesses: {exception.Message}";
         }
         finally { _loading = false; }
     }
@@ -284,14 +279,15 @@
 
     private async Task SaveEditAsync()
     {
-        if (_editingOrg is null || !IsBasicInfoComplete) return;
+        if (_saving || _editingOrg is null || !IsBasicInfoComplete) return;
         _saving = true;
         _formError = null;
         try
         {
             await OrganizationApi.UpdateAsync(_editingOrg.Id, new UpdateOrganizationRequest(
                 _formName.Trim(), TrimOrNull(_formIndustry), TrimOrNull(_formMission), null, null, null));
-            HideForm();
+            _showForm = false;
+            if (CreateRequested) Navigation.NavigateTo("/", replace: true);
             await LoadAsync();
             await BusinessContext.RefreshAsync();
         }
@@ -307,10 +303,20 @@
         if (CreateRequested) Navigation.NavigateTo("/", replace: true);
     }
 
-    private async Task ConfirmDelete(OrganizationResponse organization)
+    private void RequestDelete(OrganizationResponse organization)
     {
         if (_deletingOrganizationId is not null) return;
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{organization.Name}'? This will also delete all associated business data.")) return;
+        _deleteCandidate = organization;
+        _showDelete = true;
+    }
+
+    private void CancelDelete() { if (_deletingOrganizationId is null) { _showDelete = false; _deleteCandidate = null; } }
+
+    private async Task DeleteBusinessAsync()
+    {
+        if (_deletingOrganizationId is not null || _deleteCandidate is not { } organization) return;
+        _showDelete = false;
+        _deleteCandidate = null;
         _deletingOrganizationId = organization.Id;
         _deleteMessage = null;
         _deleteSucceeded = false;
@@ -332,16 +338,19 @@
         }
     }
 
-    private void NavigateToCommandCenter(Guid organizationId) => Navigation.NavigateTo($"/organizations/{organizationId}/command-center");
     private bool IsDeleting(Guid organizationId) => _deletingOrganizationId == organizationId;
-    private string OrganizationCardClass(Guid organizationId) =>
-        IsDeleting(organizationId) ? "organization-card organization-card-deleting" : "organization-card";
     private bool IsChiefOnboarding(Guid organizationId) => BusinessOnboardingOperations.Operations.Any(operation =>
         operation.OrganizationId == organizationId && BusinessOnboardingOperationStatuses.IsActive(operation.Status));
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Truncate(string value, int maxLength) => value.Length <= maxLength ? value : value[..maxLength] + "...";
 
-    public void Dispose() => BusinessOnboardingOperations.Changed -= OnBusinessOnboardingChanged;
+    private static string BusinessInitials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(word => System.Globalization.StringInfo.GetNextTextElement(word))).ToUpperInvariant();
+    private void OnBusinessContextChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose()
+    {
+        BusinessOnboardingOperations.Changed -= OnBusinessOnboardingChanged;
+        BusinessContext.Changed -= OnBusinessContextChanged;
+    }
 }
 @*
                         <div class="LEGACY-REMOVED chief-heading">

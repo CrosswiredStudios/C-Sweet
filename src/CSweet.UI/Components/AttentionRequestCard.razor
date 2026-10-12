@@ -1,4 +1,4 @@
-<article class="attention-request @Kind.ToLowerInvariant()" aria-label="@($"{Kind} from {Name}")">
+<article class="attention-request @Kind.ToLowerInvariant() @(Compact ? "compact-request" : "")" aria-label="@($"{Kind} from {Name}")">
     <div class="request-person">
         <span class="request-avatar" aria-hidden="true">
             @if (EmployeeId.HasValue)
@@ -13,7 +13,7 @@
     <div class="request-title"><h3>@Prompt</h3>@if (!string.IsNullOrWhiteSpace(PromptMeta)) { <span>@PromptMeta</span> }</div>
     @if (!string.IsNullOrWhiteSpace(Description)) { <p>@Description</p> }
     @BodyContent
-    <div class="request-footer @(RightAlignedActions ? "align-actions-right" : "")"><span>@Status</span><div class="request-actions">@ChildContent</div></div>
+    <div class="request-footer @(RightAlignedActions ? "align-actions-right" : "")"><div class="request-footer-context">@if (FooterContent is not null) { @FooterContent } else { <span>@Status</span> }</div><div class="request-actions">@ChildContent</div></div>
 </article>
 
 @code {
@@ -27,6 +27,8 @@
     [Parameter] public string? Status { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public RenderFragment? BodyContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+    [Parameter] public bool Compact { get; set; }
     [Parameter] public bool RightAlignedActions { get; set; }
     private string Icon => Kind switch
     {

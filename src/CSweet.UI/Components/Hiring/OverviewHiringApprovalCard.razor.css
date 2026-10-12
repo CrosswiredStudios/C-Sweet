@@ -1,0 +1,15 @@
+.requested-hires ::deep .mud-button-label { gap: 6px; }
+::deep .requested-hires { background: var(--mud-palette-primary-hover); border-radius: 9px; }
+.hiring-plan-details { width: min(420px, calc(100vw - 34px)); padding: 20px; overflow-wrap: anywhere; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+.hire-details-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h2 { margin: 0; font-size: 1.15rem; }
+.hire-details-meta { font-size: .8rem; color: var(--mud-palette-text-secondary); margin: 10px 0; }
+.hire-requests { list-style: none; padding: 0; margin: 20px 0 0; }
+.hire-requests li { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-top: 1px solid var(--mud-palette-divider); padding: 14px 0; }
+.hire-requests li > div { min-width: 0; }
+.hire-requests p { color: var(--mud-palette-text-secondary); font-size: .85rem; margin: 5px 0; white-space: pre-wrap; }
+.hire-requests li div > span { display: block; color: var(--mud-palette-text-secondary); font-size: .8rem; }
+.hire-quantity { padding: 4px 8px; flex-shrink: 0; border-radius: 6px; color: var(--mud-palette-primary); background: var(--mud-palette-primary-hover); font-variant-numeric: tabular-nums; }
+.hire-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--mud-palette-text-secondary); font-size: .8rem; }
+.hire-plan-rationale { margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid var(--mud-palette-divider); white-space: pre-wrap; }
+@media (max-width: 600px) { .hiring-plan-details { padding: 18px; } }

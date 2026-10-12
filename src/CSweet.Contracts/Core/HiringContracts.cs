@@ -234,7 +234,10 @@ public sealed record HiringWorkflowApprovalResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? SubmittedAt,
     DateTimeOffset? DecidedAt,
-    string? DecisionComment);
+    string? DecisionComment)
+{
+    public Guid? TeamId { get; init; }
+}
 
 public sealed record HiringDashboardResponse(
     IReadOnlyList<HiringRecommendationResponse> Recommendations,

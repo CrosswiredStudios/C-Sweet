@@ -6,13 +6,16 @@
 @implements IDisposable
 
 <section class="pending-decisions @(SummaryOnly ? "decision-summary" : "decision-inbox")" aria-label="@(SummaryOnly ? "Pending attention items" : "Pending Decisions")">
+    @if (!SummaryOnly)
+    {
     <div class="decisions-toolbar">
         <div>
-            @if (!SummaryOnly) { <h2>Pending Decisions</h2> }
-            <p>@(SummaryOnly ? "Keep your team moving with a response." : "Review requests for direction and respond without leaving this page.")</p>
+            <h2>Pending Decisions</h2>
+            <p>Review requests for direction and respond without leaving this page.</p>
         </div>
-        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="RefreshAsync" aria-label="@(SummaryOnly ? "Refresh attention items" : "Refresh decisions")" />
+        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="RefreshAsync" aria-label="Refresh decisions" />
     </div>
+    }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     else if (_loading && !_loaded) { <MudProgressLinear Indeterminate="true" /> }
     else if (_questions.Count == 0 && !SummaryOnly)
@@ -52,20 +55,27 @@
                 {
                     <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Answered="OnAnsweredAsync" />
                 }
-                @foreach (var approval in Approvals.Take(_showAll ? Approvals.Count : 5))
+                @foreach (var approval in PendingApprovals.Take(_showAll ? PendingApprovals.Count : 5))
                 {
                     var hiring = approval.Kind is ApprovalDashboardKinds.ResourceChange or ApprovalDashboardKinds.HiringWorkflow;
-                    <AttentionRequestCard @key="approval.Id" Kind="@(hiring ? "Hiring" : "Approval")" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
+                    @if (hiring)
+                    {
+                        <OverviewHiringApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval" Decided="OnApprovalDecidedAsync" />
+                    }
+                    else
+                    {
+                    <AttentionRequestCard @key="approval.Id" Kind="Approval" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
                         Prompt="@approval.Title" Description="@approval.Summary" Status="@($"Requested {approval.CreatedAt.ToLocalTime():g}")">
-                        <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">@(hiring ? "Review hire" : "Review approval")</MudButton>
+                        <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">Review approval</MudButton>
                     </AttentionRequestCard>
+                    }
                 }
                 @foreach (var recommendation in Recommendations.Take(_showAll ? Recommendations.Count : 5))
                 {
                     <OverviewHiringCandidateCard @key="recommendation.Id" OrganizationId="OrganizationId" Recommendation="recommendation" Hired="RefreshRequested" />
                 }
             </div>
-            @if (Approvals.Count > 5 || Recommendations.Count > 5)
+            @if (PendingApprovals.Count > 5 || Recommendations.Count > 5)
             {
                 <MudButton OnClick="() => _showAll = !_showAll" aria-expanded="@_showAll" Size="Size.Small">@(_showAll ? "Show fewer items" : $"Show all items ({PendingCount})")</MudButton>
             }
@@ -82,9 +92,12 @@
     [Parameter] public string? ApprovalError { get; set; }
     [Parameter] public string? RecommendationError { get; set; }
     [Parameter] public EventCallback RefreshRequested { get; set; }
-    private int PendingCount => _questions.Count + Approvals.Count + Recommendations.Count;
+    private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
+        .Where(x => !_completedApprovals.Contains(x.Id) && x.CanDecide && x.Status == "Pending").ToList();
+    private int PendingCount => _questions.Count + PendingApprovals.Count + Recommendations.Count;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
+    private readonly HashSet<Guid> _completedApprovals = [];
     private IReadOnlyList<PendingAgentQuestionResponse> _questions = [];
     private bool _loading, _loaded, _disposed;
     private string? _error;
@@ -101,6 +114,7 @@
         _loadedOrganization = OrganizationId;
         _questions = []; _loaded = false; _showAll = false;
         _completedDecisions.Clear();
+        _completedApprovals.Clear();
         await LoadAsync();
     }
     private async Task LoadAsync()
@@ -118,7 +132,7 @@
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
-        { if (version == _loadVersion) _error = "Could not load pending questions. Use Refresh questions to try again."; }
+        { if (version == _loadVersion) _error = SummaryOnly ? "Could not load pending questions." : "Could not load pending questions. Use Refresh decisions to try again."; }
         finally { if (version == _loadVersion) _loading = false; }
     }
     private async Task OnAnsweredAsync(Guid decisionId)
@@ -129,6 +143,12 @@
         await LoadAsync();
     }
     private async Task RefreshAsync() { await Task.WhenAll(LoadAsync(), RefreshRequested.InvokeAsync()); }
+    private async Task OnApprovalDecidedAsync(Guid approvalId)
+    {
+        _completedApprovals.Add(approvalId);
+        StateHasChanged();
+        await RefreshRequested.InvokeAsync();
+    }
     private void OnEvent(AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == OrganizationId && envelope.EventType == CommunicationEvents.DecisionUpdated) OnReconnect();

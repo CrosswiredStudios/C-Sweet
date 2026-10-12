@@ -1,0 +1,9 @@
+.enterprise-workspace { display:flex; flex-direction:column; gap:36px; }
+.enterprise-tools { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px; padding-top:28px; border-top:1px solid var(--activity-border); }
+.enterprise-tools h2 { display:flex; align-items:center; gap:10px; font-size:1rem; font-weight:600; }
+.enterprise-tools p { margin:8px 0 0; color:var(--activity-muted); font-size:.875rem; }
+.enterprise-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; margin-top:auto; padding-top:48px; color:var(--activity-muted); }
+.enterprise-connectivity { display:flex; align-items:center; gap:8px; font-size:.8rem; }
+.enterprise-footer ::deep .enterprise-connectivity-error { flex-basis:100%; }
+.enterprise-footer ::deep .mud-button-root { color:var(--activity-muted); font-size:.8rem; }
+@media(max-width:600px) { .enterprise-workspace { gap:28px; } .enterprise-footer { padding-top:20px; } }

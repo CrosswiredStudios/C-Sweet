@@ -8,6 +8,35 @@ namespace CSweet.UnitTests;
 public sealed class EmployeePresentationTests
 {
     [Fact]
+    public void Leadership_FollowsDirectReports_AndPreservesDeliveryMemberships()
+    {
+        var role = new RoleResponse(Guid.NewGuid(), Guid.NewGuid(), "CEO", "", "[]", 0,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var ceo = Employee("CEO") with { RoleId = role.Id };
+        var director = Employee("Director", ceo.Id, employeeType: 1);
+        var specialist = Employee("Specialist", director.Id);
+        var inactive = Employee("Former director", ceo.Id) with { IsActive = false };
+        var delivery = Team("Delivery", specialist, director, "Developer");
+        var directory = new TeamDirectoryResponse(ceo.Id, true, [delivery]);
+        OrganizationUserResponse[] employees = [ceo, director, specialist, inactive];
+
+        var result = LeadershipTeamPresentation.Build(directory, employees, [role]);
+        var leadership = result.Teams.Single(x => x.TeamKey == LeadershipTeamPresentation.TeamKey);
+        Assert.Equal(2, leadership.ActiveMemberCount);
+        Assert.Contains(leadership.Members, x => x.OrganizationUserId == ceo.Id && x.IsLead);
+        Assert.Contains(leadership.Members, x => x.OrganizationUserId == director.Id);
+        Assert.Equal(2, EmployeePresentationService.Build(employees, [role], [], [],
+            new Dictionary<Guid, AgentRuntimeReadinessResponse>(), teamDirectory: result)
+            .Single(x => x.Id == director.Id).Teams.Count);
+        Assert.Equal(2, LeadershipTeamPresentation.Build(result, employees, [role]).Teams.Count);
+
+        var moved = LeadershipTeamPresentation.Build(directory,
+            [ceo, director with { ReportsToOrganizationUserId = specialist.Id }, specialist], [role]);
+        Assert.Single(moved.Teams.Single(x => x.TeamKey == LeadershipTeamPresentation.TeamKey).Members);
+        Assert.Same(directory, LeadershipTeamPresentation.Build(directory, employees, []));
+    }
+
+    [Fact]
     public void Hierarchy_FocusesSelf_AndLimitsByDegrees()
     {
         var root = Employee("Avery", isSelf: true);

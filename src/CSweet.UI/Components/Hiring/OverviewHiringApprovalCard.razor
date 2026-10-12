@@ -1,0 +1,194 @@
+@using CSweet.Contracts.Core
+@using System.Text.Json
+@inject HttpClient Http
+@inherits MudComponentBase
+@implements IDisposable
+
+@if (!_submitted)
+{
+    <div class="overview-hiring-approval">
+    <AttentionRequestCard Kind="Hiring" EmployeeId="RequesterId" Name="@Approval.RequestedBy" Context="@RequesterContext"
+                          Prompt="@Title" Compact="true" RightAlignedActions="true">
+        <FooterContent>
+            <MudMenu @ref="_detailsMenu" @bind-Open="_detailsOpen" Modal="false" LockScroll="false"
+                     AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft" PopoverClass="hiring-plan-popover">
+                <ActivatorContent Context="menu">
+                    <MudButton @ref="_detailsTrigger" Variant="Variant.Text" Color="Color.Primary" Class="requested-hires" StartIcon="@Icons.Material.Outlined.People"
+                               EndIcon="@(_detailsOpen ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)"
+                               OnClick="async args => { if (!_detailsOpen) _page = 0; await menu.ToggleAsync(args); }"
+                               aria-expanded="@_detailsOpen.ToString().ToLowerInvariant()" aria-haspopup="dialog"
+                               aria-controls="@DetailsId">@HireCountLabel</MudButton>
+                </ActivatorContent>
+                <ChildContent>
+                    <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild">
+                        <section id="@DetailsId" class="hiring-plan-details" role="dialog" aria-label="Requested hires"
+                                 @onkeydown="DetailsKeyDown" @onclick:stopPropagation="true">
+                            <header class="hire-details-header">
+                                <h2>@HireCountLabel</h2>
+                                <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseDetails" aria-label="Close hire details" />
+                            </header>
+                            <p class="hire-details-meta">@Title · Proposed by @Approval.RequestedBy</p>
+                            <p class="hire-details-meta">Requested @Approval.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</p>
+                            @if (Approval.ResourceChange is { } request)
+                            {
+                                @if (RequestedHires.Count == 0)
+                                {
+                                    <p>This plan requests no additional hires. Review the team changes before deciding.</p>
+                                }
+                                else
+                                {
+                                    <ul class="hire-requests">
+                                        @foreach (var hire in RequestedHires.Skip(_page * PageSize).Take(PageSize))
+                                        {
+                                            <li @key="hire.Role.RoleKey">
+                                                <div><strong>@RoleTitle(hire.Role)</strong><p>@hire.Role.Purpose</p>
+                                                    @if (!string.IsNullOrWhiteSpace(hire.Role.Timing)) { <span>Timing: @hire.Role.Timing</span> }
+                                                    @if (ReportingRole(hire.Role) is { } reportingRole) { <span>Reports to @reportingRole</span> }
+                                                    @if (hire.Role.HumanRequired) { <span>Human required</span> }
+                                                </div>
+                                                <span class="hire-quantity" aria-label="@($"{hire.Headcount} requested hires")">×@hire.Headcount</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                    @if (RequestedHires.Count > PageSize)
+                                    {
+                                        <div class="hire-pagination" aria-label="Hire request pages">
+                                            <span aria-live="polite">Roles @(_page * PageSize + 1)–@(Math.Min((_page + 1) * PageSize, RequestedHires.Count)) of @RequestedHires.Count</span>
+                                            <div>
+                                                <MudIconButton Icon="@Icons.Material.Outlined.ChevronLeft" Disabled="@(_page == 0)" OnClick="() => _page--" aria-label="Previous hire requests" />
+                                                <MudIconButton Icon="@Icons.Material.Outlined.ChevronRight" Disabled="@((_page + 1) * PageSize >= RequestedHires.Count)" OnClick="() => _page++" aria-label="Next hire requests" />
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                                <p class="hire-plan-rationale">@request.Rationale</p>
+                                <p class="hire-details-meta">Approval applies to the full team plan, including other team changes.</p>
+                            }
+                            else if (Approval.HiringWorkflow is { } workflow)
+                            {
+                                <ul class="hire-requests"><li><div><strong>@workflow.RoleTitle</strong><p>@workflow.EmployeeDisplayName · @workflow.CandidateSource</p>
+                                    @if (!string.IsNullOrWhiteSpace(workflow.ReportsToDisplayName)) { <span>Reports to @workflow.ReportsToDisplayName</span> }
+                                </div><span class="hire-quantity">×1</span></li></ul>
+                                <p class="hire-plan-rationale">@workflow.InstallationConsequence</p>
+                            }
+                            else { <p>Hire details are unavailable. Open Review to check the current request.</p> }
+                        </section>
+                    </MudFocusTrap>
+                </ChildContent>
+            </MudMenu>
+        </FooterContent>
+        <ChildContent>
+            <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="@(!CanDecide || _busy)" OnClick="OpenDenial">Deny</MudButton>
+            <MudButton Href="@ReviewHref" Color="Color.Primary" Variant="Variant.Outlined">Review</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Outlined.Check"
+                       Disabled="@(!CanDecide || _busy)" OnClick="ApproveAsync">@(_busy && _approving ? "Approving…" : "Approve")</MudButton>
+        </ChildContent>
+    </AttentionRequestCard>
+    @if (_error is not null && !_decisionOpen)
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3" role="alert">@_error</MudAlert>
+    }
+
+    @if (_decisionOpen)
+    {
+        <MudDialog Visible="true" Options="DecisionOptions" aria-label="Deny hiring request">
+            <TitleContent><MudText Typo="Typo.h6">Deny this hiring request?</MudText></TitleContent>
+            <DialogContent>
+                <MudText Typo="Typo.subtitle1">@Title</MudText>
+                <MudText Class="mt-2">@HireCountLabel. @Approval.RequestedBy can use your feedback to revise the request.</MudText>
+                <MudTextField T="string" @bind-Value="_feedback" Label="Decision feedback (optional)" Variant="Variant.Outlined"
+                              Lines="3" MaxLength="@(Approval.HiringWorkflow is null ? 4000 : 2048)" Disabled="_busy" Class="mt-3" />
+                @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3" role="alert">@_error</MudAlert> }
+            </DialogContent>
+            <DialogActions>
+                <MudButton OnClick="CloseDecision" Disabled="_busy">Cancel</MudButton>
+                <MudButton OnClick="SubmitDecisionAsync" Variant="Variant.Filled" Color="Color.Error"
+                           Disabled="@(_busy || !CanDecide)">@(_busy ? "Submitting…" : "Deny")</MudButton>
+            </DialogActions>
+        </MudDialog>
+    }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public ApprovalDashboardItemResponse Approval { get; set; } = default!;
+    [Parameter] public EventCallback<Guid> Decided { get; set; }
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+    private const int PageSize = 6;
+    private static readonly DialogOptions DecisionOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
+    private readonly CancellationTokenSource _disposeCts = new();
+    private bool _detailsOpen, _decisionOpen, _approving, _busy, _submitted;
+    private MudMenu? _detailsMenu;
+    private MudButton? _detailsTrigger;
+    private string? _feedback, _error;
+    private int _page;
+    private bool CanDecide => Approval.CanDecide && Approval.Status == "Pending" &&
+        (Approval.ResourceChange is not null || Approval.HiringWorkflow is not null);
+    private Guid? RequesterId => Approval.RequesterOrganizationUserId ?? Approval.ResourceChange?.RequesterOrganizationUserId ?? Portraits?.FindEmployee(Approval.RequestedBy);
+    private string? RequesterContext => string.Join(" · ", new[] { Portraits?.FindRole(RequesterId), Approval.RequestingTeam ?? Approval.ResourceChange?.TeamName }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    private string Title => HiringApprovalPresentation.Title(Approval);
+    private string ReviewHref => $"/organizations/{OrganizationId:D}/approvals?approvalId={Approval.Id:D}";
+    private string DetailsId => $"hire-details-{Approval.Id:N}";
+    private IReadOnlyList<RequestedHire> RequestedHires => Approval.ResourceChange is { } request ? HiringApprovalPresentation.RequestedHires(request) : [];
+    private string HireCountLabel => Approval.ResourceChange is not null
+        ? $"{RequestedHires.Sum(x => x.Headcount)} requested {(RequestedHires.Sum(x => x.Headcount) == 1 ? "hire" : "hires")}" : Approval.HiringWorkflow is not null ? "1 requested hire" : "View hire details";
+    private string RoleTitle(ResourceChangeRole role) => Portraits?.RoleTitle(role.RoleKey, role.Title) ?? role.Title;
+    private string? ReportingRole(ResourceChangeRole role) => role.ReportsToRoleKey is { } key
+        ? Approval.ResourceChange?.Roles.FirstOrDefault(x => x.RoleKey == key) is { } parent ? RoleTitle(parent) : key
+        : role.ReportsToOrganizationUserId == Approval.ResourceChange?.RequesterOrganizationUserId ? Approval.RequestedBy
+        : role.ReportsToOrganizationUserId == Approval.ResourceChange?.ManagerOrganizationUserId ? Approval.AssignedTo : null;
+    protected override void OnParametersSet() => _page = Math.Min(_page, Math.Max(0, (RequestedHires.Count - 1) / PageSize));
+    private async Task CloseDetails()
+    {
+        if (_detailsMenu is not null) await _detailsMenu.CloseMenuAsync();
+        if (IsJSRuntimeAvailable && _detailsTrigger is not null) await _detailsTrigger.FocusAsync();
+    }
+    private Task DetailsKeyDown(KeyboardEventArgs args) => args.Key == "Escape" ? CloseDetails() : Task.CompletedTask;
+    private void OpenDenial()
+    {
+        if (!CanDecide || _busy || _submitted) return;
+        _approving = false; _decisionOpen = true; _detailsOpen = false; _feedback = null; _error = null;
+    }
+    private void CloseDecision() { if (!_busy) _decisionOpen = false; }
+    private async Task ApproveAsync()
+    {
+        if (!CanDecide || _busy || _submitted) return;
+        _approving = true; _decisionOpen = false; _detailsOpen = false; _feedback = null;
+        await SubmitDecisionAsync();
+    }
+    private async Task SubmitDecisionAsync()
+    {
+        if (!CanDecide || _busy || _submitted) return;
+        _busy = true; _error = null;
+        try
+        {
+            var decision = _approving ? ResourceChangeDecisionKinds.Approve : ResourceChangeDecisionKinds.Reject;
+            using var response = Approval.ResourceChange is not null
+                ? await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/hiring/resource-changes/{Approval.Id:D}/decide",
+                    new ResourceChangeDecisionRequest(Approval.Id, decision, _feedback, $"approvals:{Approval.Id:N}:{decision}"), _disposeCts.Token)
+                : await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/hiring/workflows/{Approval.Id:D}/decide",
+                    new DecideHiringWorkflowRequest(decision, _feedback, $"hiring-decision:{Approval.Id:D}:{decision}"), _disposeCts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(_disposeCts.Token);
+                try { using var json = JsonDocument.Parse(body); _error = json.RootElement.TryGetProperty("message", out var message) ? message.GetString() : null; }
+                catch (JsonException) { }
+                _error ??= "This request could not be decided. Open Review to check its current status and your access.";
+                return;
+            }
+            await MarkDecidedAsync();
+        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException)
+        { _error = "Could not confirm the decision. You can safely try again or open Review to check its status."; }
+        finally { _busy = false; }
+    }
+    private async Task MarkDecidedAsync()
+    {
+        if (_submitted || _disposeCts.IsCancellationRequested) return;
+        _submitted = true; _decisionOpen = false; _detailsOpen = false;
+        await Decided.InvokeAsync(Approval.Id);
+    }
+    public void Dispose() { _disposeCts.Cancel(); _disposeCts.Dispose(); }
+}

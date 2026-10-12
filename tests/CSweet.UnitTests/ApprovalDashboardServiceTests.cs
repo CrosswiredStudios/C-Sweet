@@ -151,6 +151,11 @@ public sealed class ApprovalDashboardServiceTests
             CreatedAt = DateTimeOffset.UtcNow
         };
         var createdAt = DateTimeOffset.UtcNow;
+        var hiringTeam = new OrganizationTeam
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, Name = "Product team",
+            TeamKey = "product", NormalizedName = "PRODUCT TEAM", LeadOrganizationUserId = productManager.Id
+        };
         var candidate = new WorkforceCandidate
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, Source = "CSweetEmbeddedCatalog",
@@ -177,10 +182,11 @@ public sealed class ApprovalDashboardServiceTests
             "DeliveredInChat",
             null,
             createdAt,
-            null);
+            null) { TeamId = hiringTeam.Id, TeamName = "Old product team name" };
         db.AddRange(
             owner,
             productManager,
+            hiringTeam,
             candidate,
             new ActionProposal
             {
@@ -202,7 +208,7 @@ public sealed class ApprovalDashboardServiceTests
                 CandidateId = $"candidate:{candidate.Id:N}",
                 CandidateSource = candidate.Source,
                 ActionType = "install-and-hire",
-                PayloadJson = $$"""{"roleTitle":"Web Game Developer","employeeDisplayName":"Web Game Developer","reportsToOrganizationUserId":"{{owner.Id:D}}","requiredGrants":[],"embeddedAgent":null}""",
+                PayloadJson = $$"""{"roleTitle":"Web Game Developer","employeeDisplayName":"Web Game Developer","reportsToOrganizationUserId":"{{owner.Id:D}}","teamId":"{{hiringTeam.Id:D}}","requiredGrants":[],"embeddedAgent":null}""",
                 IdempotencyKey = Guid.NewGuid().ToString("N"),
                 Status = ProposalStatus.Pending,
                 CreatedAt = createdAt,
@@ -265,6 +271,12 @@ public sealed class ApprovalDashboardServiceTests
             x => x.Id == resourceChange.Id);
         Assert.True(teamApproval.CanDecide);
         Assert.Equal("Owner", teamApproval.AssignedTo);
+        Assert.Equal(productManager.Id, teamApproval.RequesterOrganizationUserId);
+        Assert.Equal(hiringTeam.Name, teamApproval.RequestingTeam);
+        var workflowApproval = Assert.Single(result.Items, x => x.Kind == ApprovalDashboardKinds.HiringWorkflow);
+        Assert.Equal(productManager.Id, workflowApproval.RequesterOrganizationUserId);
+        Assert.Equal(hiringTeam.Id, workflowApproval.HiringWorkflow!.TeamId);
+        Assert.Equal(hiringTeam.Name, workflowApproval.RequestingTeam);
         Assert.Contains(
             result.Items,
             x => x.Kind == ApprovalDashboardKinds.HiringWorkflow &&

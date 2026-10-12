@@ -331,7 +331,7 @@ public static class McpGatewayEndpoints
             EntityId: await CurrentCapabilityAttemptAsync(db, session, cancellationToken),
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
-            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability }),
+            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
@@ -509,7 +509,7 @@ public static class McpGatewayEndpoints
             EntityId: await CurrentCapabilityAttemptAsync(db, session, cancellationToken),
             Summary: $"{session.AgentId} invoked {tool.Name} ({tool.Capability}).",
             CorrelationId: request.RequestId, ExternalRequestId: request.RequestId,
-            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability }),
+            MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
         try
         {
@@ -984,6 +984,7 @@ public static class McpGatewayEndpoints
             MetadataJson: JsonSerializer.Serialize(new
             {
                 toolName = tool.Name,
+                activityDescription = tool.ActivityDescription,
                 tool.Capability,
                 executionPolicy = tool.ExecutionPolicy.ToString(),
                 tool.RiskClass,

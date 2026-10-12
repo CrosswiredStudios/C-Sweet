@@ -36,7 +36,9 @@ public sealed record SecurityEventSummaryResponse(
     string EntityType,
     Guid? EntityId,
     string? EmployeeRole = null,
-    int? ModelResponseChunkCount = null);
+    int? ModelResponseChunkCount = null,
+    Guid? ActorEmployeeId = null,
+    string? ActivityDescription = null);
 
 public sealed class SecurityEventDetailResponse
 {

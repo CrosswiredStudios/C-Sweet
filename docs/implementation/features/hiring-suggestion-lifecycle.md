@@ -29,6 +29,31 @@ authority rules. Review links supply `approvalId` to
 `Approvals`, which puts the actionable selected request first and highlights it. A
 completed, unavailable, or non-decidable request produces a notice without expanding access.
 
+`OverviewHiringApprovalCard` uses `AttentionRequestCard.Compact` for the decision row:
+the requesting employee's installed portrait, installed role name and requesting team,
+a top-right **Hiring** chip, a short team-based title, and **Deny / Review / Approve**.
+`ApprovalDashboardItemResponse.RequesterOrganizationUserId` binds portraits by employee
+identity even when display names collide. Workflow team names come from the reviewed
+`HiringWorkflowApprovalResponse.TeamId`; team-plan names resolve within the organization.
+`HiringApprovalPresentation.RequestedHires` counts positive headcount deltas for added,
+increased or modified roles, excluding unchanged roles, reductions and removals. The
+hire-count button opens a nonmodal popover anchored below the button, using the current
+page palette without a backdrop. It supports outside-click and Escape dismissal, close-button
+focus restoration, viewport-bounded scrolling, and six role requests per page with quantity,
+purpose, timing, reporting context and the complete plan rationale. Zero new hires still
+allows review of the full team changes.
+
+Review navigates to `/organizations/{organizationId}/approvals?approvalId={requestId}`.
+Approve submits directly from the parent card, without a confirmation dialog. Deny retains
+its optional feedback dialog. The details popover contains hire information only; Review
+remains on the parent card. Both plan and workflow decisions use their existing authorized
+decision endpoints with the same idempotency keys as the inbox. Workflow configuration
+can be reviewed on the Approvals page. Approval failures appear inline on the card.
+Errors keep the request actionable
+and retries reuse their decision key. Only successful decisions dismiss the row and
+refresh the overview. `PendingAgentQuestions` remembers completed approval IDs within the
+current organization so stale reads cannot restore decided rows or inflate its count.
+
 Hiring suggestion cards read the company's pending recommendation backlog,
 including recommendations never materialized as chat actions. `CompanyDashboardEndpoints`
 maps `GET /api/core/organizations/{organizationId}/dashboard/hiring` to

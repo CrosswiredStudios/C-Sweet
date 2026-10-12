@@ -2091,7 +2091,10 @@ CompleteWorkflow:
             workflow.CreatedAt,
             workflow.SubmittedAt,
             workflow.DecidedAt,
-            workflow.DecisionComment);
+            workflow.DecisionComment)
+        {
+            TeamId = snapshot.TeamId
+        };
     }
 
     private static MarketplaceHirePreviewResponse ToMarketplacePreview(

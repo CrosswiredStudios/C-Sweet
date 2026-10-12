@@ -2218,8 +2218,14 @@ body { color: var(--cs-navy); }
 }
 .repository-access-popover .mud-list { padding: 0; }
 
+/* Hire details render through the popover provider, outside component CSS isolation. */
+.hiring-plan-popover { border: 1px solid var(--mud-palette-divider); border-radius: 14px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); box-shadow: 0 12px 32px #30263f24; overflow-x: hidden; overflow-y: auto; }
+.hiring-plan-popover .mud-list { padding: 0; }
+@media (max-width: 600px) { .hiring-plan-popover { left: 16px !important; } }
+
 /* Theme tokens also flow into the activity cards and provider stream. */
-.aurora-page, body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover) {
+.aurora-page, body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
+body:has(.company-overview.aurora-page) .hiring-plan-popover {
     --mud-palette-background: var(--activity-panel); --mud-palette-background-gray: var(--activity-tint);
     --mud-palette-action-default-hover: var(--activity-tint); --mud-palette-table-hover: var(--activity-tint);
     --activity-panel: #fbfaff; --activity-raised: #fff; --activity-text: #30263f;
@@ -2238,7 +2244,8 @@ body { color: var(--cs-navy); }
 }
 .setup-appearance[data-appearance=gold] .aurora-page,
 body:has(.setup-appearance[data-appearance=gold]) :is(.mud-dialog,.mud-popover),
-.mud-layout[data-appearance=gold] .aurora-page, body:has(.mud-layout[data-appearance=gold] :is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover) {
+.mud-layout[data-appearance=gold] .aurora-page, body:has(.mud-layout[data-appearance=gold] :is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
+body:has(.mud-layout[data-appearance=gold] .company-overview.aurora-page) .hiring-plan-popover {
     --activity-panel: #080807; --activity-raised: #10100e; --activity-text: #f7f5f0;
     --activity-muted: #b3aea4; --activity-border: #393326; --activity-accent: #d8b976; --activity-tint: #211c12;
     --mud-palette-surface: #080807; --mud-palette-text-primary: #f7f5f0; --mud-palette-text-secondary: #b3aea4;
@@ -2246,6 +2253,7 @@ body:has(.setup-appearance[data-appearance=gold]) :is(.mud-dialog,.mud-popover),
     --mud-palette-secondary: #b3aea4; --mud-palette-action-default: #b3aea4;
     --aurora-widget: var(--activity-panel); --aurora-widget-border: var(--activity-border); color-scheme: dark; background: #000;
 }
+body:has(.company-overview.aurora-page) .hiring-plan-popover { background: var(--mud-palette-surface); }
 .aurora-page .mud-input-outlined-border { border-color: var(--activity-border) !important; border-radius: 13px !important; }
 .aurora-page .mud-input-control:focus-within .mud-input-outlined-border { border-color: var(--activity-accent) !important; }
 .aurora-page .mud-input-label { color: var(--activity-muted); }

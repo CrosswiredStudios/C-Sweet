@@ -31,6 +31,7 @@ public sealed record ApprovalDashboardItemResponse(
     public ArtifactApprovalCardResponse? Artifact { get; init; }
     public ArtifactAccessRequestResponse? ArtifactAccess { get; init; }
     public string? RequestingTeam { get; init; }
+    public Guid? RequesterOrganizationUserId { get; init; }
     public string? ActualDecisionMaker { get; init; }
     public Guid? SourceResourceChangeRequestId { get; init; }
     public bool CanManageStandingPolicy { get; init; }

@@ -155,12 +155,12 @@
         }
         <div class="employees-view-bar">
             <EmployeeViewToggle Value="_activeView" ValueChanged="ChangeViewAsync" />
-            <span class="employees-census">@_employees.Count employees <span aria-hidden="true">·</span> @PresentedEmployees.Count(x => x.IsAgent) agents <span aria-hidden="true">·</span> @_teamDirectory.Teams.Count(x => !x.IsArchived) teams</span>
+            <span class="employees-census">@_employees.Count employees <span aria-hidden="true">·</span> @PresentedEmployees.Count(x => x.IsAgent) agents <span aria-hidden="true">·</span> @PresentedTeams.Teams.Count(x => !x.IsArchived) teams</span>
         </div>
         @if (_activeView == EmployeeViewKind.Graph)
         {
             <EmployeeGraphView Employees="PresentedEmployees"
-                               Teams="_teamDirectory.Teams"
+                               Teams="PresentedTeams.Teams"
                                SelectedId="_selectedEmployeeId"
                                SelectedIdChanged="SelectEmployeeAsync"
                                Degrees="_graphDegrees"
@@ -170,7 +170,7 @@
         }
         else if (_activeView == EmployeeViewKind.Teams)
         {
-            <TeamClustersView Directory="_teamDirectory"
+            <TeamClustersView Directory="PresentedTeams"
                               Employees="PresentedEmployees"
                               FocusTeamId="_focusedTeamId"
                               SelectedEmployeeId="_selectedEmployeeId"
@@ -181,7 +181,7 @@
         {
             <EmployeeDirectoryView Employees="PresentedEmployees"
                                    Roles="_roles"
-                                   Teams="_teamDirectory.Teams"
+                                   Teams="PresentedTeams.Teams"
                                    Filter="_directoryFilter"
                                    FilterChanged="ChangeFilterAsync"
                                    SelectedId="_selectedEmployeeId"

@@ -6,7 +6,7 @@
 .request-avatar ::deep img { width: 100%; height: 100%; object-fit: cover; }
 .request-identity { min-width: 0; display: flex; flex-direction: column; }
 .request-identity strong { font-size: .9rem; font-weight: 600; }
-.request-identity span, .request-footer > span { font-size: .78rem; color: var(--mud-palette-text-secondary); }
+.request-identity span, .request-footer-context > span { font-size: .78rem; color: var(--mud-palette-text-secondary); }
 .request-kind { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; font-size: .75rem; font-weight: 600; white-space: nowrap; color: var(--mud-palette-primary); background: var(--mud-palette-primary-hover); }
 .approval .request-kind { color: var(--mud-palette-warning-darken); background: var(--mud-palette-warning-hover); }
 .hiring .request-kind { color: var(--mud-palette-success-darken); background: var(--mud-palette-success-hover); }
@@ -17,4 +17,12 @@ p { margin: 0 0 14px; color: var(--mud-palette-text-secondary); font-size: .875r
 .request-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .request-actions { flex-shrink: 0; }
 .align-actions-right .request-actions { margin-left: auto; max-width: 100%; }
+.compact-request .request-person { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: start; }
+.compact-request .request-kind { margin: 2px 0 0; }
+.compact-request .request-title, .compact-request .request-footer { margin-left: 56px; }
+.compact-request h3 { margin: 12px 0; }
+.compact-request .request-footer { flex-wrap: wrap; }
+.compact-request .request-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.request-footer-context { min-width: 0; }
 @media (max-width: 600px) { .attention-request { padding: 16px; } .request-person { flex-wrap: wrap; } .request-kind { margin-left: 56px; } .request-footer { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 600px) { .compact-request .request-title, .compact-request .request-footer { margin-left: 0; } .compact-request .request-kind { margin-left: 0; } .compact-request .request-actions { align-self: flex-end; } .compact-request .request-actions ::deep .mud-button-root { min-width: 56px; padding: 6px 10px; } }
