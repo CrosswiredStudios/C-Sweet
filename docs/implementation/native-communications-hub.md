@@ -32,6 +32,20 @@ Agents may also attach a platform-resolved workflow action with `platform.user-a
 
 ## Project decision routing
 
+`McpToolCatalog` exposes open-ended questions through the existing `ask_user` tool
+(`platform.user-input.request.v1`): send `options: []` and `recommendedOptionId: ""`.
+`ExecutiveDecisionService.CreateAsync` persists the ordinary pending decision with no
+predefined choices, retaining conversation/turn authority, supersession, idempotency,
+transactional realtime events, and pending-question discovery. Configuration, project
+action, and task-merge decisions still require predefined choices.
+`Communications` renders a multiline custom answer immediately. `AgentQuestionCard`
+renders the same input inline in Overview, with a right-aligned **Send response** button.
+Both forms reject blank answers and use a stable answer key across retries; a confirmed
+answer starts one durable agent turn and removes the pending attention item.
+Naomi's `VideoGameCreativeDirectorAgent.HandleManagerMessageAsync` uses this question
+after an involvement-only answer to request initial game direction or permission to
+originate concepts. Existing prose messages are not retroactively converted to decisions.
+
 On company Overview, `CommandCenter` places `PendingAgentQuestions` inside
 `EmployeePortraitScope`. Each pending question renders `AgentQuestionCard` in Overview
 mode, using the requesting employee ID with `PersonAvatarContent` for the installed

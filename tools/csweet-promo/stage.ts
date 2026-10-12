@@ -9,6 +9,7 @@ let campaign = campaigns.find(c=>c.id===params.get('campaign')) || campaigns[0];
 let format:Format = params.get('format') === 'vertical' ? 'vertical' : 'landscape';
 let shots = shotsFor(campaign,format);
 let time=0,playing=false,last=0,sceneKey='';
+const assetSizes=new Map<string,{width:number;height:number}>();
 const stage=document.querySelector<HTMLElement>('#stage')!;
 const viewport=document.querySelector<HTMLElement>('#viewport')!;
 const campaignSelect=document.querySelector<HTMLSelectElement>('#campaign')!;
@@ -27,11 +28,17 @@ function orbit(c:Campaign){
 function scene(c:Campaign,s:Shot){
     const vertical=format==='vertical';
     let asset=s.asset;
-    if(vertical&&s.id==='plan') asset=`/assets/${c.id}-plan-focus.png`;
-    if(vertical&&s.id==='team') asset=`/assets/${c.id}-employee-0.png`;
+    if(vertical&&s.id==='plan') asset=`/assets/${c.id}-plan-mobile.png`;
+    if(vertical&&s.id==='chat') asset=`/assets/${c.id}-chat-mobile.png`;
+    if(vertical&&(s.id==='board'||s.id==='task')) asset=`/assets/${c.id}-board-mobile.png`;
+    if(vertical&&s.id==='calendar') asset=`/assets/${c.id}-calendar-agenda-mobile.png`;
+    if(vertical&&s.id==='approval') asset=`/assets/${c.id}-approval-mobile.png`;
+    if(vertical&&s.id==='document') asset=`/assets/${c.id}-document-content-mobile.png`;
+    if(vertical&&s.id==='report') asset=`/assets/${c.id}-report-content-mobile.png`;
+    if(vertical&&s.id==='team') asset=`/assets/${c.id}-employee-0-mobile.png`;
     const media=asset?`<div class="screen-shell"><div class="screen-chrome"><span class="chrome-dots"><i></i><i></i><i></i></span><span>${escape(c.company)} · ${s.id==='report'||s.id==='report-close'?'Sample channel report':escape(c.project)}</span><span>C-Sweet</span></div><div class="screen-window"><img class="screen-image" src="${asset}" alt="${escape(s.focal)}"></div></div>`:'';
     const strip=s.id==='team'?`<div class="portrait-strip">${c.portraits.map((p,i)=>`<div class="portrait-role"><img src="/assets/${p}.jpg" alt=""><span>${escape(c.roles[i])}</span></div>`).join('')}</div>`:'';
-    const task=s.id==='task'?`<div class="task-focus-label">ASSIGNED WORK · FIRST MILESTONE</div><div class="task-focus"><img src="/assets/${c.id}-board-focus.png" alt="Assigned work card"></div>`:'';
+    const task=s.id==='task'?`<div class="task-focus-label">ASSIGNED WORK · FIRST MILESTONE</div><div class="task-focus"><img src="/assets/${c.id}-board-focus${vertical?'-mobile':''}.png" alt="Assigned work card"></div>`:'';
     return `<section class="scene ${c.theme==='gold'?'gold':''} ${vertical?'vertical':''} ${s.id}" style="--accent:${c.accent}"><div class="atmosphere"></div><div class="grid"></div><div class="halo"></div><div class="halo small"></div>${rail(c,s)}<div class="copy"><div class="eyebrow">${s.id==='hook'?c.eyebrow:['','DIRECTION','TEAM','WORK','REVIEW',''][s.chapter]}</div><h1 class="headline">${s.heading.split('\n').map(line=>`<span>${escape(line)}</span>`).join('')}</h1><p class="detail">${escape(s.detail)}</p><div class="underline"></div></div>${s.id==='hook'?orbit(c):''}${s.id==='end'?'<div class="brand-ending"><img src="/assets/logo.svg" alt="C-Sweet"><strong>C-Sweet</strong></div>':''}${media}${strip}${task}<div class="bottom"><span>${s.id==='end'?'Your company. Your control.':escape(c.company)+' / '+escape(c.project)}</span><span class="sample">Sample data · condensed workflow</span><span class="steps">${[1,2,3,4].map(i=>`<i class="${s.chapter>=i?'active':''}"></i>`).join('')}</span></div></section>`;
 }
 
@@ -45,17 +52,24 @@ function animateScene(root:HTMLElement,s:Shot,local:number){
     root.querySelectorAll<HTMLElement>('.orbit-person').forEach((node,i)=>{const r=ease((local-.12-i*.12)/.85);node.style.opacity=String(r);node.style.transform=`translateY(${(1-r)*60+Math.sin(local*.8+i*1.3)*8}px) rotate(${Math.sin(local*.35+i)*2}deg) scale(${.82+.18*r})`;});
     root.querySelectorAll<HTMLElement>('.orbit-tag').forEach((node,i)=>{node.style.opacity=String(ease((local-.45-i*.12)/.5));node.style.transform=`translateY(${Math.sin(local*.8+i*1.3)*6}px)`;});
     const focus=root.querySelector<HTMLElement>('.task-focus');if(focus)focus.style.transform=`perspective(1800px) translateY(${(1-reveal)*45-p*10}px) rotateY(${(1-reveal)*-5}deg) scale(${.94+.06*reveal+p*.015})`;
+    if(format==='vertical'&&['document','report','approval','calendar','plan','board'].includes(s.id)){
+        const image=root.querySelector<HTMLImageElement>('.screen-image');const pane=root.querySelector<HTMLElement>('.screen-window');
+        const size=image?assetSizes.get(image.getAttribute('src')!):undefined;
+        if(image&&pane&&size){const travel=Math.max(0,image.clientWidth*size.height/size.width-pane.clientHeight);image.style.transform=`translateY(${-travel*ease((local-.7)/Math.max(1,s.end-s.start-1.5))}px)`;}
+    }
     const atmosphere=root.querySelector<HTMLElement>('.atmosphere')!;atmosphere.style.transform=`translate(${Math.sin(local*.11)*22}px,${Math.cos(local*.12)*18}px) scale(1.03)`;
     // Show every employee in the vertical composition, two readable cards at a time.
     if(format==='vertical'&&s.id==='team'){
         const n=campaign.portraits.length;
         const pick=n===4&&local>(s.end-s.start)/2?2:0;
         const image=root.querySelector<HTMLImageElement>('.screen-image')!;
-        image.src=`/assets/${campaign.id}-employee-${pick}.png`;
+        image.src=`/assets/${campaign.id}-employee-${pick}-mobile.png`;
         image.style.width='100%';
         const window=root.querySelector<HTMLElement>('.screen-window')!;window.style.height='auto';
         if(!window.querySelector('.second-employee')){const second=document.createElement('img');second.className='screen-image second-employee';second.style.cssText='width:100%;display:block;margin-top:20px';window.append(second);}
-        root.querySelector<HTMLImageElement>('.second-employee')!.src=`/assets/${campaign.id}-employee-${Math.min(pick+1,n-1)}.png`;
+        root.querySelector<HTMLImageElement>('.second-employee')!.src=`/assets/${campaign.id}-employee-${Math.min(pick+1,n-1)}-mobile.png`;
+        root.querySelectorAll<HTMLElement>('.portrait-role').forEach((node,i)=>node.style.display=i>=pick&&i<pick+2?'flex':'none');
+        if(n===4)window.style.opacity=String(ease(Math.abs(local-(s.end-s.start)/2)/.22));
     }
 }
 // A source element bridges scene boundaries; the surrounding frame then reveals the next actual screen.
@@ -88,7 +102,7 @@ function renderAt(t:number){
 }
 function resize(){const f=formats[format];stage.style.width=f.width+'px';stage.style.height=f.height+'px';const scale=isRender?1:Math.min((innerWidth-48)/f.width,(innerHeight-220)/f.height);stage.style.transform=`scale(${scale})`;viewport.style.width=f.width*scale+'px';viewport.style.height=f.height*scale+'px';}
 async function configure(){playing=false;audio.pause();sceneKey='';campaignSelect.value=campaign.id;formatSelect.value=format;scrub.max=String(formats[format].duration);audio.src=`/audio/${campaign.id}-${format}.wav`;shots=shotsFor(campaign,format);resize();await preload();renderAt(0);}
-async function preload(){const assets=new Set<string>(['/assets/logo.svg',...campaign.portraits.map(p=>`/assets/${p}.jpg`)]);for(const shot of shots){if(shot.asset)assets.add(shot.asset);if(shot.anchor)assets.add(shot.anchor);}assets.add(`/assets/${campaign.id}-plan-focus.png`);for(let i=0;i<campaign.portraits.length;i++)assets.add(`/assets/${campaign.id}-employee-${i}.png`);await Promise.all([...assets].map(src=>new Promise<void>((resolve,reject)=>{const image=new Image();image.onload=()=>image.decode().then(()=>resolve(),reject);image.onerror=()=>reject(new Error('Missing promo asset '+src));image.src=src;})));await document.fonts.ready;}
+async function preload(){const assets=new Set<string>(['/assets/logo.svg',...campaign.portraits.map(p=>`/assets/${p}.jpg`)]);for(const shot of shots){if(shot.asset)assets.add(shot.asset);if(shot.anchor)assets.add(shot.anchor);}assets.add(`/assets/${campaign.id}-plan-focus.png`);for(let i=0;i<campaign.portraits.length;i++){assets.add(`/assets/${campaign.id}-employee-${i}.png`);if(format==='vertical')assets.add(`/assets/${campaign.id}-employee-${i}-mobile.png`);}if(format==='vertical'){for(const scene of ['chat','plan','board'])assets.add(`/assets/${campaign.id}-${scene}-mobile.png`);assets.add(`/assets/${campaign.id}-board-focus-mobile.png`);if(campaign.id==='youtube'){for(const scene of ['calendar','approval'])assets.add(`/assets/${campaign.id}-${scene}-mobile.png`);assets.add(`/assets/${campaign.id}-calendar-agenda-mobile.png`);assets.add(`/assets/${campaign.id}-report-content-mobile.png`);}else assets.add(`/assets/${campaign.id}-document-content-mobile.png`);}await Promise.all([...assets].map(src=>new Promise<void>((resolve,reject)=>{const image=new Image();image.onload=()=>image.decode().then(()=>{assetSizes.set(src,{width:image.naturalWidth,height:image.naturalHeight});resolve();},reject);image.onerror=()=>reject(new Error('Missing promo asset '+src));image.src=src;})));await document.fonts.ready;}
 function toggle(){playing=!playing;last=performance.now();document.querySelector('#play')!.textContent=playing?'Pause':'Play';if(playing&&sound.checked){audio.currentTime=time;audio.play().catch(()=>{});}else audio.pause();}
 function tick(now:number){if(playing){time+=(now-last)/1000;if(time>=formats[format].duration){time=0;audio.currentTime=0;}renderAt(time);}last=now;requestAnimationFrame(tick);}
 campaignSelect.onchange=()=>{campaign=campaigns.find(c=>c.id===campaignSelect.value)!;window.promoReady=configure();};

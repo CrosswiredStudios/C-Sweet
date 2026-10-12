@@ -18,6 +18,41 @@ namespace CSweet.UnitTests;
 
 public sealed class OverviewQuestionAnswerTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenEndedQuestionAnswersInlineAndKeepsItsKeyOnRetry(bool failFirst)
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.Question = fixture.Api.Question with { Decision = fixture.Api.Question.Decision with { Options = [], RecommendedOptionId = "" } };
+        fixture.Api.FailFirst = failFirst;
+        fixture.Api.ReturnStaleQuestions = true;
+        var output = await fixture.RenderAsync();
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("<textarea", html);
+        Assert.Contains("rows=\"4\"", html);
+        Assert.Contains("align-actions-right", html);
+        Assert.DoesNotContain("Choose an answer", html);
+        Assert.DoesNotContain("Something Else", html);
+        var submit = Assert.Single(fixture.Activator.Buttons, x => x.Variant == Variant.Filled);
+        Assert.True(submit.Disabled);
+        var card = fixture.Activator.Card!;
+        var direction = typeof(AgentQuestionCard).GetField("_direction", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var render = typeof(ComponentBase).GetMethod("StateHasChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => { direction.SetValue(card, "Explore a cozy world\nPC, no combat"); render.Invoke(card, null); });
+        Assert.False(submit.Disabled);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => submit.OnClick.InvokeAsync(new MouseEventArgs()));
+        if (failFirst)
+        {
+            Assert.Contains("Try again", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+            await fixture.Renderer.Dispatcher.InvokeAsync(() => submit.OnClick.InvokeAsync(new MouseEventArgs()));
+            Assert.Equal(fixture.Api.Answers[0].IdempotencyKey, fixture.Api.Answers[1].IdempotencyKey);
+        }
+        Assert.Contains("Nothing needs your attention", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        Assert.All(fixture.Api.Answers, answer => { Assert.Null(answer.OptionId); Assert.Equal("Explore a cozy world\nPC, no combat", answer.SomethingElse); });
+        Assert.Empty(fixture.Navigation.Destinations);
+    }
+
     [Fact]
     public async Task InstalledAvatarAndMenuLinkBelongToTheRequestingAgent()
     {
@@ -112,11 +147,15 @@ public sealed class OverviewQuestionAnswerTests
     private sealed class CapturingActivator : IComponentActivator
     {
         public MudMenu? Menu { get; private set; }
+        public AgentQuestionCard? Card { get; private set; }
+        public List<MudButton> Buttons { get; } = [];
         public List<MudMenuItem> Items { get; } = [];
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
             if (component is MudMenu menu) Menu = menu;
+            if (component is AgentQuestionCard card) Card = card;
+            if (component is MudButton button) Buttons.Add(button);
             if (component is MudMenuItem item) Items.Add(item);
             return component;
         }
@@ -125,7 +164,7 @@ public sealed class OverviewQuestionAnswerTests
     {
         public Guid Organization { get; } = Guid.NewGuid();
         private readonly Guid _employee = Guid.NewGuid(), _installation = Guid.NewGuid();
-        public PendingAgentQuestionResponse Question { get; }
+        public PendingAgentQuestionResponse Question { get; set; }
         public List<AnswerExecutiveDecisionRequest> Answers { get; } = [];
         public List<string> AnswerUris { get; } = [];
         public bool FailFirst { get; set; }

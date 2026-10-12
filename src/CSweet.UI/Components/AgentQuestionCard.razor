@@ -9,7 +9,20 @@ else
 @if (Overview)
 {
     <AttentionRequestCard Kind="Decision" EmployeeId="Question.AgentOrganizationUserId" Name="@Question.AgentName"
-        Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt" Status="Awaiting your response">
+        Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt" Status="Awaiting your response" RightAlignedActions="OpenEnded">
+        <BodyContent>
+            @if (OpenEnded)
+            {
+                <label class="direction-label">Your answer<textarea rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+            }
+        </BodyContent>
+        <ChildContent>
+        @if (OpenEnded)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_direction))" OnClick="SubmitAsync">@(_busy ? "Submitting…" : "Send response")</MudButton>
+        }
+        else
+        {
         <MudMenu Label="@(_busy ? "Sending answer…" : "Choose an answer")" Variant="Variant.Filled" Color="Color.Primary"
                  EndIcon="@Icons.Material.Outlined.ExpandMore" Disabled="_busy" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
             @foreach (var option in Question.Decision.Options)
@@ -32,6 +45,8 @@ else
                 <MudMenuItem Href="@ConversationHref" Icon="@Icons.Material.Outlined.ChatBubbleOutline">Something Else<div class="option-description">Continue in the conversation</div></MudMenuItem>
             }
         </MudMenu>
+        }
+        </ChildContent>
     </AttentionRequestCard>
     @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">@_error</MudAlert> }
 }
@@ -53,18 +68,18 @@ else
                 <span><strong>@option.Label</strong> @if (option.Recommended) { <small>Recommended</small> }
                 <span class="option-description">@option.Description</span></span></label>
         }
-        @if (Question.Decision.AllowFreeText)
+        @if (Question.Decision.AllowFreeText && !OpenEnded)
         {
             <label><input type="radio" name="@Question.Decision.Id" checked="@(_selected == Other)" @onchange="() => Select(Other)" /><span>Something else</span></label>
         }
         @if (NeedsText)
         {
-            <label class="direction-label">Your direction<textarea maxlength="4000" @bind="_direction" @bind:event="oninput"></textarea></label>
+            <label class="direction-label">@(OpenEnded ? "Your answer" : "Your direction")<textarea rows="4" maxlength="4000" @bind="_direction" @bind:event="oninput"></textarea></label>
         }
     </fieldset>
     @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
     <div class="response-actions">
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Disabled="@(_busy || _selected is null || (NeedsText && string.IsNullOrWhiteSpace(_direction)))" OnClick="SubmitAsync">@(_busy ? "Submitting…" : "Send response")</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Disabled="@(_busy || (!OpenEnded && _selected is null) || (NeedsText && string.IsNullOrWhiteSpace(_direction)))" OnClick="SubmitAsync">@(_busy ? "Submitting…" : "Send response")</MudButton>
         <MudButton Href="@($"/organizations/{OrganizationId}/communications/{Question.ConversationId}")" Size="Size.Small">View conversation</MudButton>
     </div>
     </div>
@@ -86,7 +101,8 @@ else
     private ElementReference _dismissalElement;
     private bool _answerConfirmed;
     private readonly string _answerKey = Guid.NewGuid().ToString("N");
-    private bool NeedsText => Question.Decision.AllowFreeText && (_selected == Other || _selected == "provide-direction");
+    private bool OpenEnded => Question.Decision.AllowFreeText && Question.Decision.Options.Count == 0;
+    private bool NeedsText => Question.Decision.AllowFreeText && (OpenEnded || _selected == Other || _selected == "provide-direction");
     private string ConversationHref => $"/organizations/{OrganizationId}/communications/{Question.ConversationId}";
     private async Task AnswerOptionAsync(string option)
     {
@@ -97,7 +113,7 @@ else
     private void Select(string option) { _selected = option; _error = null; }
     private async Task SubmitAsync()
     {
-        if (_busy || _submitted || _answerConfirmed || _selected is null || (NeedsText && string.IsNullOrWhiteSpace(_direction))) return;
+        if (_busy || _submitted || _answerConfirmed || (!OpenEnded && _selected is null) || (NeedsText && string.IsNullOrWhiteSpace(_direction))) return;
         _busy = true; _error = null;
         try
         {

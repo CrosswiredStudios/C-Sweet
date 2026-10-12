@@ -549,7 +549,7 @@
                                                         </span>
                                                     </label>
                                                 }
-                                                @if (decision.AllowFreeText)
+                                                @if (decision.AllowFreeText && decision.Options.Count > 0)
                                                 {
                                                     <label>
                                                         <input type="radio" name="@($"decision-{decision.Id}")"
@@ -558,9 +558,9 @@
                                                         <span><strong>Something else</strong><small>Give the agent a different direction.</small></span>
                                                     </label>
                                                 }
-                                                @if (decision.AllowFreeText && SelectedDecisionOption(decision.Id, SomethingElseKey))
+                                                @if (decision.AllowFreeText && (decision.Options.Count == 0 || SelectedDecisionOption(decision.Id, SomethingElseKey)))
                                                 {
-                                                    <textarea aria-label="Something else" placeholder="Your direction"
+                                                    <textarea aria-label="@(decision.Options.Count == 0 ? "Your answer" : "Something else")" placeholder="Your answer" rows="4" maxlength="4000" disabled="@_decisionBusy.Contains(decision.Id)"
                                                               value="@DecisionOther(decision.Id)"
                                                               @oninput="@(e => SetDecisionOther(decision.Id, e.Value?.ToString()))"></textarea>
                                                 }
@@ -571,7 +571,7 @@
                                             }
                                             <footer>
                                                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                                           Disabled="@(!CanSubmitDecision(decision.Id) || _decisionBusy.Contains(decision.Id))"
+                                                           Disabled="@(!CanSubmitDecision(decision) || _decisionBusy.Contains(decision.Id))"
                                                            OnClick="@(() => SubmitDecisionAsync(message, decision))">Submit</MudButton>
                                             </footer>
                                         }
@@ -876,6 +876,7 @@
     private readonly HashSet<Guid> _selectedMembers = [];
     private readonly HashSet<string> _selectedAudiences = [];
     private readonly Dictionary<Guid, string> _decisionSelections = [];
+    private readonly Dictionary<Guid, string> _decisionAnswerKeys = [];
     private readonly Dictionary<Guid, string> _decisionOther = [];
     private readonly HashSet<Guid> _decisionBusy = [];
     private bool _resourceDecisionBusy;
@@ -1391,31 +1392,40 @@
     private string DecisionOther(Guid decisionId) =>
         _decisionOther.TryGetValue(decisionId, out var value) ? value : string.Empty;
 
+    private string DecisionAnswerKey(Guid decisionId)
+    {
+        if (!_decisionAnswerKeys.TryGetValue(decisionId, out var key))
+            _decisionAnswerKeys[decisionId] = key = Guid.NewGuid().ToString("N");
+        return key;
+    }
+
     private void SetDecisionOther(Guid decisionId, string? value)
     {
         _decisionOther[decisionId] = value ?? string.Empty;
         _decisionErrors.Remove(decisionId);
     }
 
-    private bool CanSubmitDecision(Guid decisionId) =>
-        _decisionSelections.TryGetValue(decisionId, out var selected) &&
-        (selected != SomethingElseKey || !string.IsNullOrWhiteSpace(DecisionOther(decisionId)));
+    private bool CanSubmitDecision(ExecutiveDecisionCardResponse decision) =>
+        decision.AllowFreeText && decision.Options.Count == 0
+            ? !string.IsNullOrWhiteSpace(DecisionOther(decision.Id))
+            : _decisionSelections.TryGetValue(decision.Id, out var selected) &&
+              (selected != SomethingElseKey || !string.IsNullOrWhiteSpace(DecisionOther(decision.Id)));
 
     private async Task SubmitDecisionAsync(CommunicationHubMessageResponse message, ExecutiveDecisionCardResponse decision)
     {
         if (_hub?.IsReadOnlyPerspective == true ||
             _selected is null ||
-            !CanSubmitDecision(decision.Id) ||
+            !CanSubmitDecision(decision) ||
             !_decisionBusy.Add(decision.Id))
             return;
         _decisionErrors.Remove(decision.Id);
         try
         {
-            var selection = _decisionSelections[decision.Id];
+            var selection = decision.Options.Count == 0 ? SomethingElseKey : _decisionSelections[decision.Id];
             var request = new AnswerExecutiveDecisionRequest(
                 selection == SomethingElseKey ? null : selection,
                 selection == SomethingElseKey ? DecisionOther(decision.Id) : null,
-                Guid.NewGuid().ToString("N"));
+                DecisionAnswerKey(decision.Id));
             var response = await Http.PostAsJsonAsync(
                 $"{BasePath}/chats/{_selected.Id}/decisions/{decision.Id}/respond", request, _disposeCts.Token);
             var result = await response.Content.ReadFromJsonAsync<AnswerExecutiveDecisionResponse>(_disposeCts.Token);

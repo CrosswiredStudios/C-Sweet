@@ -32,8 +32,11 @@ public sealed partial class ExecutiveDecisionService(
 
         var prompt = Required(command.Prompt, command.WorkstreamDecisionId.HasValue ? 4000 : 2048, nameof(command.Prompt));
         if (command.WorkstreamDecisionId.HasValue && prompt.Length > 2048) prompt = prompt[..2045] + "...";
-        if (command.Options.Count < 2 || (!command.WorkstreamDecisionId.HasValue && command.Options.Count > 4))
-            throw new ArgumentException("A decision must contain between two and four mutually exclusive options.");
+        var openEnded = command.Options.Count == 0;
+        if (command.Options.Count == 1 || (!command.WorkstreamDecisionId.HasValue && command.Options.Count > 4))
+            throw new ArgumentException("Supply no options for an open-ended question, or between two and four mutually exclusive options.");
+        if (openEnded && (command.ConfigurationChange is not null || command.WorkstreamDecisionId.HasValue || command.TaskMerge is not null))
+            throw new ArgumentException("Action decisions require predefined options.");
 
         var options = command.Options.Select(option => new StoredOption(
                 Required(option.Id, 80, "option.id"),
@@ -42,8 +45,10 @@ public sealed partial class ExecutiveDecisionService(
             .ToList();
         if (options.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != options.Count)
             throw new ArgumentException("Decision option IDs must be unique.");
-        var recommendedOptionId = Required(command.RecommendedOptionId, 80, nameof(command.RecommendedOptionId));
-        if (!options.Any(x => x.Id == recommendedOptionId))
+        var recommendedOptionId = openEnded ? string.Empty : Required(command.RecommendedOptionId, 80, nameof(command.RecommendedOptionId));
+        if (openEnded && !string.IsNullOrEmpty(command.RecommendedOptionId))
+            throw new ArgumentException("An open-ended question cannot recommend an option.");
+        if (!openEnded && !options.Any(x => x.Id == recommendedOptionId))
             throw new ArgumentException("The recommended option must identify one of the supplied options.");
 
         if (command.ChatTurnId.HasValue == command.ConversationMessageId.HasValue)

@@ -88,6 +88,41 @@ public sealed class BusinessWorkspaceRenderingTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenEndedChatQuestionShowsImmediateAnswerInputAndRespectsReadOnlyPerspective(bool readOnly)
+    {
+        var html = await Render(typeof(CSweet.UI.Pages.Communications), "open-ended-question", exercise: instance =>
+        {
+            Set(instance, "_selected", new CommunicationChatResponse(ItemId, "Creative direction", null, false, false, false, true, DateTimeOffset.UtcNow, [], null, null, 0));
+            if (readOnly)
+                Set(instance, "_hub", ((CommunicationHubResponse)Get(instance, "_hub")!) with { IsReadOnlyPerspective = true });
+            var decision = new ExecutiveDecisionCardResponse(Guid.NewGuid(), "What initial game direction should I build on?", "Pending", [], "", null, null, DateTimeOffset.UtcNow, null);
+            ((List<CommunicationHubMessageResponse>)Get(instance, "_messages")!).Add(new(ItemId, 1, ItemId, ItemId, "Naomi Chen", "Agent", "Your involvement preference is saved.", DateTimeOffset.UtcNow) { Decision = decision });
+            var canSubmit = instance.GetType().GetMethod("CanSubmitDecision", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            Assert.Equal(false, canSubmit.Invoke(instance, [decision]));
+            ((Dictionary<Guid, string>)Get(instance, "_decisionOther")!)[decision.Id] = "Cozy exploration\nPC, no combat";
+            Assert.Equal(true, canSubmit.Invoke(instance, [decision]));
+            var answerKey = instance.GetType().GetMethod("DecisionAnswerKey", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            Assert.Equal(answerKey.Invoke(instance, [decision.Id]), answerKey.Invoke(instance, [decision.Id]));
+            return Task.CompletedTask;
+        });
+        Assert.Contains("What initial game direction", html);
+        if (readOnly)
+        {
+            Assert.Contains("read-only", html);
+            Assert.DoesNotContain("aria-label=\"Your answer\"", html);
+        }
+        else
+        {
+            Assert.Contains("aria-label=\"Your answer\"", html);
+            Assert.Contains("rows=\"4\"", html);
+            Assert.Contains("Cozy exploration", html);
+            Assert.DoesNotContain("Something else", html);
+        }
+    }
+
+    [Theory]
     [InlineData("Code", "README.md")]
     [InlineData("Changes", "Changes")]
     [InlineData("Branches", "Create ref")]

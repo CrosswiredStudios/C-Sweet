@@ -8,8 +8,19 @@
     "render": "node --experimental-strip-types render.ts",
     "audio": "python audio.py",
     "verify": "node --experimental-strip-types verify.ts",
+    "typecheck": "tsc --noEmit",
+    "inspect": "node --experimental-strip-types inspect.ts",
+    "storyboards": "python contact_sheets.py",
+    "assemble": "node --experimental-strip-types assemble.ts",
+    "compare": "python compare_frames.py",
     "test": "node --experimental-strip-types --test timeline.test.ts"
   },
-  "devDependencies": { "playwright": "1.64.0" },
-  "engines": { "node": ">=22.18.0" }
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "playwright": "1.64.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
 }

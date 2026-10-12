@@ -19,5 +19,7 @@ input { margin-top: .2rem; accent-color: var(--mud-palette-primary); }
 small { display: inline-block; color: var(--mud-palette-primary); font-size: .65rem; margin-left: .3rem; }
 .direction-label { display: block; grid-column: 1 / -1; border: none; padding: .3rem 0; }
 textarea { display: block; width: 100%; min-height: 80px; margin-top: .3rem; padding: .65rem; color: inherit; background: inherit; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; }
+textarea { resize: vertical; box-sizing: border-box; }
+textarea:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
 .response-actions { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 @media (max-width: 600px) { fieldset { grid-template-columns: 1fr; } }

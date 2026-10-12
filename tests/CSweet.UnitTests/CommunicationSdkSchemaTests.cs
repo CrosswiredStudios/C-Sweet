@@ -1,11 +1,32 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
+using CSweet.Contracts.Communications;
 
 namespace CSweet.UnitTests;
 
 public sealed class CommunicationSdkSchemaTests
 {
+    [Fact]
+    public void SdkOpenEndedQuestionPassesHostSchemaValidation()
+    {
+        var request = new AskUserRequest(Guid.NewGuid(), Guid.NewGuid(), "What should I build?", [], "", "direction");
+        Validate(CommunicationHubCapabilities.AskUser,
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    }
+
+    [Theory]
+    [InlineData(0, "a")]
+    [InlineData(1, "a")]
+    [InlineData(2, "")]
+    public void QuestionSchemaRejectsIncompleteChoiceShapes(int count, string recommendation)
+    {
+        var request = new AskUserRequest(Guid.NewGuid(), Guid.NewGuid(), "Choose",
+            Enumerable.Range(0, count).Select(i => new AskUserOption(i.ToString(), "Option")).ToArray(), recommendation, "direction");
+        Assert.Throws<InvalidOperationException>(() => Validate(CommunicationHubCapabilities.AskUser,
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web))));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

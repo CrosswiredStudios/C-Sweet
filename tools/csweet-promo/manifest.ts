@@ -30,7 +30,7 @@ export function shotsFor(c: Campaign, format: Format): Shot[] {
     const result:Shot[] = [
         make('hook',times[0],times[1],c.hook,c.summary,0),
         make('chat',times[1],times[2],'Start with\nyour direction.','One conversation. A clear next step.',1,'chat','chat-focus'),
-        make('plan',times[2],times[3],c.id==='game'?'Keep the vision\nin view.':'Give the idea\na plan.',c.project+' · the first milestone',1,'plan','plan-focus'),
+        make('plan',times[2],times[3],c.id==='game'?'Keep the vision\nin view.':'Give the idea\na plan.',c.project+' · the first milestone',1,'plan','chat-focus'),
         make('team',times[3],times[4],c.id==='game'?'Bring every\ndiscipline together.':c.id==='youtube'?'A business.\nWith a team.':'The right people.\nA shared direction.','People and agents. Connected in one workspace.',2,'team','team-focus'),
         make(c.id==='youtube'?'calendar':'board',times[4],times[5],c.id==='youtube'?'Keep the work\nconnected.':'Give every task\nan owner.',c.id==='youtube'?'Plan the season. Coordinate the calendar.':'A shared board. A visible next step.',3,c.id==='youtube'?'calendar':'board','team-focus'),
         make(c.id==='youtube'?'approval':'task',times[5],times[6],c.id==='youtube'?'Your voice.\nYour decision.':'Follow the work.\nStay in the loop.',c.id==='youtube'?'Review a reply before it reaches the community.':'See the assignment, the owner, and the milestone.',3,c.id==='youtube'?'approval':'board','board-focus'),
