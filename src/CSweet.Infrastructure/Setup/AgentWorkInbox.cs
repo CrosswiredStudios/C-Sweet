@@ -643,9 +643,41 @@ public sealed partial class AgentWorkInbox(
         if (ticket is null || ticket.Status is CSweet.Domain.Core.WorkTaskStatus.Completed or CSweet.Domain.Core.WorkTaskStatus.Cancelled ||
             (ticket.Board?.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
              ticket.AssignedAgentInstallationId != work.AgentInstallationId)) return;
+        var willRetry = work.Status == AgentWorkStatus.Pending;
+        if (!willRetry && work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stageId))
+        {
+            var stage = await db.WorkStageExecutions.Include(x => x.Attempts)
+                .Include(x => x.ItemExecution)!.ThenInclude(x => x!.SprintExecution).SingleOrDefaultAsync(x => x.Id == stageId, token);
+            if (stage?.ItemExecution?.SprintExecution is { Status: CSweet.Domain.WorkManagement.WorkSprintExecutionStatus.Active } sprint)
+            {
+                var policy = await db.WorkOrchestrationPolicyRevisions.Include(x => x.Stages)
+                    .SingleAsync(x => x.Id == sprint.PolicyRevisionId, token);
+                willRetry = stage.Attempts.Count < policy.Stages.Single(x => x.Key == stage.StageKey).MaximumAttempts &&
+                    error != CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RepeatedIssueError;
+            }
+        }
+        CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.FailureEvidence? evidence = null;
+        if (error == "The prior runtime lease expired.")
+        {
+            var attempt = await db.AgentWorkAttempts.Include(x => x.RuntimeInstance)!.ThenInclude(x => x!.Events)
+                .SingleOrDefaultAsync(x => x.AgentWorkItemId == work.Id && x.Attempt == attemptNumber, token);
+            if (attempt is not null)
+            {
+                var runtime = attempt.RuntimeInstance;
+                // Fixed explanations only: provider error text and runtime logs may contain secrets.
+                var cause = runtime?.Events.Any(x => x.Reason == AgentRuntimeStartupCleanupService.RestartCleanupReason) == true
+                    ? "Cause: control-plane restart cleanup stopped this runtime. Let the replacement runtime claim the retry."
+                    : runtime?.Reason == "Runtime destroy requested."
+                        ? "Cause: the control plane cancelled the runtime. The original cancellation trigger was not retained. Check WorkerHost startup and runtime lifecycle events."
+                        : runtime?.Status == AgentRuntimeStatus.RuntimeTimedOut
+                            ? "Cause: the runtime reached its configured maximum duration. Review the runtime limit or split the task before retrying."
+                            : null;
+                evidence = new(work.Id, attemptNumber, attempt.RuntimeInstanceId, attempt.LastConfirmedAt ?? attempt.ClaimedAt, attempt.LeaseExpiresAt, cause);
+            }
+        }
         if (await CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordFailureAsync(db, ticket,
             work.AgentInstallationId, $"{work.Id:N}:{attemptNumber}", error,
-            work.Status == AgentWorkStatus.Pending, now, token))
+            willRetry, now, token, evidence: evidence))
         {
             work.Status = AgentWorkStatus.DeadLetter;
             work.LastError = CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RepeatedIssueError;

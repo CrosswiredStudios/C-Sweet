@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text.Json;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Compute;
 using CSweet.Contracts.Realtime;
 using CSweet.UI.Components.Hiring;
 using CSweet.UI.Pages;
@@ -18,6 +19,28 @@ namespace CSweet.UnitTests;
 
 public sealed class CompanyDashboardRealtimeTests
 {
+    [Fact]
+    public async Task ComputeEventsDismissAllowedAccessAndRecoverRevocationOnReconnect()
+    {
+        var org = Guid.NewGuid();
+        var handler = new Handler { IncludeCompute = true };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        Assert.Contains("Allow a local test link", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        handler.ComputeAllowed = true;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(Guid.NewGuid(), AppRealtimeEvents.ComputeChanged));
+        Assert.Equal(1, handler.ComputeReads);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, AppRealtimeEvents.ComputeChanged));
+        Assert.Equal(2, handler.ComputeReads);
+        Assert.DoesNotContain("Allow a local test link", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        handler.ComputeAllowed = false;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() =>
+            ((Action?)typeof(AppRealtimeState).GetField("Reconnected", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(fixture.Realtime))?.Invoke());
+        Assert.Equal(3, handler.ComputeReads);
+        Assert.Contains("Allow a local test link", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+    }
+
     [Fact]
     public async Task EventsDuringLoadingAreCoalescedAndReconnectRecoversCurrentState()
     {
@@ -109,8 +132,8 @@ public sealed class CompanyDashboardRealtimeTests
         public Task<Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent> RenderAsync(Guid org) =>
             Renderer.Dispatcher.InvokeAsync(() => Renderer.RenderComponentAsync<CommandCenter>(ParameterView.FromDictionary(
                 new Dictionary<string, object?> { [nameof(CommandCenter.OrganizationId)] = org })));
-        public void Publish(Guid org) => typeof(AppRealtimeState).GetMethod("Receive", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(Realtime, [new AppRealtimeEventEnvelope(Guid.NewGuid(), 1, AppRealtimeEvents.HiringRecommendationsChanged,
+        public void Publish(Guid org, string eventType = AppRealtimeEvents.HiringRecommendationsChanged) => typeof(AppRealtimeState).GetMethod("Receive", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(Realtime, [new AppRealtimeEventEnvelope(Guid.NewGuid(), 1, eventType,
                 org, "hiring", DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { }))]);
         public async ValueTask DisposeAsync() { await Renderer.DisposeAsync(); await _services.DisposeAsync(); }
     }
@@ -133,6 +156,10 @@ public sealed class CompanyDashboardRealtimeTests
         public CancellationToken FirstToken { get; private set; }
         public int HiringReads { get; private set; }
         public int ItemCount { get; set; } = 1;
+        public bool IncludeCompute { get; set; }
+        public bool ComputeAllowed { get; set; }
+        public int ComputeReads { get; private set; }
+        private readonly Guid _environmentId = Guid.NewGuid();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -152,6 +179,13 @@ public sealed class CompanyDashboardRealtimeTests
                     { RemainingHeadcount = 1, HiringUrl = "/marketplace" }).ToArray());
             }
             else if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(DashboardWidgets.DefaultOrder);
+            else if (path.EndsWith("/compute"))
+            {
+                ComputeReads++;
+                result = new ComputeDashboard(DateTimeOffset.UtcNow, null, IncludeCompute
+                    ? [new(_environmentId, "Victor Lin", "Prismatic Break", "Ready", "Running", "linux", 2, 2048, 20480,
+                        DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null, ComputeAllowed)] : [], false, true);
+            }
             else if (path.EndsWith("/dashboard")) result = new CompanyDashboardResponse(new([], null), new([], null));
             else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
             else if (path.EndsWith("/users") || path.EndsWith("/installations")) result = Array.Empty<object>();

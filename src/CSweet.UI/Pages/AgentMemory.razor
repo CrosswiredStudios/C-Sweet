@@ -1,46 +1,80 @@
 @page "/organizations/{OrganizationId:guid}/employees/{EmployeeId:guid}/memory"
 @using CSweet.Contracts.Memory
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
-<PageTitle>Agent Memory - C-Sweet</PageTitle>
+<div class="learning-journal">
+@if (_loading)
+{
+    <div class="journal-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Opening memory…</span></div>
+}
+else if (_summary is null)
+{
+    <MudAlert Severity="Severity.Warning">@(_error ?? "Memory is unavailable.")</MudAlert>
+    <MudButton OnClick="InitializeAsync">Try again</MudButton>
+}
+else
+{
+    <header class="journal-heading">
+        <div><h2>Learning journal</h2><p>What @_summary.EmployeeName has recorded, refined, and recalled.</p></div>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="@(() => _manageOpen = !_manageOpen)" aria-expanded="@_manageOpen.ToString().ToLowerInvariant()">Manage memory</MudButton>
+    </header>
+    <div class="journal-toolbar">
+        <div class="journal-views" role="group" aria-label="Memory view">
+            @foreach (var view in new[] { "Journal", "All memory", "Connections" })
+            {
+                <button type="button" aria-pressed="@((_view == view).ToString().ToLowerInvariant())" @onclick="@(() => _view = view)">@view</button>
+            }
+        </div>
+        <div class="journal-search">
+            <MudTextField T="string" Placeholder="Search memory…" aria-label="Search memory" @bind-Value="_search" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" OnKeyDown="SearchKeyDown" Disabled="@SelectionLocked" />
+            <MudIconButton Icon="@Icons.Material.Outlined.Search" aria-label="Search" OnClick="SearchAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)" />
+            <MudButton OnClick="@(() => _filtersOpen = !_filtersOpen)" aria-expanded="@_filtersOpen.ToString().ToLowerInvariant()" StartIcon="@Icons.Material.Outlined.FilterList">Filters</MudButton>
+        </div>
+    </div>
+    <div class="journal-filters" hidden="@(!_filtersOpen)">
+            <MudSelect T="string" Label="Type" @bind-Value="_kind" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All memory</MudSelectItem>
+                @foreach (var kind in Kinds)
+                {
+                    <MudSelectItem T="string" Value="@kind">@kind</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" Label="Namespace" @bind-Value="_scope" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All namespaces</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Relationship")">Relationship</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Employee")">Employee</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Organization")">Organization</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Team")">Team</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Role")">Role</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" Label="Source" @bind-Value="_source" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All sources</MudSelectItem>
+                <MudSelectItem T="string" Value="@("user")">User</MudSelectItem>
+                <MudSelectItem T="string" Value="@("assistant")">Assistant</MudSelectItem>
+                <MudSelectItem T="string" Value="@("enrichment")">Enrichment</MudSelectItem>
+                <MudSelectItem T="string" Value="@("curated")">Curated</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" Label="Sensitivity" @bind-Value="_sensitivity" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All sensitivities</MudSelectItem>
+                @foreach (var value in Sensitivities) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+            </MudSelect>
+            <MudSelect T="string" Label="Confirmation" @bind-Value="_state" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All states</MudSelectItem>
+                @foreach (var value in States) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+            </MudSelect>
+            <MudDatePicker Label="From" @bind-Date="_from" Variant="Variant.Outlined" Clearable="true" />
+            <MudDatePicker Label="To" @bind-Date="_to" Variant="Variant.Outlined" Clearable="true" />
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="SearchAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)">Search</MudButton>
 
-<div class="command-center-shell memory-page">
-    <MudBreadcrumbs Items="_breadcrumbs" />
-
-    @if (_loading)
-    {
-        <MudPaper Elevation="1" Class="surface-panel memory-loading">
-            <MudProgressCircular Indeterminate="true" Color="Color.Secondary" />
-            <MudText>Loading agent memory...</MudText>
-        </MudPaper>
-    }
-    else if (_summary is null)
-    {
-        <MudAlert Severity="Severity.Error">@(_error ?? "This agent memory could not be found.")</MudAlert>
-    }
-    else
-    {
-        <MudPaper Elevation="0" Class="page-header memory-header">
-            <div>
-                <MudText Typo="Typo.overline" Color="Color.Secondary">Agent memory</MudText>
-                <MudText Typo="Typo.h3">@_summary.EmployeeName</MudText>
-                <MudText Color="Color.Secondary">@_summary.AgentName / @_summary.AgentDefinitionId</MudText>
-                <MudText Typo="Typo.caption">Installation @_summary.InstallationId</MudText>
-            </div>
-            <MudChip T="string" Color="@(_summary.Health == "Healthy" ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
-                @_summary.Health
-            </MudChip>
-        </MudPaper>
-
-        <section class="memory-summary-grid" aria-label="Memory summary">
-            @SummaryCard("Episodes", _summary.EpisodeCount, Icons.Material.Filled.History)
-            @SummaryCard("Claims", _summary.ClaimCount, Icons.Material.Filled.FactCheck)
-            @SummaryCard("Entities", _summary.EntityCount, Icons.Material.Filled.AccountTree)
-            @SummaryCard("Relationships", _summary.RelationshipCount, Icons.Material.Filled.Share)
-            @SummaryCard("Procedures", _summary.ProcedureCount, Icons.Material.Filled.Schema)
-            @SummaryCard("Pending", _summary.PendingCaptureCount, Icons.Material.Filled.Sync)
-        </section>
-
+        <MudButton OnClick="ClearFiltersAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)">Clear filters</MudButton>
+    </div>
+    @if (_view == "Connections") { <p class="journal-caption">Connections use your search text. Other filters apply to Journal and All memory.</p> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (SelectionLocked) { <MudAlert Severity="Severity.Info">Finish or retry the current review before selecting another memory.</MudAlert> }
+    <section class="journal-management" hidden="@(!_manageOpen)" aria-label="Manage memory">
+        <div class="management-heading"><h3>Manage memory</h3><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="Close management" OnClick="@(() => _manageOpen = false)" /></div>
+        <details><summary>Processing & recovery</summary>
         <MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Memory processing recovery">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                 <MudText Typo="Typo.h6">Memory processing</MudText>
@@ -81,69 +115,81 @@
 
         <MemoryIngestionRecoveryPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Recovered="RefreshRecoveryAsync" />
         <MemoryReextractionPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Recovered="RefreshRecoveryAsync" />
-        <MudPaper Elevation="1" Class="surface-panel memory-controls">
-            <MemoryErasureStatusPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" />
-            <MudTextField T="string" Label="Search memory" @bind-Value="_search" Variant="Variant.Outlined"
-                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                          OnKeyDown="SearchKeyDown" Immediate="true" />
-            <MudSelect T="string" Label="Type" @bind-Value="_kind" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All memory</MudSelectItem>
-                @foreach (var kind in Kinds)
-                {
-                    <MudSelectItem T="string" Value="@kind">@kind</MudSelectItem>
-                }
-            </MudSelect>
-            <MudSelect T="string" Label="Namespace" @bind-Value="_scope" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All namespaces</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Relationship")">Relationship</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Employee")">Employee</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Organization")">Organization</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Team")">Team</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Role")">Role</MudSelectItem>
-            </MudSelect>
-            <MudSelect T="string" Label="Source" @bind-Value="_source" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All sources</MudSelectItem>
-                <MudSelectItem T="string" Value="@("user")">User</MudSelectItem>
-                <MudSelectItem T="string" Value="@("assistant")">Assistant</MudSelectItem>
-            </MudSelect>
-            <MudSelect T="string" Label="Sensitivity" @bind-Value="_sensitivity" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All sensitivities</MudSelectItem>
-                @foreach (var value in Sensitivities) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
-            </MudSelect>
-            <MudSelect T="string" Label="Confirmation" @bind-Value="_state" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All states</MudSelectItem>
-                @foreach (var value in States) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
-            </MudSelect>
-            <MudDatePicker Label="From" @bind-Date="_from" Variant="Variant.Outlined" Clearable="true" />
-            <MudDatePicker Label="To" @bind-Date="_to" Variant="Variant.Outlined" Clearable="true" />
-            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="LoadItemsAsync">Search</MudButton>
-        </MudPaper>
-        <MemoryTransferPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Selected="_selected" @key="EmployeeId" />
 
-        <MudTabs @bind-ActivePanelIndex="_tab" Rounded="true" ApplyEffectsToContainer="true">
-            <MudTabPanel Text="Timeline" Icon="@Icons.Material.Filled.Timeline">
-                @ItemsPanel("Episode")
-            </MudTabPanel>
-            <MudTabPanel Text="Knowledge" Icon="@Icons.Material.Filled.Lightbulb">
-                @ItemsPanel("Knowledge")
-            </MudTabPanel>
-            <MudTabPanel Text="Graph" Icon="@Icons.Material.Filled.Hub">
-                @GraphPanel()
-            </MudTabPanel>
-            <MudTabPanel Text="Procedures" Icon="@Icons.Material.Filled.Schema">
-                @ItemsPanel("Procedure")
-            </MudTabPanel>
-        </MudTabs>
-    }
+        </details>
+        <details><summary>Transfer knowledge</summary><MemoryTransferPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Selected="_selected" @key="EmployeeId" /></details>
+        <details><summary>Saved erasure operations</summary><MemoryErasureStatusPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" /></details>
+        <details><summary>System details</summary>
+            <div class="journal-counts">
+                @SummaryCard("Episodes", _summary.EpisodeCount, Icons.Material.Outlined.History)
+                @SummaryCard("Claims", _summary.ClaimCount, Icons.Material.Outlined.FactCheck)
+                @SummaryCard("Entities", _summary.EntityCount, Icons.Material.Outlined.Hub)
+                @SummaryCard("Relationships", _summary.RelationshipCount, Icons.Material.Outlined.Share)
+                @SummaryCard("Procedures", _summary.ProcedureCount, Icons.Material.Outlined.Schema)
+                @SummaryCard("Pending", _summary.PendingCaptureCount, Icons.Material.Outlined.Sync)
+            </div>
+            <p>@_summary.AgentName · @_summary.AgentDefinitionId</p><p>Installation @_summary.InstallationId</p>
+        </details>
+    </section>
+    <div class="journal-layout @(_selected is not null ? "has-selection" : "")">
+        <section class="journal-main" aria-label="@_view">
+            @if (_loadingItems) { <MudProgressLinear Indeterminate="true" /> }
+            @if (_view == "Connections") { @GraphPanel() }
+            else
+            {
+                <div class="journal-list-heading"><h3>@(_view == "Journal" ? "Recorded activity" : "Memory library")</h3><span>@(_page?.TotalCount ?? 0) @(_page?.TotalCount == 1 ? "memory" : "memories")</span></div>
+                @if (_view == "Journal")
+                {
+                    <p class="journal-caption">Activity for @_page?.Items.Count loaded @(_page?.Items.Count == 1 ? "memory" : "memories"). Includes up to 20 revisions per memory; full history is available in the inspector.</p>
+                    @if (_loadingJournal) { <p class="journal-caption">Loading saved review and recall activity…</p> }
+                    @if (_journalNotice is not null) { <MudAlert Severity="Severity.Info">@_journalNotice <MudButton OnClick="LoadJournalAsync" Disabled="@_loadingJournal">Retry activity</MudButton></MudAlert> }
+                    @foreach (var group in JournalEntries.GroupBy(x => x.At.ToLocalTime().Date))
+                    {
+                        <h4 class="journal-date">@group.Key.ToString("dddd, MMMM d")</h4>
+                        @foreach (var entry in group)
+                        {
+                            <button type="button" class="journal-entry @(entry.Item.Id == _selected?.Id ? "selected" : "")" @onclick="@(() => SelectItemAsync(entry.Item))" disabled="@SelectionLocked">
+                                <span class="journal-event-icon"><MudIcon Icon="@(entry.Label == "Recalled" ? Icons.Material.Outlined.AutoAwesome : Icons.Material.Outlined.HistoryEdu)" Size="Size.Small" /></span>
+                                <span class="journal-entry-body"><span class="journal-entry-meta">@entry.Label · @entry.Item.Kind <time>@entry.At.ToLocalTime().ToString("t")</time></span><strong>@entry.Item.Title</strong><span>@Truncate(entry.Text, 180)</span></span>
+                                <span class="journal-entry-arrow" aria-hidden="true">↗</span>
+                            </button>
+                        }
+                    }
+                }
+                else { @ItemsPanel("All") }
+                @if (!_loadingItems && _page is { Items.Count: 0 }) { <div class="journal-empty"><MudIcon Icon="@Icons.Material.Outlined.AutoStories" Size="Size.Large" /><h3>No matching memories</h3><p>Try another search or clear the filters. New records will appear here as they are captured.</p></div> }
+                @if (_page?.NextCursor is not null) { <MudButton Class="mt-3" OnClick="LoadMoreItemsAsync" Disabled="@(_loadingItems || _loadingJournal || SelectionLocked)">Load more memories</MudButton> }
+            }
+        </section>
+        <div class="journal-side">
+            @if (_selected is not null)
+            {
+                <div class="inspector-heading"><span>Memory inspector</span><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="Close memory inspector" Disabled="@SelectionLocked" OnClick="CloseInspector" /></div>
+                @DetailPanel()
+            }
+            else
+            {
+                <aside class="journal-context"><span class="journal-eyebrow">Always in view</span><h3>Pinned context</h3><p class="journal-caption">Core memory pinned for this employee.</p>
+                    @foreach (var item in _pinned) { <button type="button" class="context-item" @onclick="@(() => SelectItemAsync(item))"><strong>@item.Title</strong><span>@Truncate(item.Content, 150)</span></button> }
+                    @if (_pinned.Count > 0 && _pinnedError is not null) { <p class="journal-caption">@_pinnedError</p> }
+                    @if (_pinned.Count == 0) { <p class="journal-caption">@(_pinnedError ?? "No pinned context yet. Open a core memory to review and pin it.")</p> }
+                    <MudButton OnClick="ShowCoreAsync" Disabled="@(_loadingItems || SelectionLocked)">Explore core memory</MudButton>
+                </aside>
+                <aside class="journal-health"><span class="health-dot" style="@(_summary.Health == "Healthy" ? null : "background:var(--mud-palette-warning)")"></span><div><strong>@_summary.Health</strong><p>@_summary.PendingCaptureCount pending capture@(_summary.PendingCaptureCount == 1 ? "" : "s")</p><button type="button" @onclick="@(() => _manageOpen = true)">Review processing →</button></div></aside>
+            }
+        </div>
+    </div>
+}
 </div>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid EmployeeId { get; set; }
+    [Parameter] public bool Embedded { get; set; }
 
     private static readonly string[] Kinds = ["Episode", "Claim", "Entity", "Relationship", "Procedure", "Core"];
     private static readonly string[] Sensitivities = ["Public", "Internal", "Personal", "Confidential", "Restricted"];
-    private static readonly string[] States = ["Recorded", "Suppressed", "NotRequired", "Pending", "Confirmed", "Rejected", "Current", "Superseded"];
+    private static readonly string[] States = ["Recorded", "Suppressed", "NotRequired", "Pending", "Confirmed", "Rejected", "Current", "Superseded", "Pinned"];
     private AgentMemorySummaryResponse? _summary;
     private AgentMemoryPageResponse? _page;
     private AgentMemoryGraphResponse? _graph;
@@ -164,17 +210,22 @@
     private string _state = string.Empty;
     private DateTime? _from;
     private DateTime? _to;
-    private int _tab;
-    private List<BreadcrumbItem> _breadcrumbs = [];
-
+    private (Guid, Guid)? _loadedIdentity;
     protected override async Task OnParametersSetAsync()
     {
-        _breadcrumbs =
-        [
-            new("Employees", $"/organizations/{OrganizationId}/employees"),
-            new("Memory", null, true)
-        ];
-        _loading = true;
+        if (!Embedded)
+        {
+            Navigation.NavigateTo($"/organizations/{OrganizationId}/employees/{EmployeeId}?tab=memory", replace: true);
+            return;
+        }
+        if (_loadedIdentity == (OrganizationId, EmployeeId)) return;
+        _loadedIdentity = (OrganizationId, EmployeeId);
+        await InitializeAsync();
+    }
+
+    private async Task InitializeAsync()
+    {
+        _loading = true; _error = null;
         _failures = null;
         _recoveryError = null;
         _recoveryNotice = null;
@@ -182,7 +233,9 @@
         try
         {
             _summary = await Http.GetFromJsonAsync<AgentMemorySummaryResponse>(BaseUrl + "/summary");
-            await Task.WhenAll(LoadItemsAsync(), LoadGraphAsync(), RefreshFailuresAsync());
+            _loading = false;
+            StateHasChanged();
+            await Task.WhenAll(LoadItemsAsync(), LoadGraphAsync(), RefreshFailuresAsync(), LoadPinnedAsync());
         }
         catch (Exception exception)
         {
@@ -290,13 +343,17 @@
         _ => "Memory processing failed"
     };
 
-    private async Task LoadItemsAsync()
+    private Task LoadItemsAsync() => ReadItemsAsync(null);
+    private Task LoadMoreItemsAsync() => ReadItemsAsync(_page?.NextCursor);
+    private string _appliedQuery = "limit=20";
+    private async Task ReadItemsAsync(string? cursor)
     {
-        if (_reviewBusy || _pendingReview is not null || (_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked)) return;
+        if (SelectionLocked || _loadingItems || _loadingJournal) return;
         _loadingItems = true;
         try
         {
-            var parameters = new List<string> { "limit=100" };
+            var parameters = new List<string> { "limit=20" };
+
             if (!string.IsNullOrWhiteSpace(_search)) parameters.Add($"search={Uri.EscapeDataString(_search)}");
             if (!string.IsNullOrWhiteSpace(_kind)) parameters.Add($"kind={Uri.EscapeDataString(_kind)}");
             if (!string.IsNullOrWhiteSpace(_scope)) parameters.Add($"scope={Uri.EscapeDataString(_scope)}");
@@ -305,9 +362,17 @@
             if (!string.IsNullOrWhiteSpace(_state)) parameters.Add($"state={Uri.EscapeDataString(_state)}");
             if (_from.HasValue) parameters.Add($"from={Uri.EscapeDataString(_from.Value.ToString("O"))}");
             if (_to.HasValue) parameters.Add($"to={Uri.EscapeDataString(_to.Value.Date.AddDays(1).AddTicks(-1).ToString("O"))}");
-            _page = await Http.GetFromJsonAsync<AgentMemoryPageResponse>($"{BaseUrl}/items?{string.Join('&', parameters)}");
-            if (!_reviewBusy && _pendingReview is null && !(_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked)) _selected = null;
+            if (cursor is null) _appliedQuery = string.Join('&', parameters);
+            var query = _appliedQuery + (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
+            var page = await Http.GetFromJsonAsync<AgentMemoryPageResponse>($"{BaseUrl}/items?{query}", _lifetime.Token);
+            _page = cursor is null || _page is null || page is null ? page : page with { Items = _page.Items.Concat(page.Items).DistinctBy(x => x.Id).ToList() };
+            _error = null;
+            if (cursor is null && !SelectionLocked) _selected = null;
+            if (cursor is null) { _events.Clear(); _activityLoaded.Clear(); }
+            if (_loadedIdentity.HasValue) StateHasChanged();
+            await LoadJournalAsync();
         }
+        catch (Exception) { _page = null; _events.Clear(); _activityLoaded.Clear(); if (!SelectionLocked) _selected = null; _error = "Memory could not be loaded. Try searching again."; }
         finally
         {
             _loadingItems = false;
@@ -316,26 +381,35 @@
 
     private async Task LoadGraphAsync()
     {
-        var suffix = string.IsNullOrWhiteSpace(_search) ? string.Empty : $"?search={Uri.EscapeDataString(_search)}";
-        _graph = await Http.GetFromJsonAsync<AgentMemoryGraphResponse>($"{BaseUrl}/graph{suffix}");
+        try
+        {
+            var suffix = string.IsNullOrWhiteSpace(_search) ? string.Empty : $"?search={Uri.EscapeDataString(_search)}";
+            _graph = await Http.GetFromJsonAsync<AgentMemoryGraphResponse>($"{BaseUrl}/graph{suffix}", _lifetime.Token);
+        }
+        catch (Exception) { _graph = null; _error = "Connections could not be loaded. Try searching again."; }
+
     }
 
     private async Task SelectItemAsync(AgentMemoryItemResponse item)
     {
-        if (_reviewBusy || _pendingReview is not null || (_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked)) return;
+        if (SelectionLocked) return;
         _review = null; _pendingReview = null; _reviewMessage = null;
         _correctionTargets = []; _selectedCorrectionTarget = null;
         _selected = item;
-        var details = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{item.Id}");
-        if (_selected?.Id == item.Id && !_reviewBusy && _pendingReview is null && !(_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked))
-            _selected = details ?? item;
+        try
+        {
+            var details = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{item.Id}", _lifetime.Token);
+            if (_selected?.Id == item.Id && !SelectionLocked) _selected = details;
+        }
+        catch (Exception) { if (_selected?.Id == item.Id && !SelectionLocked) _selected = null; _error = "This memory is unavailable or your access changed."; }
+
     }
 
     private async Task SearchKeyDown(KeyboardEventArgs args)
     {
         if (args.Key == "Enter")
         {
-            await Task.WhenAll(LoadItemsAsync(), LoadGraphAsync());
+            await SearchAsync();
         }
     }
 
@@ -344,39 +418,16 @@
             <div><MudText Typo="Typo.h5">@count</MudText><MudText Typo="Typo.caption">@label</MudText></div>
         </MudPaper>;
 
-    private RenderFragment ItemsPanel(string view)
-    {
-        var items = (_page?.Items ?? []).Where(item => view switch
+    private RenderFragment ItemsPanel(string view) => @<div class="memory-list" role="list">
+        @foreach (var item in _page?.Items ?? [])
         {
-            "Episode" => item.Kind == "Episode",
-            "Procedure" => item.Kind is "Procedure" or "Core",
-            _ => item.Kind is "Claim" or "Entity" or "Relationship"
-        }).ToList();
-        return @<div class="memory-explorer-layout">
-            <MudPaper Elevation="0" Class="memory-list" role="list">
-                @if (_loadingItems)
-                {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Secondary" />
-                }
-                else if (items.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No matching @view.ToLowerInvariant() memory has been recorded yet.</MudAlert>
-                }
-                else
-                {
-                    @foreach (var item in items)
-                    {
-                        <button type="button" class="memory-item @(item.Id == _selected?.Id ? "selected" : null)" @onclick="@(() => SelectItemAsync(item))">
-                            <span class="memory-item-heading"><strong>@item.Title</strong><small>@item.OccurredAt.ToLocalTime().ToString("g")</small></span>
-                            <span>@Truncate(item.Content, 220)</span>
-                            <span class="memory-item-meta">@item.Scope / @(item.UserName ?? item.Source) / @item.Sensitivity / @item.State</span>
-                        </button>
-                    }
-                }
-            </MudPaper>
-            @DetailPanel()
-        </div>;
-    }
+            <button type="button" class="memory-item @(item.Id == _selected?.Id ? "selected" : null)" @onclick="@(() => SelectItemAsync(item))" disabled="@SelectionLocked">
+                <span class="memory-item-heading"><strong>@item.Title</strong><small>@item.Kind</small></span>
+                <span>@Truncate(item.Content, 180)</span>
+                <span class="memory-item-meta">@item.Scope · @item.State · @item.OccurredAt.ToLocalTime().ToString("g")</span>
+            </button>
+        }
+    </div>;
 
     private RenderFragment DetailPanel() => @<aside class="memory-detail" aria-label="Memory details">
             @if (_selected is null)
@@ -389,7 +440,7 @@
                 <MudText Typo="Typo.overline">@_selected.Kind</MudText>
                 <MudText Typo="Typo.h6">@_selected.Title</MudText>
                 <MudText Class="memory-detail-content">@_selected.Content</MudText>
-                <dl>
+                <details class="record-provenance"><summary>Source & provenance</summary><dl>
                     <dt>Scope</dt><dd>@_selected.Scope</dd>
                     <dt>Relationship</dt><dd>@(_selected.UserName ?? "Shared")</dd>
                     <dt>Source</dt><dd>@_selected.Source</dd>
@@ -406,27 +457,31 @@
                         <MudText Typo="Typo.caption"><strong>@pair.Key:</strong> @pair.Value</MudText>
                     }
                 }
+                </details>
                 @if (_selected.Kind == "Episode")
                 {
+                    <details class="record-actions"><summary>Privacy & retention</summary>
                     <MemorySuppressionPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
-                        Reviewed="InspectReviewSourceAsync" LockedChanged="@((bool locked) => _sourceSuppressionLocked = locked)" @key="(typeof(MemorySuppressionPanel), _selected.Id)" />
+                        Reviewed="RecordReviewedAsync" LockedChanged="@((bool locked) => _sourceSuppressionLocked = locked)" @key="(typeof(MemorySuppressionPanel), _selected.Id)" />
                     <MemoryHoldPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
-                        Reviewed="InspectReviewSourceAsync" LockedChanged="@((bool locked) => _sourceHoldLocked = locked)" @key="(typeof(MemoryHoldPanel), _selected.Id)" />
-                    <MemoryErasureImpactPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
+                        Reviewed="RecordReviewedAsync" LockedChanged="@((bool locked) => _sourceHoldLocked = locked)" @key="(typeof(MemoryHoldPanel), _selected.Id)" />
+                    <MemoryErasureImpactPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id" LockedChanged="@((bool locked) => _erasureLocked = locked)"
                         @key="(typeof(MemoryErasureImpactPanel), OrganizationId, EmployeeId, _selected.Id)" />
+                    </details><details class="record-actions"><summary>Review source evidence</summary>
                     <MemoryLegacyReviewPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" EpisodeId="_selected.Id"
-                        Reviewed="InspectReviewSourceAsync" LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
+                        Reviewed="RecordReviewedAsync" LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
+                    </details>
                 }
                 @if (_selected.Kind == "Core")
                 {
                     <MemoryCoreReviewPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" BlockId="_selected.Id"
-                        Reviewed="InspectReviewSourceAsync" InspectSource="InspectReviewSourceAsync"
+                        Reviewed="RecordReviewedAsync" InspectSource="InspectReviewSourceAsync"
                         LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
                 }
                 @if (_selected.Kind == "Procedure")
                 {
                     <MemoryProcedureReviewPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" ProcedureId="_selected.Id"
-                        Reviewed="InspectReviewSourceAsync" InspectSource="InspectReviewSourceAsync"
+                        Reviewed="RecordReviewedAsync" InspectSource="InspectReviewSourceAsync"
                         LockedChanged="@((bool locked) => _procedureReviewLocked = locked)" @key="_selected.Id" />
                 }
                 @if (_selected.Kind == "Claim")
@@ -494,14 +549,17 @@
                 }
                 @if (_selected.RecallUses is { Count: > 0 })
                 {
-                    <MudText Typo="Typo.subtitle2">Recall history</MudText>
+                    <details><summary>Recall history (@_selected.RecallUses.Count)</summary>
                     @foreach (var use in _selected.RecallUses)
                     {
                         <MudText Typo="Typo.caption">@use.UsedAt.ToLocalTime().ToString("g") in conversation @use.ConversationId</MudText>
                     }
+                    </details>
                 }
+                <details><summary>Version history</summary>
                 <MemoryHistoryPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Kind="@_selected.Kind" RecordId="_selected.Id"
-                    Disabled="@(_reviewBusy || _pendingReview is not null || (_procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked))" @key="(typeof(MemoryHistoryPanel), _selected.Id)" />
+                    Disabled="@SelectionLocked" @key="(typeof(MemoryHistoryPanel), _selected.Id)" />
+                </details>
             }
         </aside>;
 
@@ -514,8 +572,9 @@
         var positioned = _graph.Nodes.Select((node, index) => new { node, X = 90 + index % 4 * 210, Y = 70 + index / 4 * 130 }).ToList();
         var byId = positioned.ToDictionary(x => x.node.Id);
         return @<div>
-            <div class="memory-graph" role="img" aria-label="Agent memory entity graph">
-                <svg viewBox="0 0 900 600">
+            @if (_graph.Truncated) { <MudAlert Severity="Severity.Info">Showing a limited set of connections. Narrow your search to explore more.</MudAlert> }
+            <div class="memory-graph" role="group" aria-label="Agent memory entity graph">
+                <svg viewBox="@($"0 0 900 {Math.Max(180, ((positioned.Count + 3) / 4) * 130)}")">
                     @foreach (var edge in _graph.Edges.Where(edge => byId.ContainsKey(edge.FromId) && byId.ContainsKey(edge.ToId)))
                     {
                         var from = byId[edge.FromId]; var to = byId[edge.ToId];
@@ -524,20 +583,20 @@
                     @foreach (var item in positioned)
                     {
                         <g transform="translate(@item.X @item.Y)">
-                            <circle r="42" />
+                            <circle r="38" /><foreignObject x="-90" y="-24" width="180" height="80"><button type="button" class="graph-node" disabled="@SelectionLocked" @onclick="@(() => InspectGraphAsync(item.node.Id))">@item.node.Label<span>@item.node.Type</span></button></foreignObject>
                         </g>
                     }
                 </svg>
             </div>
             <MudTable Items="@_graph.Nodes" Dense="true" Breakpoint="Breakpoint.Sm" AriaLabel="Memory entities">
                 <HeaderContent><MudTh>Name</MudTh><MudTh>Type</MudTh><MudTh>Scope</MudTh></HeaderContent>
-                <RowTemplate><MudTd DataLabel="Name">@context.Label</MudTd><MudTd DataLabel="Type">@context.Type</MudTd><MudTd DataLabel="Scope">@context.Scope</MudTd></RowTemplate>
+                <RowTemplate><MudTd DataLabel="Name"><MudButton OnClick="@(() => InspectGraphAsync(context.Id))" Disabled="@SelectionLocked">@context.Label</MudButton></MudTd><MudTd DataLabel="Type">@context.Type</MudTd><MudTd DataLabel="Scope">@context.Scope</MudTd></RowTemplate>
             </MudTable>
             <MudTable Items="@_graph.Edges" Dense="true" Breakpoint="Breakpoint.Sm" AriaLabel="Memory relationships">
                 <HeaderContent><MudTh>From</MudTh><MudTh>Relationship</MudTh><MudTh>To</MudTh><MudTh>Confidence</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="From">@(byId.TryGetValue(context.FromId, out var from) ? from.node.Label : context.FromId.ToString())</MudTd>
-                    <MudTd DataLabel="Relationship">@context.Label</MudTd>
+                    <MudTd DataLabel="Relationship"><MudButton OnClick="@(() => InspectGraphAsync(context.Id))" Disabled="@SelectionLocked">@context.Label</MudButton></MudTd>
                     <MudTd DataLabel="To">@(byId.TryGetValue(context.ToId, out var to) ? to.node.Label : context.ToId.ToString())</MudTd>
                     <MudTd DataLabel="Confidence">@context.Confidence.ToString("P0")</MudTd>
                 </RowTemplate>

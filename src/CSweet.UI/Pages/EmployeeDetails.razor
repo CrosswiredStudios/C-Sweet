@@ -196,7 +196,7 @@
                 { <MudAlert Severity="Severity.Warning" Class="mt-3">Memory is restricted to this employee and their managers.</MudAlert> }
                 else
                 {
-                <MudPaper Outlined="true" Class="pa-5 mt-3"><MudStack Row="true" Justify="Justify.SpaceBetween"><div><MudText Typo="Typo.h6">Memory workspace</MudText><MudText Color="Color.Secondary">Explore what this agent has learned and how its knowledge connects.</MudText></div>@if (_memorySummary is not null) { <MudChip T="string" Color="@(_memorySummary.Health == "Healthy" ? Color.Success : Color.Warning)">@_memorySummary.Health</MudChip> }</MudStack>@if (_memorySummary is not null) { <MudGrid Class="mt-2"><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.EpisodeCount</MudText><MudText Typo="Typo.caption">Episodes</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.ClaimCount</MudText><MudText Typo="Typo.caption">Claims</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.EntityCount</MudText><MudText Typo="Typo.caption">Entities</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.RelationshipCount</MudText><MudText Typo="Typo.caption">Relationships</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.ProcedureCount</MudText><MudText Typo="Typo.caption">Procedures</MudText></MudItem><MudItem xs="6" md="2"><MudText Typo="Typo.h5">@_memorySummary.PendingCaptureCount</MudText><MudText Typo="Typo.caption">Pending</MudText></MudItem></MudGrid> }@if (_memorySummary is null) { <MudAlert Severity="Severity.Info" Class="mt-3">Memory summary is unavailable. You can still open the workspace.</MudAlert> }<MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{OrganizationId}/employees/{EmployeeId}/memory")">Search and explore memory</MudButton></MudPaper>
+                    <AgentMemory Embedded="true" OrganizationId="OrganizationId" EmployeeId="EmployeeId" @key="(OrganizationId, EmployeeId)" />
                 }
             </MudTabPanel>
             <MudTabPanel Text="Usage" Icon="@Icons.Material.Outlined.QueryStats">
@@ -247,7 +247,6 @@
     private IReadOnlyList<AgentRuntimeRunResponse> _runtimeRuns = [];
     private AgentBuildLogResponse? _buildLog;
     private AgentConfigurationView? _configuration;
-    private AgentMemorySummaryResponse? _memorySummary;
     private IReadOnlyList<OrganizationUserResponse> _employees = [];
     private IReadOnlyList<RoleResponse> _roles = [];
     private readonly Dictionary<string, IReadOnlyList<EmployeeModelInferenceUsageResponse>> _usage = [];
@@ -280,7 +279,7 @@
         _loadedOrganizationId = OrganizationId; _loadedEmployeeId = EmployeeId;
         _loading = true; _error = null; _breadcrumbs.Clear();
         _details = null; _personalBoard = null; _assigned = null; _runtime = null; _installation = null;
-        _runtimeRuns = []; _configuration = null; _buildLog = null; _memorySummary = null; _usage.Clear();
+        _runtimeRuns = []; _configuration = null; _buildLog = null; _usage.Clear();
         _boardError = null; _assignmentsError = null; _editingProfile = false; _profileError = null;
         _assignmentSearch = ""; _includeArchived = false;
         _breadcrumbs.Add(new("Employees", $"/organizations/{OrganizationId}/employees"));
@@ -306,9 +305,8 @@
                         _runtimeRuns = await historyTask ?? [];
                         try { _configuration = await Http.GetFromJsonAsync<AgentConfigurationView>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/configuration"); } catch { _configuration = null; }
                         try { _buildLog = await Http.GetFromJsonAsync<AgentBuildLogResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/build-log"); } catch { _buildLog = null; }
-                        try { _memorySummary = await Http.GetFromJsonAsync<AgentMemorySummaryResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/summary"); } catch { _memorySummary = null; }
                     }
-                    catch { _runtime = null; _installation = null; _runtimeRuns = []; _configuration = null; _buildLog = null; _memorySummary = null; }
+                    catch { _runtime = null; _installation = null; _runtimeRuns = []; _configuration = null; _buildLog = null; }
                 }
             }
         }

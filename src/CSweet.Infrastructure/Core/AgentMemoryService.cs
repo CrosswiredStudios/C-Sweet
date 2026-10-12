@@ -875,7 +875,7 @@ public sealed partial class AgentMemoryService(
                 "enrichment", "Internal", x.Confirmation.ToString(), null, x.RecordedAt, null, null, new[] { x.EpisodeId })));
             items.AddRange(scoped.Export.Blocks.Select(x => new AgentMemoryItemResponse(
                 x.Id, "Core", scoped.Scope, scoped.UserId, scoped.UserName, x.Name, x.Content,
-                "curated", x.Sensitivity.ToString(), x.Confirmation == MemoryConfirmationState.NotRequired ? (x.IsPinned ? "Pinned" : "Current") : x.Confirmation.ToString(), null, x.UpdatedAt, null, null)));
+                "curated", x.Sensitivity.ToString(), x.Confirmation == MemoryConfirmationState.NotRequired ? (x.IsPinned ? "Pinned" : "Current") : x.Confirmation.ToString(), null, x.UpdatedAt, null, new Dictionary<string, string> { ["pinned"] = x.IsPinned ? "true" : "false" })));
             for (var index = first; index < items.Count; index++) items[index] = items[index] with { AudienceId = scoped.AudienceId };
         }
         return items.OrderByDescending(x => x.OccurredAt).ThenBy(x => x.Id).ToList();

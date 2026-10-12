@@ -50,7 +50,7 @@ public sealed class EmployeeDetailsPageTests
     [InlineData("personal-board", "personal-board")]
     [InlineData("assigned-work", "Open task")]
     [InlineData("agent-operations", "Runs & diagnostics")]
-    [InlineData("memory", "Search and explore memory")]
+    [InlineData("memory", "Learning journal")]
     [InlineData("usage", "Model usage")]
     [InlineData("timeline", "timeline-feed")]
     public async Task EveryEmployeeTabRendersInTheSharedWorkspace(string tab, string expected)
@@ -96,7 +96,7 @@ public sealed class EmployeeDetailsPageTests
 
     [Theory]
     [InlineData("Graph", "employee-graph-canvas")]
-    [InlineData("Teams", "team-clusters-view")]
+    [InlineData("Teams", "team-workspace")]
     [InlineData("Directory", "employee-directory-table")]
     [InlineData("Hiring", "No hiring recommendation yet")]
     public async Task EmployeeDirectoryViewsKeepTheirNavigation(string view, string expected)
@@ -105,7 +105,7 @@ public sealed class EmployeeDetailsPageTests
         Assert.Contains(expected, WebUtility.HtmlDecode(html));
         Assert.Contains("aurora-page employee-workspace", html);
         Assert.Contains("?tab=hiring", html);
-        if (view == "Graph") Assert.Contains("View profile", html);
+        if (view == "Graph") Assert.Contains($"/employees/{EmployeeApi.EmployeeId}", html);
         if (Environment.GetEnvironmentVariable("CSWEET_EMPLOYEE_PREVIEWS") is string directory)
             await File.WriteAllTextAsync(Path.Combine(directory, $"employee-directory-{view}.html"), html);
     }
@@ -149,7 +149,7 @@ public sealed class EmployeeDetailsPageTests
             if (componentType == typeof(EmployeeDetails)) return new EmployeeDetails { Tab = tab };
             if (componentType == typeof(Employees))
             {
-                var page = new Employees { Tab = directoryView == "Hiring" ? "hiring" : null };
+                var page = new Employees { Tab = directoryView?.ToLowerInvariant() };
                 if (Enum.TryParse<EmployeeViewKind>(directoryView, out var view))
                     typeof(Employees).GetField("_activeView", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, view);
                 return page;
@@ -204,6 +204,9 @@ public sealed class EmployeeDetailsPageTests
                     """);
             else if (path.EndsWith("/memory/summary"))
                 result = new AgentMemorySummaryResponse(OrganizationId, EmployeeId, "Ada Sterling", InstallationId, "creative-director", "Creative Director", 24, 38, 12, 32, 4, DateTimeOffset.UtcNow, 0, "Healthy");
+            else if (path.EndsWith("/memory/items")) result = new AgentMemoryPageResponse([], null, 0);
+            else if (path.EndsWith("/memory/graph")) result = new AgentMemoryGraphResponse([], [], false);
+            else if (path.EndsWith("/memory/enrichment/failures")) result = new MemoryEnrichmentJobPageResponse([], null);
             else if (path.EndsWith($"/organizations/{OrganizationId}"))
                 result = new OrganizationResponse(OrganizationId, "Super Awesome Games", null, null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
             else if (path.EndsWith("/hiring"))

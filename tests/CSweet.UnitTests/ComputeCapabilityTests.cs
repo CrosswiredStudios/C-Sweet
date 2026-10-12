@@ -143,13 +143,30 @@ public sealed class ComputeCapabilityTests
     private sealed class CapturingDefaults : CSweet.Application.Compute.IComputeDefaults
     {
         internal (Guid Organization, Guid Installation, Guid Project)? Scope;
+        internal string? Failure;
         public Task<CSweet.Application.Compute.ComputeDefaults> ReadAsync(Guid organizationId, Guid installationId, CancellationToken token) =>
             throw new InvalidOperationException("Project request must not fall back to personal defaults.");
         public Task<CSweet.Application.Compute.ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
         {
             Scope = (organizationId, installationId, projectId);
+            if (Failure is not null) throw new InvalidOperationException(Failure);
             return Task.FromResult(new CSweet.Application.Compute.ComputeDefaults("Ready", projectId, "project-template", null));
         }
+    }
+    [Theory]
+    [InlineData("project.required:", "compute_project_board_required", "read access")]
+    [InlineData("project.assignment_required:", "compute_project_assignment_required", "team membership")]
+    [InlineData("project.board_selection_required:", "compute_project_board_ambiguous", "multiple")]
+    public async Task Project_compute_failures_name_the_remedy_without_exposing_exception_text(string prefix, string code, string remedy)
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        var defaults = new CapturingDefaults { Failure = prefix + " secret diagnostic payload" };
+        var result = await Invoke(new(f.Broker, defaults), Session(f), InfrastructureActions.Read,
+            JsonSerializer.SerializeToElement(new { defaults = true, workstreamId = f.Workstream }));
+        Assert.Equal(code, result.FailureCode);
+        var payload = System.Text.Encoding.UTF8.GetString(result.Payload.Span);
+        Assert.Contains(remedy, payload);
+        Assert.DoesNotContain("secret diagnostic", payload);
     }
     private static AgentSession Session(ComputeBrokerTests.Fixture f) => new("session", "compute-agent", f.Installation.ToString("D"),
         f.Organization.ToString("D"), "runtime", "tick", new(new HashSet<string>(), new HashSet<string>(), Capabilities, 1));

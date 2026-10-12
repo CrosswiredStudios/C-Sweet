@@ -29,6 +29,38 @@ public sealed class AgentRuntimeStartupCleanupServiceTests
         Assert.Equal("vm-1", (await db.AgentRuntimeInstances.SingleAsync()).ProviderInstanceId);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupAsync_PreservesHealthyFleetWorkButCleansExpiredOrResetRuntime(bool memoryReset)
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(),
+            AgentInstallationId = Guid.NewGuid(), IsolationProviderId = "execution-fleet", ProviderInstanceId = "vm-1",
+            QueuedAt = now, RuntimeDeadlineAt = now.AddHours(1), MemoryReadEvidenceVersion = AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion };
+        runtime.TransitionTo(AgentRuntimeStatus.Starting, now);
+        runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, now);
+        runtime.TransitionTo(AgentRuntimeStatus.Running, now);
+        db.Add(runtime);
+        db.McpAgentSessions.Add(new() { Id = Guid.NewGuid(), RuntimeInstanceId = runtime.Id,
+            AgentInstallationId = runtime.AgentInstallationId, ExpiresAt = now.AddMinutes(10) });
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), AgentInstallationId = runtime.AgentInstallationId, Status = AgentWorkStatus.Leased };
+        db.Add(work);
+        var attempt = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id,
+            RuntimeInstanceId = runtime.Id, LeaseExpiresAt = now.AddMinutes(3) };
+        db.Add(attempt); await db.SaveChangesAsync();
+        var runner = new StartupCleanupRunner();
+        var service = new AgentRuntimeStartupCleanupService(db, runner, Options.Create(new AgentRuntimeManagerOptions()),
+            NullLogger<AgentRuntimeStartupCleanupService>.Instance);
+        Assert.Equal(0, await service.CleanupAsync()); Assert.Empty(runner.Destroyed);
+        if (memoryReset) runtime.MemoryResetRequestedAt = now;
+        else attempt.LeaseExpiresAt = now.AddMinutes(-1);
+        await db.SaveChangesAsync();
+        Assert.Equal(1, await service.CleanupAsync()); Assert.Single(runner.Destroyed);
+        Assert.Contains(db.AgentRuntimeEvents, x => x.Reason == AgentRuntimeStartupCleanupService.RestartCleanupReason);
+    }
+
     [Fact]
     public async Task CleanupAsync_DestroysPersistedProviderHandles()
     {

@@ -69,6 +69,7 @@ public sealed class McpToolCatalog(
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
         .. ComputeMcpTools.All,
+        .. DelegationToolSchemas.Tools,
         Read(W.WorkDeliveryCapabilities.Read, "read_delivery_plans", "Discover bounded, authorized project releases and their exact current scope."),
         Read(W.WorkDeliveryCapabilities.Evidence, "read_delivery_evidence", "Read exact candidate revisions or an authorized immutable repository snapshot."),
         Write(W.WorkDeliveryCapabilities.Configure, "configure_delivery_plan", "Define or amend release scope, assignments and explicit integration branches."),
@@ -603,6 +604,7 @@ public sealed class McpToolCatalog(
 
     private static JsonElement InputFor(string capability)
     {
+        if (W.DelegationCapabilities.All.Contains(capability)) return DelegationToolSchemas.Input(capability);
         if (W.WorkDeliveryCapabilities.All.Contains(capability)) return WorkDeliveryToolSchemas.Input(capability);
         if (W.CalendarCapabilities.All.Contains(capability)) return CalendarToolSchemas.Input(capability);
         if (capability is CompanyReportingCapabilities.Finance or CompanyReportingCapabilities.Legal or CompanyReportingCapabilities.Project)

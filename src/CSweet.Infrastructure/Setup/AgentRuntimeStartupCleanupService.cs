@@ -14,6 +14,7 @@ public sealed class AgentRuntimeStartupCleanupService(
     IOptions<AgentRuntimeManagerOptions> options,
     ILogger<AgentRuntimeStartupCleanupService> logger)
 {
+    public const string RestartCleanupReason = "Control-plane restart cleanup stopped the previous runtime.";
     public async Task<int> RecoverTransientStartupFailuresAsync(CancellationToken cancellationToken = default)
     {
         var installations = await dbContext.AgentInstallations.Include(x => x.Schedule)
@@ -62,12 +63,32 @@ public sealed class AgentRuntimeStartupCleanupService(
         var removed = 0;
         foreach (var instance in stale)
         {
+            // Fleet execution survives a WorkerHost restart. A current work lease plus
+            // authenticated session proves this is still owned work, not an orphan.
+            var now = DateTimeOffset.UtcNow;
+            if (instance.IsolationProviderId == "execution-fleet" &&
+                await dbContext.AgentRuntimeInstances.AnyAsync(x => x.Id == instance.Id &&
+                    x.Status == AgentRuntimeStatus.Running && x.MemoryResetRequestedAt == null &&
+                    x.MemoryReadEvidenceVersion == AgentRuntimeInstance.CurrentMemoryReadEvidenceVersion &&
+                    x.RuntimeDeadlineAt > now && dbContext.McpAgentSessions.Any(s => s.RuntimeInstanceId == x.Id &&
+                        s.AgentInstallationId == x.AgentInstallationId && s.RevokedAt == null && s.ExpiresAt > now) &&
+                    dbContext.AgentWorkAttempts.Any(a => a.RuntimeInstanceId == x.Id && a.FinishedAt == null &&
+                        a.LeaseExpiresAt > now && a.AgentWorkItem!.AgentInstallationId == x.AgentInstallationId &&
+                        a.AgentWorkItem.Status == AgentWorkStatus.Leased), cancellationToken))
+                continue;
             var handle = new IsolationWorkloadHandle(
                 instance.IsolationProviderId!, instance.Id, instance.ProviderInstanceId!, WorkloadKind.Runtime);
             try
             {
                 if (await workloads.InspectAsync(handle, cancellationToken) is not null)
+                {
+                    dbContext.AgentRuntimeEvents.Add(new AgentRuntimeEvent { Id = Guid.NewGuid(),
+                        AgentRuntimeInstanceId = instance.Id, Status = (await dbContext.AgentRuntimeInstances
+                            .Where(x => x.Id == instance.Id).Select(x => x.Status).SingleAsync(cancellationToken)),
+                        Reason = RestartCleanupReason, OccurredAt = now });
+                    await dbContext.SaveChangesAsync(cancellationToken);
                     await workloads.DestroyAsync(handle, cancellationToken);
+                }
                 var status = await workloads.InspectAsync(handle, cancellationToken);
                 if (status is null || status.State is IsolationWorkloadState.Stopped or IsolationWorkloadState.Destroyed)
                     removed++;

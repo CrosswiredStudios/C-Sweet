@@ -72,3 +72,39 @@ sessions after reconnect; duplicate discovery does not create another delivery.
 `AgentCoordinationServiceTests.ExpiredUnclaimedCoordinationRecoversOnlyConnectedAuthorizedSpeaker`
 covers connected/offline, claimed/attempt-record, disabled/revoked, cancellation,
 execution timeout, cooldown, and duplicate discovery cases.
+
+## Runtime attempt diagnostics and recovery
+
+`AgentWorkInbox.RecordTicketFailureAsync` distinguishes the inbox attempt budget
+from the pinned sprint stage budget. A dead-lettered single inbox delivery can
+still have a scheduled stage retry; its comment must not tell the user that manual
+intervention is required while that recovery remains available. Repeated failures
+still park the ticket and escalate through `AgentTicketFeedback.RecordFailureAsync`.
+
+Lease-expiry comments retain the work/runtime IDs, attempt number, last heartbeat
+and lease expiry. Runtime causes use fixed explanations for known lifecycle states,
+never raw provider logs or exception messages. Valid structured diagnostic GUIDs
+are retained for correlation. `WorkOrchestrationBoardState.RecordClaimAsync` clears
+the previous stage error/retry timer and calls `AgentTicketFeedback.RecordRecoveryAsync`
+to append an idempotent recovery comment with an atomic UI outbox wake. The leased
+branch of `WorkOrchestrator.ReconcileAttemptAsync` also repairs already-running
+retries with stale errors after deployment. Failure comments and attempt records
+remain historical evidence; a recovery comment confirms a claim, not completion.
+
+`AgentRuntimeStartupCleanupService.CleanupAsync` preserves a fleet runtime only
+when it has current memory evidence, no reset request, an unexpired runtime deadline,
+an authenticated current session and a live work lease belonging to that installation.
+Other stale runtimes remain eligible for cleanup. Before cleanup stops a workload it
+persists `RestartCleanupReason`, so later diagnostics can identify the restart instead
+of merely reporting “Runtime destroy requested.”
+
+`ComputeDefaultsService.RequireProjectAsync` resolves current authorized standard
+project boards without requiring the legacy `ProjectDeliveryBinding`. It retains
+explicit participation, active team/project and board grant checks, and refuses an
+ambiguous board selection. `ComputeCapabilityHandler` returns bounded, specific
+project board/membership recovery messages instead of hiding these failures behind
+`compute_conflict`; exception text is not exposed.
+
+Rebuild and restart AgentHost and WorkerHost to apply these platform fixes. No agent
+package update or schema migration is required. An existing healthy retry should be
+allowed to finish; requeue only a ticket whose current stage is actually blocked.

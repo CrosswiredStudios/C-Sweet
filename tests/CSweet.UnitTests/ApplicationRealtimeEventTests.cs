@@ -19,6 +19,34 @@ public sealed class ApplicationRealtimeEventTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task ComputeStateChangesNotifyOnlyCurrentHumanMembersAndIgnoreTimestampOnlyUpdates()
+    {
+        await using var db = CreateDb();
+        var organization = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization,
+            EmployeeType = EmployeeType.Human, IsActive = true };
+        db.AddRange(owner,
+            new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), EmployeeType = EmployeeType.Human, IsActive = true },
+            new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization, EmployeeType = EmployeeType.Human, IsActive = false },
+            new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization, EmployeeType = EmployeeType.Human, IsActive = true, ArchivedAt = DateTimeOffset.UtcNow },
+            new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization, EmployeeType = EmployeeType.Agent, IsActive = true });
+        var environment = new CSweet.Domain.Compute.ComputeEnvironment { Id = Guid.NewGuid(), OrganizationId = organization,
+            InstallationId = Guid.NewGuid(), UpdatedAt = DateTimeOffset.UtcNow, LeaseExpiresAt = DateTimeOffset.UtcNow.AddHours(1) };
+        db.Add(environment);
+        await db.SaveChangesAsync();
+        var created = Assert.Single(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == AppRealtimeEvents.ComputeChanged).ToListAsync());
+        Assert.Equal(organization, created.OrganizationId);
+        Assert.Equal(new[] { owner.Id }, JsonSerializer.Deserialize<Guid[]>(created.RecipientOrganizationUserIdsJson));
+        Assert.Equal("{}", created.DataJson);
+        environment.UpdatedAt = DateTimeOffset.UtcNow.AddSeconds(1);
+        await db.SaveChangesAsync();
+        Assert.Equal(1, await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.ComputeChanged));
+        environment.DesiredState = CSweet.Domain.Compute.ComputeDesiredState.Destroyed;
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.ComputeChanged));
+    }
+
+    [Fact]
     public async Task CommunicationAndNotificationChanges_AreCapturedAndTenantRouted()
     {
         await using var db = CreateDb();

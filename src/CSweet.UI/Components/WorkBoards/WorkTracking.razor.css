@@ -1,0 +1,5 @@
+.work-tracking { display: flex; gap: .75rem; align-items: start; flex-wrap: wrap; }
+.work-tracking button { padding: .4rem .8rem; border: 1px solid var(--mud-palette-primary); border-radius: .4rem; color: var(--mud-palette-primary); background: transparent; cursor: pointer; }
+.work-tracking article, .work-tracking h3, .work-tracking p { width: 100%; }
+.work-tracking article { padding: .8rem 0; border-bottom: 1px solid var(--mud-palette-divider); }
+.work-tracking time { font-size: .8rem; opacity: .7; }

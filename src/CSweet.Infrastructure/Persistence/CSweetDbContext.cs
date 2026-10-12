@@ -263,6 +263,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     {
         CaptureCoordinationWakesAsync().GetAwaiter().GetResult();
         CaptureWorkLifecycle();
+        CaptureTrackedWorkChanges();
         CaptureWorkExecutionAsync().GetAwaiter().GetResult();
         CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
@@ -286,6 +287,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     {
         await CaptureCoordinationWakesAsync(cancellationToken);
         CaptureWorkLifecycle();
+        CaptureTrackedWorkChanges();
         await CaptureWorkExecutionAsync(cancellationToken);
         CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
@@ -796,6 +798,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.Entity<ChiefHiringPolicyRevision>().HasIndex(x => new { x.OrganizationId, x.InstallationId, x.Revision }).IsUnique();
         modelBuilder.Entity<HiringPlanDelegation>().HasIndex(x => new { x.ResourceChangeRequestId, x.InstallationId }).IsUnique();
         ConfigureProjectHealth(modelBuilder);
+        ConfigureDelegation(modelBuilder);
         ConfigureEfficiency(modelBuilder);
         ConfigureBenchmarks(modelBuilder);
         ComputeConfigurations.Apply(modelBuilder);

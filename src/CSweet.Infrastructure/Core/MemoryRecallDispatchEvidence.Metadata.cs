@@ -68,6 +68,28 @@ public sealed partial class MemoryRecallDispatchEvidence
             ["currentUserMessage"] = message.Content,
             ["senderIsReportingAncestor"] = await IsReportingAncestorAsync(binding, token) ? "true" : "false"
         };
+        var delegation = await db.TrackedDelegations.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == binding.OrganizationId && x.ExecutionMessageId == binding.MessageId, token);
+        if (delegation is not null)
+        {
+            if (delegation.RecipientId != binding.EmployeeId || delegation.CoordinatorId != binding.HumanId ||
+                delegation.Status is "Completed" or "Declined" or "AttentionRequired") throw Denied();
+            var source = await db.CoreConversationMessages.AsNoTracking().SingleOrDefaultAsync(x => x.Id == delegation.SourceMessageId &&
+                x.Conversation!.OrganizationId == binding.OrganizationId && x.Conversation.ArchivedAt == null, token);
+            var sourceHash = source is null ? null : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(source.Content, Json))));
+            if (sourceHash != delegation.SourceChecksum ||
+                source?.SenderOrganizationUserId is not { } instructionAuthor ||
+                !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == instructionAuthor && x.OrganizationId == binding.OrganizationId && x.IsActive && x.ArchivedAt == null, token) ||
+                !await db.ConversationParticipants.AnyAsync(x => x.ConversationId == delegation.ReportingConversationId && x.OrganizationUserId == instructionAuthor && x.LeftAt == null, token) ||
+                !await db.ConversationParticipants.AnyAsync(x => x.ConversationId == delegation.ReportingConversationId &&
+                    x.OrganizationUserId == delegation.CoordinatorId && x.LeftAt == null, token)) throw Denied();
+            if (delegation.IsDirective && (context["senderIsReportingAncestor"] != "true" ||
+                instructionAuthor != delegation.CoordinatorId && !await IsReportingAncestorAsync(
+                    binding with { HumanId = instructionAuthor, EmployeeId = delegation.CoordinatorId }, token))) throw Denied();
+            context["delegationId"] = delegation.Id.ToString("D");
+            context["senderIsReportingAncestor"] = delegation.IsDirective && context["senderIsReportingAncestor"] == "true" ? "true" : "false";
+        }
         AgentWorkContext? workContext = null; string? workstreamHash = null;
         if (conversation.WorkstreamId is { } workstreamId)
         {

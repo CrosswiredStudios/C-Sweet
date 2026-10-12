@@ -13,6 +13,76 @@ public sealed class AgentTicketFeedbackTests
     private const string Error = "agent-failure:v1;code=runtime.transport;exceptionType=IOException;diagnosticId=one";
 
     [Fact]
+    public async Task ExpiredAttemptShowsEvidenceAndRecoveryClaimSupersedesItsFailureIdempotently()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        var now = DateTimeOffset.UtcNow;
+        var workId = Guid.NewGuid(); var runtimeId = Guid.NewGuid();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "expired-one", "The prior runtime lease expired.", true, now, default,
+            evidence: new(workId, 1, runtimeId, now.AddMinutes(-3), now, "Cause: the control plane cancelled the runtime."));
+        await db.SaveChangesAsync();
+        var failure = Assert.Single(db.WorkItemComments);
+        Assert.Contains("work heartbeat", failure.Body);
+        Assert.Contains(workId.ToString("D"), failure.Body);
+        Assert.Contains(runtimeId.ToString("D"), failure.Body);
+        Assert.Contains("Last work heartbeat", failure.Body);
+        Assert.Contains("I’ll retry", failure.Body);
+        Assert.DoesNotContain("needs attention before", failure.Body);
+        await AgentTicketFeedback.RecordRecoveryAsync(db, ticket, owner.AgentInstallationId.Value, Guid.NewGuid(), now.AddMinutes(1), default);
+        await db.SaveChangesAsync();
+        await AgentTicketFeedback.RecordRecoveryAsync(db, ticket, owner.AgentInstallationId.Value, Guid.NewGuid(), now.AddMinutes(2), default);
+        await db.SaveChangesAsync();
+        var recovery = Assert.Single(db.WorkItemComments.Where(x => x.Kind == "agent.recovery"));
+        Assert.Contains("no manual requeue", recovery.Body);
+        Assert.Contains("not that the ticket is complete", recovery.Body);
+        Assert.Equal(2, await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.WorkBoardChanged));
+    }
+
+    [Fact]
+    public async Task OrchestratedRetryClaimClearsCurrentErrorAndPostsRecoveryWhilePreservingHistory()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        ticket.Board!.Kind = WorkBoardKind.Standard;
+        var now = DateTimeOffset.UtcNow;
+        var policy = new WorkOrchestrationPolicyRevision { Id = Guid.NewGuid(), BoardId = ticket.BoardId!.Value,
+            OrganizationId = ticket.OrganizationId, Stages = [new() { Id = Guid.NewGuid(), Key = "specialist" }] };
+        var sprint = new WorkSprintExecution { Id = Guid.NewGuid(), BoardId = ticket.BoardId.Value,
+            OrganizationId = ticket.OrganizationId, PolicyRevisionId = policy.Id, Status = WorkSprintExecutionStatus.Active };
+        var item = new WorkItemExecution { Id = Guid.NewGuid(), WorkItem = ticket, SprintExecution = sprint, CurrentStageKey = "specialist" };
+        var stage = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecution = item, StageKey = "specialist",
+            Status = WorkStageExecutionStatus.Dispatching, AgentInstallationId = owner.AgentInstallationId,
+            LastError = "The prior runtime lease expired.", RetryAt = now.AddMinutes(-1) };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId.ToString("D"),
+            AgentInstallationId = owner.AgentInstallationId!.Value, SourceType = "WorkStageExecution", SourceId = stage.Id.ToString("D") };
+        var attempt = new WorkExecutionAttempt { Id = Guid.NewGuid(), StageExecution = stage,
+            AgentWorkItemId = work.Id, Status = WorkExecutionAttemptStatus.Pending };
+        db.AddRange(policy, sprint, item, stage, work, attempt);
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId.Value, "first", stage.LastError, true, now, default);
+        await db.SaveChangesAsync();
+        await WorkOrchestrationBoardState.RecordClaimAsync(db, work, now.AddMinutes(1), default);
+        Assert.Equal(WorkStageExecutionStatus.Running, stage.Status);
+        Assert.Null(stage.LastError); Assert.Null(stage.RetryAt);
+        Assert.Single(db.WorkItemComments.Where(x => x.Kind == "agent.failure"));
+        Assert.Single(db.WorkItemComments.Where(x => x.Kind == "agent.recovery"));
+    }
+
+    [Fact]
+    public async Task StructuredDiagnosticIdentifiersAreRetainedWithoutRawExceptionText()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        var id = Guid.NewGuid();
+        await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "diagnostic", $"agent-failure:v1;code=runtime.transport;diagnosticId={id:D};exceptionMessage=secret-token", true, DateTimeOffset.UtcNow, default);
+        await db.SaveChangesAsync();
+        Assert.Contains(id.ToString("D"), Assert.Single(db.WorkItemComments).Body);
+        Assert.DoesNotContain("secret-token", Assert.Single(db.WorkItemComments).Body);
+    }
+
+    [Fact]
     public async Task ReportedBlockerPreservesEvidenceAndRecoveryStepsInPersistedComment()
     {
         await using var db = CreateDb();

@@ -24,6 +24,26 @@ current project managers, supervisors, participants and team members through the
 `GetProjectDefaultsAsync(setup.WorkstreamId)` and binds environment requests to that project.
 This platform correction does not require an agent or SDK package change.
 
+## Overview attention queue
+
+`CommandCenter.ComputeAccessRequests` includes local browser-link permissions from the authorized
+`ComputeDashboardEndpoints.ReadAsync` projection in **Needs your attention**. Only a current human
+business owner receives actionable cards. Already allowed, expired, destroying, destroyed and
+release-requested instances are excluded. `PendingAgentQuestions` includes these cards in the shared
+pending count and five-item expansion control; **Review access** links to the instance's browser-access
+panel on `Compute`. Compute loading and errors remain independent of the other attention sources.
+Both pages use the dashboard's existing bound of 100 recent instances; a truncated read displays a
+notice instead of claiming there is nothing pending.
+
+`CSweetDbContext.CaptureComputeEvents` persists `AppRealtimeEvents.ComputeChanged` in the application
+realtime outbox with environment lifecycle/lease changes and inbound/publish-port grant changes.
+The payload is a wake hint, routed only to current active, unarchived human organization members.
+`CommandCenter` rereads authorized state on these events and connection/reconnection, including a
+follow-up refresh when a wake arrives during loading. This dismisses allowed access and restores revoked
+access without creating an unrelated approval record. `CompanyDashboardRenderingTests`,
+`CompanyDashboardRealtimeTests`, `ComputeExplicitNetworkGrantTests` and `ApplicationRealtimeEventTests`
+cover the queue, owner visibility, independent failures, realtime recovery and durable notifications.
+
 ## Existing generated projects
 
 `scripts/maintenance/Rebind-GeneratedComputeProject.sql` accepts explicit psql variables

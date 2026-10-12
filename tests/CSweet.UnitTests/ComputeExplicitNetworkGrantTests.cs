@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Api.Compute;
 using CSweet.Application.Compute;
 using CSweet.Compute.Contracts;
+using CSweet.Contracts.Realtime;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Compute;
@@ -48,7 +49,11 @@ public sealed class ComputeExplicitNetworkGrantTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeNetworkGrantEndpoints.SetLocalLinkAsync(f.Db, service,
             f.Organization, user, view.Id, true, default));
         owner.PermissionLevel = OrganizationPermissionLevel.Owner; await f.Db.SaveChangesAsync();
+        var realtimeBefore = await f.Db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.ComputeChanged);
         await ComputeNetworkGrantEndpoints.SetLocalLinkAsync(f.Db, service, f.Organization, user, view.Id, true, default);
+        Assert.True(await f.Db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.ComputeChanged) > realtimeBefore);
+        var root = Path.GetTempPath();
+        Assert.True(Assert.Single((await ComputeDashboardEndpoints.ReadAsync(f.Db, f.Organization, user, root, root, default))!.Resources).LocalLinkAllowed);
         var grants = await f.Db.ScopedActionGrants.Where(x => x.Action.StartsWith("network.")).ToListAsync();
         Assert.Equal(2, grants.Count);
         foreach (var grant in grants)
@@ -58,7 +63,10 @@ public sealed class ComputeExplicitNetworkGrantTests
             Assert.False(limits.AllowOutbound); Assert.False(limits.AllowPublicEndpoint);
             Assert.Equal(resource.LeaseExpiresAt, grant.ExpiresAt);
         }
+        realtimeBefore = await f.Db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.ComputeChanged);
         await ComputeNetworkGrantEndpoints.SetLocalLinkAsync(f.Db, service, f.Organization, user, view.Id, false, default);
+        Assert.True(await f.Db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.ComputeChanged) > realtimeBefore);
+        Assert.False(Assert.Single((await ComputeDashboardEndpoints.ReadAsync(f.Db, f.Organization, user, root, root, default))!.Resources).LocalLinkAllowed);
         Assert.All(grants, x => Assert.NotNull(x.RevokedAt));
         Assert.Equal(2, await f.Db.AgentPlatformEventOutbox.CountAsync(x => x.IdempotencyKey.StartsWith("network-grant:")));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeNetworkGrantEndpoints.SetLocalLinkAsync(f.Db, service,

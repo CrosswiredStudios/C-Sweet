@@ -79,6 +79,7 @@
             {
                 <div class="task-body">
                     <div class="task-description">
+                        <CSweet.UI.Components.WorkBoards.WorkTracking OrganizationId="OrganizationId" ItemId="item.Id" />
                         @if (_dialogOpen) { <PersonalTodoActivity @key="item.Id" OrganizationId="OrganizationId" ItemId="item.Id" /> }
                         <div class="section-heading"><h3><MudIcon Icon="@Icons.Material.Outlined.Subject" Size="Size.Small" />Description</h3>
                             @if (CanExecute && item.ArchivedAt is null && !_editingDetails) { <button type="button" class="text-action" disabled="@_busy" @onclick="@(() => _editingDetails = true)">Edit details</button> }

@@ -53,6 +53,7 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid EmployeeId { get; set; }
     [Parameter] public Guid EpisodeId { get; set; }
+    [Parameter] public EventCallback<bool> LockedChanged { get; set; }
     private (Guid, Guid, Guid) _identity;
     private long _generation;
     private MemoryErasureImpactResponse? _impact;
@@ -100,7 +101,7 @@
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         { if (generation == _generation) _message = "The forgetting impact could not be loaded. Try again."; }
-        finally { if (generation == _generation) _busy = false; }
+        finally { if (generation == _generation) { _busy = false; await LockedChanged.InvokeAsync(_request is not null); } }
     }
 
     private async Task ApplyAsync()
@@ -123,6 +124,7 @@
         var generation = ++_generation; var episode = EpisodeId;
         var url = $"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/{path}";
         _busy = true; _message = null;
+        await LockedChanged.InvokeAsync(true);
         try
         {
             using var response = request is null ? await Http.GetAsync(url) : await Http.PostAsJsonAsync(url, request);
@@ -160,7 +162,7 @@
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         { if (generation == _generation) _message = "The response was lost. Retry the same erasure operation to recover its receipt."; }
-        finally { if (generation == _generation) _busy = false; }
+        finally { if (generation == _generation) { _busy = false; await LockedChanged.InvokeAsync(_request is not null); } }
     }
 
     private static string Blocker(string reason) => reason switch

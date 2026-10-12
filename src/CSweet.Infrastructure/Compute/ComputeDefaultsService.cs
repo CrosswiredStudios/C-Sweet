@@ -6,6 +6,7 @@ using CSweet.Application.Setup;
 using CSweet.Compute.Contracts;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
+using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -137,9 +138,22 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             throw new UnauthorizedAccessException("The active project is outside the employee scope.");
         var policy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock);
         if (!await policy.RequiresProjectAsync(organizationId, installationId, token)) return;
-        var board = await db.ProjectDeliveryBindings.Where(x => x.OrganizationId == organizationId && x.WorkstreamId == projectId)
-            .Select(x => (Guid?)x.BoardId).SingleOrDefaultAsync(token)
-            ?? throw new InvalidOperationException("project.required: Prepare the existing project's delivery board before testing.");
+        // Universal delivery boards do not require the legacy ProjectDeliveryBinding.
+        // Resolve only current boards the installation can read; RequireAsync still checks
+        // explicit participation, team assignment and current board authority below.
+        var now = clock.GetUtcNow();
+        var boards = await db.WorkBoards.Where(x => x.OrganizationId == organizationId && x.WorkstreamId == projectId &&
+                x.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Standard && x.ArchivedAt == null &&
+                db.ScopedActionGrants.Any(g => g.OrganizationId == organizationId && g.SubjectId == installationId &&
+                    g.SubjectKind == GrantSubjectKind.AgentInstallation && g.ScopeKind == GrantScopeKind.Board &&
+                    g.ScopeId == x.Id && g.Action == CSweet.Contracts.WorkManagement.WorkItemActions.Read &&
+                    g.RevokedAt == null && (g.ExpiresAt == null || g.ExpiresAt > now)))
+            .Select(x => x.Id).Take(2).ToListAsync(token);
+        if (boards.Count == 0)
+            throw new InvalidOperationException("project.required: Restore access to the existing project's delivery board before testing.");
+        if (boards.Count > 1)
+            throw new InvalidOperationException("project.board_selection_required: Multiple delivery boards are authorized for this project.");
+        var board = boards[0];
         await policy.RequireAsync(organizationId, employeeId, board, token);
     }
 

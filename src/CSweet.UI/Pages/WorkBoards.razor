@@ -469,6 +469,7 @@
             </div>
             <MudDivider Class="my-4" />
             <div class="ticket-detail-comments">
+                <WorkTracking OrganizationId="OrganizationId" ItemId="detailItem.Id" />
                 <WorkItemComments @ref="_drawerComments" OrganizationId="OrganizationId"
                                   BoardId="detailItem.BoardId" ItemId="detailItem.Id" Compact="true" />
             </div>
@@ -966,6 +967,7 @@
             }
             @if (_selectedItem is not null)
             {
+                <WorkTracking OrganizationId="OrganizationId" ItemId="_selectedItem.Id" />
                 <WorkItemComments @ref="_dialogComments" OrganizationId="OrganizationId"
                                   BoardId="@(_selectedItem.BoardId)" ItemId="@(_selectedItem.Id)" />
                 <MudExpansionPanels Class="mt-4">

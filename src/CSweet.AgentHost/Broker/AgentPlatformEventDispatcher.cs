@@ -46,7 +46,8 @@ public sealed class AgentPlatformEventDispatcher(
                     item.TargetInstallationId,
                     requireSubscription: true,
                     deadline: item.EventType is WorkItemEvents.Assigned or
-                        CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available or CSweet.Infrastructure.WorkManagement.WorkItemDiscussion.Changed
+                        CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available or CSweet.Infrastructure.WorkManagement.WorkItemDiscussion.Changed or
+                        DelegationCapabilities.Received or DelegationCapabilities.Changed or DelegationCapabilities.Execution
                         ? new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero)
                         : now.AddHours(1),
                     cancellationToken: cancellationToken);
@@ -72,7 +73,8 @@ public sealed class AgentPlatformEventDispatcher(
                             recipientInstallationId);
                     }
                 }
-                if (item.EventType is PersonalTodoEvents.Available or CSweet.Infrastructure.WorkManagement.WorkItemDiscussion.Changed && deliveries == 0)
+                if (item.EventType is PersonalTodoEvents.Available or CSweet.Infrastructure.WorkManagement.WorkItemDiscussion.Changed or
+                    DelegationCapabilities.Received or DelegationCapabilities.Changed or DelegationCapabilities.Execution && deliveries == 0)
                 {
                     item.Attempts++;
                     item.NextAttemptAt = now.AddSeconds(30);

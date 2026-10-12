@@ -514,6 +514,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ICommunicationWorkspaceService, CommunicationWorkspaceService>();
         builder.Services.AddScoped<ICommunicationHubService, CommunicationHubService>();
         builder.Services.AddScoped<IAgentCoordinationService, AgentCoordinationService>();
+        builder.Services.AddScoped<ITrackedDelegationService, CSweet.Infrastructure.WorkManagement.TrackedDelegationService>();
         builder.Services.AddScoped<IUserActionService, UserActionService>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, HiringMarketplaceUserActionWorkflowResolver>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, PluginSetupUserActionWorkflowResolver>();

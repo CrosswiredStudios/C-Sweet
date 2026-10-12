@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Compute;
 using CSweet.UI.Pages;
 using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
@@ -175,14 +176,74 @@ public sealed class CompanyDashboardRenderingTests
         { Priority = priority, RemainingHeadcount = 1, HiringUrl = $"/marketplace?role=developer&recommendationId={id:D}" };
     }
 
+    [Fact]
+    public async Task ComputePermissionsJoinTheQueueWithInstanceContextAndExcludeResolvedOrUnavailableInstances()
+    {
+        var pending = ComputeResource();
+        var html = await Render(false, compute: new(DateTimeOffset.UtcNow, null,
+            [pending, ComputeResource() with { LocalLinkAllowed = true },
+                ComputeResource() with { LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1) },
+                ComputeResource() with { State = "Destroyed" }, ComputeResource() with { State = "Destroying" },
+                ComputeResource() with { DesiredState = "Destroyed" }], false, true));
+        Assert.Contains("1 pending", html);
+        Assert.Contains("Allow a local test link", html);
+        Assert.Contains("Victor Lin", html);
+        Assert.Contains("Prismatic Break", html);
+        Assert.Contains($"/compute#compute-access-{pending.Id:D}", html);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "attention-request compute").Cast<System.Text.RegularExpressions.Match>());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task ComputePermissionQueueIsEmptyForNonOwnersAndAlreadyAllowedAccess(bool canManage, bool allowed)
+    {
+        var html = await Render(false, compute: new(DateTimeOffset.UtcNow, null,
+            [ComputeResource() with { LocalLinkAllowed = allowed }], false, canManage));
+        Assert.Contains("Nothing needs your attention", html);
+        Assert.DoesNotContain("Allow a local test link", html);
+    }
+
+    [Fact]
+    public async Task ComputeReadFailureDoesNotHideOtherRequestsOrClaimTheQueueIsEmpty()
+    {
+        var html = await Render(false, failCompute: true, recommendations: [Recommendation("Suggested developer", 1)]);
+        Assert.Contains("Suggested developer", html);
+        Assert.Contains("could not be loaded", html);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+        html = await Render(false, failCompute: true);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+    }
+
+    [Fact]
+    public async Task LongComputeQueuesOfferTheSharedExpansionControl()
+    {
+        var html = await Render(false, compute: new(DateTimeOffset.UtcNow, null,
+            Enumerable.Range(0, 6).Select(_ => ComputeResource()).ToArray(), false, true));
+        Assert.Contains("Show all items (6)", html);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "attention-request compute").Count);
+    }
+
+    private static ComputeResourceStatus ComputeResource() => new(Guid.NewGuid(), "Victor Lin", "Prismatic Break", "Ready",
+        "Running", "linux", 2, 2048, 20480, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null);
+
+    [Fact]
+    public async Task TruncatedComputeReadsDoNotClaimThereAreNoPendingRequests()
+    {
+        var html = await Render(false, compute: new(DateTimeOffset.UtcNow, null, [], true, true));
+        Assert.Contains("100 most recent compute instances", html);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+    }
+
     private static async Task<string> Render(bool populated, bool failReports = false,
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals = null, IReadOnlyList<HiringRecommendationResponse>? recommendations = null,
-        bool failApprovals = false, bool failHiring = false)
+        bool failApprovals = false, bool failHiring = false, ComputeDashboard? compute = null, bool failCompute = false)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
-        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring)) { BaseAddress = new Uri("http://localhost") });
+        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<IAgentApiClient, AgentApiClient>();
         await using var provider = services.BuildServiceProvider();
@@ -195,13 +256,18 @@ public sealed class CompanyDashboardRenderingTests
     }
     private sealed class Handler(bool populated, bool failReports,
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals, IReadOnlyList<HiringRecommendationResponse>? recommendations,
-        bool failApprovals, bool failHiring) : HttpMessageHandler
+        bool failApprovals, bool failHiring, ComputeDashboard? compute, bool failCompute) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
             object result;
             if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(["legal", "approvals", "finance", "projects"]);
+            else if (path.EndsWith("/compute"))
+            {
+                if (failCompute) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+                result = compute ?? new ComputeDashboard(DateTimeOffset.UtcNow, null, [], false);
+            }
             else if (path.EndsWith("/dashboard/hiring"))
             {
                 if (failHiring) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));

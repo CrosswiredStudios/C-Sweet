@@ -114,6 +114,34 @@ public sealed class ComputeProjectScopeTests
     }
 
     [Fact]
+    public async Task Project_required_agent_uses_canonical_board_without_legacy_delivery_binding()
+    {
+        await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
+        var person = await PrepareProjectAsync(f);
+        var installation = await f.Db.AgentInstallations.Include(x => x.PackageVersion).SingleAsync();
+        installation.PackageVersion!.ManifestJson = "{\"rolePolicy\":{\"requiresProject\":true}}";
+        var board = await f.Db.WorkBoards.SingleAsync();
+        board.Kind = CSweet.Domain.WorkManagement.WorkBoardKind.Standard;
+        f.Db.ProjectParticipants.Add(new() { OrganizationId = f.Organization,
+            WorkstreamId = f.Workstream, OrganizationUserId = person.Id });
+        var grant = new ScopedActionGrant { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = f.Installation,
+            ScopeKind = GrantScopeKind.Board, ScopeId = board.Id, Action = CSweet.Contracts.WorkManagement.WorkItemActions.Read };
+        f.Db.ScopedActionGrants.Add(grant);
+        await f.Db.SaveChangesAsync();
+        var service = Service(f); await ReadyAsync(f, service);
+        Assert.Empty(await f.Db.ProjectDeliveryBindings.ToListAsync());
+        Assert.Equal("Ready", (await service.ReadProjectAsync(f.Organization, f.Installation, f.Workstream, default)).State);
+        grant.RevokedAt = DateTimeOffset.UtcNow; await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReadProjectAsync(f.Organization, f.Installation, f.Workstream, default));
+        grant.RevokedAt = null; board.ArchivedAt = DateTimeOffset.UtcNow; await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReadProjectAsync(f.Organization, f.Installation, f.Workstream, default));
+        board.ArchivedAt = null; (await f.Db.ProjectParticipants.SingleAsync()).RemovedAt = DateTimeOffset.UtcNow;
+        await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReadProjectAsync(f.Organization, f.Installation, f.Workstream, default));
+    }
+
+    [Fact]
     public async Task Project_required_agents_retain_explicit_participant_and_board_checks()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync(); await PrepareProjectAsync(f);

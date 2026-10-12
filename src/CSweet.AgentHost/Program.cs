@@ -49,6 +49,7 @@ builder.Services.AddHostedService<ConnectorActionWorker>();
 builder.Services.AddScoped<ConnectorActionEventDispatcher>();
 builder.Services.AddHostedService<AgentPlatformEventDispatcher>();
 builder.Services.AddHostedService<PersonalTodoReconciliationWorker>();
+builder.Services.AddHostedService<WorkTrackingWorker>();
 builder.Services.AddHostedService<BusinessCalendarWorker>();
 builder.Services.AddScoped<IAgentRuntimeSignalService, AgentRuntimeSignalService>();
 builder.Services.AddScoped<AgentEmployeeIdentityResolver>();
@@ -91,6 +92,7 @@ if (builder.Environment.IsDevelopment() &&
     builder.Services.AddScoped<CSweet.Agent.SDK.IWorkforceCatalogProvider, DevelopmentWorkforceMarketplaceProvider>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentCoordinationCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, DelegationCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, CompanyReportingCapabilityHandler>();

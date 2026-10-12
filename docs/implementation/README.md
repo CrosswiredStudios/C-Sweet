@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Delegation with tracking](features/delegation-with-tracking.md) describes instruction publication,
+canonical work, coordinator reporting, subscriptions, recovery and the future continuity boundary.
+
 Current delivery: [hierarchical orchestration and release integration](features/work-management/hierarchical-delivery.md) documents V2 assignments, scope activation, branch bindings, QA, aggregate acceptance, recovery and clean installation.
 
 Read these files in order:
@@ -43,6 +46,7 @@ Read these files in order:
 - [Project approval review](features/project-approval-review.md) - human-readable project proposals, inline Communications approval tools, exact decision binding and history.
 
 - [Memory System Implementation](./features/memory-system-implementation.md) - **current remaining-work plan**. Starts from the implemented runtime recovery, correction integrity and shared-correction writers; identifies repository/package alignment, then defines 21 remaining work packages across correctness/lifecycle/release acceptance, unified context/reconciliation/operator controls, and evaluated delivery/semantic/summary features. Use its register, dependencies and completion criteria for new work.
+- [Employee Memory workspace](./features/employee-memory-workspace.md) - embedded Learning Journal, browsing and graph views, preserved review/privacy/recovery tools, and bounded activity aggregation.
 - [Agent memory hardening](./features/agent-memory-hardening.md) - historical assessment and implementation evidence. Superseded as the active backlog by **Memory System Implementation**; older checkpoints and handoff instructions may describe behavior or versions since changed.
 - [Uniform provider responses](./features/provider-response-compatibility.md) - shared
   agent response contract, bounded formatting recovery, streaming fallback and diagnostics.

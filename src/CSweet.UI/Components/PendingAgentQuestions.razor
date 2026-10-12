@@ -49,7 +49,7 @@
         else if (!ComputeLoaded) { <MudText Color="Color.Secondary">Loading compute permissions…</MudText> }
         @if (ComputeHasMore)
         {
-            <MudText Color="Color.Secondary">Showing the most recent compute instances. <MudLink Href="@($"/organizations/{OrganizationId}/compute")">Review Compute for more instances</MudLink>.</MudText>
+            <MudText Color="Color.Secondary">Showing permissions for the 100 most recent compute instances.</MudText>
         }
         @if (_loaded && _error is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && ComputeLoaded && ComputeError is null && !ComputeHasMore && PendingCount == 0)
         {

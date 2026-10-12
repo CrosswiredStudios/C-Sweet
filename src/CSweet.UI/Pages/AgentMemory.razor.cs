@@ -38,7 +38,7 @@ public partial class AgentMemory
 
     private async Task InspectReviewSourceAsync(Guid sourceId)
     {
-        if (_reviewBusy || _pendingReview is not null || _procedureReviewLocked || _sourceSuppressionLocked || _sourceHoldLocked) return;
+        if (SelectionLocked) return;
         _reviewBusy = true;
         try
         {
@@ -104,7 +104,12 @@ public partial class AgentMemory
             var result = await response.Content.ReadFromJsonAsync<ReviewMemoryClaimResponse>() ?? throw new System.Text.Json.JsonException();
             _pendingReview = null; _review = null; _replacementValue = null;
             _reviewMessage = result?.WasReplay == true ? "This review was already recorded. Refresh to see the current state." : "Your review was recorded.";
-            if (result is not null) _selected = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{result.ResultClaimId}");
+            if (result is not null)
+            {
+                var previous = _selected?.Id;
+                _selected = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{result.ResultClaimId}");
+                await RefreshSelectedRecordAsync(previous);
+            }
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {

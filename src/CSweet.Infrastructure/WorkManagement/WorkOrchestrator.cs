@@ -223,6 +223,15 @@ public sealed partial class WorkOrchestrator(
         var state = await inbox.ReadStateAsync(attempt.AgentWorkItemId.Value, cancellationToken);
         if (state.Status == AgentWorkStatus.Leased)
         {
+            // Reconcile retries claimed before the recovery-feedback update as well.
+            // Keep historical failure evidence on the previous attempt and comment.
+            if (stage.LastError is not null || stage.RetryAt is not null)
+            {
+                if (stage.AgentInstallationId is { } recoveringInstallationId)
+                    await AgentTicketFeedback.RecordRecoveryAsync(db, stage.ItemExecution!.WorkItem!, recoveringInstallationId,
+                        attempt.AgentWorkItemId.Value, now, cancellationToken);
+                stage.LastError = null; stage.RetryAt = null; stage.UpdatedAt = now;
+            }
             attempt.Status = WorkExecutionAttemptStatus.Running;
             attempt.StartedAt ??= now; stage.Status = WorkStageExecutionStatus.Running;
             stage.ItemExecution!.Status = WorkItemExecutionStatus.Running;

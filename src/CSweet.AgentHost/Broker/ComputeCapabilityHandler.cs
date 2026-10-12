@@ -63,11 +63,22 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             {
                 UnauthorizedAccessException => "compute_authority_denied",
                 JsonException or ArgumentException or InvalidDataException => "compute_request_invalid",
+                InvalidOperationException when error.Message.StartsWith("project.required:", StringComparison.Ordinal) => "compute_project_board_required",
+                InvalidOperationException when error.Message.StartsWith("project.assignment_required:", StringComparison.Ordinal) => "compute_project_assignment_required",
+                InvalidOperationException when error.Message.StartsWith("project.board_selection_required:", StringComparison.Ordinal) => "compute_project_board_ambiguous",
                 InvalidOperationException => "compute_conflict",
                 _ => "compute_unavailable"
             };
+            var recovery = code switch
+            {
+                "compute_project_board_required" => "Restore the agent's read access to the current project's delivery board, then read project compute defaults again.",
+                "compute_project_assignment_required" => "Ask the project manager to verify active project participation and team membership before retrying.",
+                "compute_project_board_ambiguous" => "Ask the project manager to resolve the project's multiple authorized delivery boards before retrying.",
+                _ => null
+            };
             result = new() { RequestId = request.RequestId, Succeeded = false, Error = code, FailureCode = code,
-                Retryable = code == "compute_unavailable", Payload = JsonPayload.From(new { error = code }) };
+                Retryable = code == "compute_unavailable", Payload = recovery is null
+                    ? JsonPayload.From(new { error = code }) : JsonPayload.From(new { error = code, recovery }) };
         }
         yield return result;
     }

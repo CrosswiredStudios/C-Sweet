@@ -50,6 +50,8 @@ internal static partial class WorkOrchestrationBoardState
         attempt.Status = WorkExecutionAttemptStatus.Running;
         attempt.StartedAt ??= now;
         stage.Status = WorkStageExecutionStatus.Running;
+        stage.LastError = null;
+        stage.RetryAt = null;
         stage.UpdatedAt = now;
         stage.ItemExecution.Status = WorkItemExecutionStatus.Running;
         stage.ItemExecution.UpdatedAt = now;
@@ -57,6 +59,7 @@ internal static partial class WorkOrchestrationBoardState
             .Include(x => x.Stages).Include(x => x.Transitions)
             .SingleAsync(x => x.Id == execution.PolicyRevisionId, token);
         SynchronizeAgentCard(policy, stage, now);
+        await AgentTicketFeedback.RecordRecoveryAsync(db, stage.ItemExecution.WorkItem!, work.AgentInstallationId, work.Id, now, token);
         await SaveBoardChangesAsync(db, execution, now, token);
     }
 

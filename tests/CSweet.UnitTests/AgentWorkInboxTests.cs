@@ -11,6 +11,44 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentWorkInboxTests
 {
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    public async Task TicketFeedbackUsesStageRecoveryBudgetWhenSingleInboxAttemptIsExhausted(int stageBudget, bool retry)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow()); var runtime = Runtime(installation, clock.GetUtcNow());
+        var org = Guid.NewGuid(); installation.BusinessId = org.ToString("D");
+        var board = new CSweet.Domain.WorkManagement.WorkBoard { Id = Guid.NewGuid(), OrganizationId = org,
+            Kind = CSweet.Domain.WorkManagement.WorkBoardKind.Standard };
+        var ticket = new CSweet.Domain.Core.WorkTask { Id = Guid.NewGuid(), OrganizationId = org, Board = board,
+            Kind = CSweet.Domain.Core.WorkItemKind.Task, Status = CSweet.Domain.Core.WorkTaskStatus.Running };
+        var policy = new CSweet.Domain.WorkManagement.WorkOrchestrationPolicyRevision { Id = Guid.NewGuid(),
+            OrganizationId = org, BoardId = board.Id, Stages = [new() { Id = Guid.NewGuid(), Key = "specialist", MaximumAttempts = stageBudget }] };
+        var sprint = new CSweet.Domain.WorkManagement.WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = org,
+            BoardId = board.Id, PolicyRevisionId = policy.Id, Status = CSweet.Domain.WorkManagement.WorkSprintExecutionStatus.Active };
+        var item = new CSweet.Domain.WorkManagement.WorkItemExecution { Id = Guid.NewGuid(), WorkItem = ticket,
+            SprintExecution = sprint, CurrentStageKey = "specialist" };
+        var stage = new CSweet.Domain.WorkManagement.WorkStageExecution { Id = Guid.NewGuid(), ItemExecution = item,
+            StageKey = "specialist", AgentInstallationId = installation.Id, Status = CSweet.Domain.WorkManagement.WorkStageExecutionStatus.Dispatching };
+        db.AddRange(installation, runtime, ticket, policy, sprint, item, stage); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var work = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            "example.event.v1", Json("{}"), "stage-budget", clock.GetUtcNow().AddHours(1), maximumAttempts: 1,
+            sourceType: "WorkStageExecution", sourceId: stage.Id.ToString("D"));
+        db.WorkExecutionAttempts.Add(new() { Id = Guid.NewGuid(), StageExecution = stage, AgentWorkItemId = work.Id,
+            Status = CSweet.Domain.WorkManagement.WorkExecutionAttemptStatus.Pending });
+        await db.SaveChangesAsync();
+        var session = Session(installation, runtime);
+        var claim = (await inbox.ClaimAsync(session, default))!;
+        await inbox.FailAsync(session, claim.WorkId, claim.Attempt, claim.LeaseToken, "agent-failure:v1;code=runtime.transport;retryable=true", default);
+        Assert.Equal(AgentWorkStatus.DeadLetter, (await inbox.ReadStateAsync(work.Id, default)).Status);
+        var body = Assert.Single(db.WorkItemComments).Body;
+        Assert.Equal(retry, body.Contains("I’ll retry"));
+        Assert.Equal(!retry, body.Contains("needs attention before"));
+    }
+
     [Fact]
     public async Task RepeatedTicketFailureAfterClaimReleaseStopsInboxRetries()
     {

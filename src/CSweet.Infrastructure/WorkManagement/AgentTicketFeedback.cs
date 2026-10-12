@@ -17,6 +17,37 @@ namespace CSweet.Infrastructure.WorkManagement;
 /// <summary>Platform-owned feedback for an authenticated ticket execution. The caller commits it with the failure.</summary>
 public static class AgentTicketFeedback
 {
+    public sealed record FailureEvidence(Guid WorkId, int Attempt, Guid RuntimeId,
+        DateTimeOffset LastHeartbeatAt, DateTimeOffset LeaseExpiresAt, string? RuntimeCause);
+
+    public static async Task RecordRecoveryAsync(CSweetDbContext db, WorkTask ticket, Guid installationId,
+        Guid workId, DateTimeOffset now, CancellationToken ct)
+    {
+        var latest = await db.WorkItemComments.Where(x => x.WorkItemId == ticket.Id && x.DeletedAt == null &&
+                (x.Kind == "agent.failure" || x.Kind == "agent.recovery"))
+            .OrderByDescending(x => x.CreatedAt).Select(x => x.Kind).FirstOrDefaultAsync(ct);
+        if (latest != "agent.failure") return;
+        var key = $"ticket-recovery:{workId:N}:{ticket.Id:N}";
+        if (await db.WorkItemComments.AnyAsync(x => x.WorkItemId == ticket.Id && x.IdempotencyKey == key, ct)) return;
+        var name = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == ticket.OrganizationId &&
+            x.AgentInstallationId == installationId && x.IsActive).Select(x => x.DisplayName).SingleOrDefaultAsync(ct) ?? "Agent";
+        var comment = new WorkItemComment { Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId, WorkItemId = ticket.Id,
+            AuthorKind = GrantSubjectKind.AgentInstallation, AuthorSubjectId = installationId, AuthorDisplayName = name,
+            Kind = "agent.recovery", IdempotencyKey = key, CreatedAt = now,
+            Body = "C-Sweet has started a fresh execution attempt after the earlier failure. Automatic recovery is underway; no manual requeue is needed. This confirms the retry started, not that the ticket is complete." };
+        db.WorkItemComments.Add(comment);
+        // Commit the comment and its wake together with the inbox claim.
+        var readers = await db.ScopedActionGrants.Where(x => x.OrganizationId == ticket.OrganizationId &&
+            x.SubjectKind == GrantSubjectKind.OrganizationUser && x.RevokedAt == null && (x.ExpiresAt == null || x.ExpiresAt > now) &&
+            (x.ScopeKind == GrantScopeKind.Organization || x.ScopeKind == GrantScopeKind.Board && x.ScopeId == ticket.BoardId) &&
+            x.Action == CSweet.Contracts.WorkManagement.WorkItemActions.Read).Select(x => x.SubjectId).Distinct().ToListAsync(ct);
+        db.ApplicationRealtimeOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId,
+            RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(readers), EventType = AppRealtimeEvents.WorkBoardChanged,
+            Subject = $"organizations/{ticket.OrganizationId:D}/work/boards/{ticket.BoardId:D}",
+            DataJson = JsonSerializer.Serialize(new { boardId = ticket.BoardId, itemId = ticket.Id, changeType = "comment.created", commentId = comment.Id }),
+            OccurredAt = now, NextAttemptAt = now });
+    }
+
     public const string RepeatedIssueError = "agent-failure:v1;code=task.repeated_issue;retryable=false";
     public const string RepeatedIssuePrefix = "Repeated issue: ";
     /// <summary>
@@ -221,7 +252,7 @@ public static class AgentTicketFeedback
         var x when x.StartsWith("reported:", StringComparison.Ordinal) =>
             "I couldn't finish this ticket. " + ReportedReason(x["reported:".Length..]),
         var x when x.Contains("lease expired", StringComparison.OrdinalIgnoreCase) =>
-            "I couldn't finish because my runtime stopped responding.",
+            "This execution attempt expired because C-Sweet stopped receiving its work heartbeat. A lease expiry alone does not identify the underlying cause.",
         var x when x.Contains("code=runtime.transport", StringComparison.Ordinal) => "I couldn’t finish this attempt because the connection to the runtime failed.",
         // Checked before the capability-specific cases: a refusal is an authority problem, not an outage.
         var x when IsDenied(x) =>
@@ -260,7 +291,7 @@ public static class AgentTicketFeedback
     /// <param name="decisionRequired">The blocker carries <see cref="DecisionRequiredDiagnostic"/>.</param>
     public static async Task<bool> RecordFailureAsync(CSweetDbContext db, WorkTask root, Guid installationId,
         string deliveryKey, string error, bool willRetry, DateTimeOffset now, CancellationToken ct, bool queueRealtime = true,
-        bool awaitingManager = false, bool decisionRequired = false)
+        bool awaitingManager = false, bool decisionRequired = false, FailureEvidence? evidence = null)
     {
         if (root.Status == WorkTaskStatus.Blocked && root.BlockReason?.StartsWith(RepeatedIssuePrefix, StringComparison.Ordinal) == true)
             return true;
@@ -292,6 +323,13 @@ public static class AgentTicketFeedback
                 : willRetry ? " I’ll retry from the saved work."
                 : awaitingManager ? " This is now waiting for a manager to decide how to proceed."
                 : " This needs attention before I can continue.");
+            if (evidence is not null)
+                body += $"\n\nExecution attempt {evidence.Attempt}: work `{evidence.WorkId:D}`, runtime `{evidence.RuntimeId:D}`. " +
+                    $"Last work heartbeat: {evidence.LastHeartbeatAt:u}; lease expiry: {evidence.LeaseExpiresAt:u}." +
+                    (evidence.RuntimeCause is null ? "" : "\n\n" + evidence.RuntimeCause) +
+                    "\n\nUse these identifiers in the agent runtime diagnostics and AgentHost/WorkerHost logs to locate this attempt.";
+            var diagnosticId = error.Split(';').FirstOrDefault(x => x.StartsWith("diagnosticId=", StringComparison.Ordinal))?["diagnosticId=".Length..];
+            if (Guid.TryParse(diagnosticId, out var diagnostic)) body += $"\n\nDiagnostic ID: `{diagnostic:D}`.";
             db.WorkItemComments.Add(new WorkItemComment
             {
                 Id = Guid.NewGuid(), OrganizationId = ticket.OrganizationId, WorkItemId = ticket.Id,

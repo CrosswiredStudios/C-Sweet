@@ -79,4 +79,4 @@ ConfigureWorkDeliveryPlanRequest.TaskAssignments carries proposed author and qua
 
 HierarchicalProjectDelivery.PrepareAsync submits the proposals, finalizes task delivery against the returned draft ID, then activates. DeliveryConflictReason preserves task-specific configure/finalize/control conflicts as DeliveryStaffingException so Producer workflow and preflight commitments record recoverable waits. Product author self-review remains prohibited. Producer QueueWorkflowRecoveryAsync includes the QA proposal policy generation in its wake fingerprint; the explicit Retry staffing command requeues both workflow recovery and sprint-readiness commitments without resetting completed work or attempt history.
 
-Publish WorkManagement.Contracts 3.27.0 and Agent.SDK 3.64.1, then update C-Sweet and Producer 2.19.7. The Technical Director and Developer versions from the compute-test release do not need another change for this correction.
+Publish WorkManagement.Contracts 3.28.0 and Agent.SDK 3.64.1, then update C-Sweet and Producer 2.19.7. The Technical Director and Developer versions from the compute-test release do not need another change for this correction.

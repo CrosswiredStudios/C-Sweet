@@ -1,0 +1,9 @@
+@page "/organizations/{OrganizationId:guid}/work/tracking/{ItemId:guid}"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+<PageTitle>Work progress</PageTitle>
+<h1>Work progress</h1>
+<CSweet.UI.Components.WorkBoards.WorkTracking @key="ItemId" OrganizationId="OrganizationId" ItemId="ItemId" ShowUpdates="true" />
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ItemId { get; set; }
+}

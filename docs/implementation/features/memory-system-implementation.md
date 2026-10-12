@@ -15,6 +15,43 @@ This is the current implementation plan. It starts from the existing implementat
 
 ## 1. Starting point
 
+### Delegation product blocker and future continuity (October 12, 2026)
+
+The [delegation with tracking slice](delegation-with-tracking.md) responds to the observed Naomi
+Communications failure: an explicitly requested instruction to Gabriel fell through to a canned
+oversight response without publication, canonical work or a reporting obligation. Delegation
+publication and shared dispatch advance bounded M02/M03 slices only. They do not complete the
+broader memory milestones, alter the completion count, or displace unrelated M07 closure work.
+
+Delegation/work records are authoritative for outstanding obligations. Memory supplies rationale,
+decisions, requester preferences, lessons and supporting handover narrative. A successor must
+recover linked work, pending reporting receipts, subscriptions and reporting destinations from
+platform records even when memory enrichment is unavailable. Agent fields and memory summaries
+must never become competing assignment or report-delivery state.
+
+This release retains original authorship separately from current coordinator/recipient, stable
+source and work IDs, revisions, source checksums, organization, project/team context, provenance
+and applicability. Assignment changes belong behind `ITrackedDelegationService` and must later
+record responsibility changes with fencing. Role/team references remain descriptive, not automatic
+authority. Inactive employees preserve records and require manager attention; this slice introduces
+no successor selection, succession entity, reassignment or private debrief workflow.
+
+Future succession must prove unambiguous responsibility matching, vacant roles, explicit authorized
+reassignment, old-owner fencing, subscription recovery, reporting-destination access and takeover
+deduplication. Future ingestion should durably capture source-linked instructions, accepted decisions,
+supported outcomes and approved handovers through existing ingestion and authorization boundaries.
+Capture must preserve revisions, contributor lineage, audience, applicability and lifecycle policy.
+Restricted tracking access authorizes only explicitly shared reports, never full case-memory access.
+
+Existing gaps remain: `AgentMemoryService.RecallForConversationCoreAsync` does not automatically
+retrieve role/team/case context; reviewed transfer through `MemoryManagerAuthorization` currently
+requires an active predecessor. Post-deactivation private debrief needs an explicit future policy
+and authorized workflow. Do not bypass those restrictions with a delegation subscriber list.
+
+Future ingestion, lifecycle, transfer, retrieval and learning belong to M04–M06, M11–M14, M19 and
+M21. Reuse existing memory authorization wherever delegation consumes memory. This release adds
+no recall pipeline, namespace, learning mechanism, succession entity or knowledge-transfer workflow.
+
 The implementation baseline includes authenticated namespaces, lexical retrieval, durable extraction/recovery, supported review/transfer/retention/forgetting operations, and sealed provenance. Runtime audience checks before delivery, recovery of failed memory-reset collaborations, fingerprint-bound retained-certificate verification, and human shared-derived claim/procedure/core correction writers are implemented. Extend and verify these paths; do not schedule their initial implementation again.
 
 **Historical aligned baseline, verified by M01:**

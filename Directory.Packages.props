@@ -5,12 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="CSweet.Agent.SDK" Version="3.64.3" />
-    <PackageVersion Include="CSweet.WorkManagement.Contracts" Version="3.27.0" />
+    <PackageVersion Include="CSweet.Agent.SDK" Version="3.65.0" />
+    <PackageVersion Include="CSweet.WorkManagement.Contracts" Version="3.28.0" />
     <PackageVersion Include="CSweet.Office.Contracts" Version="0.9.0" />
     <PackageVersion Include="CSweet.Isolation.HyperV" Version="0.1.0" />
     <PackageVersion Include="CSweet.Memory" Version="0.5.0" />
-    <PackageVersion Include="CSweet.Memory.Broker" Version="0.5.0" />
+    <PackageVersion Include="CSweet.Memory.Broker" Version="0.5.1" />
     <PackageVersion Include="CSweet.Memory.PostgreSql" Version="0.5.0" />
     <PackageVersion Include="CSweet.Memory.Sqlite" Version="0.5.0" />
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
