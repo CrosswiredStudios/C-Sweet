@@ -101,6 +101,17 @@ dotnet run --project src/CSweet.WorkerHost
 
 ## Inference request size configuration
 
+### Provider concurrency
+
+Open **Settings → LLM Providers**, select a provider, and edit **Maximum concurrent requests**.
+`LlmProviderProfile.MaximumConcurrentRequests` defaults to **4** for new and migrated profiles;
+the first-run provider editor exposes it too. This limits agent inference per saved provider
+profile, independently of vLLM or another server's own settings. Changes apply to new requests
+and existing queues within the five-second `PlatformLlmJobService` maintenance pass, without an
+AgentHost restart. Lowering the limit lets active requests finish before admitting more.
+The persisted profile setting replaces `CSweet:Llm:Queue:MaximumConcurrentRequests` and its
+environment-variable equivalent. See [inference waiting](llm-queue-and-startup-recovery.md).
+
 ### Agent token budgets
 
 `AgentTokenBudget` supplies editable `maxContextWindowTokens` (256,000 by default) and

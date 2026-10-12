@@ -16,4 +16,5 @@ public sealed record UpdateLlmProviderProfileRequest(
     bool SupportsToolCalling,
     bool SupportsStructuredOutput,
     bool SupportsVision,
-    bool IsEnabled);
+    bool IsEnabled,
+    int? MaximumConcurrentRequests = null);

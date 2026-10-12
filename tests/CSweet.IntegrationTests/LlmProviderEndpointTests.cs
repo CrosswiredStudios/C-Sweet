@@ -41,11 +41,13 @@ public class LlmProviderEndpointTests
         var fetched = await client.GetFromJsonAsync<LlmProviderProfileResponse>($"/api/llm-provider-profiles/{created.Id}");
 
         Assert.NotEqual(Guid.Empty, created.Id);
+        Assert.Equal(4, created.MaximumConcurrentRequests);
         Assert.DoesNotContain("secret-test-key", JsonSerializer.Serialize(created), StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(list);
         Assert.Contains(list, x => x.Id == created.Id);
         Assert.NotNull(fetched);
         Assert.Equal(created.Id, fetched.Id);
+        Assert.Equal(4, fetched.MaximumConcurrentRequests);
     }
 
     [Fact]
@@ -71,13 +73,17 @@ public class LlmProviderEndpointTests
                 SupportsToolCalling: true,
                 SupportsStructuredOutput: true,
                 SupportsVision: false,
-                IsEnabled: true));
+                IsEnabled: true,
+                MaximumConcurrentRequests: 2));
         var updateResult = await updateResponse.Content.ReadFromJsonAsync<LlmProviderProfileActionResponse>();
 
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
         Assert.NotNull(updateResult?.Profile);
         Assert.Equal("Updated LM Studio", updateResult.Profile.Name);
         Assert.Equal("updated-model", updateResult.Profile.DefaultChatModel);
+        Assert.Equal(2, updateResult.Profile.MaximumConcurrentRequests);
+        var fetched = await client.GetFromJsonAsync<LlmProviderProfileResponse>($"/api/llm-provider-profiles/{created.Id}");
+        Assert.Equal(2, fetched!.MaximumConcurrentRequests);
 
         var deleteResponse = await client.DeleteAsync($"/api/llm-provider-profiles/{created.Id}");
         var fetchedAfterDelete = await client.GetAsync($"/api/llm-provider-profiles/{created.Id}");

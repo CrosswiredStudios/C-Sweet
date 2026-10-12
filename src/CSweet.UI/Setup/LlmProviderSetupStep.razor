@@ -271,6 +271,9 @@
                               Disabled="@_isBusy"
                               Placeholder="@ApiKeyPlaceholder"
                               autocomplete="off" />
+                <MudNumericField T="int" Label="Maximum concurrent requests" @bind-Value="_maximumConcurrentRequests"
+                                 Min="1" Variant="Variant.Outlined" Disabled="@_isBusy"
+                                 HelperText="Shared by all agents using this provider. Default: 4. Match your server's capacity." />
             </div>
 
             @if (_isDiscovering)
@@ -436,6 +439,7 @@
     private bool _connectionDetailsChanged;
     private int? _contextWindowTokens;
     private int? _maxOutputTokens;
+    private int _maximumConcurrentRequests = LlmProviderProfile.DefaultMaximumConcurrentRequests;
     private bool _supportsStreaming = true;
     private bool _supportsToolCalling;
     private bool _supportsStructuredOutput;
@@ -469,6 +473,7 @@
 
     private bool CanSaveProvider =>
         !_isDiscovering &&
+        _maximumConcurrentRequests >= 1 &&
         !string.IsNullOrWhiteSpace(_providerName) &&
         Uri.TryCreate(_baseUrl, UriKind.Absolute, out var uri) &&
         uri.Scheme is "http" or "https" &&
@@ -561,6 +566,7 @@
         _discoveredModelCount = 0;
         _contextWindowTokens = null;
         _maxOutputTokens = null;
+        _maximumConcurrentRequests = LlmProviderProfile.DefaultMaximumConcurrentRequests;
         _supportsStreaming = true;
         _supportsToolCalling = false;
         _supportsStructuredOutput = false;
@@ -591,6 +597,7 @@
         _defaultEmbeddingModel = profile.DefaultEmbeddingModel ?? string.Empty;
         _contextWindowTokens = profile.ContextWindowTokens;
         _maxOutputTokens = profile.MaxOutputTokens;
+        _maximumConcurrentRequests = profile.MaximumConcurrentRequests;
         _supportsStreaming = profile.SupportsStreaming;
         _supportsToolCalling = profile.SupportsToolCalling;
         _supportsStructuredOutput = profile.SupportsStructuredOutput;
@@ -814,7 +821,8 @@
                     _supportsStreaming,
                     _supportsToolCalling,
                     _supportsStructuredOutput,
-                    _supportsVision));
+                    _supportsVision,
+                    _maximumConcurrentRequests));
                 savedProviderId = created.Id;
             }
             else
@@ -835,7 +843,8 @@
                         _supportsToolCalling,
                         _supportsStructuredOutput,
                         _supportsVision,
-                        IsEnabled: true));
+                        IsEnabled: true,
+                        MaximumConcurrentRequests: _maximumConcurrentRequests));
                 savedProviderId = _editingProviderId.Value;
             }
 

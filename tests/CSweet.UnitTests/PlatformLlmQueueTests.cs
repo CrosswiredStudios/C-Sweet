@@ -17,6 +17,60 @@ namespace CSweet.UnitTests;
 
 public sealed class PlatformLlmQueueTests
 {
+    [Fact]
+    public async Task Default_provider_admits_four_requests_and_other_profiles_have_independent_slots()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var profile = new LlmProviderProfile { Id = Guid.NewGuid(), IsEnabled = true };
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            db.LlmProviderProfiles.Add(profile);
+            await db.SaveChangesAsync();
+        }
+        var active = new List<IDisposable>();
+        using var cancel = new CancellationTokenSource();
+        try
+        {
+            for (var i = 0; i < 4; i++)
+                active.Add(await fixture.Service.AcquireProviderAsync(profile.Id, default));
+            var fifth = fixture.Service.AcquireProviderAsync(profile.Id, cancel.Token);
+            Assert.False(fifth.IsCompleted);
+            using var independent = await fixture.Service.AcquireProviderAsync(
+                fixture.Arguments.GetProperty("providerProfileId").GetGuid(), default).WaitAsync(TimeSpan.FromSeconds(3));
+            active[0].Dispose();
+            using var admitted = await fifth.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            cancel.Cancel();
+            foreach (var permit in active) permit.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Saved_provider_capacity_wakes_existing_queue_without_restarting_host()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var first = await fixture.StartAsync(fixture.First);
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var second = await fixture.StartAsync(fixture.Second);
+        Assert.Equal("Queued", (await fixture.ReadAsync(fixture.Second, second)).GetProperty("state").GetString());
+        await using (var scope = fixture.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var profile = await db.LlmProviderProfiles.SingleAsync();
+            profile.MaximumConcurrentRequests = 2;
+            await db.SaveChangesAsync();
+        }
+        await fixture.Service.RefreshProviderCapacitiesAsync(default);
+        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(2, fixture.Executor.MaximumActive);
+        Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.Second, second)).GetProperty("state").GetString());
+        fixture.Executor.ReleaseFirst.TrySetResult();
+        await fixture.WaitCompletedAsync(fixture.First, first);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -83,7 +137,7 @@ public sealed class PlatformLlmQueueTests
         await using var fixture = await Fixture.CreateAsync(new() { MaximumRequestBytes = limit });
         var arguments = JsonSerializer.SerializeToElement(new
         {
-            providerProfileId = Guid.NewGuid(),
+            providerProfileId = fixture.Arguments.GetProperty("providerProfileId").GetGuid(),
             messages = new[] { new { role = "user", text = new string('x', 5 * 1024 * 1024) } }
         });
         var start = fixture.Service.StartAsync(fixture.First.Session, fixture.First.WorkId,
@@ -303,7 +357,7 @@ public sealed class PlatformLlmQueueTests
         public required TestWork First { get; init; }
         public required TestWork Second { get; init; }
         public required TestWork Third { get; init; }
-        public JsonElement Arguments { get; } = JsonSerializer.SerializeToElement(new { providerProfileId = Guid.NewGuid(), messages = new[] { new { role = "user", text = "Hi" } } });
+        public required JsonElement Arguments { get; init; }
 
         public static async Task<Fixture> CreateAsync(PlatformLlmJobOptions? options = null)
         {
@@ -343,9 +397,12 @@ public sealed class PlatformLlmQueueTests
                         new HashSet<string> { PlatformCapabilities.LlmChatStream }, 1)), work);
             }
             var first = Seed(); var second = Seed(); var third = Seed();
+            var llmProvider = new LlmProviderProfile { Id = Guid.NewGuid(), MaximumConcurrentRequests = 1, IsEnabled = true };
+            db.LlmProviderProfiles.Add(llmProvider);
             await db.SaveChangesAsync();
             await ((Microsoft.Extensions.Hosting.IHostedService)queue).StartAsync(default);
-            return new() { Services = provider, Service = queue, Clock = clock, Executor = executor, First = first, Second = second, Third = third };
+            return new() { Services = provider, Service = queue, Clock = clock, Executor = executor, First = first, Second = second, Third = third,
+                Arguments = JsonSerializer.SerializeToElement(new { providerProfileId = llmProvider.Id, messages = new[] { new { role = "user", text = "Hi" } } }) };
         }
         public Task<Guid> StartAsync(TestWork work) => Service.StartAsync(work.Session, work.Work, 1, "lease", "request", Arguments, default);
         public async Task<JsonElement> ReadAsync(TestWork work, Guid id) => JsonSerializer.SerializeToElement(await Service.ReadAsync(work.Session, id, 0, default));

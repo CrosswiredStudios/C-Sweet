@@ -868,6 +868,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.ApiKeySecretName).HasMaxLength(256);
             entity.Property(x => x.DefaultChatModel).HasMaxLength(256).IsRequired();
             entity.Property(x => x.DefaultEmbeddingModel).HasMaxLength(256);
+            entity.Property(x => x.MaximumConcurrentRequests).HasDefaultValue(LlmProviderProfile.DefaultMaximumConcurrentRequests);
         });
 
         modelBuilder.Entity<ModelCapabilityTest>(entity =>

@@ -2,6 +2,7 @@ namespace CSweet.Domain.Setup;
 
 public sealed class LlmProviderProfile
 {
+    public const int DefaultMaximumConcurrentRequests = 4;
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public LlmProviderType ProviderType { get; set; }
@@ -11,6 +12,7 @@ public sealed class LlmProviderProfile
     public string? DefaultEmbeddingModel { get; set; }
     public int? ContextWindowTokens { get; set; }
     public int? MaxOutputTokens { get; set; }
+    public int MaximumConcurrentRequests { get; set; } = DefaultMaximumConcurrentRequests;
     public bool SupportsStreaming { get; set; }
     public bool SupportsToolCalling { get; set; }
     public bool SupportsStructuredOutput { get; set; }

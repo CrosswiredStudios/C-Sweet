@@ -14,4 +14,5 @@ public sealed record CreateLlmProviderProfileRequest(
     bool SupportsStreaming,
     bool SupportsToolCalling,
     bool SupportsStructuredOutput,
-    bool SupportsVision);
+    bool SupportsVision,
+    int MaximumConcurrentRequests = LlmProviderProfile.DefaultMaximumConcurrentRequests);

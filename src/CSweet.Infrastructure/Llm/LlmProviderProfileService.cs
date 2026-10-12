@@ -26,7 +26,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         CreateLlmProviderProfileRequest request,
         CancellationToken cancellationToken = default)
     {
-        var validationFailure = Validate(request.Name, request.BaseUrl);
+        var validationFailure = Validate(request.Name, request.BaseUrl, request.MaximumConcurrentRequests);
         if (validationFailure is not null)
         {
             return validationFailure;
@@ -55,6 +55,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
                 : request.DefaultEmbeddingModel.Trim(),
             ContextWindowTokens = request.ContextWindowTokens,
             MaxOutputTokens = request.MaxOutputTokens,
+            MaximumConcurrentRequests = request.MaximumConcurrentRequests,
             SupportsStreaming = request.SupportsStreaming,
             SupportsToolCalling = request.SupportsToolCalling,
             SupportsStructuredOutput = request.SupportsStructuredOutput,
@@ -85,7 +86,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         UpdateLlmProviderProfileRequest request,
         CancellationToken cancellationToken = default)
     {
-        var validationFailure = Validate(request.Name, request.BaseUrl);
+        var validationFailure = Validate(request.Name, request.BaseUrl, request.MaximumConcurrentRequests);
         if (validationFailure is not null)
         {
             return validationFailure;
@@ -127,6 +128,8 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         profile.DefaultEmbeddingModel = NormalizeOptional(request.DefaultEmbeddingModel);
         profile.ContextWindowTokens = request.ContextWindowTokens;
         profile.MaxOutputTokens = request.MaxOutputTokens;
+        if (request.MaximumConcurrentRequests is { } maximumConcurrentRequests)
+            profile.MaximumConcurrentRequests = maximumConcurrentRequests;
         profile.SupportsStreaming = request.SupportsStreaming;
         profile.SupportsToolCalling = request.SupportsToolCalling;
         profile.SupportsStructuredOutput = request.SupportsStructuredOutput;
@@ -319,7 +322,8 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
 
     private static LlmProviderProfileActionResponse? Validate(
         string name,
-        string baseUrl)
+        string baseUrl,
+        int? maximumConcurrentRequests)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -329,6 +333,11 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         if (!IsValidBaseUrl(baseUrl))
         {
             return Failure("invalid_base_url", "Provider base URL must be an absolute HTTP or HTTPS URL.");
+        }
+
+        if (maximumConcurrentRequests is < 1)
+        {
+            return Failure("validation_error", "Maximum concurrent requests must be at least 1.");
         }
 
         return null;

@@ -3,6 +3,7 @@ namespace CSweet.AgentHost.Broker;
 /// <summary>Bounded, non-preemptive provider admission with starvation-safe delivery priority.</summary>
 internal sealed class ProviderInferenceGate(int capacity, int queueLimit)
 {
+    private int maximumActive = capacity;
     private readonly object sync = new();
     private readonly LinkedList<Waiter> delivery = new();
     private readonly LinkedList<Waiter> conversation = new();
@@ -15,7 +16,7 @@ internal sealed class ProviderInferenceGate(int capacity, int queueLimit)
         Waiter waiter;
         lock (sync)
         {
-            if (active < capacity) { active++; return new Permit(this); }
+            if (active < maximumActive) { active++; return new Permit(this); }
             if (delivery.Count + conversation.Count >= queueLimit)
                 throw new InvalidOperationException("The provider queue is full.");
             waiter = new();
@@ -40,6 +41,25 @@ internal sealed class ProviderInferenceGate(int capacity, int queueLimit)
         lock (sync)
         {
             active--;
+            AdmitWaiters();
+        }
+    }
+
+    internal void UpdateCapacity(int capacity)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+        lock (sync)
+        {
+            maximumActive = capacity;
+            AdmitWaiters();
+        }
+    }
+
+    // Called under sync. Lowering capacity never interrupts active requests.
+    private void AdmitWaiters()
+    {
+        while (active < maximumActive)
+        {
             // Serve one older conversational request after three delivery requests.
             var queue = delivery.Count > 0 && (conversation.Count == 0 || deliveryStreak < 3)
                 ? delivery : conversation;

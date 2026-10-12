@@ -11,6 +11,53 @@ namespace CSweet.UnitTests;
 
 public class LlmProviderTests
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task InvalidConcurrencyIsRejectedOnCreateAndUpdate(int concurrency)
+    {
+        await using var db = CreateDbContext();
+        var profile = await AddProfileAsync(db);
+        var service = new LlmProviderProfileService(db, new InMemoryLlmProviderSecretStore(),
+            CreateTester(db, CreateReadyHandler()));
+        var created = await service.CreateAsync(new("Invalid", LlmProviderType.Vllm, "http://fake-provider/v1",
+            null, "model", null, null, null, true, false, false, false, concurrency));
+        var updated = await service.UpdateAsync(profile.Id, new("Invalid", profile.ProviderType, profile.BaseUrl,
+            null, false, profile.DefaultChatModel, null, null, null, true, false, false, false, true, concurrency));
+        Assert.False(created.Succeeded);
+        Assert.False(updated.Succeeded);
+        Assert.Equal("validation_error", created.ErrorCode);
+        Assert.Equal("validation_error", updated.ErrorCode);
+        Assert.Equal(4, (await db.LlmProviderProfiles.SingleAsync()).MaximumConcurrentRequests);
+    }
+
+    [Fact]
+    public async Task ConcurrencyDefaultsToFourAndSavedOverrideSurvivesOlderUpdates()
+    {
+        await using var db = CreateDbContext();
+        var service = new LlmProviderProfileService(db, new InMemoryLlmProviderSecretStore(),
+            CreateTester(db, CreateReadyHandler()));
+        var created = await service.CreateAsync(new("vLLM", LlmProviderType.Vllm, "http://fake-provider/v1",
+            null, "model", null, null, null, true, false, false, false));
+        Assert.True(created.Succeeded);
+        Assert.Equal(4, created.Profile!.MaximumConcurrentRequests);
+        var profile = await db.LlmProviderProfiles.SingleAsync();
+        var lastConnected = DateTimeOffset.UtcNow;
+        profile.LastSuccessfulConnectionAt = lastConnected;
+        await db.SaveChangesAsync();
+        var request = new UpdateLlmProviderProfileRequest(profile.Name, profile.ProviderType, profile.BaseUrl,
+            null, false, profile.DefaultChatModel, null, null, null, true, false, false, false, true,
+            MaximumConcurrentRequests: 2);
+        var updated = await service.UpdateAsync(profile.Id, request);
+        Assert.True(updated.Succeeded);
+        Assert.Equal(2, updated.Profile!.MaximumConcurrentRequests);
+        Assert.Equal(lastConnected, updated.Profile.LastSuccessfulConnectionAt);
+        await service.UpdateAsync(profile.Id, request with { MaximumConcurrentRequests = null });
+        db.ChangeTracker.Clear();
+        Assert.Equal(2, (await service.GetAsync(profile.Id))!.MaximumConcurrentRequests);
+        Assert.Equal(2, (await service.ListAsync()).Single().MaximumConcurrentRequests);
+    }
+
     [Fact]
     public void LmStudioPreset_ReturnsExpectedDefaults()
     {

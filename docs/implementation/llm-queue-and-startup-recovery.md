@@ -8,9 +8,22 @@ completed in approximately 15–32 seconds. Slow inference was a separate weakne
 Both event dispatchers now catch iteration failures, log them, and retry durable pending
 events using a fresh scope. Normal application shutdown still cancels the loop.
 
-AgentHost now acknowledges private inference jobs and admits requests FIFO per provider
-profile. `CSweet:Llm:Queue:MaximumConcurrentRequests` defaults to 1; queue capacity defaults
-to 256. SDK 3.31.1 automatically polls when the host advertises this protocol during a leased
+AgentHost acknowledges private inference jobs and bounds admission per provider profile.
+`LlmProviderProfile.MaximumConcurrentRequests` defaults to **4**, including existing profiles
+upgraded by the `LlmProviderConcurrency` migration. Edit **Settings → LLM Providers → select a
+provider → Maximum concurrent requests**; the first-run provider editor exposes the same field.
+The value must be at least 1 and is shared by all agents using that profile. It is independent
+of the provider server's capacity; set a vLLM profile to 2 if its server supports two concurrent
+requests. Profiles pointing to the same server have separate gates.
+
+`LlmProviderProfileService` persists and returns the setting. `PlatformLlmJobService.AcquireProviderAsync`
+reads it before admission, and `RefreshProviderCapacitiesAsync` refreshes existing gates in the
+five-second maintenance pass, so increases wake queued requests without restarting AgentHost.
+`ProviderInferenceGate.UpdateCapacity` lets active requests finish when capacity is lowered and
+retains delivery priority and starvation protection. The old
+`CSweet:Llm:Queue:MaximumConcurrentRequests` host setting is replaced by the saved profile value;
+there is no additional global concurrency cap. `MaximumQueuedRequests` still defaults to 256
+per provider. SDK 3.31.1 automatically polls when the host advertises this protocol during a leased
 callback. Existing agent chat-client code continues to work. Conversation activity reports
 receipt, waiting for a slot, processing, and completion; queue transitions are retained in
 agent run diagnostics. Processing indicates dispatch, not provider-confirmed GPU execution.

@@ -15,7 +15,6 @@ namespace CSweet.AgentHost.Broker;
 public sealed class PlatformLlmJobOptions
 {
     public const string SectionName = "CSweet:Llm:Queue";
-    public int MaximumConcurrentRequests { get; set; } = 1;
     public int MaximumQueuedRequests { get; set; } = 256;
     /// <summary>
     /// Optional wall-clock cap on a single generation. Zero (the default) means no limit: long generations,
@@ -53,10 +52,33 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
     private CancellationToken shutdown;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    internal Task<IDisposable> AcquireProviderAsync(Guid provider, CancellationToken token, bool delivery = false)
+    internal async Task<IDisposable> AcquireProviderAsync(Guid provider, CancellationToken token, bool delivery = false)
     {
-        var gate = providers.GetOrAdd(provider, _ => new(options.MaximumConcurrentRequests, options.MaximumQueuedRequests));
-        return gate.AcquireAsync(delivery, token);
+        int capacity;
+        await using (var scope = scopes.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            capacity = await db.LlmProviderProfiles.AsNoTracking().Where(x => x.Id == provider)
+                .Select(x => (int?)x.MaximumConcurrentRequests).SingleOrDefaultAsync(token)
+                ?? throw new InvalidOperationException("The selected LLM provider is unavailable.");
+        }
+        var gate = providers.GetOrAdd(provider, _ => new(capacity, options.MaximumQueuedRequests));
+        gate.UpdateCapacity(capacity);
+        return await gate.AcquireAsync(delivery, token);
+    }
+
+    // Reuse the job maintenance pass so a capacity increase wakes already queued requests,
+    // including legacy streaming callers, without a new request or an AgentHost restart.
+    internal async Task RefreshProviderCapacitiesAsync(CancellationToken token)
+    {
+        var ids = providers.Keys.ToArray();
+        if (ids.Length == 0) return;
+        await using var scope = scopes.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var profiles = await db.LlmProviderProfiles.AsNoTracking().Where(x => ids.Contains(x.Id))
+            .Select(x => new { x.Id, x.MaximumConcurrentRequests }).ToListAsync(token);
+        foreach (var profile in profiles)
+            if (providers.TryGetValue(profile.Id, out var gate)) gate.UpdateCapacity(profile.MaximumConcurrentRequests);
     }
 
     internal sealed class Job
@@ -111,7 +133,10 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                     throw new InvalidOperationException("The inference key belongs to a different request.");
                 return existing.Id;
             }
-            if (jobs.Values.Count(x => x.FinishedAt is null) >= options.MaximumQueuedRequests + options.MaximumConcurrentRequests ||
+            var capacity = await db.LlmProviderProfiles.AsNoTracking().Where(x => x.Id == provider)
+                .Select(x => (int?)x.MaximumConcurrentRequests).SingleOrDefaultAsync(token)
+                ?? throw new InvalidOperationException("The selected LLM provider is unavailable.");
+            if (jobs.Values.Count(x => x.Provider == provider && x.FinishedAt is null) >= (long)options.MaximumQueuedRequests + capacity ||
                 jobs.Values.Any(x => x.WorkId == workId && x.FinishedAt is null))
                 throw new InvalidOperationException("The inference queue is full or this work already has an active request.");
             var now = clock.GetUtcNow();
@@ -361,6 +386,12 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                try { await RefreshProviderCapacitiesAsync(stoppingToken); }
+                catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
+                {
+                    logger.LogWarning(exception, "Could not refresh LLM provider concurrency settings.");
+                }
                 foreach (var job in jobs.Values)
                 {
                     var now = clock.GetUtcNow();
@@ -381,6 +412,7 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                         }
                     }
                 }
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
         finally

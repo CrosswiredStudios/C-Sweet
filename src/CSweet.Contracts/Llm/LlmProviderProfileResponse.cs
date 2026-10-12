@@ -19,4 +19,5 @@ public sealed record LlmProviderProfileResponse(
     bool IsEnabled,
     DateTimeOffset? LastSuccessfulConnectionAt,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int MaximumConcurrentRequests = LlmProviderProfile.DefaultMaximumConcurrentRequests);

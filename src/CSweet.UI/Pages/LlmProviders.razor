@@ -226,6 +226,11 @@
             <div class="agent-config-field">
                 <MudNumericField T="int?" Label="Max Output Tokens" @bind-Value="_maxOutputTokens" Variant="Variant.Outlined" Disabled="@_isBusy" />
             </div>
+            <div class="agent-config-field agent-config-field-wide">
+                <MudNumericField T="int" Label="Maximum concurrent requests" @bind-Value="_maximumConcurrentRequests"
+                                 Min="1" Variant="Variant.Outlined" Disabled="@_isBusy"
+                                 HelperText="Shared by all agents using this provider. Default: 4. Match your server's capacity. Changes apply within a few seconds; running requests finish normally." />
+            </div>
         </div>
 
         <MudStack Row="true" Class="setup-toggle-row">
@@ -289,7 +294,7 @@
                 @(_isBusy ? "Testing..." : "Validate Connection")
             </MudButton>
         }
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isBusy || _isCheckingModelCatalog || string.IsNullOrWhiteSpace(_defaultChatModel))" OnClick="SaveProviderAsync">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isBusy || _isCheckingModelCatalog || string.IsNullOrWhiteSpace(_defaultChatModel) || _maximumConcurrentRequests < 1)" OnClick="SaveProviderAsync">
             @(_isBusy ? "Saving..." : SaveButtonLabel)
         </MudButton>
     </DialogActions>
@@ -326,6 +331,7 @@
     private string _defaultEmbeddingModel = string.Empty;
     private int? _contextWindowTokens;
     private int? _maxOutputTokens;
+    private int _maximumConcurrentRequests = LlmProviderProfile.DefaultMaximumConcurrentRequests;
     private bool _supportsStreaming = true;
     private bool _supportsToolCalling;
     private bool _supportsStructuredOutput;
@@ -410,6 +416,7 @@
         _defaultEmbeddingModel = string.Empty;
         _contextWindowTokens = null;
         _maxOutputTokens = null;
+        _maximumConcurrentRequests = LlmProviderProfile.DefaultMaximumConcurrentRequests;
         _isEnabled = true;
         _dialogOpen = true;
     }
@@ -443,6 +450,7 @@
         _defaultEmbeddingModel = profile.DefaultEmbeddingModel ?? string.Empty;
         _contextWindowTokens = profile.ContextWindowTokens;
         _maxOutputTokens = profile.MaxOutputTokens;
+        _maximumConcurrentRequests = profile.MaximumConcurrentRequests;
         _supportsStreaming = profile.SupportsStreaming;
         _supportsToolCalling = profile.SupportsToolCalling;
         _supportsStructuredOutput = profile.SupportsStructuredOutput;
@@ -471,7 +479,8 @@
                     _supportsStreaming,
                     _supportsToolCalling,
                     _supportsStructuredOutput,
-                    _supportsVision));
+                    _supportsVision,
+                    _maximumConcurrentRequests));
 
                 _profiles = await LlmProviderApi.ListAsync();
                 _selectedProfile = _profiles.FirstOrDefault(profile => profile.Id == created.Id);
@@ -500,7 +509,8 @@
                         _supportsToolCalling,
                         _supportsStructuredOutput,
                         _supportsVision,
-                        _isEnabled));
+                        _isEnabled,
+                        _maximumConcurrentRequests));
 
                 _profiles = await LlmProviderApi.ListAsync();
                 _status = await SetupApi.GetStatusAsync();

@@ -24,6 +24,7 @@ internal static class LlmProviderProfileMapper
             profile.IsEnabled,
             profile.LastSuccessfulConnectionAt,
             profile.CreatedAt,
-            profile.UpdatedAt);
+            profile.UpdatedAt,
+            profile.MaximumConcurrentRequests);
     }
 }
