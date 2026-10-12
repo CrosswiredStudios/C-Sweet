@@ -128,7 +128,8 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
         {
             var recoveryKey = $"recovery-wait:{ticket.Id:N}";
             var recoveryConflict = ticket.Status is not (WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) &&
-                ticket.WaitingReason?.StartsWith("Delivery planning needs attention:", StringComparison.Ordinal) == true;
+                (ticket.WaitingReason?.StartsWith("Delivery planning needs attention:", StringComparison.Ordinal) == true ||
+                 ticket.WaitingReason?.StartsWith("Workflow staffing needs attention:", StringComparison.Ordinal) == true);
             if (!recoveryConflict) recovered.Add(recoveryKey);
             else if (!failures.Any(x => x.Key.StartsWith("delivery-plan:", StringComparison.Ordinal)))
             {

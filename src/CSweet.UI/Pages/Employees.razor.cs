@@ -72,10 +72,9 @@ public partial class Employees
     private string? _configurationMessage;
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
     private readonly DialogOptions _runtimeConsoleOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseButton = true };
-    private EmployeeViewKind _activeView = EmployeeViewKind.Graph;
+    private EmployeeViewKind _activeView = EmployeeViewKind.Teams;
     private Guid? _selectedEmployeeId;
-    private Guid? _focusedTeamId;
-    private int _graphDegrees = 2;
+
     private EmployeeDirectoryFilter _directoryFilter = new();
     private HiringDashboardResponse? _hiringDashboard;
     private TeamDirectoryResponse _teamDirectory = new(Guid.Empty, false, []);
@@ -120,6 +119,7 @@ public partial class Employees
 
     protected override async Task OnParametersSetAsync()
     {
+        _activeView = Tab?.ToLowerInvariant() switch { "graph" => EmployeeViewKind.Graph, "directory" => EmployeeViewKind.Directory, _ => EmployeeViewKind.Teams };
         _loading = true;
         _errorMessage = null;
 
@@ -715,38 +715,12 @@ public partial class Employees
         }
     }
 
-    private Task ChangeViewAsync(EmployeeViewKind view)
-    {
-        _activeView = view;
-        return Task.CompletedTask;
-    }
-
-    private Task FocusTeamAsync(Guid teamId)
-    {
-        _focusedTeamId = teamId;
-        _activeView = EmployeeViewKind.Teams;
-        return Task.CompletedTask;
-    }
-
-    private Task SelectEmployeeAsync(Guid employeeId)
-    {
-        if (_employees.Any(x => x.Id == employeeId))
-        {
-            _selectedEmployeeId = employeeId;
-        }
-        return Task.CompletedTask;
-    }
+    private string ViewUrl(EmployeeViewKind view) => $"/organizations/{OrganizationId}/employees?tab={view.ToString().ToLowerInvariant()}";
 
     private Task OpenEmployeeDetailsAsync(Guid employeeId)
     {
         if (_employees.Any(x => x.Id == employeeId))
             Navigation.NavigateTo($"/organizations/{OrganizationId}/employees/{employeeId}");
-        return Task.CompletedTask;
-    }
-
-    private Task ChangeDegreesAsync(int degrees)
-    {
-        _graphDegrees = Math.Clamp(degrees, 1, 3);
         return Task.CompletedTask;
     }
 

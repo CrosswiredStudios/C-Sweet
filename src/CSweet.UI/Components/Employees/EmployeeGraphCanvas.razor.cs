@@ -30,11 +30,13 @@ public partial class EmployeeGraphCanvas : IAsyncDisposable
     [Parameter]
     public Guid? HighlightedTeamId { get; set; }
 
+    [Parameter] public IReadOnlySet<Guid> CollapsedIds { get; set; } = new HashSet<Guid>();
+    [Parameter] public EventCallback<Guid> BranchToggled { get; set; }
     protected string ViewBox => $"0 0 {Graph.Width:0.#} {Graph.Height:0.#}";
 
     protected override void OnParametersSet()
     {
-        var signature = $"{SelectedId}:{Graph.Width:0.#}:{Graph.Height:0.#}:{Graph.Nodes.Count}";
+        var signature = $"{SelectedId}:{Graph.Width:0.#}:{Graph.Height:0.#}:{string.Join(",", Graph.Nodes.Select(node => node.Employee.Id))}";
         if (_graphSignature is not null && !string.Equals(_graphSignature, signature, StringComparison.Ordinal))
         {
             _fitRequested = true;

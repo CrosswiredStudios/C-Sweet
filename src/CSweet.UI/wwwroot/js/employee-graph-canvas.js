@@ -71,7 +71,7 @@ export function initialize(viewport, content, dotNet) {
     };
 
     state.pointerDown = event => {
-        if (event.button !== 0 || event.target.closest("button")) {
+        if (event.button !== 0 || event.target.closest("button, a")) {
             return;
         }
 
@@ -115,6 +115,7 @@ export function initialize(viewport, content, dotNet) {
     };
 
     state.keyDown = event => {
+        if (event.target !== viewport) return;
         const amount = event.shiftKey ? 80 : 40;
         if (event.key === "ArrowLeft") state.x += amount;
         else if (event.key === "ArrowRight") state.x -= amount;

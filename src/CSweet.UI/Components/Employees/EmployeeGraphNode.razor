@@ -1,17 +1,19 @@
-<button type="button" class="employee-node @(Selected ? "selected" : null) @(Employee.IsAgent ? "agent" : "human")"
-        style="@SingleTeamBorder" aria-pressed="@Selected" aria-label="Focus @Employee.Name, @Employee.RoleLabel" @onclick="SelectAsync">
-    <EmployeeAvatar Employee="Employee" />
-    <span class="employee-node-copy">
-        <strong title="@Employee.Name">@Employee.Name</strong>
-        <small>@Employee.RoleLabel</small>
-        <EmployeeTeamChips Teams="Employee.Teams" MaxVisible="1" />
-        <span class="employee-node-badges">
-            <EmployeeTypeBadge IsAgent="Employee.IsAgent" />
-            @if (Employee.IsAgent)
-            {
-                <EmployeeStatusBadge Status="Employee.Status" />
-            }
+<article class="employee-node">
+    <a class="employee-node-link" href="@($"/organizations/{Employee.Source.OrganizationId}/employees/{Employee.Id}")" aria-label="@($"Open {Employee.Name} details")">
+        <EmployeeAvatar Employee="Employee" />
+        <span class="employee-node-copy">
+            <strong title="@Employee.Name">@Employee.Name</strong>
+            <small title="@Employee.RoleLabel">@Employee.RoleLabel</small>
         </span>
-    </span>
-    <span class="employee-node-reports">@ReportLabel</span>
-</button>
+    </a>
+    @if (Employee.IsAgent)
+    {
+        <div class="employee-node-state"><EmployeeStatusBadge Status="Employee.Status" Compact="true" /></div>
+    }
+    @if (Employee.DirectReportCount > 0)
+    {
+        <button type="button" class="employee-node-reports" aria-expanded="@(!Collapsed)" aria-label="@($"{(Collapsed ? "Expand" : "Collapse")} {Employee.Name}'s reports")" @onclick="ToggleAsync">
+            @ReportLabel <MudIcon Icon="@(Collapsed ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ExpandLess)" Size="Size.Small" />
+        </button>
+    }
+</article>

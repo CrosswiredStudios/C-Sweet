@@ -13,22 +13,21 @@
 <PageTitle>Employees - C-Sweet</PageTitle>
 
 <div class="command-center-shell aurora-page employee-workspace employees-page">
-    <MudPaper Elevation="0" Class="page-header employees-page-header">
-        <div>
-            <MudText Typo="Typo.overline">People &amp; agents</MudText>
-            <MudText Typo="Typo.h3">Employees</MudText>
-            <MudText Color="Color.Secondary">Your team, connected. Find people, explore teams, and plan your next hire.</MudText>
-        </div>
-        <MudStack Row="true" Spacing="2" Class="employees-header-actions">
-            @if (!IsHiringTab)
-            {
-                <MudButton OnClick="OpenHireDialog" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd">Hire employee</MudButton>
-            }
-        </MudStack>
-    </MudPaper>
-
-    <EmployeePageTabs OrganizationId="OrganizationId" HiringSelected="IsHiringTab" />
-
+    <header class="employees-heading">
+        <h1>Employees</h1>
+        @if (!_loading)
+        {
+            <span class="employees-census">@_employees.Count people <span aria-hidden="true">·</span> @PresentedTeams.Teams.Count(x => !x.IsArchived) teams</span>
+        }
+    </header>
+    <nav class="employees-navigation" aria-label="Employee views">
+        @foreach (var view in new[] { EmployeeViewKind.Graph, EmployeeViewKind.Teams, EmployeeViewKind.Directory })
+        {
+            <a href="@ViewUrl(view)" aria-current="@(!IsHiringTab && _activeView == view ? "page" : null)"
+               class="@(!IsHiringTab && _activeView == view ? "active" : null)">@(view == EmployeeViewKind.Graph ? "Org chart" : view.ToString())</a>
+        }
+        <a href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" aria-current="@(IsHiringTab ? "page" : null)" class="@(IsHiringTab ? "active" : null)">Hiring</a>
+    </nav>
     @if (IsHiringTab)
     {
         @if (_loading)
@@ -41,6 +40,7 @@
         }
         else
         {
+            <MudButton OnClick="OpenHireDialog" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd">Add employee</MudButton>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
                 Review proposed team changes and find your next hire.
                 <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">Browse the agent marketplace</MudLink>.
@@ -153,28 +153,14 @@
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@_actionError</MudAlert>
         }
-        <div class="employees-view-bar">
-            <EmployeeViewToggle Value="_activeView" ValueChanged="ChangeViewAsync" />
-            <span class="employees-census">@_employees.Count employees <span aria-hidden="true">·</span> @PresentedEmployees.Count(x => x.IsAgent) agents <span aria-hidden="true">·</span> @PresentedTeams.Teams.Count(x => !x.IsArchived) teams</span>
-        </div>
         @if (_activeView == EmployeeViewKind.Graph)
         {
-            <EmployeeGraphView Employees="PresentedEmployees"
-                               Teams="PresentedTeams.Teams"
-                               SelectedId="_selectedEmployeeId"
-                               SelectedIdChanged="SelectEmployeeAsync"
-                               Degrees="_graphDegrees"
-                               DegreesChanged="ChangeDegreesAsync"
-                               TeamSelected="FocusTeamAsync"
-                               ActionRequested="HandleEmployeeActionAsync" />
+            <EmployeeGraphView Employees="PresentedEmployees" />
         }
         else if (_activeView == EmployeeViewKind.Teams)
         {
             <TeamClustersView Directory="PresentedTeams"
                               Employees="PresentedEmployees"
-                              FocusTeamId="_focusedTeamId"
-                              SelectedEmployeeId="_selectedEmployeeId"
-                              EmployeeSelected="OpenEmployeeDetailsAsync"
                               ActionRequested="HandleTeamActionAsync" />
         }
         else

@@ -8,6 +8,7 @@ public partial class EmployeeStatusBadge
     [Parameter]
     public EmployeeRuntimeStatus Status { get; set; }
 
+    [Parameter] public bool Compact { get; set; }
     protected string Label => Status switch
     {
         EmployeeRuntimeStatus.NotTracked => "Not tracked",

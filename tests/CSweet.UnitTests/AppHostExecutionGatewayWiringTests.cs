@@ -3,6 +3,20 @@ namespace CSweet.UnitTests;
 public sealed class AppHostExecutionGatewayWiringTests
 {
     [Fact]
+    public void AgentHost_ReceivesTrustedGitHostForDeliveryCapabilities()
+    {
+        var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/CSweet.AppHost/Program.cs"));
+        // Check the process that owns the real delivery handler, not VM ingress.
+        Assert.Equal("CSweet.AgentHost.Broker", typeof(CSweet.AgentHost.Broker.WorkDeliveryCapabilityHandler).Namespace);
+        var start = source.IndexOf("agentHost.WithReference(gitHost)", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Agent capability host must be connected to GitHost.");
+        var registration = source[start..source.IndexOf(".WaitFor(gitHost);", start, StringComparison.Ordinal)];
+        Assert.Contains("CSweet__SourceControl__TrustedServiceKeyBase64", registration);
+        Assert.Contains("CSweet__SourceControl__TrustedServiceKeyId", registration);
+        Assert.Contains("CSweet__SourceControl__GitHostBaseUrl", registration);
+    }
+
+    [Fact]
     public void ExecutionGateway_ReceivesAgentHostBrokerEndpoint()
     {
         var source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/CSweet.AppHost/Program.cs"));

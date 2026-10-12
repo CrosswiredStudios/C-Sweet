@@ -1,26 +1,7 @@
-<section class="employee-graph-view" role="tabpanel" aria-label="Employee reporting graph">
-    <EmployeeGraphToolbar Teams="Teams"
-                          SelectedTeamId="_teamFilter"
-                          SelectedTeamIdChanged="ChangeTeamFilter"
-                          Degrees="Degrees"
-                          DegreesChanged="ChangeDegreesAsync" />
-
-    <div class="employee-graph-workspace">
-        <EmployeeGraphCanvas Graph="Graph"
-                             SelectedId="SelectedId"
-                             SelectedIdChanged="SelectAsync"
-                             HighlightedTeamId="_teamFilter" />
-        <EmployeeDetailsPanel Employee="SelectedEmployee" Employees="Employees" EmployeeSelected="SelectAsync"
-                              TeamSelected="TeamSelected" ActionRequested="ActionRequested" />
+<section class="employee-graph-view" aria-label="Employee reporting graph">
+    <div class="graph-toolbar">
+        <span>Organization <small>@Graph.Nodes.Count of @Employees.Count people</small></span>
+        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ExpandAll" StartIcon="@Icons.Material.Outlined.UnfoldMore" Disabled="@(_collapsed.Count == 0)">Expand all</MudButton>
     </div>
-
-    <footer class="employee-graph-legend" aria-label="Graph legend">
-        <span><i class="human"></i>Human</span>
-        <span><i class="agent"></i>Agent</span>
-        <span><i class="online"></i>Online</span>
-        <span><i class="transitioning"></i>Transitioning</span>
-        <span><i class="offline"></i>Offline</span>
-        <span><i class="failed"></i>Failed</span>
-        <span class="employee-graph-hint"><MudIcon Icon="@Icons.Material.Outlined.TouchApp" /> Select an employee to refocus. Drag and zoom to explore.</span>
-    </footer>
+    <EmployeeGraphCanvas Graph="Graph" CollapsedIds="_collapsed" BranchToggled="ToggleBranch" />
 </section>

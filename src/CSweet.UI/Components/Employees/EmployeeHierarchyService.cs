@@ -4,6 +4,25 @@ namespace CSweet.UI.Components.Employees;
 
 public static class EmployeeHierarchyService
 {
+    public static EmployeeGraphModel BuildOrganization(
+        IReadOnlyList<EmployeeViewModel> employees, IReadOnlySet<Guid>? collapsedIds = null)
+    {
+        var byId = employees.ToDictionary(x => x.Id);
+        var visible = employees.Where(employee =>
+        {
+            var visited = new HashSet<Guid> { employee.Id };
+            var current = employee;
+            while (current.ManagerId.HasValue && byId.TryGetValue(current.ManagerId.Value, out var manager))
+            {
+                if (!visited.Add(manager.Id)) break;
+                if (collapsedIds?.Contains(manager.Id) == true) return false;
+                current = manager;
+            }
+            return true;
+        }).ToArray();
+        return Layout(visible);
+    }
+
     public static Guid? InitialFocus(IReadOnlyList<EmployeeViewModel> employees) =>
         employees.FirstOrDefault(x => x.IsSelf)?.Id ??
         employees.Where(x => !x.ManagerId.HasValue).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault()?.Id ??
@@ -14,19 +33,22 @@ public static class EmployeeHierarchyService
         Guid? focusId,
         int degrees)
     {
-        const double nodeWidth = 260;
-        const double nodeHeight = 144;
-        if (employees.Count == 0)
-        {
-            return new EmployeeGraphModel([], [], 720, 360, nodeWidth, nodeHeight);
-        }
-
+        if (employees.Count == 0) return Layout(employees);
         var byId = employees.ToDictionary(x => x.Id);
         var actualFocus = focusId.HasValue && byId.ContainsKey(focusId.Value)
             ? focusId.Value
             : InitialFocus(employees)!.Value;
         var visibleIds = WithinDegrees(employees, actualFocus, Math.Clamp(degrees, 1, 3));
         var visible = employees.Where(x => visibleIds.Contains(x.Id)).ToArray();
+        return Layout(visible);
+    }
+
+    private static EmployeeGraphModel Layout(IReadOnlyList<EmployeeViewModel> visible)
+    {
+        const double nodeWidth = 260;
+        const double nodeHeight = 144;
+        if (visible.Count == 0) return new EmployeeGraphModel([], [], 720, 360, nodeWidth, nodeHeight);
+        var byId = visible.ToDictionary(x => x.Id);
         var levels = visible
             .GroupBy(x => Depth(x, byId))
             .OrderBy(x => x.Key)
@@ -59,7 +81,7 @@ public static class EmployeeHierarchyService
             .Where(x => x.Employee.ManagerId.HasValue && nodesById.ContainsKey(x.Employee.ManagerId.Value))
             .Select(x => new EmployeeGraphLayoutEdge(nodesById[x.Employee.ManagerId!.Value], x))
             .ToArray();
-        var height = Math.Max(360, topPadding * 2 + Math.Max(0, levels.Length - 1) * ySpacing);
+        var height = Math.Max(360, topPadding * 2 + (levels[^1].Key - levels[0].Key) * ySpacing);
         return new EmployeeGraphModel(nodes, edges, width, height, nodeWidth, nodeHeight);
     }
 

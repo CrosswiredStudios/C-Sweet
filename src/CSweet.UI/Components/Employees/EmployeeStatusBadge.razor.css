@@ -20,3 +20,11 @@
 .failed { border-color: var(--cs-coral); color: #b83b51; }
 .failed span { background: var(--cs-coral); }
 .checking span { background: #7b91aa; }
+.employee-state-dot{display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;cursor:help}
+.employee-state-dot>span{width:8px;height:8px;border-radius:50%;background:var(--activity-muted,#85818b)}
+.employee-state-dot.online>span{background:#258564}
+.employee-state-dot.transitional>span{background:#c28a20}
+.employee-state-dot.offline>span,.employee-state-dot.failed>span{background:#cd526a}
+.employee-state-dot.checking>span{background:#7b91aa}
+.employee-state-dot:hover{background:var(--activity-tint)}
+.employee-state-dot:focus-visible{outline:2px solid var(--activity-accent);outline-offset:-2px}

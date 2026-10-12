@@ -8,6 +8,29 @@ namespace CSweet.UnitTests;
 public sealed class EmployeePresentationTests
 {
     [Fact]
+    public void OrganizationGraphIncludesEveryBranchAndCollapsesOnlyDescendants()
+    {
+        var root = Employee("Root");
+        var manager = Employee("Manager", root.Id);
+        var specialist = Employee("Specialist", manager.Id);
+        var intern = Employee("Intern", specialist.Id);
+        var apprentice = Employee("Apprentice", intern.Id);
+        var otherRoot = Employee("Other root");
+        var orphan = Employee("Orphan", Guid.NewGuid());
+        var employees = Present([root, manager, specialist, intern, apprentice, otherRoot, orphan]);
+        var graph = EmployeeHierarchyService.BuildOrganization(employees);
+        Assert.Equal(7, graph.Nodes.Count);
+        var collapsed = EmployeeHierarchyService.BuildOrganization(employees, new HashSet<Guid> { manager.Id });
+        Assert.Equal(4, collapsed.Nodes.Count);
+        Assert.Contains(collapsed.Nodes, x => x.Employee.Id == manager.Id);
+        Assert.DoesNotContain(collapsed.Nodes, x => x.Employee.Id == apprentice.Id);
+        Assert.Contains(collapsed.Nodes, x => x.Employee.Id == otherRoot.Id);
+        Assert.Contains(collapsed.Nodes, x => x.Employee.Id == orphan.Id);
+        Assert.Equal(7, EmployeeHierarchyService.BuildOrganization(employees, new HashSet<Guid>()).Nodes.Count);
+        Assert.All(graph.Nodes, node => Assert.InRange(node.Y + graph.NodeHeight / 2, 0, graph.Height));
+    }
+
+    [Fact]
     public void Leadership_FollowsDirectReports_AndPreservesDeliveryMemberships()
     {
         var role = new RoleResponse(Guid.NewGuid(), Guid.NewGuid(), "CEO", "", "[]", 0,

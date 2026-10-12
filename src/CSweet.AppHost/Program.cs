@@ -178,6 +178,14 @@ workerHost.WithReference(gitHost)
     .WithEnvironment("CSweet__SourceControl__GitHostBaseUrl", gitHostEndpoint)
     .WaitFor(gitHost);
 
+// AgentHost executes MCP delivery capabilities; ExecutionGateway handles VM ingress.
+// Give the broker the trusted HTTP boundary, never repository/provider credentials.
+agentHost.WithReference(gitHost)
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
+    .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
+    .WithEnvironment("CSweet__SourceControl__GitHostBaseUrl", gitHostEndpoint)
+    .WaitFor(gitHost);
+
 var provisionerHost = builder.AddProject<Projects.CSweet_SourceControlProvisionerHost>("provisionerhost")
     .WithEnvironment("TrustedServiceAuthentication__KeyId", "core")
     .WithEnvironment("TrustedServiceAuthentication__SharedKeyBase64", trustedServiceKey);

@@ -1,1 +1,10 @@
-<span class="employee-status @CssClass"><span aria-hidden="true"></span>@Label</span>
+@if (Compact)
+{
+    <MudTooltip Text="@Label" Placement="Placement.Top">
+        <button type="button" class="employee-state-dot @CssClass" aria-label="@($"Agent state: {Label}")" @onclick:stopPropagation="true"><span aria-hidden="true"></span></button>
+    </MudTooltip>
+}
+else
+{
+    <span class="employee-status @CssClass"><span aria-hidden="true"></span>@Label</span>
+}

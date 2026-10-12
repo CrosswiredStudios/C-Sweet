@@ -335,12 +335,14 @@ public sealed class ProjectHealthTests
         public DateTimeOffset Now = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
         public override DateTimeOffset GetUtcNow() => Now;
     }
-    [Fact]
-    public async Task PlanningConflictReportsEvenWhenRunningAndRepeatedReviewMovesTheDeadline()
+    [Theory]
+    [InlineData("Delivery planning needs attention: independent review assignment rejected")]
+    [InlineData("Workflow staffing needs attention: Delivery planning needs attention: Delivery branch operations are unavailable.")]
+    public async Task PlanningConflictReportsEvenWhenRunningAndRepeatedReviewMovesTheDeadline(string reason)
     {
         await using var f = await Fixture.Create();
         var ticket = f.Ticket(WorkTaskStatus.Running); ticket.NextReviewAt = f.Clock.Now.AddMinutes(20);
-        ticket.WaitingReason = "Delivery planning needs attention: independent review assignment rejected";
+        ticket.WaitingReason = reason;
         f.Db.Add(ticket); await f.Db.SaveChangesAsync(); await f.Review();
         var incident = Assert.Single(f.Db.ProjectIncidents);
         var deadline = incident.EscalateAt;

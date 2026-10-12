@@ -9,7 +9,7 @@
              width="@Graph.Width"
              height="@Graph.Height"
              viewBox="@ViewBox"
-             role="img"
+             role="group"
              aria-label="Employee reporting relationships">
             @foreach (var edge in Graph.Edges)
             {
@@ -24,8 +24,8 @@
                                width="@Graph.NodeWidth"
                                height="@Graph.NodeHeight">
                     <EmployeeGraphNode Employee="node.Employee"
-                                       Selected="@(node.Employee.Id == SelectedId)"
-                                       SelectedChanged="SelectAsync" />
+                                       Collapsed="@CollapsedIds.Contains(node.Employee.Id)"
+                                       BranchToggled="BranchToggled" />
                 </foreignObject>
             }
         </svg>
