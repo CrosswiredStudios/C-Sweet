@@ -26,7 +26,7 @@ try {
     $protectedRoot = $installation.Root
     $serviceName = $installation.ServiceName
     $serviceArguments = $installation.ServiceArguments
-    $validationArguments = $installation.ValidationArguments
+    $validationArguments = @($installation.ValidationArguments)
     $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($null -ne $existingService) {
         $existingExecutable = Join-Path $protectedRoot 'runtime\CSweet.Compute.HyperV.exe'

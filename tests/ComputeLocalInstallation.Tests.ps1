@@ -27,6 +27,28 @@ Describe 'Business compute installation selection' {
         '{}' | Set-Content (Join-Path $businessRoot 'provider.json')
         (Get-ComputeLocalInstallation $second $root).Root | Should Be $businessRoot
     }
+    It 'splats one intact validation command for fresh and retained default installations' {
+        $fresh = Get-ComputeLocalInstallation $first $root
+        @{ enrollment = @{ organizationId = $first.ToString() } } | ConvertTo-Json | Set-Content (Join-Path $root 'provider.json')
+        $retained = Get-ComputeLocalInstallation $first $root
+        foreach ($installation in @($fresh, $retained)) {
+            $validationArguments = $installation.ValidationArguments
+            $validationArguments -is [array] | Should Be $true
+            $received = @(& { $args } @validationArguments)
+            $received.Count | Should Be 1
+            $received[0] | Should Be 'validate-service'
+        }
+    }
+    It 'splats the validation command and exact business identity for a scoped installation' {
+        @{ enrollment = @{ organizationId = $first.ToString() } } | ConvertTo-Json | Set-Content (Join-Path $root 'provider.json')
+        $installation = Get-ComputeLocalInstallation $second $root
+        $validationArguments = $installation.ValidationArguments
+        $validationArguments -is [array] | Should Be $true
+        $received = @(& { $args } @validationArguments)
+        $received.Count | Should Be 2
+        $received[0] | Should Be 'validate-service'
+        $received[1] | Should Be $second.ToString('N')
+    }
     It 'rejects missing business identity and damaged legacy metadata' {
         { Get-ComputeLocalInstallation ([guid]::Empty) $root } | Should Throw
         '{}' | Set-Content (Join-Path $root 'provider.json')

@@ -248,6 +248,26 @@ in the same planning cycle; that other role's completion can still wake the owne
 
 ## Producer staffing and recovery
 
+Producer `SprintPlanning.cs` and `SpecialistAgent.HandleAttentionReviewAsync` select
+the existing planned sprint or the next sequence after historical sprints. In
+Producer 2.20.3, `SprintEstimationCorrelation` gives successor preparation a recovery
+generation, and `SprintCreationKey` binds creation to the sequence. The former
+creation key was shared across all sprints for one planning digest. A prematurely
+queued successor could complete using the first sprint's result, leaving no new
+preparation after completion. Prism Break exhibited this with a completed Sprint 1,
+an already-completed Sprint 2 estimation commitment and unscheduled backlog;
+the completion event itself was published and processed successfully.
+
+`ReconcileEstimatesAndQaReadinessAsync` waits for active work, binds role estimate
+and QA coordination fingerprints to the sequence, and rechecks current sprint state
+before committing scope. Capacity-ready planned sprints go to preflight without
+queuing successor estimation. Terminal work stays outside candidate discovery.
+`SprintProgressionTests` covers the active-work guard, creation-key replay,
+legacy completed-commitment recovery and terminal candidate exclusion. Upgrade
+the existing Producer installation to 2.20.3; normal event/attention discovery
+then queues recovery through estimates, QA readiness and authoritative preflight.
+Source tests and packing do not establish live activation.
+
 `WorkOrchestrationService.PreflightCoreAsync` requires an assignment for every
 reachable agent, human or member stage, including stages reached after a Queue.
 ManagerApproval and trusted platform stages retain their policy-owned principals.

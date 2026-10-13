@@ -471,6 +471,22 @@ Regression coverage: `ComputeLocalInstallationTests`, `ComputeWindowsServiceTest
 installation selection, retry stability, independent journals, signed cross-business
 rejection, service lifecycle, and the PowerShell service arguments.
 
+## Linux preparation fails at compute installation validation
+
+If `Install-ComputeLocalProvider.ps1` reports `Compute installation validation failed`
+after the provider prints command-line usage, inspect
+`Get-ComputeLocalInstallation.ValidationArguments`. The default installation needs a
+single-element array containing `validate-service`; PowerShell splatting a scalar
+string passes its individual characters instead. The helper now preserves an array
+for both default and business-scoped installations, and the installer normalizes
+the arguments before both validation calls.
+
+Update the source checkout, then use **Repair Linux preparation** on the affected
+business's Compute page. The installer reads the updated scripts on the next attempt.
+An already verified Linux image can be reused. No database reset or image deletion
+is needed. `tests/ComputeLocalInstallation.Tests.ps1` covers actual argument splatting
+for fresh, retained default and business-scoped installations.
+
 ## DeepSeek rejects a tool continuation with missing reasoning content
 
 An HTTP 400 containing `reasoning_content` and "must be passed back" is a request

@@ -16,6 +16,7 @@ function Get-ComputeLocalInstallation {
         Root = $(if ($scoped) { $businessRoot } else { $BaseRoot })
         ServiceName = 'CSweet.Compute.HyperV' + $suffix
         ServiceArguments = $(if ($scoped) { 'service ' + $OrganizationId.ToString('N') } else { 'service' })
-        ValidationArguments = $(if ($scoped) { @('validate-service', $OrganizationId.ToString('N')) } else { @('validate-service') })
+        # Keep even the single-command case as an array: splatting a string expands its characters.
+        ValidationArguments = @(if ($scoped) { 'validate-service'; $OrganizationId.ToString('N') } else { 'validate-service' })
     }
 }
