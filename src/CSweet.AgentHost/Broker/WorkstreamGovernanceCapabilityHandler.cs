@@ -98,6 +98,10 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
                     organizationId, actor.Id, Read<W.DecideDecisionRequest>(request), token),
                 _ => throw new KeyNotFoundException("The governance capability is not implemented.")
             };
+            if (request.Capability == W.WorkstreamCapabilityNames.ReadV1 && result is W.WorkstreamDetail scope &&
+                Guid.TryParse(session.RuntimeInstanceId, out var runtime))
+                await CSweet.Infrastructure.Core.ProjectChatTurnAttribution.RecordAsync(db, organizationId, installationId,
+                    runtime, scope.Id, clock.GetUtcNow(), token);
             return Success(request.RequestId, result);
         }
         catch (JsonException exception) { return Failure(request.RequestId, PlatformCapabilityErrorCode.ValidationFailed, exception.Message); }

@@ -53,6 +53,26 @@ messages and notifications using stable receipts; ordinary management check-ins 
 Incident IDs, evidence, requested action and handoff history remain attached. Recovery is based on
 authoritative completion/cancellation evidence, never acknowledgement. A recurrence gets a new ID.
 
+`ProjectHealthReader.ObserveAsync` also distinguishes completed reviewer inbox work from the
+authoritative `WorkStageExecution` outcome. Reporting a blocked quality review completes the inbox
+task, but leaves its stage incident open. `ProjectHealthService.ReviewAsync` gives current failures
+precedence over recovery hints, preventing a resolve/recreate loop and preserving escalation deadlines.
+Stage reports in `ProjectHealthService.PresentAsync` name the ticket, recorded blocker and manager's
+next step. `DeliverAsync` dismisses previous incident alerts when recovery is confirmed in the same
+save as its delivery receipt; recovery before the first human report produces no cleared-blocker message.
+Attention notifications use Important severity, recovery notifications use Routine, and
+`AppRealtimeCoordinator.ShowNotification` keeps Routine project recovery in the notification inbox,
+expires project attention snackbars after six seconds and ignores replayed notification IDs.
+
+`ProjectHealthTests.FinishedReviewerInboxWorkDoesNotResolveBlockedStageOrRepeatOwnerAlerts` covers
+the October 12 Prism Break blocked-review loop, unchanged deadlines, repeated human delivery,
+specific recovery guidance and actual stage completion. `NotificationSnackbarTests` covers event
+replay after closing and quiet recovery.
+Validation on October 12: 60 health/snackbar tests and two disposable PostgreSQL tests passed,
+including atomic notification dismissal and realtime updates. AgentHost, API and the browser app
+were rebuilt and restarted locally. The live monitor advanced its review revision across multiple
+cycles while the affected stage remained one open incident and its human-message count stayed fixed.
+
 ## Diagnostic authorization
 
 `Platform.ProjectHealth` exposes typed health/incident reads, bounded diagnostics, reports and
@@ -255,3 +275,19 @@ Update platform code and Producer 2.19.8 (Agent SDK 3.64.2) together. Allow the 
 `HierarchicalProjectDelivery.Same` compares assignments by `StageKey` and ignores `SelectionEvidence.SelectedAt`. Database navigation collection order must not trigger task finalization or a new board event. `SpecialistAgent.EnsureCommitmentAsync` preserves future `PersonalTodoWaitState.NextReviewAt` deadlines for both workflow recovery and sprint preflight; the durable due-review event resumes the work. An explicit authorized staffing retry can still wake waiting commitments after a repair.
 
 `ProjectHealthReader.ReadAsync` recognizes both direct `Delivery planning needs attention:` waits and Producer-wrapped `Workflow staffing needs attention:` waits. A scheduled retry does not hide a recorded delivery failure or move its incident escalation deadline. These callbacks reconcile authoritative state using typed capabilities, so they need not perform model inference.
+
+### Cleared dependencies and interrupted direct chats
+
+Producer 2.20.1 `SpecialistAgent.EnsurePlanningCommitmentAsync` re-reads the authorized project roster on staffing events and attention/reconnect discovery. A ready Technical Director releases only the matching initial hiring wait, with the same project, team and planning fingerprint. `EnsureCommitmentAsync` preserves other timed recovery deadlines and uses the existing revision-checked requeue endpoint. Duplicate delivery cannot create another planning commitment or grant execution authority.
+
+`ProjectHealthReader.ObserveDependencyWaitsAsync` checks project/team-scoped hiring requests, fulfillment employees and current installation readiness, exact decided project decisions, and completed planning collaborations bound to the initiator's source fingerprint. A wait that continues for 15 minutes after its authoritative dependency clears creates one `dependency-wait:<task>` incident. Deferral timestamps and unrelated progress do not reset that grace period or the incident's escalation deadline. Releasing the wait or completing/cancelling its work resolves the episode. Unresolved hiring and uncorrelated collaboration evidence never count as cleared dependencies.
+
+`ProjectChatTurnAttribution.RecordAsync` retains the project scope of a successful `WorkstreamGovernanceCapabilityHandler` project read only when the authenticated runtime has exactly one live chat delivery. Ambiguous, expired and foreign-organization deliveries remain uncorrelated. This writes a non-progress `ChatTurnProjectScope` health signal; failure signals retain that association in the same transaction as the interrupted turn.
+
+`ProjectHealthReader.ReadLinkedChatTurnIdsAsync` also discovers exact coordination/intake source turns, canonical source messages and authenticated task-focus records. Direct conversations stay unscoped. `CSweetDbContext.IsInterruptedHealthTurn` includes `CompletedWithWarnings` with `memory.runtime_reset`, while ordinary completion warnings remain successful. Bounded, same-conversation/recipient retry ancestry preserves scope and confirms recovery across repeated interrupted attempts. No automatic replay of partially completed actions is introduced.
+
+These incidents use existing management escalation, delivered owner reports, realtime hints and Overview attention. `ProjectHealthService.PresentAsync` gives cleared-dependency and memory-reset incidents concise explanations and links the affected conversation. Overview continues to show delivered incidents routed to the current human recipient.
+
+Rollout: rebuild/restart API and AgentHost and upgrade the installed Producer to 2.20.1. No schema migration, SDK/package-contract change or expanded agent grant is required. Historical direct turns can be recovered through retained exact source links; attribution is never guessed from an employee's project or timestamps.
+
+Validation in `DependencyWakeVerified`: 104 platform health, Overview, governance/gateway, coordination-wake and memory-reset regression tests passed, including both disposable PostgreSQL tests. The database scenario verifies direct-chat attribution, a cleared decision despite a future review deadline, management escalation, delivered Overview attention and successful retry recovery. Producer's 339 package-only tests and self-test passed. NuGet 2.20.1 metadata and the Linux x64 `.csab` were built and inspected; the bundle verifier passed. No running service restart or installed-agent upgrade was performed during validation.

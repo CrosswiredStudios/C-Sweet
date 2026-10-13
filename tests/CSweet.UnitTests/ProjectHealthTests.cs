@@ -330,6 +330,163 @@ public sealed class ProjectHealthTests
         f.Clock.Now += TimeSpan.FromMinutes(15); await f.Review(); Assert.Equal(f.Ceo.Id, incident.CurrentRecipientId);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClearedDecisionWaitCannotHideBehindRenewedDeadlinesOrUnrelatedProgress(bool cleared)
+    {
+        await using var f = await Fixture.Create();
+        var decision = new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, Status = cleared ? "Decided" : "Pending", UpdatedAt = f.Clock.Now };
+        var task = f.Ticket(WorkTaskStatus.Running); task.NextReviewAt = f.Clock.Now.AddHours(1);
+        task.WaitingReason = "Waiting for the project decision";
+        task.PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = f.Project.Id, decisionId = decision.Id });
+        f.Db.AddRange(decision, task); await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Empty(f.Db.ProjectIncidents);
+        f.Clock.Now += TimeSpan.FromMinutes(16);
+        task.NextReviewAt = f.Clock.Now.AddHours(1); task.UpdatedAt = f.Clock.Now;
+        f.Db.Add(f.Ticket(WorkTaskStatus.Completed)); await f.Db.SaveChangesAsync(); await f.Review();
+        if (!cleared) { Assert.Empty(f.Db.ProjectIncidents); return; }
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        Assert.Equal($"dependency-wait:{task.Id:N}", incident.Fingerprint);
+        var deadline = incident.EscalateAt;
+        task.NextReviewAt = f.Clock.Now.AddHours(2); await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Single(f.Db.ProjectIncidents); Assert.Equal(deadline, incident.EscalateAt);
+        task.WaitingReason = null; task.NextReviewAt = null; task.Status = WorkTaskStatus.Ready;
+        await f.Db.SaveChangesAsync(); await f.Review(); Assert.Equal("Resolved", incident.Status);
+    }
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    public async Task HiringWaitChecksFulfillmentAndCurrentTeamReadiness(bool fulfilled, bool ready, bool stalled)
+    {
+        await using var f = await Fixture.Create(); var team = Guid.NewGuid();
+        var task = f.Ticket(WorkTaskStatus.Running); task.AssignedEmployeeId = f.Producer.Id;
+        task.AssignedAgentInstallationId = f.Producer.AgentInstallationId;
+        task.WaitingReason = "The initial coverage proposal is awaiting hiring."; task.NextReviewAt = f.Clock.Now.AddHours(1);
+        task.PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = f.Project.Id, teamId = team });
+        var plan = new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+            TeamId = team, RequestingInstallationId = f.Producer.AgentInstallationId!.Value,
+            Status = ProposalStatus.Approved, Headcount = 1, FulfilledHeadcount = fulfilled ? 1 : 0 };
+        f.Producer.AgentInstallation!.IsEnabled = ready;
+        f.Db.AddRange(task, plan, new OrganizationTeam { Id = team, OrganizationId = f.Org, LeadOrganizationUserId = f.Producer.Id },
+            new WorkstreamTeamAssignmentRecord { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, TeamId = team, StartsAt = f.Clock.Now },
+            new TeamMembership { Id = Guid.NewGuid(), OrganizationId = f.Org, TeamId = team,
+                OrganizationUserId = f.Producer.Id, JoinedAt = f.Clock.Now },
+            new HiringRecommendationFulfillment { Id = Guid.NewGuid(), OrganizationId = f.Org,
+                WorkforcePlanId = plan.Id, ResultOrganizationUserId = f.Producer.Id, CreatedAt = f.Clock.Now });
+        await f.Db.SaveChangesAsync(); await f.Review(); f.Clock.Now += TimeSpan.FromMinutes(16); await f.Review();
+        if (stalled) Assert.Equal($"dependency-wait:{task.Id:N}", Assert.Single(f.Db.ProjectIncidents).Fingerprint);
+        else Assert.Empty(f.Db.ProjectIncidents);
+    }
+
+    [Theory]
+    [InlineData("session")]
+    [InlineData("intake")]
+    [InlineData("task")]
+    [InlineData("delivery")]
+    [InlineData("context")]
+    public async Task DirectChatInterruptionUsesExactProjectSourcesAndSuccessfulRetryRecovery(string source)
+    {
+        await using var f = await Fixture.Create();
+        var chat = new Conversation { Id = Guid.NewGuid(), OrganizationId = f.Org, Kind = ConversationKind.DirectHumanAgent };
+        var turn = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = f.Org, ConversationId = chat.Id,
+            UserMessageId = Guid.NewGuid(), Status = ChatTurnStatus.Running, CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        var unrelated = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = f.Org, ConversationId = chat.Id,
+            UserMessageId = Guid.NewGuid(), Status = ChatTurnStatus.CompletedWithWarnings,
+            ErrorCode = "memory.runtime_reset", CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        f.Db.AddRange(chat, turn, unrelated); await f.Db.SaveChangesAsync();
+        AgentWorkItem? scopedWork = null;
+        if (source == "session") f.Db.Add(new CSweet.Domain.Communications.AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, SourceChatTurnId = turn.Id, Status = CSweet.Domain.Communications.AgentCoordinationStatus.Completed, CompletedAt = f.Clock.Now });
+        if (source == "intake") f.Db.Add(new ProjectIntake { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            ProjectId = f.Project.Id, SourceChatTurnId = turn.Id });
+        if (source == "task")
+        { var task = f.Ticket(WorkTaskStatus.Completed); task.SourceConversationId = chat.Id; task.SourceMessageId = turn.UserMessageId; f.Db.Add(task); }
+        if (source is "delivery" or "context")
+        {
+            var runtime = Guid.NewGuid(); var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+                AgentInstallationId = f.Producer.AgentInstallationId!.Value, SourceType = "chat-turn", SourceId = turn.Id.ToString(),
+                DeadlineAt = f.Clock.Now.AddHours(1) };
+            scopedWork = work;
+            f.Db.AddRange(work, new AgentWorkAttempt { Id = Guid.NewGuid(), RuntimeInstanceId = runtime,
+                AgentWorkItemId = work.Id, LeaseExpiresAt = f.Clock.Now.AddHours(1) }); await f.Db.SaveChangesAsync();
+            if (source == "context")
+            {
+                var completed = f.Ticket(WorkTaskStatus.Completed); f.Db.Add(completed);
+                f.Db.Add(new CSweet.Domain.Analytics.WorkExecutionContext { Id = Guid.NewGuid(), OrganizationId = f.Org,
+                    AgentWorkItemId = work.Id, AgentInstallationId = work.AgentInstallationId, RootWorkItemId = completed.Id });
+                await f.Db.SaveChangesAsync();
+            }
+            else
+            {
+                await ProjectChatTurnAttribution.RecordAsync(f.Db, f.Org, work.AgentInstallationId, runtime, f.Project.Id, f.Clock.Now, default);
+                await ProjectChatTurnAttribution.RecordAsync(f.Db, f.Org, work.AgentInstallationId, runtime, f.Project.Id, f.Clock.Now, default);
+                Assert.Single(f.Db.ProjectHealthSignals.Where(x => x.SourceKind == ProjectChatTurnAttribution.SourceKind));
+            }
+        }
+        await f.Db.SaveChangesAsync(); turn.Status = ChatTurnStatus.CompletedWithWarnings; turn.ErrorCode = "memory.runtime_reset";
+        if (scopedWork is not null) { scopedWork.Status = AgentWorkStatus.DeadLetter; scopedWork.LastError = MemoryRuntimeResetRequiredException.SafeMessage; }
+        await f.Db.SaveChangesAsync(); Assert.Contains(f.Db.ProjectHealthSignals, x => x.SourceKind == nameof(ChatTurn) && x.SourceId == turn.Id);
+        await f.Review(); var incident = Assert.Single(f.Db.ProjectIncidents);
+        Assert.Equal($"chat:{turn.Id:N}", incident.Fingerprint);
+        var presentation = await f.Service.PresentAsync(incident, default);
+        Assert.Contains("memory context", presentation.Summary); Assert.Contains(chat.Id.ToString(), presentation.Link);
+        var retry = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = f.Org, ConversationId = chat.Id,
+            RetryOfTurnId = turn.Id, UserMessageId = Guid.NewGuid(), Status = ChatTurnStatus.CompletedWithWarnings, ErrorCode = "memory.runtime_reset" };
+        f.Db.Add(retry); await f.Db.SaveChangesAsync(); await f.Review(); Assert.Equal("Open", incident.Status);
+        f.Db.Add(new ChatTurn { Id = Guid.NewGuid(), OrganizationId = f.Org, ConversationId = chat.Id,
+            RetryOfTurnId = retry.Id, Status = ChatTurnStatus.Completed, UserMessageId = Guid.NewGuid() });
+        await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Equal("Resolved", incident.Status);
+        Assert.DoesNotContain(f.Db.ProjectIncidents, x => x.Fingerprint == $"chat:{unrelated.Id:N}");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CompletedPlanningWaitRequiresTheExactCycleAndAllParticipants(bool exact)
+    {
+        await using var f = await Fixture.Create(); var team = Guid.NewGuid();
+        var task = f.Ticket(WorkTaskStatus.Running); task.AssignedEmployeeId = f.Producer.Id;
+        task.AssignedAgentInstallationId = f.Producer.AgentInstallationId; task.WaitingReason = "Waiting for both role authorities to complete their correlated planning proposals.";
+        task.NextReviewAt = f.Clock.Now.AddHours(1);
+        task.PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = f.Project.Id, teamId = team,
+            boardId = f.Board.Id, sourceFingerprint = "current-cycle" });
+        var session = new CSweet.Domain.Communications.AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, TeamId = team, SourceBoardId = f.Board.Id, SourceKind = "Board",
+            InitiatorOrganizationUserId = f.Producer.Id, InitiatorInstallationId = f.Producer.AgentInstallationId!.Value,
+            Status = CSweet.Domain.Communications.AgentCoordinationStatus.Completed, CompletedAt = f.Clock.Now };
+        f.Db.AddRange(task, session, new CSweet.Domain.Communications.AgentCoordinationTurn { Id = Guid.NewGuid(),
+            SessionId = session.Id, SpeakerOrganizationUserId = f.Producer.Id, ArtifactKey = exact ? "current-cycle" : "previous-cycle" });
+        await f.Db.SaveChangesAsync(); await f.Review(); f.Clock.Now += TimeSpan.FromMinutes(16); await f.Review();
+        if (exact) Assert.Equal($"dependency-wait:{task.Id:N}", Assert.Single(f.Db.ProjectIncidents).Fingerprint);
+        else Assert.Empty(f.Db.ProjectIncidents);
+    }
+
+    [Fact]
+    public async Task ProjectChatScopeRejectsAmbiguousExpiredAndCrossTenantDeliveries()
+    {
+        await using var f = await Fixture.Create(); var runtime = Guid.NewGuid();
+        var turn = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = f.Org };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+            AgentInstallationId = f.Producer.AgentInstallationId!.Value, SourceType = "chat-turn", SourceId = turn.Id.ToString() };
+        var attempt = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id,
+            RuntimeInstanceId = runtime, LeaseExpiresAt = f.Clock.Now.AddMinutes(-1) };
+        f.Db.AddRange(turn, work, attempt); await f.Db.SaveChangesAsync();
+        await ProjectChatTurnAttribution.RecordAsync(f.Db, f.Org, work.AgentInstallationId, runtime, f.Project.Id, f.Clock.Now, default);
+        attempt.LeaseExpiresAt = f.Clock.Now.AddHours(1); await f.Db.SaveChangesAsync();
+        await ProjectChatTurnAttribution.RecordAsync(f.Db, Guid.NewGuid(), work.AgentInstallationId, runtime, f.Project.Id, f.Clock.Now, default);
+        var other = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = work.AgentInstallationId };
+        f.Db.AddRange(other, new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = other.Id,
+            RuntimeInstanceId = runtime, LeaseExpiresAt = f.Clock.Now.AddHours(1) }); await f.Db.SaveChangesAsync();
+        await ProjectChatTurnAttribution.RecordAsync(f.Db, f.Org, work.AgentInstallationId, runtime, f.Project.Id, f.Clock.Now, default);
+        Assert.DoesNotContain(f.Db.ProjectHealthSignals, x => x.SourceKind == ProjectChatTurnAttribution.SourceKind);
+    }
+
     private sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
@@ -514,6 +671,72 @@ public sealed class ProjectHealthTests
         Assert.Contains(diagnostics.Evidence, x => x.Kind == "agent.capability.failed");
         Assert.DoesNotContain(diagnostics.Evidence, x => x.Kind == "model.response.chunk" || x.Detail.Contains("raw model reasoning"));
         Assert.Null(diagnostics.NextOffset);
+    }
+
+    [Theory]
+    [InlineData(AgentWorkStatus.Completed)]
+    [InlineData(AgentWorkStatus.Cancelled)]
+    public async Task FinishedReviewerInboxWorkDoesNotResolveBlockedStageOrRepeatOwnerAlerts(AgentWorkStatus inboxStatus)
+    {
+        await using var f = await Fixture.Create();
+        var ticket = f.Ticket(WorkTaskStatus.Blocked);
+        var execution = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = ticket.Id, WorkItem = ticket,
+            CurrentStageKey = "quality", Status = WorkItemExecutionStatus.Blocked, CreatedAt = f.Clock.Now };
+        var stage = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = execution.Id, ItemExecution = execution,
+            StageKey = "quality", Status = WorkStageExecutionStatus.Blocked, CreatedAt = f.Clock.Now,
+            LastError = "The author has not delivered an exact artifact revision." };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+            AgentInstallationId = f.Producer.AgentInstallationId!.Value, Name = "work.execution.run.v2",
+            SourceType = "WorkStageExecution", SourceId = stage.Id.ToString(), Status = inboxStatus, CreatedAt = f.Clock.Now };
+        f.Db.AddRange(ticket, execution, stage, work, new WorkExecutionAttempt { Id = Guid.NewGuid(),
+            StageExecutionId = stage.Id, AgentWorkItemId = work.Id, Status = WorkExecutionAttemptStatus.Completed });
+        await f.Db.SaveChangesAsync(); await f.Review();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        var deadline = incident.EscalateAt;
+        var observation = await new ProjectHealthReader(f.Db, f.Clock).ObserveAsync(f.Project, default);
+        Assert.DoesNotContain(incident.Fingerprint, observation.Recovered);
+        for (var i = 0; i < 3; i++)
+        {
+            f.Clock.Now += TimeSpan.FromMinutes(1); await f.Review();
+            Assert.Equal("Open", incident.Status); Assert.Single(f.Db.ProjectIncidents);
+            Assert.Equal(deadline, incident.EscalateAt);
+        }
+        foreach (var actor in new[] { f.Producer.Id, f.Director.Id, f.Chief.Id })
+            await f.Service.ForwardAsync(f.Org, actor, new(incident.Id, incident.Revision, $"forward:{actor}", "Review needed"), default);
+        await f.Service.DeliverAsync(default);
+        var alert = Assert.Single(f.Db.UserNotifications);
+        Assert.Equal(CSweet.Domain.Communications.NotificationSeverity.Important, alert.Severity);
+        Assert.Contains("exact artifact revision", alert.Body);
+        Assert.Contains("deliver the exact document revision", Assert.Single(f.Db.CoreConversationMessages).Content);
+        for (var i = 0; i < 5; i++)
+        { f.Clock.Now += TimeSpan.FromMinutes(1); await f.Review(); await f.Service.DeliverAsync(default); }
+        Assert.Equal("Open", incident.Status); Assert.Single(f.Db.ProjectIncidents);
+        Assert.Single(f.Db.CoreConversationMessages); Assert.Single(f.Db.UserNotifications);
+
+        stage.Status = WorkStageExecutionStatus.Completed;
+        ticket.Status = WorkTaskStatus.Completed;
+        await f.Db.SaveChangesAsync(); await f.Review(); await f.Service.DeliverAsync(default);
+        Assert.Equal("Resolved", incident.Status); Assert.Single(f.Db.ProjectIncidents);
+        Assert.NotNull(alert.DismissedAt);
+        Assert.Equal(CSweet.Domain.Communications.NotificationSeverity.Routine,
+            f.Db.UserNotifications.Single(x => x.Id != alert.Id).Severity);
+        Assert.Equal(2, f.Db.CoreConversationMessages.Count());
+        Assert.Contains(f.Db.ApplicationRealtimeOutbox, x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.NotificationUpdated);
+    }
+
+    [Fact]
+    public async Task RecoveryBeforeOwnerDeliveryDoesNotSendAnUnseenBlockerClearedAlert()
+    {
+        await using var f = await Fixture.Create();
+        var ticket = await f.FailTicket();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        foreach (var actor in new[] { f.Producer.Id, f.Director.Id, f.Chief.Id })
+            await f.Service.ForwardAsync(f.Org, actor, new(incident.Id, incident.Revision, $"forward:{actor}", "Review needed"), default);
+        ticket.Status = WorkTaskStatus.Completed;
+        await f.Db.SaveChangesAsync(); await f.Review(); await f.Service.DeliverAsync(default);
+        Assert.Equal("Resolved", incident.Status);
+        Assert.Empty(f.Db.CoreConversationMessages); Assert.Empty(f.Db.UserNotifications);
+        Assert.All(f.Db.ProjectIncidentDeliveries, x => Assert.NotNull(x.DeliveredAt));
     }
 
     private sealed class Fixture : IAsyncDisposable

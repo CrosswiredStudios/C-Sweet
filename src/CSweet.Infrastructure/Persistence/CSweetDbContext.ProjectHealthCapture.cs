@@ -66,9 +66,10 @@ public sealed partial class CSweetDbContext
             case RepositoryProvisioningRequest x when Changed(nameof(x.Status)):
                 project = x.WorkstreamId; id = x.Id; detail = $"Repository setup {x.Status}: {x.FailureCode}. {x.FailureMessage}";
                 progress = x.Status == RepositoryProvisioningStatus.Completed; break;
-            case ChatTurn x when Changed(nameof(x.Status)) && x.Status == ChatTurnStatus.Failed:
-                project = CoreConversations.Find(x.ConversationId)?.WorkstreamId; id = x.Id;
-                detail = $"Chat failed: {x.ErrorCode}. {x.ErrorMessage}"; break;
+            case ChatTurn x when Changed(nameof(x.Status), nameof(x.ErrorCode)) && IsInterruptedHealthTurn(x):
+                foreach (var chatProject in HealthProjectsForChatTurn(x))
+                    AddHealthSignal(chatProject, nameof(ChatTurn), x.Id, false, $"Chat interrupted: {x.ErrorCode}. {x.ErrorMessage}");
+                return;
             case AgentWorkAttempt x when Changed(nameof(x.Error), nameof(x.FinishedAt)) && x.Error is not null:
                 var work = AgentWorkItems.Find(x.AgentWorkItemId);
                 if (work is null) return;
@@ -155,7 +156,8 @@ public sealed partial class CSweetDbContext
         if (work.SourceType == "chat-turn" && Guid.TryParse(work.SourceId, out var turnId))
         {
             var chat = ChatTurns.Find(turnId);
-            return chat is null ? null : CoreConversations.Find(chat.ConversationId)?.WorkstreamId;
+            var projects = chat is null ? [] : HealthProjectsForChatTurn(chat);
+            return projects.Length == 1 ? projects[0] : null;
         }
         if (work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stageId))
         {

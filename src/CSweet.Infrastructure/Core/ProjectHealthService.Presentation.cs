@@ -35,6 +35,9 @@ public sealed partial class ProjectHealthService
         }
         else if (IncidentSource(incident.Fingerprint, "work") is { } workId)
             work = await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x => x.Id == workId && x.OrganizationId == incident.OrganizationId.ToString(), token);
+        else if (IncidentSource(incident.Fingerprint, "chat") is { } sourceTurn)
+            work = await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId.ToString() &&
+                x.SourceType == "chat-turn" && x.SourceId == sourceTurn.ToString()).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
 
         var label = session is null ? "Open project" : "Review collaboration";
         if (incident.Status == "Resolved")
@@ -47,6 +50,29 @@ public sealed partial class ProjectHealthService
         var next = session is null ? "Open the project, review the blocked work, and resolve its recorded dependency before retrying." :
             "Open the collaboration, review the failed step, then choose Retry collaboration when its cause is addressed. The existing transcript is preserved.";
         var recovery = "No recovery action has been recorded.";
+        if (IncidentSource(incident.Fingerprint, "stage") is { } stageId)
+        {
+            var stage = await db.WorkStageExecutions.AsNoTracking().Include(x => x.ItemExecution)!.ThenInclude(x => x!.WorkItem)
+                .SingleOrDefaultAsync(x => x.Id == stageId && x.ItemExecution != null &&
+                    x.ItemExecution.WorkItem != null && x.ItemExecution.WorkItem.OrganizationId == incident.OrganizationId, token);
+            if (stage?.ItemExecution?.WorkItem is { } ticket && db.HealthProjectForTask(ticket) == project.Id)
+            {
+                summary = $"{Display(ticket.Identifier ?? ticket.Title)}: {Display(stage.StageKey)} is {stage.Status.ToString().ToLowerInvariant()}. " +
+                    Display(ProjectHealthReader.Safe(stage.LastError ?? stage.LastSummary ?? "The stage has not completed."));
+                if (ticket.BoardId is { } board)
+                { link = $"/organizations/{incident.OrganizationId}/work/boards/{board}"; label = "Review blocked ticket"; }
+                next = stage.LastError == "The author has not delivered an exact artifact revision."
+                    ? "The accountable manager needs the author to deliver the exact document revision, then retry its quality review. Approving unrelated work does not clear this blocker."
+                    : "Have the accountable manager address the recorded stage blocker, then retry the affected ticket.";
+            }
+        }
+        if (IncidentSource(incident.Fingerprint, "dependency-wait") is { } waitingId)
+        {
+            var waiting = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == waitingId &&
+                x.OrganizationId == incident.OrganizationId, token);
+            summary = $"{Display(waiting?.Title ?? "Planning")} still reports waiting although its recorded dependency has cleared.";
+            next = "Have the accountable manager re-read staffing and planning, then requeue the existing commitment. Repeating the wait does not confirm progress.";
+        }
         if (work is not null)
         {
             var run = await db.AgentRunLogs.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId &&
@@ -55,6 +81,13 @@ public sealed partial class ProjectHealthService
                 .Select(x => x.Name).SingleOrDefaultAsync(token);
             var provider = providerName is null ? "the model provider" : Display(providerName);
             var code = FailureCode(work.LastError);
+            var interrupted = work.LastError == MemoryRuntimeResetRequiredException.SafeMessage;
+            if (work.SourceType == "chat-turn" && Guid.TryParse(work.SourceId, out var turnId))
+            {
+                var turn = await db.ChatTurns.AsNoTracking().SingleOrDefaultAsync(x => x.Id == turnId && x.OrganizationId == incident.OrganizationId, token);
+                interrupted |= turn?.ErrorCode == MemoryRuntimeResetRequiredException.FailureCode;
+                if (turn is not null) { link = $"/organizations/{incident.OrganizationId}/communications/{turn.ConversationId}"; label = "Review interrupted reply"; }
+            }
             if (code is "llm.provider_unavailable" or "llm.request_failed")
             {
                 summary = code == "llm.provider_unavailable"
@@ -68,6 +101,11 @@ public sealed partial class ProjectHealthService
                 summary = "The agent could not use the current provider or permissions. The blocked work has not completed.";
                 next = "Review the agent's current provider and approved permissions before retrying the blocked work.";
             }
+            else if (interrupted)
+            {
+                summary = "The agent's reply was interrupted when its memory context changed. The request has not been confirmed complete; actions already saved may still exist.";
+                next = "Review the saved documents and approvals in the affected conversation, then retry the interrupted request if work remains. Completed actions are not automatically replayed.";
+            }
             var correlation = work.CorrelationId;
             var causation = work.CausationId;
             var attempts = session is null || causation is null ? work.AttemptCount : await db.AgentWorkItems.AsNoTracking().Where(x =>
@@ -78,6 +116,19 @@ public sealed partial class ProjectHealthService
                 : $"{attempts} execution attempt(s) recorded; no retry is currently queued.";
             if (work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
                 next = "No action is needed while the current attempt runs. This item clears when recovery is confirmed.";
+        }
+        else if (IncidentSource(incident.Fingerprint, "chat") is { } chatTurnId)
+        {
+            var turn = await db.ChatTurns.AsNoTracking().SingleOrDefaultAsync(x => x.Id == chatTurnId && x.OrganizationId == incident.OrganizationId, token);
+            if (turn is not null)
+            {
+                link = $"/organizations/{incident.OrganizationId}/communications/{turn.ConversationId}"; label = "Review interrupted reply";
+                if (turn.ErrorCode == MemoryRuntimeResetRequiredException.FailureCode)
+                {
+                    summary = "The agent's reply was interrupted when its memory context changed. Actions already saved may still exist; the request is not confirmed complete.";
+                    next = "Review saved documents and approvals before retrying the interrupted request. Completed actions are not automatically replayed.";
+                }
+            }
         }
         if (incident.Fingerprint == "health-assessment")
         {

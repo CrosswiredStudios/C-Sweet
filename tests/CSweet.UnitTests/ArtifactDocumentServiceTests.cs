@@ -47,6 +47,39 @@ public sealed class ArtifactDocumentServiceTests
     }
 
     [Fact]
+    public async Task HumanDecisionResolvesReviewErrorsAndNotificationsInTheDecisionSave()
+    {
+        await using var db = CreateDb();
+        var (organization, owner) = SeedHuman(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = new ArtifactDocumentService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var actor = new ArtifactHumanActor(owner.ApplicationUserId!.Value);
+        var created = await service.CreateAsync(organization.Id, actor,
+            new("Brief", "# Brief", "test.document.v1", "create"));
+        var submitted = await service.SubmitAsync(organization.Id, actor, created.Document.Id,
+            new(created.LatestRevision.Id, "submit"));
+        var job = new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            ArtifactId = created.Document.Id, RevisionId = submitted.LatestRevision.Id,
+            LastError = "The reviewer is unavailable." };
+        var notification = new CSweet.Domain.Communications.UserNotification
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization.Id, RecipientOrganizationUserId = owner.Id,
+            Category = ArtifactReviewJobLifecycle.ReassignmentCategory,
+            DeduplicationKey = $"artifact-review-reassignment:{job.Id:N}:{owner.Id:N}"
+        };
+        db.AddRange(job, notification);
+        await db.SaveChangesAsync();
+        await service.DecideAsync(organization.Id, actor, created.Document.Id,
+            new(submitted.LatestRevision.Id, "accept", null, "accept"));
+        Assert.Equal(ArtifactReviewJobStatus.Completed, job.Status);
+        Assert.Null(job.LastError);
+        Assert.NotNull(notification.DismissedAt);
+        Assert.Equal(ArtifactRevisionStatus.Accepted, (await db.ArtifactRevisions.SingleAsync()).Status);
+        Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(), x =>
+            x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.NotificationUpdated);
+    }
+
+    [Fact]
     public async Task Accepted_revision_remains_authoritative_while_a_new_draft_exists()
     {
         await using var db = CreateDb();

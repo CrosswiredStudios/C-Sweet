@@ -43,16 +43,26 @@ public sealed partial class ProjectHealthService
                 x.CorrelationId == incident.Id && x.SenderOrganizationUserId == sender.Id &&
                 x.IdempotencyKey != null && x.IdempotencyKey.StartsWith("project-health:"))
                 .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+            if (incident.Status is "Resolved" or "Superseded")
+            {
+                var keys = await db.ProjectIncidentDeliveries.Where(x => x.IncidentId == incident.Id && x.RecipientId == recipient.Id)
+                    .Select(x => x.Id).ToArrayAsync(token);
+                var notificationKeys = keys.Select(x => $"project-health:{x:N}").ToArray();
+                foreach (var notification in await db.UserNotifications.Where(x => x.OrganizationId == incident.OrganizationId &&
+                    x.RecipientOrganizationUserId == recipient.Id && x.Category == "ProjectHealth" && x.DismissedAt == null &&
+                    notificationKeys.Contains(x.DeduplicationKey!)).ToListAsync(token))
+                    notification.DismissedAt = now;
+            }
             // Evidence-only revisions do not need another human message. A changed recovery
             // state gets a concise update; preserve prior messages and their memory/audit lineage.
-            if (existing is null || existing.Content != delivery.Markdown)
+            if ((existing is not null || incident.Status == "Open") && (existing is null || existing.Content != delivery.Markdown))
             {
                 db.CoreConversationMessages.Add(new() { Id = Guid.NewGuid(), ConversationId = chat.Id, Role = ConversationRole.Assistant,
                     Content = delivery.Markdown, CreatedAt = now, SenderOrganizationUserId = sender.Id, CorrelationId = incident.Id,
                     DeliveryIntent = CommunicationDeliveryIntent.Inform, SourceProvider = "InApp", IdempotencyKey = messageKey });
                 db.UserNotifications.Add(new() { Id = Guid.NewGuid(), OrganizationId = incident.OrganizationId,
                     RecipientOrganizationUserId = recipient.Id, OriginatingAgentOrganizationUserId = sender.Id,
-                    Severity = incident.Status == "Resolved" ? NotificationSeverity.Important : NotificationSeverity.Urgent,
+                    Severity = incident.Status == "Resolved" ? NotificationSeverity.Routine : NotificationSeverity.Important,
                     Category = "ProjectHealth", Title = incident.Status == "Resolved" ? "Project incident resolved" : "Project needs management attention",
                     Body = presentation.Summary, ActionUri = $"/organizations/{incident.OrganizationId}/communications/{chat.Id}",
                     DeduplicationKey = messageKey, CreatedAt = now });

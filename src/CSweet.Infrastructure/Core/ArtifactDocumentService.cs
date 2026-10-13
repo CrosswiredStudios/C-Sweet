@@ -227,9 +227,7 @@ public sealed class ArtifactDocumentService(
             DecidedByOrganizationUserId = member.Id,
             EvidenceConversationMessageId = request.EvidenceConversationMessageId
         });
-        foreach (var job in await db.ArtifactReviewJobs.Where(x => x.RevisionId == revision.Id &&
-                     x.Status != ArtifactReviewJobStatus.Completed).ToListAsync(cancellationToken))
-            job.Status = ArtifactReviewJobStatus.Completed;
+        await ArtifactReviewJobLifecycle.CompleteRevisionAsync(db, organizationId, revision.Id, now, cancellationToken);
         await AddArtifactDecisionEventAsync(
             artifact,
             revision,

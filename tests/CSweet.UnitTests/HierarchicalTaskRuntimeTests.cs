@@ -29,7 +29,14 @@ public sealed class HierarchicalTaskRuntimeTests
         await RunJourney(f, artifact);
     }
 
-    internal static async Task RunJourney(Fixture f, bool artifact, bool game = false)
+    [Fact]
+    public async Task LegacyPascalCaseArtifactSurvivesExactQaAndDependencyAcceptance()
+    {
+        await using var f = await Fixture.Create(true);
+        await RunJourney(f, true, legacyArtifact: true);
+    }
+
+    internal static async Task RunJourney(Fixture f, bool artifact, bool game = false, bool legacyArtifact = false)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -96,7 +103,9 @@ public sealed class HierarchicalTaskRuntimeTests
                     CreatedByOrganizationUserId = f.Author.Id, LatestRevisionId = revisionId, Title = "Deliverable" });
                 f.Db.ArtifactRevisions.Add(new() { Id = revisionId, ArtifactId = artifactId, OrganizationId = f.Org, Content = content, ContentSha256 = digest,
                     CreatedByOrganizationUserId = f.Author.Id, Number = 1, IdempotencyKey = "delivered:" + revisionId.ToString("N") });
-                authorOutput = new { artifactId, revisionId, sha256 = digest };
+                authorOutput = legacyArtifact
+                    ? new { ArtifactId = artifactId, RevisionId = revisionId, Sha256 = digest }
+                    : new WorkArtifactDelivery(artifactId, revisionId, digest);
             }
             else
             {

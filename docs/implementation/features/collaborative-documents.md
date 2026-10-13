@@ -35,6 +35,16 @@ automatically.
   a prior revision's job does not assign a new submission. Only unassigned artifacts fall back
   to organization owners. Organization-wide document access does not make an internal review
   a CEO inbox action. Cards identify the document creator instead of a generic system requester.
+- `ArtifactReviewJobWorker.ProcessNextAsync` keeps agent-to-agent review routing silent:
+  missing conversation metadata, active reviewer turns, deferred delivery, and idempotent
+  redelivery do not create human notifications. The durable submission event remains available
+  to the agent reviewer. Missing, inactive, or uninstalled reviewers raise an actionable
+  reassignment error with the actual cause. Superseded, decided, and archived submissions
+  are retired before checking reviewer availability.
+- `ArtifactReviewJobLifecycle.CompleteRevisionAsync` completes queue jobs, clears their errors,
+  and dismisses reassignment notifications in the same save as the document decision. Human
+  decisions and both agent decision capabilities share it. `AppRealtimeCoordinator` removes
+  resolved snackbars on `NotificationUpdated` and ignores late creation events for those IDs.
 - `ArtifactCapabilityHandler.GrantAssignedManagerReviewAsync` grants exact-file read and decision
   access atomically at creation and submission when the creator names their active agent manager
   as steward/reviewer. Naming an unrelated employee does not grant authority; creator edit/submit

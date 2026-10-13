@@ -44,11 +44,13 @@ public partial class WorkBoards
         if (stage.StageKey is "development" or "specialist-execution") return;
         try
         {
-            if (!Guid.TryParse(Property("artifactId"), out var artifact) || !Guid.TryParse(Property("revisionId"), out var revision))
+            var author = outcomes.LastOrDefault(x => x.Disposition == WorkExecutionDispositions.Completed &&
+                x.OutcomeCode is "completed" or "artifact-delivered");
+            if (author is null || !WorkArtifactDelivery.TryRead(author.Output, out var reference))
                 throw new InvalidOperationException("The author has not delivered an identifiable artifact revision.");
-            var detail = await Http.GetFromJsonAsync<ArtifactDocumentDetail>($"api/organizations/{OrganizationId:D}/documents/{artifact:D}");
-            _manualDocument = detail?.Revisions.SingleOrDefault(x => x.Id == revision);
-            if (_manualDocument is null || _manualDocument.ContentSha256 != Property("sha256"))
+            var detail = await Http.GetFromJsonAsync<ArtifactDocumentDetail>($"api/organizations/{OrganizationId:D}/documents/{reference.ArtifactId:D}");
+            _manualDocument = detail?.Revisions.SingleOrDefault(x => x.Id == reference.RevisionId);
+            if (_manualDocument is null || _manualDocument.ContentSha256 != reference.Sha256)
                 throw new InvalidOperationException("The delivered revision is unavailable or differs from the author’s digest.");
         }
         catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { _manualError = error.Message; }
@@ -84,7 +86,7 @@ public partial class WorkBoards
                 var document = _manualDocument ?? throw new InvalidOperationException("Read the exact delivered document before submitting QA.");
                 output = stage.StageKey == "quality"
                     ? new WorkArtifactQualityResult(document.ArtifactId, document.Id, document.ContentSha256, approved, _manualSummary, criteria, findings)
-                    : new { artifactId = document.ArtifactId, revisionId = document.Id, sha256 = document.ContentSha256 };
+                    : new WorkArtifactDelivery(document.ArtifactId, document.Id, document.ContentSha256);
                 evidence.Add(new("artifact-revision", document.Id.ToString("D"), document.ContentSha256));
             }
             else

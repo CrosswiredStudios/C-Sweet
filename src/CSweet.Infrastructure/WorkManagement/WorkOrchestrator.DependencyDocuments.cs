@@ -52,8 +52,8 @@ public sealed partial class WorkOrchestrator
                 x.Status == WorkStageExecutionStatus.Completed && x.LastOutcomeCode == "approved" &&
                 x.OrganizationUserId == board.ManagerOrganizationUserId && x.OrganizationUserId.HasValue))
                 throw new InvalidOperationException("The dependency document has not passed its required independent acceptance gate.");
-            var reference = outcome.Output.Deserialize<DependencyDocumentReference>(JsonOptions)
-                ?? throw new InvalidOperationException("The dependency document reference is missing.");
+            if (!Shared.WorkArtifactDelivery.TryRead(outcome.Output, out var reference))
+                throw new InvalidOperationException("The dependency document reference is missing.");
             var revision = await db.ArtifactRevisions.AsNoTracking().Include(x => x.Artifact).SingleOrDefaultAsync(x =>
                 x.Id == reference.RevisionId && x.ArtifactId == reference.ArtifactId && x.OrganizationId == organizationId, token);
             var document = revision?.Artifact;
@@ -77,5 +77,4 @@ public sealed partial class WorkOrchestrator
         return evidence;
     }
 
-    private sealed record DependencyDocumentReference(Guid ArtifactId, Guid RevisionId, string Sha256);
 }

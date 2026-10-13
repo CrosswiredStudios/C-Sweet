@@ -15,6 +15,8 @@
     private readonly CancellationTokenSource _disposeCts = new();
     private CancellationToken _disposeToken;
     private bool _started;
+    private readonly HashSet<Guid> _resolvedNotifications = [];
+    private readonly HashSet<Guid> _shownNotifications = [];
 
     protected override void OnInitialized()
     {
@@ -73,11 +75,17 @@
 
     private void OnEvent(AppRealtimeEventEnvelope envelope)
     {
-        if (envelope.EventType != AppRealtimeEvents.NotificationCreated) return;
+        if (envelope.EventType is not (AppRealtimeEvents.NotificationCreated or AppRealtimeEvents.NotificationUpdated)) return;
         try
         {
             var notification = envelope.Data.Deserialize<AppNotificationEvent>(JsonOptions);
             if (notification is null) return;
+            if (notification.ReadAt.HasValue || notification.DismissedAt.HasValue)
+            {
+                _ = InvokeAsync(() => ResolveNotification(notification.NotificationId));
+                return;
+            }
+            if (envelope.EventType != AppRealtimeEvents.NotificationCreated) return;
             var severity = notification.Severity switch
             {
                 "Urgent" => Severity.Error,
@@ -91,11 +99,19 @@
 
     private void ShowNotification(AppNotificationEvent notification, Severity severity)
     {
+        if (_resolvedNotifications.Contains(notification.NotificationId) || !_shownNotifications.Add(notification.NotificationId)) return;
+        // Recovery remains available in the notification inbox without interrupting the user.
+        if (notification.Category == "ProjectHealth" && notification.Severity == "Routine") return;
         var message = notification.Category == "ResourceChangeApproval"
             ? "Hiring plan approval needed"
             : $"{notification.Title}: {notification.Body}";
         Snackbar.Add(message, severity, options =>
         {
+            if (notification.Category == "ProjectHealth")
+            {
+                options.RequireInteraction = false;
+                options.VisibleStateDuration = 6000;
+            }
             if (string.IsNullOrWhiteSpace(notification.ActionUri)) return;
             options.Action = notification.Category == "ResourceChangeApproval" ? "Review" : "Open";
             options.ActionColor = Color.Primary;
@@ -107,6 +123,12 @@
                 return Task.CompletedTask;
             };
         }, key: $"notification:{notification.NotificationId:D}");
+    }
+
+    private void ResolveNotification(Guid notificationId)
+    {
+        _resolvedNotifications.Add(notificationId);
+        Snackbar.RemoveByKey($"notification:{notificationId:D}");
     }
 
     public void Dispose()

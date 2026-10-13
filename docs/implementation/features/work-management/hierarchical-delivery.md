@@ -1,5 +1,30 @@
 # Hierarchical delivery and release integration
 
+## Exact artifact handoff compatibility
+
+`WorkArtifactDelivery` in WorkManagement.Contracts 3.29.0 owns author output and
+validated reads. SDK 3.65.1 `ArtifactTaskDelivery` and the 15 video-game
+`VideoGameSpecialistAgentBase.CompletedOutcome` implementations emit its canonical
+camelCase fields. `ArtifactDeliveryReview`, `WorkDeliveryService.TryDocument`,
+`WorkOrchestrator.DependencyDocumentsAsync`, broker
+`ArtifactCapabilityHandler.AssignedReviewRevisionAsync` and human manual review
+use the same parser. Existing PascalCase persisted outputs remain readable without
+a database rewrite; malformed identities and duplicate fields fail closed.
+Digest, provenance, scoped assignment and independent criterion-level QA checks
+remain authoritative. A malformed later author outcome cannot select an older
+delivery to bypass current review.
+
+Regression coverage: Contracts `WorkArtifactDeliveryTests`, SDK
+`ArtifactTaskDeliveryHandoffTests` (creation, submission, persistence and QA),
+Technical Director `ArtifactDeliveryHandoffTests` (actual recovered callback,
+legacy persistence and tampering), platform `HierarchicalTaskRuntimeTests` and
+`DeliveryReviewDocumentAccessTests`. `scripts/verify-artifact-delivery.py` verifies
+all affected agents against packed dependencies, then runs self-tests and packs
+their final manifest versions. Publish Contracts, SDK and agents in that order;
+the running platform and installed agents need their normal update/restart before
+retrying an existing blocked QA stage. No persisted ticket or outcome is rewritten
+by this source change.
+
 This is the normative specification for new game and software installations. Published V1 assignments and historical workflow/profile revisions remain supported. New delivery uses `WorkExecutionAssignmentV2` and `work.execution.run.v2`.
 
 ## Completion and authority

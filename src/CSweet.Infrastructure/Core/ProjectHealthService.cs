@@ -158,10 +158,13 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
         await CoalesceCoordinationIncidentsAsync(project, open, token);
         state.LastProgressAt = observation.LastProgress > state.LastProgressAt ? observation.LastProgress : state.LastProgressAt;
         state.HasActiveWork = observation.Active; state.WaitingReason = observation.Waiting;
+        var currentFailures = observation.Failures.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var incident in open.Where(x => x.Status == "Open"))
         {
-            var recovered = incident.Fingerprint == "health-assessment" || observation.Recovered.Contains(incident.Fingerprint) || incident.Fingerprint == "idle" &&
-                state.LastProgressAt > incident.LastProgressAt;
+            // Current blockers take precedence over completion of related inbox work.
+            var recovered = !currentFailures.Contains(incident.Fingerprint) && (incident.Fingerprint == "health-assessment" ||
+                observation.Recovered.Contains(incident.Fingerprint) || incident.Fingerprint == "idle" &&
+                state.LastProgressAt > incident.LastProgressAt);
             if (recovered) await ResolveAsync(incident, incident.Fingerprint == "health-assessment"
                 ? "Project health assessment succeeded; any work blockers are tracked separately."
                 : "Authoritative project evidence confirms recovery.", token);

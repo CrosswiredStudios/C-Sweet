@@ -241,11 +241,9 @@ public sealed partial class WorkDeliveryService
     internal static bool TryDocument(JsonElement output, out Guid artifact, out Guid revision, out string digest)
     {
         artifact = revision = Guid.Empty; digest = "";
-        if (output.ValueKind != JsonValueKind.Object) return false;
-        JsonElement Field(string name) => output.EnumerateObject().FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)).Value;
-        return Field("artifactId").ValueKind == JsonValueKind.String && Field("artifactId").TryGetGuid(out artifact) &&
-            Field("revisionId").ValueKind == JsonValueKind.String && Field("revisionId").TryGetGuid(out revision) &&
-            Field("sha256").ValueKind == JsonValueKind.String && (digest = Field("sha256").GetString()!) is { Length: 64 };
+        if (!WorkArtifactDelivery.TryRead(output, out var delivery)) return false;
+        artifact = delivery.ArtifactId; revision = delivery.RevisionId; digest = delivery.Sha256;
+        return true;
     }
 
     private async Task CreateReviewAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, WorkDeliveryScopeSnapshot scope, string key, CancellationToken ct)

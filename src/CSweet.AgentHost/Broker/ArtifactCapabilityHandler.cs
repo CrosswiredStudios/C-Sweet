@@ -10,6 +10,7 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using Microsoft.EntityFrameworkCore;
 using W = CSweet.WorkManagement.Contracts;
 
@@ -323,9 +324,7 @@ public sealed partial class ArtifactCapabilityHandler(
             DecidedByAgentInstallationId = actor.InstallationId,
             EvidenceConversationMessageId = request.EvidenceConversationMessageId
         });
-        foreach (var job in await db.ArtifactReviewJobs.Where(x => x.RevisionId == revision.Id &&
-                     x.Status != ArtifactReviewJobStatus.Completed).ToListAsync(token))
-            job.Status = ArtifactReviewJobStatus.Completed;
+        await ArtifactReviewJobLifecycle.CompleteRevisionAsync(db, organizationId, revision.Id, now, token);
         AddArtifactEvent(W.WorkstreamEventNames.ArtifactRevisionDecidedV1, artifact, revision,
             disposition, request.RubricTypeKey, new { artifact.Id, revisionId = revision.Id, revision.ContentSha256,
                 request.RubricTypeKey, disposition, request.Findings });
@@ -364,9 +363,7 @@ public sealed partial class ArtifactCapabilityHandler(
             DecidedByOrganizationUserId = humanEvidence?.OrganizationUserId ?? actor.OrganizationUserId,
             DecidedByAgentInstallationId = humanEvidence is null ? actor.InstallationId : null,
             EvidenceConversationMessageId = request.EvidenceConversationMessageId });
-        foreach (var job in await db.ArtifactReviewJobs.Where(x => x.RevisionId == revision.Id &&
-                     x.Status != ArtifactReviewJobStatus.Completed).ToListAsync(token))
-            job.Status = ArtifactReviewJobStatus.Completed;
+        await ArtifactReviewJobLifecycle.CompleteRevisionAsync(db, organizationId, revision.Id, now, token);
         await db.SaveChangesAsync(token);
         await AuditAsync(accepted ? "artifact.revision.accepted" : "artifact.revision.changes-requested", "Completed", organizationId, artifact.Id, actor, new { revisionId = revision.Id }, token);
         return await AgentDetailAsync(organizationId, artifact.Id, token);

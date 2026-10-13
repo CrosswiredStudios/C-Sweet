@@ -17,6 +17,8 @@ public sealed class DeliveryReviewDocumentAccessTests
 
     [Theory]
     [InlineData("valid")]
+    [InlineData("legacy-pascal-case")]
+    [InlineData("duplicate-identity")]
     [InlineData("foreign-organization")]
     [InlineData("inactive-reviewer")]
     [InlineData("wrong-installation")]
@@ -108,6 +110,11 @@ public sealed class DeliveryReviewDocumentAccessTests
             case "draft": revision.Status = ArtifactRevisionStatus.Draft; break;
             case "wrong-transition": transition.ToStageKey = "other-review"; break;
         }
+        if (condition == "legacy-pascal-case") outcome = outcome with
+        { Output = JsonSerializer.SerializeToElement(new { ArtifactId = artifact.Id, RevisionId = revision.Id, Sha256 = hash }) };
+        if (condition == "duplicate-identity") outcome = outcome with
+        { Output = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+            { ["artifactId"] = artifact.Id, ["ArtifactId"] = Guid.NewGuid(), ["revisionId"] = revision.Id, ["sha256"] = hash }) };
         attempt.ResultJson = JsonSerializer.Serialize(outcome, Json); worker.Attempts.Add(attempt);
         db.AddRange(reviewer, board, ticket, sprint, artifact, transition);
         await db.SaveChangesAsync();
@@ -120,9 +127,10 @@ public sealed class DeliveryReviewDocumentAccessTests
         var results = new List<CapabilityResult>();
         await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
         var response = Assert.Single(results);
-        Assert.Equal(condition == "valid", response.Succeeded);
+        var valid = condition is "valid" or "legacy-pascal-case";
+        Assert.Equal(valid, response.Succeeded);
         Assert.Empty(db.ScopedActionGrants);
-        if (condition != "valid") return;
+        if (!valid) return;
         var payload = JsonSerializer.Deserialize<JsonElement>(response.Payload.ToByteArray(), Json);
         var returned = Assert.Single(payload.GetProperty("revisions").EnumerateArray());
         Assert.Equal(revision.Id, returned.GetProperty("id").GetGuid());

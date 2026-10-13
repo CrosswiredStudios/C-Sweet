@@ -57,7 +57,11 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
         var contextWorks = contexts.Select(x => x.AgentWorkItemId);
         var chatIds = await db.CoreConversations.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId && x.WorkstreamId == project.Id)
             .Select(x => x.Id).ToArrayAsync(token);
-        var turns = await db.ChatTurns.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId && chatIds.Contains(x.ConversationId)).ToListAsync(token);
+        var linkedTurns = await ReadLinkedChatTurnIdsAsync(project, tickets, contexts.Select(x => x.AgentWorkItemId).ToArray(), sessions, token);
+        var turns = await db.ChatTurns.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
+            (chatIds.Contains(x.ConversationId) || linkedTurns.Contains(x.Id) ||
+             x.RetryOfTurnId.HasValue && linkedTurns.Contains(x.RetryOfTurnId.Value))).ToListAsync(token);
+        var successfulChatRecovery = SuccessfulChatRecovery(turns);
         var turnIds = turns.Select(x => x.Id.ToString()).ToArray();
         var chatWorks = await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId.ToString() &&
             x.SourceType == "chat-turn" && turnIds.Contains(x.SourceId!)).Select(x => x.Id).ToListAsync(token);
@@ -84,6 +88,7 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
         CSweet.Domain.Communications.AgentCoordinationSession? Coordination(AgentWorkItem work) => work.SourceType == "agent-coordination" &&
             Guid.TryParse(work.CorrelationId, out var id) ? sessions.SingleOrDefault(x => x.Id == id) : null;
         string FailureKey(AgentWorkItem work) => Coordination(work) is { } collaboration ? $"coordination:{collaboration.Id:N}" :
+            work.SourceType == "chat-turn" && Guid.TryParse(work.SourceId, out var chatTurn) ? $"chat:{chatTurn:N}" :
             work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stage) ? $"stage:{stage:N}" : $"work:{work.Id:N}";
         foreach (var work in works.GroupBy(FailureKey).Select(x => x.OrderByDescending(w => w.CreatedAt).First()))
         {
@@ -91,16 +96,21 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             var key = FailureKey(work);
             if (recovered.Contains(key)) continue;
             var affectedTicket = AffectedTicket(work);
-            if (Coordination(work) is null && tickets.Any(x => x.Id == affectedTicket && x.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) ||
+            if (Coordination(work) is null && work.SourceType != "chat-turn" && tickets.Any(x => x.Id == affectedTicket && x.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) ||
                 Coordination(work)?.Status is AgentCoordinationStatus.Completed or AgentCoordinationStatus.Cancelled ||
                 work.SourceType == "chat-turn" && turns.Any(x => x.Id.ToString() == work.SourceId &&
-                    turns.Any(retry => retry.RetryOfTurnId == x.Id && retry.Status is ChatTurnStatus.Completed or ChatTurnStatus.CompletedWithWarnings)))
+                    successfulChatRecovery.Contains(x.Id)))
             { recovered.Add(key); continue; }
             if (work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var sourceStage) &&
                 stages.Any(x => x.Id == sourceStage && x.Status is WorkStageExecutionStatus.Completed or WorkStageExecutionStatus.Cancelled))
             { recovered.Add(key); continue; }
             if (work.Status is AgentWorkStatus.Completed or AgentWorkStatus.Cancelled)
-            { if (Coordination(work) is null) recovered.Add(key); continue; }
+            {
+                // A reviewer can finish its inbox task by reporting a blocked stage. Only
+                // the authoritative stage outcome above can establish stage recovery.
+                if (Coordination(work) is null && work.SourceType != "WorkStageExecution") recovered.Add(key);
+                continue;
+            }
             var error = latest?.Error ?? work.LastError;
             if (error is null && work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
             {
@@ -162,13 +172,15 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             var fact = new ProjectDiagnosticEvidence(nameof(WorkTask), ticket.Id, ticket.UpdatedAt, Safe($"{ticket.Identifier}: {ticket.BlockReason ?? ticket.ResultSummary}"), $"/organizations/{project.OrganizationId}/work/boards/{ticket.BoardId}");
             failures.Add(new(key, "Ticket failed", ticket.Id, [fact])); evidence.Add(fact);
         }
-        foreach (var turn in turns.Where(x => x.Status == ChatTurnStatus.Failed))
+        foreach (var turn in turns.Where(CSweetDbContext.IsInterruptedHealthTurn))
         {
             var key = $"chat:{turn.Id:N}";
-            if (turns.Any(x => x.RetryOfTurnId == turn.Id && x.Status is ChatTurnStatus.Completed or ChatTurnStatus.CompletedWithWarnings)) { recovered.Add(key); continue; }
-            if (works.Any(x => x.SourceId == turn.Id.ToString() && failures.Any(f => f.Key == $"work:{x.Id:N}"))) continue;
+            if (successfulChatRecovery.Contains(turn.Id)) { recovered.Add(key); continue; }
             var fact = new ProjectDiagnosticEvidence(nameof(ChatTurn), turn.Id, turn.UpdatedAt, Safe($"{turn.ErrorCode}: {turn.ErrorMessage}"), $"/organizations/{project.OrganizationId}/communications/{turn.ConversationId}");
-            failures.Add(new(key, "Project communication failed", null, [fact])); evidence.Add(fact);
+            var existing = failures.FindIndex(x => x.Key == key);
+            if (existing >= 0) failures[existing] = failures[existing] with { Evidence = [.. failures[existing].Evidence, fact] };
+            else failures.Add(new(key, "Project communication failed", null, [fact]));
+            evidence.Add(fact);
         }
         var provisioning = await db.RepositoryProvisioningRequests.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId && x.WorkstreamId == project.Id).ToListAsync(token);
         foreach (var request in provisioning)
@@ -180,6 +192,9 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
                 Safe($"Repository setup {request.Status}: {request.FailureCode}. {request.FailureMessage}"));
             failures.Add(new(key, "Project repository setup failed", null, [fact])); evidence.Add(fact);
         }
+        await ObserveDependencyWaitsAsync(project, tickets, sessions, failures, recovered, evidence, token);
+        // A successful retry is authoritative recovery for a prior chat incident.
+        foreach (var turn in successfulChatRecovery) recovered.Add($"chat:{turn:N}");
         var active = works.Any(w => w.Status == AgentWorkStatus.Leased && w.DeadlineAt > now && attempts.Any(a =>
             a.AgentWorkItemId == w.Id && a.Attempt == w.AttemptCount && a.FinishedAt == null && a.LeaseExpiresAt > now));
         var unfinished = tickets.Where(x => x.Status is not (WorkTaskStatus.Completed or WorkTaskStatus.Cancelled)).ToArray();
@@ -217,4 +232,6 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
     }
 
     internal static string Safe(string value) => AuditPayloadSanitizer.RedactText(value)[..Math.Min(AuditPayloadSanitizer.RedactText(value).Length, 8192)];
+    private static bool SuccessfulChatTurn(ChatTurn turn) => turn.Status == ChatTurnStatus.Completed ||
+        turn.Status == ChatTurnStatus.CompletedWithWarnings && !CSweetDbContext.IsInterruptedHealthTurn(turn);
 }

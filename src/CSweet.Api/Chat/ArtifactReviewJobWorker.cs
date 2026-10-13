@@ -3,6 +3,7 @@ using CSweet.Contracts.Communications;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.Chat;
@@ -31,7 +32,7 @@ public sealed class ArtifactReviewJobWorker(
         }
     }
 
-    private async Task<bool> ProcessNextAsync(CancellationToken token)
+    internal async Task<bool> ProcessNextAsync(CancellationToken token)
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
@@ -43,9 +44,43 @@ public sealed class ArtifactReviewJobWorker(
                     earlier.CreatedAt < x.CreatedAt && earlier.ConversationId == x.ConversationId &&
                     earlier.ReviewerInstallationId == x.ReviewerInstallationId), token);
         if (job is null) return false;
-        if (!job.ConversationId.HasValue || !job.ReviewerOrganizationUserId.HasValue)
+        var artifact = await db.CoreArtifacts.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == job.ArtifactId && x.OrganizationId == job.OrganizationId, token);
+        var revision = await db.ArtifactRevisions.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == job.RevisionId && x.ArtifactId == job.ArtifactId, token);
+        if (artifact is null || revision is null)
         {
-            job.LastError = "An active agent reviewer and conversation must be assigned.";
+            job.Status = ArtifactReviewJobStatus.Failed;
+            job.LastError = "The submitted document or revision no longer exists.";
+            await ArtifactReviewJobLifecycle.DismissNotificationsAsync(db, job, now, token);
+            await db.SaveChangesAsync(token);
+            return true;
+        }
+        if (revision.Status != ArtifactRevisionStatus.Submitted || artifact.ArchivedAt.HasValue ||
+            artifact.SubmittedRevisionId != revision.Id)
+        {
+            await CompleteAsync(db, job, now, token);
+            return true;
+        }
+        // StartForAgentAsync saves delivery before this worker saves its queue state. Recover
+        // that boundary without interpreting an idempotent redelivery as an unavailable agent.
+        var delivered = await db.CoreConversationMessages.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Conversation!.OrganizationId == job.OrganizationId && x.IdempotencyKey == $"artifact-review:{job.Id:D}", token);
+        if (delivered is not null)
+        {
+            if (!await db.ConversationMessageArtifacts.AnyAsync(x => x.MessageId == delivered.Id &&
+                    x.ArtifactId == job.ArtifactId && x.RevisionId == job.RevisionId, token))
+                db.ConversationMessageArtifacts.Add(new ConversationMessageArtifact
+                {
+                    Id = Guid.NewGuid(), OrganizationId = job.OrganizationId, ConversationId = delivered.ConversationId,
+                    MessageId = delivered.Id, ArtifactId = artifact.Id, RevisionId = revision.Id, CreatedAt = now
+                });
+            await CompleteAsync(db, job, now, token);
+            return true;
+        }
+        if (!job.ReviewerOrganizationUserId.HasValue)
+        {
+            job.LastError = "The submitted document has no assigned reviewer. Assign an active reviewer.";
             job.NextAttemptAt = now.AddMinutes(15);
             await NotifyReassignmentAsync(db, job, now, token);
             await db.SaveChangesAsync(token);
@@ -57,14 +92,12 @@ public sealed class ArtifactReviewJobWorker(
             .SingleOrDefaultAsync(token);
         if (reviewer?.EmployeeType == EmployeeType.Human)
         {
-            job.Status = ArtifactReviewJobStatus.Completed;
-            job.LastError = null;
-            await db.SaveChangesAsync(token);
+            await CompleteAsync(db, job, now, token);
             return true;
         }
         if (reviewer?.AgentInstallationId is not Guid reviewerInstallationId)
         {
-            job.LastError = "An active agent reviewer and conversation must be assigned.";
+            job.LastError = "The assigned reviewer is inactive or has no agent installation. Assign an active reviewer.";
             job.NextAttemptAt = now.AddMinutes(15);
             await NotifyReassignmentAsync(db, job, now, token);
             await db.SaveChangesAsync(token);
@@ -72,24 +105,27 @@ public sealed class ArtifactReviewJobWorker(
         }
         job.ReviewerInstallationId = reviewerInstallationId;
 
-        var artifact = await db.CoreArtifacts.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == job.ArtifactId && x.OrganizationId == job.OrganizationId, token);
-        var revision = await db.ArtifactRevisions.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == job.RevisionId && x.ArtifactId == job.ArtifactId, token);
-        if (artifact is null || revision is null)
-        {
-            job.Status = ArtifactReviewJobStatus.Failed;
-            job.LastError = "The submitted document or revision no longer exists.";
-            await db.SaveChangesAsync(token);
-            return true;
-        }
         if (artifact.CreatedByOrganizationUserId == job.ReviewerOrganizationUserId)
         {
-            job.Status = ArtifactReviewJobStatus.Completed;
-            job.LastError = null;
+            await CompleteAsync(db, job, now, token);
+            return true;
+        }
+
+        job.ConversationId ??= artifact.OriginConversationId;
+        if (!job.ConversationId.HasValue || !await db.CoreConversations.AnyAsync(x =>
+                x.Id == job.ConversationId && x.OrganizationId == job.OrganizationId, token))
+        {
+            // Agent reviewers can respond to the durable submission event or an existing
+            // collaboration without a chat delivery. Routing metadata is not a human decision.
+            job.LastError = "Waiting for a review conversation; the assigned agent can still decide the submitted revision.";
+            job.NextAttemptAt = now.AddMinutes(15);
+            logger.LogDebug("Document review {ReviewJobId} has no delivery conversation.", job.Id);
+            await ArtifactReviewJobLifecycle.DismissNotificationsAsync(db, job, now, token);
             await db.SaveChangesAsync(token);
             return true;
         }
+
+        await ArtifactReviewJobLifecycle.DismissNotificationsAsync(db, job, now, token);
 
         try
         {
@@ -103,8 +139,9 @@ public sealed class ArtifactReviewJobWorker(
                 idempotencyKey: $"artifact-review:{job.Id:D}", cancellationToken: token);
             if (started is null)
             {
-                job.Attempts++; job.LastError = "The reviewer is unavailable."; job.NextAttemptAt = now.AddMinutes(5);
-                await NotifyReassignmentAsync(db, job, now, token);
+                // Re-read on the next attempt to distinguish a changed reviewer from a
+                // duplicate delivery. A null result alone does not require human intervention.
+                job.Attempts++; job.LastError = "Review delivery was deferred."; job.NextAttemptAt = now.AddMinutes(5);
                 await db.SaveChangesAsync(token); return true;
             }
             db.ConversationMessageArtifacts.Add(new ConversationMessageArtifact
@@ -112,8 +149,8 @@ public sealed class ArtifactReviewJobWorker(
                 Id = Guid.NewGuid(), OrganizationId = job.OrganizationId, ConversationId = job.ConversationId.Value,
                 MessageId = started.UserMessage.Id, ArtifactId = artifact.Id, RevisionId = revision.Id, CreatedAt = now
             });
-            job.Status = ArtifactReviewJobStatus.Completed; job.Attempts++; job.LastError = null;
-            await db.SaveChangesAsync(token);
+            job.Attempts++;
+            await CompleteAsync(db, job, now, token);
             return true;
         }
         catch (InvalidOperationException exception) when (exception.Message.Contains("active turn", StringComparison.OrdinalIgnoreCase))
@@ -121,6 +158,15 @@ public sealed class ArtifactReviewJobWorker(
             job.Attempts++; job.LastError = "Waiting for the active reviewer turn."; job.NextAttemptAt = now.AddSeconds(5);
             await db.SaveChangesAsync(token); return true;
         }
+    }
+
+    private static async Task CompleteAsync(CSweetDbContext db, ArtifactReviewJob job,
+        DateTimeOffset now, CancellationToken token)
+    {
+        job.Status = ArtifactReviewJobStatus.Completed;
+        job.LastError = null;
+        await ArtifactReviewJobLifecycle.DismissNotificationsAsync(db, job, now, token);
+        await db.SaveChangesAsync(token);
     }
 
     private static async Task NotifyReassignmentAsync(CSweetDbContext db, ArtifactReviewJob job,
@@ -140,8 +186,8 @@ public sealed class ArtifactReviewJobWorker(
             {
                 Id = Guid.NewGuid(), OrganizationId = job.OrganizationId,
                 RecipientOrganizationUserId = recipient, Severity = NotificationSeverity.Important,
-                Category = "ArtifactReviewReassignment", Title = "Document review needs reassignment",
-                Body = "A submitted document is waiting because its assigned agent reviewer is unavailable.",
+                Category = ArtifactReviewJobLifecycle.ReassignmentCategory, Title = "Document review needs reassignment",
+                Body = job.LastError!,
                 ActionUri = $"/organizations/{job.OrganizationId:D}/documents?artifact={job.ArtifactId:D}",
                 DeduplicationKey = key, CreatedAt = now
             });

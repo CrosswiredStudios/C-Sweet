@@ -97,6 +97,59 @@ public sealed class ProjectHealthPostgresTests
             await db.SaveChangesAsync(); await service.ReviewDueAsync(default);
             Assert.All(await db.ProjectIncidents.ToListAsync(), x => Assert.Equal("Resolved", x.Status));
             Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
+            await service.DeliverAsync(default);
+            var notifications = await db.UserNotifications.ToListAsync();
+            Assert.Equal(2, notifications.Count(x => x.Severity == NotificationSeverity.Important && x.DismissedAt != null));
+            Assert.Equal(2, notifications.Count(x => x.Severity == NotificationSeverity.Routine));
+            Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(), x =>
+                x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.NotificationUpdated);
+            // A direct conversation stays unscoped. Its interrupted turn is attributed
+            // through the exact coordination source, while a cleared decision cannot
+            // remain hidden by a fresh retry deadline.
+            var direct = new Conversation { Id = Guid.NewGuid(), OrganizationId = org.Id,
+                Kind = ConversationKind.DirectHumanAgent, InitiatedByOrganizationUserId = owner.Id,
+                AgentOrganizationUserId = producer.Id, CreatedAt = clock.Now, UpdatedAt = clock.Now };
+            var message = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = direct.Id,
+                Role = ConversationRole.User, Content = "Continue this project", CreatedAt = clock.Now, SenderOrganizationUserId = owner.Id };
+            db.AddRange(direct, message); await db.SaveChangesAsync();
+            var interrupted = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = org.Id, ConversationId = direct.Id,
+                TargetAgentOrganizationUserId = producer.Id, UserMessageId = message.Id,
+                Status = ChatTurnStatus.Running, CreatedAt = clock.Now, UpdatedAt = clock.Now };
+            db.Add(interrupted); await db.SaveChangesAsync();
+            (await db.AgentCoordinationSessions.SingleAsync()).SourceChatTurnId = interrupted.Id;
+            var decision = new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = org.Id,
+                WorkstreamId = project.Id, RequestedByOrganizationUserId = owner.Id, Status = "Decided",
+                UpdatedAt = clock.Now.AddMinutes(-16), IdempotencyKey = "cleared-decision" };
+            var dependency = await db.CoreWorkTasks.SingleAsync(x => x.Id == waiting.Id);
+            dependency.WaitingReason = "Waiting for decision"; dependency.NextReviewAt = clock.Now.AddHours(1);
+            dependency.PersonalWorkContextJson = $$"""{"workstreamId":"{{project.Id}}","decisionId":"{{decision.Id}}"}""";
+            db.Add(decision); await db.SaveChangesAsync();
+            interrupted.Status = ChatTurnStatus.CompletedWithWarnings; interrupted.ErrorCode = "memory.runtime_reset";
+            await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+            await service.ReviewDueAsync(default);
+            var newIncidents = await db.ProjectIncidents.Where(x => x.Status == "Open").ToListAsync();
+            Assert.Equal(2, newIncidents.Count);
+            Assert.Contains(newIncidents, x => x.Fingerprint == $"chat:{interrupted.Id:N}");
+            Assert.Contains(newIncidents, x => x.Fingerprint == $"dependency-wait:{waiting.Id:N}");
+            foreach (var recipient in new[] { director.Id, owner.Id })
+            {
+                clock.Now += TimeSpan.FromMinutes(15); await service.ReviewDueAsync(default);
+                Assert.All(await db.ProjectIncidents.Where(x => x.Status == "Open").ToListAsync(), x => Assert.Equal(recipient, x.CurrentRecipientId));
+            }
+            await service.DeliverAsync(default);
+            Assert.Equal(2, (await service.ReadAttentionAsync(org.Id, owner.Id, default)).Count);
+            dependency = await db.CoreWorkTasks.SingleAsync(x => x.Id == waiting.Id);
+            dependency.Status = WorkTaskStatus.Completed; dependency.WaitingReason = null;
+            var retryMessage = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = direct.Id,
+                Role = ConversationRole.User, Content = "Retry the interrupted request", CreatedAt = clock.Now, SenderOrganizationUserId = owner.Id };
+            db.Add(retryMessage); await db.SaveChangesAsync();
+            db.Add(new ChatTurn { Id = Guid.NewGuid(), OrganizationId = org.Id, ConversationId = direct.Id,
+                TargetAgentOrganizationUserId = producer.Id, UserMessageId = retryMessage.Id,
+                RetryOfTurnId = interrupted.Id, Status = ChatTurnStatus.Completed, CreatedAt = clock.Now, UpdatedAt = clock.Now });
+            await db.SaveChangesAsync(); (await db.ProjectHealthStates.SingleAsync()).NextReviewAt = clock.Now;
+            await db.SaveChangesAsync(); await service.ReviewDueAsync(default);
+            Assert.All(await db.ProjectIncidents.ToListAsync(), x => Assert.Equal("Resolved", x.Status));
+            Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
         }
         finally { await db.Database.EnsureDeletedAsync(); }
     }

@@ -54,12 +54,12 @@ public sealed partial class ArtifactCapabilityHandler
             var attempt = producer.Attempts.OrderByDescending(x => x.Attempt).FirstOrDefault();
             if (attempt?.Status != WorkExecutionAttemptStatus.Completed || string.IsNullOrEmpty(attempt.ResultJson)) continue;
             W.WorkExecutionOutcomeV1? outcome;
-            DeliveryReviewReference? reference;
+            W.WorkArtifactDelivery? reference;
             try
             {
                 outcome = JsonSerializer.Deserialize<W.WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions);
-                reference = outcome?.Output.ValueKind == JsonValueKind.Object
-                    ? outcome.Output.Deserialize<DeliveryReviewReference>(JsonOptions) : null;
+                reference = outcome is not null && W.WorkArtifactDelivery.TryRead(outcome.Output, out var delivered)
+                    ? delivered : null;
             }
             catch (JsonException) { continue; }
             if (reference?.ArtifactId != artifactId || outcome!.StageExecutionId != producer.Id || outcome.AttemptId != attempt.Id ||
@@ -80,5 +80,4 @@ public sealed partial class ArtifactCapabilityHandler
         return null;
     }
 
-    private sealed record DeliveryReviewReference(Guid ArtifactId, Guid RevisionId, string Sha256);
 }
