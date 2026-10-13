@@ -3,7 +3,6 @@ using System.Text.Json;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Core;
-using CSweet.Contracts.Llm;
 using CSweet.Domain.Core;
 using CSweet.UI.Components.Employees;
 using CSweet.UI.Components.Employees.Models;
@@ -15,7 +14,6 @@ namespace CSweet.UI.Pages;
 
 public partial class Employees
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     [Parameter]
     public Guid OrganizationId { get; set; }
     [SupplyParameterFromQuery(Name = "tab")]
@@ -40,7 +38,6 @@ public partial class Employees
     private string? _hireAgentKey;
     private IReadOnlyList<AgentInstallationResponse> _agentInstallations = [];
     private IReadOnlyList<AgentInstallationResponse> _agentDefinitions = [];
-    private IReadOnlyList<LlmProviderProfileResponse> _providerProfiles = [];
     private Guid? _hireManagerId;
     private readonly HashSet<Guid> _managedEmployeeIds = [];
     private readonly HashSet<Guid> _hireTeamIds = [];
@@ -49,15 +46,8 @@ public partial class Employees
     private OrganizationUserResponse? _roleEmployee;
     private Guid? _selectedRoleId;
     private OrganizationUserResponse? _configurationEmployee;
-    private AgentConfigurationSchemaResponse? _configurationSchema;
-    private AgentConfigurationView? _configurationView;
     private readonly Dictionary<Guid, AgentRuntimeReadinessResponse> _runtimeStatuses = [];
-    private readonly Dictionary<string, object?> _configurationValues = new(StringComparer.Ordinal);
-    private readonly Dictionary<Guid, IReadOnlyList<string>> _providerModels = [];
-    private readonly HashSet<Guid> _loadingProviderModels = [];
-    private readonly Dictionary<Guid, string> _providerModelErrors = [];
     private readonly CancellationTokenSource _disposeCts = new();
-    private CancellationTokenSource? _configurationCts;
     private CancellationTokenSource? _runtimeStatusCts;
     private Guid? _managingRuntimeInstallationId;
     private bool _runtimeConsoleOpen;
@@ -66,10 +56,6 @@ public partial class Employees
     private IReadOnlyList<AgentRuntimeRunResponse> _runtimeRuns = [];
     private string? _runtimeConsoleError;
     private bool _configurationDialogOpen;
-    private bool _loadingConfiguration;
-    private bool _savingConfiguration;
-    private string? _configurationError;
-    private string? _configurationMessage;
     private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
     private readonly DialogOptions _runtimeConsoleOptions = new() { MaxWidth = MaxWidth.Large, FullWidth = true, CloseButton = true };
     private EmployeeViewKind _activeView = EmployeeViewKind.Teams;
@@ -131,11 +117,9 @@ public partial class Employees
             _workers = await Http.GetFromJsonAsync<IReadOnlyList<WorkerResponse>>($"api/organizations/{OrganizationId}/workers") ?? [];
             var installationsTask = AgentApi.ListInstallationsAsync();
             var definitionsTask = AgentApi.ListDefinitionsAsync();
-            var providersTask = LlmProviderApi.ListAsync();
-            await Task.WhenAll(installationsTask, definitionsTask, providersTask);
+            await Task.WhenAll(installationsTask, definitionsTask);
             _agentInstallations = await installationsTask;
             _agentDefinitions = await definitionsTask;
-            _providerProfiles = await providersTask;
             _hiringDashboard = await Http.GetFromJsonAsync<HiringDashboardResponse>(
                 $"api/core/organizations/{OrganizationId}/hiring");
             await ReloadTeamsAsync();
@@ -1042,318 +1026,16 @@ public partial class Employees
         StartRuntimeStatusRefresh();
     }
 
-    private async Task OpenConfigurationAsync(OrganizationUserResponse employee)
+    private Task OpenConfigurationAsync(OrganizationUserResponse employee)
     {
         if (employee.AgentInstallationId is null)
         {
             _actionError = "This agent employee is not linked to an installation.";
-            return;
+            return Task.CompletedTask;
         }
-
         _configurationEmployee = employee;
         _configurationDialogOpen = true;
-        _loadingConfiguration = true;
-        _configurationError = null;
-        _configurationMessage = null;
-        _configurationView = null;
-        _configurationValues.Clear();
-        _configurationCts?.Cancel();
-        _configurationCts?.Dispose();
-        _configurationCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token);
-        _configurationCts.CancelAfter(TimeSpan.FromSeconds(90));
-        var cancellationToken = _configurationCts.Token;
-        try
-        {
-            _configurationView = await AgentApi.GetEmployeeConfigurationAsync(
-                OrganizationId, employee.Id, cancellationToken);
-            _configurationSchema = ToSchema(_configurationView);
-            HydrateConfigurationValues(_configurationSchema);
-            await LoadConfiguredProviderModelsAsync(_configurationSchema, cancellationToken);
-        }
-        catch (OperationCanceledException) when (_configurationCts.IsCancellationRequested)
-        {
-            if (_configurationDialogOpen && !_disposeCts.IsCancellationRequested)
-            {
-                _configurationError = "The configuration request timed out. Try again.";
-            }
-            _configurationSchema = null;
-        }
-        catch (Exception exception)
-        {
-            _configurationError = exception.Message;
-            _configurationSchema = null;
-        }
-        finally
-        {
-            _loadingConfiguration = false;
-        }
-    }
-
-    private async Task SaveConfigurationAsync()
-    {
-        if (_configurationEmployee is null || _configurationSchema is null || _configurationView is null) return;
-        _savingConfiguration = true;
-        _configurationError = null;
-        _configurationMessage = null;
-        try
-        {
-            var settings = _configurationSchema.Fields.ToDictionary(
-                field => field.Key,
-                field => JsonSerializer.SerializeToElement(_configurationValues.GetValueOrDefault(field.Key), SerializerOptions),
-                StringComparer.Ordinal);
-            _configurationView = await AgentApi.UpdateEmployeeConfigurationAsync(
-                OrganizationId,
-                _configurationEmployee.Id,
-                new PutAgentConfigurationOverridesRequest(settings, _configurationView.ExpectedRevision));
-            _configurationSchema = ToSchema(_configurationView);
-            HydrateConfigurationValues(_configurationSchema);
-            _configurationMessage = _configurationView.SynchronizationStatus == "Current"
-                ? "Agent overrides saved and current."
-                : "Agent overrides saved. A running instance will refresh; a stopped instance remains stopped.";
-        }
-        catch (Exception exception)
-        {
-            _configurationError = exception.Message;
-        }
-        finally
-        {
-            _savingConfiguration = false;
-        }
-    }
-
-    private void CloseConfiguration()
-    {
-        _configurationDialogOpen = false;
-        _configurationCts?.Cancel();
-    }
-
-    private async Task RestoreConfigurationKeyAsync(string key)
-    {
-        if (_configurationEmployee is null || _configurationView is null) return;
-        await MutateConfigurationAsync(async () =>
-            await AgentApi.RestoreEmployeeConfigurationKeyAsync(
-                OrganizationId, _configurationEmployee.Id, key, _configurationView.ExpectedRevision,
-                _disposeCts.Token), $"Restored {key} to the global default.");
-    }
-
-    private async Task RestoreAllConfigurationAsync()
-    {
-        if (_configurationEmployee is null || _configurationView is null) return;
-        await MutateConfigurationAsync(async () =>
-            await AgentApi.RestoreAllEmployeeConfigurationAsync(
-                OrganizationId, _configurationEmployee.Id, _configurationView.ExpectedRevision,
-                _disposeCts.Token), "Restored all global defaults.");
-    }
-
-    private async Task MutateConfigurationAsync(
-        Func<Task<AgentConfigurationView>> action, string successMessage)
-    {
-        _savingConfiguration = true;
-        _configurationError = null;
-        _configurationMessage = null;
-        try
-        {
-            _configurationView = await action();
-            _configurationSchema = ToSchema(_configurationView);
-            HydrateConfigurationValues(_configurationSchema);
-            _configurationMessage = successMessage;
-        }
-        catch (Exception exception)
-        {
-            _configurationError = exception.Message;
-        }
-        finally
-        {
-            _savingConfiguration = false;
-        }
-    }
-
-    private bool IsConfigurationOverridden(string key) =>
-        _configurationView?.OverriddenKeys.Contains(key, StringComparer.Ordinal) == true;
-
-    private static AgentConfigurationSchemaResponse ToSchema(AgentConfigurationView view) => new(
-        view.AgentId, view.AgentVersion, view.SchemaVersion, view.Fields, view.EffectiveValues);
-
-    private void HydrateConfigurationValues(AgentConfigurationSchemaResponse schema)
-    {
-        _configurationValues.Clear();
-        foreach (var field in schema.Fields)
-        {
-            _configurationValues[field.Key] = schema.Settings.TryGetValue(field.Key, out var value)
-                ? field.Type switch
-                {
-                    AgentConfigurationFieldTypes.Boolean => value.ValueKind == JsonValueKind.True,
-                    AgentConfigurationFieldTypes.Number when value.TryGetDecimal(out var number) => number,
-                    _ => value.ValueKind == JsonValueKind.String ? value.GetString() : null
-                }
-                : null;
-        }
-    }
-
-    private string ConfigurationString(string key) => _configurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
-    private bool ConfigurationBoolean(string key) => _configurationValues.GetValueOrDefault(key) is true;
-    private decimal? ConfigurationNumber(string key) => _configurationValues.GetValueOrDefault(key) as decimal?;
-
-    private bool IsConfigurationFieldVisible(AgentConfigurationField field) =>
-        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
-    private void SetConfigurationValue(string key, object? value) => _configurationValues[key] = value;
-
-    private async Task SetProviderValueAsync(string key, string value)
-    {
-        _configurationValues[key] = value;
-        if (_configurationSchema is null)
-        {
-            return;
-        }
-
-        var provider = FindProvider(value);
-        if (provider is not null)
-        {
-            await LoadProviderModelsAsync(provider.Id, _disposeCts.Token);
-        }
-
-        foreach (var modelField in _configurationSchema.Fields.Where(field =>
-            field.Type == AgentConfigurationFieldTypes.LlmModel &&
-            string.Equals(ConfigurationProviderFieldKey(field), key, StringComparison.Ordinal)))
-        {
-            var models = provider is null ? [] : ModelOptions(modelField);
-            _configurationValues[modelField.Key] = provider is null
-                ? string.Empty
-                : models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
-                    ? provider.DefaultChatModel
-                    : models.FirstOrDefault() ?? string.Empty;
-        }
-    }
-
-    private bool IsModelPickerDisabled(AgentConfigurationField field) =>
-        ConfigurationProvider(field) is not { } provider ||
-        _loadingProviderModels.Contains(provider.Id);
-
-    private string ModelPlaceholder(AgentConfigurationField field) =>
-        ConfigurationProvider(field) is not { } provider
-            ? "Select a provider first"
-            : _loadingProviderModels.Contains(provider.Id)
-                ? "Loading models..."
-                : "Select a model";
-
-    private IReadOnlyList<string> ModelOptions(AgentConfigurationField field)
-    {
-        var provider = ConfigurationProvider(field);
-        if (provider is null)
-        {
-            return [];
-        }
-
-        var models = _providerModels.GetValueOrDefault(provider.Id) ?? [];
-        return models
-            .Append(provider.DefaultChatModel)
-            .Where(model => !string.IsNullOrWhiteSpace(model))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private bool SelectedModelMissing(AgentConfigurationField field)
-    {
-        var selected = ConfigurationString(field.Key);
-        return !string.IsNullOrWhiteSpace(selected) &&
-            !ModelOptions(field).Contains(selected, StringComparer.Ordinal);
-    }
-
-    private LlmProviderProfileResponse? ConfigurationProvider(AgentConfigurationField field) =>
-        FindProvider(ConfigurationString(ConfigurationProviderFieldKey(field)));
-
-    private string ConfigurationProviderFieldKey(AgentConfigurationField modelField) =>
-        !string.IsNullOrWhiteSpace(modelField.DependsOnFieldKey)
-            ? modelField.DependsOnFieldKey
-            : _configurationSchema?.Fields.FirstOrDefault(field =>
-                field.Type == AgentConfigurationFieldTypes.LlmProvider)?.Key ?? string.Empty;
-
-    private LlmProviderProfileResponse? FindProvider(string providerId) =>
-        Guid.TryParse(providerId, out var id)
-            ? _providerProfiles.FirstOrDefault(provider => provider.Id == id && provider.IsEnabled)
-            : null;
-
-    private async Task LoadConfiguredProviderModelsAsync(
-        AgentConfigurationSchemaResponse schema,
-        CancellationToken cancellationToken)
-    {
-        var providerIds = schema.Fields
-            .Where(field => field.Type == AgentConfigurationFieldTypes.LlmProvider)
-            .Select(field => ConfigurationString(field.Key))
-            .Where(value => Guid.TryParse(value, out _))
-            .Select(Guid.Parse)
-            .Distinct()
-            .ToList();
-
-        await Task.WhenAll(providerIds.Select(providerId =>
-            LoadProviderModelsAsync(providerId, cancellationToken)));
-
-        foreach (var modelField in schema.Fields.Where(field =>
-                     field.Type == AgentConfigurationFieldTypes.LlmModel &&
-                     string.IsNullOrWhiteSpace(ConfigurationString(field.Key))))
-        {
-            var provider = ConfigurationProvider(modelField);
-            if (provider is null)
-            {
-                continue;
-            }
-
-            var models = ModelOptions(modelField);
-            _configurationValues[modelField.Key] =
-                models.Contains(provider.DefaultChatModel, StringComparer.Ordinal)
-                    ? provider.DefaultChatModel
-                    : models.FirstOrDefault() ?? string.Empty;
-        }
-    }
-
-    private async Task LoadProviderModelsAsync(Guid providerId, CancellationToken cancellationToken)
-    {
-        if ((_providerModels.ContainsKey(providerId) && !_providerModelErrors.ContainsKey(providerId)) ||
-            !_loadingProviderModels.Add(providerId))
-        {
-            return;
-        }
-
-        _providerModelErrors.Remove(providerId);
-        try
-        {
-            var result = await LlmProviderApi.GetModelCatalogAsync(providerId, cancellationToken);
-            if (!result.Succeeded)
-            {
-                _providerModelErrors[providerId] =
-                    result.Message ?? "Models could not be loaded from this provider.";
-                _providerModels[providerId] = [];
-                return;
-            }
-
-            _providerModels[providerId] = result.Models
-                .Select(model => model.Id)
-                .Where(model => !string.IsNullOrWhiteSpace(model))
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            _providerModelErrors[providerId] = exception.Message;
-            _providerModels[providerId] = [];
-        }
-        finally
-        {
-            _loadingProviderModels.Remove(providerId);
-        }
-    }
-
-    private string? ModelCatalogError(AgentConfigurationField providerField)
-    {
-        var provider = FindProvider(ConfigurationString(providerField.Key));
-        return provider is not null &&
-               _providerModelErrors.TryGetValue(provider.Id, out var error)
-            ? error
-            : null;
+        return Task.CompletedTask;
     }
 
     private async Task<Guid?> ResolveAgentWorkerAsync()
@@ -1424,8 +1106,6 @@ public partial class Employees
 
     public void Dispose()
     {
-        _configurationCts?.Cancel();
-        _configurationCts?.Dispose();
         _runtimeStatusCts?.Cancel();
         _runtimeStatusCts?.Dispose();
         _disposeCts.Cancel();

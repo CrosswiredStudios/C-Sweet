@@ -53,3 +53,18 @@ served; actual inference continues to use the runtime's provider error handling.
 - `tests/CSweet.UnitTests/AgentDefinitionUpgradeConfigurationTests.cs`: offline provider upgrades, retained defaults and employee overrides, incompatible configuration, and explicit model-edit validation.
 - `tests/CSweet.UnitTests/AgentBuildJobTests.cs`: successful source builds with valid and incompatible saved settings.
 - `tests/CSweet.UnitTests/PrebuiltBundleInstallServiceTests.cs`: prebuilt retry reads persisted configuration and applies full local readiness.
+
+## Employee configuration workspace
+
+`EmployeeDetails` exposes the agent instance editor at `?tab=configuration`.
+`EmployeeConfigurationPanel` is shared with the Directory's Configure Agent dialog,
+uses the installed agent's schema and conditional fields, and only requests provider
+catalogs when the agent declares provider/model settings. Human employees cannot
+open this tab; sensitive-view permissions gate rendering and the existing employee
+configuration API independently enforces management access.
+
+Saves and per-field/all-default restores use `ExpectedRevision`. A conflict retains
+the draft and offers reload; restore actions are disabled while edits are unsaved.
+The panel provides field validation, masked secret inputs, catalog retry, and a
+single-column layout for mobile and narrow dialogs. `EmployeeConfigurationPanelTests`
+and `EmployeeDetailsPageTests` cover the editor and tab routing.

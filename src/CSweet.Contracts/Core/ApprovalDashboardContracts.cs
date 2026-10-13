@@ -111,4 +111,10 @@ public sealed record ApprovalDashboardResponse(
 }
 
 public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId, string ProjectName,
-    string ReporterName, string Reason, string Facts, string RecommendedAction, string ActionUri, DateTimeOffset DetectedAt);
+    string ReporterName, string Reason, string Facts, string RecommendedAction, string ActionUri, DateTimeOffset DetectedAt)
+{
+    public ProjectIncidentCollaborationResponse? Collaboration { get; init; }
+}
+
+public sealed record ProjectIncidentCollaborationResponse(Guid SessionId, Guid ConversationId, long Revision,
+    string Status, bool CanRetry, string InvestigateUri);

@@ -3,6 +3,29 @@
 Status: Windows assisted installation and stale-installation recovery implemented  
 Last updated: 2026-09-20
 
+## Setup Assistant presentation (2026-10-12)
+
+`CSweet.UI/Pages/Setup.razor` hosts the four onboarding steps in the Setup Assistant:
+horizontal progress, a contextual sidebar, and a shared form column. `Setup.razor.css`
+and the `.setup-assistant` rules in `wwwroot/css/app.css` own the responsive layout;
+the sidebar becomes a compact header on mobile. The saved Aurora/Gold appearance also
+applies to provider editor and deletion dialogs. Email and communications remain outside
+this flow.
+
+`AgentHostOnboardingStep.LocalExperience` retains capacity presets/custom limits,
+Windows approval, missing-handoff and stalled-launch recovery, reassignment, destructive
+removal confirmation, removal retry, and readiness gating. Once a local session starts,
+the location choices become a compact location summary. Failed, expired, and revoked
+sessions show an error indicator instead of a loading spinner. `RemoteExperience` retains
+platform instructions, code replacement/copy, identity inspection, approve/reject, and
+health checks; Linux local setup continues to use the portable instructions.
+
+`OnboardingWorkspaceRenderingTests` exercises the four steps in both themes, Office
+recovery/readiness states, and provider connection, deletion, and media-operation forms.
+Its `CSWEET_SETUP_PREVIEWS` output can be loaded with the app and scoped styles for
+desktop/mobile layout checks without installing or removing an Office. These rendering
+checks do not replace an end-to-end Windows installation test.
+
 ## Release-first development onboarding (2026-09-19)
 
 `CSweet.AppHost/Program.cs` enables the Windows launcher without requiring a sibling Office

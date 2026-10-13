@@ -67,9 +67,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
                 db.ChangeTracker.Clear();
                 var failed = await db.ProjectHealthStates.SingleAsync(x => x.WorkstreamId == state.WorkstreamId, token);
                 failed.NextReviewAt = now.AddMinutes(1); failed.Revision++;
-                var incidents = await db.ProjectIncidents.Where(x => x.WorkstreamId == state.WorkstreamId && x.Status == "Open").Take(100).ToListAsync(token);
-                foreach (var incident in incidents)
-                    incident.MissingEvidence = "Project health assessment failed; the last recorded baseline is retained. Escalation remains scheduled.";
+                await RecordAssessmentFailureAsync(failed, token);
                 await db.SaveChangesAsync(token);
             }
         }
@@ -88,6 +86,27 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
             await ForwardCoreAsync(incident, "No substantive response within 15 minutes; forwarding the available report. Diagnosis or delivery may be unavailable.", token);
             await db.SaveChangesAsync(token);
         }
+    }
+
+    private async Task RecordAssessmentFailureAsync(ProjectHealthState state, CancellationToken token)
+    {
+        // A monitor failure must be visible even if it happened before the first work incident.
+        // Keep one episode and its original handoff deadline across repeated failed reviews.
+        if (await db.ProjectIncidents.AnyAsync(x => x.WorkstreamId == state.WorkstreamId &&
+            x.Status == "Open" && x.Fingerprint == "health-assessment", token)) return;
+        var project = await db.Workstreams.SingleAsync(x => x.Id == state.WorkstreamId, token);
+        var manager = await MonitoringManagerAsync(project, token);
+        if (!manager.HasValue) return;
+        var now = clock.GetUtcNow();
+        var incident = new ProjectIncident { Id = Guid.NewGuid(), OrganizationId = project.OrganizationId,
+            WorkstreamId = project.Id, ProducerEmployeeId = manager.Value, CurrentRecipientId = manager.Value,
+            Fingerprint = "health-assessment", Reason = "Project health assessment is unavailable",
+            Facts = "The platform could not assess this project's current work. Progress and blockers cannot be verified.",
+            MissingEvidence = "The health assessment failed. Platform service logs contain the diagnostic details.",
+            RecommendedAction = "Restore project health assessment and review the project's current blockers.",
+            DetectedAt = now, LastProgressAt = state.LastProgressAt, EscalateAt = now.Add(Threshold) };
+        db.ProjectIncidents.Add(incident);
+        await NotifyAsync(incident, token);
     }
 
     private async Task<Guid?> MonitoringManagerAsync(Workstream project, CancellationToken token)
@@ -136,13 +155,16 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
         if (!manager.HasValue) { await db.SaveChangesAsync(token); return; }
         state.ProducerEmployeeId = manager.Value;
         var observation = await reader.ObserveAsync(project, token, initialize);
+        await CoalesceCoordinationIncidentsAsync(project, open, token);
         state.LastProgressAt = observation.LastProgress > state.LastProgressAt ? observation.LastProgress : state.LastProgressAt;
         state.HasActiveWork = observation.Active; state.WaitingReason = observation.Waiting;
-        foreach (var incident in open)
+        foreach (var incident in open.Where(x => x.Status == "Open"))
         {
-            var recovered = observation.Recovered.Contains(incident.Fingerprint) || incident.Fingerprint == "idle" &&
+            var recovered = incident.Fingerprint == "health-assessment" || observation.Recovered.Contains(incident.Fingerprint) || incident.Fingerprint == "idle" &&
                 state.LastProgressAt > incident.LastProgressAt;
-            if (recovered) await ResolveAsync(incident, "Authoritative project evidence confirms recovery.", token);
+            if (recovered) await ResolveAsync(incident, incident.Fingerprint == "health-assessment"
+                ? "Project health assessment succeeded; any work blockers are tracked separately."
+                : "Authoritative project evidence confirms recovery.", token);
         }
         var failures = observation.Failures.ToList();
         if (failures.Count == 0 && !observation.Active && observation.Waiting is null && now - state.LastProgressAt >= Threshold)
@@ -260,12 +282,8 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
         Id = Guid.NewGuid(), IncidentId = incident.Id, RecipientId = recipient, SenderId = sender, Revision = incident.Revision,
         Markdown = Format(incident), NextAttemptAt = clock.GetUtcNow() });
 
-    internal static string Format(ProjectIncident x) => $"### Project incident — {x.Status}\n\n{x.Reason}\n\n" +
-        $"**Observed facts**\n{x.Facts}\n\n**Likely cause**\n{x.LikelyCause}\n\n**Missing evidence**\n{x.MissingEvidence}\n\n" +
-        $"**Requested action**\n{x.RecommendedAction}\n\n**Recorded recovery action**\n{x.ActionReference ?? "None recorded."}\n\n**Escalation history**\n" +
-        string.Join("\n", Deserialize<ManagementIncidentHop>(x.HistoryJson).Select(h => $"- {h.OccurredAt:O}: {h.FromEmployeeId} → {h.ToEmployeeId}: {h.Reason}")) +
-        "\n\n**Evidence**\n" + string.Join("\n", Deserialize<ProjectDiagnosticEvidence>(x.EvidenceJson).Take(10).Select(e =>
-            $"- {e.Kind} `{e.SourceId}`: {e.Detail}" + (e.Link is null ? "" : $" [Open source]({e.Link})"))) + $"\n\nIncident `{x.Id}` · Project `{x.WorkstreamId}`. Acknowledgement does not resolve this incident.";
+    // The delivery worker builds the recipient-checked, current-state presentation before sending.
+    internal static string Format(ProjectIncident x) => $"Project report: {x.Status}. {x.Reason}";
 
     private static IReadOnlyList<T> Deserialize<T>(string json) => JsonSerializer.Deserialize<T[]>(json, Json) ?? [];
     private static ManagementIncident Map(ProjectIncident x) => new(x.Id, x.WorkstreamId, x.ProducerEmployeeId, x.CurrentRecipientId,

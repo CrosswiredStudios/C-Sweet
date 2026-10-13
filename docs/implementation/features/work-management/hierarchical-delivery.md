@@ -6,6 +6,8 @@ This is the normative specification for new game and software installations. Pub
 
 Code flows task → story → shared release → repository default branch. Architects may bind an optional epic branch between story and release. Repository-specific `WorkDeliveryBranchBinding` records are authoritative, including workspace preparation, refresh, retries and PR targets.
 
+`GitWorkspaceCapabilityHandler.PrepareAsync` preserves the existing workspace on reconnect. For a new task assignment revision, `ResolveReworkBaseAsync` carries forward the immediately preceding revision's latest unintegrated publication for the same organization, repository, task and story target. Technical Review rework therefore edits the rejected candidate instead of rebuilding from an empty story. Completed integration receipts or merged publications select the current story instead, preserving other integrated work during QA fixes. Rework still has its own task branch/revision and must pass the existing review and integration gates. A previously prepared workspace is never silently reset to an older candidate; recovery of an already incorrect workspace requires stopping its writer and preserving its snapshot first.
+
 | Scope | Required gates | Authority |
 | --- | --- | --- |
 | Code task | implementation, independent Technical Review, trusted story integration, QA of exact integrated commit | active sprint and activated plan |

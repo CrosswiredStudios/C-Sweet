@@ -913,20 +913,27 @@ public sealed class AgentCoordinationServiceTests
     [InlineData("other-capability", false)]
     [InlineData("backoff", false)]
     [InlineData("exhausted", false)]
+    [InlineData("provider-interrupted", true)]
+    [InlineData("provider-exhausted", false)]
+    [InlineData("provider-permanent", false)]
+    [InlineData("unrelated-model-run", false)]
     public async Task RecoveryReassessesUnavailableInferenceWithoutOverridingOtherBlockers(string scenario, bool recover)
     {
         await using var fixture = await Fixture.CreateAsync();
         var now = DateTimeOffset.UtcNow;
         var stored = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
         var capability = scenario == "other-capability" ? "platform.artifact-package.read.v1" : "platform.llm.chat-stream.v1";
-        var error = $"agent-failure:v1;code=platform.capability.unavailable;retryable=false;capability={capability};diagnosticId=test";
+        var providerFailure = scenario.StartsWith("provider-", StringComparison.Ordinal);
+        var code = providerFailure ? "llm.provider_unavailable" : "platform.capability.unavailable";
+        var retryable = providerFailure && scenario != "provider-permanent" ? "true" : "false";
+        var error = $"agent-failure:v1;code={code};retryable={retryable};capability={capability};diagnosticId=test";
         var work = await fixture.Inbox.EnqueueAsync(fixture.OrganizationId.ToString("D"), fixture.TargetInstallationId,
             CSweet.Domain.Setup.AgentWorkKind.Event, AgentCoordinationEvents.TurnRequested, JsonSerializer.SerializeToElement(new {}),
             "unavailable-inference", now.AddHours(1), correlationId: fixture.SessionId.ToString("D"),
             causationId: stored.Turns.Single().Id.ToString("D"), sourceType: "agent-coordination",
             sourceId: Guid.NewGuid().ToString("D"));
         work.Status = AgentWorkStatus.DeadLetter;
-        work.AttemptCount = scenario == "exhausted" ? 12 : scenario == "backoff" ? 4 : 1;
+        work.AttemptCount = scenario == "exhausted" ? 12 : scenario == "backoff" ? 4 : scenario == "provider-exhausted" ? 3 : 1;
         work.LastError = error;
         stored.Status = AgentCoordinationStatus.Failed;
         stored.FinalSummary = error;
@@ -938,6 +945,7 @@ public sealed class AgentCoordinationServiceTests
         if (scenario != "no-evidence")
             fixture.Db.AgentRunLogs.Add(new() { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
                 AgentInstallationId = fixture.TargetInstallationId, ProviderProfileId = provider,
+                AgentWorkItemId = scenario == "unrelated-model-run" ? Guid.NewGuid() : work.Id,
                 StartedAt = work.CreatedAt, Status = "Failed" });
         await fixture.Db.SaveChangesAsync();
         Assert.Equal(recover ? 1 : 0, await fixture.Service.RecoverTransientFailuresAsync(now));

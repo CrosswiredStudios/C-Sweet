@@ -248,7 +248,7 @@ public sealed class ProjectHealthTests
         Assert.Single(f.Db.CoreConversationMessages); Assert.Single(f.Db.UserNotifications);
         Assert.Contains(f.Db.ApplicationRealtimeOutbox, x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ProjectIncidentChanged &&
             x.RecipientOrganizationUserId == f.Ceo.Id);
-        Assert.Contains(incident.Id.ToString(), f.Db.CoreConversationMessages.Single().Content);
+        Assert.Equal(incident.Id, f.Db.CoreConversationMessages.Single().CorrelationId);
         Assert.Equal(3, JsonSerializer.Deserialize<ManagementIncidentHop[]>(incident.HistoryJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!.Length);
     }
 
@@ -378,6 +378,142 @@ public sealed class ProjectHealthTests
         plan.Status = "Active";
         await f.Db.SaveChangesAsync(); await f.Review();
         Assert.Equal("Resolved", incident.Status);
+    }
+
+    [Fact]
+    public async Task BrokenAssessmentEscalatesOnceAndOnlySuccessfulAssessmentResolvesIt()
+    {
+        await using var f = await Fixture.Create();
+        f.Director.ReportsToOrganizationUserId = f.Ceo.Id;
+        var plan = new WorkDeliveryPlan { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+            ManagerOrganizationUserId = f.Producer.Id, ScopesJson = "{}", CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        f.Db.Add(plan); await f.Db.SaveChangesAsync(); await f.Review();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        var deadline = incident.EscalateAt;
+        Assert.Equal("health-assessment", incident.Fingerprint);
+        Assert.Equal(f.Producer.Id, incident.CurrentRecipientId);
+        await f.Review();
+        incident = Assert.Single(f.Db.ProjectIncidents);
+        Assert.Equal(deadline, incident.EscalateAt);
+        Assert.Single(f.Db.AgentPlatformEventOutbox);
+        foreach (var recipient in new[] { f.Director.Id, f.Ceo.Id })
+        {
+            f.Clock.Now += TimeSpan.FromMinutes(15); await f.Review();
+            incident = Assert.Single(f.Db.ProjectIncidents);
+            Assert.Equal(recipient, incident.CurrentRecipientId);
+        }
+        await f.Service.DeliverAsync(default); await f.Service.DeliverAsync(default);
+        Assert.Equal(f.Director.Id, Assert.Single(f.Db.CoreConversationMessages).SenderOrganizationUserId);
+        Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        var savedPlan = await f.Db.WorkDeliveryPlans.SingleAsync();
+        savedPlan.Status = "Cancelled"; await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Equal("Resolved", (await f.Db.ProjectIncidents.SingleAsync(x => x.Id == incident.Id)).Status);
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+    }
+
+    [Fact]
+    public async Task FailedCollaborationHasOneEpisodeAcrossClearedPointersRetriesAndCompletion()
+    {
+        await using var f = await Fixture.Create();
+        var session = new CSweet.Domain.Communications.AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, ConversationId = Guid.NewGuid(), Subject = "Technical planning",
+            InitiatorOrganizationUserId = f.Producer.Id, Status = CSweet.Domain.Communications.AgentCoordinationStatus.Failed,
+            FinalSummary = "llm.request_failed", CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = f.Producer.AgentInstallationId!.Value,
+            Name = "planning", SourceType = "agent-coordination", CorrelationId = session.Id.ToString(), CausationId = Guid.NewGuid().ToString(),
+            Status = AgentWorkStatus.DeadLetter, AttemptCount = 1, CreatedAt = f.Clock.Now, LastError = "agent-failure:v1;code=llm.request_failed;retryable=false" };
+        f.Db.AddRange(session, work); await f.Db.SaveChangesAsync(); await f.Review();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        Assert.Equal($"coordination:{session.Id:N}", incident.Fingerprint);
+        Assert.Contains("AgentCoordinationSession", incident.EvidenceJson);
+        var deadline = incident.EscalateAt;
+        // Closing the originating ticket cannot establish that its failed collaboration recovered.
+        var ticket = f.Ticket(WorkTaskStatus.Completed);
+        session.SourceWorkItemId = ticket.Id;
+        session.CurrentAgentWorkItemId = work.Id;
+        f.Db.Add(ticket); await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Equal("Open", incident.Status); Assert.Single(f.Db.ProjectIncidents);
+        session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Active;
+        var retry = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = work.AgentInstallationId,
+            Name = work.Name, SourceType = work.SourceType, CorrelationId = work.CorrelationId, CausationId = work.CausationId,
+            Status = AgentWorkStatus.Pending, CreatedAt = f.Clock.Now.AddSeconds(1), DeadlineAt = f.Clock.Now.AddHours(1) };
+        f.Db.Add(retry); await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Equal("Open", incident.Status); Assert.Equal(deadline, incident.EscalateAt);
+        Assert.Contains("queued", (await f.Service.PresentAsync(incident, default)).Recovery);
+        session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Completed;
+        session.CompletedAt = f.Clock.Now; await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Equal("Resolved", incident.Status); Assert.Single(f.Db.ProjectIncidents);
+    }
+
+    [Fact]
+    public async Task LegacyDuplicateIsSupersededAndOwnerGetsCompactActionableReportWithoutEvidenceSpam()
+    {
+        await using var f = await Fixture.Create();
+        var session = new CSweet.Domain.Communications.AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, ConversationId = Guid.NewGuid(), InitiatorOrganizationUserId = f.Producer.Id,
+            Subject = "Technical planning", Status = CSweet.Domain.Communications.AgentCoordinationStatus.Failed,
+            FinalSummary = "llm.request_failed", CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = f.Producer.AgentInstallationId!.Value,
+            SourceType = "agent-coordination", CorrelationId = session.Id.ToString(), Status = AgentWorkStatus.DeadLetter, AttemptCount = 1,
+            LastError = "agent-failure:v1;code=llm.request_failed;retryable=false", CreatedAt = f.Clock.Now };
+        ProjectIncident Old(string key) => new() { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+            ProducerEmployeeId = f.Producer.Id, CurrentRecipientId = f.Ceo.Id, Fingerprint = key, DetectedAt = f.Clock.Now,
+            Facts = new string('x', 8000) + "model.response.chunk", RecommendedAction = "My responsibility is creative direction; manager review is needed." };
+        var canonical = Old($"coordination:{session.Id:N}"); var duplicate = Old($"work:{work.Id:N}");
+        f.Db.AddRange(session, work, canonical, duplicate);
+        await f.Db.SaveChangesAsync(); await f.Review(); await f.Service.DeliverAsync(default);
+        Assert.Equal("Superseded", duplicate.Status); Assert.Equal("Open", canonical.Status);
+        Assert.Null(duplicate.ResolvedAt);
+        var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.Equal(canonical.Id, attention.Id);
+        var collaboration = Assert.IsType<CSweet.Contracts.Core.ProjectIncidentCollaborationResponse>(attention.Collaboration);
+        Assert.Equal(session.Id, collaboration.SessionId); Assert.Equal(session.ConversationId, collaboration.ConversationId);
+        Assert.Equal(session.Revision, collaboration.Revision); Assert.True(collaboration.CanRetry);
+        Assert.Contains($"collaboration={session.Id}", collaboration.InvestigateUri);
+        Assert.Contains($"perspective={session.InitiatorOrganizationUserId}", collaboration.InvestigateUri);
+        f.Ceo.PermissionLevel = OrganizationPermissionLevel.Contributor; await f.Db.SaveChangesAsync();
+        Assert.False(Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)).Collaboration!.CanRetry);
+        f.Ceo.PermissionLevel = OrganizationPermissionLevel.Owner;
+        session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Active; await f.Db.SaveChangesAsync();
+        Assert.False(Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)).Collaboration!.CanRetry);
+        session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Failed; await f.Db.SaveChangesAsync();
+        var content = Assert.Single(f.Db.CoreConversationMessages).Content;
+        Assert.True(content.Length < 1000);
+        Assert.Contains("Retry collaboration", content); Assert.Contains(session.ConversationId.ToString(), content);
+        Assert.Contains("1 execution attempt", content); Assert.DoesNotContain("model.response.chunk", content);
+        Assert.DoesNotContain("outside", content); Assert.DoesNotContain("Observed facts", content);
+        // Another source snapshot changes the diagnostic revision, not the human report.
+        session.UpdatedAt = f.Clock.Now.AddMinutes(1); await f.Db.SaveChangesAsync(); await f.Review(); await f.Service.DeliverAsync(default);
+        Assert.Single(f.Db.CoreConversationMessages); Assert.Single(f.Db.UserNotifications);
+        session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Completed; session.CompletedAt = f.Clock.Now;
+        await f.Db.SaveChangesAsync(); await f.Review(); await f.Service.DeliverAsync(default);
+        Assert.Equal(2, f.Db.CoreConversationMessages.Count());
+        Assert.Contains(f.Db.CoreConversationMessages, x => x.Content.Contains("blocker cleared"));
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+    }
+
+    [Fact]
+    public async Task DiagnosticsPrioritizeFailuresInsteadOfHundredsOfModelChunks()
+    {
+        await using var f = await Fixture.Create(); await f.FailTicket();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        var attempt = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = Guid.NewGuid() };
+        var run = new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = f.Org, AgentWorkAttemptId = attempt.Id,
+            Model = "test-model", Status = "Failed", FailureMessage = "Provider connection interrupted", DurationMs = 1000 };
+        incident.EvidenceJson = JsonSerializer.Serialize(new[] { new ProjectDiagnosticEvidence("AgentWorkAttempt", attempt.Id, f.Clock.Now, "execution failed") },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        f.Db.AddRange(attempt, run);
+        f.Db.AuditEvents.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, EntityType = "Capability", EntityId = attempt.Id,
+            EventType = "agent.capability.failed", Outcome = "Failed", Sequence = 1, PayloadPreview = "Connection was interrupted" });
+        for (var i = 2; i < 240; i++)
+            f.Db.AuditEvents.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, EntityType = "AgentRunLog", EntityId = run.Id,
+                EventType = "model.response.chunk", Outcome = "Running", Sequence = i, PayloadPreview = "raw model reasoning" });
+        await f.Db.SaveChangesAsync();
+        var diagnostics = await f.Service.ReadDiagnosticsAsync(f.Org, f.Producer.Id, new(incident.Id), default);
+        Assert.Contains(diagnostics.Evidence, x => x.Kind == "ModelRequest" && x.Detail.Contains("Provider connection interrupted"));
+        Assert.Contains(diagnostics.Evidence, x => x.Kind == "agent.capability.failed");
+        Assert.DoesNotContain(diagnostics.Evidence, x => x.Kind == "model.response.chunk" || x.Detail.Contains("raw model reasoning"));
+        Assert.Null(diagnostics.NextOffset);
     }
 
     private sealed class Fixture : IAsyncDisposable

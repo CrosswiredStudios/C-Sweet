@@ -27,6 +27,12 @@
     }
     else if (_status is not null)
     {
+        @if (_localSession is not null)
+        {
+            <div class="host-target-summary"><MudIcon Icon="@Icons.Material.Outlined.Computer" /><span>This machine · C-Sweet Office</span></div>
+        }
+        else
+        {
         <div class="host-location-grid" role="group" aria-label="Office location">
             <button type="button"
                     class="host-location-card @TargetClass("local")"
@@ -59,6 +65,7 @@
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
             </button>
         </div>
+        }
 
         @if (_installationTarget == "local")
         {
@@ -103,6 +110,12 @@
                            Disabled="@(_busy || IsCompleting || _loading || _status?.IsReady != true)"
                            OnClick="OnContinue">Continue</MudButton>
             </div>
+        </footer>
+    }
+    else if (_loading || !string.IsNullOrWhiteSpace(_error))
+    {
+        <footer class="host-onboarding-actions">
+            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
         </footer>
     }
 </section>
@@ -554,8 +567,8 @@
         <header class="local-wizard-heading">
             <div>
                 <span class="host-section-kicker">Local Office setup &nbsp;·&nbsp; @LocalStepNumber of 4</span>
-                <h2 id="local-host-title">@LocalTitle</h2>
-                <p>@LocalSubtitle</p>
+                <h2 id="local-host-title">@(_localSession is null ? LocalTitle : "Office installation")</h2>
+                @if (_localSession is null) { <p>@LocalSubtitle</p> }
             </div>
             <ol class="local-stage-track" aria-label="Local Office setup progress">
                 @foreach (var stage in LocalStages)
@@ -706,7 +719,7 @@
                 {
                     <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
                 }
-                else if (LocalSetupStartStalled)
+                else if (LocalSetupStartStalled || _localSession.State is "failed" or "expired" or "revoked")
                 {
                     <span class="host-error-icon"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" /></span>
                 }

@@ -79,8 +79,8 @@ public sealed class AgentConfigurationVisibilityTests
         {
             "src/CSweet.UI/Pages/Organizations.razor",
             "src/CSweet.UI/Pages/Agents.razor",
-            "src/CSweet.UI/Pages/Marketplace.razor",
-            "src/CSweet.UI/Pages/Employees.razor.cs",
+            "src/CSweet.UI/Components/Hiring/AgentHireDialog.razor",
+            "src/CSweet.UI/Components/Employees/EmployeeConfigurationPanel.razor.cs",
             "src/CSweet.UI/Components/HiringWorkflowApprovalCard.razor",
             "src/CSweet.UI/Pages/Plugins.razor",
             "src/CSweet.UI/Pages/PluginSetup.razor",

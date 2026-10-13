@@ -37,7 +37,15 @@ public sealed partial class ProjectHealthService
             chat.ArchivedAt = null; chat.UpdatedAt = now;
             foreach (var member in chat.Participants.Where(x => x.OrganizationUserId == recipient.Id || x.OrganizationUserId == sender.Id)) member.LeftAt = null;
             var messageKey = $"project-health:{delivery.Id:N}";
-            if (!await db.CoreConversationMessages.AnyAsync(x => x.ConversationId == chat.Id && x.IdempotencyKey == messageKey, token))
+            var presentation = await PresentAsync(incident, token);
+            delivery.Markdown = presentation.Markdown;
+            var existing = await db.CoreConversationMessages.Where(x => x.ConversationId == chat.Id &&
+                x.CorrelationId == incident.Id && x.SenderOrganizationUserId == sender.Id &&
+                x.IdempotencyKey != null && x.IdempotencyKey.StartsWith("project-health:"))
+                .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+            // Evidence-only revisions do not need another human message. A changed recovery
+            // state gets a concise update; preserve prior messages and their memory/audit lineage.
+            if (existing is null || existing.Content != delivery.Markdown)
             {
                 db.CoreConversationMessages.Add(new() { Id = Guid.NewGuid(), ConversationId = chat.Id, Role = ConversationRole.Assistant,
                     Content = delivery.Markdown, CreatedAt = now, SenderOrganizationUserId = sender.Id, CorrelationId = incident.Id,
@@ -46,7 +54,7 @@ public sealed partial class ProjectHealthService
                     RecipientOrganizationUserId = recipient.Id, OriginatingAgentOrganizationUserId = sender.Id,
                     Severity = incident.Status == "Resolved" ? NotificationSeverity.Important : NotificationSeverity.Urgent,
                     Category = "ProjectHealth", Title = incident.Status == "Resolved" ? "Project incident resolved" : "Project needs management attention",
-                    Body = incident.Reason, ActionUri = $"/organizations/{incident.OrganizationId}/communications/{chat.Id}",
+                    Body = presentation.Summary, ActionUri = $"/organizations/{incident.OrganizationId}/communications/{chat.Id}",
                     DeduplicationKey = messageKey, CreatedAt = now });
             }
             delivery.ConversationId = chat.Id; delivery.DeliveredAt = now;

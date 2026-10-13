@@ -79,10 +79,7 @@
                 }
                 @foreach (var incident in ProjectIncidents.Take(_showAll ? ProjectIncidents.Count : 5))
                 {
-                    <AttentionRequestCard @key="incident.Id" Kind="Project stalled" Name="@incident.ReporterName" Context="@incident.ProjectName"
-                        Prompt="@incident.Reason" Description="@incident.RecommendedAction" Status="@($"Detected {incident.DetectedAt.ToLocalTime():g}")">
-                        <MudButton Href="@incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
-                    </AttentionRequestCard>
+                    <ProjectIncidentAttentionCard @key="incident.Id" OrganizationId="OrganizationId" Incident="incident" RefreshRequested="RefreshRequested" />
                 }
                 @foreach (var resource in ComputeResources.Take(_showAll ? ComputeResources.Count : 5))
                 {

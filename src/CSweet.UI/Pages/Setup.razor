@@ -10,7 +10,7 @@
 
 <PageTitle>C-Sweet Setup</PageTitle>
 
-<div class="setup-shell">
+<div class="setup-shell setup-assistant">
     @if (_isLoading)
     {
         <MudPaper Elevation="1" Class="setup-card setup-loading-card" aria-live="polite">
@@ -27,13 +27,7 @@
     }
     else
     {
-        <MudPaper Elevation="1" Class="setup-card">
             <nav class="setup-progress" aria-label="Setup progress">
-                <div class="setup-progress-heading">
-                    <span>GET STARTED</span>
-                    <h2>Your workspace,<br />ready for work.</h2>
-                    <p>Connect the essentials. Add the extras when you need them.</p>
-                </div>
                 <ol>
                     @foreach (var step in SetupSteps)
                     {
@@ -56,14 +50,27 @@
                                         @step.Number
                                     }
                                 </span>
-                                <span class="setup-progress-copy"><span class="setup-progress-label">@step.Title</span><small>@step.Description</small></span>
+                                <span class="setup-progress-label">@step.Title</span>
                             </button>
                         </li>
                     }
                 </ol>
-                <p class="setup-progress-note"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /> Your completed steps are saved.</p>
             </nav>
-
+        <MudPaper Elevation="0" Class="setup-card">
+            <aside class="setup-story" aria-label="Setup assistant">
+                <span class="setup-story-eyebrow">A little setup. A lot of possibility.</span>
+                <h2>@StoryTitle</h2>
+                <p>@StoryDescription</p>
+                <div class="setup-story-art" aria-hidden="true">
+                    <div class="setup-art-window back"></div>
+                    <div class="setup-art-window front">
+                        <span class="setup-art-dots">•••</span>
+                        <MudIcon Icon="@StoryIcon" />
+                        <div class="setup-art-line"></div><div class="setup-art-line short"></div>
+                    </div>
+                </div>
+                <div class="setup-story-note"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><span>You choose where your agents run.</span></div>
+            </aside>
             <div class="setup-stage" @key="_activeStepKey" aria-busy="@_isBusy">
                 @if (_status?.IsFirstRunComplete == true)
                 {
@@ -79,10 +86,32 @@
                 }
             </div>
         </MudPaper>
+        <p class="setup-progress-note"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /> Your completed steps are saved. Connections can be managed later in Settings.</p>
     }
 </div>
 
 @code {
+    private string StoryTitle => _activeStepKey switch
+    {
+        "agent-execution" => "A place for your team to work.",
+        "llm-provider" => "The thinking behind your team.",
+        "genai-provider" => "Make room for imagination.",
+        _ => "Your next great team starts here."
+    };
+    private string StoryDescription => _activeStepKey switch
+    {
+        "agent-execution" => "Connect an Office here or on another machine. We'll guide you through installation and check that it's ready.",
+        "llm-provider" => "Use your own hardware, a hosted service, or both. Start with one connection and add more as you grow.",
+        "genai-provider" => "Give your agents tools to create images and video. You can always add these later.",
+        _ => "Connect the essentials. Then bring your ideas to life with a team of your own."
+    };
+    private string StoryIcon => _activeStepKey switch
+    {
+        "agent-execution" => Icons.Material.Outlined.Computer,
+        "llm-provider" => Icons.Material.Outlined.Hub,
+        "genai-provider" => Icons.Material.Outlined.PermMedia,
+        _ => Icons.Material.Outlined.Groups
+    };
     private static readonly IReadOnlyList<WizardStep> SetupSteps =
     [
         new(1, "welcome", "Welcome", "What to expect"),

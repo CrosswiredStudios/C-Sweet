@@ -2,6 +2,18 @@ using CSweet.AgentHost.Broker;
 namespace CSweet.UnitTests;
 public sealed class LlmProviderFailureMessageTests
 {
+    [Fact]
+    public void InterruptedProviderStreamIsRetryableWithoutExposingTransportDetails()
+    {
+        var error = new IOException("private endpoint", new System.Net.Sockets.SocketException(10054));
+        Assert.True(LlmProviderFailureMessage.IsTransient(error));
+        Assert.Equal("llm.provider_unavailable", LlmProviderFailureMessage.CodeFrom(error));
+        Assert.Contains("interrupted", LlmProviderFailureMessage.From(error));
+        Assert.DoesNotContain("private endpoint", LlmProviderFailureMessage.From(error));
+        Assert.False(LlmProviderFailureMessage.IsTransient(new IOException("local file failure")));
+        Assert.False(LlmProviderFailureMessage.IsTransient(new IOException("wrapped authorization", new HttpRequestException("denied", null, System.Net.HttpStatusCode.Forbidden))));
+        Assert.True(LlmProviderFailureMessage.IsTransient(new HttpIOException(HttpRequestError.ResponseEnded, "incomplete stream")));
+    }
     [Theory]
     [InlineData("llm.tool_protocol")]
     [InlineData("llm.response_invalid")]

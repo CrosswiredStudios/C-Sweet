@@ -138,6 +138,14 @@
                     </MudTable>
                 }
             </MudTabPanel>
+            <MudTabPanel Text="Configuration" Icon="@Icons.Material.Outlined.Tune" Disabled="@(_details.Employee.AgentInstallationId is null)">
+                @if (!_details.Permissions.CanViewSensitive)
+                { <MudAlert Severity="Severity.Warning">Configuration is restricted to authorized managers.</MudAlert> }
+                else if (_details.Employee.AgentInstallationId.HasValue)
+                {
+                    <EmployeeConfigurationPanel @key="EmployeeId" OrganizationId="OrganizationId" EmployeeId="EmployeeId" ConfigurationChanged="@(view => _configuration = view)" />
+                }
+            </MudTabPanel>
             <MudTabPanel Text="Agent operations" Icon="@Icons.Material.Outlined.SettingsSuggest" Disabled="@(_details.Employee.AgentInstallationId is null)">
                 @if (!_details.Permissions.CanViewSensitive)
                 { <MudAlert Severity="Severity.Warning" Class="mt-3">Agent operations are restricted to this employee and their managers.</MudAlert> }
@@ -235,7 +243,7 @@
     [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
     [SupplyParameterFromQuery(Name = "item")] public Guid? ItemId { get; set; }
     private static readonly string[] TabSlugs =
-        ["overview", "personal-board", "assigned-work", "agent-operations", "memory", "usage", "timeline"];
+        ["overview", "personal-board", "assigned-work", "configuration", "agent-operations", "memory", "usage", "timeline"];
     private int _activeTab;
     private Guid? _loadedOrganizationId;
     private Guid? _loadedEmployeeId;
@@ -336,8 +344,8 @@
 
     private int ReachableTabIndex(int index)
     {
-        if (index is 3 or 4 && _details?.Employee.AgentInstallationId is null) return 0;
-        if (index == 6 && _details?.Permissions.CanViewTimeline != true) return 0;
+        if (index is 3 or 4 or 5 && _details?.Employee.AgentInstallationId is null) return 0;
+        if (index == 7 && _details?.Permissions.CanViewTimeline != true) return 0;
         return index;
     }
 

@@ -136,9 +136,112 @@ for the manifest and subclass recipe.
 
 ## Stalled delivery and Overview attention
 
+`ProjectHealthReader.ObserveAsync` uses PostgreSQL JSON containment for the exact
+`PersonalWorkContextJson.workstreamId` property, then checks the canonical board/project
+association. Applying string `Contains` to this jsonb column generated an invalid
+`jsonb LIKE` query and prevented every assessment from reaching incident detection.
+The October 12 Prism Break incident exposed this: the technical-planning collaboration
+had failed with `llm.request_failed`, while recurring commitments continued reporting
+that planning was pending and no project incident existed.
+
+`ProjectHealthService.RecordAssessmentFailureAsync` creates one durable
+`health-assessment` incident when an assigned project's assessment throws, including
+before any work incident exists. Repeated failures retain the same episode and handoff
+deadline. It follows the ordinary reporting chain and human delivery/Overview path.
+A successful assessment resolves only that monitoring failure; remaining work failures
+retain their own incidents. The report identifies unavailable evidence without claiming
+that a failed assessment proved work recovery.
+
+`ProjectHealthPostgresTests.JsonScopedWorkAndFailedPlanningReachDirectorThenOwnerAttention`
+exercises the actual PostgreSQL query, failed coordination despite scheduled waiting work,
+personal-task scope filtering, deadline routing, director-authored native messages,
+attention visibility and authoritative recovery. `ProjectHealthTests.BrokenAssessmentEscalatesOnceAndOnlySuccessfulAssessmentResolvesIt`
+covers repeated assessment failures and recovery.
+
+Validation: 71 targeted health/dashboard/widget tests and both PostgreSQL tests passed
+in `StallEscalationVerified`. PostgreSQL verification migrated fresh randomly named
+`project_health_test_*` databases and removed them afterward. Rebuild and restart
+AgentHost to activate the fix; no schema or agent-package upgrade is required. The
+live planning collaboration still requires recovery of its provider failure through
+the existing authorized workflow; these checks did not retry it or mutate live data.
+
 `ProjectHealthReader.ObserveDeliveryPlansAsync` compares Draft aggregate planning pins, child membership and child planning revisions against current project-board records. A stale draft produces one `delivery-plan:<id>` incident even if a manager labels recovery Running, schedules another review or performs other model work. `CSweetDbContext.CaptureProjectHealthSignals` records delivery status/scope changes atomically to wake health review. Matching authoritative pins or terminal cancellation/completion resolve the episode; an unchanged retry or acknowledgement does not.
 
 `ProjectHealthService.NotifyAsync` and `DeliverAsync` enqueue `AppRealtimeEvents.ProjectIncidentChanged` with state/receipt updates. The event targets the current recipient and prior human report recipients, and contains only identity/revision wake hints. `ReadAttentionAsync` checks current organization membership, recipient routing and incident access; only delivered Open reports appear in `ApprovalDashboardResponse.ProjectIncidents`. `CommandCenter` refreshes on this event and reconnect. `PendingAgentQuestions` counts these reports and links native Communications via “Read manager report”; these are separate from approval decisions. Reports disappear after authoritative recovery, without conflating unread or dismissed notifications with incident resolution.
+
+## Interrupted inference and concise recovery reports (2026-10-12 Pacific)
+
+The Prism Break technical-planning failure at 17:41 Pacific was an interrupted DeepSeek
+`deepseek-flash` stream after approximately 21 minutes 38 seconds. The retained AgentHost
+exception was `IOException` wrapping `SocketException (10054)`: the remote side closed the
+transport connection. This proves a transport interruption; it does not distinguish a provider
+failure from an intermediary/network reset. The persisted `llm.request_failed;retryable=false`
+classification hid that recoverable cause. The request allowed 128,000 output tokens including
+reasoning; that permissive ceiling contributed to lengthy requests but is not proof of why
+the connection reset.
+
+There were additional reporting defects: clearing `CurrentAgentWorkItemId` separated the failed
+delivery from its collaboration, creating two incidents for one failure. Repeated manager handoffs
+appended diagnostic text, including model chunks, into long reports. A newest-200 audit window
+could contain only stream chunks and omit the actual failure.
+
+- `LlmProviderFailureMessage.IsTransient` recognizes connection-reset IO wrappers and interrupted
+  HTTP response streams, while ordinary filesystem errors and permission failures remain permanent.
+- `AgentCoordinationService.RecoverTransientFailuresAsync` admits structured retryable provider
+  failures, uses the exact failed work/model-run association, and caps this recovery at three
+  total execution attempts with cooldown. Current provider, installation and participant checks
+  still apply. It resumes the existing speaker/transcript through the authorized workflow.
+- `ProjectHealthReader.ObserveAsync` correlates deliveries using the immutable session ID and
+  retains one collaboration incident across retries and cleared current-work pointers. An unrelated
+  completed originating ticket or completed turn does not prove the collaboration completed.
+- `ProjectHealthService.CoalesceCoordinationIncidentsAsync` consolidates legacy duplicate work
+  incidents during assessment. Duplicate episodes become `Superseded`, retain their audit history,
+  stop pending delivery, and leave Overview attention. Consolidation does not claim recovery.
+- `ProjectHealthService.PresentAsync` builds bounded current-state reports for native owner messages
+  and Overview: what failed, recovery status, and the next action with a collaboration link.
+  Raw diagnostics and escalation history stay out of the human summary. Unknown historical
+  `llm.request_failed` errors explicitly retain uncertainty about their cause.
+- `ProjectHealthService.DeliverAsync` appends an owner message only when the rendered report changes;
+  evidence-only revisions still receive durable receipts. Existing messages remain immutable.
+  Delivery, notifications, receipts and realtime wake hints commit together.
+- `ProjectHealthService.ReadDiagnosticsAsync` prioritizes typed model-run summaries and failed/denied
+  audit records, excluding stream chunks before the bounded query window.
+
+Validation: all 150 targeted platform tests passed, including both disposable PostgreSQL tests.
+Victor's companion release `CSweet.Agent.TechnicalDirector.VideoGame` 2.16.1 passed 137 package-only
+tests and its self-test; its packed NuGet version was inspected. That release adds concise prompts
+and task-specific output ceilings while retaining distinct acceptance criteria and validated JSON.
+
+Rollout: rebuild/restart the platform services and upgrade Victor to 2.16.1. No database migration
+or Naomi package update is needed. After rollout, use **Retry collaboration** on the existing
+failed planning session; restarting alone does not reinterpret the old non-retryable saved error.
+No message to an individual agent is required. These checks did not deploy changes, change live
+provider settings, or retry the live collaboration. New classified transient failures use bounded
+automatic recovery; unresolved incidents retain the manager-to-owner escalation and Overview path.
+
+### Overview collaboration actions
+
+`ProjectHealthService.ReadAttentionAsync` adds current session identity, revision, status and
+manager retry eligibility to `ProjectIncidentAttentionResponse.Collaboration`. Items still follow
+the management escalation/delivered-report path; every transient failure does not immediately
+interrupt the owner. Current organization/project access is rechecked on each read.
+
+`ProjectIncidentAttentionCard` shows **Retry** and **Investigate** for retryable failed/blocked
+collaborations. Retry uses the existing Communications manager retry endpoint with the exact
+session revision and the same stable key used in Communications. The endpoint remains authoritative
+for permissions, participant readiness and concurrency. Duplicate clicks are suppressed, queued
+recovery stays visible, and stale-state or permission errors use concise text without raw server logs.
+Other project incidents retain **Read manager report**.
+
+Investigate opens Communications with `perspective` and `collaboration` query parameters.
+`Communications.CollaborationId` retains that specific session even if it has since completed or
+been cancelled; `focusCollaboration` scrolls/focuses its card instead of initially scrolling to the
+bottom of the transcript. Overview refreshes after retry and through existing incident/reconnect
+events. Recovery confirmation, rather than the retry click, removes the attention item.
+
+Validation: 144 targeted health, Overview, retry-interaction and Communications tests passed in
+`StallEscalationVerified`. A JavaScript check verified focus/scroll behavior and a missing-target
+no-op. The local build is verified; the running application still needs a rebuild/restart.
 
 ## Prismatic Break recovery diagnosis (2026-10-11 Pacific)
 

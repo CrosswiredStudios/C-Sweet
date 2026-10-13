@@ -1381,7 +1381,18 @@ body { color: var(--cs-navy); }
 .mud-button-filled-primary { box-shadow: 0 6px 14px rgba(24, 35, 63, .16); }
 .mud-button-filled-secondary { color: var(--cs-navy); }
 .mud-input-outlined-border { border-color: #d8d2ca !important; border-radius: 9px !important; }
-.mud-input-control:focus-within .mud-input-outlined-border { border-color: var(--cs-navy) !important; }
+/* Text fields keep their normal border on focus, including portalled dialogs.
+   Labels and the caret still indicate focus; validation styling stays visible. */
+:is(input:not([type=checkbox],[type=radio],[type=button],[type=submit],[type=reset],[type=file],[type=range],[type=color]),textarea):focus:not(.invalid) {
+    outline: none !important;
+}
+.mud-input.mud-input-outlined:has(input,textarea):focus-within .mud-input-outlined-border {
+    border-width: 1px !important;
+}
+.mud-input.mud-input-underline:has(input,textarea):not(.mud-input-error):focus-within::after {
+    transform: scaleX(0);
+}
+
 .mud-dialog { border-radius: 14px; background: var(--cs-ivory); }
 .mud-tabs-tabbar { color: var(--cs-navy); }
 .mud-chip { font-weight: 700; }
@@ -2236,7 +2247,7 @@ body { color: var(--cs-navy); }
 @media (max-width: 600px) { .hiring-plan-popover { left: 16px !important; } }
 
 /* Theme tokens also flow into the activity cards and provider stream. */
-.hire-profile-dialog, body:has(.hire-profile-dialog) .mud-popover, .aurora-page, body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
+.hire-profile-dialog, body:has(.hire-profile-dialog) .mud-popover, body:has(.employee-workspace) .mud-popover, .aurora-page, body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover),
 body:has(.company-overview.aurora-page) .hiring-plan-popover {
     --mud-palette-background: var(--activity-panel); --mud-palette-background-gray: var(--activity-tint);
     --mud-palette-action-default-hover: var(--activity-tint); --mud-palette-table-hover: var(--activity-tint);
@@ -2254,6 +2265,8 @@ body:has(.company-overview.aurora-page) .hiring-plan-popover {
         radial-gradient(ellipse at 94% 18%, #eac2dd99, transparent 45%),
         radial-gradient(ellipse at 44% 75%, #c6e8eaa6, transparent 55%), #f6f3fb;
 }
+body:has(.mud-layout[data-appearance=gold]) .employee-configuration-dialog,
+body:has(.mud-layout[data-appearance=gold] .employee-workspace) .mud-popover,
 body:has(.mud-layout[data-appearance=gold]) .hire-profile-dialog,
 body:has(.mud-layout[data-appearance=gold]):has(.hire-profile-dialog) .mud-popover,
 .setup-appearance[data-appearance=gold] .aurora-page,
@@ -2269,7 +2282,6 @@ body:has(.mud-layout[data-appearance=gold] .company-overview.aurora-page) .hirin
 }
 body:has(.company-overview.aurora-page) .hiring-plan-popover { background: var(--mud-palette-surface); }
 .aurora-page .mud-input-outlined-border { border-color: var(--activity-border) !important; border-radius: 13px !important; }
-.aurora-page .mud-input-control:focus-within .mud-input-outlined-border { border-color: var(--activity-accent) !important; }
 .aurora-page .mud-input-label { color: var(--activity-muted); }
 /* Employee workspaces share the saved Aurora appearance with Projects and Overview. */
 .aurora-page.employee-workspace { --mud-palette-background-grey:var(--activity-tint); --mud-palette-primary-darken:var(--activity-accent); --cs-radius:22px; flex:1; width:100%; max-width:none; min-width:0; margin:0; padding:32px 36px 48px; }
@@ -2283,7 +2295,7 @@ body:has(.company-overview.aurora-page) .hiring-plan-popover { background: var(-
 .aurora-page.employee-workspace .mud-input-outlined { border-radius:12px; background:var(--activity-panel); }
 .aurora-page.employee-workspace :is(a:not(.mud-button-root),code) { color:var(--activity-accent); }
 .aurora-page.employee-workspace :is(pre,code,dd) { overflow-wrap:anywhere; }
-.aurora-page.employee-workspace :is(button,a,summary,input,select):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
+.aurora-page.employee-workspace :is(button,a,summary,select):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
 .aurora-page.employee-workspace .employee-page-tabs { border:0; gap:8px; min-height:0; }
 .aurora-page.employee-workspace .employee-page-tabs a { border:0; border-radius:12px; padding:11px 22px; color:var(--activity-muted); }
 .aurora-page.employee-workspace .employee-page-tabs a.active { background:var(--aurora-widget); color:var(--activity-text); box-shadow:0 4px 14px #30263f0b; }
@@ -2389,7 +2401,7 @@ body:has(.company-overview.aurora-page) .hiring-plan-popover { background: var(-
 .aurora-page.settings-workspace :is(.mud-table-cell,table) { color:var(--activity-text); }
 .aurora-page.settings-workspace :is(code,pre) { color:var(--activity-text); background:var(--activity-tint); border-radius:10px; overflow-wrap:anywhere; }
 .aurora-page.settings-workspace a:not(.mud-button-root):not(.settings-category-card):not(.settings-home-link) { color:var(--activity-accent); }
-.aurora-page.settings-workspace :is(a,button,summary,input,select):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
+.aurora-page.settings-workspace :is(a,button,summary,select):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
 .aurora-page.settings-workspace .mud-tabs-tabbar { background:var(--aurora-widget); border:1px solid var(--aurora-widget-border); border-radius:14px; }
 .aurora-page.settings-workspace .mud-tab { text-transform:none; }
 .aurora-page.settings-workspace .mud-tabs-panels { padding-top:20px; }
@@ -2468,7 +2480,7 @@ body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) .mu
 .aurora-page.business-workspace .mud-tab { text-transform:none; min-height:52px; }
 .aurora-page.business-workspace .mud-tabs-panels { padding-top:22px; }
 .aurora-page.business-workspace .mud-expand-panel { background:var(--activity-panel); color:var(--activity-text); border-radius:14px!important; margin-bottom:8px; box-shadow:none; }
-.aurora-page.business-workspace :is(a,button,summary,input,select,textarea):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
+.aurora-page.business-workspace :is(a,button,summary,select):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
 .aurora-page.business-workspace :is(h1,h2,h3,h4,p,dd,code) { overflow-wrap:anywhere; }
 .aurora-page.business-workspace a:not(.mud-button-root) { color:var(--activity-accent); }
 .aurora-page.business-workspace :is(pre,code) { color:var(--activity-text); background:var(--activity-tint); }
@@ -2605,7 +2617,7 @@ body:has(.business-workspace) .mud-dialog :is(.hire-access-review,.hire-access-g
 body:has(.business-workspace) .mud-dialog :is(.hire-disclosure-icon,.hire-access-values code) { background:var(--activity-tint); color:var(--activity-accent); border-color:var(--activity-border); }
 body:has(.business-workspace) .mud-dialog .hire-dialog-mark { background:var(--activity-accent); color:var(--mud-palette-primary-text); }
 body:has(.business-workspace) .mud-dialog .hire-disclosure-toggle:hover { background:var(--activity-tint); }
-body:has(.business-workspace) .mud-dialog :is(button,input,select,textarea):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
+body:has(.business-workspace) .mud-dialog :is(button,select):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
 .aurora-page.business-workspace .detail-card.danger-card { border-color:var(--mud-palette-error); }
 
 
@@ -2616,16 +2628,9 @@ body:has(.business-workspace) .mud-dialog :is(button,input,select,textarea):focu
 .aurora-page.onboarding-workspace .mud-input-outlined { background:var(--activity-panel); border-radius:13px; }
 .aurora-page.onboarding-workspace .mud-typography-overline { color:var(--activity-accent); font-size:.65rem; letter-spacing:.13em; }
 .aurora-page.onboarding-workspace :is(h1,h2,h3,p,small,code,pre) { overflow-wrap:anywhere; }
-.aurora-page.onboarding-workspace :is(button,a,input,select,textarea,summary):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
-.aurora-page.onboarding-workspace :is(.host-onboarding,.provider-step) { padding:clamp(22px,3vw,44px); }
-.aurora-page.onboarding-workspace :is(.host-onboarding-header h1,.provider-step-header h1) { font-size:clamp(1.8rem,3vw,2.5rem); line-height:1.12; letter-spacing:-.045em; }
-.aurora-page.onboarding-workspace :is(.provider-step-header,.host-onboarding-header) { margin-bottom:24px; }
+.aurora-page.onboarding-workspace :is(button,a,select,summary):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
 .aurora-page.onboarding-workspace :is(.provider-choice,.provider-install-choice,.custom-provider-choice,.provider-list-item,.host-location-card,.capacity-option,.host-progress-card,.host-install-prompt,.host-approval-card) { border-radius:16px; }
-.aurora-page.onboarding-workspace .setup-promise-list li { padding:18px; border:1px solid var(--activity-border); border-radius:18px; background:var(--activity-panel); }
 .aurora-page.onboarding-workspace .setup-promise-number { background:var(--activity-tint); color:var(--activity-accent); }
-.aurora-page.onboarding-workspace .setup-welcome { padding:clamp(24px,3vw,48px); gap:32px; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); }
-.aurora-page.onboarding-workspace .setup-welcome h1 { font-size:clamp(2.2rem,4vw,3.65rem); line-height:1.08; }
-.aurora-page.onboarding-workspace .provider-workspace { grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:24px; }
 .aurora-page.onboarding-workspace .provider-roster { min-width:0; }
 .aurora-page.onboarding-workspace .host-location-card.selected { border-color:var(--activity-accent); box-shadow:0 0 0 1px var(--activity-accent); }
 .aurora-page.onboarding-workspace :is(.host-location-icon,.host-install-mark,.host-approval-icon) { background:var(--activity-tint); color:var(--activity-accent); }
@@ -2641,3 +2646,76 @@ body:has(.business-workspace) .mud-dialog :is(button,input,select,textarea):focu
 .mud-dialog.hire-profile-dialog { border:1px solid var(--activity-border); border-radius:24px; overflow:hidden; width:min(620px,calc(100vw - 32px)); box-shadow:0 24px 90px #160e3438; }
 .mud-dialog.hire-profile-dialog .mud-dialog-content { padding:0; overflow:hidden; }
 @media(max-width:600px) { .mud-dialog.hire-profile-dialog { margin:12px; width:calc(100vw - 24px); max-height:calc(100dvh - 24px); } }
+/* Setup Assistant owns spacing once, including nested Office recovery views. */
+.aurora-page.onboarding-workspace .setup-assistant { --setup-inset:32px; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.setup-welcome,.host-onboarding,.provider-step) { padding:var(--setup-inset); gap:24px; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.host-onboarding-header,.provider-step-header) { margin:0 0 4px; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.host-onboarding-header h1,.provider-step-header h1) { font-size:1.85rem; line-height:1.15; margin:8px 0 12px; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.provider-step-header p,.host-onboarding-header p) { font-size:.9rem; }
+.aurora-page.onboarding-workspace .setup-assistant .provider-step { display:flex; flex-direction:column; min-height:100%; }
+.aurora-page.onboarding-workspace .setup-assistant .provider-workspace { grid-template-columns:minmax(0,1fr); gap:24px; }
+.aurora-page.onboarding-workspace .setup-assistant .provider-roster { padding:0 0 20px; border:0; border-bottom:1px solid var(--activity-border); }
+.aurora-page.onboarding-workspace .setup-assistant .provider-roster:has(.provider-empty-state) { display:none; }
+.aurora-page.onboarding-workspace .setup-assistant .provider-count { display:none; }
+.aurora-page.onboarding-workspace .setup-assistant .provider-section-kicker { display:none; }
+.aurora-page.onboarding-workspace .setup-assistant .provider-section-heading { flex-wrap:wrap; gap:8px; }
+.aurora-page.onboarding-workspace .setup-assistant .host-workspace { padding:0; border:0; background:transparent; min-width:0; }
+.aurora-page.onboarding-workspace .setup-assistant .host-target-summary { display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:12px; background:var(--activity-tint); color:var(--activity-accent); font-size:.85rem; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.local-approval-explanation p,.local-approval-explanation li,.local-approval-explanation small,.remote-steps small,.host-approval-card p) { font-size:.85rem; line-height:1.6; }
+.aurora-page.onboarding-workspace .setup-assistant .local-wizard-heading { grid-template-columns:minmax(0,1fr); gap:20px; }
+.aurora-page.onboarding-workspace .setup-assistant .local-stage-track { max-width:440px; width:100%; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-card { grid-template-columns:minmax(0,1fr) auto; gap:8px; padding:16px; align-content:start; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-icon { grid-column:1; width:36px; height:36px; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-copy { grid-row:2; grid-column:1 / -1; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-check { grid-row:1; grid-column:2; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-card:not(.selected) .host-location-check { visibility:hidden; }
+.aurora-page.onboarding-workspace .setup-assistant .host-location-card.selected .host-location-check { color:var(--activity-accent); }
+.aurora-page.onboarding-workspace .setup-assistant .capacity-card-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 12px; padding-top:8px; }
+.aurora-page.onboarding-workspace .setup-assistant .capacity-option { min-height:142px; gap:3px; padding:16px 12px; }
+.aurora-page.onboarding-workspace .setup-assistant .capacity-option .mud-icon-root { font-size:24px; }
+.aurora-page.onboarding-workspace .setup-assistant .allocation-input-grid { grid-template-columns:minmax(0,1fr); }
+.aurora-page.onboarding-workspace .setup-assistant .allocation-stepper { grid-template-columns:44px minmax(0,1fr) auto 44px; min-height:44px; }
+.aurora-page.onboarding-workspace .setup-assistant .remote-layout { grid-template-columns:minmax(0,1fr); gap:24px; }
+.aurora-page.onboarding-workspace .setup-assistant .remote-status { padding:20px 0 0; border-left:0; border-top:1px solid var(--activity-border); }
+.aurora-page.onboarding-workspace .setup-assistant .host-approval-card { grid-template-columns:auto minmax(0,1fr); }
+.aurora-page.onboarding-workspace .setup-assistant .host-approval-actions { grid-column:1 / -1; flex-wrap:wrap; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.host-onboarding-actions,.local-wizard-actions,.provider-step-actions,.setup-welcome-actions) { margin:8px calc(-1 * var(--setup-inset)) calc(-1 * var(--setup-inset)); padding:20px var(--setup-inset); border-top:1px solid var(--activity-border); gap:12px; flex-wrap:wrap; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.provider-step-actions,.setup-welcome-actions) { margin-top:auto; }
+.aurora-page.onboarding-workspace .setup-assistant .host-feedback { flex-wrap:wrap; }
+.aurora-page.onboarding-workspace .setup-assistant .local-install-actions { flex-wrap:wrap; justify-content:flex-start; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.host-secret-field,.local-progress-meta) { flex-wrap:wrap; gap:8px; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.mud-button-root,.provider-edit-button,.provider-delete-button,.host-platform-picker button) { min-height:44px; }
+.aurora-page.onboarding-workspace .setup-assistant :is(.provider-edit-button,.provider-delete-button) { min-width:44px; }
+.aurora-page.onboarding-workspace .setup-assistant .local-session-progress { min-height:100px; }
+.setup-appearance[data-appearance=gold] .setup-story { background:radial-gradient(ellipse at 10% 65%,#a0803830,transparent 70%),#0b0a08; border-right:1px solid var(--activity-border); color:#fff; }
+.setup-appearance[data-appearance=gold] :is(.setup-story-eyebrow,.setup-story p,.setup-story-note) { color:#c8b890; }
+.setup-appearance[data-appearance=gold] .setup-art-window { border-color:#d8b97655; background:linear-gradient(145deg,#d8b97625,#d8b97605); }
+.setup-appearance[data-appearance=gold] :is(.setup-art-window svg,.setup-art-dots) { color:#d8b976; }
+.setup-appearance[data-appearance=gold] .setup-art-line { background:#d8b97655; }
+@media(max-width:600px) {
+ .aurora-page.onboarding-workspace .setup-assistant { --setup-inset:22px; }
+ .aurora-page.onboarding-workspace .setup-assistant .setup-welcome h1 { font-size:2rem; }
+ .aurora-page.onboarding-workspace .setup-assistant :is(.host-onboarding-header h1,.provider-step-header h1) { font-size:1.65rem; }
+ .aurora-page.onboarding-workspace .setup-assistant :is(.host-location-grid,.provider-choice-grid,.provider-install-grid) { grid-template-columns:minmax(0,1fr); }
+ .aurora-page.onboarding-workspace .setup-assistant .host-location-card { grid-template-columns:36px minmax(0,1fr) auto; align-items:center; }
+ .aurora-page.onboarding-workspace .setup-assistant .host-location-copy { grid-column:2; grid-row:1; }
+ .aurora-page.onboarding-workspace .setup-assistant .host-location-check { grid-column:3; }
+ .aurora-page.onboarding-workspace .setup-assistant .local-approval-explanation { padding:16px; gap:12px; grid-template-columns:minmax(0,1fr); }
+ .aurora-page.onboarding-workspace .setup-assistant :is(.local-wizard-actions,.setup-welcome-actions,.provider-step-actions,.host-onboarding-actions) { align-items:stretch; flex-direction:column; }
+ .aurora-page.onboarding-workspace .setup-assistant footer .mud-button-root { width:100%; }
+ .aurora-page.onboarding-workspace .setup-assistant .provider-mode-switch button { flex-direction:column; gap:6px; text-align:center; padding:10px 4px; }
+ .aurora-page.onboarding-workspace .setup-assistant .provider-mode-switch small { display:none; }
+ .aurora-page.onboarding-workspace .setup-assistant input { font-size:16px; }
+}
+/* Provider editors are portalled outside the setup layout. */
+body:has(.setup-assistant) .mud-dialog { border:1px solid var(--activity-border); border-radius:22px; }
+body:has(.setup-assistant) .mud-dialog .mud-dialog-content { padding:24px; }
+body:has(.setup-assistant) .mud-dialog .provider-editor { background:transparent; }
+body:has(.setup-assistant) .mud-dialog :is(.provider-close-button,.mud-button-root) { min-height:44px; }
+body:has(.setup-assistant) .mud-dialog :is(.provider-form-grid,.provider-editor-actions) { gap:20px; }
+@media(max-width:600px) {
+ body:has(.setup-assistant) .mud-dialog { margin:12px; width:calc(100% - 24px); max-height:calc(100dvh - 24px); }
+ body:has(.setup-assistant) .mud-dialog input { font-size:16px; }
+ body:has(.setup-assistant) .mud-dialog .mud-dialog-content { padding:20px; }
+}

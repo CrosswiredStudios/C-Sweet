@@ -7,6 +7,13 @@ export function scrollToBottom(element) {
     element.scrollTop = element.scrollHeight;
 }
 
+export function focusCollaboration(id) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.scrollIntoView({ block: "center", behavior: "auto" });
+    element.focus({ preventScroll: true });
+}
+
 export function scrollHiringCarousel(element, direction) {
     if (!element) return;
     const card = element.querySelector(".hiring-suggestion-tile");

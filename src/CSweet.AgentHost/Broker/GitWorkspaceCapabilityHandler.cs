@@ -410,6 +410,20 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             return ToWorkspaceResult(existing, context, AgentWorkspacePath(existing), true);
         }
 
+        var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(context.Item.DeliverySpecificationJson ?? "null", JsonOptions);
+        if (context.ExpectedCommitSha is null && delivery?.DeliveryPlanId.HasValue == true)
+        {
+            // Preserve a previously prepared/published revision on reconnect. For a new
+            // revision, carry forward the unintegrated candidate that was sent for rework.
+            var reworkBase = !string.IsNullOrWhiteSpace(existing?.BaseCommitSha)
+                ? ValidateCommitSha(existing.BaseCommitSha)
+                : await ResolveReworkBaseAsync(db, organizationId, context.Repository.Id,
+                    input.WorkItemId, input.AssignmentRevision,
+                    delivery.BaseBranch is { Length: > 0 } targetBranch ? targetBranch : context.Repository.DefaultBranch,
+                    cancellationToken);
+            context = context with { ExpectedCommitSha = reworkBase };
+        }
+
         var now = DateTimeOffset.UtcNow;
         var workspace = existing ?? new SourceControlWorkspace
         {
@@ -459,7 +473,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         if (context.ExpectedCommitSha is not null &&
             !FixedTimeEquals(workspace.BaseCommitSha, context.ExpectedCommitSha))
             throw new InvalidOperationException(
-                "GitHost materialized a commit other than the exact assigned QA commit.");
+                "GitHost materialized a commit other than the exact assigned source commit.");
         workspace.Status = SourceControlWorkspaceStatus.Ready;
         workspace.LastError = null;
         workspace.UpdatedAt = DateTimeOffset.UtcNow;

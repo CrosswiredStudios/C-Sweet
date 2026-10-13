@@ -49,6 +49,31 @@ public sealed class HierarchicalGitDeliveryTests : IDisposable
     }
 
     [Fact]
+    public async Task PreIntegrationReworkPreservesRejectedCodeAndPublishesAnIncrementalFix()
+    {
+        await store.ExecuteAsync(new(org, repository, "create", "main"));
+        await Ensure("codex/story/one", "main");
+        var first = await Publish("codex/task/one/r1", "codex/story/one", "implementation.txt", "existing implementation");
+        await Assert.ThrowsAsync<ArgumentException>(() => Content("codex/story/one", "implementation.txt"));
+        var workspace = Guid.NewGuid();
+        var snapshot = await store.PrepareAsync(new(org, repository, workspace, "codex/story/one",
+            "codex/task/one/r2", first.CommitSha, "rework"), artifacts);
+        Assert.Equal(first.CommitSha, snapshot.BaseCommitSha);
+        var input = Path.Combine(root, "rework");
+        await artifacts.ExtractZipAsync(new MemoryStream(snapshot.Archive), input);
+        Assert.Equal("existing implementation", await File.ReadAllTextAsync(Path.Combine(input, "implementation.txt")));
+        await File.WriteAllTextAsync(Path.Combine(input, "review-fix.txt"), "addressed review finding");
+        using var output = new MemoryStream(); var manifest = await artifacts.CreateZipAsync(input, output);
+        await store.ApplySnapshotAsync(new(org, repository, workspace, "publish", snapshot.BaseCommitSha,
+            "codex/task/one/r2", "codex/story/one", "rework-publish", output.ToArray(), manifest.Sha256,
+            manifest.FileCount, manifest.TotalBytes, "Address review feedback"), artifacts);
+        Assert.Equal("existing implementation", await Content("codex/task/one/r2", "implementation.txt"));
+        Assert.Equal("addressed review finding", await Content("codex/task/one/r2", "review-fix.txt"));
+        await Promote("codex/task/one/r2", "codex/story/one", "rework-integrate");
+        Assert.Equal("existing implementation", await Content("codex/story/one", "implementation.txt"));
+    }
+
+    [Fact]
     public async Task ConcurrentTargetChangeRejectsStaleCandidateAndAuthorBypassesAreDenied()
     {
         await store.ExecuteAsync(new(org, repository, "create", "main"));

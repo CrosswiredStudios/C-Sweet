@@ -615,15 +615,15 @@ public sealed class AgentCoordinationService(
                 }
                 catch (Exception error) when (error is UnauthorizedAccessException or InvalidOperationException) { continue; }
             }
-            else if (IsUnavailableInference(failed.LastError))
+            else if (IsUnavailableInference(failed.LastError) || IsRetryableProviderFailure(failed.LastError))
             {
                 // Older SDKs label unavailable inference non-retryable. Reassess it as a
                 // bounded availability probe, without treating denied/invalid requests as transient.
                 var delay = TimeSpan.FromMinutes(Math.Min(15, Math.Pow(2, Math.Max(0, attempts - 1))));
-                if (session.UpdatedAt + delay > now) continue;
+                if (IsRetryableProviderFailure(failed.LastError) && attempts >= 3 || session.UpdatedAt + delay > now) continue;
                 var providerId = await db.AgentRunLogs.AsNoTracking().Where(x =>
                         x.OrganizationId == session.OrganizationId && x.AgentInstallationId == failed.AgentInstallationId &&
-                        x.StartedAt >= failed.CreatedAt && x.Status == "Failed")
+                        x.AgentWorkItemId == failed.Id && x.Status == "Failed")
                     .OrderByDescending(x => x.StartedAt).Select(x => (Guid?)x.ProviderProfileId)
                     .FirstOrDefaultAsync(cancellationToken);
                 if (providerId is null || !await db.LlmProviderProfiles.AnyAsync(x => x.Id == providerId && x.IsEnabled,
@@ -654,6 +654,12 @@ public sealed class AgentCoordinationService(
         return parts.Contains("code=platform.capability.unavailable", StringComparer.Ordinal) &&
             parts.Contains("capability=platform.llm.chat-stream.v1", StringComparer.Ordinal);
     }
+
+    private static bool IsRetryableProviderFailure(string? error) =>
+        error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
+        error.Split(';').Contains("code=llm.provider_unavailable", StringComparer.Ordinal) &&
+        error.Split(';').Contains("retryable=true", StringComparer.Ordinal) &&
+        error.Split(';').Contains("capability=platform.llm.chat-stream.v1", StringComparer.Ordinal);
 
     private static bool IsTransientDeliveryFailure(string? error)
     {

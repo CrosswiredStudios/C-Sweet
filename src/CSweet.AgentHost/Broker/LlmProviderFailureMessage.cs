@@ -7,6 +7,9 @@ internal static class LlmProviderFailureMessage
         HttpRequestException http => http.StatusCode is null || (int)http.StatusCode is 408 or 429 or >= 500,
         System.ClientModel.ClientResultException client => client.Status is 408 or 429 or >= 500,
         TimeoutException or System.Net.Sockets.SocketException => true,
+        System.Net.Http.HttpIOException io => io.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.ResponseEnded,
+        IOException { InnerException: System.Net.Sockets.SocketException } => true,
+        IOException { InnerException: HttpRequestException http } => IsTransient(http),
         _ => exception.Message.Contains("No model loaded", StringComparison.OrdinalIgnoreCase)
     };
 
@@ -17,6 +20,10 @@ internal static class LlmProviderFailureMessage
             return "The provider configuration or caller authorization changed before dispatch. Refresh the current work and permissions before retrying.";
         if (exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract)
             return contract.Message;
+        if (exception is IOException && IsTransient(exception))
+            return "The connection to the model provider was interrupted before the response finished. The incomplete response was not accepted; retry the pending work after the connection recovers.";
+        if (exception is TimeoutException)
+            return "The model provider did not finish within the request deadline. Retry the pending work; if this repeats, check provider availability or reduce the request size.";
         var text = exception.Message;
         if (text.Contains("reasoning_content", StringComparison.OrdinalIgnoreCase))
             return "The model requires reasoning content to be preserved between tool calls. Update the platform's OpenAI-compatible adapter to retain reasoning history, then retry the blocked ticket.";

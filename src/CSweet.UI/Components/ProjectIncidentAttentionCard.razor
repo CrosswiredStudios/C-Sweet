@@ -1,0 +1,67 @@
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Communications
+@inject HttpClient Http
+
+<AttentionRequestCard Kind="@(Incident.Collaboration is null ? "Project stalled" : "Collaboration")"
+    Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
+    Description="@Incident.Facts" Status="@(_notice ?? Incident.RecommendedAction)">
+    @if (Incident.Collaboration is { } collaboration)
+    {
+        @if (collaboration.CanRetry || collaboration.Status is "Active" or "Summarizing")
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_retrying || Queued || !collaboration.CanRetry)"
+                       OnClick="RetryAsync">@(_retrying ? "Retrying…" : Queued ? "Retry queued" : !collaboration.CanRetry ? "In progress" : "Retry")</MudButton>
+        }
+        <MudButton Href="@collaboration.InvestigateUri" Variant="Variant.Outlined" Color="Color.Primary">Investigate</MudButton>
+    }
+    else
+    {
+        <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
+    }
+</AttentionRequestCard>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public ProjectIncidentAttentionResponse Incident { get; set; } = default!;
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+    private bool _retrying;
+    private (Guid Session, long Revision)? _queued;
+    private string? _notice;
+    private bool Queued => Incident.Collaboration is { } c && _queued == (c.SessionId, c.Revision);
+
+    protected override void OnParametersSet()
+    {
+        if (_queued.HasValue && !Queued) { _queued = null; _notice = null; }
+    }
+
+    private async Task RetryAsync()
+    {
+        if (_retrying || Queued || Incident.Collaboration is not { CanRetry: true } collaboration) return;
+        _retrying = true; _notice = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId}/communications/hub/chats/{collaboration.ConversationId}/coordination-sessions/{collaboration.SessionId}/retry",
+                new RetryAgentCoordinationRequest(collaboration.Revision,
+                    "Retry requested by a manager from Overview.",
+                    $"ui-retry:{collaboration.SessionId:N}:{collaboration.Revision}"));
+            if (response.IsSuccessStatusCode)
+            {
+                _queued = (collaboration.SessionId, collaboration.Revision);
+                _notice = "Retry queued. This item clears when recovery is confirmed.";
+            }
+            else
+                _notice = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Conflict => "The collaboration changed. Refresh or investigate its current state before retrying.",
+                    System.Net.HttpStatusCode.Forbidden => "You no longer have permission to retry this collaboration.",
+                    System.Net.HttpStatusCode.NotFound => "This collaboration is no longer available. Refresh Overview.",
+                    _ => "Could not retry. Investigate the collaboration before trying again."
+                };
+        }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException)
+        { _notice = "Could not confirm the retry. Investigate its current state before trying again."; }
+        finally { _retrying = false; }
+        await RefreshRequested.InvokeAsync();
+    }
+}

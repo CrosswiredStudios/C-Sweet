@@ -155,15 +155,23 @@ public sealed partial class ProjectHealthService
         var limitations = new List<string> { "Only exact project/work correlations are included; unrecorded or uncorrelated evidence is unavailable." };
         var sources = evidence.Select(x => x.SourceId).ToArray();
         var attemptIds = await db.AgentWorkAttempts.Where(x => sources.Contains(x.Id)).Select(x => x.Id).ToArrayAsync(token);
-        var runIds = await db.AgentRunLogs.Where(x => x.OrganizationId == organization && x.AgentWorkAttemptId.HasValue && attemptIds.Contains(x.AgentWorkAttemptId.Value))
-            .Select(x => x.Id).ToArrayAsync(token);
+        var runs = await db.AgentRunLogs.AsNoTracking().Where(x => x.OrganizationId == organization && x.AgentWorkAttemptId.HasValue && attemptIds.Contains(x.AgentWorkAttemptId.Value))
+            .OrderByDescending(x => x.StartedAt).Take(50).ToListAsync(token);
+        foreach (var run in runs)
+            evidence.Add(new("ModelRequest", run.Id, run.CompletedAt ?? run.StartedAt,
+                ProjectHealthReader.Safe($"Model {run.Model ?? "unspecified"}: {run.Status} after {TimeSpan.FromMilliseconds(run.DurationMs).TotalMinutes:F1} minutes. {run.FailureMessage}")));
+        var runIds = runs.Select(x => x.Id).ToArray();
+        // Stream chunks and prompt/response payloads are not failure diagnoses. Filter before
+        // the history bound so thousands of successful chunks cannot crowd out the actual error.
         var records = await db.AuditEvents.AsNoTracking().Where(x => x.OrganizationId == organization && x.EntityId != null &&
+            x.EventType != "model.response.chunk" && (x.Outcome == "Failed" || x.Outcome == "Denied") &&
             ((x.EntityType == "AgentRunLog" && runIds.Contains(x.EntityId.Value)) ||
              (x.EntityType == "Capability" && attemptIds.Contains(x.EntityId.Value)) ||
              (x.EntityType == "AgentWorkAttempt" && attemptIds.Contains(x.EntityId.Value))))
             .OrderByDescending(x => x.Sequence).Take(200).ToListAsync(token);
         var parentIds = records.Select(x => x.Id).ToArray();
-        records.AddRange(await db.AuditEvents.AsNoTracking().Where(x => x.OrganizationId == organization && x.ParentEventId.HasValue && parentIds.Contains(x.ParentEventId.Value))
+        records.AddRange(await db.AuditEvents.AsNoTracking().Where(x => x.OrganizationId == organization && x.ParentEventId.HasValue && parentIds.Contains(x.ParentEventId.Value) &&
+            x.EventType != "model.response.chunk" && (x.Outcome == "Failed" || x.Outcome == "Denied"))
             .OrderByDescending(x => x.Sequence).Take(200).ToListAsync(token));
         foreach (var record in records.DistinctBy(x => x.Id))
         {

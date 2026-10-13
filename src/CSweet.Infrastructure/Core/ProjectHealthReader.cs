@@ -21,18 +21,30 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
         var now = clock.GetUtcNow();
         var boards = await db.WorkBoards.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
             x.WorkstreamId == project.Id && x.ArchivedAt == null).Select(x => x.Id).ToArrayAsync(token);
-        var projectText = project.Id.ToString();
-        var candidates = await db.CoreWorkTasks.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
-            x.ArchivedAt == null && ((x.BoardId.HasValue && boards.Contains(x.BoardId.Value)) ||
-            (x.PersonalWorkContextJson != null && x.PersonalWorkContextJson.Contains(projectText)))).ToListAsync(token);
+        var query = db.CoreWorkTasks.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId && x.ArchivedAt == null);
+        // This string-backed column is jsonb in PostgreSQL. String.Contains becomes an invalid
+        // jsonb LIKE expression; use structural containment and match only the project property.
+        if (db.Database.IsNpgsql())
+        {
+            var context = JsonSerializer.Serialize(new { workstreamId = project.Id });
+            query = query.Where(x => (x.BoardId.HasValue && boards.Contains(x.BoardId.Value)) ||
+                (x.PersonalWorkContextJson != null && EF.Functions.JsonContains(x.PersonalWorkContextJson, context)));
+        }
+        else
+            query = query.Where(x => (x.BoardId.HasValue && boards.Contains(x.BoardId.Value)) || x.PersonalWorkContextJson != null);
+        var candidates = await query.ToListAsync(token);
         var tickets = candidates.Where(x => !CSweetDbContext.IsHealthWork(x.CorrelationId) && db.HealthProjectForTask(x) == project.Id).ToArray();
         var ticketIds = tickets.Select(x => x.Id).ToArray();
         var sessions = await db.AgentCoordinationSessions.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
             x.WorkstreamId == project.Id).ToListAsync(token);
         var sessionIds = sessions.Select(x => x.Id).ToArray();
+        var sessionKeys = sessionIds.Select(x => x.ToString("D")).ToArray();
         var coordinationWorks = await db.AgentCoordinationTurns.AsNoTracking().Where(x => sessionIds.Contains(x.SessionId) && x.AgentWorkItemId != null)
             .Select(x => x.AgentWorkItemId!.Value).ToListAsync(token);
         coordinationWorks.AddRange(sessions.Where(x => x.CurrentAgentWorkItemId.HasValue).Select(x => x.CurrentAgentWorkItemId!.Value));
+        // Failed sessions clear CurrentAgentWorkItemId. Correlation survives failure, resume and restart.
+        coordinationWorks.AddRange(await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId.ToString() &&
+            x.SourceType == "agent-coordination" && sessionKeys.Contains(x.CorrelationId!)).Select(x => x.Id).ToListAsync(token));
         var executions = await db.WorkItemExecutions.AsNoTracking().Where(x => ticketIds.Contains(x.WorkItemId)).ToListAsync(token);
         var stages = await db.WorkStageExecutions.AsNoTracking().Where(x => ticketIds.Contains(x.ItemExecution!.WorkItemId) &&
             x.StageKey == x.ItemExecution.CurrentStageKey && x.Traversal == x.ItemExecution.Traversal).ToListAsync(token);
@@ -69,23 +81,26 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
                 return executions.FirstOrDefault(x => x.Id == stages.FirstOrDefault(s => s.Id == id)?.ItemExecutionId)?.WorkItemId;
             return sessions.FirstOrDefault(x => x.CurrentAgentWorkItemId == work.Id)?.SourceWorkItemId;
         }
-        string FailureKey(AgentWorkItem work) => work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stage)
-            ? $"stage:{stage:N}" : $"work:{work.Id:N}";
+        CSweet.Domain.Communications.AgentCoordinationSession? Coordination(AgentWorkItem work) => work.SourceType == "agent-coordination" &&
+            Guid.TryParse(work.CorrelationId, out var id) ? sessions.SingleOrDefault(x => x.Id == id) : null;
+        string FailureKey(AgentWorkItem work) => Coordination(work) is { } collaboration ? $"coordination:{collaboration.Id:N}" :
+            work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stage) ? $"stage:{stage:N}" : $"work:{work.Id:N}";
         foreach (var work in works.GroupBy(FailureKey).Select(x => x.OrderByDescending(w => w.CreatedAt).First()))
         {
             var latest = attempts.Where(x => x.AgentWorkItemId == work.Id).OrderByDescending(x => x.Attempt).FirstOrDefault();
             var key = FailureKey(work);
             if (recovered.Contains(key)) continue;
             var affectedTicket = AffectedTicket(work);
-            if (tickets.Any(x => x.Id == affectedTicket && x.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) ||
-                sessions.Any(x => x.CurrentAgentWorkItemId == work.Id && x.Status is AgentCoordinationStatus.Completed or AgentCoordinationStatus.Cancelled) ||
+            if (Coordination(work) is null && tickets.Any(x => x.Id == affectedTicket && x.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) ||
+                Coordination(work)?.Status is AgentCoordinationStatus.Completed or AgentCoordinationStatus.Cancelled ||
                 work.SourceType == "chat-turn" && turns.Any(x => x.Id.ToString() == work.SourceId &&
                     turns.Any(retry => retry.RetryOfTurnId == x.Id && retry.Status is ChatTurnStatus.Completed or ChatTurnStatus.CompletedWithWarnings)))
             { recovered.Add(key); continue; }
             if (work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var sourceStage) &&
                 stages.Any(x => x.Id == sourceStage && x.Status is WorkStageExecutionStatus.Completed or WorkStageExecutionStatus.Cancelled))
             { recovered.Add(key); continue; }
-            if (work.Status is AgentWorkStatus.Completed or AgentWorkStatus.Cancelled) { recovered.Add(key); continue; }
+            if (work.Status is AgentWorkStatus.Completed or AgentWorkStatus.Cancelled)
+            { if (Coordination(work) is null) recovered.Add(key); continue; }
             var error = latest?.Error ?? work.LastError;
             if (error is null && work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
             {
@@ -101,7 +116,7 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             var fact = new ProjectDiagnosticEvidence("AgentWorkAttempt", latest?.Id ?? work.Id, latest?.FinishedAt ?? latest?.LeaseExpiresAt ?? work.DeadlineAt,
                 Safe(error ?? "Execution deadline or lease expired without completion."),
                 employee.HasValue ? $"/organizations/{project.OrganizationId}/employees/{employee}" : null);
-            failures.Add(new(key, "Agent execution failure", affectedTicket, [fact])); evidence.Add(fact);
+            failures.Add(new(key, Coordination(work) is null ? "Agent execution failure" : "Planning coordination stopped", affectedTicket, [fact])); evidence.Add(fact);
         }
         foreach (var stage in stages)
         {
@@ -117,11 +132,12 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             var key = $"coordination:{session.Id:N}";
             if (session.Status is AgentCoordinationStatus.Completed or AgentCoordinationStatus.Cancelled) { recovered.Add(key); continue; }
             if (session.Status is not (AgentCoordinationStatus.Failed or AgentCoordinationStatus.Blocked)) continue;
-            // Prefer the underlying attempt incident when this session is its dependent symptom.
-            if (session.CurrentAgentWorkItemId is { } current && failures.Any(x => x.Key == $"work:{current:N}")) continue;
             var fact = new ProjectDiagnosticEvidence("AgentCoordinationSession", session.Id, session.UpdatedAt,
                 Safe($"{session.Subject}: {session.Status}. {session.FinalSummary}"));
-            failures.Add(new(key, "Planning coordination stopped", session.SourceWorkItemId, [fact])); evidence.Add(fact);
+            var existing = failures.FindIndex(x => x.Key == key);
+            if (existing >= 0) failures[existing] = failures[existing] with { Evidence = [.. failures[existing].Evidence, fact] };
+            else failures.Add(new(key, "Planning coordination stopped", session.SourceWorkItemId, [fact]));
+            evidence.Add(fact);
         }
         await ObserveDeliveryPlansAsync(project, boards, failures, recovered, evidence, token);
         foreach (var ticket in tickets)

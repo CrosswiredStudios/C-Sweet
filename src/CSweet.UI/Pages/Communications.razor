@@ -216,7 +216,7 @@
 
                     @foreach (var coordination in _coordinationSessions)
                     {
-                        <section class="hub-coordination-card" aria-label="Agent collaboration">
+                        <section id="@($"collaboration-{coordination.Id:D}")" class="hub-coordination-card" aria-label="Agent collaboration" tabindex="-1">
                             <div class="hub-coordination-icon"><MudIcon Icon="@Icons.Material.Outlined.Hub" /></div>
                             <div class="hub-coordination-content">
                                 <span>AGENT COLLABORATION · @coordination.Status</span>
@@ -228,6 +228,10 @@
                                 else if (coordination.Status == "Blocked")
                                 {
                                     <p>This collaboration is waiting for a blocker to be resolved.</p>
+                                }
+                                else if (coordination.Status is "Completed" or "Cancelled")
+                                {
+                                    <p>This collaboration is @coordination.Status.ToLowerInvariant(). Its transcript is preserved below.</p>
                                 }
                                 else
                                 {
@@ -843,6 +847,10 @@
     [Parameter] public Guid? ChatId { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "perspective")]
     public Guid? PerspectiveAgentId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "collaboration")]
+    public Guid? CollaborationId { get; set; }
+    private Guid? _focusedCollaborationId;
+    private Guid? _loadedCollaborationId;
     [Parameter, SupplyParameterFromQuery(Name = "message")]
     public Guid? SourceMessageId { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "artifact")]
@@ -973,6 +981,9 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        var collaborationChanged = _loadedCollaborationId != CollaborationId;
+        if (collaborationChanged) _focusedCollaborationId = null;
+        _loadedCollaborationId = CollaborationId;
         if (!_workspaceLoaded ||
             _loadedOrganizationId != OrganizationId ||
             _loadedPerspectiveAgentId != PerspectiveAgentId)
@@ -993,6 +1004,8 @@
             await SwitchChatAsync(chat, updateLocation: false);
         }
 
+        if (collaborationChanged && _selected is not null)
+            await LoadMessagesAsync(markRead: false);
         if (SourceMessageId.HasValue && SourceMessageId != _loadedSourceMessageId)
             await MarkSourceMentionReadAsync(SourceMessageId.Value);
         _loadedSourceMessageId = SourceMessageId;
@@ -1000,6 +1013,21 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (CollaborationId is { } collaborationId && _coordinationSessions.Any(x => x.Id == collaborationId))
+        {
+            // Incoming transcript updates must not pull an investigation away from its target.
+            _scrollToBottomPending = false;
+            if (_focusedCollaborationId == collaborationId) return;
+            try
+            {
+                var module = await GetCommunicationsModuleAsync();
+                await module.InvokeVoidAsync("focusCollaboration", $"collaboration-{collaborationId:D}");
+                _focusedCollaborationId = collaborationId;
+            }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+            return;
+        }
         if (!_scrollToBottomPending) return;
         _scrollToBottomPending = false;
 
@@ -1224,7 +1252,7 @@
         var coordination = await Http.GetFromJsonAsync<List<AgentCoordinationSessionResponse>>(
             $"{BasePath}/chats/{_selected.Id}/coordination-sessions?activeOnly=false&perspectiveOrganizationUserId={_hub?.ViewedOrganizationUserId}", token) ?? [];
         _coordinationSessions.Clear();
-        _coordinationSessions.AddRange(coordination.Where(x => x.Status is "Active" or "Summarizing" or "Failed" or "Blocked"));
+        _coordinationSessions.AddRange(coordination.Where(x => x.Id == CollaborationId || x.Status is "Active" or "Summarizing" or "Failed" or "Blocked"));
         if (_hub?.IsReadOnlyPerspective == true)
             _turns.Clear();
         else

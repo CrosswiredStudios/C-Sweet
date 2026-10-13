@@ -801,7 +801,8 @@ public sealed partial class WorkOrchestrator(
             item.WorkItem!.DeliverySpecificationJson is { } deliveryJson &&
             JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(deliveryJson, JsonOptions)?.DeliveryPlanId.HasValue == true)
         {
-            // Reviewed fixes start a fresh task branch from current story state.
+            // A new task revision retains the prior candidate until integration; the
+            // workspace broker then uses the story for post-integration fixes.
             // Keep older merged publications and QA evidence as historical records.
             item.WorkItem.AssignmentRevision++;
         }

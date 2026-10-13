@@ -35,11 +35,10 @@
 .business-dialog-header p { color:var(--activity-muted); font-size:.875rem; line-height:1.55; margin:0; }
 .business-dialog-close { display:grid; place-items:center; flex:0 0 40px; height:40px; border:0; border-radius:12px; background:var(--activity-tint); color:var(--activity-accent); cursor:pointer; }
 .business-dialog-close:disabled { cursor:default; opacity:.5; }
-.business-dialog :is(button,input,textarea):focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
+.business-dialog button:focus-visible { outline:3px solid var(--activity-accent); outline-offset:3px; }
 .business-form-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
 .business-form-grid ::deep .mud-input-outlined { border-radius:13px; background:var(--activity-raised); }
 .business-form-grid ::deep .mud-input-outlined-border { border-radius:13px; border-color:var(--activity-border); }
-.business-form-grid ::deep .mud-input-control:focus-within .mud-input-outlined-border { border-color:var(--activity-accent); }
 .business-next-step { display:flex; align-items:center; gap:10px; color:var(--activity-muted); font-size:.8rem; margin:0; }
 .business-dialog-actions { justify-content:flex-end; flex-wrap:wrap; border-top:1px solid var(--activity-border); padding-top:20px; }
 .business-delete-dialog > p { overflow-wrap:anywhere; line-height:1.6; }

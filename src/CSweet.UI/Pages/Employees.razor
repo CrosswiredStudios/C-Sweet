@@ -7,7 +7,6 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject IAgentApiClient AgentApi
-@inject ILlmProviderApiClient LlmProviderApi
 
 <EmployeePortraitScope OrganizationId="OrganizationId">
 <PageTitle>Employees - C-Sweet</PageTitle>
@@ -278,110 +277,14 @@
     </DialogActions>
 </MudDialog>
 
-<MudDialog @bind-Visible="_configurationDialogOpen" Options="_dialogOptions">
+<MudDialog @bind-Visible="_configurationDialogOpen" Options="_dialogOptions" Class="aurora-page employee-configuration-dialog">
     <TitleContent><MudText Typo="Typo.h6">Configure @_configurationEmployee?.DisplayName</MudText></TitleContent>
     <DialogContent>
-        @if (_loadingConfiguration)
+        @if (_configurationDialogOpen && _configurationEmployee is not null)
         {
-            <MudStack Spacing="2" role="status" aria-live="polite">
-                <MudText Typo="Typo.subtitle2">Loading configuration from the control plane...</MudText>
-                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-            </MudStack>
-        }
-        else if (!string.IsNullOrWhiteSpace(_configurationError))
-        {
-            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_configurationError</MudAlert>
-        }
-        else if (_configurationSchema is not null)
-        {
-            <MudStack Spacing="2">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">
-                        @(_configurationView?.SynchronizationStatus ?? "Unknown")
-                    </MudChip>
-                    <MudButton Variant="Variant.Text" Color="Color.Primary"
-                               Disabled="@(_savingConfiguration || _configurationView?.OverriddenKeys.Count == 0)"
-                               OnClick="RestoreAllConfigurationAsync">
-                        Restore all defaults
-                    </MudButton>
-                </MudStack>
-                @foreach (var field in _configurationSchema.Fields.Where(IsConfigurationFieldVisible))
-                {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                        @if (IsConfigurationOverridden(field.Key))
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Overridden</MudChip>
-                            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@_savingConfiguration"
-                                       OnClick="@(() => RestoreConfigurationKeyAsync(field.Key))">Use default</MudButton>
-                        }
-                    </MudStack>
-                    @if (field.Type == AgentConfigurationFieldTypes.Boolean)
-                    {
-                        <MudCheckBox T="bool" Label="@field.Label" Value="@ConfigurationBoolean(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" />
-                    }
-                    else if (field.Type == AgentConfigurationFieldTypes.Number)
-                    {
-                        <MudNumericField T="decimal?" Label="@field.Label" Value="@ConfigurationNumber(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Min="@field.Minimum" Max="@field.Maximum" Variant="Variant.Outlined" />
-                    }
-                    else if (field.Type == AgentConfigurationFieldTypes.Select)
-                    {
-                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@((string value) => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined">
-                            @foreach (var option in field.Options ?? [])
-                            {
-                                <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
-                            }
-                        </MudSelect>
-                    }
-                    else if (field.Type == AgentConfigurationFieldTypes.LlmProvider)
-                    {
-                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetProviderValueAsync(field.Key, value))" Variant="Variant.Outlined">
-                            <MudSelectItem T="string" Value="@string.Empty">Select a provider</MudSelectItem>
-                            @foreach (var provider in _providerProfiles.Where(x => x.IsEnabled))
-                            {
-                                <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem>
-                            }
-                        </MudSelect>
-                        @if (!string.IsNullOrWhiteSpace(ModelCatalogError(field)))
-                        {
-                            <MudText Typo="Typo.caption" Color="Color.Error">@ModelCatalogError(field)</MudText>
-                        }
-                    }
-                    else if (field.Type == AgentConfigurationFieldTypes.LlmModel)
-                    {
-                        <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Variant="Variant.Outlined" Disabled="@IsModelPickerDisabled(field)">
-                            <MudSelectItem T="string" Value="@string.Empty">@ModelPlaceholder(field)</MudSelectItem>
-                            @if (SelectedModelMissing(field))
-                            {
-                                <MudSelectItem T="string" Value="@ConfigurationString(field.Key)">@ConfigurationString(field.Key)</MudSelectItem>
-                            }
-                            @foreach (var model in ModelOptions(field))
-                            {
-                                <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
-                            }
-                        </MudSelect>
-                    }
-                    else
-                    {
-                        <MudTextField Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@((string value) => SetConfigurationValue(field.Key, value))" Lines="@(field.Type == AgentConfigurationFieldTypes.TextArea ? 4 : 1)" Variant="Variant.Outlined" />
-                    }
-                    @if (!string.IsNullOrWhiteSpace(field.Description))
-                    {
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">@field.Description</MudText>
-                    }
-                }
-                @if (!string.IsNullOrWhiteSpace(_configurationMessage))
-                {
-                    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">@_configurationMessage</MudAlert>
-                }
-            </MudStack>
+            <EmployeeConfigurationPanel @key="_configurationEmployee.Id" OrganizationId="OrganizationId" EmployeeId="_configurationEmployee.Id" />
         }
     </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="CloseConfiguration" Disabled="@_savingConfiguration">Close</MudButton>
-        <MudButton OnClick="SaveConfigurationAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_savingConfiguration || _configurationSchema is null)">
-            @(_savingConfiguration ? "Saving..." : "Save")
-        </MudButton>
-    </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_runtimeConsoleOpen" Options="_runtimeConsoleOptions">

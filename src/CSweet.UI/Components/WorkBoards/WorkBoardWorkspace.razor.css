@@ -3,7 +3,7 @@
 button, input, select, summary { font: inherit; }
 button { cursor: pointer; color: inherit; }
 button:disabled { cursor: default; opacity: .55; }
-button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
 .board-header { padding: 16px 24px 0; background: var(--mud-palette-surface); border-bottom: 1px solid var(--board-line); }
 .back-link { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; font-size: 12px; color: var(--board-muted); }
 .board-title-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 12px 0 18px; }

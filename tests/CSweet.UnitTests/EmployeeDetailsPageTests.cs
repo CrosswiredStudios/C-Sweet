@@ -49,6 +49,7 @@ public sealed class EmployeeDetailsPageTests
     [InlineData("overview", "profile-facts")]
     [InlineData("personal-board", "personal-board")]
     [InlineData("assigned-work", "Open task")]
+    [InlineData("configuration", "Working style")]
     [InlineData("agent-operations", "Runs & diagnostics")]
     [InlineData("memory", "Learning journal")]
     [InlineData("usage", "Model usage")]
@@ -86,12 +87,13 @@ public sealed class EmployeeDetailsPageTests
     [InlineData("usage")]
     [InlineData("memory")]
     [InlineData("agent-operations")]
+    [InlineData("configuration")]
     public async Task RestrictedTabsDoNotRequestSensitiveData(string tab)
     {
         var api = new EmployeeApi(agent: true, sensitive: false);
         var html = await RenderAsync(tab, api);
         Assert.Contains("restricted", html);
-        Assert.DoesNotContain(api.RequestedPaths, x => x.EndsWith("/usage") || x.EndsWith("/operations") || x.EndsWith("/summary"));
+        Assert.DoesNotContain(api.RequestedPaths, x => x.EndsWith("/usage") || x.EndsWith("/operations") || x.EndsWith("/summary") || x.Contains("/agent-configuration/"));
     }
 
     [Theory]
@@ -178,6 +180,8 @@ public sealed class EmployeeDetailsPageTests
                     new OrganizationUserResponse(EmployeeId, OrganizationId, null, null, null, "Ada Sterling", "ada@example.com", agent ? 1 : 0, 1, DateTimeOffset.UtcNow) { AgentInstallationId = agent ? InstallationId : null },
                     null, null, null, [], [],
                     new EmployeeDetailsPermissions(sensitive, true, true, true, true, false, true, true));
+            else if (path.EndsWith("/agent-configuration/overrides"))
+                result = EmployeeConfigurationPanelTests.SampleView();
             else if (path.EndsWith("/users"))
                 result = new OrganizationUserResponse[] {
                     new(EmployeeId, OrganizationId, null, null, null, "Ada Sterling", "ada@example.com", 0, 1, DateTimeOffset.UtcNow),

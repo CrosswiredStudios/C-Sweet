@@ -1,0 +1,101 @@
+@using CSweet.Contracts.Agents
+
+<section class="employee-configuration" aria-labelledby="employee-configuration-title" aria-busy="@(_loadingConfiguration || _savingConfiguration)">
+    <header class="configuration-heading">
+        <div><span class="configuration-eyebrow">Agent instance</span><h2 id="employee-configuration-title">Configuration</h2><p>Adjust how this employee works. Changes apply only to this employee.</p></div>
+        @if (_configurationView is not null)
+        {
+            <span class="configuration-status"><MudIcon Icon="@Icons.Material.Outlined.Sync" />@SyncLabel</span>
+        }
+    </header>
+    @if (_loadingConfiguration)
+    {
+        <div class="configuration-empty" role="status"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Loading agent settings…</span></div>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_configurationError))
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" role="alert">@_configurationError</MudAlert>
+            <MudButton OnClick="LoadAsync" Disabled="@_savingConfiguration" StartIcon="@Icons.Material.Outlined.Refresh">Reload saved values</MudButton>
+        }
+        @if (_configurationSchema is not null)
+        {
+            @if (_configurationSchema.Fields.Count == 0)
+            {
+                <div class="configuration-empty"><MudIcon Icon="@Icons.Material.Outlined.Tune" /><div><h3>No configurable settings</h3><p>This agent doesn't expose any settings for this employee.</p></div></div>
+            }
+            else
+            {
+                @if (!string.IsNullOrWhiteSpace(_providerError)) { <MudAlert Severity="Severity.Warning">@_providerError <MudButton Disabled="@_hasChanges" OnClick="LoadAsync">Reload</MudButton></MudAlert> }
+                @if (!string.IsNullOrWhiteSpace(_configurationView?.SynchronizationError))
+                { <MudAlert Severity="Severity.Warning">The agent couldn't apply its saved settings. @_configurationView.SynchronizationError</MudAlert> }
+                <MudForm @ref="_form" Disabled="@_savingConfiguration">
+                    <div class="configuration-fields">
+                        @foreach (var field in _configurationSchema.Fields.Where(IsConfigurationFieldVisible))
+                        {
+                            <div class="configuration-field @(field.Type == AgentConfigurationFieldTypes.TextArea ? "wide" : null)" @key="field.Key">
+                                <div class="configuration-field-source">
+                                    <span>@(IsConfigurationOverridden(field.Key) ? "Customized for this employee" : "Agent default")</span>
+                                    @if (IsConfigurationOverridden(field.Key))
+                                    {
+                                        <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@(_savingConfiguration || _hasChanges || _loadingProviderModels.Count > 0)" OnClick="() => RestoreConfigurationKeyAsync(field.Key)">Use default</MudButton>
+                                    }
+                                </div>
+                                @if (field.Type == AgentConfigurationFieldTypes.Boolean)
+                                {
+                                    <MudSwitch T="bool" Label="@field.Label" Value="@ConfigurationBoolean(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Color="Color.Primary" />
+                                }
+                                else if (field.Type == AgentConfigurationFieldTypes.Number)
+                                {
+                                    <MudNumericField T="decimal?" Label="@field.Label" Value="@ConfigurationNumber(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Min="@field.Minimum" Max="@field.Maximum" Step="@(field.Step ?? 1)" Required="@field.Required" RequiredError="@($"{field.Label} is required.")" Variant="Variant.Outlined" />
+                                }
+                                else if (field.Type == AgentConfigurationFieldTypes.Select)
+                                {
+                                    <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Required="@field.Required" Variant="Variant.Outlined">
+                                        @foreach (var option in field.Options ?? []) { <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem> }
+                                    </MudSelect>
+                                }
+                                else if (field.Type == AgentConfigurationFieldTypes.LlmProvider)
+                                {
+                                    <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetProviderValueAsync(field.Key, value))" Required="@field.Required" Variant="Variant.Outlined" Disabled="@(_providerError is not null)">
+                                        <MudSelectItem T="string" Value="@string.Empty">Select a provider</MudSelectItem>
+                                        @if (!string.IsNullOrEmpty(ConfigurationString(field.Key)) && FindProvider(ConfigurationString(field.Key)) is null)
+                                        { <MudSelectItem T="string" Value="@ConfigurationString(field.Key)">Saved provider (unavailable)</MudSelectItem> }
+                                        @foreach (var provider in _providerProfiles.Where(x => x.IsEnabled)) { <MudSelectItem T="string" Value="@provider.Id.ToString()">@provider.Name</MudSelectItem> }
+                                    </MudSelect>
+                                    @if (ModelCatalogError(field) is { } error)
+                                    {
+                                        <p class="configuration-field-error" role="status">@error</p>
+                                        <MudButton Size="Size.Small" Disabled="@(_savingConfiguration || _loadingProviderModels.Count > 0)" OnClick="() => LoadConfiguredProviderModelsAsync(_configurationSchema, _disposeCts.Token)">Retry model discovery</MudButton>
+                                    }
+                                }
+                                else if (field.Type == AgentConfigurationFieldTypes.LlmModel)
+                                {
+                                    <MudSelect T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Required="@field.Required" Variant="Variant.Outlined" Disabled="@IsModelPickerDisabled(field)">
+                                        <MudSelectItem T="string" Value="@string.Empty">@ModelPlaceholder(field)</MudSelectItem>
+                                        @if (SelectedModelMissing(field)) { <MudSelectItem T="string" Value="@ConfigurationString(field.Key)">@ConfigurationString(field.Key)</MudSelectItem> }
+                                        @foreach (var model in ModelOptions(field)) { <MudSelectItem T="string" Value="@model">@model</MudSelectItem> }
+                                    </MudSelect>
+                                }
+                                else
+                                {
+                                    <MudTextField T="string" Label="@field.Label" Value="@ConfigurationString(field.Key)" ValueChanged="@(value => SetConfigurationValue(field.Key, value))" Required="@field.Required" Placeholder="@field.Placeholder" Lines="@(field.Type == AgentConfigurationFieldTypes.TextArea ? 4 : 1)" InputType="@(field.Type == AgentConfigurationFieldTypes.Secret ? InputType.Password : InputType.Text)" autocomplete="off" Variant="Variant.Outlined" />
+                                }
+                                @if (!string.IsNullOrWhiteSpace(field.Description)) { <p class="configuration-help">@field.Description</p> }
+                            </div>
+                        }
+                    </div>
+                </MudForm>
+                @if (!string.IsNullOrWhiteSpace(_configurationMessage)) { <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" role="status">@_configurationMessage</MudAlert> }
+                <footer class="configuration-actions">
+                    <div><MudButton Disabled="@(_savingConfiguration || _hasChanges || _loadingProviderModels.Count > 0 || _configurationView?.OverriddenKeys.Count == 0)" OnClick="RestoreAllConfigurationAsync">Restore all defaults</MudButton></div>
+                    <div><span aria-live="polite">@(_hasChanges ? "Unsaved changes" : "All changes saved")</span>
+                        @if (_hasChanges) { <MudButton Disabled="@(_savingConfiguration || _loadingProviderModels.Count > 0)" OnClick="DiscardChanges">Discard</MudButton> }
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_savingConfiguration || !_hasChanges || _loadingProviderModels.Count > 0)" OnClick="SaveConfigurationAsync">@(_savingConfiguration ? "Saving…" : "Save changes")</MudButton>
+                    </div>
+                </footer>
+            }
+        }
+    }
+</section>
