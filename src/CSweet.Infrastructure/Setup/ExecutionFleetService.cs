@@ -1498,16 +1498,20 @@ public sealed class ExecutionFleetService(
 
     private bool ProviderQualifies(ExecutionNodeProvider provider, DateTimeOffset now, ExecutionWorkloadKind kind)
     {
+        var development = (RuntimePolicy.DevelopmentImages.Count == 0 && provider.SupportsPublicInternet &&
+            provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" && provider.BrokerProtocolVersion == "1.1") || RuntimePolicy.DevelopmentImages.Any(image => image.ProviderId == provider.ProviderId &&
+            image.Digest == provider.GuestImageDigest && image.CertificationSuiteVersion == provider.CertificationSuiteVersion &&
+            provider.BrokerProtocolVersion == "1.1");
         var expectedDigest = kind == ExecutionWorkloadKind.Builder
             ? RuntimePolicy.BuilderGuestImageDigest : RuntimePolicy.RuntimeGuestImageDigest;
         return provider.IsAvailable &&
             (kind == ExecutionWorkloadKind.Builder ? provider.SupportsBuilderWorkloads : provider.SupportsRuntimeWorkloads) &&
-            string.Equals(provider.BrokerProtocolVersion, CurrentProtocolVersion, StringComparison.Ordinal) &&
-            string.Equals(provider.CertificationSuiteVersion, RuntimePolicy.RequiredCertificationSuiteVersion, StringComparison.Ordinal) &&
+            provider.BrokerProtocolVersion is "1.0" or "1.1" &&
+            (development || string.Equals(provider.CertificationSuiteVersion, RuntimePolicy.RequiredCertificationSuiteVersion, StringComparison.Ordinal)) &&
             provider.CertifiedAt <= now &&
             (provider.CertificationExpiresAt is null || provider.CertificationExpiresAt > now) &&
             IsSha256(provider.GuestImageDigest) && IsSha256(provider.CertificationEvidenceDigest) &&
-            (FleetPolicy.AllowUnpinnedDevelopmentImages ||
+            (development || FleetPolicy.AllowUnpinnedDevelopmentImages ||
                 string.Equals(provider.GuestImageDigest, NormalizeDigest(expectedDigest), StringComparison.Ordinal));
     }
 
@@ -1618,7 +1622,7 @@ public sealed class ExecutionFleetService(
             provider.GuestImageDigest, provider.CertificationSuiteVersion,
             provider.CertificationEvidenceDigest, provider.CertifiedAt, provider.CertificationExpiresAt,
             provider.SupportsBuilderWorkloads, provider.SupportsRuntimeWorkloads, provider.SupportsToolchainBuildWorkloads,
-            provider.IsAvailable, provider.UnavailableReason)).ToArray(),
+            provider.IsAvailable, provider.UnavailableReason) { SupportsPublicInternet = provider.SupportsPublicInternet }).ToArray(),
         DeserializeLabels(node.LabelsJson),
         IsLocalMachine(node.MachineName, node.OperatingSystem, Environment.MachineName, LocalOperatingSystem()));
 
@@ -1681,6 +1685,7 @@ public sealed class ExecutionFleetService(
         SupportsBuilderWorkloads = provider.SupportsBuilderWorkloads,
         SupportsRuntimeWorkloads = provider.SupportsRuntimeWorkloads,
         SupportsToolchainBuildWorkloads = provider.SupportsToolchainBuildWorkloads,
+        SupportsPublicInternet = provider.SupportsPublicInternet,
         IsAvailable = provider.IsAvailable,
         UnavailableReason = string.IsNullOrWhiteSpace(provider.UnavailableReason)
             ? null : provider.UnavailableReason.Trim()[..Math.Min(1024, provider.UnavailableReason.Trim().Length)],
@@ -1721,6 +1726,8 @@ public sealed class ExecutionFleetService(
             existing.SupportsBuilderWorkloads = reported.SupportsBuilderWorkloads;
             existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
             existing.SupportsToolchainBuildWorkloads = reported.SupportsToolchainBuildWorkloads;
+            existing.SupportsPublicInternet = reported.SupportsPublicInternet && reported.BrokerProtocolVersion == "1.1" &&
+                reported.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4";
             existing.IsAvailable = reported.IsAvailable;
             existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason)
                 ? null : reported.UnavailableReason.Trim()[..Math.Min(1024, reported.UnavailableReason.Trim().Length)];
@@ -2342,7 +2349,7 @@ public sealed class ExecutionFleetService(
                 provider.UnavailableReason?.Length > 1024 ||
                 provider.IsAvailable && (!IsSha256(provider.GuestImageDigest) ||
                     !IsSha256(provider.CertificationEvidenceDigest) ||
-                    provider.BrokerProtocolVersion != CurrentProtocolVersion ||
+                    provider.BrokerProtocolVersion is not ("1.0" or "1.1") ||
                     string.IsNullOrWhiteSpace(provider.CertificationSuiteVersion))))
             throw new ArgumentException("The execution-node provider inventory is invalid.", nameof(request));
     }

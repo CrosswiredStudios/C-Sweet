@@ -73,7 +73,7 @@ flowchart TD
   issue time, expiry, and signature, then persists replay state before invoking a provider.
 - A gateway restart does not silently change assignment trust. Development uses a persistent local key;
   non-development deployments must supply a persistent protected key.
-- The agent VM uses a signed base image, ephemeral writable state, no virtual network adapter, and an authenticated broker channel.
+- The agent VM uses a signed base image, ephemeral writable state, no virtual network adapter, and an authenticated broker channel. An approved `runtime.internet.public.v1` grant may add guest-local TUN routing over that channel; the unprivileged Office Node enforces public-only socket destinations and assignment lifetime.
 - If certification, signing, authentication, or provider readiness fails, untrusted execution stays disabled.
 - A host may be mixed-use, but that does not improve its assurance. Baseline and hardened controls are
   surfaced independently. Development-only placement requires explicit opt-in and may use only disposable
@@ -83,3 +83,5 @@ flowchart TD
 ## Deployment status
 
 The Aspire AppHost is the supported path for current Windows development and end-to-end isolation testing. Docker Compose remains the intended packaging mechanism for trusted core services, but its legacy Docker-agent wiring must be removed before that topology represents the current security architecture. A containerized deployment must not mount the Docker daemon into WorkerHost or claim that a normal application container is an agent security boundary.
+
+The reviewed public egress implementation and rollout gates are mapped in `docs/implementation/features/runtime-public-internet.md`. No installation acquires the permission merely from an image or platform upgrade.

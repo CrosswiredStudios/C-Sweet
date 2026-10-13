@@ -26,7 +26,7 @@
         <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap: wrap">
             @foreach (var capability in Workflow.RequestedCapabilities)
             {
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Capability: @capability</MudChip>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Capability: @CapabilityDisplayNames.For(capability)</MudChip>
             }
             @foreach (var subscription in Workflow.Subscriptions)
             {

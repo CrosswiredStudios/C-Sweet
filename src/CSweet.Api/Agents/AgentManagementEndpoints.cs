@@ -160,6 +160,12 @@ public static class AgentManagementEndpoints
                 () => installationService.UpdateAsync(installationId, request, cancellationToken)))
             .RequireRateLimiting(AgentRateLimiting.BuildPolicy);
 
+        group.MapPost("/installations/{installationId:guid}/runtime-internet", async (
+            Guid installationId, ReviewRuntimeInternetRequest request, IAgentInstallationService installationService,
+            CancellationToken cancellationToken) => await ExecuteInstallationActionAsync(async () =>
+                (await installationService.ReviewRuntimeInternetAsync(installationId, request, cancellationToken)) with { CanReviewRuntimeInternet = true }))
+            .RequireAuthorization("PluginAdministration");
+
         group.MapPost("/installations/{installationId:guid}/run-now", async (
             Guid installationId,
             IAgentInstallationService installationService,

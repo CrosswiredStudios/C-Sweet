@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Data;
 using CSweet.Application.Setup;
 using CSweet.Office.Contracts.Security;
+using CSweet.Office.Contracts.Workloads;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -78,6 +79,8 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             !await dbContext.AgentInstallations.AsNoTracking().AnyAsync(x => x.Id == runtime.AgentInstallationId &&
                 x.BusinessId == request.BusinessId, cancellationToken))
             throw new AgentWorkloadException("The runtime no longer permits a startup assignment.");
+        if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, request.SpecificationJson, cancellationToken))
+            throw new AgentWorkloadException("The runtime internet grant changed before assignment admission.");
         var result = await SubmitCoreAsync(request, cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return result;
@@ -203,6 +206,16 @@ public sealed partial class ExecutionWorkloadOrchestrator(
                 assignment.ProviderId = node.Provider.ProviderId;
                 assignment.Status = ExecutionAssignmentStatus.Assigned;
                 assignment.AssignedAt = now;
+                if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, assignment.SpecificationJson, cancellationToken))
+                {
+                    assignment.Status = ExecutionAssignmentStatus.Fenced;
+                    assignment.CompletedAt = now;
+                    assignment.FailureCode = "runtime-internet-grant-changed";
+                    assignment.LeaseExpiresAt = null;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+                    continue;
+                }
                 assignment.LeaseExpiresAt = now.Add(AssignmentLease);
                 assignment.FencingEpoch++;
                 assignment.AssignmentTokenHash = HashToken();
@@ -300,6 +313,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             assignment.ExecutionNode.RevokedAt is not null ||
             assignment.ExecutionNode.LastHeartbeatAt < now.Subtract(HeartbeatFreshness))
             return false;
+        if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, assignment.SpecificationJson, cancellationToken)) return false;
         assignment.LeaseExpiresAt = now.Add(AssignmentLease);
         await dbContext.SaveChangesAsync(cancellationToken);
         return true;
@@ -598,7 +612,8 @@ public sealed partial class ExecutionWorkloadOrchestrator(
 
         return nodes.SelectMany(node => node.Providers
                 .Where(provider => provider.IsAvailable &&
-                    string.Equals(provider.BrokerProtocolVersion, "1.0", StringComparison.Ordinal) &&
+                    provider.BrokerProtocolVersion is "1.0" or "1.1" &&
+                    NetworkPlacementAllows(provider, assignment.SpecificationJson) &&
                     IsSha256(provider.CertificationEvidenceDigest) &&
                     provider.CertifiedAt <= now &&
                     (provider.CertificationExpiresAt == null || provider.CertificationExpiresAt > now) &&
@@ -658,6 +673,24 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             request.SpecificationJson.Length is < 2 or > 1024 * 1024)
             throw new ArgumentException("The execution workload request is invalid.", nameof(request));
         using var _ = JsonDocument.Parse(request.SpecificationJson);
+    }
+
+    internal static bool NetworkPlacementAllows(ExecutionNodeProvider provider, string specificationJson)
+    {
+        using var json = JsonDocument.Parse(specificationJson);
+        var root = json.RootElement;
+        if ((root.TryGetProperty("BrokerLease", out var lease) || root.TryGetProperty("brokerLease", out lease)) &&
+            (lease.TryGetProperty("ProtocolVersion", out var version) || lease.TryGetProperty("protocolVersion", out version)) &&
+            version.GetString() != provider.BrokerProtocolVersion && !(version.GetString() == "1.0" && provider.BrokerProtocolVersion == "1.1")) return false;
+        if (root.TryGetProperty("NetworkPolicy", out var network) && network.ValueKind != JsonValueKind.Null ||
+            root.TryGetProperty("networkPolicy", out network) && network.ValueKind != JsonValueKind.Null)
+        {
+            var mode = network.TryGetProperty("Mode", out var value) || network.TryGetProperty("mode", out value) ? value.GetString() : null;
+            return provider.SupportsPublicInternet && provider.BrokerProtocolVersion == "1.1" &&
+                (mode == RuntimeNetworkPolicy.PublicInternetIpv4 && provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" || mode == RuntimeNetworkPolicy.PublicInternet &&
+                    provider.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15");
+        }
+        return true;
     }
 
     private static bool Supports(ExecutionNodeProvider provider, ExecutionWorkloadKind kind) => kind switch

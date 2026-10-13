@@ -73,7 +73,9 @@ public sealed record GuestImageResolutionRequest(
     string BrokerProtocolVersion,
     string? PreferredProviderId = null,
     string? ExpectedDigest = null,
-    string? RequiredCertificationSuiteVersion = null);
+    string? RequiredCertificationSuiteVersion = null,
+    string? EnvironmentProfile = null,
+    bool RequirePublicInternet = false);
 
 public sealed record BuilderArtifactResult(Guid WorkloadId, AgentArtifactReference Artifact, string OpaqueLocator);
 

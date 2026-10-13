@@ -4,6 +4,10 @@ namespace CSweet.Application.Setup;
 
 public interface IAgentInstallationService
 {
+    Task<AgentInstallationResponse> ReviewRuntimeInternetAsync(Guid installationId,
+        ReviewRuntimeInternetRequest request, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("Runtime internet review is unavailable.");
+
     Task<AgentInstallationResponse> InstallAsync(
         Guid importId,
         InstallAgentRequest request,

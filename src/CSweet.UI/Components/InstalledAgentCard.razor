@@ -94,6 +94,9 @@
             <div><dt>Provided capabilities</dt><dd>@List(Installation.GrantedCapabilities)</dd></div>
             <div><dt>Required capabilities</dt><dd>@List(Installation.RequiredCapabilities)</dd></div>
             <div><dt>Event subscriptions</dt><dd>@List(Installation.GrantedSubscriptions)</dd></div>
+            <div><dt>Public internet</dt><dd>@(Installation.PublicInternetGranted ? "Allowed" : "Restricted")</dd></div>
+            <div><dt>Runtime network</dt><dd>@(Installation.LatestRuntime?.NetworkMode ?? "not-running")</dd></div>
+            <div><dt>Runtime image tools</dt><dd>@List(Installation.LatestRuntime?.ImageTools ?? [])</dd></div>
             <div><dt>Network access</dt><dd>@List(Installation.GrantedNetworkAccess)</dd></div>
         </dl>
         <MudDivider Class="my-4" />
@@ -166,5 +169,5 @@
     }
     private async Task ConfigureAsync() { _detailsOpen = false; await OnConfigure.InvokeAsync(); }
     private async Task RemoveAsync() { _detailsOpen = false; await OnRemove.InvokeAsync(); }
-    private static string List(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
+    private static string List(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values.Select(CapabilityDisplayNames.For));
 }

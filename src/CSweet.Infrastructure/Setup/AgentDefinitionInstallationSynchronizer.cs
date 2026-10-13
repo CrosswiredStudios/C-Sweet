@@ -115,8 +115,8 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
                 .SingleAsync(cancellationToken);
             var activeRuntime = installation.RuntimeInstances.Any(x => ActiveRuntimeStatuses.Contains(x.Status));
 
-            await AgentWorkstreamProfileActivation.ActivateAsync(db,
-                AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson), cancellationToken);
+            var nextManifest = AgentConfigurationRules.DeserializeManifest(definition.PackageVersion!.ManifestJson);
+            await AgentWorkstreamProfileActivation.ActivateAsync(db, nextManifest, cancellationToken);
             installation.PackageVersionId = definition.PackageVersionId;
             AgentStartupRecovery.ConfigurationChanged(installation);
             installation.RevisionNumber++;
@@ -135,7 +135,14 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             };
             grant.NetworkAccessJson = definition.DefaultNetworkAccessJson;
             grant.ProvidedCapabilitiesJson = definition.DefaultProvidedCapabilitiesJson;
-            grant.RequiredCapabilitiesJson = definition.DefaultRequiredCapabilitiesJson;
+            var previousPermissions = DeserializeGrant(grant.RequiredCapabilitiesJson);
+            var requestedExecutionPermissions = nextManifest.Requires
+                .Where(x => CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x.Name))
+                .Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
+            grant.RequiredCapabilitiesJson = JsonSerializer.Serialize(
+                DeserializeGrant(definition.DefaultRequiredCapabilitiesJson)
+                    .Where(x => !CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x))
+                    .Concat(previousPermissions.Where(requestedExecutionPermissions.Contains)), JsonOptions);
             grant.EventSubscriptionsJson = definition.DefaultEventSubscriptionsJson;
             grant.ResourceLimitsJson = JsonSerializer.Serialize(new
             {

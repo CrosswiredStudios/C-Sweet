@@ -23,12 +23,16 @@ public sealed class FleetGuestImageRegistry(CSweetDbContext dbContext, TimeProvi
         var candidates = await dbContext.ExecutionNodeProviders.AsNoTracking()
             .Include(x => x.ExecutionNode)
             .Where(x => x.IsAvailable && x.ExecutionNode != null &&
+                (!request.RequirePublicInternet || x.SupportsPublicInternet) &&
+                (request.EnvironmentProfile != "software-development-polyglot-v1" || x.SupportsPublicInternet &&
+                    (x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15" || x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15-ipv4")) &&
                 x.ExecutionNode.Status == Domain.Setup.ExecutionNodeStatus.Ready &&
                 x.ExecutionNode.ApprovedAt != null && x.ExecutionNode.DrainingAt == null &&
                 x.ExecutionNode.RevokedAt == null &&
                 x.ExecutionNode.LastHeartbeatAt >= staleAt &&
                 x.ExecutionNode.CertificateExpiresAt > now &&
-                x.BrokerProtocolVersion == request.BrokerProtocolVersion &&
+                (x.BrokerProtocolVersion == request.BrokerProtocolVersion || x.BrokerProtocolVersion == "1.1" && request.BrokerProtocolVersion == "1.0") &&
+                x.ExecutionNode.Architecture == request.Architecture &&
                 (x.CertificationExpiresAt == null || x.CertificationExpiresAt > now))
             .OrderBy(x => x.ExecutionNodeId)
             .ThenBy(x => x.ProviderId)
@@ -39,7 +43,9 @@ public sealed class FleetGuestImageRegistry(CSweetDbContext dbContext, TimeProvi
             (string.IsNullOrWhiteSpace(request.PreferredProviderId) ||
                 string.Equals(x.ProviderId, request.PreferredProviderId, StringComparison.Ordinal)) &&
             (string.IsNullOrWhiteSpace(request.RequiredCertificationSuiteVersion) ||
-                string.Equals(x.CertificationSuiteVersion, request.RequiredCertificationSuiteVersion, StringComparison.Ordinal)))
+                (string.Equals(x.CertificationSuiteVersion, request.RequiredCertificationSuiteVersion, StringComparison.Ordinal) ||
+                 request.RequiredCertificationSuiteVersion == "csweet-hardware-vm-smoke-v14" &&
+                    x.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" && x.SupportsPublicInternet)))
             ?? throw new IsolationUnavailableException(
                 "No connected execution node advertises the required certified guest image variant.");
 

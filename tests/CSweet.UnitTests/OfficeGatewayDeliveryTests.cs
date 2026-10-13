@@ -13,8 +13,13 @@ namespace CSweet.UnitTests;
 
 public sealed class OfficeGatewayDeliveryTests
 {
-    [Fact]
-    public async Task GuestImageUpgradePersistsReplacementInventoryAndRepeatedHeartbeat()
+    [Theory]
+    [InlineData("1.0", "test", false)]
+    [InlineData("1.1", "csweet-hardware-vm-smoke-v15", true)]
+    [InlineData("1.1", "csweet-hardware-vm-smoke-v15-ipv4", true)]
+    [InlineData("1.1", "test", false)]
+    public async Task GuestImageUpgradePersistsReplacementInventoryAndRepeatedHeartbeat(
+        string protocol, string suite, bool supportsInternet)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -32,10 +37,10 @@ public sealed class OfficeGatewayDeliveryTests
             TimeProvider.System, NullLogger<OfficeGatewayService>.Instance);
         var report = new OfficeProviderInventory
         {
-            ProviderId = "hyperv", ProviderVersion = "0.5.1", BrokerProtocolVersion = "1.0",
+            ProviderId = "hyperv", ProviderVersion = "0.5.1", BrokerProtocolVersion = protocol,
             GuestImageDigest = "sha256:" + new string('b', 64),
             CertificationEvidenceDigest = "sha256:" + new string('c', 64),
-            CertificationSuiteVersion = "test", CertifiedAtUnixSeconds = 1,
+            CertificationSuiteVersion = suite, CertifiedAtUnixSeconds = 1, SupportsPublicInternet = true,
             IsAvailable = true, SupportsRuntimeWorkloads = true
         };
         gateway.ReplaceProviderInventory(node, [report], DateTimeOffset.UtcNow);
@@ -48,6 +53,27 @@ public sealed class OfficeGatewayDeliveryTests
         Assert.Equal(replacementId, saved.Id);
         Assert.Equal(report.GuestImageDigest, saved.GuestImageDigest);
         Assert.True(saved.IsAvailable);
+        Assert.Equal(supportsInternet, saved.SupportsPublicInternet);
+    }
+
+    [Fact]
+    public void UnsupportedGuestProtocolRejectsInventory()
+    {
+        using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var gateway = new OfficeGatewayService(db, null!, null!, null!, null!, null!,
+            TimeProvider.System, NullLogger<OfficeGatewayService>.Instance);
+        var report = new OfficeProviderInventory
+        {
+            ProviderId = "hyperv", BrokerProtocolVersion = "1.2", IsAvailable = true,
+            GuestImageDigest = "sha256:" + new string('b', 64),
+            CertificationEvidenceDigest = "sha256:" + new string('c', 64),
+            CertificationSuiteVersion = "csweet-hardware-vm-smoke-v15", CertifiedAtUnixSeconds = 1
+        };
+
+        var error = Assert.Throws<RpcException>(() => gateway.ReplaceProviderInventory(
+            new ExecutionNode { Id = Guid.NewGuid() }, [report], DateTimeOffset.UtcNow));
+        Assert.Equal(StatusCode.InvalidArgument, error.StatusCode);
     }
 
     [Fact]

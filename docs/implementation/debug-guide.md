@@ -863,3 +863,7 @@ retry the existing preflight/recovery. Verify report planning and delivery becom
 the report quality reviewer is the Producer, and product QA remains independent. A later
 staffing or certified-build blocker remains a separate prerequisite; this correction does not
 waive it. Local package tests do not establish live sprint activation.
+
+### Reviewed authoring internet and Node dependency recovery
+
+`runtime.internet.public.v1` adds reviewed public egress through the Office Node. `AgentRuntimeManager` now resolves the certified development image for `software-development-polyglot-v1`; it cannot silently use the old ordinary image. Follow `features/runtime-public-internet.md` for pinned payload preparation, v15 real-VM certification, independent package validation and the deployment gate before retrying a missing-Node ticket. Earlier incident reports above describe older deployments and do not establish recovery of the current runtime.

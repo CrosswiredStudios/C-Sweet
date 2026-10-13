@@ -63,6 +63,8 @@ public sealed class ExecutionBrokerSessionRunner(
     {
         var workload = JsonSerializer.Deserialize<RuntimeWorkloadSpecification>(assignment.SpecificationJson)
             ?? throw new InvalidDataException("The runtime workload specification is empty.");
+        if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, assignment.SpecificationJson, cancellationToken))
+            throw new UnauthorizedAccessException("The runtime internet grant is no longer current.");
         // The node opens its tunnel before the WorkerHost call that submitted the assignment
         // returns. Do not permit the guest MCP handshake to race the durable runtime transition.
         while (true)
@@ -106,7 +108,8 @@ public sealed class ExecutionBrokerSessionRunner(
             TickId = workload.Identity.TickId.ToString("D"),
             LocalBrokerSocketPath = "/run/csweet/broker.sock",
             WorkloadTokenPath = "/run/csweet/workload-token",
-            MaximumFrameBytes = brokerLimits.MaximumFrameBytes
+            MaximumFrameBytes = brokerLimits.MaximumFrameBytes,
+            PublicInternet = workload.NetworkPolicy?.Mode == RuntimeNetworkPolicy.PublicInternet
         };
         var start = new StartCommand
         {

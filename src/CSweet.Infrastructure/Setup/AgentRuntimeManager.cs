@@ -797,17 +797,43 @@ public sealed partial class AgentRuntimeManager(
                     RoleName = x.Role == null ? null : x.Role.Name
                 })
                 .SingleOrDefaultAsync(startTimeout.Token);
-            var guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
-                runtimeOptions.RuntimeGuestImageId,
-                runtimeOptions.RuntimeGuestImageVersion,
-                runtimeOptions.RuntimeGuestOperatingSystem,
-                runtimeOptions.RuntimeGuestArchitecture,
-                AgentTrustLevel.UntrustedRepository,
-                "1.0",
-                runtimeOptions.PreferredIsolationProviderId,
-                runtimeOptions.RuntimeGuestImageDigest,
-                runtimeOptions.RequiredCertificationSuiteVersion), startTimeout.Token);
+            var internet = RuntimeInternetGrant.IsGranted(package.ManifestJson, installation.Grant);
+            DevelopmentGuestImageOptions? developmentImage = null;
+            GuestImageReference? guestImage = null;
+            var guestProtocol = internet || isDeveloperRuntime ? "1.1" : "1.0";
+            if (isDeveloperRuntime)
+            {
+                foreach (var candidate in runtimeOptions.DevelopmentImages.Where(x =>
+                    x.Architecture == package.ArtifactArchitecture && !string.IsNullOrWhiteSpace(x.Digest) &&
+                    (runtimeOptions.PreferredIsolationProviderId == null || x.ProviderId == runtimeOptions.PreferredIsolationProviderId))
+                    .OrderBy(x => x.ProviderId, StringComparer.Ordinal))
+                {
+                    try
+                    {
+                        guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(candidate.ImageId,
+                            candidate.Version, "linux", candidate.Architecture, AgentTrustLevel.UntrustedRepository,
+                            guestProtocol, candidate.ProviderId, candidate.Digest, candidate.CertificationSuiteVersion,
+                            runtimeRequest.EnvironmentProfile, internet), startTimeout.Token);
+                        developmentImage = candidate; break;
+                    }
+                    catch (IsolationUnavailableException) { }
+                }
+                if (guestImage is null && runtimeOptions.DevelopmentImages.Count == 0)
+                    guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
+                        "csweet-development-polyglot-v1", null, "linux", package.ArtifactArchitecture,
+                        AgentTrustLevel.UntrustedRepository, "1.1", runtimeOptions.PreferredIsolationProviderId,
+                        null, null, runtimeRequest.EnvironmentProfile, internet), startTimeout.Token);
+                if (guestImage is null) throw new IsolationUnavailableException("No connected provider has the configured certified development image for this architecture.");
+            }
+            else guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
+                runtimeOptions.RuntimeGuestImageId, runtimeOptions.RuntimeGuestImageVersion,
+                runtimeOptions.RuntimeGuestOperatingSystem, runtimeOptions.RuntimeGuestArchitecture,
+                AgentTrustLevel.UntrustedRepository, guestProtocol, runtimeOptions.PreferredIsolationProviderId,
+                runtimeOptions.RuntimeGuestImageDigest, runtimeOptions.RequiredCertificationSuiteVersion, null, internet), startTimeout.Token);
             var guestDigest = guestImage.Digest;
+            var internetMode = await dbContext.ExecutionNodeProviders.AsNoTracking().AnyAsync(x => x.IsAvailable &&
+                x.GuestImageDigest == guestDigest && x.SupportsPublicInternet && x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15",
+                startTimeout.Token) ? RuntimeNetworkPolicy.PublicInternet : RuntimeNetworkPolicy.PublicInternetIpv4;
             var artifactDigest = NormalizeDigest(package.PackageDigest, "agent artifact");
             var artifact = new AgentArtifactReference(
                 artifactDigest,
@@ -821,7 +847,7 @@ public sealed partial class AgentRuntimeManager(
                 TimeSpan.FromSeconds(hasInference ? Math.Clamp(runtimeOptions.InferenceWaitAllowanceSeconds, 0, 86400) : 0);
             var lease = new BrokerChannelLease(
                 Guid.NewGuid(),
-                "1.0",
+                guestProtocol,
                 token,
                 guestDigest,
                 artifactDigest,
@@ -849,15 +875,21 @@ public sealed partial class AgentRuntimeManager(
                             ? package.AgentName
                             : employeeIdentity.DisplayName,
                         employeeIdentity?.RoleName),
-                    [entrypoint]),
+                    [entrypoint])
+                {
+                    EnvironmentProfile = runtimeRequest.EnvironmentProfile,
+                    NetworkPolicy = internet ? new RuntimeNetworkPolicy(internetMode,
+                        installation.Grant.GrantRevision,
+                        settings.BlockedNetworkCidrs.Split([',', ';', '\r', '\n', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) : null
+                },
                 AgentTrustLevel.UntrustedRepository,
-                runtimeOptions.PreferredIsolationProviderId,
+                developmentImage?.ProviderId ?? runtimeOptions.PreferredIsolationProviderId,
                 startTimeout.Token);
             instance.IsolationProviderId = handle.ProviderId;
             instance.ProviderInstanceId = handle.ProviderInstanceId;
             instance.RuntimeDeadlineAt = now.AddSeconds(installation.Schedule.MaxRuntimeSeconds);
             Transition(instance, AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow,
-                $"Hardware-isolated workload {handle.ProviderInstanceId} started with broker-only communication; awaiting authenticated broker session.");
+                $"Hardware-isolated workload {handle.ProviderInstanceId} started with {(internet ? "public internet" : "restricted network")} access; awaiting authenticated broker session.");
             AgentRuntimeMetrics.WorkloadStarted();
         }
         catch (AgentWorkloadCapacityUnavailableException exception)

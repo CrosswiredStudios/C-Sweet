@@ -572,6 +572,6 @@
 
     private static string FieldLabel(string label, bool required) => required ? $"{label} (required)" : label;
     private static RenderFragment PermissionGroup(string title, IReadOnlyList<string> values) => @<div class="permission-group">
-        <span>@title</span><p>@(values.Count == 0 ? "None" : string.Join(", ", values))</p>
+        <span>@title</span><p>@(values.Count == 0 ? "None" : string.Join(", ", values.Select(CapabilityDisplayNames.For)))</p>
     </div>;
 }

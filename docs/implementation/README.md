@@ -176,3 +176,5 @@ The first full vertical slice is complete when:
 
 - [Project-required development](features/project-required-development.md) — SDK prerequisite policy, human setup, durable intake, Chief handoff, repository binding and rollout.
 - [Project compute scope](features/project-compute-scope.md) — shared host preparation, existing project testing permissions, durable wakes and generated workspace cleanup.
+
+- [Runtime public internet and dependency setup](features/runtime-public-internet.md) — reviewed execution permission, common Office egress, certified development guests and rollout gates.

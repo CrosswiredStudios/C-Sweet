@@ -17,6 +17,67 @@ namespace CSweet.UnitTests;
 
 public sealed partial class AgentDefinitionLifecycleTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PackageUpgradeDoesNotCreateInternetAuthority(bool definitionApproved, bool installationApproved)
+    {
+        await using var db = CreateDb();
+        const string permission = "runtime.internet.public.v1";
+        var current = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        current.PackageDigest = $"sha256:{new string('a', 64)}";
+        current.ArtifactSignature = "old-signature";
+        var definition = SeedDefinition(db, current, ActivationMode.OnDemand);
+        var hire = RuntimeInstallation(current, Guid.NewGuid().ToString("D"));
+        hire.AgentDefinitionId = definition.Id;
+        if (definitionApproved) definition.DefaultRequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { permission });
+        hire.Grant!.RequiredCapabilitiesJson = JsonSerializer.Serialize(installationApproved ? new[] { permission } : []);
+        definition.Installations.Add(hire);
+        var update = CreateUpdatePackage(current, "1.1.0");
+        update.Status = AgentPackageVersionStatus.Built;
+        update.PackageDigest = $"sha256:{new string('b', 64)}";
+        update.ArtifactSignature = "new-signature";
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(update.ManifestJson)!;
+        manifest["requires"]!.AsArray().Add(new System.Text.Json.Nodes.JsonObject
+            { ["name"] = permission, ["modelVisible"] = false, ["purpose"] = "Restore project dependencies" });
+        update.ManifestJson = manifest.ToJsonString();
+        db.AddRange(hire, update);
+        await db.SaveChangesAsync();
+
+        await new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db))
+            .UpdateAsync(definition.Id, new UpdateAgentDefinitionRequest(update.Id));
+
+        Assert.Equal(update.Id, hire.PackageVersionId);
+        Assert.Equal(definitionApproved, JsonSerializer.Deserialize<string[]>(definition.DefaultRequiredCapabilitiesJson)!.Contains(permission));
+        Assert.Equal(installationApproved, JsonSerializer.Deserialize<string[]>(hire.Grant!.RequiredCapabilitiesJson)!.Contains(permission));
+    }
+
+    [Fact]
+    public async Task DefinitionSynchronizationPreservesAnInstallationInternetDenial()
+    {
+        await using var db = CreateDb();
+        var current = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
+        var update = CreateUpdatePackage(current, "1.1.0");
+        update.Status = AgentPackageVersionStatus.Built;
+        update.PackageDigest = $"sha256:{new string('b', 64)}";
+        update.ArtifactSignature = "new-signature";
+        var definition = SeedDefinition(db, update, ActivationMode.OnDemand);
+        definition.DefaultRequiredCapabilitiesJson = "[\"runtime.internet.public.v1\"]";
+        var hire = RuntimeInstallation(current, Guid.NewGuid().ToString("D"));
+        hire.AgentDefinitionId = definition.Id;
+        hire.Grant!.RequiredCapabilitiesJson = "[]";
+        definition.Installations.Add(hire);
+        db.AddRange(update, hire);
+        await db.SaveChangesAsync();
+
+        await new AgentDefinitionInstallationSynchronizer(db, new TestAuditEventWriter()).SynchronizeAsync();
+
+        Assert.Equal(update.Id, hire.PackageVersionId);
+        Assert.DoesNotContain("runtime.internet.public.v1", hire.Grant.RequiredCapabilitiesJson);
+    }
+
     [Fact]
     public async Task Import_QueuesOnlyBuilderAndCreatesNoBusinessOrRuntimeRows()
     {

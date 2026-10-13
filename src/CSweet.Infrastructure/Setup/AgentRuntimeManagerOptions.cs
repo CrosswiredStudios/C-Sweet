@@ -31,10 +31,21 @@ public sealed class AgentRuntimeManagerOptions
     public string RuntimeGuestImageDigest { get; set; } = string.Empty;
     public string RuntimeGuestOperatingSystem { get; set; } = "linux";
     public string RuntimeGuestArchitecture { get; set; } = "x64";
+    public List<DevelopmentGuestImageOptions> DevelopmentImages { get; set; } = [];
     public int RuntimeWritableDiskMb { get; set; } = 1024;
     public string BuilderGuestImageId { get; set; } = "csweet-builder-base";
     public string BuilderGuestImageVersion { get; set; } = string.Empty;
     public string BuilderGuestImageDigest { get; set; } = string.Empty;
     public string BuilderGuestOperatingSystem { get; set; } = "linux";
     public string BuilderGuestArchitecture { get; set; } = "x64";
+}
+
+public sealed class DevelopmentGuestImageOptions
+{
+    public string ProviderId { get; set; } = string.Empty;
+    public string Architecture { get; set; } = "x64";
+    public string ImageId { get; set; } = "csweet-development-polyglot-v1";
+    public string Version { get; set; } = string.Empty;
+    public string Digest { get; set; } = string.Empty;
+    public string CertificationSuiteVersion { get; set; } = "csweet-hardware-vm-smoke-v15";
 }

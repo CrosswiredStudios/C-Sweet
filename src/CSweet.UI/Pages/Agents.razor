@@ -2124,7 +2124,7 @@
                 @foreach (var value in requested)
                 {
                     <MudCheckBox T="bool"
-                                 Label="@value"
+                                 Label="@(CapabilityDisplayNames.For(value))"
                                  Value="@approved.Contains(value)"
                                  ValueChanged="@((bool isApproved) => SetApproval(approved, value, isApproved))" />
                 }

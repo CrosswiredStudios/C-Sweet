@@ -261,6 +261,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        using var internetTransaction = HasRuntimeGrantChanges() && Database.IsRelational() && Database.CurrentTransaction is null
+            ? Database.BeginTransaction() : null;
+        CaptureRuntimeInternetRevocationsAsync().GetAwaiter().GetResult();
         CaptureCoordinationWakesAsync().GetAwaiter().GetResult();
         CaptureWorkLifecycle();
         CaptureTrackedWorkChanges();
@@ -280,11 +283,16 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
         CaptureProjectHealthSignals();
-        return base.SaveChanges(acceptAllChangesOnSuccess);
+        var saved = base.SaveChanges(acceptAllChangesOnSuccess);
+        internetTransaction?.Commit();
+        return saved;
     }
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        await using var internetTransaction = HasRuntimeGrantChanges() && Database.IsRelational() && Database.CurrentTransaction is null
+            ? await Database.BeginTransactionAsync(cancellationToken) : null;
+        await CaptureRuntimeInternetRevocationsAsync(cancellationToken);
         await CaptureCoordinationWakesAsync(cancellationToken);
         CaptureWorkLifecycle();
         CaptureTrackedWorkChanges();
@@ -304,7 +312,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureComputeEvents();
         CaptureAgentAuditEvents();
         CaptureProjectHealthSignals();
-        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        if (internetTransaction is not null) await internetTransaction.CommitAsync(cancellationToken);
+        return saved;
     }
 
     private void CaptureHiringPlanDelegations()
@@ -1367,6 +1377,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.Entity<AgentInstallationGrant>(entity =>
         {
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.GrantRevision).IsConcurrencyToken();
             entity.Property(x => x.NetworkAccessJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.ProvidedCapabilitiesJson).HasColumnType("text").IsRequired();
             entity.Property(x => x.RequiredCapabilitiesJson).HasColumnType("text").IsRequired();

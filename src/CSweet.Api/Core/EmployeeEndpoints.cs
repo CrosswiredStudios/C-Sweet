@@ -140,7 +140,8 @@ public static class EmployeeEndpoints
                 http, hierarchy, db, cancellationToken);
             if (!installationId.HasValue) return Results.Forbid();
             var installation = await installations.GetAsync(installationId.Value, cancellationToken);
-            return installation is null ? Results.NotFound() : Results.Ok(installation);
+            return installation is null ? Results.NotFound() : Results.Ok(installation with
+            { CanReviewRuntimeInternet = http.User.IsInRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole) });
         });
 
         group.MapGet("/runtime-history", async (Guid organizationId, Guid employeeId, HttpContext http,

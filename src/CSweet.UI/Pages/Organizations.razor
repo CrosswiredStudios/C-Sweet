@@ -1045,7 +1045,7 @@
     }
     private static string RequiredLabel(string label, bool required) => required ? $"{label} (required)" : label;
     private static string ShortHash(string value) => value.Length <= 9 ? value : value[..9];
-    private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
+    private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values.Select(CapabilityDisplayNames.For));
     private static RenderFragment AccessGroup(string label, IReadOnlyList<string> values) => @<div class="agent-access-group">
         <span>@label</span><p>@Format(values)</p>
     </div>;

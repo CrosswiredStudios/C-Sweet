@@ -289,6 +289,7 @@
             {
                 <div class="office-provider"><strong>@provider.ProviderId</strong><MudChip T="string" Size="Size.Small" Color="@(provider.IsAvailable ? Color.Success : Color.Warning)">@(provider.IsAvailable ? "Available" : "Unavailable")</MudChip>
                     <p>@(provider.SupportsBuilderWorkloads ? "Builds" : "") @(provider.SupportsRuntimeWorkloads ? "Agent runtimes" : "")</p>
+                    <p>Public internet: @(provider.SupportsPublicInternet ? (provider.SupportsPublicInternetIpv6 ? "IPv4 and IPv6 certified" : "IPv4 certified; IPv6 unavailable") : "Unavailable")</p>
                     @if (!provider.IsAvailable) { <p>@provider.UnavailableReason</p> }
                     <span class="office-meta">Certification expires: @Heartbeat(provider.CertificationExpiresAt)</span>
                 </div>

@@ -91,8 +91,18 @@ public sealed class PluginOperationsCapabilityHandler(
         var state = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
             x.Kind == "agent-operating-state" && x.ExternalKey == input.StateKey, cancellationToken);
+        var runtime = await db.ExecutionWorkloadAssignments.AsNoTracking()
+            .Where(x => x.AgentRuntimeInstance != null && x.AgentRuntimeInstance.AgentInstallationId == installationId &&
+                x.Status == CSweet.Domain.Setup.ExecutionAssignmentStatus.Running)
+            .OrderByDescending(x => x.QueuedAt).Select(x => x.SpecificationJson).FirstOrDefaultAsync(cancellationToken);
+        var spec = runtime is null ? null : JsonSerializer.Deserialize<CSweet.Office.Contracts.Workloads.RuntimeWorkloadSpecification>(runtime);
         return Success(request.RequestId, new AgentOperatingStateReadResponse(
-            state is null ? null : ToOperatingStateResponse(state)));
+            state is null ? null : ToOperatingStateResponse(state))
+        {
+            RuntimeNetworkMode = spec?.NetworkPolicy?.Mode ?? "restricted",
+            ExpectedRuntimeTools = spec?.EnvironmentProfile == "software-development-polyglot-v1"
+                ? ["node", "npm", "npx", "dotnet", "python3", "git", "curl"] : []
+        });
     }
 
     private async Task<CapabilityResult> WriteOperatingStateAsync(

@@ -16,6 +16,32 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentInstallationServiceTests
 {
+    [Fact]
+    public async Task InternetReviewRequiresDeclaredPermissionAndCurrentReviewWithoutChangingOtherGrants()
+    {
+        await using var db = CreateDbContext();
+        var package = await SeedAsync(db);
+        var service = CreateService(db);
+        var installed = await service.InstallAsync(package.Id, ValidRequest());
+        var original = new ReviewRuntimeInternetRequest(true, installed.PackageVersionId, installed.GrantRevision);
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ReviewRuntimeInternetAsync(installed.Id, original));
+        var manifest = JsonNode.Parse(package.ManifestJson)!;
+        manifest["requires"]!.AsArray().Add(new JsonObject { ["name"] = "runtime.internet.public.v1", ["modelVisible"] = false });
+        package.ManifestJson = manifest.ToJsonString();
+        await db.SaveChangesAsync();
+        var granted = await service.ReviewRuntimeInternetAsync(installed.Id, original);
+        Assert.True(granted.PublicInternetGranted);
+        Assert.Equal(installed.GrantRevision + 1, granted.GrantRevision);
+        Assert.Equal(installed.GrantedCapabilities, granted.GrantedCapabilities);
+        Assert.Equal(installed.RequiredCapabilities.Order(), granted.RequiredCapabilities.Where(x => x != "runtime.internet.public.v1").Order());
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ReviewRuntimeInternetAsync(installed.Id, original));
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ReviewRuntimeInternetAsync(installed.Id,
+            new(false, Guid.NewGuid(), granted.GrantRevision)));
+        var revoked = await service.ReviewRuntimeInternetAsync(installed.Id, new(false, package.Id, granted.GrantRevision));
+        Assert.False(revoked.PublicInternetGranted);
+        Assert.Equal(granted.GrantRevision + 1, revoked.GrantRevision);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

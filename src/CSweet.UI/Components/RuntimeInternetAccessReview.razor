@@ -1,0 +1,47 @@
+@using CSweet.Contracts.Agents
+@inject HttpClient Http
+
+@if (Installation.CanReviewRuntimeInternet && (Installation.PublicInternetRequested || Installation.PublicInternetGranted))
+{
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="OpenReview">Review public internet access</MudButton>
+        <MudDialog @bind-Visible="_open">
+            <TitleContent><MudText Typo="Typo.h6">Public internet access · @Installation.AgentName</MudText></TitleContent>
+            <DialogContent>
+                <MudText>Allow this agent VM and its tools to connect to public internet destinations. Private networks, host access and administrator commands remain blocked. Changing access restarts affected runtimes.</MudText>
+                <MudText Typo="Typo.body2">Reviewing version @Installation.AgentVersion.</MudText>
+                <MudCheckBox T="bool" @bind-Value="_approved" Label="Allow public internet access" Disabled="_busy" />
+                @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+            </DialogContent>
+            <DialogActions>
+                <MudButton OnClick="() => _open = false" Disabled="_busy">Cancel</MudButton>
+                <MudButton OnClick="ApplyAsync" Disabled="_busy" Color="Color.Primary">Apply reviewed access</MudButton>
+            </DialogActions>
+        </MudDialog>
+}
+
+@code {
+    [Parameter, EditorRequired] public AgentInstallationResponse Installation { get; set; } = null!;
+    [Parameter] public EventCallback<AgentInstallationResponse> Updated { get; set; }
+    private bool _open, _approved, _busy;
+    private string? _error;
+    private void OpenReview() { _approved = Installation.PublicInternetGranted; _error = null; _open = true; }
+    private async Task ApplyAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            using var result = await Http.PostAsJsonAsync($"api/agents/installations/{Installation.Id}/runtime-internet",
+                new ReviewRuntimeInternetRequest(_approved, Installation.PackageVersionId, Installation.GrantRevision));
+            if (!result.IsSuccessStatusCode)
+            {
+                var error = await result.Content.ReadFromJsonAsync<ReviewError>();
+                throw new InvalidOperationException(error?.Error ?? "The access review could not be saved. Refresh and try again.");
+            }
+            var updated = await result.Content.ReadFromJsonAsync<AgentInstallationResponse>() ?? throw new InvalidOperationException("The access response was empty.");
+            await Updated.InvokeAsync(updated); _open = false;
+        }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+    private sealed record ReviewError(string? Error);
+}

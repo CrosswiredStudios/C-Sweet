@@ -51,6 +51,7 @@ internal sealed class AgentCapabilityBindingReconciler(
             var required = DeserializeGrant(requester.Grant?.RequiredCapabilitiesJson);
             foreach (var capability in required)
             {
+                if (CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(capability)) continue;
                 var requesterManifest = AgentConfigurationRules.DeserializeManifest(requester.PackageVersion!.ManifestJson);
                 if (requesterManifest.Requires.Any(x => x.Name == capability && x.Dependency is not null))
                     continue; // Connector account selection and digest approval are always explicit.

@@ -19,7 +19,7 @@ public sealed record AgentBrokerGrant(
     {
         if (WorkloadId == Guid.Empty || ChannelId == Guid.Empty || InstallationId == Guid.Empty)
             throw new InvalidOperationException("Broker grant identity is incomplete.");
-        if (ProtocolVersion != "1.0" || BootToken.Length < 16 || ExpiresAt <= timeProvider.GetUtcNow())
+        if (ProtocolVersion is not ("1.0" or "1.1") || BootToken.Length < 16 || ExpiresAt <= timeProvider.GetUtcNow())
             throw new InvalidOperationException("Broker grant authentication is invalid or expired.");
         if (!IsDigest(GuestImageDigest) || (ArtifactDigest is not null && !IsDigest(ArtifactDigest)))
             throw new InvalidOperationException("Broker grant digests are invalid.");

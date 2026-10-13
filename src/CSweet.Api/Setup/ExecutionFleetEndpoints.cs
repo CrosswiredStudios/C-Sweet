@@ -309,7 +309,7 @@ public static class ExecutionFleetEndpoints
         return null;
     }
 
-    private static ExecutionNodeSummaryResponse Map(ExecutionNode node) => new(
+    internal static ExecutionNodeSummaryResponse Map(ExecutionNode node) => new(
         node.Id, node.ExecutionPoolId, node.Name, node.MachineName, node.OperatingSystem,
         node.Architecture, node.NodeVersion, node.ProtocolVersion,
         node.Status.ToString().ToLowerInvariant(), node.CertificateThumbprint,
@@ -321,7 +321,7 @@ public static class ExecutionFleetEndpoints
             provider.CertificationEvidenceDigest, provider.CertifiedAt,
             provider.CertificationExpiresAt, provider.SupportsBuilderWorkloads,
             provider.SupportsRuntimeWorkloads, provider.SupportsToolchainBuildWorkloads,
-            provider.IsAvailable, provider.UnavailableReason)).ToArray(),
+            provider.IsAvailable, provider.UnavailableReason) { SupportsPublicInternet = provider.SupportsPublicInternet }).ToArray(),
         DeserializeDictionary(node.LabelsJson),
         string.Equals(node.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(node.OperatingSystem, OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : "macos", StringComparison.OrdinalIgnoreCase));

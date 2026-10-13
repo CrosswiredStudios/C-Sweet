@@ -125,6 +125,7 @@ public sealed class ExecutionNodeProvider
     public bool SupportsBuilderWorkloads { get; set; }
     public bool SupportsRuntimeWorkloads { get; set; }
     public bool SupportsToolchainBuildWorkloads { get; set; }
+    public bool SupportsPublicInternet { get; set; }
     public bool IsAvailable { get; set; }
     public string? UnavailableReason { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

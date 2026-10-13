@@ -343,7 +343,7 @@
         finally { _busy = false; }
     }
 
-    private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values);
+    private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values.Select(CapabilityDisplayNames.For));
     private static string FieldLabel(PluginConfigurationField configField) =>
         configField.Required ? $"{configField.Label} (required)" : configField.Label;
     private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key) ?? string.Empty;

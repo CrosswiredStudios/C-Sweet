@@ -506,7 +506,7 @@ public sealed class McpToolCatalog(
             .ToListAsync(cancellationToken);
         foreach (var binding in bindings)
         {
-            if (!session.Grant.RequiredCapabilities.Contains(binding.Capability))
+            if (RuntimePermissions.IsExecutionPermission(binding.Capability) || !session.Grant.RequiredCapabilities.Contains(binding.Capability))
                 continue;
             var manifest = JsonSerializer.Deserialize<PluginManifest>(
                 binding.ProviderInstallation!.PackageVersion!.ManifestJson,

@@ -23,6 +23,10 @@ public sealed record AgentInstallationResponse(
     AgentBuildSummaryResponse? Build = null,
     AgentRuntimeRunResponse? LatestRuntime = null)
 {
+    public bool PublicInternetGranted { get; init; }
+    public bool PublicInternetRequested { get; init; }
+    public long GrantRevision { get; init; }
+    public bool CanReviewRuntimeInternet { get; init; }
     public string? ImageUrl { get; init; }
     public string? AccentColor { get; init; }
     public string? RoleName { get; init; }
@@ -75,7 +79,11 @@ public sealed record AgentRuntimeRunResponse(
     DateTimeOffset? CompletionReportedAt,
     DateTimeOffset? CompletedAt,
     IReadOnlyList<AgentRuntimeEventResponse> Events,
-    string? LogExcerpt = null);
+    string? LogExcerpt = null)
+{
+    public string NetworkMode { get; init; } = "not-running";
+    public IReadOnlyList<string> ImageTools { get; init; } = [];
+}
 
 public sealed record AgentRuntimeEventResponse(
     string Status,

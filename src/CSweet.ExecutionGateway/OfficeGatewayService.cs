@@ -279,7 +279,7 @@ public sealed partial class OfficeGatewayService(
                 !IsValidUnixSeconds(provider.CertifiedAtUnixSeconds) ||
                 provider.CertificationExpiresAtUnixSeconds != 0 &&
                     !IsValidUnixSeconds(provider.CertificationExpiresAtUnixSeconds) ||
-                provider.IsAvailable && (provider.BrokerProtocolVersion != "1.0" ||
+                provider.IsAvailable && (provider.BrokerProtocolVersion is not ("1.0" or "1.1") ||
                     !IsSha256(provider.GuestImageDigest) || !IsSha256(provider.CertificationEvidenceDigest) ||
                     string.IsNullOrWhiteSpace(provider.CertificationSuiteVersion))) ||
             providers.Select(provider => provider.ProviderId).Distinct(StringComparer.OrdinalIgnoreCase).Count() !=
@@ -319,6 +319,8 @@ public sealed partial class OfficeGatewayService(
             existing.SupportsBuilderWorkloads = reported.SupportsBuilderWorkloads;
             existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
             existing.SupportsToolchainBuildWorkloads = reported.SupportsToolchainBuildWorkloads;
+            existing.SupportsPublicInternet = reported.SupportsPublicInternet && reported.BrokerProtocolVersion == "1.1" &&
+                reported.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4";
             existing.IsAvailable = reported.IsAvailable;
             existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason) ? null : reported.UnavailableReason;
             existing.UpdatedAt = now;

@@ -15,6 +15,33 @@ namespace CSweet.Infrastructure.Setup;
 public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService, IBusinessAgentInstallationCleanup
 {
     private const int FirstPartyMinimumRuntimeMemoryMb = 1024;
+    public async Task<AgentInstallationResponse> ReviewRuntimeInternetAsync(Guid installationId,
+        ReviewRuntimeInternetRequest request, CancellationToken cancellationToken = default)
+    {
+        var installation = await GetInstallationAsync(installationId, cancellationToken);
+        var grant = installation.Grant!;
+        var permission = CSweet.Agent.SDK.RuntimePermissions.PublicInternet;
+        var manifest = DeserializeManifest(installation.PackageVersion!.ManifestJson);
+        if (installation.RevisionStatus != PluginRevisionStatus.Active ||
+            request.ExpectedPackageVersionId != installation.PackageVersionId || request.ExpectedGrantRevision != grant.GrantRevision)
+            throw new AgentInstallationException("The package or access changed. Reload and review the current installation.");
+        if (request.Approved && !manifest.Requires.Any(x => x.Name == permission))
+            throw new AgentInstallationException("This package does not request public internet access.");
+        var capabilities = DeserializeGrant(grant.RequiredCapabilitiesJson).ToHashSet(StringComparer.Ordinal);
+        if (request.Approved == capabilities.Contains(permission)) return ToResponse(installation);
+        if (request.Approved) capabilities.Add(permission); else capabilities.Remove(permission);
+        grant.RequiredCapabilitiesJson = SerializeGrant(capabilities.Order(StringComparer.Ordinal).ToArray());
+        grant.GrantRevision++;
+        grant.ApprovedAt = DateTimeOffset.UtcNow;
+        installation.UpdatedAt = grant.ApprovedAt;
+        try { await _dbContext.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new AgentInstallationException("The package or access changed. Reload and review the current installation.");
+        }
+        return ToResponse(installation);
+    }
+
     private static readonly TimeSpan RuntimeWorkloadCleanupTimeout = TimeSpan.FromSeconds(30);
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -704,6 +731,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var bindings = new List<AgentCapabilityBinding>();
         foreach (var capability in grantedRequiredCapabilities.Distinct(StringComparer.Ordinal))
         {
+            if (CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(capability))
+            {
+                if (selections.ContainsKey(capability)) throw new AgentInstallationException("Execution permissions cannot have provider bindings.");
+                continue;
+            }
             var dependencyRequirement = DeserializeManifest(requester.PackageVersion?.ManifestJson ??
                 (await _dbContext.AgentPackageVersions.SingleAsync(x => x.Id == requester.PackageVersionId, cancellationToken)).ManifestJson)
                 .Requires.SingleOrDefault(x => x.Name == capability && x.Dependency is not null);
@@ -1049,6 +1081,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException("The agent installation was not found.");
         var runs = await _dbContext.AgentRuntimeInstances.AsNoTracking()
             .Include(x => x.Events)
+            .Include(x => x.ExecutionAssignments.Where(a => a.Status == ExecutionAssignmentStatus.Running))
             .Where(x => x.AgentInstallationId == installationId)
             .OrderByDescending(x => x.QueuedAt)
             .Take(50)
@@ -1180,7 +1213,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .Include(x => x.Grant)
             .Include(x => x.Schedule)
             .Include(x => x.Configuration)
-            .Include(x => x.RuntimeInstances).ThenInclude(x => x.Events);
+            .Include(x => x.RuntimeInstances).ThenInclude(x => x.Events)
+            .Include(x => x.RuntimeInstances).ThenInclude(x => x.ExecutionAssignments.Where(a => a.Status == ExecutionAssignmentStatus.Running));
 
     private async Task<AgentInstallation> GetInstallationAsync(
         Guid installationId,
@@ -1766,6 +1800,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             AgentBuildSummaryMapper.Create(build, package),
             runtime is null ? null : ToRunResponse(runtime))
         {
+            RequiredCapabilities = DeserializeGrant(grant.RequiredCapabilitiesJson),
+            PublicInternetGranted = RuntimeInternetGrant.IsGranted(package.ManifestJson, grant),
+            PublicInternetRequested = DeserializeManifest(package.ManifestJson).Requires.Any(x => x.Name == CSweet.Agent.SDK.RuntimePermissions.PublicInternet),
+            GrantRevision = grant.GrantRevision,
             ImageUrl = catalog.ImageUrl,
             AccentColor = catalog.AccentColor,
             RoleName = catalog.Role?.Name,
@@ -1788,7 +1826,27 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         schedule.AutomaticStartSuppressedAt = null;
     }
 
-    private static AgentRuntimeRunResponse ToRunResponse(AgentRuntimeInstance runtime) => new(
+    private static AgentRuntimeRunResponse ToRunResponse(AgentRuntimeInstance runtime)
+    {
+        var assignment = runtime.ExecutionAssignments.Where(x => x.Status == ExecutionAssignmentStatus.Running)
+            .OrderByDescending(x => x.QueuedAt).FirstOrDefault();
+        var mode = "not-running";
+        IReadOnlyList<string> tools = [];
+        if (assignment is not null)
+        {
+            try
+            {
+                using var specification = JsonDocument.Parse(assignment.SpecificationJson);
+                var root = specification.RootElement;
+                mode = "restricted";
+                if ((root.TryGetProperty("NetworkPolicy", out var policy) || root.TryGetProperty("networkPolicy", out policy)) && policy.ValueKind == JsonValueKind.Object &&
+                    (policy.TryGetProperty("Mode", out var policyMode) || policy.TryGetProperty("mode", out policyMode))) mode = policyMode.GetString() ?? "restricted";
+                if ((root.TryGetProperty("EnvironmentProfile", out var profile) || root.TryGetProperty("environmentProfile", out profile)) && profile.GetString() == "software-development-polyglot-v1")
+                    tools = ["Node 22", "npm", "npx", ".NET 10 SDK", "Python 3.12", "Git", "curl", "native compilation tools"];
+            }
+            catch (Exception error) when (error is JsonException or InvalidOperationException) { mode = "unknown"; }
+        }
+        return new(
         runtime.Id,
         runtime.TickId,
         runtime.Status.ToString(),
@@ -1801,5 +1859,6 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         runtime.Events.OrderBy(x => x.OccurredAt)
             .Select(x => new AgentRuntimeEventResponse(x.Status.ToString(), x.Reason, x.OccurredAt))
             .ToList(),
-        runtime.LogExcerpt);
+        runtime.LogExcerpt) { NetworkMode = mode, ImageTools = tools };
+    }
 }
