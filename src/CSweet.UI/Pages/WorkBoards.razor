@@ -1101,9 +1101,9 @@
             Enabling is the one-time authorization for sequential Developer → QA → governed merge
             processing across approved sprints.
         </MudAlert>
-        <MudSelect T="Guid?" Label="Software Developer" @bind-Value="_pipelineDeveloperId"
+        <MudSelect T="Guid?" Label="Developer" @bind-Value="_pipelineDeveloperId"
                    Variant="Variant.Outlined" Class="mt-3">
-            @foreach (var agent in _pipelineAgents.Where(x => x.AgentId == "com.csweet.software-developer"))
+            @foreach (var agent in _pipelineAgents.Where(x => x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer"))
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
             }
@@ -1996,7 +1996,7 @@
                 .Where(x =>
                     x.IsEnabled &&
                     x.RevisionStatus == "Active" &&
-                    x.AgentId == "com.csweet.software-developer")
+                    x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer")
                 .OrderBy(x => x.AgentName)
                 .ToList();
             _repositoryConnections =
@@ -2118,9 +2118,10 @@
             _repositoryConnections =
                 await Http.GetFromJsonAsync<IReadOnlyList<SourceControlRepositoryOptionResponse>>(
                     $"api/organizations/{OrganizationId:D}/source-control/repositories") ?? [];
+            var developers = _pipelineAgents.Where(
+                x => x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer").ToList();
             _pipelineDeveloperId = _deliveryPipeline?.DeveloperInstallationId ??
-                _pipelineAgents.SingleOrDefault(
-                    x => x.AgentId == "com.csweet.software-developer")?.Id;
+                (developers.Count == 1 ? developers[0].Id : (Guid?)null);
             _pipelineQualityId = _deliveryPipeline?.QualityInstallationId ??
                 _pipelineAgents.SingleOrDefault(
                     x => x.AgentId == "com.csweet.software-qa")?.Id;

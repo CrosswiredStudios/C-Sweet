@@ -346,14 +346,17 @@
           "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
           "AccentColor": "#326A8E",
           "Name": "Adrian Silva",
-          "Summary": "Implements tested gameplay and runtime code, integrations, source-control delivery, and build fixes.",
+          "Summary": "Implements approved game and software requirements with the same planning, tested delivery, and compute recovery as the Video Game Engineer.",
           "Category": "Engineering",
           "RoleKey": "game-engineer",
           "RoleName": "Video Game Engineer",
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
+            "work.execution.build-readiness.v1",
+            "work.execution.run.v2",
             "work.execution.run.v1",
+            "software-development.implement.v1",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],

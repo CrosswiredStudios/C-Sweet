@@ -11,6 +11,27 @@ namespace CSweet.UnitTests;
 
 public sealed class FirstPartyAgentCatalogConfigurationTests
 {
+    [Fact]
+    public void GameEngineer_AdvertisesDeveloperCloneCapabilitiesAndKeepsHiringIdentity()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "CSweet.Api", "first-party-agents.json")));
+        var engineer = document.RootElement.GetProperty("CSweet").GetProperty("Marketplace")
+            .GetProperty("FirstPartyAgents").EnumerateArray().Single(agent =>
+                agent.GetProperty("AgentId").GetString() == "com.csweet.video-game-engineer");
+
+        Assert.Equal("Adrian Silva", engineer.GetProperty("Name").GetString());
+        Assert.Equal("game-engineer", engineer.GetProperty("RoleKey").GetString());
+        Assert.Equal("Available", engineer.GetProperty("Availability").GetString());
+        Assert.Equal(
+            ["work.execution.build-readiness.v1", "work.execution.run.v2", "work.execution.run.v1",
+                "software-development.implement.v1", "agent.configuration.describe.v1",
+                "agent.configuration.update.v1"],
+            engineer.GetProperty("Capabilities").EnumerateArray().Select(capability => capability.GetString()!).ToArray());
+        Assert.Contains(engineer.GetProperty("SpecializationKeys").EnumerateArray(),
+            specialization => specialization.GetString() == "video-game-development");
+    }
+
     [Theory]
     [InlineData("game-engineer")]
     [InlineData("Video Game Engineer")]
