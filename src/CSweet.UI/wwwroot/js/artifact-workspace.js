@@ -1,4 +1,15 @@
 const observers = new WeakMap();
+const previousFocus = new WeakMap();
+
+export function rememberFocus(element) {
+    previousFocus.set(element, document.activeElement);
+}
+
+export function restoreFocus(element) {
+    const previous = previousFocus.get(element);
+    if (previous?.isConnected) previous.focus();
+    previousFocus.delete(element);
+}
 
 export function observeWidth(element, storageKey) {
     const saved = localStorage.getItem(storageKey);

@@ -12,6 +12,42 @@ namespace CSweet.UnitTests;
 
 public sealed class ApprovalDashboardServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ArtifactHistoryRetainsTheDecidedRevisionAndFeedbackAfterANewerDraft(bool agent)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organizationId = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            ApplicationUserId = Guid.NewGuid(), DisplayName = "CEO", EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner };
+        var reviewer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = Guid.NewGuid(), DisplayName = "Creative Director", EmployeeType = EmployeeType.Agent };
+        var artifact = new Artifact { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            Title = "Game brief", Type = ArtifactType.Document, CreatorDisplayName = reviewer.DisplayName,
+            CreatedByOrganizationUserId = reviewer.Id, ApprovalStatus = ApprovalStatus.RevisionRequested,
+            LatestRevisionId = Guid.NewGuid(), UpdatedAt = DateTimeOffset.UtcNow };
+        var revision = Guid.NewGuid();
+        var decidedAt = DateTimeOffset.UtcNow.AddHours(-1);
+        db.AddRange(owner, reviewer, artifact,
+            new Approval { Id = Guid.NewGuid(), ArtifactId = artifact.Id, ArtifactRevisionId = Guid.NewGuid(),
+                Status = ApprovalStatus.Approved, DecidedAt = decidedAt.AddHours(-1), CreatedAt = decidedAt.AddHours(-1) },
+            new Approval { Id = Guid.NewGuid(), ArtifactId = artifact.Id, ArtifactRevisionId = revision,
+                Status = ApprovalStatus.RevisionRequested, Comment = "Clarify scope.", DecidedAt = decidedAt, CreatedAt = decidedAt,
+                DecidedByOrganizationUserId = agent ? null : owner.Id, DecidedByAgentInstallationId = agent ? reviewer.AgentInstallationId : null });
+        await db.SaveChangesAsync();
+        var service = new ApprovalDashboardService(db, new StubResourceChangeService([]), new HiringService(db, null!, null!));
+        var item = Assert.Single((await service.GetAsync(organizationId, owner.ApplicationUserId!.Value)).Items);
+        Assert.Equal(revision, item.Artifact!.SubmittedRevisionId);
+        Assert.Equal(decidedAt, item.DecidedAt);
+        Assert.Equal("Clarify scope.", item.DecisionComment);
+        Assert.Equal(agent ? reviewer.DisplayName : owner.DisplayName, item.ActualDecisionMaker);
+        Assert.Equal(reviewer.Id, item.RequesterOrganizationUserId);
+        Assert.False(item.CanDecide);
+    }
+
     [Fact]
     public async Task DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery()
     {

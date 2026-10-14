@@ -55,6 +55,24 @@ automatically.
 
 ## UI and regression expectations
 
+`DocumentApprovalCard` renders a submitted-revision chip and inline Approve / Request revision
+actions in `PendingAgentQuestions` (Overview) and `Approvals`. Both open the existing
+`ArtifactWorkspace` through `DocumentApprovalSelection`, without navigating to Documents.
+An Approvals `approvalId` deep link opens that item's document pane automatically.
+
+`ArtifactWorkspace.RevisionId` pins the preview and decisions to the same immutable revision.
+Without a pin, the workspace previews the current submitted revision during review, otherwise
+the latest draft. `ReviewOnly` retains Preview, History and authorized decisions while omitting
+editing and access administration. Historical, missing and superseded revisions cannot be
+decided. Both card and pane re-read current document state before deciding; feedback is required
+for a revision request. Document events and reconnect refresh authorized state, and successful
+decisions refresh the host queue. The pane supports Escape and restores focus to its opener.
+
+`ApprovalDashboardService.GetAsync` retains the last decided revision, decision time, actor and
+feedback for completed artifact cards, so later drafts do not replace the reviewed evidence.
+`DocumentApprovalRenderingTests` covers both surfaces, deep links, exact revision content and
+decisions, stale submissions, unavailable documents, feedback and read-only history.
+
 The communications page owns the viewport while its message list owns vertical scrolling. Any
 layout that embeds an artifact workspace must keep the parent flex chain bounded with `height`,
 `min-height: 0`, and overflow containment; otherwise a long agent message expands the page and

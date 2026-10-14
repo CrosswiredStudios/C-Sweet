@@ -1,0 +1,164 @@
+@using CSweet.Contracts.Core
+@using CSweet.Contracts.Realtime
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+
+<div class="document-approval-card">
+    <AttentionRequestCard Kind="Approval" EmployeeId="Approval.RequesterOrganizationUserId"
+        Name="@Approval.RequestedBy" Context="@RequesterContext" Prompt="@Title"
+        Description="@(IsPending ? "Review the submitted document and give your team direction." : null)"
+        Status="@(IsPending ? $"Requested {Approval.CreatedAt.ToLocalTime():g}" : $"{StatusLabel} · {Approval.DecidedAt?.ToLocalTime():g}")">
+        <BodyContent>
+            <MudButton Class="document-approval-open" Variant="Variant.Outlined" Color="Color.Primary"
+                StartIcon="@Icons.Material.Outlined.Description" EndIcon="@Icons.Material.Outlined.ChevronRight"
+                OnClick="OpenAsync" aria-label="@($"Open {Title}, {RevisionLabel.ToLowerInvariant()}")">
+                <span class="document-approval-link"><strong>@(IsPending ? "Open document" : "View reviewed document")</strong><small>@RevisionLabel</small></span>
+            </MudButton>
+            @if (!IsPending)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(Approval.Status == "Approved" ? Color.Success : Color.Warning)">@StatusLabel</MudChip>
+                @if (!string.IsNullOrWhiteSpace(Approval.ActualDecisionMaker)) { <p class="document-decision-note">Decided by @Approval.ActualDecisionMaker</p> }
+                @if (!string.IsNullOrWhiteSpace(Approval.DecisionComment)) { <p class="document-decision-note"><strong>Feedback:</strong> @Approval.DecisionComment</p> }
+            }
+            @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3" role="alert">@_error</MudAlert> }
+            @if (_revisionOpen && IsPending)
+            {
+                <div class="document-revision-feedback">
+                    <MudTextField T="string" @bind-Value="_feedback" Label="Feedback for the author" Placeholder="What should change?"
+                        Lines="3" Variant="Variant.Outlined" Disabled="_busy" Immediate="true"
+                        HelperText="Feedback is required when requesting a revision." />
+                    <div class="document-approval-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RequestRevisionAsync" Disabled="@(_busy || !CanDecide)">Send revision request</MudButton>
+                        <MudButton OnClick="() => _revisionOpen = false" Disabled="_busy">Cancel</MudButton>
+                    </div>
+                </div>
+            }
+        </BodyContent>
+        <ChildContent>
+            @if (IsPending && Approval.CanDecide)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => _revisionOpen = true" Disabled="@(_busy || !CanDecide)">Request revision</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Outlined.Check"
+                    OnClick="ApproveAsync" Disabled="@(_busy || !CanDecide)">@(_busy ? "Submitting…" : ApproveLabel)</MudButton>
+            }
+        </ChildContent>
+    </AttentionRequestCard>
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public ApprovalDashboardItemResponse Approval { get; set; } = default!;
+    [Parameter] public EventCallback<DocumentApprovalSelection> Opened { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+    [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
+    private ArtifactDocumentDetail? _detail;
+    private (Guid Organization, Guid Artifact, Guid? Revision, string Status)? _loaded;
+    private string? _error, _feedback;
+    private bool _busy, _revisionOpen, _completed, _disposed;
+    private long _loadVersion;
+    private Guid RevisionId => Approval.Artifact!.SubmittedRevisionId!.Value;
+    private ArtifactRevisionResponse? Revision => _detail?.Revisions.FirstOrDefault(x => x.Id == RevisionId);
+    private string Title => _detail?.Document.Title ?? Approval.Title.Replace("Artifact: ", "", StringComparison.Ordinal);
+    private string? RequesterContext => Portraits?.FindRole(Approval.RequesterOrganizationUserId) ?? Approval.RequestingTeam;
+    private bool IsPending => Approval.Status == "Pending";
+    private bool CanDecide => !_completed && Approval.CanDecide && IsPending &&
+        _detail?.Document.SubmittedRevisionId == RevisionId && _detail.Document.Status == "InReview" && Revision?.Status == "Submitted";
+    private string RevisionLabel => Revision is { } revision ? $"{(IsPending ? "Submitted" : "Reviewed")} revision {revision.Number}" : IsPending ? "Submitted revision" : "Reviewed revision";
+    private string ApproveLabel => Revision is { } revision ? $"Approve revision {revision.Number}" : "Approve revision";
+    private string StatusLabel => Approval.Status == "RevisionRequested" ? "Revision requested" : Approval.Status;
+
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += OnEvent;
+        Realtime.Reconnected += OnReconnect;
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        var binding = (OrganizationId, Approval.Artifact!.ArtifactId, Approval.Artifact.SubmittedRevisionId, Approval.Status);
+        if (_loaded == binding) return;
+        _loaded = binding;
+        _completed = false; _revisionOpen = false; _feedback = null; _detail = null;
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        var version = ++_loadVersion;
+        var organization = OrganizationId;
+        var artifact = Approval.Artifact!.ArtifactId;
+        _error = null;
+        try
+        {
+            using var response = await Http.GetAsync($"api/organizations/{organization:D}/documents/{artifact:D}");
+            if (_disposed || version != _loadVersion) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                _detail = null;
+                _error = response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound
+                    ? "This document is unavailable or has not been shared with you. Open it to check access."
+                    : "Could not load this document. Open it to retry.";
+                return;
+            }
+            var detail = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
+            if (_disposed || version != _loadVersion) return;
+            _detail = detail;
+            if (Revision is null) _error = "The linked revision is unavailable. Open the document to check its status.";
+            else if (IsPending && !CanDecide && !_completed && Approval.CanDecide)
+                _error = "This revision is no longer awaiting approval. Open it to review its current status.";
+        }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException)
+        {
+            if (version == _loadVersion) { _detail = null; _error = "Could not reach the document service. Open the document to retry."; }
+        }
+    }
+    private Task OpenAsync() => Opened.InvokeAsync(new DocumentApprovalSelection(Approval.Artifact!.ArtifactId, RevisionId, Approval.CanDecide && IsPending));
+    private Task ApproveAsync() => DecideAsync("accept");
+    private Task RequestRevisionAsync() => DecideAsync("request-revision");
+    private async Task DecideAsync(string decision)
+    {
+        if (_busy || !CanDecide) return;
+        if (decision == "request-revision" && string.IsNullOrWhiteSpace(_feedback))
+        { _error = "Feedback is required when requesting a revision."; return; }
+        _busy = true; _error = null;
+        var organization = OrganizationId;
+        var artifact = Approval.Artifact!.ArtifactId;
+        var revision = RevisionId;
+        try
+        {
+            await LoadAsync();
+            if (_disposed || OrganizationId != organization || Approval.Artifact?.ArtifactId != artifact || RevisionId != revision || !CanDecide)
+            { await RefreshRequested.InvokeAsync(); return; }
+            using var response = await Http.PostAsJsonAsync($"api/organizations/{organization:D}/documents/{artifact:D}/decisions",
+                new DecideArtifactRevisionRequest(revision, decision, _feedback?.Trim(), $"approval:{artifact:N}:{revision:N}:{decision}"));
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Forbidden => "You no longer have permission to decide this revision.",
+                    System.Net.HttpStatusCode.Conflict => "This revision changed or was already decided. Open the document to review its current status.",
+                    _ => "The decision could not be saved. Try again or open the document to check its status."
+                };
+                await RefreshRequested.InvokeAsync();
+                return;
+            }
+            _completed = true; _revisionOpen = false;
+            await RefreshRequested.InvokeAsync();
+        }
+        catch (HttpRequestException) { _error = "Could not save the decision. Try again."; }
+        finally { _busy = false; }
+    }
+    private void OnEvent(AppRealtimeEventEnvelope envelope)
+    {
+        if (envelope.OrganizationId == OrganizationId && envelope.EventType is AppRealtimeEvents.DocumentChanged or AppRealtimeEvents.ApprovalChanged) OnReconnect();
+    }
+    private void OnReconnect()
+    {
+        if (!_disposed) _ = InvokeAsync(async () => { await LoadAsync(); if (!_disposed) StateHasChanged(); });
+    }
+    public void Dispose()
+    {
+        _disposed = true; ++_loadVersion;
+        Realtime.EventReceived -= OnEvent;
+        Realtime.Reconnected -= OnReconnect;
+    }
+}

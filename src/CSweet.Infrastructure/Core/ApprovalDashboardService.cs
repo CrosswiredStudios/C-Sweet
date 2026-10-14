@@ -269,6 +269,12 @@ public sealed class ApprovalDashboardService(
         var artifactIds = artifacts.Select(x => x.Id).ToList();
         var submittedRevisionIds = artifacts.Where(x => x.SubmittedRevisionId.HasValue)
             .Select(x => x.SubmittedRevisionId!.Value).ToList();
+        var artifactDecisions = (await db.CoreApprovals.AsNoTracking()
+            .Where(x => artifactIds.Contains(x.ArtifactId) && x.DecidedAt != null)
+            .GroupBy(x => x.ArtifactId)
+            .Select(x => x.OrderByDescending(y => y.DecidedAt).ThenByDescending(y => y.CreatedAt).First())
+            .ToListAsync(cancellationToken))
+            .ToDictionary(x => x.ArtifactId);
         var reviewJobs = await db.ArtifactReviewJobs.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && artifactIds.Contains(x.ArtifactId) &&
                 submittedRevisionIds.Contains(x.RevisionId))
@@ -276,6 +282,8 @@ public sealed class ApprovalDashboardService(
             .ToListAsync(cancellationToken);
         items.AddRange(artifacts.Select(artifact =>
         {
+            var lastDecision = artifact.ApprovalStatus != ApprovalStatus.Pending
+                ? artifactDecisions.GetValueOrDefault(artifact.Id) : null;
             // Queue completion means the review was delivered, not that its assignment ended.
             // An old revision's reviewer must never take ownership of a new submission.
             var reviewerId = reviewJobs.FirstOrDefault(x => x.ArtifactId == artifact.Id &&
@@ -296,13 +304,19 @@ public sealed class ApprovalDashboardService(
                     : artifact.CreatorDisplayName,
                 assignedTo,
                 artifact.CreatedAt,
-                artifact.ApprovalStatus == ApprovalStatus.Pending ? null : artifact.UpdatedAt,
+                artifact.ApprovalStatus == ApprovalStatus.Pending ? null : lastDecision?.DecidedAt ?? artifact.UpdatedAt,
                 $"/organizations/{organizationId:D}/documents?artifact={artifact.Id:D}",
                 canDecide)
             {
                 Artifact = new ArtifactApprovalCardResponse(
                     artifact.Id,
-                    artifact.SubmittedRevisionId)
+                    artifact.SubmittedRevisionId ?? lastDecision?.ArtifactRevisionId),
+                ActualDecisionMaker = lastDecision?.DecidedByOrganizationUserId is { } decisionMaker
+                    ? Name(names, decisionMaker, "Former employee") : lastDecision?.DecidedByAgentInstallationId is { } installation
+                    ? Name(installationNames, installation, "Former agent") : null,
+                RequesterOrganizationUserId = artifact.CreatedByOrganizationUserId,
+                DecisionComment = lastDecision?.Comment,
+                DecisionKind = lastDecision?.Status.ToString()
             };
         }));
 

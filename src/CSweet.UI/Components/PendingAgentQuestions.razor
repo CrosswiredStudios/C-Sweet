@@ -69,6 +69,11 @@
                     {
                         <OverviewHiringApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval" Decided="OnApprovalDecidedAsync" />
                     }
+                    else if (approval.Artifact is { SubmittedRevisionId: not null })
+                    {
+                        <DocumentApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval"
+                            Opened="DocumentOpened" RefreshRequested="RefreshRequested" />
+                    }
                     else
                     {
                     <AttentionRequestCard @key="approval.Id" Kind="Approval" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
@@ -117,6 +122,7 @@
     [Parameter] public string? ComputeError { get; set; }
     [Parameter] public bool ComputeHasMore { get; set; }
     [Parameter] public EventCallback RefreshRequested { get; set; }
+    [Parameter] public EventCallback<DocumentApprovalSelection> DocumentOpened { get; set; }
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
         .Where(x => !_completedApprovals.Contains(x.Id) && x.CanDecide && x.Status == "Pending").ToList();
     private int PendingCount => _questions.Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count + ComputeResources.Count;

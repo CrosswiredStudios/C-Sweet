@@ -4,6 +4,7 @@
 @using CSweet.Contracts.Realtime
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
+@inject ApprovalState ApprovalNotifications
 @implements IDisposable
 
 <PageTitle>Company overview - C-Sweet</PageTitle>
@@ -56,7 +57,7 @@
                             ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
                             ComputeError="@_errors.GetValueOrDefault("compute")" ComputeHasMore="@(_compute is { CanManageNetwork: true, HasMore: true })"
                             ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
-                            RefreshRequested="RefreshAsync" />
+                            RefreshRequested="RefreshAsync" DocumentOpened="OpenDocument" />
                     </EmployeePortraitScope>
                 }
                 else if (ErrorFor(widget) is { } error)
@@ -141,6 +142,14 @@
         </section>
     }
     </div>
+    @if (_documentReview is { } review)
+    {
+        <div class="approval-document-host">
+            <ArtifactWorkspace @key="(OrganizationId, review.ArtifactId, review.RevisionId)" OrganizationId="OrganizationId"
+                ArtifactId="review.ArtifactId" RevisionId="review.RevisionId" ReviewOnly="true" CanDecide="review.CanDecide"
+                Closed="CloseDocument" Changed="@(_ => RefreshAsync())" />
+        </div>
+    }
 </div>
 
 @code {
@@ -158,6 +167,9 @@
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
     private int _activityRefreshVersion;
+    private DocumentApprovalSelection? _documentReview;
+    private void OpenDocument(DocumentApprovalSelection selection) => _documentReview = selection;
+    private void CloseDocument() => _documentReview = null;
     private IEnumerable<ApprovalDashboardItemResponse> ActionableApprovals => (_approvals?.Items ?? [])
         .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
         .OrderBy(x => x.CreatedAt);
@@ -179,6 +191,7 @@
     {
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
+        _documentReview = null;
         _organization = null; _approvals = null; _hiring = null; _compute = null; _dashboard = null; _portfolio = null;
         _refreshQueued = false;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
@@ -196,7 +209,8 @@
         var prefix = $"api/core/organizations/{organizationId}";
         await Task.WhenAll(
             LoadAsync<OrganizationResponse>($"api/organizations/{organizationId}", "organization", x => _organization = x, token),
-            LoadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", "approvals", x => _approvals = x, token),
+            LoadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", "approvals", x => _approvals = x, token,
+                () => ApprovalNotifications.LoadAsync(organizationId)),
             LoadAsync<HiringBacklogResponse>($"{prefix}/dashboard/hiring", "hiring", x => _hiring = x, token),
             LoadAsync<ComputeDashboard>($"api/organizations/{organizationId}/compute", "compute", x => _compute = x, token),
             LoadAsync<CompanyDashboardResponse>($"{prefix}/dashboard", "reports", x => _dashboard = x, token),
@@ -215,11 +229,11 @@
             await RefreshAsync();
         }
     }
-    private async Task LoadAsync<T>(string uri, string key, Action<T> apply, CancellationToken token)
+    private async Task LoadAsync<T>(string uri, string key, Action<T> apply, CancellationToken token, Func<Task<T?>>? read = null)
     {
         try
         {
-            var result = await Http.GetFromJsonAsync<T>(uri, token);
+            var result = read is null ? await Http.GetFromJsonAsync<T>(uri, token) : await read();
             if (token.IsCancellationRequested) return;
             if (result is null) throw new HttpRequestException("Empty response.");
             apply(result);

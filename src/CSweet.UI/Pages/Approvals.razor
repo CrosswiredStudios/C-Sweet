@@ -74,6 +74,12 @@
                             <ProjectCreationApprovalCard OrganizationId="OrganizationId" Item="item" DecisionCompleted="ProjectDecidedAsync" />
                         </div>
                     }
+                    else if (item.Artifact is { SubmittedRevisionId: not null })
+                    {
+                        <div @key="item.Id" class="@(item.Id == SelectedApprovalId ? "selected-project-approval" : null)">
+                            <DocumentApprovalCard OrganizationId="OrganizationId" Approval="item" Opened="OpenDocument" RefreshRequested="LoadAsync" />
+                        </div>
+                    }
                     else
                     {
                     <MudPaper @key="item.Id" Elevation="0" Outlined="true" Class="@($"approval-card {(item.Id == SelectedApprovalId && HasActionableSelectedApproval ? "selected-approval" : "")}")">
@@ -320,6 +326,14 @@
         }
     }
     @if (!_showHistory) { <div class="approval-questions"><PendingAgentQuestions OrganizationId="OrganizationId" /></div> }
+    @if (_documentReview is { } review)
+    {
+        <div class="approval-document-host">
+            <ArtifactWorkspace @key="(OrganizationId, review.ArtifactId, review.RevisionId)" OrganizationId="OrganizationId"
+                ArtifactId="review.ArtifactId" RevisionId="review.RevisionId" ReviewOnly="true" CanDecide="review.CanDecide"
+                Closed="CloseDocument" Changed="@(_ => LoadAsync())" />
+        </div>
+    }
 </div>
 
 </EmployeePortraitScope>
@@ -330,6 +344,11 @@
     [SupplyParameterFromQuery(Name = "approvalId")] public Guid? SelectedApprovalId { get; set; }
     private Guid? _lastApprovalId;
     private string? _decisionNotice;
+    private Guid _documentOrganization;
+    private bool _openSelectedDocument;
+    private DocumentApprovalSelection? _documentReview;
+    private void OpenDocument(DocumentApprovalSelection selection) => _documentReview = selection;
+    private void CloseDocument() => _documentReview = null;
 
     private ApprovalDashboardResponse? _dashboard;
     private bool _loading = true;
@@ -380,10 +399,17 @@
 
     protected override Task OnParametersSetAsync()
     {
+        if (_documentOrganization != OrganizationId)
+        {
+            _documentOrganization = OrganizationId;
+            _documentReview = null;
+            _lastApprovalId = null;
+        }
         if (_lastApprovalId != SelectedApprovalId)
         {
             _lastApprovalId = SelectedApprovalId;
             if (SelectedApprovalId.HasValue) _showHistory = false;
+            _openSelectedDocument = SelectedApprovalId.HasValue;
         }
         return LoadAsync();
     }
@@ -401,6 +427,11 @@
                 _dashboard = dashboard;
                 if (SelectedApprovalId.HasValue && dashboard?.Items.Any(x => x.Id == SelectedApprovalId && x.Status != "Pending") == true)
                     _showHistory = true;
+                if (_openSelectedDocument && dashboard?.Items.FirstOrDefault(x => x.Id == SelectedApprovalId) is { Artifact.SubmittedRevisionId: { } revision } item)
+                {
+                    OpenDocument(new(item.Artifact.ArtifactId, revision, item.CanDecide && item.Status == "Pending"));
+                    _openSelectedDocument = false;
+                }
             }
         }
         catch (Exception exception)

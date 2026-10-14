@@ -1,10 +1,11 @@
 @using CSweet.Contracts.Core
+@using MudBlazor.Extensions
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject CSweet.UI.Services.AppRealtimeState Realtime
 
-<aside class="artifact-workspace" @ref="_panel" aria-label="Document workspace">
+<aside class="artifact-workspace" @ref="_panel" aria-label="Document workspace" @onkeydown="OnKeyDown">
     <header class="artifact-workspace-header">
         <div class="artifact-workspace-heading">
             <span class="artifact-workspace-mark" aria-hidden="true">
@@ -20,12 +21,12 @@
             </div>
         </div>
         <div class="artifact-workspace-header-actions">
-            @if (_detail is not null)
+            @if (_detail is not null && !ReviewOnly)
             {
                 <MudIconButton Icon="@(_detail.Document.ArchivedAt.HasValue ? Icons.Material.Outlined.Unarchive : Icons.Material.Outlined.Archive)"
                                OnClick="ToggleArchiveAsync" Disabled="@_busy" aria-label="Archive or restore document" />
             }
-            <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" aria-label="Close document" />
+            <MudIconButton @ref="_closeButton" Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" aria-label="Close document" />
         </div>
     </header>
 
@@ -42,11 +43,14 @@
             Request access
         </MudButton>
     }
+    else if (_error is not null && _detail is null)
+    { <MudAlert Severity="Severity.Error" Class="ma-3" role="alert">@_error</MudAlert> }
     else if (_detail is { } detail)
     {
         <div class="artifact-workspace-meta">
             <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)" Variant="Variant.Filled">@StatusLabel(detail.Document.Status)</MudChip>
-            <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.HistoryEdu" Size="Size.Small" />Revision @detail.LatestRevision.Number</span>
+            @if (PreviewRevision is { } displayedRevision)
+            { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.HistoryEdu" Size="Size.Small" />Revision @displayedRevision.Number</span> }
             <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />Accepted @(detail.AcceptedRevision is null ? "none" : $"revision {detail.AcceptedRevision.Number}")</span>
             @if (detail.Document.PackageId.HasValue)
             {
@@ -60,16 +64,28 @@
             <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
         }
 
+        @if (PreviewRevision is null)
+        { <MudAlert Severity="Severity.Warning" Class="ma-3">The linked revision is unavailable. No decision can be made from this view.</MudAlert> }
+        else if (detail.Document.SubmittedRevisionId.HasValue && PreviewRevision.Id != detail.Document.SubmittedRevisionId && ReviewOnly)
+        { <MudAlert Severity="Severity.Info" Class="ma-3">This is a historical revision. A different revision is now awaiting review.</MudAlert> }
+        else if (PreviewRevision.Id != detail.LatestRevision.Id)
+        { <p class="artifact-review-caption">Showing revision @PreviewRevision.Number. The latest draft is revision @detail.LatestRevision.Number.</p> }
+
         <MudTabs @bind-ActivePanelIndex="_tab" Class="artifact-workspace-tabs">
             <MudTabPanel Text="Preview" Icon="@Icons.Material.Outlined.Visibility">
+                @if (PreviewRevision is { } preview)
+                {
                 <div class="artifact-preview-shell">
                     <div class="artifact-preview-caption">
-                        <span>Revision @detail.LatestRevision.Number</span>
-                        <span>Updated @detail.LatestRevision.CreatedAt.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</span>
+                        <span>Revision @preview.Number · @preview.Status</span>
+                        <span>Updated @preview.CreatedAt.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</span>
                     </div>
-                    <article class="artifact-markdown-preview"><ChatMarkdown Content="@detail.LatestRevision.Content" /></article>
+                    <article class="artifact-markdown-preview"><ChatMarkdown Content="@preview.Content" /></article>
                 </div>
+                }
             </MudTabPanel>
+            @if (!ReviewOnly)
+            {
             <MudTabPanel Text="Edit" Icon="@Icons.Material.Outlined.Edit">
                 <MudTextField @bind-Value="_draft" Label="Markdown" Variant="Variant.Outlined"
                               Lines="22" FullWidth="true" Immediate="true" />
@@ -78,6 +94,7 @@
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SubmitAsync">Submit for review</MudButton>
                 </div>
             </MudTabPanel>
+            }
             <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
                 @if (detail.Revisions.Count == 0)
                 { <MudText Color="Color.Secondary" Class="pa-4">No earlier revisions. Saved changes will appear here.</MudText> }
@@ -93,6 +110,8 @@
                     }
                 </MudList>
             </MudTabPanel>
+            @if (!ReviewOnly)
+            {
             <MudTabPanel Text="Access" Icon="@Icons.Material.Outlined.Lock">
                 <MudText Typo="Typo.subtitle2">Location</MudText>
                 <div class="d-flex align-center gap-2 mb-3">
@@ -128,20 +147,21 @@
                 </MudSelect>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ShareAsync" Class="mt-2">Grant access</MudButton>
             </MudTabPanel>
+            }
         </MudTabs>
 
-        @if (detail.Document.Status == "InReview")
+        @if (CanReviewDisplayedRevision)
         {
             <footer class="artifact-decision-bar">
                 <div class="artifact-decision-copy">
                     <span>REVIEW DECISION</span>
-                    <strong>Approve this revision or return it with focused feedback.</strong>
+                    <strong>Decision for submitted revision @(PreviewRevision!.Number).</strong>
                 </div>
                 <div class="artifact-decision-controls">
-                    <MudTextField @bind-Value="_decisionComment" Label="Decision comment" Placeholder="Optional for approval; recommended when requesting changes" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField @bind-Value="_decisionComment" Label="Decision comment" Placeholder="Optional for approval; required when requesting changes" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Disabled="_busy" />
                     <div class="artifact-decision-buttons">
                         <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Outlined.Check"
-                                   Disabled="@_busy" OnClick="AcceptAsync">Accept revision</MudButton>
+                                   Disabled="@_busy" OnClick="AcceptAsync">Approve revision @(PreviewRevision!.Number)</MudButton>
                         <MudButton Color="Color.Warning" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.RateReview"
                                    Disabled="@_busy" OnClick="RequestChangesAsync">Request changes</MudButton>
                     </div>
@@ -159,10 +179,14 @@
     };
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public Guid ArtifactId { get; set; }
+    [Parameter] public Guid? RevisionId { get; set; }
+    [Parameter] public bool ReviewOnly { get; set; }
+    [Parameter] public bool CanDecide { get; set; } = true;
     [Parameter] public EventCallback Closed { get; set; }
     [Parameter] public EventCallback<ArtifactDocumentDetail> Changed { get; set; }
 
     private ElementReference _panel;
+    private MudIconButton? _closeButton;
     private IJSObjectReference? _module;
     private ArtifactDocumentDetail? _detail;
     private readonly List<ArtifactFolderResponse> _folders = [];
@@ -172,36 +196,74 @@
     private Guid? _moveFolderId;
     private bool _loading = true, _busy, _notFound;
     private int _tab;
+    private bool _disposed;
+    private long _loadVersion;
+    private (Guid Organization, Guid Artifact, Guid? Revision)? _binding;
+    private ArtifactRevisionResponse? PreviewRevision
+    {
+        get
+        {
+            if (_detail is null) return null;
+            var selected = RevisionId ?? _detail.Document.SubmittedRevisionId;
+            return selected.HasValue ? _detail.Revisions.FirstOrDefault(x => x.Id == selected)
+                : _detail.LatestRevision;
+        }
+    }
+    private bool CanReviewDisplayedRevision => CanDecide && _detail?.Document.Status == "InReview" &&
+        PreviewRevision is { Status: "Submitted" } revision && _detail.Document.SubmittedRevisionId == revision.Id;
 
-    protected override async Task OnParametersSetAsync() => await LoadAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        var binding = (OrganizationId, ArtifactId, RevisionId);
+        if (_binding == binding) return;
+        _binding = binding;
+        _detail = null; _error = null; _decisionComment = null; _tab = 0;
+        await LoadAsync();
+    }
 
-    protected override void OnInitialized() => Realtime.EventReceived += OnRealtimeEvent;
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += OnRealtimeEvent;
+        Realtime.Reconnected += OnReconnect;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
         _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/artifact-workspace.js");
         await _module.InvokeVoidAsync("observeWidth", _panel, "csweet.artifact-workspace.width");
+        await _module.InvokeVoidAsync("rememberFocus", _panel);
+        if (_closeButton is not null) await _closeButton.FocusAsync();
     }
 
     private async Task LoadAsync()
     {
+        var version = ++_loadVersion;
+        var organization = OrganizationId;
+        var artifact = ArtifactId;
         _loading = true; _notFound = false; _error = null;
         try
         {
-            var response = await Http.GetAsync($"api/organizations/{OrganizationId:D}/documents/{ArtifactId:D}");
+            using var response = await Http.GetAsync($"api/organizations/{organization:D}/documents/{artifact:D}");
+            if (_disposed || version != _loadVersion) return;
             if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Forbidden)
             { _notFound = true; _detail = null; return; }
             response.EnsureSuccessStatusCode();
-            _detail = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
+            var detail = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
+            if (_disposed || version != _loadVersion) return;
+            _detail = detail;
             _draft = _detail?.LatestRevision.Content ?? string.Empty;
             _moveFolderId = _detail?.Document.FolderId;
-            var folders = await Http.GetFromJsonAsync<List<ArtifactFolderResponse>>(
-                $"api/organizations/{OrganizationId:D}/documents/folders?includeArchived=false");
-            _folders.Clear(); if (folders is not null) _folders.AddRange(folders);
+            if (!ReviewOnly)
+            {
+                var folders = await Http.GetFromJsonAsync<List<ArtifactFolderResponse>>(
+                    $"api/organizations/{organization:D}/documents/folders?includeArchived=false");
+                if (_disposed || version != _loadVersion) return;
+                _folders.Clear(); if (folders is not null) _folders.AddRange(folders);
+            }
         }
-        catch (Exception exception) { _error = exception.Message; }
-        finally { _loading = false; }
+        catch (Exception) { if (version == _loadVersion) { _detail = null; _error = "The document could not be loaded. Close it and try again."; } }
+        finally { if (version == _loadVersion) _loading = false; }
     }
 
     private async Task SaveDraftAsync()
@@ -238,10 +300,28 @@
     private Task RequestChangesAsync() => DecideAsync("request-revision");
     private async Task DecideAsync(string decision)
     {
-        if (_detail?.Document.SubmittedRevisionId is not Guid revisionId) return;
-        await MutateAsync(Http.PostAsJsonAsync($"api/organizations/{OrganizationId:D}/documents/{ArtifactId:D}/decisions",
-            new DecideArtifactRevisionRequest(revisionId, decision, _decisionComment,
-                $"ui-decision:{revisionId:D}:{decision}")));
+        if (_busy || !CanReviewDisplayedRevision || PreviewRevision is not { } revision) return;
+        if (decision == "request-revision" && string.IsNullOrWhiteSpace(_decisionComment))
+        { _error = "Feedback is required when requesting a revision."; return; }
+        var revisionId = revision.Id;
+        var organization = OrganizationId;
+        var artifact = ArtifactId;
+        _busy = true;
+        try
+        {
+            await LoadAsync();
+            if (_disposed || organization != OrganizationId || artifact != ArtifactId) return;
+            if (!CanReviewDisplayedRevision || PreviewRevision?.Id != revisionId)
+            {
+                _error = "This revision is no longer awaiting your decision. Review its current status before continuing.";
+                if (_detail is not null) await Changed.InvokeAsync(_detail);
+                return;
+            }
+            await MutateAsync(Http.PostAsJsonAsync($"api/organizations/{organization:D}/documents/{artifact:D}/decisions",
+                new DecideArtifactRevisionRequest(revisionId, decision, _decisionComment?.Trim(),
+                    $"ui-decision:{revisionId:D}:{decision}")), reviewDecision: true);
+        }
+        finally { _busy = false; }
     }
 
     private async Task ToggleArchiveAsync()
@@ -273,13 +353,23 @@
             new MoveArtifactRequest(_moveFolderId, $"ui-move:{ArtifactId:N}:{Guid.NewGuid():N}")));
     }
 
-    private async Task MutateAsync(Task<HttpResponseMessage> operation)
+    private async Task MutateAsync(Task<HttpResponseMessage> operation, bool reviewDecision = false)
     {
         _busy = true; _error = null;
         try
         {
-            var response = await operation;
-            if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
+            using var response = await operation;
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = reviewDecision ? response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Forbidden => "You no longer have permission to decide this revision.",
+                    System.Net.HttpStatusCode.NotFound => "This document or revision is no longer available.",
+                    System.Net.HttpStatusCode.Conflict => "This revision changed or was already decided. Close and reopen the document to review its current status.",
+                    _ => "The decision could not be saved. Try again or reopen the document to check its status."
+                } : await response.Content.ReadAsStringAsync();
+                return;
+            }
             var detail = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
             if (detail is not null) { _detail = detail; _draft = detail.LatestRevision.Content; await Changed.InvokeAsync(detail); }
             else await LoadAsync();
@@ -288,11 +378,20 @@
         finally { _busy = false; }
     }
 
-    private Task CloseAsync() => Closed.InvokeAsync();
+    private async Task CloseAsync()
+    {
+        if (_module is not null) await _module.InvokeVoidAsync("restoreFocus", _panel);
+        await Closed.InvokeAsync();
+    }
+    private Task OnKeyDown(KeyboardEventArgs args) => args.Key == "Escape" ? CloseAsync() : Task.CompletedTask;
     private void OnRealtimeEvent(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == OrganizationId && envelope.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.DocumentChanged)
-            _ = InvokeAsync(LoadAsync);
+            OnReconnect();
+    }
+    private void OnReconnect()
+    {
+        if (!_disposed) _ = InvokeAsync(async () => { await LoadAsync(); if (!_disposed) StateHasChanged(); });
     }
     private static Color StatusColor(string status) => status switch
     { "Approved" => Color.Success, "InReview" => Color.Info, "ChangesRequested" => Color.Warning, "Archived" => Color.Default, _ => Color.Primary };
@@ -304,7 +403,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true; ++_loadVersion;
         Realtime.EventReceived -= OnRealtimeEvent;
+        Realtime.Reconnected -= OnReconnect;
         if (_module is not null)
         {
             try { await _module.InvokeVoidAsync("stopObservingWidth", _panel); await _module.DisposeAsync(); }

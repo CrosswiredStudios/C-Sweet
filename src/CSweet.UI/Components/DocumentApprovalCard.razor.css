@@ -1,0 +1,7 @@
+.document-approval-card { min-width: 0; }
+.document-approval-card ::deep .document-approval-open { margin: 14px 0; padding: 9px 12px; text-align: left; max-width: 100%; border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 40%, var(--mud-palette-lines-default)); border-radius: .62rem; background: color-mix(in srgb, var(--mud-palette-primary) 4%, var(--mud-palette-surface)); }
+.document-approval-link { display: flex; flex-direction: column; align-items: flex-start; overflow-wrap: anywhere; }
+.document-approval-link small { color: var(--mud-palette-text-secondary); }
+.document-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.document-revision-feedback { margin-top: 12px; }
+.document-decision-note { white-space: pre-wrap; overflow-wrap: anywhere; }
