@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => NotificationSoundOptions.FromConfiguration(sp.GetService<IConfiguration>()));
         services.AddScoped<NotificationSoundPlayer>();
         services.AddScoped<ApprovalState>();
+        services.AddScoped<OverviewAttentionState>();
         services.AddScoped<AgentHireOperationState>();
         services.AddScoped<BusinessOnboardingOperationState>();
 

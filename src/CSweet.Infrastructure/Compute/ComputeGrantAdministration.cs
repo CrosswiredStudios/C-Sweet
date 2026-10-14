@@ -48,6 +48,8 @@ public sealed class ComputeGrantAdministration(CSweetDbContext db, TimeProvider 
             grant.Revision++;
         }
         grant.ConstraintsJson = JsonSerializer.Serialize(request.Constraints, ComputeProtocol.Json);
+        // An explicit owner edit supersedes the hiring-derived permission's provenance.
+        grant.GrantedBySubjectId = null;
         grant.ExpiresAt = request.ExpiresAt; grant.RevokedAt = request.Enabled ? null : now;
         var id = Guid.NewGuid();
         db.AuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(new AuditEventWriteRequest(

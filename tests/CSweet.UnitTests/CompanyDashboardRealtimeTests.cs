@@ -19,6 +19,34 @@ namespace CSweet.UnitTests;
 
 public sealed class CompanyDashboardRealtimeTests
 {
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.NoContent, null)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden, "Only a current business owner")]
+    [InlineData(System.Net.HttpStatusCode.Conflict, "instance or its permissions changed")]
+    [InlineData(System.Net.HttpStatusCode.ServiceUnavailable, "Could not allow access")]
+    public async Task OverviewAllowsAccessInPlaceAndDisplaysFailures(System.Net.HttpStatusCode status, string? error)
+    {
+        var org = Guid.NewGuid();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new Handler { IncludeCompute = true, GrantStatus = status,
+            OnGrant = async () => { entered.SetResult(); await release.Task; } };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        var button = fixture.Activator.Buttons.Single(x => x.Href is null && !x.Disabled &&
+            x.ChildContent is not null && x.OnClick.HasDelegate && x.Variant == MudBlazor.Variant.Outlined);
+        var click = fixture.Renderer.Dispatcher.InvokeAsync(() => button.OnClick.InvokeAsync(new MouseEventArgs()));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => button.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Equal(1, handler.GrantWrites);
+        release.SetResult(); await click;
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Equal($"/api/organizations/{org}/compute/{handler.EnvironmentId}/local-link", handler.GrantPath);
+        Assert.True(handler.Enabled);
+        if (error is null) Assert.DoesNotContain("Allow a local test link", html);
+        else { Assert.Contains(error, html); Assert.Contains("Allow access", html); }
+    }
+
     [Fact]
     public async Task ComputeEventsDismissAllowedAccessAndRecoverRevocationOnReconnect()
     {
@@ -119,6 +147,7 @@ public sealed class CompanyDashboardRealtimeTests
         {
             var services = new ServiceCollection().AddLogging();
             services.AddMudServices();
+            services.AddCSweetApiClients();
             services.AddSingleton<IJSRuntime, NoJavaScript>();
             services.AddSingleton<NavigationManager, TestNavigation>();
             services.AddSingleton<IComponentActivator>(Activator);
@@ -160,9 +189,23 @@ public sealed class CompanyDashboardRealtimeTests
         public bool ComputeAllowed { get; set; }
         public int ComputeReads { get; private set; }
         private readonly Guid _environmentId = Guid.NewGuid();
+        public Guid EnvironmentId => _environmentId;
+        public System.Net.HttpStatusCode GrantStatus { get; set; } = System.Net.HttpStatusCode.NoContent;
+        public Func<Task>? OnGrant { get; set; }
+        public int GrantWrites { get; private set; }
+        public string? GrantPath { get; private set; }
+        public bool Enabled { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Put && path.EndsWith("/local-link"))
+            {
+                GrantWrites++; GrantPath = path;
+                Enabled = (await request.Content!.ReadFromJsonAsync<JsonElement>(token)).GetProperty("enabled").GetBoolean();
+                if (OnGrant is not null) await OnGrant();
+                if (GrantStatus == System.Net.HttpStatusCode.NoContent) ComputeAllowed = true;
+                return new(GrantStatus);
+            }
             object result;
             if (path.EndsWith("/dashboard/hiring"))
             {
@@ -184,7 +227,7 @@ public sealed class CompanyDashboardRealtimeTests
                 ComputeReads++;
                 result = new ComputeDashboard(DateTimeOffset.UtcNow, null, IncludeCompute
                     ? [new(_environmentId, "Victor Lin", "Prismatic Break", "Ready", "Running", "linux", 2, 2048, 20480,
-                        DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null, ComputeAllowed)] : [], false, true);
+                        DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null, ComputeAllowed) { LocalLinkRequested = true }] : [], false, true);
             }
             else if (path.EndsWith("/dashboard")) result = new CompanyDashboardResponse(new([], null), new([], null));
             else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);

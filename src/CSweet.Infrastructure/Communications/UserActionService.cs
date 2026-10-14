@@ -3,6 +3,7 @@ using CSweet.Application.Communications;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Notifications;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,6 +18,21 @@ public sealed class UserActionService(
         Guid originatingInstallationId,
         SuggestUserActionRequest request,
         CancellationToken cancellationToken = default)
+    {
+        var isHiring = request.WorkflowType?.Trim() == SuggestedUserActionWorkflows.BrowseHiringMarketplace;
+        await using var transaction = isHiring && db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (isHiring) await HiringOrganizationLock.AcquireAsync(db, organizationId, cancellationToken);
+        var result = await SuggestCoreAsync(organizationId, originatingInstallationId, request, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<SuggestedUserActionResponse> SuggestCoreAsync(
+        Guid organizationId,
+        Guid originatingInstallationId,
+        SuggestUserActionRequest request,
+        CancellationToken cancellationToken)
     {
         if (request.MessageId.HasValue == request.ChatTurnId.HasValue)
             throw new ArgumentException("Exactly one messageId or chatTurnId is required.");
@@ -106,17 +122,30 @@ public sealed class UserActionService(
             ? SuggestedUserActionParameters.ReadHiringRole(resolution.NormalizedParametersJson)
             : null;
 
-        // Only one actionable hiring suggestion per conversation: a request for a recommendation that
-        // is already surfaced returns the pending action instead of stacking duplicate widgets.
+        WorkforcePlan? recommendation = null;
+        if (hiringRecommendationId is Guid recommendationId)
+        {
+            recommendation = await db.WorkforcePlans.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == recommendationId && x.OrganizationId == organizationId, cancellationToken)
+                ?? throw new ArgumentException("The hiring recommendation was not found.");
+        }
+        var fulfilled = recommendation is { Status: ProposalStatus.Approved } &&
+            recommendation.FulfilledHeadcount >= recommendation.Headcount;
+        var actionable = recommendation is null ||
+            (recommendation.Status == ProposalStatus.Pending && recommendation.FulfilledHeadcount < recommendation.Headcount);
+
+        // Reuse the existing actionable or completed card. Delayed notifications cannot reopen a hire.
         if (isHiringWorkflow)
         {
-            var pending = await db.SuggestedUserActions.AsNoTracking()
+            var currentStatus = fulfilled ? SuggestedUserActionStatuses.Completed :
+                actionable ? SuggestedUserActionStatuses.Pending : SuggestedUserActionStatuses.Cancelled;
+            var candidates = await db.SuggestedUserActions.AsNoTracking()
                 .Where(x => x.ConversationId == conversationId &&
                             x.WorkflowType == workflowType &&
-                            x.Status == SuggestedUserActionStatuses.Pending)
+                            x.Status == currentStatus)
                 .OrderBy(x => x.CreatedAt)
                 .ToListAsync(cancellationToken);
-            var duplicate = pending.FirstOrDefault(x => SuggestedUserActionParameters.MatchesHiringTarget(
+            var duplicate = candidates.FirstOrDefault(x => SuggestedUserActionParameters.MatchesHiringTarget(
                 x.ParametersJson, hiringRecommendationId, hiringRole));
             if (duplicate is not null) return ToResponse(duplicate);
         }
@@ -152,7 +181,21 @@ public sealed class UserActionService(
                 now,
                 cancellationToken);
         }
-        if (isHiringWorkflow)
+        if (fulfilled)
+        {
+            var fulfillment = await db.HiringRecommendationFulfillments.AsNoTracking()
+                .Where(x => x.OrganizationId == organizationId && x.WorkforcePlanId == hiringRecommendationId)
+                .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("The fulfilled hiring recommendation has no recorded hire.");
+            await SuggestedUserActionMaterializer.CompleteAsync(db, action,
+                fulfillment.ResultOrganizationUserId, recommendation!.DecidedAt ?? fulfillment.CreatedAt, cancellationToken);
+        }
+        else if (!actionable)
+        {
+            action.Status = SuggestedUserActionStatuses.Cancelled;
+        }
+        if (isHiringWorkflow && actionable)
             await SupersedeEarlierSuggestionsAsync(action, hiringRole,
                 request.MessageId ?? request.ChatTurnId!.Value, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
@@ -306,6 +349,20 @@ internal static class SuggestedUserActionMaterializer
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private const string SystemActionSourceProvider = "SystemAction";
 
+    public static async Task CompleteAsync(CSweetDbContext db, SuggestedUserAction action,
+        Guid resultOrganizationUserId, DateTimeOffset completedAt, CancellationToken cancellationToken)
+    {
+        action.Status = SuggestedUserActionStatuses.Completed;
+        action.ResultOrganizationUserId = resultOrganizationUserId;
+        action.CompletedAt = completedAt;
+        action.SupersededAt = null;
+        action.SupersededByActionId = null;
+        action.SupersededByRole = null;
+        await QueueStatusChangedEventAsync(db, action, SuggestedUserActionEvents.Completed, DateTimeOffset.UtcNow,
+            new { actionId = action.Id, messageId = action.ConversationMessageId, action.WorkflowType,
+                resultOrganizationUserId, completedAt }, cancellationToken);
+    }
+
     public static async Task MaterializeAsync(
         CSweetDbContext db,
         SuggestedUserAction action,
@@ -353,7 +410,7 @@ internal static class SuggestedUserActionMaterializer
 
     /// <summary>
     /// Queues the versioned realtime envelope that tells connected clients a suggestion changed state
-    /// (created, superseded, or cancelled). Communications pages refresh on any com.csweet.communication.* event.
+    /// (created, completed, superseded, or cancelled). Communications refreshes on any com.csweet.communication.* event.
     /// </summary>
     public static async Task QueueStatusChangedEventAsync(
         CSweetDbContext db,

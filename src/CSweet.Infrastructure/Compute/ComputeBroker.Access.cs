@@ -16,12 +16,16 @@ public sealed partial class ComputeBroker
         IReadOnlyList<ComputeActionAuthorization> authority;
         try
         {
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
             var environment = await db.ComputeEnvironments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == environmentId &&
                 x.OrganizationId == organizationId && x.InstallationId == installationId, token)
                 ?? throw new UnauthorizedAccessException("The compute environment is unavailable.");
             workstreamId = environment.WorkstreamId;
             await RequireActorAsync(organizationId, installationId, workstreamId, InfrastructureActions.Read, token);
             authority = AccessAuthority(await GrantsAsync(organizationId, installationId, workstreamId, token), InfrastructureActions.Read);
+            if (await EnsureLocalLinksAsync(environment, token)) await db.SaveChangesAsync(token);
+            if (transaction is not null) await transaction.CommitAsync(token);
             view = View(environment);
         }
         catch (Exception error) when (error is UnauthorizedAccessException or ArgumentException)

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using CSweet.Api.Auth;
 using CSweet.Application.Compute;
@@ -16,8 +14,8 @@ namespace CSweet.Api.Compute;
 public static class ComputeNetworkGrantEndpoints
 {
     public sealed record LocalLinkRequest(bool Enabled);
-    internal static readonly string[] Actions = [InfrastructureActions.Inbound, InfrastructureActions.PublishPort];
-    internal static Guid GrantId(Guid environment, string action) => new(SHA256.HashData(Encoding.UTF8.GetBytes($"explicit-local-link:{environment:N}:{action}")).AsSpan(0, 16));
+    internal static readonly string[] Actions = ComputeLocalLinkGrants.Actions;
+    internal static Guid GrantId(Guid environment, string action) => ComputeLocalLinkGrants.GrantId(environment, action);
 
     public static IEndpointRouteBuilder MapComputeNetworkGrantEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -62,7 +60,8 @@ public static class ComputeNetworkGrantEndpoints
         await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
         var environment = await db.ComputeEnvironments.SingleOrDefaultAsync(x => x.Id == environmentId && x.OrganizationId == business, ct)
             ?? throw new UnauthorizedAccessException();
-        if (environment.LeaseExpiresAt <= DateTimeOffset.UtcNow || environment.TeardownConfirmedAt is not null)
+        if (environment.LeaseExpiresAt <= DateTimeOffset.UtcNow || environment.TeardownConfirmedAt is not null ||
+            environment.DesiredState == ComputeDesiredState.Destroyed || environment.State is ComputeLifecycleState.Destroyed or ComputeLifecycleState.Destroying)
             throw new InvalidOperationException();
         var installation = await db.AgentInstallations.Include(x => x.Grant).SingleAsync(x => x.Id == environment.InstallationId, ct);
         var approved = JsonSerializer.Deserialize<HashSet<string>>(installation.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];

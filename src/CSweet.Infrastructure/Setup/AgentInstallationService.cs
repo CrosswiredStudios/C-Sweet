@@ -745,9 +745,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var bindings = new List<AgentCapabilityBinding>();
         foreach (var capability in grantedRequiredCapabilities.Distinct(StringComparer.Ordinal))
         {
-            if (CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(capability))
+            if (CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(capability) || capability == CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks)
             {
-                if (selections.ContainsKey(capability)) throw new AgentInstallationException("Execution permissions cannot have provider bindings.");
+                if (selections.ContainsKey(capability)) throw new AgentInstallationException("Installation permissions cannot have provider bindings.");
                 continue;
             }
             var dependencyRequirement = DeserializeManifest(requester.PackageVersion?.ManifestJson ??

@@ -11,6 +11,25 @@ namespace CSweet.UnitTests;
 
 public class AgentImportPreviewServiceTests
 {
+    [Fact]
+    public async Task PreviewIncludesLocalTestLinksInTheReviewedHiringPermissions()
+    {
+        await using var db = CreateDbContext();
+        var json = System.Text.Json.Nodes.JsonNode.Parse(ValidManifest())!;
+        json["requires"]!.AsArray().Add(new System.Text.Json.Nodes.JsonObject
+        {
+            ["name"] = CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks,
+            ["scope"] = "workstream", ["modelVisible"] = false,
+            ["purpose"] = "Share local browser test links"
+        });
+        var service = new AgentImportPreviewService(db,
+            new FakeGitHubAgentRepositoryClient(json.ToJsonString()), new TestAuditEventWriter());
+        var preview = await service.PreviewAsync(new PreviewAgentImportRequest("https://github.com/example/research-agent"));
+        Assert.Contains(CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks, preview.RequestedCapabilities);
+        Assert.Contains(preview.Warnings, x => x.Code == "local_test_links_requested");
+        Assert.Equal("Share local test links", CSweet.UI.CapabilityDisplayNames.For(CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks));
+    }
+
     [Theory]
     [InlineData("manager", true)]
     [InlineData("individual-contributor", false)]

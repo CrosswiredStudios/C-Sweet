@@ -12,6 +12,27 @@ namespace CSweet.UnitTests;
 public sealed class NotificationSnackbarTests
 {
     [Fact]
+    public void HiringApprovalNotificationsStayQuietWhileOtherWarningsStillAppear()
+    {
+        using var provider = Services();
+        var snackbar = provider.GetRequiredService<ISnackbar>();
+        var component = new AppRealtimeCoordinator();
+        typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(component, snackbar);
+        var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
+            "Important", "ResourceChangeApproval", "Hiring plan", "Review team changes", "/approvals",
+            DateTimeOffset.UtcNow, null, null);
+        Invoke(component, "ShowNotification", notification, Severity.Warning);
+        Invoke(component, "ShowNotification", notification, Severity.Warning);
+        Assert.Empty(snackbar.ShownSnackbars);
+        Invoke(component, "ShowNotification", notification with
+        {
+            NotificationId = Guid.NewGuid(), Category = "ArtifactReviewReassignment", ActionUri = null
+        }, Severity.Warning);
+        Assert.Single(snackbar.ShownSnackbars);
+    }
+
+    [Fact]
     public void ResolvingWarningRemovesSnackbarAndLateCreationCannotRestoreIt()
     {
         using var provider = Services();

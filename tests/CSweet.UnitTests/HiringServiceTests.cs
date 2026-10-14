@@ -428,6 +428,12 @@ public sealed partial class HiringServiceTests
         Assert.Equal("Completed", completedAction.Status);
         Assert.Equal(employee.Id, completedAction.ResultOrganizationUserId);
         Assert.NotNull(completedAction.CompletedAt);
+        var completionEvent = Assert.Single(await db.ApplicationRealtimeOutbox.Where(x =>
+            x.EventType == CSweet.Contracts.Communications.SuggestedUserActionEvents.Completed).ToListAsync());
+        Assert.Equal(origin.ConversationId, completionEvent.ChatId);
+        using var completionPayload = JsonDocument.Parse(completionEvent.DataJson);
+        Assert.Equal(suggestedAction.Id, completionPayload.RootElement.GetProperty("actionId").GetGuid());
+        Assert.Equal(employee.Id, completionPayload.RootElement.GetProperty("resultOrganizationUserId").GetGuid());
     }
 
     [Fact]

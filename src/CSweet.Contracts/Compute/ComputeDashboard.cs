@@ -10,4 +10,8 @@ public sealed record ComputeSetupStatus(string State, string Stage, DateTimeOffs
 
 public sealed record ComputeResourceStatus(Guid Id, string Agent, string Project, string State,
     string DesiredState, string OperatingSystem, int CpuCount, long MemoryMiB, long DiskMiB,
-    DateTimeOffset UpdatedAt, DateTimeOffset LeaseExpiresAt, string? FailureCode, bool LocalLinkAllowed = false);
+    DateTimeOffset UpdatedAt, DateTimeOffset LeaseExpiresAt, string? FailureCode, bool LocalLinkAllowed = false)
+{
+    public Guid? EmployeeId { get; init; }
+    public bool LocalLinkRequested { get; init; }
+}

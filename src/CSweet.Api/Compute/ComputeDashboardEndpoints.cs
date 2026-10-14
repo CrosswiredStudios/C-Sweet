@@ -4,6 +4,7 @@ using CSweet.Contracts.Compute;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.Compute;
@@ -67,21 +68,33 @@ public static class ComputeDashboardEndpoints
         var workstreams = environments.Select(x => x.WorkstreamId).ToArray();
         var agents = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             x.AgentInstallationId != null && installations.Contains(x.AgentInstallationId.Value)).ToListAsync(token);
+        var installedAgents = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).Include(x => x.PackageVersion)
+            .Where(x => installations.Contains(x.Id) && x.BusinessId == organizationId.ToString("D")).ToDictionaryAsync(x => x.Id, token);
         var projects = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId && workstreams.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.Name, token);
         var networkGrants = await db.ScopedActionGrants.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             (x.Action == "network.inbound.v1" || x.Action == "network.publish-port.v1") && x.RevokedAt == null &&
-            x.ExpiresAt > DateTimeOffset.UtcNow).Select(x => x.Id).ToListAsync(token);
+            x.GrantedAt <= DateTimeOffset.UtcNow && x.ExpiresAt > DateTimeOffset.UtcNow).ToListAsync(token);
+        networkGrants.RemoveAll(x => ComputeLocalLinkGrants.IsHiringGrant(x) &&
+            (!installedAgents.TryGetValue(x.SubjectId, out var installation) || !ComputeLocalLinkGrants.IsApproved(installation)));
         var resources = environments.Take(100).Select(x =>
         {
             ComputeSpecification? spec = null;
             try { spec = JsonSerializer.Deserialize<ComputeSpecification>(x.SpecificationJson, CSweet.Compute.Contracts.ComputeProtocol.Json); }
             catch (JsonException) { }
-            return new ComputeResourceStatus(x.Id, agents.FirstOrDefault(a => a.AgentInstallationId == x.InstallationId)?.DisplayName ?? "Former agent",
+            var employee = agents.FirstOrDefault(a => a.AgentInstallationId == x.InstallationId);
+            var installation = installedAgents.GetValueOrDefault(x.InstallationId);
+            var approved = JsonSerializer.Deserialize<string[]>(installation?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
+            return new ComputeResourceStatus(x.Id, employee?.DisplayName ?? "Former agent",
                 projects.GetValueOrDefault(x.WorkstreamId, "Application testing"), x.State.ToString(), x.DesiredState.ToString(),
                 spec?.OperatingSystem ?? "Unknown", spec?.Resources?.CpuCount ?? 0, spec?.Resources?.MemoryMiB ?? 0,
                 spec?.Resources?.DiskMiB ?? 0, x.UpdatedAt, x.LeaseExpiresAt, x.LastFailureCode,
-                ComputeNetworkGrantEndpoints.Actions.All(a => networkGrants.Contains(ComputeNetworkGrantEndpoints.GrantId(x.Id, a))));
+                ComputeNetworkGrantEndpoints.Actions.All(a => networkGrants.Any(g => g.Id == ComputeNetworkGrantEndpoints.GrantId(x.Id, a))))
+            {
+                EmployeeId = employee?.Id,
+                LocalLinkRequested = installation is { IsEnabled: true } && employee is { IsActive: true, ArchivedAt: null } &&
+                    ComputeLocalLinkGrants.Actions.All(approved.Contains)
+            };
         }).ToArray();
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         string? downloadFile = null;

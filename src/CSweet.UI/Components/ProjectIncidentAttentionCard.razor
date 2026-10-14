@@ -3,6 +3,7 @@
 @inject HttpClient Http
 
 <AttentionRequestCard Kind="@(Incident.Collaboration is null ? "Project stalled" : "Collaboration")"
+    EmployeeId="Incident.ReporterEmployeeId"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
     Description="@Incident.Facts" Status="@(_notice ?? Incident.RecommendedAction)">
     @if (Incident.Collaboration is { } collaboration)
@@ -12,12 +13,13 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_retrying || Queued || !collaboration.CanRetry)"
                        OnClick="RetryAsync">@(_retrying ? "Retrying…" : Queued ? "Retry queued" : !collaboration.CanRetry ? "In progress" : "Retry")</MudButton>
         }
-        <MudButton Href="@collaboration.InvestigateUri" Variant="Variant.Outlined" Color="Color.Primary">Investigate</MudButton>
+        <MudButton Href="@(Incident.InvestigateUri ?? collaboration.InvestigateUri)" Variant="Variant.Outlined" Color="Color.Primary">@(Incident.InvestigateLabel ?? "Investigate")</MudButton>
     }
-    else
+    else if (!string.IsNullOrWhiteSpace(Incident.InvestigateUri))
     {
-        <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
+        <MudButton Href="@Incident.InvestigateUri" Variant="Variant.Filled" Color="Color.Primary">@(Incident.InvestigateLabel ?? "Investigate")</MudButton>
     }
+    <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
 </AttentionRequestCard>
 
 @code {

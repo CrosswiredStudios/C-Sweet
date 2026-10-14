@@ -100,11 +100,11 @@
     private void ShowNotification(AppNotificationEvent notification, Severity severity)
     {
         if (_resolvedNotifications.Contains(notification.NotificationId) || !_shownNotifications.Add(notification.NotificationId)) return;
+        // Hiring approvals are surfaced by the Overview attention queue and its sidebar badge.
+        if (notification.Category == "ResourceChangeApproval") return;
         // Recovery remains available in the notification inbox without interrupting the user.
         if (notification.Category == "ProjectHealth" && notification.Severity == "Routine") return;
-        var message = notification.Category == "ResourceChangeApproval"
-            ? "Hiring plan approval needed"
-            : $"{notification.Title}: {notification.Body}";
+        var message = $"{notification.Title}: {notification.Body}";
         Snackbar.Add(message, severity, options =>
         {
             if (notification.Category == "ProjectHealth")
@@ -113,7 +113,7 @@
                 options.VisibleStateDuration = 6000;
             }
             if (string.IsNullOrWhiteSpace(notification.ActionUri)) return;
-            options.Action = notification.Category == "ResourceChangeApproval" ? "Review" : "Open";
+            options.Action = "Open";
             options.ActionColor = Color.Primary;
             options.ActionVariant = Variant.Filled;
             options.CloseAfterNavigation = true;

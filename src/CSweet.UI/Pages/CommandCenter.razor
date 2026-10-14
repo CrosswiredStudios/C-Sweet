@@ -171,15 +171,12 @@
     private void OpenDocument(DocumentApprovalSelection selection) => _documentReview = selection;
     private void CloseDocument() => _documentReview = null;
     private IEnumerable<ApprovalDashboardItemResponse> ActionableApprovals => (_approvals?.Items ?? [])
-        .Where(x => x.CanDecide && string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+        .Where(OverviewAttentionItems.IsActionable)
         .OrderBy(x => x.CreatedAt);
     private IEnumerable<HiringRecommendationResponse> PendingRecommendations => (_hiring?.Recommendations ?? [])
-        .Where(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase) && x.RemainingHeadcount > 0)
+        .Where(OverviewAttentionItems.IsActionable)
         .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt);
-    private IReadOnlyList<ComputeResourceStatus> ComputeAccessRequests => _compute is { CanManageNetwork: true } compute
-        ? compute.Resources.Where(x => !x.LocalLinkAllowed && x.LeaseExpiresAt > compute.CheckedAt &&
-            x.State is not ("Destroyed" or "Destroying") && x.DesiredState != "Destroyed").OrderBy(x => x.UpdatedAt).ToList()
-        : [];
+    private IReadOnlyList<ComputeResourceStatus> ComputeAccessRequests => OverviewAttentionItems.ComputeRequests(_compute);
 
     protected override void OnInitialized()
     {

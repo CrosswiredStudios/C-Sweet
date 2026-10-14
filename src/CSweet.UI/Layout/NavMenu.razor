@@ -5,6 +5,7 @@
 @inject NavigationManager Navigation
 @inject CommunicationUnreadState CommunicationUnread
 @inject ApprovalState Approvals
+@inject OverviewAttentionState Attention
 
 <div class="nav-shell">
     <a class="nav-brand" href="/" aria-label="C-Sweet Enterprise home">
@@ -25,7 +26,13 @@
                 @if (BusinessContext.SelectedBusiness is not null)
                 {
                     <MudNavLink Href="@OverviewHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dashboard" Class="business-nav-link">
-                        Overview
+                        <span class="communications-nav-content">
+                            <span class="communications-nav-label">Overview</span>
+                            @if (Attention.PendingCount > 0)
+                            {
+                                <span class="communications-nav-badge" aria-label="@AttentionAriaLabel">@AttentionLabel</span>
+                            }
+                        </span>
                     </MudNavLink>
                     <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="@ProjectsClass">
                         Projects
@@ -159,6 +166,10 @@
     private string UnreadLabel => CommunicationUnread.TotalUnreadCount > 99
         ? "99+" : CommunicationUnread.TotalUnreadCount.ToString();
 
+    private string AttentionLabel => Attention.PendingCount > 99 ? "99+" :
+        $"{Attention.PendingCount}{(Attention.HasMore ? "+" : "")}";
+    private string AttentionAriaLabel => $"{(Attention.HasMore ? "At least " : "")}{Attention.PendingCount} {(Attention.PendingCount == 1 ? "item needs" : "items need")} your attention";
+
     private string UnreadAriaLabel => CommunicationUnread.TotalUnreadCount == 1
         ? "1 unread notification"
         : $"{CommunicationUnread.TotalUnreadCount} unread notifications";
@@ -173,7 +184,9 @@
         Navigation.LocationChanged += OnLocationChanged;
         CommunicationUnread.Changed += OnUnreadChanged;
         Approvals.Changed += OnUnreadChanged;
+        Attention.Changed += OnUnreadChanged;
         _ = Approvals.InitializeAsync();
+        _ = Attention.InitializeAsync();
         _ = CommunicationUnread.InitializeAsync();
     }
 
@@ -194,5 +207,6 @@
         Navigation.LocationChanged -= OnLocationChanged;
         CommunicationUnread.Changed -= OnUnreadChanged;
         Approvals.Changed -= OnUnreadChanged;
+        Attention.Changed -= OnUnreadChanged;
     }
 }

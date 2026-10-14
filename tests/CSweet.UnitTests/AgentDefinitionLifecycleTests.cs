@@ -18,14 +18,17 @@ namespace CSweet.UnitTests;
 public sealed partial class AgentDefinitionLifecycleTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task PackageUpgradeDoesNotCreateInternetAuthority(bool definitionApproved, bool installationApproved)
+    [InlineData("runtime.internet.public.v1", false, false)]
+    [InlineData("runtime.internet.public.v1", false, true)]
+    [InlineData("runtime.internet.public.v1", true, false)]
+    [InlineData("runtime.internet.public.v1", true, true)]
+    [InlineData("compute.local-test-links.v1", false, false)]
+    [InlineData("compute.local-test-links.v1", false, true)]
+    [InlineData("compute.local-test-links.v1", true, false)]
+    [InlineData("compute.local-test-links.v1", true, true)]
+    public async Task PackageUpgradeDoesNotCreateUnreviewedAuthority(string permission, bool definitionApproved, bool installationApproved)
     {
         await using var db = CreateDb();
-        const string permission = "runtime.internet.public.v1";
         var current = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
         current.PackageDigest = $"sha256:{new string('a', 64)}";
         current.ArtifactSignature = "old-signature";

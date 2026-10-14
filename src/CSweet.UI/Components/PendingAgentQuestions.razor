@@ -88,11 +88,16 @@
                 }
                 @foreach (var resource in ComputeResources.Take(_showAll ? ComputeResources.Count : 5))
                 {
-                    <AttentionRequestCard @key="resource.Id" Kind="Compute" Name="@resource.Agent" Context="@resource.Project"
+                    <AttentionRequestCard @key="resource.Id" Kind="Compute" EmployeeId="resource.EmployeeId" Name="@resource.Agent" Context="@resource.Project"
                         Prompt="Allow a local test link" PromptMeta="@($"{resource.OperatingSystem} · {resource.Id.ToString("N")[..8]}")"
                         Description="Allow the agent to share a browser link so you can test the app on this computer."
                         Status="This computer only · This instance only · Expires with the instance. No public or outbound internet access.">
-                        <MudButton Href="@($"/organizations/{OrganizationId}/compute#compute-access-{resource.Id:D}")" Variant="Variant.Outlined" Color="Color.Primary">Review access</MudButton>
+                        <MudButton OnClick="() => AllowLocalLinkAsync(resource.Id)" Disabled="@_grantingLocalLinks.Contains(resource.Id)"
+                            Variant="Variant.Outlined" Color="Color.Primary">@(_grantingLocalLinks.Contains(resource.Id) ? "Allowing…" : "Allow access")</MudButton>
+                        @if (_localLinkErrors.TryGetValue(resource.Id, out var error))
+                        {
+                            <MudText role="alert" Color="Color.Error">@error</MudText>
+                        }
                     </AttentionRequestCard>
                 }
                 @foreach (var recommendation in Recommendations.Take(_showAll ? Recommendations.Count : 5))
@@ -124,11 +129,13 @@
     [Parameter] public EventCallback RefreshRequested { get; set; }
     [Parameter] public EventCallback<DocumentApprovalSelection> DocumentOpened { get; set; }
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
-        .Where(x => !_completedApprovals.Contains(x.Id) && x.CanDecide && x.Status == "Pending").ToList();
+        .Where(x => !_completedApprovals.Contains(x.Id) && OverviewAttentionItems.IsActionable(x)).ToList();
     private int PendingCount => _questions.Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count + ComputeResources.Count;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];
+    private readonly HashSet<Guid> _grantingLocalLinks = [];
+    private readonly Dictionary<Guid, string> _localLinkErrors = [];
     private IReadOnlyList<PendingAgentQuestionResponse> _questions = [];
     private bool _loading, _loaded, _disposed;
     private string? _error;
@@ -146,6 +153,7 @@
         _questions = []; _loaded = false; _showAll = false;
         _completedDecisions.Clear();
         _completedApprovals.Clear();
+        _localLinkErrors.Clear();
         await LoadAsync();
     }
     private async Task LoadAsync()
@@ -158,7 +166,7 @@
             var items = await Http.GetFromJsonAsync<List<PendingAgentQuestionResponse>>($"api/organizations/{organization}/communications/questions/pending") ?? [];
             if (!_disposed && version == _loadVersion)
             {
-                _questions = items.Where(x => !_completedDecisions.Contains(x.Decision.Id) && string.Equals(x.Decision.Status, "Pending", StringComparison.OrdinalIgnoreCase)).ToList();
+                _questions = items.Where(x => !_completedDecisions.Contains(x.Decision.Id) && OverviewAttentionItems.IsPending(x.Decision.Status)).ToList();
                 _loaded = true;
             }
         }
@@ -174,6 +182,31 @@
         await LoadAsync();
     }
     private async Task RefreshAsync() { await Task.WhenAll(LoadAsync(), RefreshRequested.InvokeAsync()); }
+    private async Task AllowLocalLinkAsync(Guid environmentId)
+    {
+        if (!_grantingLocalLinks.Add(environmentId)) return;
+        var organization = OrganizationId;
+        _localLinkErrors.Remove(environmentId);
+        try
+        {
+            using var response = await Http.PutAsJsonAsync($"api/organizations/{organization}/compute/{environmentId}/local-link", new { enabled = true });
+            if (organization != OrganizationId || _disposed) return;
+            if (!response.IsSuccessStatusCode)
+                _localLinkErrors[environmentId] = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Forbidden => "Only a current business owner can allow access.",
+                    System.Net.HttpStatusCode.Conflict => "The instance or its permissions changed. Refresh and try again.",
+                    _ => "Could not allow access. Try again."
+                };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            if (organization == OrganizationId && !_disposed)
+                _localLinkErrors[environmentId] = "Could not confirm access. Refresh before trying again.";
+        }
+        finally { _grantingLocalLinks.Remove(environmentId); }
+        if (organization == OrganizationId && !_disposed) await RefreshRequested.InvokeAsync();
+    }
     private async Task OnApprovalDecidedAsync(Guid approvalId)
     {
         _completedApprovals.Add(approvalId);

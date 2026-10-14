@@ -113,6 +113,9 @@ public sealed record ApprovalDashboardResponse(
 public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId, string ProjectName,
     string ReporterName, string Reason, string Facts, string RecommendedAction, string ActionUri, DateTimeOffset DetectedAt)
 {
+    public Guid? ReporterEmployeeId { get; init; }
+    public string? InvestigateUri { get; init; }
+    public string? InvestigateLabel { get; init; }
     public ProjectIncidentCollaborationResponse? Collaboration { get; init; }
 }
 

@@ -217,6 +217,7 @@ public static class SuggestedUserActionStatuses
 public static class SuggestedUserActionEvents
 {
     public const string Created = "com.csweet.communication.user-action.created.v1";
+    public const string Completed = "com.csweet.communication.user-action.completed.v1";
     public const string Superseded = "com.csweet.communication.user-action.superseded.v1";
     public const string Cancelled = "com.csweet.communication.user-action.cancelled.v1";
 }

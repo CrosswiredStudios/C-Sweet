@@ -23,6 +23,8 @@ public sealed class ComputeDashboardTests
         var resource = Assert.Single(dashboard.Resources);
         Assert.Equal("linux", resource.OperatingSystem);
         Assert.Equal(2, resource.CpuCount);
+        Assert.Equal((await f.Db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == f.Installation)).Id, resource.EmployeeId);
+        Assert.False(resource.LocalLinkRequested);
         Assert.Null(await ComputeDashboardEndpoints.ReadAsync(f.Db, Guid.NewGuid(), user, root, root, default));
         Assert.Null(await ComputeDashboardEndpoints.ReadAsync(f.Db, f.Organization, Guid.NewGuid(), root, root, default));
         member.IsActive = false; await f.Db.SaveChangesAsync();

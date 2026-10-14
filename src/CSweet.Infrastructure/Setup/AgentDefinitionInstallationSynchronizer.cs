@@ -137,11 +137,11 @@ internal sealed class AgentDefinitionInstallationSynchronizer(
             grant.ProvidedCapabilitiesJson = definition.DefaultProvidedCapabilitiesJson;
             var previousPermissions = DeserializeGrant(grant.RequiredCapabilitiesJson);
             var requestedExecutionPermissions = nextManifest.Requires
-                .Where(x => CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x.Name))
+                .Where(x => CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x.Name) || x.Name == CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks)
                 .Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
             grant.RequiredCapabilitiesJson = JsonSerializer.Serialize(
                 DeserializeGrant(definition.DefaultRequiredCapabilitiesJson)
-                    .Where(x => !CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x))
+                    .Where(x => !CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x) && x != CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks)
                     .Concat(previousPermissions.Where(requestedExecutionPermissions.Contains)), JsonOptions);
             grant.EventSubscriptionsJson = definition.DefaultEventSubscriptionsJson;
             grant.ResourceLimitsJson = JsonSerializer.Serialize(new

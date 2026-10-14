@@ -976,8 +976,7 @@ public sealed partial class HiringService(
     {
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
-        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({organizationId.ToString()}, 0))", cancellationToken);
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
         try
         {
             var result = await DecideWorkflowCoreAsync(organizationId, workflowId, applicationUserId, request, cancellationToken);
@@ -1953,18 +1952,18 @@ CompleteWorkflow:
         DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
-        var pendingActions = await db.SuggestedUserActions
+        var unfinishedActions = await db.SuggestedUserActions
             .Where(action =>
                 action.OrganizationId == organizationId &&
                 action.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace &&
-                action.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending)
+                (action.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending ||
+                 action.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Superseded))
             .ToListAsync(cancellationToken);
-        foreach (var action in pendingActions.Where(action =>
+        foreach (var action in unfinishedActions.Where(action =>
                      ReadSuggestedActionRecommendationId(action.ParametersJson) == recommendationId))
         {
-            action.Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Completed;
-            action.ResultOrganizationUserId = resultOrganizationUserId;
-            action.CompletedAt = completedAt;
+            await Communications.SuggestedUserActionMaterializer.CompleteAsync(
+                db, action, resultOrganizationUserId, completedAt, cancellationToken);
         }
     }
 

@@ -4,6 +4,8 @@ using System.Text.Json;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
+using CSweet.Domain.Setup;
+using CSweet.Contracts.Compute;
 using CSweet.Contracts.Realtime;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,6 +30,26 @@ public sealed partial class CSweetDbContext
     {
         ChangeTracker.DetectChanges();
         var changedOrganizations = new HashSet<Guid>();
+        foreach (var entry in ChangeTracker.Entries<AgentInstallationGrant>().Where(x =>
+            x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToArray())
+        {
+            var before = entry.State == EntityState.Added ? "[]" : entry.Property(x => x.RequiredCapabilitiesJson).OriginalValue;
+            var after = entry.State == EntityState.Deleted ? "[]" : entry.Entity.RequiredCapabilitiesJson;
+            if (before == after || !(RequestsLinks(before) || RequestsLinks(after))) continue;
+            var installation = AgentInstallations.Local.FirstOrDefault(x => x.Id == entry.Entity.AgentInstallationId)
+                ?? AgentInstallations.AsNoTracking().SingleOrDefault(x => x.Id == entry.Entity.AgentInstallationId);
+            if (installation is null || !Guid.TryParse(installation.BusinessId, out var organization)) continue;
+            changedOrganizations.Add(organization);
+            foreach (var environment in ComputeEnvironments.AsNoTracking().Where(x => x.OrganizationId == organization &&
+                x.InstallationId == installation.Id && x.TeardownConfirmedAt == null).Select(x => new { x.Id, x.Revision }).ToArray())
+            {
+                var id = Guid.NewGuid();
+                AgentPlatformEventOutbox.Add(new() { Id = id, OrganizationId = organization, TargetInstallationId = installation.Id,
+                    EventType = "com.csweet.compute.changed.v1", DataJson = JsonSerializer.Serialize(new { environmentId = environment.Id, revision = environment.Revision }),
+                    IdempotencyKey = $"local-link-permission:{id:N}", Status = AgentPlatformEventOutboxStatus.Pending,
+                    OccurredAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
+            }
+        }
         foreach (var operation in ChangeTracker.Entries<ComputeOperation>().Where(x => x.State == EntityState.Added).Select(x => x.Entity).ToArray())
         {
             var environment = ComputeEnvironments.Local.SingleOrDefault(x => x.Id == operation.EnvironmentId)
@@ -84,5 +106,7 @@ public sealed partial class CSweetDbContext
             QueueApplicationRealtimeEvent(organization, null, null, AppRealtimeEvents.ComputeChanged,
                 $"organizations/{organization:D}/compute", "{}", DateTimeOffset.UtcNow, recipients);
         }
+
+        static bool RequestsLinks(string json) => (JsonSerializer.Deserialize<string[]>(json) ?? []).Contains(ComputePermissions.LocalTestLinks);
     }
 }

@@ -7,7 +7,7 @@ Daniel 1.4.1 and SDK 3.44.0 provide the general chat-to-code-to-Docker workflow 
 1. Update Core and install Daniel 1.4.1, reviewing its added `git.workspace.sync.v1` declaration.
 2. Ask: **Build a Tetris clone and deploy it. Create your own tickets.** Without a ticket preference, Daniel presents a ticket-ownership question.
 3. Follow the personal task on Work. It records repository preparation, coding/testing, source transfer, Docker build, health checking, or a specific blocker.
-4. When prompted, the business owner opens Compute and grants the instance a local test link. Daniel resumes automatically and returns an application link that opens in a new tab, plus the source commit and expiry.
+4. Agents declaring `compute.local-test-links.v1` can receive local test-link permission during hiring. For agents without that reviewed permission, the owner can select **Allow access** on Overview or grant the instance a local test link in Compute. Daniel resumes automatically and returns an application link that opens in a new tab, plus the source commit and expiry.
 
 Source is stored in a deterministic private internal repository. Core checks the current personal-task claim and owner, installation approval, repository policy/quota, team membership and repository permissions. The agent cannot supply a remote, credential or arbitrary repository to the new `source-control.personal-work.prepare.v1` capability. Manager-created assigned work retains its existing workflow.
 
@@ -19,9 +19,9 @@ Personal-task mutations now save `com.csweet.app.work-board.changed.v1` UI notif
 
 ## Network authority
 
-Compute defaults do not include network grants. Untouched automatic inbound/publish grants from the earlier Hello World MVP are retired; manually edited grants are preserved. The owner-only local-link action persists instance-scoped inbound and publish-port grants and a compute-change wake event in one transaction. The grant permits only port 8080 until the VM lease expires. Broker and provider independently check authority, and browser connections revalidate access.
+Compute defaults do not include network grants. Untouched automatic inbound/publish grants from the earlier Hello World MVP are retired; manually edited grants are preserved. Agents can declare `compute.local-test-links.v1` alongside the inbound and publish-port actions for explicit review at hiring. `ComputeBroker.EnsureLocalLinksAsync` derives instance-scoped grants from that reviewed permission, preserving owner edits and revocations. Without hiring permission, the owner-only local-link action persists instance-scoped grants and a compute-change wake event in one transaction. Both paths permit only port 8080 until the VM lease expires. Broker and provider independently check authority, and browser connections revalidate access.
 
-Outbound, private-network, inbound and public-endpoint authority are separate actions. The current Hyper-V provider supports disconnected VMs with a brokered loopback link; it does not support guest outbound internet or public endpoints. Approving a manifest is not a network grant.
+Outbound, private-network, inbound and public-endpoint authority are separate actions. The current Hyper-V provider supports disconnected VMs with a brokered loopback link; it does not support guest outbound internet or public endpoints. Only the separately reviewed local-test-link permission can derive instance-local link grants.
 
 ## Preparation and recovery
 

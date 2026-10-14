@@ -63,8 +63,10 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 if (receipt.RequestDigest != digest) throw new InvalidOperationException("This request key already has different terms.");
                 var prior = await db.ComputeEnvironments.SingleAsync(x => x.Id == receipt.EnvironmentId &&
                     x.OrganizationId == organizationId && x.InstallationId == installationId, token);
-                // No side effect or additional reservation is needed for a replay.
+                // A replay can reconcile newly reviewed link access without another reservation.
                 db.Entry(admission).State = EntityState.Unchanged;
+                if (await EnsureLocalLinksAsync(prior, token)) await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
                 return View(prior);
             }
             var existing = await db.ComputeEnvironments.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
@@ -73,6 +75,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             {
                 if (existing.RequestDigest != digest) throw new InvalidOperationException("The desired environment already has different terms.");
                 AddReceipt(existing, request.IdempotencyKey, digest);
+                await EnsureLocalLinksAsync(existing, token);
                 QueueAudit(existing, "Reused", currentGrants.Where(x => x.Action == InfrastructureActions.Provision)
                     .Select(x => new ComputeActionAuthorization(x.Id, x.Revision, x.Action, x.ExpiresAt!.Value)).ToArray());
                 await db.SaveChangesAsync(token);
@@ -114,6 +117,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 CreatedAt = now, UpdatedAt = now, LeaseExpiresAt = spec.ExpiresAt(now), NextAttemptAt = now
             };
             db.ComputeEnvironments.Add(environment);
+            await EnsureLocalLinksAsync(environment, token);
             db.ComputeOperations.Add(new()
             {
                 Id = Guid.NewGuid(), OrganizationId = organizationId, InstallationId = installationId,
@@ -163,15 +167,23 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             throw new UnauthorizedAccessException("The Workstream is outside the employee scope.");
     }
 
-    internal Task<List<ScopedActionGrant>> GrantsAsync(Guid organizationId, Guid installationId, Guid workstreamId, CancellationToken token)
+    internal async Task<List<ScopedActionGrant>> GrantsAsync(Guid organizationId, Guid installationId, Guid workstreamId, CancellationToken token)
     {
         var now = clock.GetUtcNow();
         // Delegated infrastructure authority is unavailable until ancestor constraints can be verified.
-        return db.ScopedActionGrants.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+        var grants = await db.ScopedActionGrants.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             x.SubjectKind == GrantSubjectKind.AgentInstallation && x.SubjectId == installationId && x.ParentGrantId == null &&
             x.RevokedAt == null && x.GrantedAt <= now && x.ExpiresAt > now &&
             (x.ScopeKind == GrantScopeKind.Organization || x.ScopeKind == GrantScopeKind.Workstream && x.ScopeId == workstreamId))
             .OrderBy(x => x.Id).ToListAsync(token);
+        if (grants.Any(ComputeLocalLinkGrants.IsHiringGrant))
+        {
+            var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).Include(x => x.PackageVersion)
+                .SingleOrDefaultAsync(x => x.Id == installationId, token);
+            if (installation is null || !ComputeLocalLinkGrants.IsApproved(installation))
+                grants.RemoveAll(ComputeLocalLinkGrants.IsHiringGrant);
+        }
+        return grants;
     }
 
     private static void RequireAction(IEnumerable<ScopedActionGrant> grants, string action, DateTimeOffset now)

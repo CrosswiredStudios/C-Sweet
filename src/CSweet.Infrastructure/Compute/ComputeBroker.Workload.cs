@@ -25,6 +25,12 @@ public sealed partial class ComputeBroker
             var workload = request.Workload.Validate(spec.OperatingSystem);
             var action = workload.Command is null ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
             var actions = action == InfrastructureActions.PublishPort ? new[] { action, InfrastructureActions.Inbound } : new[] { action };
+            if (action == InfrastructureActions.PublishPort)
+            {
+                foreach (var required in actions)
+                    await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, required, token, environment.Id);
+                if (await EnsureLocalLinksAsync(environment, token)) await db.SaveChangesAsync(token);
+            }
             var grants = await GrantsAsync(organizationId, installationId, environment.WorkstreamId, token);
             var now = clock.GetUtcNow();
             var authority = new List<ComputeActionAuthorization>();

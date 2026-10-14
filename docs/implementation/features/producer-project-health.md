@@ -73,6 +73,30 @@ including atomic notification dismissal and realtime updates. AgentHost, API and
 were rebuilt and restarted locally. The live monitor advanced its review revision across multiple
 cycles while the affected stage remained one open incident and its human-message count stayed fixed.
 
+## Blocker destinations
+
+`ProjectHealthService.ResolveWorkItemDestinationAsync` in `ProjectHealthService.Links.cs`
+resolves the incident's exact affected item (or legacy ticket, stage, or dependency-wait source)
+against its current organization, project, board membership, and personal-board owner. Personal
+items open the employee's Personal Board with `item` selected; standard-board items open the board's
+ticket drawer. Missing, archived, or unrelated records retain the broader investigation fallback.
+Chat and collaboration failures retain their exact conversation destination even when an item
+supplies project attribution. Destination pages continue enforcing their own read permissions.
+
+`ProjectHealthService.PresentAsync` supplies this destination to newly delivered Communications
+reports and `ReadAttentionAsync`. Overview receives `InvestigateUri`/`InvestigateLabel` separately
+from the manager-report `ActionUri`; `ProjectIncidentAttentionCard` renders both actions. It uses
+“Open affected item” if the recorded item is no longer blocked, rather than asserting stale state.
+Already persisted chat messages retain their original text and links; later incident deliveries
+use the corrected presentation. Rebuild/restart API and AgentHost and reload the browser app for
+rollout. No schema migration, agent-package upgrade, or expanded grants are required.
+
+`ProjectHealthTests.OwnerReportAndOverviewOpenTheSameExactBlockedItem` covers personal and standard
+boards, delivery/Overview consistency, and current destinations after a transfer. Legacy source
+and invalid destination tests cover stage/dependency recovery and tenancy/project boundaries.
+`ProjectIncidentAttentionCardTests.ItemInvestigationAndManagerReportRemainSeparateActions` verifies
+the rendered ticket and report actions.
+
 ## Diagnostic authorization
 
 `Platform.ProjectHealth` exposes typed health/incident reads, bounded diagnostics, reports and

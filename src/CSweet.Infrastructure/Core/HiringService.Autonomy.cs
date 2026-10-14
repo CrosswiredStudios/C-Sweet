@@ -45,11 +45,8 @@ public sealed partial class HiringService
         return result;
     }
 
-    private async Task LockHiringOrganizationAsync(Guid organizationId, CancellationToken token)
-    {
-        if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
-            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({organizationId.ToString()}, 0))", token);
-    }
+    private Task LockHiringOrganizationAsync(Guid organizationId, CancellationToken token) =>
+        HiringOrganizationLock.AcquireAsync(db, organizationId, token);
 
     private async Task<HiringPolicyResponse> UpdatePolicyCoreAsync(Guid organizationId, Guid installationId,
         Guid applicationUserId, HiringPolicySettings settings, long expectedRevision, string rationale,

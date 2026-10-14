@@ -371,6 +371,8 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
     private static IReadOnlyList<AgentManifestWarningResponse> CreateWarnings(PluginManifest manifest)
     {
         var warnings = new List<AgentManifestWarningResponse>();
+        if (manifest.Requires.Any(x => x.Name == CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks))
+            warnings.Add(new("local_test_links_requested", "Share local test links lets this agent open browser previews on this computer, on port 8080, for the lifetime of its test instance."));
         if (manifest.Requires.Any(x => x.Name == CSweet.Agent.SDK.RuntimePermissions.PublicInternet))
             warnings.Add(new("runtime_internet_requested", "Public internet access allows this agent and its tools to connect to public internet services."));
         if (manifest.WebAccess.Mode != PluginWebAccessMode.None)

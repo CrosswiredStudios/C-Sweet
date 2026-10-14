@@ -265,7 +265,7 @@ public sealed class AgentDefinitionService(
         var provided = manifest.Provides.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
         var required = AgentImportPreviewService.GrantRequiredCapabilities(manifest).ToHashSet(StringComparer.Ordinal);
         var previouslyReviewed = JsonSerializer.Deserialize<string[]>(definition.DefaultRequiredCapabilitiesJson, JsonOptions) ?? [];
-        required.RemoveWhere(x => CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x) &&
+        required.RemoveWhere(x => (CSweet.Agent.SDK.RuntimePermissions.IsExecutionPermission(x) || x == CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks) &&
             !previouslyReviewed.Contains(x));
         var subscriptions = manifest.Events.Subscribes.ToHashSet(StringComparer.Ordinal);
         var networkAccess = AgentImportPreviewService.WebGrantTokens(manifest).ToHashSet(StringComparer.Ordinal);
@@ -286,8 +286,8 @@ public sealed class AgentDefinitionService(
         // declared capability and subscription contract. Existing scope and network policy remain
         // bounded separately; keeping only the old intersection would activate code whose required
         // contract can never run (for example a newly declared sprint-read capability).
-        // Execution permissions require their own install/access review; package selection
-        // alone cannot add public-internet authority.
+        // Execution and local-test-link permissions require their own install/access review;
+        // package selection alone cannot add that network authority.
         definition.DefaultProvidedCapabilitiesJson = Serialize(provided);
         definition.DefaultRequiredCapabilitiesJson = Serialize(required);
         definition.DefaultEventSubscriptionsJson = Serialize(subscriptions);

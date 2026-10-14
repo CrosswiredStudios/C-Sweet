@@ -739,6 +739,100 @@ public sealed class ProjectHealthTests
         Assert.All(f.Db.ProjectIncidentDeliveries, x => Assert.NotNull(x.DeliveredAt));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnerReportAndOverviewOpenTheSameExactBlockedItem(bool personal)
+    {
+        await using var f = await Fixture.Create();
+        if (personal)
+        {
+            f.Board.Kind = WorkBoardKind.Personal;
+            f.Board.OwnerOrganizationUserId = f.Producer.Id;
+            f.Board.WorkstreamId = null;
+        }
+        var ticket = f.Ticket(WorkTaskStatus.Blocked);
+        ticket.Title = "Reconcile scope, technical backlog and delivery staffing";
+        ticket.BlockReason = "Resolve the authority questions in the accepted brief.";
+        ticket.PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = f.Project.Id });
+        f.Db.Add(ticket); await f.Db.SaveChangesAsync(); await f.Review();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        foreach (var actor in new[] { f.Producer.Id, f.Director.Id, f.Chief.Id })
+            await f.Service.ForwardAsync(f.Org, actor, new(incident.Id, incident.Revision, $"forward:{actor}", "Review needed"), default);
+        await f.Service.DeliverAsync(default);
+
+        var expected = personal
+            ? $"/organizations/{f.Org}/employees/{f.Producer.Id}?tab=personal-board&item={ticket.Id}"
+            : $"/organizations/{f.Org}/projects/boards/{f.Board.Id}?item={ticket.Id}";
+        var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.Equal(expected, attention.InvestigateUri);
+        Assert.Equal("Open blocked item", attention.InvestigateLabel);
+        Assert.Contains($"[Open blocked item]({expected})", Assert.Single(f.Db.CoreConversationMessages).Content);
+        Assert.Contains("Open the affected item", attention.RecommendedAction);
+        Assert.EndsWith($"/communications/{f.Db.CoreConversations.Single().Id}", attention.ActionUri);
+
+        // Read current membership rather than the original owner/board captured by the alert.
+        var transferredBoard = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            WorkstreamId = f.Project.Id, Key = "transferred", CreatedAt = f.Clock.Now };
+        f.Db.Add(transferredBoard); ticket.BoardId = transferredBoard.Id; ticket.Status = WorkTaskStatus.Ready;
+        await f.Db.SaveChangesAsync();
+        attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.Equal($"/organizations/{f.Org}/projects/boards/{transferredBoard.Id}?item={ticket.Id}", attention.InvestigateUri);
+        Assert.Equal("Open affected item", attention.InvestigateLabel);
+    }
+
+    [Theory]
+    [InlineData("missing-item")]
+    [InlineData("foreign-item")]
+    [InlineData("other-project")]
+    [InlineData("missing-board")]
+    [InlineData("foreign-board")]
+    [InlineData("archived-board")]
+    [InlineData("missing-owner")]
+    public async Task UnresolvableAffectedItemFallsBackWithoutLinkingUnrelatedWork(string scenario)
+    {
+        await using var f = await Fixture.Create(); var ticket = await f.FailTicket();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        switch (scenario)
+        {
+            case "missing-item": f.Db.Remove(ticket); break;
+            case "foreign-item": ticket.OrganizationId = Guid.NewGuid(); break;
+            case "other-project": f.Board.WorkstreamId = Guid.NewGuid(); break;
+            case "missing-board": ticket.BoardId = Guid.NewGuid(); break;
+            case "foreign-board": f.Board.OrganizationId = Guid.NewGuid(); break;
+            case "archived-board": f.Board.ArchivedAt = f.Clock.Now; break;
+            case "missing-owner":
+                f.Board.Kind = WorkBoardKind.Personal; f.Board.OwnerOrganizationUserId = Guid.NewGuid(); break;
+        }
+        await f.Db.SaveChangesAsync();
+        var presentation = await f.Service.PresentAsync(incident, default);
+        Assert.Equal($"/organizations/{f.Org}/projects/{f.Project.Id}", presentation.Link);
+        Assert.Equal("Open project", presentation.LinkLabel);
+    }
+
+    [Theory]
+    [InlineData("ticket")]
+    [InlineData("dependency-wait")]
+    [InlineData("stage")]
+    public async Task LegacyIncidentSourcesResolveTheExactItemWithoutAnAffectedItemField(string source)
+    {
+        await using var f = await Fixture.Create(); var ticket = await f.FailTicket();
+        var incident = Assert.Single(f.Db.ProjectIncidents); incident.AffectedWorkItemId = null;
+        var sourceId = ticket.Id;
+        if (source == "stage")
+        {
+            var execution = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = ticket.Id,
+                CreatedAt = f.Clock.Now, Status = WorkItemExecutionStatus.Blocked };
+            var stage = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = execution.Id,
+                StageKey = "quality", CreatedAt = f.Clock.Now, Status = WorkStageExecutionStatus.Blocked };
+            f.Db.AddRange(execution, stage); sourceId = stage.Id;
+        }
+        incident.Fingerprint = $"{source}:{sourceId:N}"; await f.Db.SaveChangesAsync();
+        var presentation = await f.Service.PresentAsync(incident, default);
+        Assert.Equal($"/organizations/{f.Org}/projects/boards/{f.Board.Id}?item={ticket.Id}", presentation.Link);
+        Assert.Equal("Open blocked item", presentation.LinkLabel);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public Clock Clock { get; } = new();

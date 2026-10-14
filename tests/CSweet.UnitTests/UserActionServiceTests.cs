@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class UserActionServiceTests
+public sealed partial class UserActionServiceTests
 {
     [Fact]
     public async Task HiringAction_IsOwnedByOriginatingAgentAndResolvesOnlyServerRoute()
@@ -90,7 +90,7 @@ public sealed class UserActionServiceTests
             db,
             new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
 
-        var recommendationId = Guid.NewGuid();
+        var recommendationId = await AddRecommendationAsync(db, organization.Id, installationId);
         var action = await service.SuggestAsync(
             organization.Id,
             installationId,
@@ -388,8 +388,8 @@ public sealed class UserActionServiceTests
         var service = new UserActionService(
             db,
             new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
-        var creativeDirectorId = Guid.NewGuid();
-        var softwareDeveloperId = Guid.NewGuid();
+        var creativeDirectorId = await AddRecommendationAsync(db, organization.Id, installationId);
+        var softwareDeveloperId = await AddRecommendationAsync(db, organization.Id, installationId);
 
         var first = await service.SuggestAsync(
             organization.Id, installationId,
@@ -478,7 +478,7 @@ public sealed class UserActionServiceTests
                 new SuggestUserActionRequest(
                     messageId, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
                     "Browse candidates", $"Review Marketplace candidates for the {role} role.",
-                    JsonSerializer.SerializeToElement(new { role, recommendationId = Guid.NewGuid() }),
+                    JsonSerializer.SerializeToElement(new { role, recommendationId = await AddRecommendationAsync(db, organization.Id, installationId) }),
                     $"{role}-action"));
 
         var director = await Suggest(planMessage.Id, "game-technical-director");
@@ -543,7 +543,7 @@ public sealed class UserActionServiceTests
         var service = new UserActionService(
             db,
             new IUserActionWorkflowResolver[] { new HiringMarketplaceUserActionWorkflowResolver() });
-        var recommendationId = Guid.NewGuid();
+        var recommendationId = await AddRecommendationAsync(db, organization.Id, installationId);
 
         var first = await service.SuggestAsync(
             organization.Id, installationId,
@@ -602,7 +602,7 @@ public sealed class UserActionServiceTests
             new SuggestUserActionRequest(
                 firstMessage.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
                 "Browse candidates", "Review Marketplace candidates for the Creative Director role.",
-                JsonSerializer.SerializeToElement(new { role = "Creative Director", recommendationId = Guid.NewGuid() }),
+                JsonSerializer.SerializeToElement(new { role = "Creative Director", recommendationId = await AddRecommendationAsync(db, organization.Id, installationId) }),
                 "creative-director-action"));
         // Simulates the withdraw cascade that runs before the replacement suggestion is attached.
         var cancelled = await db.SuggestedUserActions.SingleAsync(x => x.Id == first.Id);
@@ -614,7 +614,7 @@ public sealed class UserActionServiceTests
             new SuggestUserActionRequest(
                 replacementMessage.Id, null, SuggestedUserActionWorkflows.BrowseHiringMarketplace,
                 "Browse candidates", "Review Marketplace candidates for the Software Developer role.",
-                JsonSerializer.SerializeToElement(new { role = "Software Developer", recommendationId = Guid.NewGuid() }),
+                JsonSerializer.SerializeToElement(new { role = "Software Developer", recommendationId = await AddRecommendationAsync(db, organization.Id, installationId) }),
                 "software-developer-action"));
 
         await db.Entry(cancelled).ReloadAsync();
@@ -627,6 +627,19 @@ public sealed class UserActionServiceTests
         new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options);
+
+    private static async Task<Guid> AddRecommendationAsync(CSweetDbContext db, Guid organizationId, Guid installationId)
+    {
+        var plan = new WorkforcePlan
+        {
+            Id = Guid.NewGuid(), OrganizationId = organizationId, RequestingInstallationId = installationId,
+            Title = "Test role", Objective = "Own delivery", IdempotencyKey = Guid.NewGuid().ToString("N"),
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.WorkforcePlans.Add(plan);
+        await db.SaveChangesAsync();
+        return plan.Id;
+    }
 
     private static ConversationMessage Message(
         Guid conversationId,

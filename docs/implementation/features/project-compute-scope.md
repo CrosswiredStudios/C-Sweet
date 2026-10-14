@@ -8,8 +8,9 @@ ordinary agent restarts cannot.
 `ComputeDefaultsService.ReadProjectAsync` resolves testing permissions against an existing
 approved or active project. It verifies the current employee, installation capabilities and
 project manager, supervision or team assignment, then creates bounded project-scoped compute
-grants. Existing grants, including revocations and owner edits, are preserved. Network authority
-is not created automatically. Agents declaring `requiresProject` also retain the explicit
+grants. Existing grants, including revocations and owner edits, are preserved. Local browser-link
+authority can be approved at hiring through `compute.local-test-links.v1`; other network authority
+still requires its own grant. Agents declaring `requiresProject` also retain the explicit
 participant, delivery binding, team and board grant checks in `ProjectWorkPolicy.RequireAsync`.
 Projects using established team assignments can request compute without a newer delivery binding.
 
@@ -30,10 +31,31 @@ This platform correction does not require an agent or SDK package change.
 `ComputeDashboardEndpoints.ReadAsync` projection in **Needs your attention**. Only a current human
 business owner receives actionable cards. Already allowed, expired, destroying, destroyed and
 release-requested instances are excluded. `PendingAgentQuestions` includes these cards in the shared
-pending count and five-item expansion control; **Review access** links to the instance's browser-access
-panel on `Compute`. Compute loading and errors remain independent of the other attention sources.
+pending count and five-item expansion control; **Allow access** calls the owner-only local-link
+endpoint directly, disables repeat clicks while saving, reports failures inline, and refreshes the
+queue after the response. Compute loading and errors remain independent of the other attention sources.
 Both pages use the dashboard's existing bound of 100 recent instances; a truncated read displays a
 notice instead of claiming there is nothing pending.
+
+`ComputePermissions.LocalTestLinks` is the manifest permission `compute.local-test-links.v1`.
+Authors include it in `requires` with `modelVisible: false`, alongside `network.inbound.v1` and
+`network.publish-port.v1`. Hiring and installation review show **Share local test links**. Merely
+upgrading a global definition does not approve this permission for existing installations.
+Victor declares it starting in Technical Director 3.1.0.
+
+`ComputeBroker.EnsureLocalLinksAsync` creates the two instance-bound grants on provision/replay,
+authorized instance reads and publication. `ComputeLocalLinkGrants` requires both the current
+manifest declaration and installation approval. The constraints permit port 8080 only and expire
+with the instance. Existing grant rows are never replaced, so owner edits and revocations survive
+restarts and upgrades. Grant, audit and agent/UI outbox changes save atomically.
+`ComputeBroker.GrantsAsync` rechecks hiring permission before returning derived grants, including
+during provider dispatch and browser connection authorization. Explicit owner edits supersede hiring
+provenance and retain their independent authorization semantics.
+
+The dashboard supplies `ComputeResourceStatus.EmployeeId` and only marks `LocalLinkRequested` for
+current agents with both publishing actions approved. `OverviewAttentionItems.ComputeRequests`
+excludes resources without such a request. Compute attention cards and project-incident cards pass
+their employee identity to `AttentionRequestCard` for the existing portrait resolver.
 
 `CSweetDbContext.CaptureComputeEvents` persists `AppRealtimeEvents.ComputeChanged` in the application
 realtime outbox with environment lifecycle/lease changes and inbound/publish-port grant changes.

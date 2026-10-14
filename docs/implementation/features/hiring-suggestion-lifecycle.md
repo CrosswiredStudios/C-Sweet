@@ -21,6 +21,16 @@ fulfilled recommendations disable contextual hiring. Automatic progress is persi
 
 ## Company overview hiring row
 
+`NavMenu` shows a count beside **Overview** for all actionable **Needs your attention**
+items, including questions, approvals, hiring recommendations, project incidents and compute
+access requests. `OverviewAttentionState` reads the existing authorized queue endpoints for
+the focused business, refreshes on relevant realtime events and connection/reconnection,
+and discards cancelled or late reads after a business switch. Events received during loading
+queue another read. `OverviewAttentionItems` shares eligibility rules with `CommandCenter`
+and `PendingAgentQuestions`. The badge is hidden at zero, caps its visible label at **99+**,
+and marks a truncated compute queue as a lower bound. `AppRealtimeCoordinator` no longer
+shows snackbars for `ResourceChangeApproval` notifications; their inbox records remain intact.
+
 `CommandCenter` renders one **Needs your attention** queue through `PendingAgentQuestions`
 and `AttentionRequestCard`. Pending, decidable `ResourceChange` and `HiringWorkflow`
 items from `ApprovalDashboardService` use the **Hiring** card design; other actionable
@@ -130,6 +140,29 @@ hide generalists. Existing recommendation URLs and hire-time role validation rem
 Terminal states are non-actionable: the carousel renders them muted with no button, and the generic
 suggested-action card stops offering its button.
 
+`UserActionService.SuggestAsync` shares `HiringOrganizationLock.AcquireAsync` with recommendation
+mutations and hiring confirmation. The transaction lock covers the current recommendation read,
+dedupe, supersession, materialization and save. A delayed suggestion for a fulfilled recommendation
+reuses an existing completed card or creates a completed card linked to the recorded final hire;
+it cannot supersede another role. Withdrawn recommendations produce non-actionable cancelled cards.
+Explicit recommendation IDs must resolve within the current organization; legacy role-only actions
+retain their existing behavior. Partial multi-seat fulfillment remains actionable.
+
+`HiringService.CompleteSuggestedHiringActionsAsync` completes both pending and superseded cards for
+the fulfilled recommendation, clears obsolete replacement lineage, and uses
+`SuggestedUserActionMaterializer.CompleteAsync` to queue participant-scoped completion events in
+the same save. Cancelled actions remain cancelled. `ChatTurnService.CompleteAsync` materializes
+turn-bound completed actions too, so hiring before the assistant finishes cannot hide the card.
+Migration `RepairFulfilledHiringSuggestions` repairs pending/superseded historical cards only when
+the same organization's approved recommendation has full headcount and a recorded hire. Its
+state update and completion outbox insert are atomic and idempotent.
+
+Regression coverage: `UserActionServiceTests` in `HiringSuggestionLifecycleTests` exercises late
+suggestion creation, superseded completion, replay, multi-seat fulfillment, organization scope,
+withdrawal and turn-bound completion. `HiringSuggestionPostgresTests` forces both concurrent
+operation orders using the shared PostgreSQL lock and verifies the repair SQL and event recipients.
+Set `CSWEET_HIRING_TEST_POSTGRES` to a loopback test server to run these isolated database tests.
+
 Rules:
 
 - One actionable suggestion per conversation. `UserActionService.SuggestAsync` returns the existing
@@ -162,6 +195,7 @@ participants. Communications refreshes on any `com.csweet.communication.*` event
 need no client plumbing.
 
 - `com.csweet.communication.user-action.created.v1`
+- `com.csweet.communication.user-action.completed.v1`
 - `com.csweet.communication.user-action.superseded.v1`
 - `com.csweet.communication.user-action.cancelled.v1`
 

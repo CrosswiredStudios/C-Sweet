@@ -65,6 +65,23 @@ public sealed class ProjectIncidentAttentionCardTests
         Assert.Equal(1, f.Refreshes);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ItemInvestigationAndManagerReportRemainSeparateActions(bool personal)
+    {
+        await using var f = new Fixture("Failed", true);
+        var org = Guid.NewGuid(); var item = Guid.NewGuid();
+        var link = personal ? $"/organizations/{org}/employees/{Guid.NewGuid()}?tab=personal-board&item={item}"
+            : $"/organizations/{org}/projects/boards/{Guid.NewGuid()}?item={item}";
+        f.Incident = f.Incident with { Collaboration = null, InvestigateUri = link, InvestigateLabel = "Open blocked item" };
+        var html = await f.Render();
+        Assert.Contains("Open blocked item", html); Assert.Contains("Read manager report", html);
+        Assert.Contains(f.Buttons, x => x.Href == link);
+        Assert.Contains(f.Buttons, x => x.Href == f.Incident.ActionUri);
+        Assert.Equal(0, f.Handler.Posts);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly ServiceProvider provider;
@@ -74,7 +91,7 @@ public sealed class ProjectIncidentAttentionCardTests
         public Handler Handler { get; } = new();
         public int Refreshes { get; private set; }
         public List<MudButton> Buttons => capture.Buttons;
-        public ProjectIncidentAttentionResponse Incident { get; }
+        public ProjectIncidentAttentionResponse Incident { get; set; }
         public Fixture(string status, bool canRetry)
         {
             var org = Guid.NewGuid(); var session = Guid.NewGuid(); var chat = Guid.NewGuid();

@@ -39,7 +39,8 @@ public sealed partial class ProjectHealthService
             }
             result.Add(new(incident.Id, project.Id, project.Name, reporter ?? "Project manager", presentation.Title,
                 presentation.Summary, presentation.NextStep, $"/organizations/{organization}/communications/{delivery.ConversationId}", incident.DetectedAt)
-                { Collaboration = collaboration });
+                { Collaboration = collaboration, ReporterEmployeeId = delivery.SenderId,
+                    InvestigateUri = presentation.Link, InvestigateLabel = presentation.LinkLabel });
         }
         return result;
     }

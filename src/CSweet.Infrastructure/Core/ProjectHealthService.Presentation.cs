@@ -20,6 +20,7 @@ public sealed partial class ProjectHealthService
         var project = await db.Workstreams.AsNoTracking().SingleAsync(x => x.Id == incident.WorkstreamId && x.OrganizationId == incident.OrganizationId, token);
         var projectName = Display(project.Name);
         var link = $"/organizations/{incident.OrganizationId}/projects/{project.Id}";
+        var destination = await ResolveWorkItemDestinationAsync(incident, token);
         AgentCoordinationSession? session = null;
         AgentWorkItem? work = null;
         if (IncidentSource(incident.Fingerprint, "coordination") is { } sessionId)
@@ -31,7 +32,7 @@ public sealed partial class ProjectHealthService
             work = await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId.ToString() &&
                 x.SourceType == "agent-coordination" && x.CorrelationId == correlation)
                 .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
-            link = $"/organizations/{incident.OrganizationId}/communications/{session.ConversationId}?perspective={session.InitiatorOrganizationUserId}";
+            link = $"/organizations/{incident.OrganizationId}/communications/{session.ConversationId}?perspective={session.InitiatorOrganizationUserId}&collaboration={session.Id}";
         }
         else if (IncidentSource(incident.Fingerprint, "work") is { } workId)
             work = await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x => x.Id == workId && x.OrganizationId == incident.OrganizationId.ToString(), token);
@@ -43,7 +44,7 @@ public sealed partial class ProjectHealthService
         if (incident.Status == "Resolved")
             return new($"{projectName}: blocker cleared", session is null ? "The recorded blocker has cleared." :
                 session.Status == AgentCoordinationStatus.Cancelled ? "The affected collaboration was cancelled." : "The affected collaboration completed.",
-                "Confirmed from the current work records.", "No action is needed for this incident.", link, label);
+                "Confirmed from the current work records.", "No action is needed for this incident.", destination?.Link ?? link, destination?.Label ?? label);
 
         var subject = session is null ? Display(incident.Reason) : Display(session.Subject);
         var summary = session is null ? "The project has a recorded blocker that needs review." : $"The collaboration “{subject}” has not completed.";
@@ -59,8 +60,6 @@ public sealed partial class ProjectHealthService
             {
                 summary = $"{Display(ticket.Identifier ?? ticket.Title)}: {Display(stage.StageKey)} is {stage.Status.ToString().ToLowerInvariant()}. " +
                     Display(ProjectHealthReader.Safe(stage.LastError ?? stage.LastSummary ?? "The stage has not completed."));
-                if (ticket.BoardId is { } board)
-                { link = $"/organizations/{incident.OrganizationId}/work/boards/{board}"; label = "Review blocked ticket"; }
                 next = stage.LastError == "The author has not delivered an exact artifact revision."
                     ? "The accountable manager needs the author to deliver the exact document revision, then retry its quality review. Approving unrelated work does not clear this blocker."
                     : "Have the accountable manager address the recorded stage blocker, then retry the affected ticket.";
@@ -137,6 +136,12 @@ public sealed partial class ProjectHealthService
         }
         if (incident.ActionReference is not null && work?.Status is not (AgentWorkStatus.Pending or AgentWorkStatus.Leased))
             recovery = "A manager recorded a recovery action; completion has not yet been confirmed.";
+        if (destination is not null)
+        {
+            link = destination.Link; label = destination.Label;
+            if (next == "Open the project, review the blocked work, and resolve its recorded dependency before retrying.")
+                next = "Open the affected item, review its current status and recorded blocker, and address the dependency before retrying.";
+        }
         return new($"{projectName}: work needs attention", summary, recovery, next, link, label);
     }
 

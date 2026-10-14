@@ -189,7 +189,9 @@ public sealed class CompanyDashboardRenderingTests
         Assert.Contains("Allow a local test link", html);
         Assert.Contains("Victor Lin", html);
         Assert.Contains("Prismatic Break", html);
-        Assert.Contains($"/compute#compute-access-{pending.Id:D}", html);
+        Assert.Contains("Allow access", html);
+        Assert.DoesNotContain($"/compute#compute-access-{pending.Id:D}", html);
+        Assert.Contains("person-portrait", html);
         Assert.DoesNotContain("Nothing needs your attention", html);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "attention-request compute").Cast<System.Text.RegularExpressions.Match>());
     }
@@ -226,7 +228,17 @@ public sealed class CompanyDashboardRenderingTests
     }
 
     private static ComputeResourceStatus ComputeResource() => new(Guid.NewGuid(), "Victor Lin", "Prismatic Break", "Ready",
-        "Running", "linux", 2, 2048, 20480, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null);
+        "Running", "linux", 2, 2048, 20480, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null)
+        { LocalLinkRequested = true, EmployeeId = Guid.NewGuid() };
+
+    [Fact]
+    public async Task ComputeWithoutAPreviewRequestDoesNotAskForAccess()
+    {
+        var html = await Render(false, compute: new(DateTimeOffset.UtcNow, null,
+            [ComputeResource() with { LocalLinkRequested = false }], false, true));
+        Assert.Contains("Nothing needs your attention", html);
+        Assert.DoesNotContain("Allow access", html);
+    }
 
     [Fact]
     public async Task TruncatedComputeReadsDoNotClaimThereAreNoPendingRequests()

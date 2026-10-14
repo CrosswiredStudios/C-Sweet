@@ -321,7 +321,8 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         var pendingActions = await db.SuggestedUserActions
             .Where(x => x.ChatTurnId == turnId && x.ConversationMessageId == null &&
-                        x.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending)
+                        (x.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending ||
+                         x.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Completed))
             .OrderBy(x => x.CreatedAt)
             .ToListAsync(cancellationToken);
         foreach (var action in pendingActions)

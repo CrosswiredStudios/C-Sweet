@@ -1,6 +1,49 @@
 # Producer ↔ Creative Director handoff stall
 
-Last updated: **2026-10-10 PDT**. The incidents below have different causes; verification of one does not establish recovery for another.
+Last updated: **2026-10-14 PDT**. The incidents below have different causes; verification of one does not establish recovery for another.
+
+## October 14: generic planning blocker hides a production evidence request
+
+**Status: Producer 3.0.1 source correction; installed-runtime acceptance pending.**
+
+Gabriel's personal ticket `20baf930-d9d3-49b6-af17-e8628a49f606` ("Reconcile scope, technical
+backlog and delivery staffing") repeatedly returned the generic authority-question blocker.
+Read-only inspection of `WorkstreamDecisions` for project `be3cd5eb-a94c-4aec-8d1e-f2bdaa82b1ed`
+showed that Naomi had already answered both questions:
+
+- Audio contractor: decision `8bbc90b3-dfbe-4878-aec6-b587c8b01390` selected
+  `continue-current-plan`. The accepted placeholder-audio/parallel-sourcing path resolves this
+  planning question; confirming contractor identity, contract status and delivery window remains
+  a production action for the later audio swap.
+- External playtest: decision `66440fa2-7fd6-471d-be37-4a19eeedc8ba` selected
+  `request-more-evidence`. Producer/management must confirm recruitment channel, scheduling
+  window and budget for at least ten participants. Naomi's rationale explicitly gates only
+  external playtesting, allowing prototype, content, integration and QA work to proceed.
+
+`SpecialistAgent.ReconcileProductionPlanningAsync` retains this latter question correctly, but
+previously replaced its evidence and rationale with "resolve the escalated authority questions
+in an updated accepted brief." `EnsureCommitmentAsync` then requeued that same planning block
+on routine reviews, generating identical failure comments roughly every five minutes.
+
+Producer 3.0.1 `PlanningDecisions.cs` adds `DescribePlanningBlocker` to report exact questions,
+current decision IDs/outcomes, rationale, production follow-up and next actions. It distinguishes
+an evidence request from a scope change. `ProducerPlanningCycleState.AuthorityDecisionFingerprint`
+retains the question/decision snapshot; `EnsureCommitmentAsync` re-reads authorized current
+state on existing decision events and bounded attention/reconnect discovery, keeping unchanged
+decision blocks parked. Decision/scope changes and missing or legacy state allow reassessment;
+explicit human Retry remains available. Historical comments are preserved.
+
+The broader sprint restriction is separate: `ReconcileProductionPlanningAsync` and
+`ReconcileEstimatesAndQaReadinessAsync` still admit only research spikes while any authority
+question remains. Reporting the narrower decision rationale does not remove that restriction.
+Task-level decision dependencies are needed before safely activating unaffected implementation;
+do not mark the current project recovered or approve playtest spending from this diagnostic fix.
+
+Upgrade the installed Producer to apply the correction. Verify that the next normal review
+replaces the generic blocker with the playtest evidence request, omits the resolved audio
+question, and stops unchanged-review comment churn. Then confirm that a legitimate decision
+change wakes reassessment without changing accepted scope or bypassing staffing/QA readiness.
+Regression coverage: Producer `PlanningDecisionTests`.
 
 ## October 10: Technical Director proposal validation blocks delivery
 
