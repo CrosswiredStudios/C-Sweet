@@ -122,7 +122,7 @@ For example:
   <img src="assets/readme/csweet-aurora-workspace.png" alt="Actual Aurora app views: employee roles and portraits, assigned work cards, and a revisioned client-portal document. Fictional sample records." />
 </picture>
 
-*App views use fictional sample records. They illustrate planning, work, and review—not measured execution speed or a completed product.*
+*Actual app components, shown with fictional Northstar Software sample records.*
 
 ### What will you build?
 

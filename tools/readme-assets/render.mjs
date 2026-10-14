@@ -8,11 +8,22 @@ const browser=await chromium.launch({headless:true});
 const out=path.join(repo,'artifacts/readme');await mkdir(out,{recursive:true});
 const reports=[];
 try{
-    for(const [name,width,height] of [['hero',1600,940],['hero-mobile',800,1170],['workspace',1600,960],['workspace-mobile',800,2760]]){
+    for(const [name,width,height] of [['hero',1600,940],['hero-mobile',800,1170],['workspace',1600,960],['workspace-mobile',800,3000]]){
         const page=await browser.newPage({viewport:{width,height},deviceScaleFactor:1});
         const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=400)errors.push(`${r.status()} ${r.url()}`);});
         await page.goto(`http://127.0.0.1:5277/artifacts/readme/${name}.html`);
         await page.evaluate(async()=>{await document.fonts.ready;await Promise.all([...document.images].map(i=>i.decode()));});
+        await page.evaluate(()=>{
+            const title=document.querySelector('h1').getBoundingClientRect();
+            const subtitle=document.querySelector('.intro,.subtitle').getBoundingClientRect();
+            if(title.bottom>subtitle.top)throw new Error('Artwork title overlaps supporting copy');
+            const first=document.querySelector('.feature');
+            if(first&&subtitle.bottom>first.getBoundingClientRect().top)throw new Error('Artwork copy overlaps feature cards');
+            for(const box of document.querySelectorAll('.feature.people .box,.feature.work .box')){
+                const limit=box.getBoundingClientRect().bottom;
+                for(const image of box.querySelectorAll('img'))if(image.getBoundingClientRect().bottom>limit)throw new Error('App card is clipped');
+            }
+        });
         if(errors.length)throw new Error(errors.join('\n'));
         const filename=`csweet-aurora-${name}.png`;
         await page.screenshot({path:path.join(repo,'assets/readme',filename)});

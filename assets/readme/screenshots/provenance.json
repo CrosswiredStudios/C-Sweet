@@ -1,55 +1,67 @@
 [
   {
     "file": "screenshots/software-chat.png",
-    "sha256": "a16705b9eebfc67083fc8318ccb5ace39ed2939dd856011f3dbd07a830ff0973",
+    "sha256": "9a3726a6b3c67d94dd9b0907b200c45a77c973f596ff75426f92015b37669416",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-chat-focus.png",
-    "sha256": "bcd668be5e93927e24b652b0820bf7af2013b7c08d2a6bbbdba17c61fc2c03a8",
+    "sha256": "1680d12c7756ed9f5f4ceef85b5a113cfb3bcbbf36481669869091fd32344d0d",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-board.png",
-    "sha256": "432bce0e4856f4d20e27392feccc1a81f703f404e7683b1158b952feca39f169",
+    "sha256": "7518535defcdb412c7e9b90248671034150858ddc91c97e2e2e80abfabe8c8ff",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-ticket-0.png",
-    "sha256": "7a85a240b0db95a5cdd8f610e5daab79716787368452dc61a2a88b75baaa4882",
+    "sha256": "fe7326a7541e601b36557536974555f0fe57beb753c9a4c2b3290ffc5f27471c",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-ticket-1.png",
-    "sha256": "8e3f4580d84d8b7c2d931fad16fac91a4c7da3a03b088b958f1a8d8f5a53d5f1",
+    "sha256": "a2fa73fbc27ca33fcf1e8c74eb6641b6855c0afeb6159e4add198293c9983c0c",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-ticket-2.png",
-    "sha256": "ff742f237a74a97165fae348ddaeca46f8fb51389e0d3b3e1c33538ad69e1fd1",
+    "sha256": "f96b5efe575e3af6d9c164424a099502624566fa5b2ea812522db6ceeb43c1c1",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-employee-0.png",
-    "sha256": "3b118b068b6313ad955905c5db36955caef1a0ace3ecf3a360e6d83b8ce9e6b7",
+    "sha256": "f9e0adec2a74198ed141da678b093c6410fdb25b26cdd0ee99263c21d8bd4557",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-employee-1.png",
-    "sha256": "8f27a87bbc7504024e360217b5dd07832e78b0ff499777a720023153309c81a4",
+    "sha256": "f139c468c463ba56c1db182f9a7c586d43a08c7805b61b51907ed1b44063e078",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-employee-0-mobile.png",
+    "sha256": "3e0cd987d052cb7f08262ccd2d17df7730d495b18fd4ed424d9db7ffe8f8dc6e",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-employee-1-mobile.png",
+    "sha256": "323192fcfd0250ba7a935931e56e642299a5ea9544b2698e56c0671ad6068d19",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   },
   {
     "file": "screenshots/software-document-content-mobile.png",
-    "sha256": "4b889d5d8bdd6c0ac9ab81097023de23847f10fd2b35e984a68c7b6ca88ef564",
+    "sha256": "115352831a552fb6ed0585e37db8d3723d2a5e901c11053dfa258b3b34b825c3",
     "campaign": "Northstar Software",
     "fictionalSampleData": true
   }

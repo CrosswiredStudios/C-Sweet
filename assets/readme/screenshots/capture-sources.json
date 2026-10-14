@@ -1,0 +1,174 @@
+{
+  "campaign": "Northstar Software",
+  "theme": "Aurora",
+  "fixture": "tools/CSweet.Promo.Demo/DemoData.cs",
+  "browserErrors": [],
+  "fixtureFailures": [],
+  "records": [
+    {
+      "scene": "chat",
+      "selector": ".hub-main",
+      "index": 0,
+      "file": "software-chat.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 524,
+        "y": 0,
+        "width": 1076,
+        "height": 622.828125
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "chat",
+      "selector": ".hub-message.mine .hub-message-bubble",
+      "index": 0,
+      "file": "software-chat-focus.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 925.375,
+        "y": 134.671875,
+        "width": 596.625,
+        "height": 75.359375
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "team",
+      "selector": ".employee-directory-card",
+      "index": 0,
+      "file": "software-employee-0.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 336,
+        "y": 217.921875,
+        "width": 583,
+        "height": 232.9375
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "team",
+      "selector": ".employee-directory-card",
+      "index": 1,
+      "file": "software-employee-1.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 941,
+        "y": 217.921875,
+        "width": 583,
+        "height": 232.9375
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "team",
+      "selector": ".employee-directory-card",
+      "index": 0,
+      "file": "software-employee-0-mobile.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 30,
+        "y": 242.921875,
+        "width": 370,
+        "height": 232.9375
+      },
+      "cropHeight": 112,
+      "sampleData": true
+    },
+    {
+      "scene": "team",
+      "selector": ".employee-directory-card",
+      "index": 1,
+      "file": "software-employee-1-mobile.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 30,
+        "y": 497.859375,
+        "width": 370,
+        "height": 232.9375
+      },
+      "cropHeight": 112,
+      "sampleData": true
+    },
+    {
+      "scene": "board",
+      "selector": ".work-board",
+      "index": 0,
+      "file": "software-board.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 300,
+        "y": 100.046875,
+        "width": 1260,
+        "height": 709.5
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "board",
+      "selector": ".work-ticket",
+      "index": 0,
+      "file": "software-ticket-0.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 331,
+        "y": 445.125,
+        "width": 266,
+        "height": 95.265625
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "board",
+      "selector": ".work-ticket",
+      "index": 1,
+      "file": "software-ticket-1.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 331,
+        "y": 546.390625,
+        "width": 266,
+        "height": 95.265625
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "board",
+      "selector": ".work-ticket",
+      "index": 2,
+      "file": "software-ticket-2.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 619,
+        "y": 445.125,
+        "width": 266,
+        "height": 95.265625
+      },
+      "cropHeight": null,
+      "sampleData": true
+    },
+    {
+      "scene": "document",
+      "selector": ".artifact-preview-shell",
+      "index": 0,
+      "file": "software-document-content-mobile.png",
+      "deviceScaleFactor": 3,
+      "bounds": {
+        "x": 17,
+        "y": 368.53125,
+        "width": 396,
+        "height": 582.40625
+      },
+      "cropHeight": null,
+      "sampleData": true
+    }
+  ]
+}
