@@ -107,7 +107,7 @@ public sealed class AgentPlatformEventDispatcher(
                 item.Status = AgentPlatformEventOutboxStatus.Published;
                 item.PublishedAt = now;
                 item.Attempts++;
-                item.LastError = deliveries == 0 && item.EventType is CSweet.Agent.SDK.ProjectHealthEvents.ReviewDue or CSweet.Agent.SDK.ProjectHealthEvents.IncidentChanged
+                item.LastError = deliveries == 0 && item.EventType is CSweet.Agent.SDK.ProjectHealthEvents.ReviewDue or CSweet.Agent.SDK.ProjectHealthEvents.IncidentChanged or CSweet.Agent.SDK.ProjectHealthEvents.OwnerReportRequested
                     ? "Incident recipient is unavailable or has no approved event subscription; the platform handoff deadline remains active."
                     : null;
             }

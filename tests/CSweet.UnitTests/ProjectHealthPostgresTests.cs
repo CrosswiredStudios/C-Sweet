@@ -9,7 +9,7 @@ using Npgsql;
 
 namespace CSweet.UnitTests;
 
-public sealed class ProjectHealthPostgresTests
+public sealed partial class ProjectHealthPostgresTests
 {
     [HealthPostgresFact]
     public async Task JsonScopedWorkAndFailedPlanningReachDirectorThenOwnerAttention()

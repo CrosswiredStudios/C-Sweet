@@ -18,7 +18,9 @@ public sealed record CreateExecutiveDecisionCommand(
     public AgentConfigurationChoice? ConfigurationChange { get; init; }
     public Guid? WorkstreamDecisionId { get; init; }
     public TaskMergeChoice? TaskMerge { get; init; }
+    public IncidentDecisionChoice? Incident { get; init; }
 }
+public sealed record IncidentDecisionChoice(Guid IncidentId, long ReportRevision);
 
 public sealed record TaskMergeChoice(Guid ReviewId, long Revision);
 

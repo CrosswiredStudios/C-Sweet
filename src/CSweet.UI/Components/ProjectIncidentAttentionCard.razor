@@ -3,12 +3,19 @@
 @inject HttpClient Http
 
 <AttentionRequestCard Kind="@(Incident.Collaboration is null ? "Project stalled" : "Collaboration")"
-    EmployeeId="Incident.ReporterEmployeeId"
+    EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
-    Description="@Incident.Facts" Status="@(_notice ?? Incident.RecommendedAction)">
+    Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@_notice">
+    <BodyContent>
+        @if (Incident.ResolutionDecision is { } decision && Incident.ReportConversationId is { } chat)
+        {
+            <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="chat" Decision="decision" Answered="RefreshRequested" />
+        }
+    </BodyContent>
+    <ChildContent>
     @if (Incident.Collaboration is { } collaboration)
     {
-        @if (collaboration.CanRetry || collaboration.Status is "Active" or "Summarizing")
+        @if (Incident.ResolutionDecision is null && (collaboration.CanRetry || collaboration.Status is "Active" or "Summarizing"))
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_retrying || Queued || !collaboration.CanRetry)"
                        OnClick="RetryAsync">@(_retrying ? "Retrying…" : Queued ? "Retry queued" : !collaboration.CanRetry ? "In progress" : "Retry")</MudButton>
@@ -20,6 +27,7 @@
         <MudButton Href="@Incident.InvestigateUri" Variant="Variant.Filled" Color="Color.Primary">@(Incident.InvestigateLabel ?? "Investigate")</MudButton>
     }
     <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
+    </ChildContent>
 </AttentionRequestCard>
 
 @code {

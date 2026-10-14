@@ -14,6 +14,10 @@ public static class OverviewAttentionItems
 
     public static bool IsActionable(HiringRecommendationResponse item) => IsPending(item.Status) && item.RemainingHeadcount > 0;
 
+    public static IReadOnlyList<PendingAgentQuestionResponse> StandaloneQuestions(IReadOnlyList<PendingAgentQuestionResponse>? questions,
+        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents) => (questions ?? []).Where(x =>
+            x.Decision.IncidentId is not { } id || !(incidents ?? []).Any(i => i.Id == id)).ToArray();
+
     public static IReadOnlyList<ComputeResourceStatus> ComputeRequests(ComputeDashboard? dashboard) =>
         dashboard is { CanManageNetwork: true } compute
             ? compute.Resources.Where(x => x.LocalLinkRequested && !x.LocalLinkAllowed && x.LeaseExpiresAt > compute.CheckedAt &&
@@ -25,5 +29,5 @@ public static class OverviewAttentionItems
         IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute) =>
         (approvals?.Items.Count(IsActionable) ?? 0) + (approvals?.ProjectIncidents.Count ?? 0) +
         (hiring?.Recommendations.Count(IsActionable) ?? 0) +
-        (questions?.Count(x => IsPending(x.Decision.Status)) ?? 0) + ComputeRequests(compute).Count;
+        StandaloneQuestions(questions, approvals?.ProjectIncidents).Count(x => IsPending(x.Decision.Status)) + ComputeRequests(compute).Count;
 }

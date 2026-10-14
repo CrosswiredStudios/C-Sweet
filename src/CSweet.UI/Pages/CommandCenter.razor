@@ -43,6 +43,10 @@
                     <MudText Typo="Typo.h6">@Title(widget)</MudText>
                 </div>
                 <div class="widget-controls">
+                    @if (widget == "attention")
+                    {
+                        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" aria-label="Refresh attention items" Disabled="_loading" OnClick="RefreshAsync" />
+                    }
                     <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {Title(widget)} up")" Disabled="@(index == 0 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index - 1)" />
                     <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" aria-label="@($"Move {Title(widget)} down")" Disabled="@(index == _order.Count - 1 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index + 1)" />
                 </div>

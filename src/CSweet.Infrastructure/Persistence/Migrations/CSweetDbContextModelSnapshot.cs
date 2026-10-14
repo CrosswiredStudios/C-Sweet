@@ -5985,6 +5985,21 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("WorkstreamId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("OwnerReportJson")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ReporterOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ReportRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ResolutionOutcome")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("OwnerReportRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Status", "EscalateAt");

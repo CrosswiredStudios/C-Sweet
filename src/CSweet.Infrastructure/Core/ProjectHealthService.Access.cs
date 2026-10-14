@@ -86,6 +86,7 @@ public sealed partial class ProjectHealthService
         if (request.Disposition is not (IncidentDispositions.Escalate or IncidentDispositions.Investigating or IncidentDispositions.AwaitingRecovery))
             throw new ArgumentException("Unknown incident disposition.");
         var reference = request.ActionReference is null ? null : ValidateText(request.ActionReference);
+        IncidentOwnerReport? preparedReport = null;
         if (await IsReplayAsync(incident, actor, request.IdempotencyKey, request, request.ExpectedRevision, token, () =>
         {
             if (request.Disposition != IncidentDispositions.Escalate &&
@@ -93,8 +94,12 @@ public sealed partial class ProjectHealthService
                 throw new ArgumentException("Follow-up must occur before the existing escalation deadline.");
             if (request.Disposition == IncidentDispositions.AwaitingRecovery && reference is null)
                 throw new ArgumentException("Awaiting recovery requires a recorded action reference.");
+        }, async () =>
+        {
+            if (request.OwnerReport is not null) preparedReport = await ValidateOwnerReportAsync(incident, request.OwnerReport, token);
         })) return Map(incident);
         incident.Facts = facts; incident.LikelyCause = cause;
+        if (preparedReport is not null) StoreOwnerReport(incident, actor, preparedReport);
         incident.MissingEvidence = missing; incident.RecommendedAction = action;
         incident.Disposition = request.Disposition; incident.ActionReference = reference;
         if (request.Disposition == IncidentDispositions.Escalate)
@@ -120,7 +125,8 @@ public sealed partial class ProjectHealthService
         return Map(incident);
     }
 
-    private async Task<bool> IsReplayAsync<T>(ProjectIncident incident, Guid actor, string key, T request, long revision, CancellationToken token, Action? validate = null)
+    private async Task<bool> IsReplayAsync<T>(ProjectIncident incident, Guid actor, string key, T request, long revision, CancellationToken token,
+        Action? validate = null, Func<Task>? validateAsync = null)
     {
         if (string.IsNullOrWhiteSpace(key) || key.Length > 200) throw new ArgumentException("A bounded idempotency key is required.");
         var hash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request, Json)));
@@ -132,6 +138,7 @@ public sealed partial class ProjectHealthService
         }
         RequireCurrent(incident, actor, revision);
         validate?.Invoke();
+        if (validateAsync is not null) await validateAsync();
         db.ProjectIncidentReceipts.Add(new() { IncidentId = incident.Id, ActorId = actor, IdempotencyKey = key, RequestHash = hash });
         return false;
     }
@@ -200,6 +207,7 @@ public sealed partial class ProjectHealthService
         db.QueueAudit(new("project-health.diagnostics.read", OrganizationId: organization, EntityType: nameof(ProjectIncident), EntityId: incident.Id,
             Actor: new("Agent", OrganizationUserId: actor), Summary: "Authorized project diagnostic evidence inspected."));
         await db.SaveChangesAsync(token);
-        return new(ordered.Skip(offset).Take(limit).ToArray(), offset + limit < ordered.Length ? offset + limit : null, limitations.Distinct().ToArray());
+        return new(ordered.Skip(offset).Take(limit).ToArray(), offset + limit < ordered.Length ? offset + limit : null, limitations.Distinct().ToArray())
+            { CurrentState = await CurrentIncidentStateAsync(incident, token) };
     }
 }

@@ -8,8 +8,10 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed partial class ProjectHealthService
 {
+    private const string OutdatedReportNotice = "\n\nProject records have changed since this report. Review the current work while the manager refreshes the resolution choices.";
     internal sealed record IncidentPresentation(string Title, string Summary, string Recovery, string NextStep, string Link, string LinkLabel)
     {
+        public string Description => $"{Summary}\n\nRecovery: {Recovery}\n\nNext step: {NextStep}";
         public string Markdown => $"**{Title}**\n\n{Summary}\n\n**Recovery:** {Recovery}\n\n**Next step:** {NextStep}\n\n[{LinkLabel}]({Link})";
     }
 
@@ -47,10 +49,27 @@ public sealed partial class ProjectHealthService
                 "Confirmed from the current work records.", "No action is needed for this incident.", destination?.Link ?? link, destination?.Label ?? label);
 
         var subject = session is null ? Display(incident.Reason) : Display(session.Subject);
-        var summary = session is null ? "The project has a recorded blocker that needs review." : $"The collaboration “{subject}” has not completed.";
+        var summary = session is null ? ProjectHealthReader.Safe(incident.Reason + ". " + incident.Facts.Split('\n').FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))) : $"The collaboration “{subject}” has not completed.";
         var next = session is null ? "Open the project, review the blocked work, and resolve its recorded dependency before retrying." :
             "Open the collaboration, review the failed step, then choose Retry collaboration when its cause is addressed. The existing transcript is preserved.";
         var recovery = "No recovery action has been recorded.";
+        if (incident.AffectedWorkItemId is { } affectedId && IncidentSource(incident.Fingerprint, "stage") is null)
+        {
+            var affected = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == affectedId && x.OrganizationId == incident.OrganizationId, token);
+            if (affected is not null && db.HealthProjectForTask(affected) == project.Id)
+            {
+                summary = $"{Display(affected.Title)} is {affected.Status.ToString().ToLowerInvariant()}. " +
+                    ProjectHealthReader.Safe(affected.BlockReason ?? affected.WaitingReason ?? affected.ResultSummary ?? incident.Reason);
+                var decisions = await db.WorkstreamDecisions.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId &&
+                    x.WorkstreamId == project.Id && x.Status != "Superseded" && x.Status != "Cancelled").Select(x => x.Status).Take(20).ToArrayAsync(token);
+                if (decisions.Length > 0)
+                    summary += $" Related project questions: {decisions.Count(x => x == "Decided")} decided; {decisions.Count(x => x == "Pending")} pending. A recorded decision alone does not confirm that the affected work or accepted document has been updated.";
+                next = !string.IsNullOrWhiteSpace(incident.RecommendedAction) && !incident.RecommendedAction.StartsWith("My responsibility", StringComparison.Ordinal) &&
+                    !incident.RecommendedAction.StartsWith("Inspect the correlated failure", StringComparison.Ordinal)
+                    ? ProjectHealthReader.Safe(incident.RecommendedAction)
+                    : "Open the affected item. Have the accountable manager reconcile the recorded direction with the affected work and its accepted documents, then resume only the work whose dependencies are satisfied.";
+            }
+        }
         if (IncidentSource(incident.Fingerprint, "stage") is { } stageId)
         {
             var stage = await db.WorkStageExecutions.AsNoTracking().Include(x => x.ItemExecution)!.ThenInclude(x => x!.WorkItem)
@@ -142,7 +161,14 @@ public sealed partial class ProjectHealthService
             if (next == "Open the project, review the blocked work, and resolve its recorded dependency before retrying.")
                 next = "Open the affected item, review its current status and recorded blocker, and address the dependency before retrying.";
         }
-        return new($"{projectName}: work needs attention", summary, recovery, next, link, label);
+        if (OwnerReport(incident) is { } ownerReport)
+        {
+            summary = ownerReport.Summary;
+            if (ownerReport.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash)
+                summary += OutdatedReportNotice;
+            return new(ownerReport.Title, summary, incident.ResolutionOutcome ?? ownerReport.Recovery, ownerReport.NextStep, link, label);
+        }
+        return new($"{projectName}: work needs attention", summary, incident.ResolutionOutcome ?? recovery, next, link, label);
     }
 
     private static Guid? IncidentSource(string fingerprint, string kind) => fingerprint.StartsWith(kind + ":", StringComparison.Ordinal) &&

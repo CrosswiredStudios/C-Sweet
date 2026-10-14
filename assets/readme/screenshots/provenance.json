@@ -1,0 +1,56 @@
+[
+  {
+    "file": "screenshots/software-chat.png",
+    "sha256": "a16705b9eebfc67083fc8318ccb5ace39ed2939dd856011f3dbd07a830ff0973",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-chat-focus.png",
+    "sha256": "bcd668be5e93927e24b652b0820bf7af2013b7c08d2a6bbbdba17c61fc2c03a8",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-board.png",
+    "sha256": "432bce0e4856f4d20e27392feccc1a81f703f404e7683b1158b952feca39f169",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-ticket-0.png",
+    "sha256": "7a85a240b0db95a5cdd8f610e5daab79716787368452dc61a2a88b75baaa4882",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-ticket-1.png",
+    "sha256": "8e3f4580d84d8b7c2d931fad16fac91a4c7da3a03b088b958f1a8d8f5a53d5f1",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-ticket-2.png",
+    "sha256": "ff742f237a74a97165fae348ddaeca46f8fb51389e0d3b3e1c33538ad69e1fd1",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-employee-0.png",
+    "sha256": "3b118b068b6313ad955905c5db36955caef1a0ace3ecf3a360e6d83b8ce9e6b7",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-employee-1.png",
+    "sha256": "8f27a87bbc7504024e360217b5dd07832e78b0ff499777a720023153309c81a4",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  },
+  {
+    "file": "screenshots/software-document-content-mobile.png",
+    "sha256": "4b889d5d8bdd6c0ac9ab81097023de23847f10fd2b35e984a68c7b6ca88ef564",
+    "campaign": "Northstar Software",
+    "fictionalSampleData": true
+  }
+]

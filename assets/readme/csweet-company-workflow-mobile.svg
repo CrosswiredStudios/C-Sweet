@@ -1,53 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="600" height="810" viewBox="0 0 600 810" role="img" aria-labelledby="title desc">
-  <title id="title">From direction to company memory</title>
-  <desc id="desc">Direction leads to Plan, then Team, Work, Review, and Company memory. A dashed learning loop returns to Direction. Follow the numbered cards.</desc>
-  <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fffcf7"/><stop offset="1" stop-color="#edf6f0"/></linearGradient>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 8 4 0 8Z" fill="#23845c"/></marker>
-  </defs>
-  <rect width="600" height="810" rx="24" fill="url(#paper)"/>
-  <g font-family="Segoe UI,Arial,sans-serif">
-    <text x="30" y="43" fill="#23845c" font-size="19" font-weight="700" letter-spacing="2">THE COMPANY AT WORK</text>
-    <text x="30" y="82" fill="#18233f" font-size="30" font-weight="700">You set the direction.</text>
-    <text x="30" y="116" fill="#18233f" font-size="30" font-weight="700">Work moves forward.</text>
-    <g fill="none" stroke="#23845c" stroke-width="3" marker-end="url(#arrow)">
-      <path d="M280 230H309"/>
-      <path d="M435 320V357"/>
-      <path d="M310 440H281"/>
-      <path d="M155 530V567"/>
-      <path d="M280 650H309"/>
-      <path d="M435 740V780H12V230H27" stroke-dasharray="6 6"/>
-    </g>
-    <rect x="30" y="150" width="250" height="170" rx="16" fill="#18233f" stroke="#d5dfdb"/>
-    <text x="50" y="182" fill="#a8e8c5" font-size="20" font-weight="700">01</text>
-    <text x="50" y="224" fill="#fff" font-size="30" font-weight="700">Direction</text>
-    <text x="50" y="261" fill="#e0e6ef" font-size="23" font-weight="400">Name the outcome.</text>
-    <text x="50" y="292" fill="#e0e6ef" font-size="23" font-weight="400">Set the boundaries.</text>
-    <rect x="310" y="150" width="250" height="170" rx="16" fill="#fff" stroke="#d5dfdb"/>
-    <text x="330" y="182" fill="#23845c" font-size="20" font-weight="700">02</text>
-    <text x="330" y="224" fill="#18233f" font-size="30" font-weight="700">Plan</text>
-    <text x="330" y="261" fill="#435168" font-size="23" font-weight="400">Shape priorities</text>
-    <text x="330" y="292" fill="#435168" font-size="23" font-weight="400">with your chief.</text>
-    <rect x="310" y="360" width="250" height="170" rx="16" fill="#fff" stroke="#d5dfdb"/>
-    <text x="330" y="392" fill="#23845c" font-size="20" font-weight="700">03</text>
-    <text x="330" y="434" fill="#18233f" font-size="30" font-weight="700">Team</text>
-    <text x="330" y="471" fill="#435168" font-size="23" font-weight="400">Assign roles and</text>
-    <text x="330" y="502" fill="#435168" font-size="23" font-weight="400">grant capabilities.</text>
-    <rect x="30" y="360" width="250" height="170" rx="16" fill="#fff" stroke="#d5dfdb"/>
-    <text x="50" y="392" fill="#23845c" font-size="20" font-weight="700">04</text>
-    <text x="50" y="434" fill="#18233f" font-size="30" font-weight="700">Work</text>
-    <text x="50" y="471" fill="#435168" font-size="23" font-weight="400">Turn assignments</text>
-    <text x="50" y="502" fill="#435168" font-size="23" font-weight="400">into artifacts.</text>
-    <rect x="30" y="570" width="250" height="170" rx="16" fill="#fff" stroke="#d5dfdb"/>
-    <text x="50" y="602" fill="#23845c" font-size="20" font-weight="700">05</text>
-    <text x="50" y="644" fill="#18233f" font-size="30" font-weight="700">Review</text>
-    <text x="50" y="681" fill="#435168" font-size="23" font-weight="400">Inspect results.</text>
-    <text x="50" y="712" fill="#435168" font-size="23" font-weight="400">Make decisions.</text>
-    <rect x="310" y="570" width="250" height="170" rx="16" fill="#e0f0e6" stroke="#d5dfdb"/>
-    <text x="330" y="602" fill="#23845c" font-size="20" font-weight="700">06</text>
-    <text x="330" y="644" fill="#18233f" font-size="26" font-weight="700">Company memory</text>
-    <text x="330" y="681" fill="#344f43" font-size="23" font-weight="400">Keep the context.</text>
-    <text x="330" y="712" fill="#344f43" font-size="23" font-weight="400">Build on learning.</text>
-    <text x="30" y="769" fill="#1c6648" font-size="20" font-weight="600">Learning informs the next direction.</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1264" viewBox="0 0 720 1264" role="img" aria-labelledby="title desc">
+<title id="title">From direction to reviewed work</title><desc id="desc">Direction, plan, team, work, review and company memory. Learning informs the next direction.</desc>
+<defs>
+ <linearGradient id="paper" x2="1" y2="1"><stop stop-color="#f1ecfb"/><stop offset=".6" stop-color="#fbfaff"/><stop offset="1" stop-color="#edf7f5"/></linearGradient>
+ <radialGradient id="lavender"><stop stop-color="#c5c1f2" stop-opacity=".62"/><stop offset="1" stop-color="#c5c1f2" stop-opacity="0"/></radialGradient>
+ <radialGradient id="pink"><stop stop-color="#eac2dd" stop-opacity=".46"/><stop offset="1" stop-color="#eac2dd" stop-opacity="0"/></radialGradient>
+ <filter id="shadow" x="-10%" y="-15%" width="120%" height="145%"><feDropShadow dy="8" stdDeviation="12" flood-color="#735090" flood-opacity=".09"/></filter>
+ <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#a28bbb"/></marker>
+</defs>
+<rect width="720" height="1264" rx="28" fill="url(#paper)"/>
+<circle cx="108.0" cy="252.8" r="288.0" fill="url(#lavender)"/><circle cx="676.8" cy="176.96" r="273.6" fill="url(#pink)"/>
+<g font-family="Segoe UI,Arial,sans-serif"><text x="48" y="54" font-size="17" fill="#735090" font-weight="650" letter-spacing="3">THE COMPANY AT WORK</text><text x="48" y="108" font-size="43" fill="#30263f" font-weight="600" >A company at work.</text><rect x="48" y="156" width="624" height="138" rx="22" fill="#30263f" stroke="#ffffff" filter="url(#shadow)"/><rect x="72" y="180" width="46" height="35" rx="11" fill="#4b395e"/><text x="95" y="205" font-size="19" fill="#e8dff4" font-weight="650" text-anchor="middle">01</text><text x="144" y="204" font-size="31" fill="#fbfaff" font-weight="600" >Direction</text><text x="144" y="241" font-size="24" fill="#e0d7ea" font-weight="400" >Name the outcome.</text><text x="144" y="273" font-size="24" fill="#e0d7ea" font-weight="400" >Set the boundaries.</text><path d="M360 298V314" fill="none" stroke="#a28bbb" stroke-width="2" marker-end="url(#arrow)"/><rect x="48" y="320" width="624" height="138" rx="22" fill="#fbfaff" stroke="#ffffff" filter="url(#shadow)"/><rect x="72" y="344" width="46" height="35" rx="11" fill="#ede5f6"/><text x="95" y="369" font-size="19" fill="#735090" font-weight="650" text-anchor="middle">02</text><text x="144" y="368" font-size="31" fill="#30263f" font-weight="600" >Plan</text><text x="144" y="405" font-size="24" fill="#72667d" font-weight="400" >Review the first milestone.</text><text x="144" y="437" font-size="24" fill="#72667d" font-weight="400" >Agree on the next step.</text><path d="M360 462V478" fill="none" stroke="#a28bbb" stroke-width="2" marker-end="url(#arrow)"/><rect x="48" y="484" width="624" height="138" rx="22" fill="#fbfaff" stroke="#ffffff" filter="url(#shadow)"/><rect x="72" y="508" width="46" height="35" rx="11" fill="#ede5f6"/><text x="95" y="533" font-size="19" fill="#735090" font-weight="650" text-anchor="middle">03</text><text x="144" y="532" font-size="31" fill="#30263f" font-weight="600" >Team</text><text x="144" y="569" font-size="24" fill="#72667d" font-weight="400" >Choose the roles.</text><text x="144" y="601" font-size="24" fill="#72667d" font-weight="400" >Review their capabilities.</text><path d="M360 626V642" fill="none" stroke="#a28bbb" stroke-width="2" marker-end="url(#arrow)"/><rect x="48" y="648" width="624" height="138" rx="22" fill="#fbfaff" stroke="#ffffff" filter="url(#shadow)"/><rect x="72" y="672" width="46" height="35" rx="11" fill="#ede5f6"/><text x="95" y="697" font-size="19" fill="#735090" font-weight="650" text-anchor="middle">04</text><text x="144" y="696" font-size="31" fill="#30263f" font-weight="600" >Work</text><text x="144" y="733" font-size="24" fill="#72667d" font-weight="400" >Give every task an owner.</text><text x="144" y="765" font-size="24" fill="#72667d" font-weight="400" >Follow the assignment.</text><path d="M360 790V806" fill="none" stroke="#a28bbb" stroke-width="2" marker-end="url(#arrow)"/><rect x="48" y="812" width="624" height="138" rx="22" fill="#fbfaff" stroke="#ffffff" filter="url(#shadow)"/><rect x="72" y="836" width="46" height="35" rx="11" fill="#ede5f6"/><text x="95" y="861" font-size="19" fill="#735090" font-weight="650" text-anchor="middle">05</text><text x="144" y="860" font-size="31" fill="#30263f" font-weight="600" >Review</text><text x="144" y="897" font-size="24" fill="#72667d" font-weight="400" >Inspect the exact revision.</text><text x="144" y="929" font-size="24" fill="#72667d" font-weight="400" >Decide what moves forward.</text><path d="M360 954V970" fill="none" stroke="#a28bbb" stroke-width="2" marker-end="url(#arrow)"/><rect x="48" y="976" width="624" height="138" rx="22" fill="#fbfaff" stroke="#ffffff" filter="url(#shadow)"/><rect x="72" y="1000" width="46" height="35" rx="11" fill="#ede5f6"/><text x="95" y="1025" font-size="19" fill="#735090" font-weight="650" text-anchor="middle">06</text><text x="144" y="1024" font-size="31" fill="#30263f" font-weight="600" >Company memory</text><text x="144" y="1061" font-size="24" fill="#72667d" font-weight="400" >Keep the decisions.</text><text x="144" y="1093" font-size="24" fill="#72667d" font-weight="400" >Inform the next assignment.</text><text x="48" y="1184" font-size="25" fill="#735090" font-weight="600" >Keep learning. Refine the next direction.</text><text x="48" y="1225" font-size="21" fill="#72667d" font-weight="400" >Execution depends on setup and granted capabilities.</text></g></svg>

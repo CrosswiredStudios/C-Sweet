@@ -533,6 +533,14 @@
                                 }
                                 @if (message.Decision is { } decision && !IsDuplicateArtifactReviewDecision(message, decision))
                                 {
+                                    @if (decision.IncidentId is not null)
+                                    {
+                                        <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId"
+                                            ConversationId="_selected!.Id" Decision="decision" ReadOnly="_hub.IsReadOnlyPerspective"
+                                            Answered="@(() => LoadMessagesAsync(markRead: false))" />
+                                    }
+                                    else
+                                    {
                                     <section class="executive-decision-card" aria-label="Question">
                                         <header>
                                             <span>QUESTION</span>
@@ -601,6 +609,7 @@
                                             </div>
                                         }
                                     </section>
+                                    }
                                 }
                                 </div>
                             </div>

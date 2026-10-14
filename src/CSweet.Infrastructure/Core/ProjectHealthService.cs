@@ -20,6 +20,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
     public async Task ReviewDueAsync(CancellationToken token)
     {
         var now = clock.GetUtcNow();
+        await ReconcileClosedIncidentQuestionsAsync(token);
         var missing = await db.Workstreams.Where(x => x.Status != WorkstreamStatus.Completed && x.Status != WorkstreamStatus.Cancelled &&
             !db.ProjectHealthStates.Any(h => h.WorkstreamId == x.Id)).OrderBy(x => x.CreatedAt).Take(100).ToListAsync(token);
         foreach (var project in missing)
@@ -86,6 +87,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
             await ForwardCoreAsync(incident, "No substantive response within 15 minutes; forwarding the available report. Diagnosis or delivery may be unavailable.", token);
             await db.SaveChangesAsync(token);
         }
+        await RefreshOwnerReportsAsync(token);
     }
 
     private async Task RecordAssessmentFailureAsync(ProjectHealthState state, CancellationToken token)
@@ -205,6 +207,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
     {
         incident.Status = "Resolved"; incident.ResolvedAt = clock.GetUtcNow(); incident.EscalateAt = null; incident.ReviewAt = null; incident.Revision++;
         incident.Facts = ProjectHealthReader.Safe(incident.Facts + "\n" + reason);
+        await CloseIncidentQuestionsAsync(incident, token);
         await NotifyAsync(incident, token);
         // Notify prior human recipients as well, including a CEO who has already seen the report.
         var recipients = await db.ProjectIncidentDeliveries.Where(x => x.IncidentId == incident.Id).Select(x => x.RecipientId).Distinct().ToArrayAsync(token);
@@ -292,5 +295,6 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
     private static ManagementIncident Map(ProjectIncident x) => new(x.Id, x.WorkstreamId, x.ProducerEmployeeId, x.CurrentRecipientId,
         x.Status, x.Reason, x.AffectedWorkItemId, x.DetectedAt, x.LastProgressAt, x.EscalateAt, x.Revision, x.Facts,
         x.LikelyCause, x.MissingEvidence, x.RecommendedAction, Deserialize<ManagementIncidentHop>(x.HistoryJson))
-        { Disposition = x.Disposition, ReviewAt = x.ReviewAt, ActionReference = x.ActionReference };
+        { Disposition = x.Disposition, ReviewAt = x.ReviewAt, ActionReference = x.ActionReference,
+            OwnerReport = OwnerReport(x), ReportRevision = x.ReportRevision };
 }

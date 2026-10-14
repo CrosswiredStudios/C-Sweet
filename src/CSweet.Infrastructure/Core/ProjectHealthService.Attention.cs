@@ -2,6 +2,7 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Communications;
 using Microsoft.EntityFrameworkCore;
+using CSweet.Infrastructure.Communications;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -24,7 +25,7 @@ public sealed partial class ProjectHealthService
                 .OrderByDescending(x => x.Revision).FirstOrDefaultAsync(token);
             if (delivery is null) continue;
             var project = await db.Workstreams.AsNoTracking().SingleAsync(x => x.OrganizationId == organization && x.Id == incident.WorkstreamId, token);
-            var reporter = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization && x.Id == delivery.SenderId)
+            var reporter = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization && x.Id == (incident.ReporterOrganizationUserId ?? delivery.SenderId))
                 .Select(x => x.DisplayName).SingleOrDefaultAsync(token);
             var presentation = await PresentAsync(incident, token);
             ProjectIncidentCollaborationResponse? collaboration = null;
@@ -38,10 +39,27 @@ public sealed partial class ProjectHealthService
                         $"/organizations/{organization}/communications/{session.ConversationId}?perspective={session.InitiatorOrganizationUserId}&collaboration={session.Id}");
             }
             result.Add(new(incident.Id, project.Id, project.Name, reporter ?? "Project manager", presentation.Title,
-                presentation.Summary, presentation.NextStep, $"/organizations/{organization}/communications/{delivery.ConversationId}", incident.DetectedAt)
+                presentation.Description, presentation.NextStep, $"/organizations/{organization}/communications/{delivery.ConversationId}", incident.DetectedAt)
                 { Collaboration = collaboration, ReporterEmployeeId = delivery.SenderId,
+                    ReporterOrganizationUserId = incident.ReporterOrganizationUserId ?? delivery.SenderId,
+                    OwnerReport = presentation.Description, ReportConversationId = delivery.ConversationId,
+                    ResolutionDecision = await ReadIncidentDecisionCardAsync(incident, delivery.ConversationId!.Value, actor, token),
                     InvestigateUri = presentation.Link, InvestigateLabel = presentation.LinkLabel });
         }
         return result;
+    }
+
+    private async Task<CSweet.Contracts.Communications.ExecutiveDecisionCardResponse?> ReadIncidentDecisionCardAsync(ProjectIncident incident, Guid chat,
+        Guid actor, CancellationToken token)
+    {
+        var decisions = await db.ExecutiveDecisions.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId &&
+            x.ConversationId == chat).OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(token);
+        var decision = decisions.FirstOrDefault(x => ExecutiveDecisionServiceIncidentBinding(x) is { } binding &&
+            binding.IncidentId == incident.Id && binding.ReportRevision == incident.ReportRevision);
+        if (decision is null) return null;
+        var card = ExecutiveDecisionService.IncidentCard(decision);
+        if (decision.Status == ExecutiveDecisionStatus.Pending && OwnerReport(incident)?.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash)
+            card = card with { Status = "Outdated" };
+        return card;
     }
 }

@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class ProjectHealthTests
+public sealed partial class ProjectHealthTests
 {
     [Theory]
     [InlineData(null)]

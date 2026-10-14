@@ -27,8 +27,10 @@ public sealed class ApprovalStateTests
         Assert.True(changes >= 2);
     }
 
-    [Fact]
-    public async Task RealtimeEventsRefreshOnlyTheSelectedCompanyAndStopAfterDisposal()
+    [Theory]
+    [InlineData(AppRealtimeEvents.ApprovalChanged)]
+    [InlineData(AppRealtimeEvents.ProjectIncidentChanged)]
+    public async Task RealtimeEventsRefreshOnlyTheSelectedCompanyAndStopAfterDisposal(string eventType)
     {
         var businesses = new TestBusinessContext();
         var handler = new Handler();
@@ -37,16 +39,16 @@ public sealed class ApprovalStateTests
         using var state = new ApprovalState(http, businesses, realtime);
         await state.InitializeAsync();
         Assert.Equal(1, handler.Requests);
-        Publish(Guid.NewGuid(), AppRealtimeEvents.ApprovalChanged);
+        Publish(Guid.NewGuid(), eventType);
         Publish(businesses.SelectedBusiness!.Id, AppRealtimeEvents.DocumentChanged);
         Assert.Equal(1, handler.Requests);
         var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         state.Changed += () => refreshed.TrySetResult();
-        Publish(businesses.SelectedBusiness.Id, AppRealtimeEvents.ApprovalChanged);
+        Publish(businesses.SelectedBusiness.Id, eventType);
         await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(2, handler.Requests);
         state.Dispose();
-        Publish(businesses.SelectedBusiness.Id, AppRealtimeEvents.ApprovalChanged);
+        Publish(businesses.SelectedBusiness.Id, eventType);
         Assert.Equal(2, handler.Requests);
 
         void Publish(Guid organizationId, string eventType) =>

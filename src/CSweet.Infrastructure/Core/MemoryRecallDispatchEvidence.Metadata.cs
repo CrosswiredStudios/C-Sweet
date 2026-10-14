@@ -91,7 +91,26 @@ public sealed partial class MemoryRecallDispatchEvidence
             context["senderIsReportingAncestor"] = delegation.IsDirective && context["senderIsReportingAncestor"] == "true" ? "true" : "false";
         }
         AgentWorkContext? workContext = null; string? workstreamHash = null;
-        if (conversation.WorkstreamId is { } workstreamId)
+        Guid? sourceWorkstreamId = conversation.WorkstreamId;
+        // Bind recovery routing to the persisted answer/turn, never a user-written message prefix.
+        var resolutionTurnIds = await ProjectHealthService.ResolutionTurnLineageAsync(db, binding.OrganizationId, binding.TurnId, binding.EmployeeId, token);
+        var incidentDecision = await db.ExecutiveDecisions.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == binding.OrganizationId && x.NextChatTurnId != null && resolutionTurnIds.Contains(x.NextChatTurnId.Value) &&
+            x.ConversationId == binding.ConversationId && x.Status == ExecutiveDecisionStatus.Answered, token);
+        if (incidentDecision is not null)
+        {
+            using var decisionOptions = JsonDocument.Parse(incidentDecision.OptionsJson);
+            if (decisionOptions.RootElement.ValueKind == JsonValueKind.Object && decisionOptions.RootElement.TryGetProperty("incident", out var choice) &&
+                choice.ValueKind == JsonValueKind.Object)
+            {
+                context["incidentResolutionDecisionId"] = incidentDecision.Id.ToString("D");
+                if (!choice.TryGetProperty("incidentId", out var incidentId) || !incidentId.TryGetGuid(out var parsedIncidentId)) throw Denied();
+                var incident = await db.ProjectIncidents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == parsedIncidentId && x.OrganizationId == binding.OrganizationId, token)
+                    ?? throw Denied();
+                sourceWorkstreamId = incident.WorkstreamId;
+            }
+        }
+        if (sourceWorkstreamId is { } workstreamId)
         {
             var stream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x => x.Id == workstreamId && x.OrganizationId == binding.OrganizationId, token)
                 ?? throw Denied();

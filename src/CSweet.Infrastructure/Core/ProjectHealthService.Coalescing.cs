@@ -32,6 +32,7 @@ public sealed partial class ProjectHealthService
             canonical.Revision++;
             // Consolidation is not recovery. Retain both audit trails and the surviving deadline.
             incident.Status = "Superseded"; incident.EscalateAt = null; incident.ReviewAt = null; incident.Revision++;
+            await CloseIncidentQuestionsAsync(incident, token);
             var pending = await db.ProjectIncidentDeliveries.Where(x => x.IncidentId == incident.Id && x.DeliveredAt == null).ToListAsync(token);
             db.ProjectIncidentDeliveries.RemoveRange(pending);
             var recipients = await db.ProjectIncidentDeliveries.Where(x => x.IncidentId == incident.Id && x.DeliveredAt != null)

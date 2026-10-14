@@ -276,6 +276,8 @@ public sealed record ExecutiveDecisionCardResponse(
     DateTimeOffset? AnsweredAt)
 {
     public bool AllowFreeText { get; init; } = true;
+    public Guid? IncidentId { get; init; }
+    public long? IncidentReportRevision { get; init; }
 }
 
 public sealed record AnswerExecutiveDecisionRequest(

@@ -1,0 +1,78 @@
+@using CSweet.Contracts.Communications
+@inject HttpClient Http
+
+<div class="incident-resolution" aria-label="Blocker resolution choices">
+@if (_confirmed || Decision.Status == "Answered")
+{
+    <MudText Typo="Typo.body2">Fix requested. The manager will coordinate recovery; this blocker remains until recovery is confirmed.</MudText>
+}
+else if (Decision.Status == "Cancelled")
+{
+    <MudText Typo="Typo.body2">This resolution request has closed. No response is needed.</MudText>
+}
+else if (Decision.Status != "Pending")
+{
+    <MudText Typo="Typo.body2">The blocker changed. Review the current manager report before choosing a fix.</MudText>
+}
+else if (ReadOnly)
+{
+    <MudText Typo="Typo.body2">Awaiting a response from the report recipient.</MudText>
+}
+else
+{
+    <MudMenu Label="@(_busy ? "Sending…" : "Choose a resolution")" Variant="Variant.Filled" Color="Color.Primary"
+        EndIcon="@Icons.Material.Outlined.ExpandMore" Disabled="_busy" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+        @foreach (var option in Decision.Options)
+        {
+            <MudMenuItem Disabled="_busy" OnClick="() => SubmitAsync(option.Id)">
+                <strong>@option.Label</strong>@if (option.Recommended) { <small>Recommended</small> }
+                <div class="option-description">@option.Description</div>
+            </MudMenuItem>
+        }
+        @if (Decision.AllowFreeText)
+        {
+            <MudDivider />
+            <MudMenuItem Disabled="_busy" OnClick="ShowCustom">Something Else</MudMenuItem>
+        }
+    </MudMenu>
+    @if (_custom)
+    {
+        <label>Your direction<textarea aria-label="Your blocker resolution" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_direction))"
+            OnClick="() => SubmitAsync(null)">Send response</MudButton>
+    }
+}
+@if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ConversationId { get; set; }
+    [Parameter, EditorRequired] public ExecutiveDecisionCardResponse Decision { get; set; } = default!;
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public EventCallback Answered { get; set; }
+    private readonly string _answerKey = Guid.NewGuid().ToString("N");
+    private bool _busy, _custom, _confirmed;
+    private string? _direction, _error;
+    private void ShowCustom() { _custom = true; _error = null; }
+    private async Task SubmitAsync(string? option)
+    {
+        if (_busy || _confirmed || ReadOnly || Decision.Status != "Pending" || (option is null && string.IsNullOrWhiteSpace(_direction))) return;
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/organizations/{OrganizationId}/communications/hub/chats/{ConversationId}/decisions/{Decision.Id}/respond",
+                new AnswerExecutiveDecisionRequest(option, option is null ? _direction : null, _answerKey));
+            var result = await response.Content.ReadFromJsonAsync<AnswerExecutiveDecisionResponse>();
+            if (response.IsSuccessStatusCode && result?.Succeeded == true)
+            {
+                _confirmed = true;
+                await Answered.InvokeAsync();
+            }
+            else _error = result?.Message ?? "Could not send your selected fix. Refresh the current report and try again.";
+        }
+        catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { _error = "Could not confirm your response. You can safely try again."; }
+        finally { _busy = false; }
+    }
+}

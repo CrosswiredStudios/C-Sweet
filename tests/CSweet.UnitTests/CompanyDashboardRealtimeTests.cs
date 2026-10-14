@@ -20,6 +20,30 @@ namespace CSweet.UnitTests;
 public sealed class CompanyDashboardRealtimeTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecoveredIncidentClearsThroughRealtimeOrAttentionRefresh(bool manual)
+    {
+        var org = Guid.NewGuid();
+        var handler = new Handler { IncludeIncident = true, ItemCount = 0 };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        Assert.Contains("Planning coordination stopped", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        handler.IncludeIncident = false;
+        if (manual)
+        {
+            var refresh = fixture.Activator.IconButtons.Single(x =>
+                x.UserAttributes?.GetValueOrDefault("aria-label")?.ToString() == "Refresh attention items");
+            await fixture.Renderer.Dispatcher.InvokeAsync(() => refresh.OnClick.InvokeAsync(new MouseEventArgs()));
+        }
+        else
+            await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, AppRealtimeEvents.ProjectIncidentChanged));
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.DoesNotContain("Planning coordination stopped", html);
+        Assert.Contains("Nothing needs your attention", html);
+    }
+
+    [Theory]
     [InlineData(System.Net.HttpStatusCode.NoContent, null)]
     [InlineData(System.Net.HttpStatusCode.Forbidden, "Only a current business owner")]
     [InlineData(System.Net.HttpStatusCode.Conflict, "instance or its permissions changed")]
@@ -170,11 +194,13 @@ public sealed class CompanyDashboardRealtimeTests
     {
         public CommandCenter? Page { get; private set; }
         public List<MudButton> Buttons { get; } = [];
+        public List<MudIconButton> IconButtons { get; } = [];
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
             if (component is CommandCenter page) Page = page;
             if (component is MudButton button) Buttons.Add(button);
+            if (component is MudIconButton iconButton) IconButtons.Add(iconButton);
             return component;
         }
     }
@@ -186,6 +212,7 @@ public sealed class CompanyDashboardRealtimeTests
         public int HiringReads { get; private set; }
         public int ItemCount { get; set; } = 1;
         public bool IncludeCompute { get; set; }
+        public bool IncludeIncident { get; set; }
         public bool ComputeAllowed { get; set; }
         public int ComputeReads { get; private set; }
         private readonly Guid _environmentId = Guid.NewGuid();
@@ -236,7 +263,9 @@ public sealed class CompanyDashboardRealtimeTests
             else if (path.EndsWith("/questions/pending")) result = Array.Empty<CSweet.Contracts.Communications.PendingAgentQuestionResponse>();
             else if (path.EndsWith("/approvals")) result = new ApprovalDashboardResponse(Guid.NewGuid(), ItemCount,
                 Enumerable.Range(0, ItemCount).Select(i => new ApprovalDashboardItemResponse(Guid.NewGuid(), ApprovalDashboardKinds.ResourceChange,
-                    $"Plan {i}", "Summary", "Pending", "Producer", "Owner", DateTimeOffset.UtcNow, null, "/approvals", true)).ToArray());
+                    $"Plan {i}", "Summary", "Pending", "Producer", "Owner", DateTimeOffset.UtcNow, null, "/approvals", true)).ToArray())
+                { ProjectIncidents = IncludeIncident ? [new(Guid.NewGuid(), Guid.NewGuid(), "Shatterbeat", "Naomi Chen",
+                    "Planning coordination stopped", "Planning failed", "Investigate", "/report", DateTimeOffset.UtcNow)] : [] };
             else result = new { name = $"Company {path.Split('/').Last()}" };
             return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = JsonContent.Create(result, result.GetType()) };
         }

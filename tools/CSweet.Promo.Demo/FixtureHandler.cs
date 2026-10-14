@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using CSweet.Contracts.Auth;
 using CSweet.Contracts.Communications;
+using CSweet.Contracts.Compute;
 using CSweet.Contracts.Core;
 
 namespace CSweet.Promo.Demo;
@@ -26,6 +27,9 @@ public sealed class FixtureHandler(DemoData data) : HttpMessageHandler
             else if (path == $"{core}/users") payload = data.People;
             else if (path == "/api/agents/installations") payload = data.Installations;
             else if (path == $"{core}/approvals") payload = new ApprovalDashboardResponse(data.OwnerId,0,[]);
+            else if (path == $"{core}/dashboard/hiring") payload = new HiringBacklogResponse([]);
+            else if (path == $"{root}/communications/questions/pending") payload = Array.Empty<PendingAgentQuestionResponse>();
+            else if (path == $"{root}/compute") payload = new ComputeDashboard(DemoData.Epoch,null,[],false);
             else if (path == "/api/core/hiring/operations" || path == "/api/business-onboarding/operations") payload = Array.Empty<object>();
             else if (path == "/api/setup/status") payload = new { isFirstRunComplete = false };
             else if (path == hub) payload = data.Hub;

@@ -245,7 +245,7 @@ could contain only stream chunks and omit the actual failure.
   and Overview: what failed, recovery status, and the next action with a collaboration link.
   Raw diagnostics and escalation history stay out of the human summary. Unknown historical
   `llm.request_failed` errors explicitly retain uncertainty about their cause.
-- `ProjectHealthService.DeliverAsync` appends an owner message only when the rendered report changes;
+- `ProjectHealthService.DeliverAsync` appends an owner message only when the substantive report changes;
   evidence-only revisions still receive durable receipts. Existing messages remain immutable.
   Delivery, notifications, receipts and realtime wake hints commit together.
 - `ProjectHealthService.ReadDiagnosticsAsync` prioritizes typed model-run summaries and failed/denied
@@ -315,3 +315,28 @@ These incidents use existing management escalation, delivered owner reports, rea
 Rollout: rebuild/restart API and AgentHost and upgrade the installed Producer to 2.20.1. No schema migration, SDK/package-contract change or expanded agent grant is required. Historical direct turns can be recovered through retained exact source links; attribution is never guessed from an employee's project or timestamps.
 
 Validation in `DependencyWakeVerified`: 104 platform health, Overview, governance/gateway, coordination-wake and memory-reset regression tests passed, including both disposable PostgreSQL tests. The database scenario verifies direct-chat attribution, a cleared decision despite a future review deadline, management escalation, delivered Overview attention and successful retry recovery. Producer's 339 package-only tests and self-test passed. NuGet 2.20.1 metadata and the Linux x64 `.csab` were built and inspected; the bundle verifier passed. No running service restart or installed-agent upgrade was performed during validation.
+
+
+## Shared SDK manager reports and recovery choices (2026-10-14 Pacific)
+
+SDK 4.1.0 `CSweetManagerAgentBase`, `ProjectIncidentReview` and `ManagerIncidentCoordinator` own report analysis and resolution dispatch for every manager role. Generation/execution hooks allow specialization; reusable coordinator methods support other callback implementations. Analysis uses the configured provider, at most 2,048 output tokens and two minutes, with a current-facts fallback.
+
+`ProjectHealthService.CurrentIncidentStateAsync` reads current affected work, bounded decisions, operation state and exact document references. Its hash binds reports and choices to source revisions. `ReportAsync` validates presentation before recording receipts. `UpdatePresentationAsync` rechecks reporting authority and persists reports/outcomes without changing routing, deadlines or incident resolution. The additive `ManagerIncidentOwnerReports` migration stores report JSON, author, report revision, outcome and refresh-discovery timestamp. `RefreshOwnerReportsAsync` issues bounded durable wakes rather than agent polling.
+
+`DeliverAsync` commits the report message, incident-bound executive decision, notification, delivery receipt and realtime records in one transaction, with PostgreSQL delivery/incident locks. `ExecutiveDecisionService` scopes supersession to each incident, rechecks source/grants, locks concurrent answers and starts one durable turn. Busy managers leave choices pending. Intended outcomes are persisted and included in the answer message for authorized delegation.
+
+`MemoryRecallDispatchEvidence.CaptureMetadataAsync` derives the incident marker and project context from the persisted answer and retry lineage. SDK dispatch intercepts it before delegation classification or specialized creative intake. Mutation keys bind to decision/target identity. Canonical manager commitments retain source/project bindings and run before specialist claim policies/task handlers. Outcomes can produce new incident-bound choices for another attempt or Something Else; changed evidence requires a fresh report. Retries replay their saved outcome. Only authoritative work recovery clears the incident.
+
+`ProjectIncidentAttentionCard` uses reporting employee identity for the installed portrait and shows the complete report. `IncidentResolutionChoices` supplies the same menu, recommendations and inline Something Else textarea in Overview and Communications. `OverviewAttentionItems.StandaloneQuestions` and pending-question discovery prevent duplicate cards/counts.
+
+Verified releases: SDK 4.1.0; Naomi 2.1.0; Producer 3.1.0; Product Manager 3.1.0; Chief of Staff 2.13.0. Manifest, implementation/package versions and release notes match. Package-only suites passed: SDK 403 plus two sample tests, Naomi 175, Producer 353, Product Manager 73, Chief 83. Generated-template tests (seven) and all manager self-tests passed. All five NuGet package versions/dependencies were inspected.
+
+Platform validation: 143 affected regressions passed, including three disposable PostgreSQL tests covering migration/model parity, forced delivery rollback and concurrent answers. UI tests cover inline/custom answers, retry keys, outdated choices, portrait identity and deduplication. The platform used packaged SDK/WorkManagement/Office/Isolation dependencies; its existing sibling Memory libraries remained because current Memory provider packages are absent from the local feed. Tests did not migrate or recover the live Prism Break project.
+
+Rollout: deploy/restart the platform and apply `ManagerIncidentOwnerReports` first, then import the manager releases and review `platform.management.incident.presentation.update.v1`, `platform.management.incident.resolution.read.v1` and `com.csweet.management.incident.owner-report-requested.v1`. Declarations do not grant permissions. Approved installations refresh existing incidents through discovery. Earlier conversation messages remain immutable.
+
+`ProjectHealthService.DeliverAsync` compares reports without the dynamic source-freshness notice. A retry or new diagnostic evidence can make choices outdated and refresh Overview without repeating the same manager report or creating another notification. Substantive findings and confirmed recovery still append updates; historical messages remain unchanged.
+
+`ProjectHealthService.CloseIncidentQuestionsAsync` cancels only unanswered questions bound to a resolved or superseded incident. `ReconcileClosedIncidentQuestionsAsync` repairs legacy closed-incident questions through bounded discovery using correlated report messages and exact persisted incident bindings. Incident and decision changes publish their durable realtime records through `SaveChangesAsync`; answered choices and unrelated questions retain their history.
+
+`AppRealtimeCoordinator.ShowNotification` suppresses every ProjectHealth snackbar; reports remain in Overview, Communications and the notification inbox. `ApprovalState.OnRealtimeEvent` reloads on ProjectIncidentChanged. `CommandCenter` exposes **Refresh attention items** to recover a missed update without dismissing an unresolved incident. `IncidentResolutionChoices` renders cancelled questions without actions and explains that no response is needed.

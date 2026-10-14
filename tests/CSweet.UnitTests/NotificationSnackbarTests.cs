@@ -60,7 +60,7 @@ public sealed class NotificationSnackbarTests
             .Invoke(target, arguments);
 
     [Fact]
-    public void DuplicateDeliveryAfterClosingDoesNotRestoreSnackbarAndProjectRecoveryIsQuiet()
+    public void AllProjectHealthUpdatesStayQuietAndIndependentWarningsStillAppear()
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
@@ -71,14 +71,17 @@ public sealed class NotificationSnackbarTests
             "Important", "ProjectHealth", "Project needs management attention", "Quality is blocked", null,
             DateTimeOffset.UtcNow, null, null);
         Invoke(component, "ShowNotification", notification, Severity.Warning);
-        var shown = Assert.Single(snackbar.ShownSnackbars);
-        snackbar.Remove(shown);
+        Assert.Empty(snackbar.ShownSnackbars);
         Invoke(component, "ShowNotification", notification, Severity.Warning);
         Assert.Empty(snackbar.ShownSnackbars);
         Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid(), Severity = "Routine",
             Title = "Project incident resolved" }, Severity.Info);
         Assert.Empty(snackbar.ShownSnackbars);
         Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid() }, Severity.Warning);
+        Assert.Empty(snackbar.ShownSnackbars);
+        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid(), Severity = "Urgent" }, Severity.Error);
+        Assert.Empty(snackbar.ShownSnackbars);
+        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid(), Category = "ArtifactReviewReassignment" }, Severity.Warning);
         Assert.Single(snackbar.ShownSnackbars);
     }
 

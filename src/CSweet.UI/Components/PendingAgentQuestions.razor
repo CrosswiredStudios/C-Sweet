@@ -32,7 +32,7 @@
         @if (!SummaryOnly)
         {
             <div class="decision-list">
-                @foreach (var question in _questions)
+                @foreach (var question in OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents))
                 {
                     <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Answered="OnAnsweredAsync" />
                 }
@@ -58,7 +58,7 @@
         else
         {
             <div class="attention-list" aria-label="Decisions, approvals, hiring, and compute permissions">
-                @foreach (var question in _questions)
+                @foreach (var question in OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents))
                 {
                     <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Answered="OnAnsweredAsync" />
                 }
@@ -130,7 +130,7 @@
     [Parameter] public EventCallback<DocumentApprovalSelection> DocumentOpened { get; set; }
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
         .Where(x => !_completedApprovals.Contains(x.Id) && OverviewAttentionItems.IsActionable(x)).ToList();
-    private int PendingCount => _questions.Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count + ComputeResources.Count;
+    private int PendingCount => OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count + ComputeResources.Count;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

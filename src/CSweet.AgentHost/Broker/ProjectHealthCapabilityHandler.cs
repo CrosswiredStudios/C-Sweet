@@ -10,7 +10,8 @@ public sealed class ProjectHealthCapabilityHandler(ProjectHealthService health) 
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
     public bool CanHandle(string capability) => capability is ProjectHealthCapabilities.Read or ProjectHealthCapabilities.Diagnostics or
-        ProjectHealthCapabilities.Incidents or ProjectHealthCapabilities.Report or ProjectHealthCapabilities.Forward;
+        ProjectHealthCapabilities.Incidents or ProjectHealthCapabilities.Report or ProjectHealthCapabilities.Forward or
+        ProjectHealthCapabilities.Presentation or ProjectHealthCapabilities.Resolution;
 
     public async IAsyncEnumerable<CapabilityResult> HandleAsync(AgentSession session, RequestCapability request,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
@@ -27,6 +28,8 @@ public sealed class ProjectHealthCapabilityHandler(ProjectHealthService health) 
                 ProjectHealthCapabilities.Diagnostics => await health.ReadDiagnosticsAsync(organization, actor, input.Deserialize<ReadProjectDiagnostics>(Json)!, token),
                 ProjectHealthCapabilities.Incidents => await health.ReadIncidentsAsync(organization, actor, input.Deserialize<ReadManagementIncidents>(Json)!, token),
                 ProjectHealthCapabilities.Report => await health.ReportAsync(organization, actor, input.Deserialize<ReportManagementIncident>(Json)!, token),
+                ProjectHealthCapabilities.Presentation => await health.UpdatePresentationAsync(organization, actor, input.Deserialize<UpdateManagementIncidentPresentation>(Json)!, token),
+                ProjectHealthCapabilities.Resolution => await health.ReadResolutionAsync(organization, actor, input.Deserialize<ReadIncidentResolution>(Json)!, token),
                 _ => await health.ForwardAsync(organization, actor, input.Deserialize<ForwardManagementIncident>(Json)!, token)
             };
             result = new() { RequestId = request.RequestId, Succeeded = true, Payload = JsonPayload.From(output, Json) };

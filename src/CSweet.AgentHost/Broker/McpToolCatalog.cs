@@ -82,6 +82,8 @@ public sealed class McpToolCatalog(
         Read(ProjectHealthCapabilities.Incidents, "read_management_incidents", "Discover pending incidents or read one authorized incident by identifier."),
         Write(ProjectHealthCapabilities.Report, "report_project_incident", "Record diagnosis and either escalate to your manager or schedule a bounded investigation/recovery review before the current escalation deadline."),
         Write(ProjectHealthCapabilities.Forward, "forward_project_incident", "Forward a current incident outside your responsibility to your actual manager with an assessment."),
+        Write(ProjectHealthCapabilities.Presentation, "update_incident_presentation", "Update a current authorized manager report or recorded recovery outcome without changing incident routing or claiming resolution."),
+        Read(ProjectHealthCapabilities.Resolution, "read_incident_resolution", "Read the authenticated human recovery choice bound to this manager's durable turn."),
         Write(CompanyReportingCapabilities.Finance, "publish_company_finances",
             "Publish authoritative month-to-date financial metrics in one currency, with an as-of date. Omit unknown metrics; never invent amounts."),
         Write(CompanyReportingCapabilities.Legal, "publish_company_legal_status",
@@ -639,7 +641,13 @@ public sealed class McpToolCatalog(
             {"type":"object","properties":{"incidentId":{"type":["string","null"],"format":"uuid"},"workstreamId":{"type":["string","null"],"format":"uuid"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
             """),
         ProjectHealthCapabilities.Report => Schema("""
-            {"type":"object","required":["incidentId","expectedRevision","idempotencyKey","facts","likelyCause","missingEvidence","recommendedAction"],"properties":{"incidentId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"facts":{"type":"string","minLength":1,"maxLength":8192},"likelyCause":{"type":"string","minLength":1,"maxLength":8192},"missingEvidence":{"type":"string","minLength":1,"maxLength":8192},"recommendedAction":{"type":"string","minLength":1,"maxLength":8192},"disposition":{"enum":["Escalate","Investigating","AwaitingRecovery"]},"reviewAt":{"type":["string","null"],"format":"date-time"},"actionReference":{"type":["string","null"],"maxLength":8192}},"additionalProperties":false}
+            {"type":"object","required":["incidentId","expectedRevision","idempotencyKey","facts","likelyCause","missingEvidence","recommendedAction"],"properties":{"incidentId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"facts":{"type":"string","minLength":1,"maxLength":8192},"likelyCause":{"type":"string","minLength":1,"maxLength":8192},"missingEvidence":{"type":"string","minLength":1,"maxLength":8192},"recommendedAction":{"type":"string","minLength":1,"maxLength":8192},"disposition":{"enum":["Escalate","Investigating","AwaitingRecovery"]},"reviewAt":{"type":["string","null"],"format":"date-time"},"actionReference":{"type":["string","null"],"maxLength":8192},"ownerReport":{"type":["object","null"]}},"additionalProperties":false}
+            """),
+        ProjectHealthCapabilities.Presentation => Schema("""
+            {"type":"object","required":["incidentId","expectedRevision","idempotencyKey"],"properties":{"incidentId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"ownerReport":{"type":["object","null"]},"resolutionDecisionId":{"type":["string","null"],"format":"uuid"},"resolutionOutcome":{"type":["string","null"],"maxLength":4000}},"additionalProperties":false}
+            """),
+        ProjectHealthCapabilities.Resolution => Schema("""
+            {"type":"object","required":["decisionId","turnId"],"properties":{"decisionId":{"type":"string","format":"uuid"},"turnId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
         ProjectHealthCapabilities.Forward => Schema("""
             {"type":"object","required":["incidentId","expectedRevision","idempotencyKey","reason"],"properties":{"incidentId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":200},"reason":{"type":"string","minLength":1,"maxLength":8192}},"additionalProperties":false}

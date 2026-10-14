@@ -114,6 +114,10 @@ public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId
     string ReporterName, string Reason, string Facts, string RecommendedAction, string ActionUri, DateTimeOffset DetectedAt)
 {
     public Guid? ReporterEmployeeId { get; init; }
+    public Guid? ReporterOrganizationUserId { get; init; }
+    public string? OwnerReport { get; init; }
+    public CSweet.Contracts.Communications.ExecutiveDecisionCardResponse? ResolutionDecision { get; init; }
+    public Guid? ReportConversationId { get; init; }
     public string? InvestigateUri { get; init; }
     public string? InvestigateLabel { get; init; }
     public ProjectIncidentCollaborationResponse? Collaboration { get; init; }

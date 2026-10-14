@@ -94,6 +94,11 @@ public sealed partial class ExecutiveDecisionService(
         }
 
         var linked = await ValidateWorkstreamDecisionAsync(command, cancellationToken);
+        await ValidateIncidentChoiceAsync(command, cancellationToken);
+        var incidentOutcomes = command.Incident is { } reportBinding
+            ? CSweet.Infrastructure.Core.ProjectHealthService.OwnerReport(await db.ProjectIncidents.SingleAsync(x => x.Id == reportBinding.IncidentId &&
+                x.OrganizationId == command.OrganizationId, cancellationToken))!.Options.ToDictionary(x => x.Id, x => x.IntendedOutcome)
+            : null;
         var now = DateTimeOffset.UtcNow;
         var pending = await db.ExecutiveDecisions
             .Where(x => x.ConversationId == command.ConversationId &&
@@ -105,11 +110,11 @@ public sealed partial class ExecutiveDecisionService(
             Id = Guid.NewGuid(), OrganizationId = command.OrganizationId, ConversationId = command.ConversationId,
             ChatTurnId = command.ChatTurnId, ConversationMessageId = command.ConversationMessageId,
             RequestingInstallationId = command.RequestingInstallationId,
-            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange, linked?.Id, linked?.Revision, command.TaskMerge), JsonOptions),
+            Prompt = prompt, OptionsJson = JsonSerializer.Serialize(new StoredDecisionOptions(options, command.ConfigurationChange, linked?.Id, linked?.Revision, command.TaskMerge, command.Incident, incidentOutcomes), JsonOptions),
             RecommendedOptionId = recommendedOptionId, IdempotencyKey = idempotencyKey,
             Status = ExecutiveDecisionStatus.Pending, CreatedAt = now, UpdatedAt = now
         };
-        foreach (var previous in pending.Where(x => ReadDecisionOptions(x.OptionsJson).WorkstreamDecisionId == command.WorkstreamDecisionId && ReadDecisionOptions(x.OptionsJson).TaskMerge?.ReviewId == command.TaskMerge?.ReviewId))
+        foreach (var previous in pending.Where(x => ReadDecisionOptions(x.OptionsJson).WorkstreamDecisionId == command.WorkstreamDecisionId && ReadDecisionOptions(x.OptionsJson).TaskMerge?.ReviewId == command.TaskMerge?.ReviewId && ReadDecisionOptions(x.OptionsJson).Incident?.IncidentId == command.Incident?.IncidentId))
         {
             previous.Status = ExecutiveDecisionStatus.Superseded;
             previous.SupersededByDecisionId = decision.Id;
@@ -173,7 +178,7 @@ public sealed partial class ExecutiveDecisionService(
         var sources = await db.WorkstreamDecisions.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && linked.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, cancellationToken);
-        return decisions.GroupBy(x => x.ConversationMessageId ?? x.ChatTurnId!.Value)
+        var result = decisions.GroupBy(x => x.ConversationMessageId ?? x.ChatTurnId!.Value)
             .ToDictionary(group => group.Key, group =>
             {
                 var decision = group.First();
@@ -187,6 +192,17 @@ public sealed partial class ExecutiveDecisionService(
                     ? card with { Status = "Outdated" }
                     : card;
             });
+        foreach (var decision in decisions.Where(x => x.Status == ExecutiveDecisionStatus.Pending && ReadDecisionOptions(x.OptionsJson).Incident is not null))
+        {
+            var binding = ReadDecisionOptions(decision.OptionsJson).Incident!;
+            var recipient = await db.ProjectIncidents.Where(x => x.Id == binding.IncidentId && x.OrganizationId == organizationId)
+                .Select(x => (Guid?)x.CurrentRecipientId).SingleOrDefaultAsync(cancellationToken);
+            var key = decision.ConversationMessageId ?? decision.ChatTurnId!.Value;
+            if (result.TryGetValue(key, out var card) && card.Id == decision.Id &&
+                (recipient is null || !await CurrentIncidentDecisionAsync(decision, recipient.Value, cancellationToken)))
+                result[key] = card with { Status = "Outdated" };
+        }
+        return result;
     }
 
     public async Task<AnswerExecutiveDecisionResponse> AnswerAsync(
@@ -249,6 +265,27 @@ public sealed partial class ExecutiveDecisionService(
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        if (storedOptions.Incident is { } incidentChoice)
+        {
+            if (db.Database.IsNpgsql())
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ExecutiveDecisions" WHERE "Id" = {decision.Id} FOR UPDATE""", cancellationToken);
+                await db.Entry(decision).ReloadAsync(cancellationToken);
+                if (decision.Status == ExecutiveDecisionStatus.Answered)
+                {
+                    if (decision.AnswerIdempotencyKey != answerKey) return Failure("decision_already_answered", "This decision already has an immutable answer.", ToCard(decision));
+                    return new(true, null, "The answer was already submitted.", ToCard(decision),
+                        decision.NextChatTurnId is { } next ? await turns.GetAsync(organizationId, next, cancellationToken) : null);
+                }
+                await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ProjectIncidents" WHERE "Id" = {incidentChoice.IncidentId} FOR UPDATE""", cancellationToken);
+            }
+            if (decision.Status != ExecutiveDecisionStatus.Pending || !await CurrentIncidentDecisionAsync(decision, actorOrganizationUserId, cancellationToken))
+                return Failure("decision_not_pending", "The blocker changed. Refresh the manager report before choosing a fix.", ToCard(decision) with { Status = "Outdated" });
+            if (await db.ChatTurns.AnyAsync(x => x.OrganizationId == organizationId && x.ConversationId == conversationId &&
+                x.TargetAgentOrganizationUserId == targetAgentId && (x.Status == ChatTurnStatus.Queued || x.Status == ChatTurnStatus.RecallingMemory ||
+                x.Status == ChatTurnStatus.Dispatching || x.Status == ChatTurnStatus.Running || x.Status == ChatTurnStatus.FinalizingMemory), cancellationToken))
+                return Failure("agent_busy", "The manager is still finishing the current recovery. Try again after the reply completes.");
+        }
         if (storedOptions.TaskMerge is { } taskMerge)
         {
             var mergeFailure = await new CSweet.Infrastructure.SourceControl.TaskDeliveryService(db, TimeProvider.System)
@@ -270,8 +307,15 @@ public sealed partial class ExecutiveDecisionService(
         await db.SaveChangesAsync(cancellationToken);
 
         var answer = selected?.Label ?? freeText!;
+        var answerMessage = $"Decision: {decision.Prompt}\nAnswer: {answer}";
+        if (storedOptions.Incident is { } incidentAnswer)
+        {
+            var source = await db.ProjectIncidents.SingleAsync(x => x.Id == incidentAnswer.IncidentId && x.OrganizationId == organizationId, cancellationToken);
+            var intendedOutcome = freeText ?? CSweet.Infrastructure.Core.ProjectHealthService.OwnerReport(source)!.Options.Single(x => x.Id == selected!.Id).IntendedOutcome;
+            answerMessage += $"\nIntended outcome: {intendedOutcome}";
+        }
         var started = await turns.StartForAgentAsync(organizationId, conversationId, targetAgentId.Value,
-            $"Decision: {decision.Prompt}\nAnswer: {answer}", actorOrganizationUserId,
+            answerMessage, actorOrganizationUserId,
             idempotencyKey: $"executive-decision-answer:{decision.Id:N}", cancellationToken: cancellationToken);
         if (started is null) throw new InvalidOperationException("The decision answer could not start the next chat turn.");
         decision.NextChatTurnId = started.Turn.Id;
@@ -347,7 +391,9 @@ public sealed partial class ExecutiveDecisionService(
             decision.RecommendedOptionId, decision.SelectedOptionId, decision.FreeTextAnswer,
             decision.CreatedAt, decision.AnsweredAt) { AllowFreeText =
                 ReadDecisionOptions(decision.OptionsJson).ConfigurationChange is null &&
-                (ReadDecisionOptions(decision.OptionsJson).WorkstreamDecisionId is null || options.Any(x => x.Id == "provide-direction")) };
+                (ReadDecisionOptions(decision.OptionsJson).WorkstreamDecisionId is null || options.Any(x => x.Id == "provide-direction")),
+                IncidentId = ReadDecisionOptions(decision.OptionsJson).Incident?.IncidentId,
+                IncidentReportRevision = ReadDecisionOptions(decision.OptionsJson).Incident?.ReportRevision };
     }
 
     private static List<StoredOption> ReadOptions(string json) => ReadDecisionOptions(json).Options;
@@ -362,7 +408,7 @@ public sealed partial class ExecutiveDecisionService(
                 ?? throw new InvalidOperationException("The stored decision is invalid.");
     }
 
-    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange, Guid? WorkstreamDecisionId = null, long? WorkstreamDecisionRevision = null, TaskMergeChoice? TaskMerge = null);
+    private sealed record StoredDecisionOptions(List<StoredOption> Options, AgentConfigurationChoice? ConfigurationChange, Guid? WorkstreamDecisionId = null, long? WorkstreamDecisionRevision = null, TaskMergeChoice? TaskMerge = null, IncidentDecisionChoice? Incident = null, Dictionary<string, string>? IncidentIntendedOutcomes = null, string? ResolutionOutcome = null);
 
     private static string Required(string? value, int maximumLength, string name) =>
         Clean(value, maximumLength) ?? throw new ArgumentException($"{name} is required.");

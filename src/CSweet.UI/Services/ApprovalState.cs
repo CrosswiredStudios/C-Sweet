@@ -72,7 +72,7 @@ public sealed class ApprovalState(HttpClient http, IBusinessContext businesses, 
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == businesses.SelectedBusiness?.Id &&
-            envelope.EventType == AppRealtimeEvents.ApprovalChanged)
+            envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.ProjectIncidentChanged)
             _ = ReloadAsync();
     }
 

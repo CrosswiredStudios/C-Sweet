@@ -28,6 +28,11 @@ public sealed class ProjectHealthSignal
 
 public sealed class ProjectIncident
 {
+    public string? OwnerReportJson { get; set; }
+    public Guid? ReporterOrganizationUserId { get; set; }
+    public long ReportRevision { get; set; }
+    public string? ResolutionOutcome { get; set; }
+    public DateTimeOffset? OwnerReportRequestedAt { get; set; }
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid WorkstreamId { get; set; }

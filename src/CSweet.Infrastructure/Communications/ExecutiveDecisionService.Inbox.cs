@@ -32,9 +32,9 @@ public sealed partial class ExecutiveDecisionService
         return rows.Where(x =>
         {
             var stored = ReadDecisionOptions(x.Decision.OptionsJson);
-            return stored.WorkstreamDecisionId is not { } id ||
+            return stored.Incident is null && (stored.WorkstreamDecisionId is not { } id ||
                 (actor.PermissionLevel == OrganizationPermissionLevel.Owner && sources.TryGetValue(id, out var source) &&
-                 source.Status == "Pending" && source.Revision == stored.WorkstreamDecisionRevision);
+                 source.Status == "Pending" && source.Revision == stored.WorkstreamDecisionRevision));
         }).Select(x => new PendingAgentQuestionResponse(x.Decision.ConversationId,
             x.AgentId, x.AgentName, ToCard(x.Decision))).ToArray();
     }
