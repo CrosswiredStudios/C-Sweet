@@ -92,25 +92,7 @@ public sealed class ExecutionBrokerSessionRunner(
             brokerLimits.MaximumRequestBodyBytes,
             brokerLimits.MaximumResponseBodyBytes,
             brokerLimits.MaximumFrameBytes);
-        var boot = new GuestBootConfiguration
-        {
-            WorkloadId = workload.WorkloadId.ToString("D"),
-            ChannelId = workload.BrokerLease.ChannelId.ToString("D"),
-            ProtocolVersion = workload.BrokerLease.ProtocolVersion,
-            GuestImageDigest = workload.GuestImage.Digest,
-            ArtifactDigest = workload.Artifact.Digest,
-            BootToken = workload.BrokerLease.BootToken,
-            LeaseExpiresAtUnixSeconds = workload.BrokerLease.ExpiresAt.ToUnixTimeSeconds(),
-            ArtifactRoot = "/run/csweet/artifact/payload",
-            WorkloadKind = (int)WorkloadKind.Runtime,
-            InstallationId = workload.Identity.InstallationId.ToString("D"),
-            BusinessId = workload.Identity.BusinessId,
-            TickId = workload.Identity.TickId.ToString("D"),
-            LocalBrokerSocketPath = "/run/csweet/broker.sock",
-            WorkloadTokenPath = "/run/csweet/workload-token",
-            MaximumFrameBytes = brokerLimits.MaximumFrameBytes,
-            PublicInternet = workload.NetworkPolicy?.Mode == RuntimeNetworkPolicy.PublicInternet
-        };
+        var boot = CreateRuntimeBootConfiguration(workload, brokerLimits.MaximumFrameBytes);
         var start = new StartCommand
         {
             WorkloadKind = (int)WorkloadKind.Runtime,
@@ -144,6 +126,33 @@ public sealed class ExecutionBrokerSessionRunner(
             await PersistRuntimeDiagnosticsAsync(
                 assignment, workload.WorkloadId, diagnostics.Latest);
         }
+    }
+
+    internal static GuestBootConfiguration CreateRuntimeBootConfiguration(
+        RuntimeWorkloadSpecification workload, int maximumFrameBytes)
+    {
+        workload.NetworkPolicy?.Validate();
+        return new GuestBootConfiguration
+        {
+            WorkloadId = workload.WorkloadId.ToString("D"),
+            ChannelId = workload.BrokerLease.ChannelId.ToString("D"),
+            ProtocolVersion = workload.BrokerLease.ProtocolVersion,
+            GuestImageDigest = workload.GuestImage.Digest,
+            ArtifactDigest = workload.Artifact.Digest,
+            BootToken = workload.BrokerLease.BootToken,
+            LeaseExpiresAtUnixSeconds = workload.BrokerLease.ExpiresAt.ToUnixTimeSeconds(),
+            ArtifactRoot = "/run/csweet/artifact/payload",
+            WorkloadKind = (int)WorkloadKind.Runtime,
+            InstallationId = workload.Identity.InstallationId.ToString("D"),
+            BusinessId = workload.Identity.BusinessId,
+            TickId = workload.Identity.TickId.ToString("D"),
+            LocalBrokerSocketPath = "/run/csweet/broker.sock",
+            WorkloadTokenPath = "/run/csweet/workload-token",
+            MaximumFrameBytes = maximumFrameBytes,
+            // Address-family restrictions remain enforced by Office's signed policy.
+            // Both approved public modes need the guest tunnel and public resolver.
+            PublicInternet = workload.NetworkPolicy?.Mode is RuntimeNetworkPolicy.PublicInternet or RuntimeNetworkPolicy.PublicInternetIpv4
+        };
     }
 
     private async Task PersistRuntimeDiagnosticsAsync(

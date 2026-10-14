@@ -11,6 +11,37 @@ namespace CSweet.UnitTests;
 public sealed class RuntimeInternetGrantTests
 {
     [Theory]
+    [InlineData(null, false)]
+    [InlineData("public-internet", true)]
+    [InlineData("public-internet-ipv4", true)]
+    public void ApprovedRuntimePolicyEnablesTunnelInGuestBootMessage(string? mode, bool enabled)
+    {
+        var workloadId = Guid.NewGuid();
+        var digest = "sha256:" + new string('a', 64);
+        var lease = new BrokerChannelLease(Guid.NewGuid(), mode is null ? "1.0" : "1.1",
+            "a-sufficiently-long-boot-token", digest, digest, DateTimeOffset.UtcNow.AddMinutes(5));
+        var workload = new RuntimeWorkloadSpecification(workloadId,
+            new GuestImageReference("development", "1.0", digest, "linux", "x64"),
+            new WorkloadResourceLimits(1, 100, 1024, 512, 100, 1024, TimeSpan.FromMinutes(5)), lease,
+            new AgentArtifactReference(digest, "signature", "1.0", "linux", "x64"),
+            new RuntimeAgentIdentity(Guid.NewGuid(), Guid.NewGuid().ToString("D"), Guid.NewGuid()),
+            ["/app/agent"])
+        { NetworkPolicy = mode is null ? null : new RuntimeNetworkPolicy(mode, 4) };
+
+        var boot = ExecutionBrokerSessionRunner.CreateRuntimeBootConfiguration(workload, 1_048_576);
+        // Exercise the actual wire message consumed by GuestServiceOptions, including the
+        // limited mode that passed Office placement but previously booted as restricted.
+        var received = CSweet.Office.Contracts.Guest.GuestBootConfiguration.Parser.ParseFrom(
+            Google.Protobuf.MessageExtensions.ToByteArray(boot));
+
+        Assert.Equal(enabled, received.PublicInternet);
+        Assert.Equal(lease.ProtocolVersion, received.ProtocolVersion);
+        Assert.Equal(workloadId.ToString("D"), received.WorkloadId);
+        Assert.Equal(lease.ChannelId.ToString("D"), received.ChannelId);
+        Assert.Equal(1_048_576, received.MaximumFrameBytes);
+    }
+
+    [Theory]
     [InlineData("csweet-hardware-vm-smoke-v15", true, true)]
     [InlineData("csweet-hardware-vm-smoke-v15-ipv4", true, false)]
     [InlineData("csweet-hardware-vm-smoke-v15", false, false)]

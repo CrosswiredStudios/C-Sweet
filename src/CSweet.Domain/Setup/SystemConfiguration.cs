@@ -7,6 +7,8 @@ public sealed class SystemConfiguration
     public ExecutionOnboardingMode ExecutionOnboardingMode { get; set; }
     public Guid? DefaultChatProviderId { get; set; }
     public Guid? DefaultEmbeddingProviderId { get; set; }
+    public Guid? PersonalAssistantProviderId { get; set; }
+    public string? PersonalAssistantModel { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }

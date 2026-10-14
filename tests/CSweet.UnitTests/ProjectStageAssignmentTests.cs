@@ -66,10 +66,11 @@ public sealed class ProjectStageAssignmentTests
             PrincipalKind = WorkOrchestrationPrincipalKind.AgentInstallation, OrganizationUserId = engineer.Id,
             AgentInstallationId = engineer.AgentInstallationId };
         item.Stages.Add(stage); sprint.Items.Add(item);
-        var assignment = JsonSerializer.Deserialize<W.WorkExecutionAssignmentV1>("{}")! with
+        var assignment = JsonSerializer.Deserialize<W.WorkExecutionAssignment>("{}")! with
         {
+            Scope = "Task",
             OrganizationId = org, BoardId = project.BoardId, SprintId = sprint.SprintId, SprintExecutionId = sprint.Id,
-            PolicyRevisionId = sprint.PolicyRevisionId, ItemExecutionId = item.Id, ItemId = ticket.Id,
+            PolicyRevisionId = sprint.PolicyRevisionId, ExecutionId = item.Id, ItemId = ticket.Id,
             StageExecutionId = stage.Id, StageKey = stage.StageKey, AttemptId = Guid.NewGuid(), Attempt = 1,
             Item = JsonSerializer.SerializeToElement(new {}), Input = JsonSerializer.SerializeToElement(new {}),
             PriorOutcomes = [], Evidence = []
@@ -104,7 +105,7 @@ public sealed class ProjectStageAssignmentTests
                 Attempt = 1, AgentWorkItemId = Guid.NewGuid(), Status = WorkExecutionAttemptStatus.Running });
         db.AddRange(ticket, sprint); await db.SaveChangesAsync();
         var payload = JsonSerializer.SerializeToElement(assignment, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var capability = condition == "legacy-capability" ? "legacy.development.v1" : W.WorkManagementCapabilityNames.ExecutionRunV1;
+        var capability = condition == "legacy-capability" ? "legacy.development.v1" : W.WorkManagementCapabilityNames.ExecutionRun;
         Func<Task> act = workspace
             ? () => new CSweet.AgentHost.Broker.ProjectCapabilityPolicy(db, policy).ValidateAsync(org,
                 engineer.AgentInstallationId.Value, "git.workspace.prepare.v2", payload, default)

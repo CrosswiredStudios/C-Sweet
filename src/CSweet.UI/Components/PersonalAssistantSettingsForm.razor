@@ -1,0 +1,132 @@
+@using CSweet.Contracts.PersonalAssistant
+@using CSweet.Contracts.Llm
+@inject PersonalAssistantApiClient Assistant
+@inject ILlmProviderApiClient Providers
+
+<section id="assistant-model-settings" class="assistant-settings" aria-label="AI Assistant settings" aria-busy="@_busy">
+    @if (ShowHeading)
+    {
+        <h3>Your AI Assistant</h3>
+        <p>Choose its name and the model it will use.</p>
+    }
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" aria-label="Loading assistant settings" />
+    }
+    <MudTextField T="string" Label="Assistant name" @bind-Value="_name" @bind-Value:after="DirtyAsync" Immediate="true" MaxLength="100" Variant="Variant.Outlined" Disabled="@Locked" />
+    <MudSelect T="Guid?" Label="AI provider" Value="_provider" ValueChanged="ProviderChanged" Variant="Variant.Outlined" Disabled="@Locked">
+        @foreach (var provider in _providers.Where(x => x.IsEnabled))
+        { <MudSelectItem T="Guid?" Value="@((Guid?)provider.Id)">@provider.Name</MudSelectItem> }
+    </MudSelect>
+    @if (_loaded && !_providers.Any(x => x.IsEnabled))
+    { <MudAlert Severity="Severity.Info">Connect a provider in the AI models step before configuring your assistant.</MudAlert> }
+    else if (_loaded && _provider.HasValue && !_providers.Any(x => x.Id == _provider && x.IsEnabled))
+    { <MudAlert Severity="Severity.Warning">The saved provider is unavailable. Choose an enabled provider to continue.</MudAlert> }
+    <MudAutocomplete T="string" Label="Model" @bind-Value="_model" @bind-Value:after="DirtyAsync" SearchFunc="SearchModels" CoerceValue="true" CoerceText="false" Immediate="true" ResetValueOnEmptyText="true" Variant="Variant.Outlined" Disabled="@(Locked || !_provider.HasValue)" HelperText="Choose a model or enter its exact model ID." />
+    @if (_modelNotice is not null) { <p class="assistant-field-note" role="status">@_modelNotice</p> }
+    <div class="assistant-budget-fields">
+        <MudNumericField T="int" Label="Context window (tokens)" @bind-Value="_context" @bind-Value:after="DirtyAsync" Immediate="true" Min="4097" HideSpinButtons="true" Variant="Variant.Outlined" Disabled="@Locked" />
+        <MudNumericField T="int" Label="Maximum output (tokens)" @bind-Value="_output" @bind-Value:after="DirtyAsync" Immediate="true" Min="2048" HideSpinButtons="true" Variant="Variant.Outlined" Disabled="@Locked" />
+    </div>
+    <p class="assistant-field-note">Use limits supported by your model. Maximum output must be smaller than the context window.</p>
+    @if (_output >= _context) { <MudAlert Severity="Severity.Warning">Maximum output must be smaller than the context window.</MudAlert> }
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert>
+        <MudButton OnClick="ReloadAsync" Disabled="@Locked">Reload saved settings</MudButton>
+    }
+    @if (_detail is not null) { <MudAlert Severity="Severity.Info" role="status">@_detail</MudAlert> }
+    @if (_saved) { <MudAlert Severity="Severity.Success" role="status">Your assistant settings are saved.</MudAlert> }
+    @if (ShowSaveButton)
+    {
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanSave || Locked)" OnClick="@(async () => { await SaveAsync(); })">@(_busy ? "Saving…" : "Save assistant settings")</MudButton>
+    }
+</section>
+
+@code {
+    [Parameter] public bool SetInstallationDefault { get; set; }
+    [Parameter] public bool ShowHeading { get; set; } = true;
+    [Parameter] public bool ShowSaveButton { get; set; } = true;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public Guid? PreferredProviderId { get; set; }
+    [Parameter] public EventCallback<bool> ReadyChanged { get; set; }
+    [Parameter] public EventCallback<bool> CanSaveChanged { get; set; }
+    [Parameter] public EventCallback<string> NameChanged { get; set; }
+    private IReadOnlyList<LlmProviderProfileResponse> _providers = [];
+    private IReadOnlyList<ModelDescriptor> _models = [];
+    private Guid? _provider;
+    private string _name = "AI Assistant", _model = "";
+    private int _context = 256000, _output = 128000;
+    private long _revision;
+    private bool _busy, _saved, _loaded, _loading;
+    private string? _error, _detail, _modelNotice;
+    private bool Locked => _busy || _loading || Disabled;
+    private bool CanSave => _loaded && _providers.Any(x => x.Id == _provider && x.IsEnabled) &&
+        !string.IsNullOrWhiteSpace(_name) && _name.Length <= 100 && !string.IsNullOrWhiteSpace(_model) && _model.Length <= 256 &&
+        _context >= 4097 && _output >= 2048 && _output < _context;
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    public async Task ReloadAsync()
+    {
+        _loading = true; _loaded = false; _error = null; _saved = false; _models = []; _modelNotice = null;
+        await CanSaveChanged.InvokeAsync(false);
+        await ReadyChanged.InvokeAsync(false);
+        try
+        {
+            _providers = await Providers.ListAsync();
+            var settings = await Assistant.SettingsAsync();
+            _detail = settings.InstallationId.HasValue ? settings.Detail : null;
+            _name = settings.Name;
+            _revision = settings.Revision; _provider = settings.ProviderId; _model = settings.Model ?? "";
+            _context = settings.Settings.TryGetValue("maxContextWindowTokens", out var context) ? context.GetInt32() : 256000;
+            _output = settings.Settings.TryGetValue("maxOutputTokens", out var output) ? output.GetInt32() : 128000;
+            if (!_provider.HasValue)
+            {
+                var enabled = _providers.Where(x => x.IsEnabled).ToArray();
+                _provider = enabled.FirstOrDefault(x => x.Id == PreferredProviderId)?.Id ?? (enabled.Length == 1 ? enabled[0].Id : null);
+                _model = enabled.FirstOrDefault(x => x.Id == _provider)?.DefaultChatModel ?? "";
+            }
+            _loaded = true;
+            await NameChanged.InvokeAsync(_name);
+            await ReadyChanged.InvokeAsync(settings.Ready);
+            if (_provider.HasValue) await LoadModelsAsync(_provider.Value);
+        }
+        catch (Exception e) { _error = e.Message; }
+        finally { _loading = false; await CanSaveChanged.InvokeAsync(CanSave); }
+    }
+    private async Task DirtyAsync()
+    {
+        _saved = false; _error = null;
+        await ReadyChanged.InvokeAsync(false);
+        await CanSaveChanged.InvokeAsync(CanSave);
+    }
+    private async Task ProviderChanged(Guid? id)
+    {
+        _provider = id; _models = []; _modelNotice = null;
+        _model = _providers.FirstOrDefault(x => x.Id == id)?.DefaultChatModel ?? "";
+        await DirtyAsync();
+        if (id.HasValue) await LoadModelsAsync(id.Value);
+    }
+    private async Task LoadModelsAsync(Guid id)
+    {
+        try { var result = await Providers.GetModelCatalogAsync(id); if (_provider == id) { _models = result.Models; _modelNotice = _models.Count == 0 ? "No models were discovered. You can enter a model ID manually." : null; } }
+        catch { if (_provider == id) { _models = []; _modelNotice = "Model discovery is unavailable. Enter a model ID manually or check your provider connection."; } }
+    }
+    private Task<IEnumerable<string>> SearchModels(string? query, CancellationToken token) => Task.FromResult(
+        _models.Select(x => x.Id).Append(_model).Where(x => !string.IsNullOrWhiteSpace(x) && (string.IsNullOrWhiteSpace(query) || x.Contains(query, StringComparison.OrdinalIgnoreCase))).Distinct());
+    public async Task<bool> SaveAsync()
+    {
+        if (_busy || _loading || !CanSave) return false;
+        _busy = true; _error = null;
+        try
+        {
+            var settings = await Assistant.ConfigureAsync(new(_provider!.Value, _model.Trim(), _revision, _context, _output, SetInstallationDefault, _name.Trim()));
+            _detail = settings.Detail; _name = settings.Name;
+            _revision = settings.Revision; _saved = true;
+            await NameChanged.InvokeAsync(_name);
+            await ReadyChanged.InvokeAsync(settings.Ready);
+            return settings.Ready;
+        }
+        catch (Exception e) { _error = e.Message; await ReadyChanged.InvokeAsync(false); return false; }
+        finally { _busy = false; }
+    }
+}

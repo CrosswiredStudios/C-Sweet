@@ -24,7 +24,7 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
         Assert.Equal("game-engineer", engineer.GetProperty("RoleKey").GetString());
         Assert.Equal("Available", engineer.GetProperty("Availability").GetString());
         Assert.Equal(
-            ["work.execution.build-readiness.v1", "work.execution.run.v2", "work.execution.run.v1",
+            ["work.execution.build-readiness.v1", "work.execution.run",
                 "software-development.implement.v1", "agent.configuration.describe.v1",
                 "agent.configuration.update.v1"],
             engineer.GetProperty("Capabilities").EnumerateArray().Select(capability => capability.GetString()!).ToArray());

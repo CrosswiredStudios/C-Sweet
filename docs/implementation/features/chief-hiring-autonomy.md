@@ -57,6 +57,15 @@ recommendation mode. An explicit skip completes setup with the defaults and resu
 Decision keys bind installation, stage, revision, and retry; replayed answers do not increment
 policy revision again.
 
+`ChiefOfStaffAgent.HandleConfigurationChoiceAnsweredAsync` resumes hiring setup before company
+focus, matching the initial onboarding path. `BeginFocusOnboardingAsync` shares conversation-scoped
+message and decision keys across all entry paths and persists delivery in
+`chief.onboarding-focus:<conversationId>` operating state. The state is written after the required
+focus card succeeds; retries after partial delivery reuse the durable message/card. It also retains
+the originating answer turn so later hiring-preference changes acknowledge the save without
+repeating the introduction or attaching an earlier question to a new turn. Chief 2.12.1 contains
+this fix; upgrade the installed agent package to apply it. Existing conversation history is preserved.
+
 `CaptureDecisionAsync` accepts only an immutable, answered decision for the authenticated
 Chief, answered by a current human owner. It supports selected options and explicit natural
 language, including bounded costs such as `10 USD per hire, 100 USD total`. Capabilities are

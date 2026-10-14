@@ -12,5 +12,6 @@ public enum PluginKind
 public enum PluginInstallationScope
 {
     Organization,
-    System
+    System,
+    User
 }

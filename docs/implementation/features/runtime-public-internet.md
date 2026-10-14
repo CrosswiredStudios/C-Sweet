@@ -119,6 +119,28 @@ The user will review and push the shared SDK, contracts and agent changes before
 Agent release publication, explicit installation review, agent-driven validation and Daniel's deployed ticket evidence remain pending.
 The scripted fixture does not establish live ticket recovery; no Producer retry has been sent.
 
+## IPv4 guest boot regression (2026-10-13)
+
+Daniel's approved revision-4 runtime used the signed `public-internet-ipv4` policy, but
+`ExecutionBrokerSessionRunner.RunRuntimeAsync` set `GuestBootConfiguration.PublicInternet` only for
+`public-internet`. The guest therefore remained restricted: no TUN startup and no public resolver,
+although Headquarters correctly displayed the signed approved policy. Node/npm were present; npm,
+curl and Python failed DNS. Inference records show completed provider calls during this attempt.
+The resulting restricted-guest diagnostic was misleading about the administrator's saved approval.
+
+`CreateRuntimeBootConfiguration` now validates the signed policy and enables the guest tunnel for both
+approved public modes. Office continues enforcing the address-family limits; absent policy remains
+restricted. `RuntimeInternetGrantTests.ApprovedRuntimePolicyEnablesTunnelInGuestBootMessage` checks
+the transmitted protobuf for full, IPv4 and absent policies. `RuntimeInternetAccessReview` now changes
+its button label after approval and displays a saved-access confirmation. Existing guests require
+replacement because network setup is part of boot, not a live toggle.
+The local `InternetBootVerified` Headquarters build was deployed after 88 focused tests passed,
+using packaged dependencies with sibling references disabled. The old restricted guest was torn down;
+Office reconnected with its identity intact. Daniel's permission remains granted at revision 4.
+The UI saved-access confirmation was verified by applying the unchanged approved value; no extra
+authority or grant revision was created. The ticket's registry and validation evidence still requires
+a fresh authoring attempt. No automatic ticket retry or reporting-chain message was sent.
+
 ## Network activity audit boundary and future path
 
 `CSweetDbContext.CaptureRuntimeInternetRevocationsAsync` audits grant changes atomically, including offline

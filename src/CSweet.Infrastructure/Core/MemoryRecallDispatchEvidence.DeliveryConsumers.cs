@@ -11,7 +11,7 @@ public sealed partial class MemoryRecallDispatchEvidence
     private async Task<string> CaseDeliveryConsumerBindingAsync(AgentWorkItem work, Guid organization, Guid employee,
         Guid itemId, Guid stageId, CancellationToken token)
     {
-        if (work.Kind != AgentWorkKind.Capability || work.Name != WorkManagementCapabilityNames.ExecutionRunV2)
+        if (work.Kind != AgentWorkKind.Capability || work.Name != WorkManagementCapabilityNames.ExecutionRun)
             throw Denied("case.consumer-delivery-kind");
         // Aggregate reviews have no sprint identity. Bind the canonical item and current
         // approved scope, candidate, reviewer and exact attempt from server-owned rows.

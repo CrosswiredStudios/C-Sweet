@@ -99,8 +99,8 @@ public sealed partial class WorkManagementCapabilityHandlerTests
             .Concat(WorkOrchestrationActions.All)
             .Append(WorkFlowMetricActions.Read)
             .Concat(PersonalTodoActions.All)
-            .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRunV1)
-              .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRunV2)
+            .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRun)
+              .Append(SharedWork.WorkManagementCapabilityNames.ExecutionRun)
             .Where(SharedWork.WorkManagementCapabilityNames.All.Contains)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -122,7 +122,7 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         Assert.Equal(WorkSprintActions.CarryOver, CSweet.Agent.SDK.WorkSprintCapabilities.CarryOver);
         Assert.Equal(WorkSprintActions.ReadReports, CSweet.Agent.SDK.WorkSprintCapabilities.ReadReports);
         Assert.Equal(WorkOrchestrationActions.Start, CSweet.Agent.SDK.WorkOrchestrationCapabilities.Start);
-        Assert.Equal(SharedWork.WorkManagementCapabilityNames.ExecutionRunV1,
+        Assert.Equal(SharedWork.WorkManagementCapabilityNames.ExecutionRun,
             CSweet.Agent.SDK.WorkOrchestrationCapabilities.Execute);
     }
 

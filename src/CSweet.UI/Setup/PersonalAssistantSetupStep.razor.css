@@ -1,0 +1,16 @@
+.assistant-setup-step { display:flex; flex-direction:column; gap:28px; padding:32px; min-width:0; }
+.provider-step-heading h1 { margin:10px 0 12px; font-size:clamp(1.65rem,2.6vw,2rem); font-weight:750; letter-spacing:-.035em; line-height:1.15; color:var(--activity-text); }
+.provider-step-heading p { margin:0; color:var(--activity-muted); line-height:1.6; }
+.provider-step-heading ::deep .mud-typography-overline { color:var(--activity-accent); font-size:.7rem; font-weight:750; letter-spacing:.13em; }
+.provider-step-actions { display:flex; justify-content:space-between; align-items:center; gap:12px; border-top:1px solid var(--activity-border); padding-top:20px; }
+.assistant-setup-step ::deep .assistant-settings { gap:20px; }
+.assistant-setup-step ::deep .assistant-field-note { color:var(--activity-muted); font-size:.8rem; line-height:1.5; }
+@media(max-width:600px) {
+    .assistant-setup-step { padding:24px 20px; gap:24px; }
+    .provider-step-actions ::deep .mud-button-root { min-height:44px; }
+}
+@media(max-width:360px) {
+    .assistant-setup-step { padding:20px 16px; }
+    .provider-step-actions { flex-wrap:wrap; }
+    .provider-step-actions ::deep .mud-button-root { flex:1 0 auto; }
+}

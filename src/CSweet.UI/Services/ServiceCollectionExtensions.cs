@@ -9,6 +9,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddScoped<ISetupApiClient, SetupApiClient>();
         services.AddScoped<ILlmProviderApiClient, LlmProviderApiClient>();
+        services.AddScoped<PersonalAssistantApiClient>();
         services.AddScoped<IGenAiProviderApiClient, GenAiProviderApiClient>();
         services.AddScoped<IAgentRuntimeSettingsApiClient, AgentRuntimeSettingsApiClient>();
         services.AddScoped<IOrganizationApiClient, OrganizationApiClient>();
@@ -22,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AuthSessionStore>();
         services.AddScoped<IAuthenticationApiClient, AuthenticationApiClient>();
         services.AddScoped<AppRealtimeState>();
+        services.AddScoped<IAppRealtimeConnection>(sp => sp.GetRequiredService<AppRealtimeState>());
         services.AddScoped<AppearanceState>();
         services.AddScoped<ExecutionCapacityAlertState>();
         services.AddScoped<CommunicationUnreadState>();

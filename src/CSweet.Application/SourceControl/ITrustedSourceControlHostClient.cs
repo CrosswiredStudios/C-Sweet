@@ -7,6 +7,10 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<TrustedWorkspaceSnapshot> PrepareOnboardingSnapshotAsync(TrustedWorkspaceSnapshotRequest request, CancellationToken token = default) =>
+        throw new NotSupportedException("Read-only onboarding snapshots are unavailable.");
+    Task<InternalRepositoryImportResult> ImportInternalArchiveAsync(InternalRepositoryImportRequest request, Stream archive, CancellationToken token = default) =>
+        throw new NotSupportedException("Repository archive import is unavailable.");
     Task<IReadOnlyList<TrustedInstallationDescriptor>> ListInstallationsAsync(CancellationToken ct = default) =>
         throw new NotSupportedException("GitHost must be updated to discover GitHub installations.");
     Task<DeliveryBranchResult> DeliveryBranchAsync(DeliveryBranchOperation request, CancellationToken ct = default) =>

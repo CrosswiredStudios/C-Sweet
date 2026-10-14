@@ -25,6 +25,9 @@ public sealed partial class PlatformLlmCapabilityHandler
             .SingleOrDefaultAsync(x => x.Id == installationId && x.BusinessId == session.BusinessId && x.IsEnabled, token);
         if (installation?.Grant is not { } grant || grant.GrantRevision != session.Grant.Revision)
             throw new ProviderDispatchDeniedException();
+        if (installation.Scope == PluginInstallationScope.User &&
+            !await CSweet.Infrastructure.Setup.UserScopedAgentPolicy.IsAuthorizedAsync(_dbContext, installationId, session.BusinessId, token))
+            throw new ProviderDispatchDeniedException();
         try
         {
             if (JsonSerializer.Deserialize<string[]>(grant.RequiredCapabilitiesJson)?.Contains(PlatformChatCapabilities.ChatStream, StringComparer.Ordinal) != true)

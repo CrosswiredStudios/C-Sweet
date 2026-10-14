@@ -2719,3 +2719,69 @@ body:has(.setup-assistant) .mud-dialog :is(.provider-form-grid,.provider-editor-
  body:has(.setup-assistant) .mud-dialog input { font-size:16px; }
  body:has(.setup-assistant) .mud-dialog .mud-dialog-content { padding:20px; }
 }
+/* Enterprise onboarding and the user-scoped Personal Assistant use the shared theme palette. */
+.onboarding-dialog { max-width: 850px; }
+.onboarding-dialog { display:grid; gap:22px; padding:8px; color:var(--activity-text); }
+.onboarding-dialog .business-dialog-header,.onboarding-dialog .business-dialog-brand,.onboarding-dialog .business-dialog-actions { display:flex; align-items:center; gap:16px; }
+.onboarding-dialog .business-dialog-header { align-items:flex-start; justify-content:space-between; }
+.onboarding-dialog .business-dialog-brand { align-items:flex-start; min-width:0; }
+.onboarding-dialog .business-dialog-mark,.personal-assistant-workspace .business-dialog-mark { display:grid; place-items:center; flex:0 0 44px; height:44px; border-radius:13px; background:var(--activity-tint); color:var(--activity-accent); }
+.onboarding-dialog .business-dialog-header h2 { margin:6px 0 10px; font-size:1.65rem; font-weight:650; letter-spacing:-.04em; line-height:1.15; overflow-wrap:anywhere; }
+.onboarding-dialog .business-dialog-header p { color:var(--activity-muted); font-size:.875rem; line-height:1.55; margin:0; }
+.onboarding-dialog .business-dialog-close { display:grid; place-items:center; flex:0 0 40px; height:40px; border:0; border-radius:12px; background:var(--activity-tint); color:var(--activity-accent); cursor:pointer; }
+.onboarding-dialog .business-dialog-actions { justify-content:flex-end; flex-wrap:wrap; border-top:1px solid var(--activity-border); padding-top:20px; }
+.onboarding-dialog .business-next-step { color:var(--activity-muted); font-size:.85rem; line-height:1.6; }
+.onboarding-dialog .business-kicker,.personal-assistant-workspace .business-kicker { color:var(--activity-accent); font-size:.68rem; font-weight:650; letter-spacing:.15em; text-transform:uppercase; }
+.personal-assistant-workspace .enterprise-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:32px; }
+.personal-assistant-workspace .enterprise-heading h1 { margin:10px 0 12px; font-size:clamp(2rem,3vw,3rem); font-weight:650; letter-spacing:-.045em; line-height:1.12; }
+.personal-assistant-workspace .enterprise-heading p { color:var(--activity-muted); margin:0; }
+.onboarding-story-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; margin: 24px 0; }
+.onboarding-story { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 15px; border: 1px solid var(--activity-border); border-radius: 20px; padding: 24px; background: var(--activity-raised); color: var(--activity-text); cursor: pointer; font: inherit; }
+.onboarding-story:hover { border-color: var(--activity-accent); background: var(--activity-tint); }
+.onboarding-story strong { font-size: 1.15rem; }
+.onboarding-story p { margin: 0; line-height: 1.6; color: var(--activity-muted); }
+.onboarding-story > span:last-child { display:flex; gap:8px; align-items:center; color:var(--activity-accent); font-size:.85rem; }
+.onboarding-story:focus-visible,.assistant-draft-link:focus-visible,.onboarding-upload-button:focus-within { outline: 3px solid var(--activity-accent); outline-offset: 3px; }
+.onboarding-progress { display:flex; flex-wrap:wrap; gap:16px; border-bottom:1px solid var(--activity-border); padding-bottom:16px; margin-bottom:24px; color:var(--activity-muted); font-size:.85rem; }
+.onboarding-progress .active { color:var(--activity-accent); font-weight:700; }
+.onboarding-source-actions { display:flex; flex-wrap:wrap; gap:12px; margin:20px 0 12px; align-items:center; }
+.onboarding-upload-button { position:relative; display:inline-flex; align-items:center; border:1px solid var(--activity-border); border-radius:8px; padding:10px 16px; font-size:.9rem; cursor:pointer; overflow:hidden; }
+.onboarding-upload-button input { position:absolute; inset:0; opacity:0; width:100%; cursor:pointer; }
+.onboarding-hint { font-size:.82rem; color:var(--activity-muted); line-height:1.6; }
+.onboarding-repository-picker { max-height:250px; overflow:auto; margin:12px 0; border:1px solid var(--activity-border); border-radius:12px; }
+.onboarding-repository-picker > div { border-bottom:1px solid var(--activity-border); padding:4px 12px; }
+.onboarding-repository-picker small { display:block; padding:0 12px 8px; color:var(--activity-muted); }
+.onboarding-source-list { display:grid; gap:8px; margin:20px 0; }
+.onboarding-source-list article { display:flex; align-items:center; gap:12px; padding:12px 16px; border:1px solid var(--activity-border); border-radius:12px; background:var(--activity-raised); }
+.onboarding-source-list article > div { flex:1; min-width:0; overflow-wrap:anywhere; }
+.onboarding-source-list span { display:block; font-size:.8rem; color:var(--activity-muted); }
+.onboarding-working,.onboarding-success { text-align:center; padding:32px 12px; }
+.onboarding-working h3,.onboarding-success h3 { margin:20px 0 12px; }
+.onboarding-working p,.onboarding-success p { color:var(--activity-muted); }
+.onboarding-review { display:grid; gap:14px; }
+.onboarding-project-review { padding:18px; border:1px solid var(--activity-border); border-radius:16px; display:grid; gap:12px; }
+.onboarding-project-review details { color:var(--activity-muted); font-size:.8rem; overflow-wrap:anywhere; }
+.onboarding-open-questions { border-left:3px solid var(--activity-accent); padding:4px 16px; background:var(--activity-tint); }
+.personal-assistant-grid { display:grid; grid-template-columns:minmax(280px,.85fr) minmax(350px,1.15fr); gap:24px; align-items:start; }
+.personal-assistant-guidance { display:grid; gap:20px; }
+.assistant-panel,.assistant-chat { border:1px solid var(--activity-border); border-radius:24px; background:var(--activity-panel); padding:26px; color:var(--activity-text); }
+.assistant-panel h2,.assistant-chat h2 { font-size:1.2rem; margin:0 0 12px; }
+.assistant-panel p,.assistant-panel li,.assistant-chat header p { color:var(--activity-muted); line-height:1.7; }
+.assistant-panel ul { padding-left:20px; margin-bottom:0; }
+.assistant-panel li + li { margin-top:12px; }
+.assistant-chat { position:sticky; top:24px; display:flex; flex-direction:column; min-height:560px; }
+.assistant-chat header { display:flex; gap:14px; align-items:center; border-bottom:1px solid var(--activity-border); padding-bottom:20px; }
+.assistant-chat header > div { flex:1; min-width:0; }
+.assistant-chat header h2 { margin:0; }.assistant-chat header p { margin:4px 0 0; font-size:.85rem; }
+.assistant-transcript { overflow:auto; max-height:520px; min-height:250px; padding:18px 0; flex:1; }
+.assistant-chat-welcome { color:var(--activity-muted); line-height:1.7; }
+.assistant-message { padding:14px 16px; border-radius:16px; background:var(--activity-raised); margin:12px 0; border:1px solid var(--activity-border); }
+.assistant-message-user { background:var(--activity-tint); margin-left:28px; }
+.assistant-message strong { font-size:.78rem; color:var(--activity-accent); }
+.assistant-message p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; margin:6px 0 0; }
+.assistant-composer { display:grid; gap:12px; }.assistant-composer .mud-button-root { justify-self:end; }
+.assistant-settings { display:grid; gap:14px; }.assistant-settings h3,.assistant-settings p { margin:0; }
+.assistant-budget-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.assistant-draft-link { display:grid; grid-template-columns:1fr auto; border-top:1px solid var(--activity-border); padding:16px 0; color:var(--activity-text); text-decoration:none; gap:5px; }
+.assistant-draft-link span { font-size:.8rem; color:var(--activity-muted); grid-column:1; }.assistant-draft-link .mud-icon-root { grid-column:2; grid-row:1/3; align-self:center; }
+@media(max-width:750px) { .personal-assistant-grid,.onboarding-story-grid { grid-template-columns:1fr; }.assistant-chat { position:static; min-height:450px; grid-row:1; }.assistant-panel,.assistant-chat { padding:20px; }.onboarding-story { padding:20px; }.assistant-budget-fields { grid-template-columns:1fr; } }

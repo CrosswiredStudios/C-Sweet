@@ -4,7 +4,7 @@
 <PageTitle>Enterprise - C-Sweet</PageTitle>
 
 <div class="aurora-page business-workspace enterprise-workspace">
-    <Organizations CreateRequested="@CreateRequested" />
+    <Organizations CreateRequested="@CreateRequested" DraftId="DraftId" />
     <section class="enterprise-tools" aria-label="Enterprise tools">
         <div>
             <h2><MudIcon Icon="@Icons.Material.Outlined.Science" Size="Size.Small" />Business benchmarks</h2>
@@ -30,6 +30,7 @@
 @code {
     [Parameter, SupplyParameterFromQuery(Name = "create")]
     public bool CreateRequested { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
 
     private bool? _apiStatus;
     private string ApiStatusLabel => _apiStatus switch { true => "API connected", false => "API disconnected", _ => "Checking connection…" };

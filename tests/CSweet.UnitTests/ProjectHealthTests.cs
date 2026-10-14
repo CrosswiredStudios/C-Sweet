@@ -108,7 +108,7 @@ public sealed class ProjectHealthTests
     {
         await using var f = await Fixture.Create(); var ticket = f.Ticket(WorkTaskStatus.Ready); f.Db.Add(ticket);
         var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = f.Producer.AgentInstallationId!.Value,
-            Name = "work.execution.run.v1", Status = AgentWorkStatus.Pending, CreatedAt = f.Clock.Now, DeadlineAt = f.Clock.Now.AddHours(1) };
+            Name = "work.execution.run", Status = AgentWorkStatus.Pending, CreatedAt = f.Clock.Now, DeadlineAt = f.Clock.Now.AddHours(1) };
         var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), AgentInstallationId = work.AgentInstallationId, QueuedAt = f.Clock.Now };
         if (status != AgentRuntimeStatus.PolicyDenied) runtime.TransitionTo(AgentRuntimeStatus.Starting, f.Clock.Now);
         if (status == AgentRuntimeStatus.McpSessionTimedOut) runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, f.Clock.Now);
@@ -171,7 +171,7 @@ public sealed class ProjectHealthTests
     {
         await using var f = await Fixture.Create(); var ticket = f.Ticket(WorkTaskStatus.Failed); f.Db.Add(ticket);
         var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = f.Producer.AgentInstallationId!.Value,
-            Name = "work.execution.run.v1", Status = AgentWorkStatus.DeadLetter, LastError = "schema validation failed", CreatedAt = f.Clock.Now };
+            Name = "work.execution.run", Status = AgentWorkStatus.DeadLetter, LastError = "schema validation failed", CreatedAt = f.Clock.Now };
         f.Db.Add(work); f.Db.Add(new CSweet.Domain.Analytics.WorkExecutionContext { Id = Guid.NewGuid(), OrganizationId = f.Org,
             AgentInstallationId = work.AgentInstallationId, AgentWorkItemId = work.Id, RootWorkItemId = ticket.Id });
         await f.Db.SaveChangesAsync(); await f.Review();
@@ -280,7 +280,7 @@ public sealed class ProjectHealthTests
         await using var live = await Fixture.Create();
         var task = live.Ticket(WorkTaskStatus.Running); live.Db.Add(task);
         var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = live.Org.ToString(), AgentInstallationId = live.Producer.AgentInstallationId!.Value,
-            Name = "work.execution.run.v1", Status = AgentWorkStatus.Leased, AttemptCount = 1, CreatedAt = live.Clock.Now, DeadlineAt = live.Clock.Now.AddHours(1) };
+            Name = "work.execution.run", Status = AgentWorkStatus.Leased, AttemptCount = 1, CreatedAt = live.Clock.Now, DeadlineAt = live.Clock.Now.AddHours(1) };
         var attempt = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id, Attempt = 1, ClaimedAt = live.Clock.Now, LeaseExpiresAt = live.Clock.Now.AddHours(1) };
         live.Db.AddRange(work, attempt, new CSweet.Domain.Analytics.WorkExecutionContext { Id = attempt.Id, OrganizationId = live.Org,
             AgentInstallationId = work.AgentInstallationId, AgentWorkItemId = work.Id, RootWorkItemId = task.Id });
@@ -686,7 +686,7 @@ public sealed class ProjectHealthTests
             StageKey = "quality", Status = WorkStageExecutionStatus.Blocked, CreatedAt = f.Clock.Now,
             LastError = "The author has not delivered an exact artifact revision." };
         var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
-            AgentInstallationId = f.Producer.AgentInstallationId!.Value, Name = "work.execution.run.v2",
+            AgentInstallationId = f.Producer.AgentInstallationId!.Value, Name = "work.execution.run",
             SourceType = "WorkStageExecution", SourceId = stage.Id.ToString(), Status = inboxStatus, CreatedAt = f.Clock.Now };
         f.Db.AddRange(ticket, execution, stage, work, new WorkExecutionAttempt { Id = Guid.NewGuid(),
             StageExecutionId = stage.Id, AgentWorkItemId = work.Id, Status = WorkExecutionAttemptStatus.Completed });

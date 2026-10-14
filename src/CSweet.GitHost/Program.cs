@@ -153,6 +153,35 @@ app.MapPost("/internal/v3/git", async (InternalGitHttpRequest request, InternalG
 
 app.MapGet("/internal/v3/storage", async (InternalGitRepositoryStore store, CancellationToken ct) =>
     Results.Ok(await store.StatusAsync(ct)));
+app.MapPost("/internal/v3/onboarding/snapshot", async (GitHubWorkspacePrepareRequest request,
+    GitHubWorkspaceSnapshotService snapshots, HttpContext http, CancellationToken token) =>
+{
+    try
+    {
+    var snapshot = await snapshots.PrepareForOnboardingAsync(request, token);
+    http.Response.Headers[WorkspaceSnapshotHeaders.WorkspaceKey] = snapshot.WorkspaceKey;
+    http.Response.Headers[WorkspaceSnapshotHeaders.BaseCommitSha] = snapshot.BaseCommitSha;
+    http.Response.Headers[WorkspaceSnapshotHeaders.Resumed] = snapshot.Resumed.ToString();
+    http.Response.Headers[WorkspaceSnapshotHeaders.ArtifactSha256] = snapshot.Manifest.Sha256;
+    http.Response.Headers[WorkspaceSnapshotHeaders.ArtifactFileCount] = snapshot.Manifest.FileCount.ToString();
+    http.Response.Headers[WorkspaceSnapshotHeaders.ArtifactTotalBytes] = snapshot.Manifest.TotalBytes.ToString();
+    return Results.File(snapshot.Archive, "application/zip");
+    }
+    catch (UnauthorizedAccessException) { return Results.Json(new { error = "repository_not_authorized" }, statusCode: 403); }
+    catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_snapshot_request" }); }
+    catch (InvalidDataException) { return Results.UnprocessableEntity(new { error = "snapshot_rejected" }); }
+    catch (InvalidOperationException) { return Results.Conflict(new { error = "snapshot_unavailable" }); }
+});
+app.MapPost("/internal/v3/onboarding/import/{organizationId:guid}/{repositoryId:guid}", async (
+    Guid organizationId, Guid repositoryId, string sha256, string? branch, HttpContext http,
+    InternalGitRepositoryStore store, WorkspaceArtifactValidator validator, CancellationToken token) =>
+    {
+        try { return Results.Ok(await store.ImportAsync(new(organizationId, repositoryId, sha256, branch ?? "main"), http.Request.Body, validator, token)); }
+        catch (ArgumentException) { return Results.BadRequest(new { error = "invalid_import_request" }); }
+        catch (InvalidDataException) { return Results.UnprocessableEntity(new { error = "archive_rejected" }); }
+        catch (InvalidOperationException) { return Results.Conflict(new { error = "repository_import_conflict" }); }
+    })
+    .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(512L * 1024 * 1024));
 app.MapPost("/internal/v3/repositories/execute", async (InternalGitRepositoryRequest request,
     InternalGitRepositoryStore store, CancellationToken ct) =>
 {

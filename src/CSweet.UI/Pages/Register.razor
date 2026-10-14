@@ -1,5 +1,5 @@
 @page "/register"
-@layout AnonymousLayout
+@layout RegistrationLayout
 @using System.ComponentModel.DataAnnotations
 @using CSweet.Contracts.Auth
 @inject IAuthenticationApiClient AuthenticationApi
@@ -9,89 +9,191 @@
 
 <PageTitle>Create administrator - C-Sweet</PageTitle>
 
-<MudPaper Elevation="0" Class="auth-card">
-    <MudText Typo="Typo.overline" Color="Color.Secondary">Initial onboarding</MudText>
-    <MudText Typo="Typo.h4">Create the root administrator</MudText>
-    @if (_recoveryCodes.Count == 0)
+<section class="registration-sheet" aria-labelledby="registration-title" aria-busy="@_saving">
+    @if (_registrationClosed)
     {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-4">Complete onboarding before exposing this instance to an untrusted network. The first visitor can claim a fresh installation.</MudAlert>
-        <EditForm Model="_model" OnValidSubmit="RegisterAsync" Class="auth-form">
-            <DataAnnotationsValidator />
-            <ValidationSummary />
-            <MudTextField Label="Your name" @bind-Value="_model.DisplayName" For="@(() => _model.DisplayName)" Variant="Variant.Outlined" Required="true" />
-            <MudTextField Label="Email" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
-            <MudTextField Label="Password" InputType="InputType.Password" @bind-Value="_model.Password" For="@(() => _model.Password)" Variant="Variant.Outlined" Required="true" />
-            <MudTextField Label="Confirm password" InputType="InputType.Password" @bind-Value="_model.ConfirmPassword" For="@(() => _model.ConfirmPassword)" Variant="Variant.Outlined" Required="true" />
-            @if (_errors.Count > 0)
-            {
-                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@string.Join(" ", _errors)</MudAlert>
-            }
-            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_saving">
-                @(_saving ? "Creating account..." : "Create administrator")
-            </MudButton>
-        </EditForm>
+        <div class="registration-symbol"><MudIcon Icon="@Icons.Material.Outlined.Lock" /></div>
+        <h1 id="registration-title">Already set up.</h1>
+        <p class="registration-lead">An administrator has already claimed this installation. Sign in to continue.</p>
+        <a class="registration-primary" href="/login">Go to sign in <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></a>
     }
-    else
+    else if (_accountCreated)
     {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mt-4">These recovery codes are shown only once. Each code can reset the root password one time without email.</MudAlert>
-        <div class="recovery-code-grid">
-            @foreach (var recoveryCode in _recoveryCodes)
-            {
-                <code>@recoveryCode</code>
-            }
-        </div>
-        <MudStack Row="true" Class="mt-4">
-            <MudButton Variant="Variant.Outlined" OnClick="CopyCodesAsync">Copy</MudButton>
-            <MudButton Variant="Variant.Outlined" OnClick="DownloadCodesAsync">Download</MudButton>
-            <MudButton Variant="Variant.Outlined" OnClick="PrintCodesAsync">Print</MudButton>
-        </MudStack>
-        <MudCheckBox T="bool" @bind-Value="_codesSaved" Label="I saved these recovery codes in a secure place." Class="mt-4" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="@(!_codesSaved)" OnClick="ContinueToSetup">Continue to setup</MudButton>
-    }
-</MudPaper>
-
-@code {
-    private readonly RegisterModel _model = new();
-    private readonly List<string> _errors = [];
-    private bool _saving;
-    private IReadOnlyList<string> _recoveryCodes = [];
-    private bool _codesSaved;
-    private IJSObjectReference? _module;
-
-    private async Task RegisterAsync()
-    {
-        _saving = true;
-        _errors.Clear();
-        var result = await AuthenticationApi.RegisterAsync(new RegisterAdminRequest(_model.DisplayName, _model.Email, _model.Password, _model.ConfirmPassword));
-        if (result.Succeeded)
+        <span class="registration-eyebrow">Account created</span>
+        <h1 id="registration-title">Save your recovery codes.</h1>
+        <p class="registration-lead">Shown only once. Each code resets your administrator password one time, without email.</p>
+        @if (_recoveryCodes.Count > 0)
         {
-            _recoveryCodes = result.RecoveryCodes ?? [];
+            <div class="registration-codes" aria-label="Recovery codes">
+                @foreach (var recoveryCode in _recoveryCodes) { <code>@recoveryCode</code> }
+            </div>
+            <div class="registration-exports">
+                <button type="button" disabled="@_exporting" @onclick="CopyCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.ContentCopy" /> Copy</button>
+                <button type="button" class="registration-download" disabled="@_exporting" @onclick="DownloadCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.FileDownload" /> Download</button>
+                <button type="button" disabled="@_exporting" @onclick="PrintCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.Print" /> Print</button>
+            </div>
+            @if (_exportMessage is not null) { <p class="registration-feedback @(_exportFailed ? "registration-error" : null)" role="status">@_exportMessage</p> }
+            <label class="registration-confirm"><input type="checkbox" @bind="_codesSaved" /><span>I saved these codes in a secure place.</span></label>
+            <button type="button" class="registration-primary" disabled="@(!_codesSaved)" @onclick="ContinueToSetup">Continue to setup <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+            <p class="registration-footnote">Keep this page open until your codes are saved.</p>
         }
         else
         {
-            _errors.AddRange(result.ValidationErrors?.SelectMany(x => x.Value) ?? [result.Message]);
-            if (result.ErrorCode == "registration_closed") Navigation.NavigateTo("/login");
+            <p class="registration-error" role="alert">Your account was created, but no recovery codes were returned. Generate a new set before continuing.</p>
+            @if (_error is not null) { <p class="registration-error" role="alert">@_error</p> }
+            <button type="button" class="registration-primary" disabled="@_saving" @onclick="GenerateCodesAsync">@(_saving ? "Generating codes…" : "Generate recovery codes")</button>
         }
-        _saving = false;
+    }
+    else
+    {
+        <span class="registration-eyebrow">Welcome to C-Sweet</span>
+        <h1 id="registration-title">Create your administrator.</h1>
+        <p class="registration-lead">You’ll manage this installation and its businesses.</p>
+        <EditForm EditContext="_editContext" OnSubmit="RegisterAsync" class="registration-form" novalidate>
+            <DataAnnotationsValidator />
+            <fieldset disabled="@_saving">
+                <div class="registration-field">
+                    <label for="register-name">Your name</label>
+                    <InputText id="register-name" @bind-Value="_model.DisplayName" autocomplete="name" maxlength="160" aria-required="true" aria-describedby="register-name-error" />
+                    <div id="register-name-error"><ValidationMessage For="@(() => _model.DisplayName)" /></div>
+                </div>
+                <div class="registration-field">
+                    <label for="register-email">Email</label>
+                    <InputText id="register-email" type="email" @bind-Value="_model.Email" autocomplete="email" inputmode="email" aria-required="true" aria-describedby="register-email-error" />
+                    <div id="register-email-error"><ValidationMessage For="@(() => _model.Email)" /></div>
+                </div>
+                <div class="registration-field">
+                    <label for="register-password">Password</label>
+                    <div class="registration-password">
+                        <InputText id="register-password" type="@(_showPassword ? "text" : "password")" @bind-Value="_model.Password" autocomplete="new-password" aria-required="true" aria-describedby="register-password-error" />
+                        <button type="button" aria-label="@(_showPassword ? "Hide password" : "Show password")" aria-pressed="@_showPassword" @onclick="() => _showPassword = !_showPassword">@(_showPassword ? "Hide" : "Show")</button>
+                    </div>
+                    <div id="register-password-error"><ValidationMessage For="@(() => _model.Password)" /></div>
+                </div>
+                <div class="registration-field">
+                    <label for="register-confirm">Confirm password</label>
+                    <div class="registration-password">
+                        <InputText id="register-confirm" type="@(_showConfirm ? "text" : "password")" @bind-Value="_model.ConfirmPassword" autocomplete="new-password" aria-required="true" aria-describedby="register-confirm-error" />
+                        <button type="button" aria-label="@(_showConfirm ? "Hide password confirmation" : "Show password confirmation")" aria-pressed="@_showConfirm" @onclick="() => _showConfirm = !_showConfirm">@(_showConfirm ? "Hide" : "Show")</button>
+                    </div>
+                    <div id="register-confirm-error"><ValidationMessage For="@(() => _model.ConfirmPassword)" /></div>
+                </div>
+            </fieldset>
+            <div class="registration-notice"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><div><strong>Keep this installation private during setup.</strong><span>The first person to register becomes its administrator.</span></div></div>
+            @if (_error is not null) { <p class="registration-error" role="alert">@_error</p> }
+            <button type="submit" class="registration-primary" disabled="@_saving"><span role="status">@(_saving ? "Creating your account…" : "Create administrator")</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+        </EditForm>
+        <footer class="registration-footer"><span>Already have an account?</span><a href="/login">Sign in</a></footer>
+    }
+</section>
+
+@code {
+    private readonly RegisterModel _model = new();
+    private EditContext _editContext = default!;
+    private ValidationMessageStore _serverErrors = default!;
+    private bool _saving, _accountCreated, _registrationClosed, _codesSaved, _exporting, _exportFailed, _showPassword, _showConfirm;
+    private string? _error, _exportMessage;
+    private IReadOnlyList<string> _recoveryCodes = [];
+    private IJSObjectReference? _module;
+
+    protected override void OnInitialized()
+    {
+        _editContext = new(_model);
+        _serverErrors = new(_editContext);
+        _editContext.OnFieldChanged += ClearFieldError;
+    }
+
+    private void ClearFieldError(object? sender, FieldChangedEventArgs args)
+    {
+        _serverErrors.Clear(args.FieldIdentifier);
+        _editContext.NotifyValidationStateChanged();
+    }
+
+    private async Task RegisterAsync()
+    {
+        if (_saving || _accountCreated || _registrationClosed) return;
+        _error = null;
+        _serverErrors.Clear();
+        if (!_editContext.Validate()) { _error = "Check the highlighted fields to continue."; return; }
+        _saving = true;
+        try
+        {
+            var result = await AuthenticationApi.RegisterAsync(new RegisterAdminRequest(_model.DisplayName, _model.Email, _model.Password, _model.ConfirmPassword));
+            if (result.Succeeded)
+            {
+                _accountCreated = true;
+                _recoveryCodes = result.RecoveryCodes ?? [];
+                _model.Password = _model.ConfirmPassword = string.Empty;
+            }
+            else if (result.ErrorCode == "registration_closed") _registrationClosed = true;
+            else
+            {
+                _error = result.Message;
+                foreach (var field in result.ValidationErrors ?? new Dictionary<string, string[]>())
+                {
+                    if (typeof(RegisterModel).GetProperty(field.Key) is not null)
+                        _serverErrors.Add(new FieldIdentifier(_model, field.Key), field.Value);
+                }
+                _editContext.NotifyValidationStateChanged();
+            }
+        }
+        catch (Exception)
+        {
+            _error = "We couldn’t confirm that your account was created. Check your connection and try again, or sign in if you already completed this step.";
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task GenerateCodesAsync()
+    {
+        if (_saving || !_accountCreated || _recoveryCodes.Count > 0) return;
+        _saving = true; _error = null;
+        try
+        {
+            var result = await AuthenticationApi.RegenerateRecoveryCodesAsync();
+            if (result.Succeeded && result.RecoveryCodes is { Count: > 0 }) _recoveryCodes = result.RecoveryCodes;
+            else _error = result.Message;
+        }
+        catch (Exception) { _error = "Recovery codes couldn’t be generated. Check your connection and try again."; }
+        finally { _saving = false; }
     }
 
     private string RecoveryText => $"C-Sweet root recovery codes{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, _recoveryCodes)}";
     private async Task<IJSObjectReference> ModuleAsync() => _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
-    private async Task CopyCodesAsync() => await (await ModuleAsync()).InvokeVoidAsync("copyText", RecoveryText);
-    private async Task DownloadCodesAsync() => await (await ModuleAsync()).InvokeVoidAsync("downloadText", "csweet-root-recovery-codes.txt", RecoveryText);
-    private async Task PrintCodesAsync() => await (await ModuleAsync()).InvokeVoidAsync("printText", "C-Sweet root recovery codes", RecoveryText);
-    private void ContinueToSetup() => Navigation.NavigateTo("/setup", forceLoad: true);
+    private Task CopyCodesAsync() => ExportCodesAsync("copyText", "Codes copied. Store them somewhere secure.", "Copy isn’t available. Download or print your codes instead.", RecoveryText);
+    private Task DownloadCodesAsync() => ExportCodesAsync("downloadText", "Download requested. Check the file before continuing.", "Download couldn’t start. Copy or print your codes instead.", "csweet-root-recovery-codes.txt", RecoveryText);
+    private Task PrintCodesAsync() => ExportCodesAsync("printText", "Print requested. Confirm your codes were printed before continuing.", "Print couldn’t open. Allow pop-ups, or copy or download your codes.", "C-Sweet root recovery codes", RecoveryText);
+    private async Task ExportCodesAsync(string method, string success, string failure, params object[] arguments)
+    {
+        if (_exporting || _recoveryCodes.Count == 0) return;
+        _exporting = true; _exportMessage = null; _exportFailed = false;
+        try
+        {
+            var module = await ModuleAsync();
+            if (method == "printText" && !await module.InvokeAsync<bool>(method, arguments))
+            { _exportMessage = failure; _exportFailed = true; return; }
+            if (method != "printText") await module.InvokeVoidAsync(method, arguments);
+            _exportMessage = success;
+        }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or TaskCanceledException) { _exportMessage = failure; _exportFailed = true; }
+        finally { _exporting = false; }
+    }
+    private void ContinueToSetup() { if (_codesSaved && _recoveryCodes.Count > 0) Navigation.NavigateTo("/setup", forceLoad: true); }
 
     public async ValueTask DisposeAsync()
     {
-        if (_module is not null) await _module.DisposeAsync();
+        _editContext.OnFieldChanged -= ClearFieldError;
+        if (_module is not null)
+        {
+            try { await _module.DisposeAsync(); } catch (JSDisconnectedException) { }
+        }
     }
 
     private sealed class RegisterModel
     {
-        [Required, MaxLength(160)] public string DisplayName { get; set; } = string.Empty;
-        [Required, EmailAddress] public string Email { get; set; } = string.Empty;
-        [Required] public string Password { get; set; } = string.Empty;
-        [Required] public string ConfirmPassword { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Enter your name."), MaxLength(160)] public string DisplayName { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Enter your email."), EmailAddress(ErrorMessage = "Enter a valid email address.")] public string Email { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Choose a password.")] public string Password { get; set; } = string.Empty;
+        [Required(ErrorMessage = "Confirm your password."), Compare(nameof(Password), ErrorMessage = "The passwords don’t match.")] public string ConfirmPassword { get; set; } = string.Empty;
     }
 }

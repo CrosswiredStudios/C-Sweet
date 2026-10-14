@@ -63,13 +63,13 @@ public sealed class HiringCandidateEndpointTests
         await app.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
         var path = $"/api/core/organizations/{organization}/agents/available";
-        using var success = await client.GetAsync($"{path}?recommendationId={recommendation}&role=Gameplay%20Engineer&q=Daniel&category=Engineering&capabilities=work.execution.run.v2");
+        using var success = await client.GetAsync($"{path}?recommendationId={recommendation}&role=Gameplay%20Engineer&q=Daniel&category=Engineering&capabilities=work.execution.run");
         Assert.Equal(HttpStatusCode.OK, success.StatusCode);
         Assert.Null(catalog.Query!.Role);
         Assert.Equal("software-developer", catalog.Query.RoleCategoryKey);
         Assert.Equal("Daniel", catalog.Query.SearchString);
         Assert.Equal("Engineering", catalog.Query.Category);
-        Assert.Equal(["work.execution.run.v2"], catalog.Query.RequiredCapabilities);
+        Assert.Equal(["work.execution.run"], catalog.Query.RequiredCapabilities);
         Assert.Equal(["video-game-development"], catalog.Query.PreferredSpecializationKeys);
         using var missing = await client.GetAsync($"{path}?recommendationId={Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);

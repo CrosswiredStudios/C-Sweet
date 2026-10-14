@@ -1,0 +1,31 @@
+<section class="provider-setup-step assistant-setup-step">
+    <header class="provider-step-heading">
+        <MudText Typo="Typo.overline">Step 4 of 5</MudText>
+        <h1>Make your assistant yours.</h1>
+        <p>Choose a name and model for the assistant that helps you plan and manage your work.</p>
+    </header>
+    <PersonalAssistantSettingsForm @ref="_settings" SetInstallationDefault="true" ShowHeading="false" ShowSaveButton="false"
+        PreferredProviderId="PreferredProviderId" Disabled="@(_saving || IsCompleting)" CanSaveChanged="@(value => _canSave = value)" />
+    <footer class="provider-step-actions">
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack"
+            Disabled="@(_saving || IsCompleting)" OnClick="OnBack">Back</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
+            Disabled="@(!_canSave || _saving || IsCompleting)" OnClick="ContinueAsync">@(_saving || IsCompleting ? "Saving…" : "Save and continue")</MudButton>
+    </footer>
+</section>
+
+@code {
+    [Parameter] public Guid? PreferredProviderId { get; set; }
+    [Parameter] public bool IsCompleting { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnContinue { get; set; }
+    private PersonalAssistantSettingsForm? _settings;
+    private bool _canSave, _saving;
+    private async Task ContinueAsync()
+    {
+        if (!_canSave || _saving || IsCompleting || _settings is null) return;
+        _saving = true;
+        try { if (await _settings.SaveAsync()) await OnContinue.InvokeAsync(); }
+        finally { _saving = false; }
+    }
+}

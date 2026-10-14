@@ -584,7 +584,7 @@ public sealed partial class WorkOrchestrationService(
                             x.RevisionStatus == PluginRevisionStatus.Active && x.BusinessId == organizationId.ToString(), cancellationToken)
                         : null;
                     if (installation is null || !ProvidesExecutionCapability(installation.PackageVersion?.ManifestJson))
-                        errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.v1.", item.Id, stage.Key, assignment.Id));
+                        errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.", item.Id, stage.Key, assignment.Id));
                     else
                     {
                         var eligibility = await ValidateAssignmentEvidenceAsync(
@@ -609,7 +609,7 @@ public sealed partial class WorkOrchestrationService(
                                 x.RevisionStatus == PluginRevisionStatus.Active && x.BusinessId == organizationId.ToString(), cancellationToken)
                             : null;
                         if (installation is null || !ProvidesExecutionCapability(installation.PackageVersion?.ManifestJson))
-                            errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.v1.", item.Id, stage.Key, assignment.Id));
+                            errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.", item.Id, stage.Key, assignment.Id));
                     }
                     else if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.Human)
                     {
@@ -830,7 +830,7 @@ public sealed partial class WorkOrchestrationService(
             using var document = JsonDocument.Parse(manifestJson);
             return document.RootElement.TryGetProperty("provides", out var provides) &&
                 provides.ValueKind == JsonValueKind.Array && provides.EnumerateArray().Any(x =>
-                    x.TryGetProperty("name", out var name) && name.GetString() == Shared.WorkManagementCapabilityNames.ExecutionRunV1);
+                    x.TryGetProperty("name", out var name) && name.GetString() == Shared.WorkManagementCapabilityNames.ExecutionRun);
         }
         catch (JsonException) { return false; }
     }

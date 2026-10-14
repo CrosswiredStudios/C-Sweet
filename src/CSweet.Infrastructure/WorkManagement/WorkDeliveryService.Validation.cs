@@ -25,8 +25,8 @@ public sealed partial class WorkDeliveryService
             {
                 var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
                     x.Id == managerInstallation && x.BusinessId == org.ToString() && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
-                if (installation?.PackageVersion?.ManifestJson is not { } manifest || !ProvidesV2(manifest))
-                    throw new InvalidOperationException("An epic acceptance manager needs an active V2 execution installation.");
+                if (installation?.PackageVersion?.ManifestJson is not { } manifest || !ProvidesExecution(manifest))
+                    throw new InvalidOperationException("An epic acceptance manager needs an active canonical execution installation.");
             }
         }
         if (scope.Planning.AcceptanceCriteria.Count == 0 || scope.Stages.Select(x => x.StageKey).Distinct().Count() != scope.Stages.Count)
@@ -42,7 +42,7 @@ public sealed partial class WorkDeliveryService
             {
                 var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x => x.Id == installationId &&
                     x.BusinessId == org.ToString() && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
-                if (installation?.PackageVersion?.ManifestJson is not { } manifest || !ProvidesV2(manifest) ||
+                if (installation?.PackageVersion?.ManifestJson is not { } manifest || !ProvidesExecution(manifest) ||
                     !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == employeeId && x.OrganizationId == org && x.AgentInstallationId == installationId && x.IsActive && x.ArchivedAt == null, ct))
                     throw new InvalidOperationException("Every reviewer needs an active V2 installation and matching employee identity.");
                 if (!await db.ProjectParticipants.AnyAsync(x => x.OrganizationId == org && x.WorkstreamId == board.WorkstreamId &&
@@ -114,16 +114,16 @@ public sealed partial class WorkDeliveryService
         if (review.PrincipalKind != "AgentInstallation" || manager.AgentInstallationId != review.AgentInstallationId || review.AgentInstallationId is null) return false;
         var manifest = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == review.AgentInstallationId && x.BusinessId == org.ToString() &&
             x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active).Select(x => x.PackageVersion!.ManifestJson).SingleOrDefaultAsync(ct);
-        return manifest is not null && ProvidesV2(manifest);
+        return manifest is not null && ProvidesExecution(manifest);
     }
 
-    private static bool ProvidesV2(string manifest)
+    private static bool ProvidesExecution(string manifest)
     {
         try
         {
             using var document = JsonDocument.Parse(manifest);
             return document.RootElement.TryGetProperty("provides", out var provides) && provides.ValueKind == JsonValueKind.Array &&
-                provides.EnumerateArray().Any(x => x.TryGetProperty("name", out var name) && name.GetString() == WorkManagementCapabilityNames.ExecutionRunV2);
+                provides.EnumerateArray().Any(x => x.TryGetProperty("name", out var name) && name.GetString() == WorkManagementCapabilityNames.ExecutionRun);
         }
         catch (JsonException) { return false; }
     }
@@ -261,7 +261,7 @@ public sealed partial class WorkDeliveryService
             var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion)
                 .SingleOrDefaultAsync(x => x.Id == author.AgentInstallationId && x.BusinessId == plan.OrganizationId.ToString() &&
                     x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
-            if (installation?.PackageVersion?.ManifestJson is not { } manifest || !ProvidesV2(manifest) ||
+            if (installation?.PackageVersion?.ManifestJson is not { } manifest || !ProvidesExecution(manifest) ||
                 !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == author.OrganizationUserId && x.OrganizationId == plan.OrganizationId &&
                     x.AgentInstallationId == author.AgentInstallationId && x.IsActive && x.ArchivedAt == null, ct))
                 throw new InvalidOperationException("The task author needs an active V2 installation and matching employee assignment.");

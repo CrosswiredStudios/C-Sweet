@@ -25,7 +25,7 @@ the running platform and installed agents need their normal update/restart befor
 retrying an existing blocked QA stage. No persisted ticket or outcome is rewritten
 by this source change.
 
-This is the normative specification for new game and software installations. Published V1 assignments and historical workflow/profile revisions remain supported. New delivery uses `WorkExecutionAssignmentV2` and `work.execution.run.v2`.
+This is the normative specification for new game and software installations. Execution uses the single `WorkExecutionAssignment` and `work.execution.run` contract from SDK and WorkManagement.Contracts 4.0.0. There is no legacy execution adapter. See [canonical execution cutover](canonical-execution-contract.md) for package alignment and existing-work recovery. Historical workflow/profile revisions are separate from the execution envelope.
 
 ## Completion and authority
 
@@ -51,7 +51,7 @@ Tasks, stories and epics remain canonical board-local work. `WorkDeliveryPlan` a
 
 Amend a paused plan to create a new scope revision and supersede aggregate readiness. Cancelling required work cannot remove it silently. Story/epic integration allows later manager-approved remediation scope. Successful default-branch promotions make that release scope immutable; additional scope requires a follow-up release. `WorkDeliveryTaskAuthorization.RequireAsync` enforces approved task hierarchy/story target and staffing. Direct Done moves, transfers and legacy merge actions cannot bypass gates.
 
-V2 assignments carry principal, planning/scope revision, candidate and permitted outcomes. Aggregate reviews have no sprint identity. `ReadEvidenceAsync` returns exact documents, authorized immutable repository snapshots, child review outcomes and builds. QA binds actual command results to every candidate repository and every criterion. Artifact QA verifies identity, author, origin and content hash.
+Canonical assignments carry principal, planning/scope revision, candidate and permitted outcomes. Aggregate reviews have no sprint identity. `ReadEvidenceAsync` returns exact documents, authorized immutable repository snapshots, child review outcomes and builds. QA binds actual command results to every candidate repository and every criterion. Artifact QA verifies identity, author, origin and content hash.
 
 `WorkOrchestrationBoardState.SynchronizeTaskArtifactGrantsAsync` grants the assigned independent task QA reviewer temporary document read access after exact author delivery. Completion, rework, cancellation and scope amendments revoke that access. Aggregate reviewers require read access to their complete scoped board/repository set; story reviewers need only their story's scope. Human review forms bind exact revisions, criteria and actual test output.
 
@@ -75,13 +75,13 @@ State transitions, agent/application event outboxes and audit outbox records are
 
 Delivery's `ProjectReleases` shows manager, scope, topology, reviewed/tested revisions, builds, criteria, blockers, findings and repository receipts. Human configuration/acceptance use revision checks. New task workflows have no standalone Merge or merge-decision column. Producer Review / Manager Review are epic gates; sprint cards show parent progress without including parents in totals.
 
-Normal Creative Director/Producer and Software PM/Architect kickoff and lightweight Producer kickoff use revised profiles and `HierarchicalProjectDelivery`. Engineer/Developer use story bases; QA validates code/artifacts and full regression; technical/manager reviewers inspect complete evidence; Build Release Engineer requests certified candidate builds. Copied specialist `VideoGameAgentKit` implementations were updated individually for V2 and exact evidence, preserving discipline-specific rules.
+Normal Creative Director/Producer and Software PM/Architect kickoff and lightweight Producer kickoff use revised profiles and `HierarchicalProjectDelivery`. Engineer/Developer use story bases; QA validates code/artifacts and full regression; technical/manager reviewers inspect complete evidence; Build Release Engineer requests certified candidate builds. Copied specialist `VideoGameAgentKit` implementations were updated individually for the canonical execution contract and exact evidence, preserving discipline-specific rules.
 
 ## Clean installation and checks
 
 SDK 3.63.0 `DeliveryBuildReadiness` permits Release build-readiness without a separate hire.
 Hierarchical staffing prefers a Build Release Engineer, then a Technical Director or Developer
-advertising explicit stage support and V2 execution. The shared handler requests configured
+advertising explicit stage support and canonical execution. The shared handler requests configured
 certified builds for every exact candidate repository and returns durable pending identities.
 Source authors may request these builds; independent product QA and technical review remain
 required. Producer 2.19.5, Technical Director 2.14.4, Software Developer 1.15.2 and Game Engineer

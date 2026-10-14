@@ -297,7 +297,7 @@ public sealed partial class WorkDeliveryService
         await AuthorizeBoardAsync(plan.OrganizationId, installation, execution.BoardId, CSweet.Contracts.WorkManagement.WorkItemActions.Read, ct);
         var attempt = new WorkExecutionAttempt { Id = Guid.NewGuid(), StageExecutionId = stage.Id, Attempt = stage.Attempts.Count + 1,
             Status = WorkExecutionAttemptStatus.Pending, CreatedAt = clock.GetUtcNow(), IdempotencyKey = $"delivery:{stage.Id:N}:{stage.Attempts.Count + 1}" };
-        var assignment = new WorkExecutionAssignmentV2(execution.Id, stage.Id, attempt.Id, plan.OrganizationId, plan.WorkstreamId,
+        var assignment = new WorkExecutionAssignment(execution.Id, stage.Id, attempt.Id, plan.OrganizationId, plan.WorkstreamId,
             execution.BoardId, execution.WorkItemId, scope.Scope, plan.Id, plan.ScopeRevision, null, null, execution.Revision,
             execution.WorkItemId?.ToString("D") ?? plan.Name, null, stage.StageKey, stage.Traversal, attempt.Attempt,
             clock.GetUtcNow().AddHours(1), stage.StageKey == "quality" ? "Run full testing and regression against the exact candidate; validate every acceptance criterion including documents." :
@@ -315,7 +315,7 @@ public sealed partial class WorkDeliveryService
         // Persist the canonical stage before admission checks read it. The outer
         // transaction commits the stage, inbox work and event outbox together.
         await SaveDeliveryAsync(ct);
-        var work = await inbox.EnqueueAsync(plan.OrganizationId.ToString(), installation, AgentWorkKind.Capability, WorkManagementCapabilityNames.ExecutionRunV2,
+        var work = await inbox.EnqueueAsync(plan.OrganizationId.ToString(), installation, AgentWorkKind.Capability, WorkManagementCapabilityNames.ExecutionRun,
             JsonSerializer.SerializeToElement(assignment, Json), attempt.IdempotencyKey, assignment.Deadline, plan.Id.ToString("N"), stage.Id.ToString("N"),
             "WorkDeliveryStage", stage.Id.ToString("D"), 1, ct);
         attempt.AgentWorkItemId = work.Id; stage.Attempts.Add(attempt); db.WorkExecutionAttempts.Add(attempt); stage.Status = WorkStageExecutionStatus.Dispatching;

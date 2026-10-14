@@ -10,7 +10,7 @@ public sealed class WorkAssignmentManifestPolicyTests
     [InlineData("{\"rolePolicy\":{\"declaredRoleKeys\":[\"software-developer\"],\"specializationKeys\":[]}}")]
     public void GeneralistCanFillSameCoreRoleWithoutOptionalSkills(string manifest)
     {
-        var requirements = new WorkAssignmentRequirements("game-engineer", [], ["gameplay-programming"], ["work.execution.run.v1"]);
+        var requirements = new WorkAssignmentRequirements("game-engineer", [], ["gameplay-programming"], ["work.execution.run"]);
         Assert.Null(WorkOrchestrationService.ValidateManifestAssignmentPolicy(manifest, requirements, Evidence([])));
     }
 

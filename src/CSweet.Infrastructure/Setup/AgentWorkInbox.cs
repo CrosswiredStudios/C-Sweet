@@ -48,7 +48,8 @@ public sealed partial class AgentWorkInbox(
     CSweetDbContext db,
     IDataProtectionProvider protectionProvider,
     TimeProvider timeProvider,
-    IAuditEventWriter? audit = null)
+    IAuditEventWriter? audit = null,
+    IEnumerable<IAgentWorkResultObserver>? resultObservers = null)
 {
     // The in-process gate protects concurrent request scopes; PostgreSQL's advisory lock below
     // provides the same per-installation guarantee across AgentHost replicas.
@@ -578,6 +579,8 @@ public sealed partial class AgentWorkInbox(
             await RecordTicketFailureAsync(item, attemptNumber, completion.Error ?? "Agent returned no result.", now, cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate)
             ApplyConfigurationAcknowledgement(item, completion, now);
+        foreach (var observer in resultObservers ?? [])
+            await observer.ObserveAsync(item, completion.Succeeded, completion.Value, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate && audit is not null)
             await audit.WriteAsync(
@@ -630,6 +633,9 @@ public sealed partial class AgentWorkInbox(
         }
         if (item.Status == AgentWorkStatus.DeadLetter)
             await FailCoordinationForWorkAsync(item, item.LastError, now, cancellationToken);
+        if (item.Status == AgentWorkStatus.DeadLetter)
+            foreach (var observer in resultObservers ?? [])
+                await observer.ObserveAsync(item, false, null, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work(
             item.Status == AgentWorkStatus.DeadLetter ? "dead_lettered" : "failed",

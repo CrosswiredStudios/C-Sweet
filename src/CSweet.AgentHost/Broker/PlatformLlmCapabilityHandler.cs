@@ -198,8 +198,9 @@ public sealed partial class PlatformLlmCapabilityHandler
         }
 
         var identity = await _employeeIdentityResolver.ResolveAsync(session, requestToken);
-        if (!Guid.TryParse(session.BusinessId, out var organizationId) ||
-            !Guid.TryParse(session.InstallationId, out var installationId))
+        var hasOrganization = Guid.TryParse(session.BusinessId, out var organizationId);
+        if (!Guid.TryParse(session.InstallationId, out var installationId) ||
+            (!hasOrganization && !await UserScopedAgentPolicy.IsAuthorizedAsync(_dbContext, installationId, session.BusinessId, requestToken)))
         {
             yield return Failure(request.RequestId, "The agent organization identity is unavailable.");
             yield break;
@@ -516,7 +517,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                 if (contents.Count > 0 || usage is not null || update.Role is not null)
                 {
                     _dbContext.QueueAudit(new AuditEventWriteRequest("model.response.chunk", "Model", Outcome: "Running",
-                        OrganizationId: organizationId, EntityType: "AgentRunLog", EntityId: runLog.Id,
+                        OrganizationId: hasOrganization ? organizationId : null, EntityType: "AgentRunLog", EntityId: runLog.Id,
                         OccurredAt: DateTimeOffset.UtcNow, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
                         Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json",
                         Payload: omitInstructionEvidence ? JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence,

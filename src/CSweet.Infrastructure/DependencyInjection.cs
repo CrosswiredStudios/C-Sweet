@@ -1,3 +1,5 @@
+using CSweet.Application.PersonalAssistant;
+using CSweet.Infrastructure.PersonalAssistant;
 using CSweet.Application.Core;
 using CSweet.Application.Agents;
 using CSweet.Application.Communications;
@@ -195,6 +197,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentDefinitionService, AgentDefinitionService>();
         builder.Services.AddScoped<AgentInstallationService>();
         builder.Services.AddScoped<IAgentInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
+        builder.Services.AddScoped<IBundledAssistantInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IPluginInstallationService>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IBusinessAgentInstallationCleanup>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IPluginOrganizationGrantService, PluginOrganizationGrantService>();
@@ -358,6 +361,15 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPlanningWorkflowService, PlanningWorkflowService>();
 
         // Core business domain services
+        builder.Services.Configure<RepositoryOnboardingOptions>(builder.Configuration.GetSection("RepositoryOnboarding"));
+        builder.Services.AddScoped<BundledPersonalAssistantInstaller>();
+        builder.Services.AddScoped<IPersonalAssistantService, PersonalAssistantService>();
+        builder.Services.AddScoped<IPersonalAssistantRuntimeScheduler, PersonalAssistantRuntimeScheduler>();
+        builder.Services.AddScoped<IRepositorySourceStore, RepositorySourceStore>();
+        builder.Services.AddScoped<IRepositoryOnboardingService, RepositoryOnboardingService>();
+        builder.Services.AddScoped<RepositoryOnboardingWorkflow>();
+        builder.Services.AddScoped<PersonalAssistantResultObserver>();
+        builder.Services.AddScoped<IAgentWorkResultObserver>(services => services.GetRequiredService<PersonalAssistantResultObserver>());
         builder.Services.AddScoped<IBusinessOnboardingService, BusinessOnboardingService>();
         builder.Services.AddScoped<IBusinessOnboardingOperationService>(services =>
             (BusinessOnboardingService)services.GetRequiredService<IBusinessOnboardingService>());
@@ -450,7 +462,10 @@ public static class DependencyInjection
         if (hasTrustedServiceKey && TryGetTrustedServiceUri(gitHostBaseUrl, out var gitHostUri))
         {
             builder.Services.AddHttpClient<TrustedSourceControlHostClient>(client =>
-                client.BaseAddress = gitHostUri)
+            {
+                client.BaseAddress = gitHostUri;
+                client.Timeout = TimeSpan.FromMinutes(10);
+            })
                 .AddHttpMessageHandler<TrustedServiceAuthenticationHandler>();
             builder.Services.AddTransient<ITrustedSourceControlHostClient>(services =>
                 services.GetRequiredService<TrustedSourceControlHostClient>());

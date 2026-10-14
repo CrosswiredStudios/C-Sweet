@@ -11,6 +11,12 @@
   <ItemGroup>
     <InternalsVisibleTo Include="CSweet.UnitTests" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../agents/CSweet.PersonalAssistant/csweet-plugin.json" LogicalName="PersonalAssistant/csweet-plugin.json" />
+    <EmbeddedResource Include="../../agents/CSweet.PersonalAssistant/Directory.Build.props" LogicalName="PersonalAssistant/Directory.Build.props" />
+    <EmbeddedResource Include="../../agents/CSweet.PersonalAssistant/Directory.Packages.props" LogicalName="PersonalAssistant/Directory.Packages.props" />
+    <EmbeddedResource Include="../../agents/CSweet.PersonalAssistant/src/**/*" Exclude="../../agents/CSweet.PersonalAssistant/src/**/bin/**;../../agents/CSweet.PersonalAssistant/src/**/obj/**" LogicalName="PersonalAssistant/src/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CSweet.AgentBroker\CSweet.AgentBroker.csproj" />

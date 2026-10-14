@@ -1,0 +1,54 @@
+@using CSweet.Contracts.PersonalAssistant
+@using CSweet.Contracts.Realtime
+@implements IDisposable
+@inject PersonalAssistantApiClient Assistant
+@inject IAppRealtimeConnection Realtime
+
+<section class="assistant-chat" aria-label="Chat with your Personal Assistant">
+    <header><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><div><h2>@Name</h2><p>A place to think through your next step.</p></div><MudIconButton Icon="@Icons.Material.Outlined.Refresh" OnClick="ReloadAsync" Disabled="_busy" aria-label="Refresh assistant messages" /></header>
+    <div class="assistant-transcript" role="log" aria-live="polite" aria-relevant="additions text">
+        @if (_messages.Count == 0) { <p class="assistant-chat-welcome">Tell me what you’re working on. I can help you clarify your goals, understand C-Sweet, or prepare a business from an existing codebase.</p> }
+        @foreach (var message in _messages)
+        {
+            <article @key="message.Id" class="assistant-message assistant-message-@message.Role"><strong>@(message.Role == "user" ? "You" : Name)</strong><p>@(message.Status == "Pending" ? "Thinking…" : message.Content)</p></article>
+        }
+    </div>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">Refresh</MudButton></MudAlert> }
+    <div class="assistant-composer">
+        <MudTextField T="string" @bind-Value="_content" Label="Message your assistant" Lines="3" MaxLength="16000" Immediate="true" Variant="Variant.Outlined" Disabled="@(!Ready || _busy)" />
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" EndIcon="@Icons.Material.Outlined.Send" OnClick="SendAsync" Disabled="@(!Ready || _busy || string.IsNullOrWhiteSpace(_content) || _messages.Any(x => x.Status == "Pending"))">Send</MudButton>
+    </div>
+    @if (!Ready) { <p><a href="#assistant-model-settings">Save your model settings</a> to start chatting.</p> }
+</section>
+
+@code {
+    [Parameter] public Guid? DraftId { get; set; }
+    [Parameter] public string Name { get; set; } = "AI Assistant";
+    [Parameter] public bool Ready { get; set; }
+    private IReadOnlyList<PersonalAssistantMessageResponse> _messages = [];
+    private string _content = "";
+    private string? _requestKey, _requestContent, _error;
+    private bool _busy, _disposed;
+    protected override async Task OnInitializedAsync()
+    {
+        Realtime.EventReceived += OnEvent; Realtime.Reconnected += OnReconnect;
+        await ReloadAsync();
+        try { await Realtime.StartAsync(); } catch { }
+    }
+    private void OnEvent(AppRealtimeEventEnvelope e) { if (e.EventType == AppRealtimeEvents.PersonalAssistantChanged) OnReconnect(); }
+    private void OnReconnect() { if (!_disposed) _ = InvokeAsync(async () => { await ReloadAsync(); StateHasChanged(); }); }
+    private async Task ReloadAsync()
+    {
+        try { _messages = await Assistant.MessagesAsync(DraftId); _error = null; }
+        catch (Exception e) { _error = e.Message; }
+    }
+    private async Task SendAsync()
+    {
+        _busy = true; _error = null;
+        if (_requestContent != _content) { _requestContent = _content; _requestKey = Guid.NewGuid().ToString("N"); }
+        try { await Assistant.MessageAsync(new(_content, _requestKey!, DraftId)); _content = ""; _requestKey = null; _requestContent = null; await ReloadAsync(); }
+        catch (Exception e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+    public void Dispose() { _disposed = true; Realtime.EventReceived -= OnEvent; Realtime.Reconnected -= OnReconnect; }
+}

@@ -12,6 +12,7 @@ public sealed class AgentInstallation
     public Guid? ExecutionPoolId { get; set; }
     public string BusinessId { get; set; } = "default";
     public PluginInstallationScope Scope { get; set; } = PluginInstallationScope.Organization;
+    public Guid? OwnerApplicationUserId { get; set; }
     public bool IsEnabled { get; set; } = true;
     public PluginSetupState SetupState { get; set; } = PluginSetupState.Ready;
     public string? SetupFlowId { get; set; }

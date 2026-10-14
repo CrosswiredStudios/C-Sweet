@@ -12,8 +12,11 @@ export function downloadText(fileName, text) {
 }
 
 export function printText(title, text) {
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) return;
+    // noopener makes window.open return null even when the blank window opens.
+    // Detach its opener immediately while retaining the handle needed to print.
+    const popup = window.open("", "_blank");
+    if (!popup) return false;
+    popup.opener = null;
     popup.document.title = title;
     const heading = popup.document.createElement("h1");
     heading.textContent = title;
@@ -21,6 +24,7 @@ export function printText(title, text) {
     content.textContent = text;
     popup.document.body.append(heading, content);
     popup.print();
+    return true;
 }
 
 export function launchExternalUri(uri) {

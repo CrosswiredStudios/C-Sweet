@@ -95,6 +95,7 @@
     {
         "agent-execution" => "A place for your team to work.",
         "llm-provider" => "The thinking behind your team.",
+        "personal-assistant" => "An assistant, made yours.",
         "genai-provider" => "Make room for imagination.",
         _ => "Your next great team starts here."
     };
@@ -102,6 +103,7 @@
     {
         "agent-execution" => "Connect an Office here or on another machine. We'll guide you through installation and check that it's ready.",
         "llm-provider" => "Use your own hardware, a hosted service, or both. Start with one connection and add more as you grow.",
+        "personal-assistant" => "Give your assistant a name and choose how it thinks. You can change these settings anytime.",
         "genai-provider" => "Give your agents tools to create images and video. You can always add these later.",
         _ => "Connect the essentials. Then bring your ideas to life with a team of your own."
     };
@@ -109,6 +111,7 @@
     {
         "agent-execution" => Icons.Material.Outlined.Computer,
         "llm-provider" => Icons.Material.Outlined.Hub,
+        "personal-assistant" => Icons.Material.Outlined.AutoAwesome,
         "genai-provider" => Icons.Material.Outlined.PermMedia,
         _ => Icons.Material.Outlined.Groups
     };
@@ -117,7 +120,8 @@
         new(1, "welcome", "Welcome", "What to expect"),
         new(2, "agent-execution", "Agent hosting", "Required · Connect a machine"),
         new(3, "llm-provider", "AI models", "Required · Connect a provider"),
-        new(4, "genai-provider", "Images & video", "Optional")
+        new(4, "personal-assistant", "AI Assistant", "Required · Make it yours"),
+        new(5, "genai-provider", "Images & video", "Optional")
     ];
 
     private SetupStatusResponse? _status;
@@ -172,6 +176,7 @@
 
     private void BackToWelcome() => SelectStep("welcome");
     private void BackToExecution() => SelectStep("agent-execution");
+    private void BackToAssistant() => SelectStep("personal-assistant");
     private void BackToProvider() => SelectStep("llm-provider");
 
     private RenderFragment RenderActiveStep() => _activeStepKey switch
@@ -179,6 +184,7 @@
         "welcome" => WelcomeStep,
         "agent-execution" => AgentExecutionStep,
         "llm-provider" => LlmProviderStep,
+        "personal-assistant" => AssistantStep,
         "genai-provider" => GenAiProviderStep,
         _ => WelcomeStep
     };
@@ -199,10 +205,13 @@
                                                                          OnContinue="@ContinueFromProviderAsync"
                                                                          OnBack="@BackToExecution" />;
 
+    private RenderFragment AssistantStep => @<PersonalAssistantSetupStep PreferredProviderId="@_providerProfileId" IsCompleting="@_isBusy"
+        OnBack="@BackToProvider" OnContinue="@ContinueFromAssistantAsync" />;
+
     private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep IsFinalStep="true" IsCompleting="@_isBusy" AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
                                                                               LocalProviderDiscoveryAttempted="@HandleLocalGenAiProviderDiscoveryAttempted"
                                                                               OnContinue="@ContinueFromGenAiProviderAsync"
-                                                                              OnBack="@BackToProvider" />;
+                                                                              OnBack="@BackToAssistant" />;
 
     private Task HandleProfilesChangedAsync(IReadOnlyList<LlmProviderProfileResponse> profiles)
     {
@@ -228,13 +237,15 @@
         }
 
         _providerProfileId = providerProfileId ?? _profiles.Last().Id;
-        await CompleteStepAsync("llm-provider", "genai-provider");
+        await CompleteStepAsync("llm-provider", "personal-assistant");
     }
 
     private async Task ContinueFromExecutionAsync()
     {
         await CompleteStepAsync("agent-execution", "llm-provider");
     }
+
+    private Task ContinueFromAssistantAsync() => CompleteStepAsync("personal-assistant", "genai-provider");
 
     private Task ContinueFromGenAiProviderAsync() => FinishSetupAsync();
 

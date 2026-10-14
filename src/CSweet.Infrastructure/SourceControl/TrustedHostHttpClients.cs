@@ -152,10 +152,27 @@ public sealed class TrustedSourceControlHostClient(
 
     public async Task<TrustedWorkspaceSnapshot> PrepareWorkspaceAsync(
         TrustedWorkspaceSnapshotRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => await PrepareSnapshotCoreAsync(request, "internal/v2/workspaces/prepare", cancellationToken);
+
+    public Task<TrustedWorkspaceSnapshot> PrepareOnboardingSnapshotAsync(TrustedWorkspaceSnapshotRequest request,
+        CancellationToken token = default) => PrepareSnapshotCoreAsync(request, "internal/v3/onboarding/snapshot", token);
+
+    public async Task<InternalRepositoryImportResult> ImportInternalArchiveAsync(InternalRepositoryImportRequest request,
+        Stream archive, CancellationToken token = default)
+    {
+        using var content = new StreamContent(archive);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/zip");
+        using var response = await http.PostAsync($"internal/v3/onboarding/import/{request.OrganizationId:D}/{request.RepositoryId:D}?sha256={Uri.EscapeDataString(request.ArchiveSha256)}&branch={Uri.EscapeDataString(request.DefaultBranch)}", content, token);
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "GitHost", "onboarding/import", token);
+        return await response.Content.ReadFromJsonAsync<InternalRepositoryImportResult>(token)
+            ?? throw new InvalidOperationException("GitHost returned no import receipt.");
+    }
+
+    private async Task<TrustedWorkspaceSnapshot> PrepareSnapshotCoreAsync(TrustedWorkspaceSnapshotRequest request,
+        string endpoint, CancellationToken cancellationToken)
     {
         using var response = await http.PostAsJsonAsync(
-            "internal/v2/workspaces/prepare",
+            endpoint,
             new GitHubWorkspacePrepareRequest(
                 request.InstallationId,
                 request.ExternalRepositoryId,

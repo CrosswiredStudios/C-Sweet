@@ -23,9 +23,13 @@ The first production goal is not the marketplace. The first production goal is a
 [Delegation with tracking](features/delegation-with-tracking.md) describes instruction publication,
 canonical work, coordinator reporting, subscriptions, recovery and the future continuity boundary.
 
-Current delivery: [hierarchical orchestration and release integration](features/work-management/hierarchical-delivery.md) documents V2 assignments, scope activation, branch bindings, QA, aggregate acceptance, recovery and clean installation.
+Current execution: [single execution contract](features/work-management/canonical-execution-contract.md) documents the breaking cutover, regression coverage and remaining live-run prerequisites.
+
+Current delivery: [hierarchical orchestration and release integration](features/work-management/hierarchical-delivery.md) documents canonical assignments, scope activation, branch bindings, QA, aggregate acceptance, recovery and clean installation.
 
 Read these files in order:
+
+Current onboarding: [Personal Assistant and repository business onboarding](features/personal-assistant-repository-onboarding.md) documents the Enterprise dialog, standalone SDK agent, per-user settings/chat, authorized sources, reviewed briefs, and creation recovery.
 
 1. [00 Architecture Baseline](./00-architecture-baseline.md)
 2. [01A Phase 1A - Docker Containerization and Distribution](./phases/01a-docker-containerization-and-distribution.md)
@@ -53,6 +57,7 @@ Read these files in order:
 - [Agent upgrades and configuration readiness](./features/agent-upgrade-configuration.md) -
   provider-independent package upgrades, retained settings, and local readiness checks.
 - [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - incident diagnosis, recovery behavior and the next-step/escalation convention for waiting agents. Current remaining acceptance is tracked in Memory System Implementation.
+- [October 13 Breakout startup stall](./breakout-startup-stall-2026-10-13.md) - fresh-install Office image mismatch, OnDemand retry churn, V1/V2 staffing mismatch, misleading recovery alerts, and next-run acceptance gates.
 - [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.

@@ -803,6 +803,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ConfigurePersonalAssistant(modelBuilder);
         modelBuilder.Entity<ChiefHiringPolicy>().HasIndex(x => new { x.OrganizationId, x.InstallationId }).IsUnique();
         modelBuilder.Entity<ChiefHiringPolicy>().Property(x => x.Revision).IsConcurrencyToken();
         modelBuilder.Entity<ChiefHiringPolicyRevision>().HasIndex(x => new { x.OrganizationId, x.InstallationId, x.Revision }).IsUnique();

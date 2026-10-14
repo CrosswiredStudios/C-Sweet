@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/agents/">
+    <Project Path="agents/CSweet.PersonalAssistant/src/CSweet.PersonalAssistant/CSweet.PersonalAssistant.csproj" />
+    <Project Path="agents/CSweet.PersonalAssistant/tests/CSweet.PersonalAssistant.Tests/CSweet.PersonalAssistant.Tests.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/CSweet.AgentBroker/CSweet.AgentBroker.csproj" />
     <Project Path="src/CSweet.ExecutionArtifacts/CSweet.ExecutionArtifacts.csproj" />

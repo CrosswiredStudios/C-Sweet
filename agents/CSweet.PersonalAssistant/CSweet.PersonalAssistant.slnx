@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/CSweet.PersonalAssistant/CSweet.PersonalAssistant.csproj" />
+  <Project Path="tests/CSweet.PersonalAssistant.Tests/CSweet.PersonalAssistant.Tests.csproj" />
+</Solution>

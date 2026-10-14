@@ -64,7 +64,9 @@ public sealed class FirstRunSetupGuardMiddleware
             return false;
         }
 
-        if (path.Equals("/api/health", StringComparison.OrdinalIgnoreCase) ||
+        // Assistant configuration is a prerequisite for setup; chat remains guarded.
+        if (path.Equals("/api/personal-assistant/settings", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/health", StringComparison.OrdinalIgnoreCase) ||
             path.Equals("/health", StringComparison.OrdinalIgnoreCase))
         {
             return false;

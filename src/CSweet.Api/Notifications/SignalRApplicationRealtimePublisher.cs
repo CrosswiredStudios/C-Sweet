@@ -11,6 +11,11 @@ public sealed class SignalRApplicationRealtimePublisher(
 {
     public async Task PublishAsync(ApplicationRealtimePublication publication, CancellationToken cancellationToken = default)
     {
+        if (publication.RecipientApplicationUserId is { } userId)
+        {
+            await hub.Clients.Group(AppEventGroups.ApplicationUser(userId)).SendAsync("AppEvent", publication.Envelope, cancellationToken);
+            return;
+        }
         if (publication.RecipientOrganizationUserIds.Count == 0) return;
         var recipientIds = publication.RecipientOrganizationUserIds.Distinct().ToList();
         await using var scope = scopeFactory.CreateAsyncScope();

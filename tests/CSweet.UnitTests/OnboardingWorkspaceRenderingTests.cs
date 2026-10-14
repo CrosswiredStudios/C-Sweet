@@ -75,17 +75,31 @@ public sealed class OnboardingWorkspaceRenderingTests
     [InlineData("agent-execution", "gold", "Where should your agents work?")]
     [InlineData("llm-provider", "aurora", "Connect your model providers.")]
     [InlineData("llm-provider", "gold", "Connect your model providers.")]
+    [InlineData("personal-assistant", "aurora", "Make your assistant yours.")]
+    [InlineData("personal-assistant", "gold", "Make your assistant yours.")]
     [InlineData("genai-provider", "aurora", "Finish without media")]
     [InlineData("genai-provider", "gold", "Finish without media")]
-    public async Task FourStepFlowRendersInBothThemes(string step, string theme, string expected)
+    public async Task FiveStepFlowRendersInBothThemes(string step, string theme, string expected)
     {
         var api = new SetupApi(step);
         var html = await Render(api, theme);
         Assert.Contains(expected, WebUtility.HtmlDecode(html));
         Assert.Contains($"data-appearance=\"{theme}\"", html);
         Assert.Contains("onboarding-workspace", html);
-        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
         Assert.DoesNotContain(api.Paths, path => path.Contains("communications") || path.Contains("email-delivery"));
+        if (step == "llm-provider")
+        {
+            Assert.DoesNotContain("assistant-model-settings", html);
+            Assert.DoesNotContain("/api/personal-assistant/settings", api.Paths);
+        }
+        if (step == "personal-assistant")
+        {
+            Assert.Contains("Assistant name", html);
+            Assert.Contains("256000", html);
+            Assert.Contains("128000", html);
+            Assert.Contains("Save and continue", html);
+        }
         if (Environment.GetEnvironmentVariable("CSWEET_SETUP_PREVIEWS") is string path)
             await File.WriteAllTextAsync(Path.Combine(path, $"setup-{step}-{theme}.html"), html);
     }
@@ -242,16 +256,18 @@ public sealed class OnboardingWorkspaceRenderingTests
     {
         public List<string> Paths { get; } = [];
         public bool FailFinish { get; init; }
-        private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "genai-provider"];
+        private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "personal-assistant", "genai-provider"];
         private object Status(bool complete = false) => new {
             isFirstRunComplete = complete,
-            steps = Keys.Select((key, i) => new { key, displayName = key, isRequired = i < 3, isComplete = i < Array.IndexOf(Keys, currentStep) })
+            steps = Keys.Select((key, i) => new { key, displayName = key, isRequired = i < 4, isComplete = i < Array.IndexOf(Keys, currentStep) })
         };
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
             Paths.Add(path);
             object? body = path switch {
+                "/api/llm-provider-profiles" when currentStep == "personal-assistant" => new[] { new CSweet.Contracts.Llm.LlmProviderProfileResponse(Guid.Parse("00000000-0000-0000-0000-000000000001"), "Local vLLM", CSweet.Domain.Setup.LlmProviderType.Vllm, "http://localhost:8000", null, "qwen3.8-27b", null, 256000, 128000, true, true, true, false, true, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) },
+                "/api/personal-assistant/settings" => new CSweet.Contracts.PersonalAssistant.PersonalAssistantSettings(null, null, null, 0, false, null, [], new Dictionary<string, System.Text.Json.JsonElement>()),
                 "/api/setup/status" => Status(),
                 "/api/setup/complete" => new { succeeded = !FailFinish, message = "Please try again.", status = Status(!FailFinish) },
                 "/api/setup/steps/genai-provider/complete" => new { succeeded = true, status = Status() },
@@ -259,6 +275,7 @@ public sealed class OnboardingWorkspaceRenderingTests
             };
             string? json = path switch {
                 "/api/llm-provider-profiles" or "/api/genai-provider-profiles" => "[]",
+                _ when path.Contains("00000000-0000-0000-0000-000000000001") => """{"models":[],"succeeded":true}""",
                 "/api/llm-provider-profiles/discover-local" or "/api/genai-provider-profiles/discover-local" => """{"profiles":[],"results":[]}""",
                 "/api/setup/execution-capacity" => """{"selectedMode":"local","isReady":false,"canInstallLocalNode":true,"localOperatingSystem":"windows","localArchitecture":"x64","summary":"Choose capacity","nodes":[],"checks":[],"localPrerequisites":[],"localCapacity":{"isSupported":true,"totalCpuCount":16,"totalMemoryMb":32768,"freeDiskMb":524288,"safeCpuCount":12,"safeMemoryMb":24576,"safeDiskMb":262144,"minimumCpuCount":2,"minimumMemoryMb":4096,"minimumDiskMb":32768,"presets":[{"key":"small","displayName":"Small","percentOfSafeCapacity":25,"cpuCount":3,"memoryMb":6144,"diskMb":65536},{"key":"performance","displayName":"Performance","percentOfSafeCapacity":75,"cpuCount":9,"memoryMb":18432,"diskMb":196608},{"key":"balanced","displayName":"Balanced","percentOfSafeCapacity":50,"cpuCount":6,"memoryMb":12288,"diskMb":131072}]}}""",
                 _ => null

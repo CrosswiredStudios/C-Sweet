@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 
 namespace CSweet.UI.Services;
 
-public sealed class AppRealtimeState(HttpClient http) : IAsyncDisposable
+public sealed class AppRealtimeState(HttpClient http) : IAsyncDisposable, IAppRealtimeConnection
 {
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly SemaphoreSlim _perspectiveLock = new(1, 1);

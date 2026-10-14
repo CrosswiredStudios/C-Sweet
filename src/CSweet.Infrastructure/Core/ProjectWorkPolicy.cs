@@ -28,20 +28,14 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
             !await RequiresProjectAsync(org, installation, ct)) return;
         var employee = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == org && x.AgentInstallationId == installation && x.IsActive && x.ArchivedAt == null)
             .Select(x => x.Id).SingleAsync(ct);
-        if (capability == CSweet.WorkManagement.Contracts.WorkManagementCapabilityNames.ExecutionRunV2)
+        if (capability == CSweet.WorkManagement.Contracts.WorkManagementCapabilityNames.ExecutionRun)
         {
-            var assignment = payload.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV2>(
+            var assignment = payload.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionAssignment>(
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
-                ?? throw new UnauthorizedAccessException("project.assignment_required: The V2 assignment is missing.");
+                ?? throw new UnauthorizedAccessException("project.assignment_required: The execution assignment is missing.");
             if (assignment.Scope == CSweet.WorkManagement.Contracts.WorkExecutionScopes.Task)
-                await RequireStageAssignmentAsync(org, installation, employee, System.Text.Json.JsonSerializer.SerializeToElement(
-                    assignment.ToTaskAssignment(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)), ct);
+                await RequireStageAssignmentAsync(org, installation, employee, payload, ct);
             else await RequireDeliveryAssignmentAsync(org, installation, employee, assignment, ct);
-            return;
-        }
-        if (capability == CSweet.WorkManagement.Contracts.WorkManagementCapabilityNames.ExecutionRunV1)
-        {
-            await RequireStageAssignmentAsync(org, installation, employee, payload, ct);
             return;
         }
         Guid? Id(string name) => payload.ValueKind == System.Text.Json.JsonValueKind.Object && payload.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String && value.TryGetGuid(out var id) ? id : null;
@@ -59,7 +53,7 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
     }
 
     private async Task RequireDeliveryAssignmentAsync(Guid org, Guid installation, Guid employee,
-        CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV2 assignment, CancellationToken ct)
+        CSweet.WorkManagement.Contracts.WorkExecutionAssignment assignment, CancellationToken ct)
     {
         var stage = await db.WorkStageExecutions.AsNoTracking().Include(x => x.Attempts)
             .Include(x => x.DeliveryExecution)!.ThenInclude(x => x!.Plan)
@@ -89,10 +83,10 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
     private async Task RequireStageAssignmentAsync(Guid org, Guid installation, Guid employee,
         System.Text.Json.JsonElement payload, CancellationToken ct)
     {
-        CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV1? assignment;
+        CSweet.WorkManagement.Contracts.WorkExecutionAssignment? assignment;
         try
         {
-            assignment = System.Text.Json.JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionAssignmentV1>(
+            assignment = System.Text.Json.JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionAssignment>(
                 payload.GetRawText(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         }
         catch (System.Text.Json.JsonException)
@@ -112,11 +106,12 @@ public sealed class ProjectWorkPolicy(CSweetDbContext db, TimeProvider clock)
              stage.Status == WorkStageExecutionStatus.Dispatching && item.Status == WorkItemExecutionStatus.Pending) &&
             stage.Attempts.Any(x => x.Id == assignment.AttemptId && x.Attempt == assignment.Attempt &&
                 x.AgentWorkItemId.HasValue && x.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running);
-        if (assignment is null || stage is null || item is null || sprint is null ||
+        if (assignment is null || assignment.Scope != CSweet.WorkManagement.Contracts.WorkExecutionScopes.Task ||
+            stage is null || item is null || sprint is null ||
             assignment.OrganizationId != org || sprint.OrganizationId != org ||
             assignment.SprintExecutionId != sprint.Id || assignment.SprintId != sprint.SprintId ||
             assignment.BoardId != sprint.BoardId || assignment.PolicyRevisionId != sprint.PolicyRevisionId ||
-            assignment.ItemExecutionId != item.Id || assignment.ItemId != item.WorkItemId ||
+            assignment.ExecutionId != item.Id || assignment.ItemId != item.WorkItemId ||
             assignment.StageKey != stage.StageKey || item.CurrentStageKey != stage.StageKey ||
             assignment.Traversal != stage.Traversal || item.Traversal != stage.Traversal ||
             assignment.AttemptId == Guid.Empty || (!newDispatch && !queuedDispatch) ||

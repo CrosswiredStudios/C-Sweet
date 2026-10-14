@@ -1,0 +1,8 @@
+.registration-shell { min-height:100dvh; color:var(--activity-text); --registration-error:#a33950; }
+.setup-appearance[data-appearance=gold] .registration-shell { --registration-error:#ffafbb; }
+.registration-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:22px clamp(20px,4vw,56px); border-bottom:1px solid var(--activity-border); }
+.registration-brand { display:flex; align-items:center; gap:12px; font-size:1.3rem; font-weight:750; letter-spacing:-.04em; }
+.registration-brand img { width:36px; height:36px; object-fit:contain; }
+.registration-context { color:var(--activity-muted); font-size:.8rem; }
+.registration-content { width:100%; max-width:536px; margin:0 auto; padding:clamp(24px,5vw,64px) 20px 48px; }
+@media(max-width:480px) { .registration-header { padding:18px 20px; } .registration-context { display:none; } .registration-content { padding:24px 12px 32px; } }

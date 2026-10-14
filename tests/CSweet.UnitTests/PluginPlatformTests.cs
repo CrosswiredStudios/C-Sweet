@@ -74,7 +74,7 @@ public sealed class PluginPlatformTests
               },
               "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
               "provides": [{
-                "name": "work.execution.run.v1",
+                "name": "work.execution.run",
                 "description": "Execute one workflow stage.",
                 "inputSchema": { "type": "object" },
                 "outputSchema": { "type": "object" },

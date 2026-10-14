@@ -13,6 +13,7 @@ public sealed class ApplicationRealtimeOutboxItem
     public long Sequence { get; set; }
     public Guid? OrganizationId { get; set; }
     public Guid? RecipientOrganizationUserId { get; set; }
+    public Guid? RecipientApplicationUserId { get; set; }
     public string RecipientOrganizationUserIdsJson { get; set; } = "[]";
     public Guid? ChatId { get; set; }
     public string EventType { get; set; } = string.Empty;

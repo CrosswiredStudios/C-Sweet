@@ -73,8 +73,29 @@ This will:
 - Provision PostgreSQL as trusted infrastructure through Docker Desktop
 - Open the Aspire dashboard automatically (shows all services, health status, logs)
 
-The Aspire dashboard URL appears in the console output (typically `https://localhost:15887`).
+The Aspire dashboard URL appears in the console output (`https://localhost:17201` or `http://localhost:15201` with the checked-in AppHost profiles).
 Docker Desktop must be running because PostgreSQL is a required AppHost resource. AgentHost no longer launches untrusted agents as Docker containers. On Windows, untrusted execution uses the separately installed RuntimeHost service and a certified Hyper-V guest.
+
+### AppHost debug fails with port 22201 already in use
+
+`src/CSweet.AppHost/Properties/launchSettings.json` assigns port `22201` to Aspire's
+resource service. An existing AppHost started from a terminal or another build
+configuration can still own that port when Visual Studio starts a new debug session.
+Separate build configurations isolate build outputs; running AppHosts still share the
+checked-in development ports.
+
+Identify the listener before stopping anything:
+
+```powershell
+Get-NetTCPConnection -LocalPort 22201 -State Listen |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+```
+
+Stop the earlier C-Sweet run using Ctrl+C in its terminal or Stop Debugging in its
+IDE, then stop the failed debug session and press F5 again. Check the identified
+process before terminating an orphaned verification run; do not stop all .NET
+processes. The AppHost dashboard (`15201`/`17201`), telemetry (`21201`), and frontend
+(`5097`) may also be occupied by that same run.
 
 ### Option 2: Individual Projects
 

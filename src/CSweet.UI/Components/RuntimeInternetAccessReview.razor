@@ -3,7 +3,11 @@
 
 @if (Installation.CanReviewRuntimeInternet && (Installation.PublicInternetRequested || Installation.PublicInternetGranted))
 {
-        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="OpenReview">Review public internet access</MudButton>
+        <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="OpenReview" Disabled="_busy">@(Installation.PublicInternetGranted ? "Public internet allowed · Review access" : "Review public internet access")</MudButton>
+        @if (_notice is not null)
+        {
+            <div role="status" aria-live="polite"><MudAlert Severity="Severity.Success" Class="mt-2">@_notice</MudAlert></div>
+        }
         <MudDialog @bind-Visible="_open">
             <TitleContent><MudText Typo="Typo.h6">Public internet access · @Installation.AgentName</MudText></TitleContent>
             <DialogContent>
@@ -24,10 +28,11 @@
     [Parameter] public EventCallback<AgentInstallationResponse> Updated { get; set; }
     private bool _open, _approved, _busy;
     private string? _error;
+    private string? _notice;
     private void OpenReview() { _approved = Installation.PublicInternetGranted; _error = null; _open = true; }
     private async Task ApplyAsync()
     {
-        _busy = true; _error = null;
+        _busy = true; _error = null; _notice = null;
         try
         {
             using var result = await Http.PostAsJsonAsync($"api/agents/installations/{Installation.Id}/runtime-internet",
@@ -38,7 +43,11 @@
                 throw new InvalidOperationException(error?.Error ?? "The access review could not be saved. Refresh and try again.");
             }
             var updated = await result.Content.ReadFromJsonAsync<AgentInstallationResponse>() ?? throw new InvalidOperationException("The access response was empty.");
-            await Updated.InvokeAsync(updated); _open = false;
+            await Updated.InvokeAsync(updated);
+            _notice = updated.PublicInternetGranted
+                ? "Public internet access saved: Allowed. Affected runtimes restart with the reviewed access."
+                : "Public internet access saved: Restricted. Affected runtimes restart with the reviewed access.";
+            _open = false;
         }
         catch (Exception error) { _error = error.Message; }
         finally { _busy = false; }

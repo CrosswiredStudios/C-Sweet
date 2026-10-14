@@ -1,0 +1,25 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AppearanceState Appearance
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<div class="setup-appearance" data-appearance="@Appearance.Theme">
+    <div class="registration-shell aurora-page">
+        <header class="registration-header">
+            <div class="registration-brand"><img src="images/icon_dark.svg" alt="" /><span>C-Sweet</span></div>
+            <span class="registration-context">Your workspace starts here</span>
+        </header>
+        <main class="registration-content">@Body</main>
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized() => Appearance.Changed += OnAppearanceChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await Appearance.InitializeAsync(); }
+    private void OnAppearanceChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Appearance.Changed -= OnAppearanceChanged;
+}

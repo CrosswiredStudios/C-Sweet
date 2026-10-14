@@ -1,5 +1,8 @@
 namespace CSweet.Contracts.SourceControl;
 
+public sealed record InternalRepositoryImportRequest(Guid OrganizationId, Guid RepositoryId, string ArchiveSha256, string DefaultBranch = "main");
+public sealed record InternalRepositoryImportResult(string CommitSha, bool Resumed);
+
 public sealed record InternalGitStorageStatus(bool Ready, string RepositoryRoot, string TemporaryRoot,
     string LfsProvider, string LfsLocation, string BackupProvider, string BackupLocation, string? Error);
 public sealed record InternalGitRepositoryRequest(Guid OrganizationId, Guid RepositoryId,

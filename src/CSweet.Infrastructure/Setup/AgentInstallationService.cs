@@ -12,9 +12,20 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
 
-public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService, IBusinessAgentInstallationCleanup
+public sealed class AgentInstallationService : IAgentInstallationService, IPluginInstallationService, IBusinessAgentInstallationCleanup,
+    CSweet.Application.PersonalAssistant.IBundledAssistantInstallationService
 {
     private const int FirstPartyMinimumRuntimeMemoryMb = 1024;
+    async Task<AgentInstallationResponse> CSweet.Application.PersonalAssistant.IBundledAssistantInstallationService.InstallAsync(
+        Guid packageVersionId, Guid userId, InstallAgentRequest request, CancellationToken token)
+    {
+        var package = await _dbContext.AgentPackageVersions.Include(x => x.PackageSource).SingleOrDefaultAsync(x => x.Id == packageVersionId, token);
+        if (package?.PackageSource?.IsBundled != true || package.AgentId != CSweet.Contracts.PersonalAssistant.PersonalAssistantCapabilities.AgentId ||
+            request.PluginScope != "User" || request.BusinessId != CSweet.Contracts.PersonalAssistant.PersonalAssistantCapabilities.UserScope(userId) ||
+            !await _dbContext.Users.AnyAsync(x => x.Id == userId, token))
+            throw new AgentInstallationException("Only the bundled Personal Assistant can be installed for a registered user.");
+        return await InstallCoreAsync(package, request, token);
+    }
     public async Task<AgentInstallationResponse> ReviewRuntimeInternetAsync(Guid installationId,
         ReviewRuntimeInternetRequest request, CancellationToken cancellationToken = default)
     {
@@ -110,7 +121,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var businessId = request.BusinessId.Trim();
         var settings = await GetSettingsAsync(cancellationToken);
 
-        if (!settings.EnableImportedAgents)
+        var bundled = await _dbContext.AgentPackageSources.AsNoTracking().AnyAsync(x => x.Id == packageVersion.PackageSourceId && x.IsBundled, cancellationToken);
+        if (!settings.EnableImportedAgents && !bundled)
         {
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
         }
@@ -134,6 +146,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
 
         var activationMode = ParseActivationMode(request.ActivationMode);
         var scope = ParsePluginScope(request.PluginScope);
+        if (scope == PluginInstallationScope.User && (!bundled || packageVersion.AgentId != CSweet.Contracts.PersonalAssistant.PersonalAssistantCapabilities.AgentId))
+            throw new AgentInstallationException("User scope is reserved for the bundled personal assistant.");
         if (packageVersion.PluginKind == PluginKind.Connector && scope != PluginInstallationScope.Organization)
             throw new AgentInstallationException("Connectors must be scoped to one organization.");
         if (packageVersion.PluginKind == PluginKind.Service &&

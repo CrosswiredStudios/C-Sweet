@@ -15,7 +15,13 @@ public sealed class GitHubWorkspaceSnapshotService(
 {
     public async Task<GitHubWorkspaceSnapshot> PrepareAsync(
         GitHubWorkspacePrepareRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => await PrepareCoreAsync(request, false, cancellationToken);
+
+    public Task<GitHubWorkspaceSnapshot> PrepareForOnboardingAsync(GitHubWorkspacePrepareRequest request,
+        CancellationToken cancellationToken = default) => PrepareCoreAsync(request, true, cancellationToken);
+
+    private async Task<GitHubWorkspaceSnapshot> PrepareCoreAsync(GitHubWorkspacePrepareRequest request,
+        bool allowPublicRead, CancellationToken cancellationToken)
     {
         Validate(request);
         var repositories = await github.ListInstallationRepositoriesAsync(
@@ -24,7 +30,7 @@ public sealed class GitHubWorkspaceSnapshotService(
             candidate.RepositoryId == request.ExternalRepositoryId &&
             string.Equals(candidate.Owner, request.Owner, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(candidate.Name, request.Repository, StringComparison.OrdinalIgnoreCase) &&
-            candidate.IsPrivate && !candidate.IsArchived)
+            (allowPublicRead || candidate.IsPrivate) && !candidate.IsArchived)
             ?? throw new UnauthorizedAccessException(
                 "The repository is not an active private repository in this GitHub App installation.");
 

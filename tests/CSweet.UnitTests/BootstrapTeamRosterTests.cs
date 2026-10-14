@@ -72,7 +72,7 @@ public sealed class BootstrapTeamRosterTests
             PackageVersion = new() { Id = Guid.NewGuid(), AgentId = "producer", ManifestJson = "{}" },
             RevisionStatus = PluginRevisionStatus.Active,
             Grant = new() { Id = Guid.NewGuid(), AgentInstallationId = leadInstallation,
-                ProvidedCapabilitiesJson = "[\"work.execution.run.v1\"]", RequiredCapabilitiesJson = "[\"platform.artifact.read.v1\"]" },
+                ProvidedCapabilitiesJson = "[\"work.execution.run\"]", RequiredCapabilitiesJson = "[\"platform.artifact.read.v1\"]" },
             Schedule = new() { Id = Guid.NewGuid(), AgentInstallationId = leadInstallation, IsEnabled = true } });
         await db.SaveChangesAsync();
         var handler = new WorkstreamGovernanceCapabilityHandler(db, new TestAuditEventWriter(), new AgentEmployeeIdentityResolver(db), TimeProvider.System);
@@ -89,7 +89,7 @@ public sealed class BootstrapTeamRosterTests
             // The CD is deliberately not a member and no Workstream exists yet.
             Assert.DoesNotContain(db.TeamMemberships, x => x.OrganizationUserId == actor);
             var json = response.Payload.ToStringUtf8();
-            Assert.True(json.Contains("work.execution.run.v1"), json);
+            Assert.True(json.Contains("work.execution.run"), json);
             Assert.Contains("platform.artifact.read.v1", json);
         }
     }

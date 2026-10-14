@@ -36,6 +36,19 @@ public sealed class AgentRuntimeEligibilityService(
             return new AgentRuntimeEligibility(true, null, true);
         if (package.PluginKind != PluginKind.Agent)
             return Denied("Only system-scoped service plugins may run without an employee assignment.");
+        if (installation.Scope == PluginInstallationScope.User)
+        {
+            if (!await UserScopedAgentPolicy.IsAuthorizedAsync(db, installation.Id, installation.BusinessId, cancellationToken))
+                return Denied("The personal assistant's user scope is no longer authorized.");
+            try
+            {
+                var configuration = await configurations.ResolveInstallationAsync(installation.Id, cancellationToken);
+                await AgentConfigurationRules.ValidateAsync(db, AgentConfigurationRules.DeserializeManifest(package.ManifestJson),
+                    configuration.Settings, true, cancellationToken);
+                return new AgentRuntimeEligibility(true, null);
+            }
+            catch (AgentInstallationException exception) { return Denied(exception.Message); }
+        }
         if (installation.AgentDefinitionId is null || installation.AgentDefinition?.IsAvailableForHire != true)
             return Denied("The installation is not linked to an available agent definition.");
 

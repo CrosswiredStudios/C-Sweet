@@ -32,7 +32,7 @@ public sealed partial class WorkDispatchRecoveryTests
         db.ChangeTracker.Clear();
         var attempt = Assert.Single(await db.WorkExecutionAttempts.ToListAsync());
         var work = Assert.Single(await db.AgentWorkItems.ToListAsync());
-        var assignment = inbox.ReadPayload(work).Deserialize<Shared.WorkExecutionAssignmentV1>(JsonOptions)!;
+        var assignment = inbox.ReadPayload(work).Deserialize<Shared.WorkExecutionAssignment>(JsonOptions)!;
         Assert.Equal(attempt.Id, assignment.AttemptId);
         Assert.Equal(work.Id, attempt.AgentWorkItemId);
         Assert.Equal(expected, assignment.AssignmentRevision);
@@ -51,11 +51,12 @@ public sealed partial class WorkDispatchRecoveryTests
         await using var db = CreateDb();
         var state = await Seed(db, 0);
         var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
-        var assignment = JsonSerializer.Deserialize<Shared.WorkExecutionAssignmentV1>("{}")! with
+        var assignment = JsonSerializer.Deserialize<Shared.WorkExecutionAssignment>("{}")! with
         {
+            Scope = "Task", PolicyRevisionId = Guid.NewGuid(),
             OrganizationId = state.Execution.OrganizationId, BoardId = state.Execution.BoardId,
             SprintId = state.Execution.SprintId, SprintExecutionId = state.Execution.Id,
-            ItemExecutionId = state.Stage.ItemExecutionId!.Value, ItemId = state.Stage.ItemExecution!.WorkItemId,
+            ExecutionId = state.Stage.ItemExecutionId!.Value, ItemId = state.Stage.ItemExecution!.WorkItemId,
             StageExecutionId = mismatched ? Guid.NewGuid() : state.Stage.Id, StageKey = state.Stage.StageKey,
             Traversal = 0, Attempt = 1, AttemptId = Guid.NewGuid(), AssignmentRevision = 0,
             Deadline = DateTimeOffset.UtcNow.AddMinutes(5), Item = JsonSerializer.SerializeToElement(new {}),
@@ -63,7 +64,7 @@ public sealed partial class WorkDispatchRecoveryTests
         };
         var key = $"orchestration:{state.Execution.Id:N}:{state.Stage.ItemExecutionId:N}:{state.Stage.StageKey}:0:1";
         var work = await inbox.EnqueueAsync(state.Execution.OrganizationId.ToString(), state.Installation.Id,
-            AgentWorkKind.Capability, Shared.WorkManagementCapabilityNames.ExecutionRunV1,
+            AgentWorkKind.Capability, Shared.WorkManagementCapabilityNames.ExecutionRun,
             JsonSerializer.SerializeToElement(assignment, JsonOptions), key, assignment.Deadline,
             sourceType: "WorkStageExecution", sourceId: state.Stage.Id.ToString("D"));
         var runtime = new Runtime(db);
@@ -136,7 +137,7 @@ public sealed partial class WorkDispatchRecoveryTests
         var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
         var orchestrator = new WorkOrchestrator(db, inbox, null!, new Runtime(db), [], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
         await Dispatch(orchestrator, state);
-        var assignment = inbox.ReadPayload(Assert.Single(db.AgentWorkItems)).Deserialize<Shared.WorkExecutionAssignmentV1>(JsonOptions)!;
+        var assignment = inbox.ReadPayload(Assert.Single(db.AgentWorkItems)).Deserialize<Shared.WorkExecutionAssignment>(JsonOptions)!;
         var direction = Assert.Single(assignment.Evidence, x => x.Kind == "manager-direction");
         Assert.Equal("Report unavailable desktop measurements honestly.", direction.Value);
     }

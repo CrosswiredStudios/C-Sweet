@@ -17,14 +17,15 @@ public sealed partial class WorkOrchestrator
             x.AgentInstallationId == installationId && x.IdempotencyKey == key, token);
         if (work is null) return false;
         if (work.OrganizationId != execution.OrganizationId.ToString() || work.Kind != AgentWorkKind.Capability ||
-            work.Name != Shared.WorkManagementCapabilityNames.ExecutionRunV1 ||
+            work.Name != Shared.WorkManagementCapabilityNames.ExecutionRun ||
             work.SourceType != "WorkStageExecution" || work.SourceId != stage.Id.ToString("D"))
             throw new InvalidOperationException("Detached work does not match the authoritative execution stage.");
-        var assignment = inbox.ReadPayload(work).Deserialize<Shared.WorkExecutionAssignmentV1>(JsonOptions)
+        var assignment = inbox.ReadPayload(work).Deserialize<Shared.WorkExecutionAssignment>(JsonOptions)
             ?? throw new InvalidOperationException("Detached work has no assignment envelope.");
-        if (assignment.OrganizationId != execution.OrganizationId || assignment.BoardId != execution.BoardId ||
+        if (assignment.Scope != Shared.WorkExecutionScopes.Task ||
+            assignment.OrganizationId != execution.OrganizationId || assignment.BoardId != execution.BoardId ||
             assignment.SprintId != execution.SprintId || assignment.SprintExecutionId != execution.Id ||
-            assignment.ItemExecutionId != stage.ItemExecutionId || assignment.ItemId != stage.ItemExecution!.WorkItemId ||
+            assignment.ExecutionId != stage.ItemExecutionId || assignment.ItemId != stage.ItemExecution!.WorkItemId ||
             assignment.StageExecutionId != stage.Id || assignment.StageKey != stage.StageKey ||
             assignment.Traversal != stage.Traversal || assignment.Attempt != attemptNumber || assignment.AttemptId == Guid.Empty)
             throw new InvalidOperationException("Detached work has mismatched execution identity.");

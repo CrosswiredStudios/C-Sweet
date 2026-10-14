@@ -62,7 +62,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         {
             var manifest = await db.AgentInstallations.Where(x => x.Id == managerInstallation && x.BusinessId == org.ToString() &&
                 x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active).Select(x => x.PackageVersion!.ManifestJson).SingleOrDefaultAsync(ct);
-            if (manifest is null || !ProvidesV2(manifest)) throw new InvalidOperationException("An agent release manager needs an active V2 execution installation.");
+            if (manifest is null || !ProvidesExecution(manifest)) throw new InvalidOperationException("An agent release manager needs an active canonical execution installation.");
         }
         var plan = request.PlanId.HasValue ? await Load().SingleAsync(x => x.Id == request.PlanId && x.OrganizationId == org, ct) : new WorkDeliveryPlan
         { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = request.WorkstreamId, CreatedAt = clock.GetUtcNow() };

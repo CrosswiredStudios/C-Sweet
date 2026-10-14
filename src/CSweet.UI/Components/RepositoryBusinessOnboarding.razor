@@ -1,0 +1,143 @@
+@using CSweet.Contracts.PersonalAssistant
+@using CSweet.Contracts.Realtime
+@implements IDisposable
+@inject PersonalAssistantApiClient Api
+@inject IAppRealtimeConnection Realtime
+@inject NavigationManager Navigation
+
+@if (_draft is null)
+{
+    <MudProgressCircular Indeterminate="true" Color="Color.Primary" /><p role="status">Preparing your draft…</p>
+}
+else
+{
+    <nav class="onboarding-progress" aria-label="Business setup progress"><span class="@(Stage == 0 ? "active" : "")">1 · Sources</span><span class="@(Stage == 1 ? "active" : "")">2 · Understand</span><span class="@(Stage == 2 ? "active" : "")">3 · Review & create</span></nav>
+    @if (_draft.Status == "Created")
+    {
+        <div class="onboarding-success"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Large" /><h3>Your business is ready.</h3><p>Your reviewed brief is in Documents. Next, hire a Chief of Staff to help plan the work.</p><MudButton Href="@_draft.ActionUri" Variant="Variant.Filled" Color="Color.Primary">Choose a Chief of Staff</MudButton></div>
+    }
+    else if (_draft.Status is "Creating" or "Preparing" or "Analyzing")
+    {
+        <div class="onboarding-working" role="status"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><h3>@(_draft.Status == "Creating" ? "Bringing your business together…" : "Getting to know your project…")</h3><p>@(_draft.Status == "Creating" ? "Associating repositories and saving your reviewed brief." : "Reading documentation, manifests, and a bounded selection of source files.")</p><p>You can close this dialog and resume your saved draft.</p></div>
+        <MudButton OnClick="RefreshAsync">Refresh status</MudButton>
+        @if (_draft.Status == "Analyzing") { <MudButton OnClick="BeginManualReview">Enter details manually</MudButton> }
+    }
+    else if (_review is not null)
+    {
+        <section class="onboarding-review">
+            <h3>Make it yours.</h3><p>Review what your assistant found, fill the gaps, and set your next goal.</p>
+            <MudTextField T="string" Label="Business name" @bind-Value="_name" MaxLength="256" Immediate="true" Variant="Variant.Outlined" Required="true" />
+            <MudTextField T="string" Label="Industry" @bind-Value="_industry" MaxLength="160" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="Mission" @bind-Value="_mission" MaxLength="4096" Lines="2" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="Company overview" @bind-Value="_summary" MaxLength="16000" Lines="3" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="What would you like to achieve next?" @bind-Value="_goal" MaxLength="4096" Lines="2" Variant="Variant.Outlined" />
+            @foreach (var project in _review.Projects)
+            {
+                <article @key="project.SourceId" class="onboarding-project-review">
+                    <MudTextField T="string" Label="Project name" Value="project.Name" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Name = value }))" MaxLength="256" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="Project brief" Value="project.Summary" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Summary = value }))" MaxLength="6000" Lines="3" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="Technology" Value="project.Technology" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Technology = value }))" MaxLength="512" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="Current state" Value="project.CurrentState" ValueChanged="@(value => EditProject(project.SourceId, p => p with { CurrentState = value }))" MaxLength="2048" Lines="2" Variant="Variant.Outlined" />
+                    @if (project.Evidence.Count > 0) { <details><summary>Source evidence · @project.Evidence.Count files</summary>@foreach (var evidence in project.Evidence) { <p><code>@evidence.Path</code> · <code>@ShortSnapshot(evidence.Snapshot)</code></p> }</details> }
+                </article>
+            }
+            @if (_review.OpenQuestions.Count > 0) { <aside class="onboarding-open-questions"><h4>Still to clarify</h4>@foreach (var question in _review.OpenQuestions) { <p>@question</p> }</aside> }
+            <MudCheckBox T="bool" @bind-Value="_managementApproved" Label="Associate these repositories with this business and save this reviewed brief. GitHub repositories stay in place; ZIPs become internal Git repositories." />
+            <footer class="business-dialog-actions"><MudButton Disabled="_busy" OnClick="BackToSources">Back to sources</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || !_managementApproved)" OnClick="CreateAsync">@(_busy ? "Saving…" : "Create business")</MudButton></footer>
+        </section>
+    }
+    else
+    {
+        <h3>Bring what you’ve built.</h3><p>Connect one or more GitHub repositories, or upload a repository ZIP.</p>
+        <div class="onboarding-source-actions"><MudButton StartIcon="@Icons.Material.Outlined.Code" Variant="Variant.Outlined" Disabled="_busy" OnClick="ConnectGitHubAsync">Connect GitHub</MudButton><label class="onboarding-upload-button">Upload repository ZIP<InputFile OnChange="UploadAsync" accept=".zip" disabled="@_busy" /></label></div>
+        <p class="onboarding-hint">ZIPs can include one outer folder. Git history is excluded. Maximum 512 MiB; builds and repository scripts are never run during analysis.</p>
+        <MudButton Href="@($"/settings/source-control?draft={_draft.Id:D}")">Set up GitHub for this installation</MudButton>
+        <MudButton Href="personal-assistant">Configure your Personal Assistant</MudButton>
+        @if (_accounts.Count > 0)
+        {
+            <MudSelect T="long" Label="GitHub account" Value="_installation" ValueChanged="LoadRepositoriesAsync" Variant="Variant.Outlined">@foreach (var account in _accounts) { <MudSelectItem T="long" Value="account.InstallationId">@account.Login</MudSelectItem> }</MudSelect>
+            <MudTextField T="string" @bind-Value="_search" Immediate="true" Label="Find a repository" Variant="Variant.Outlined" />
+            <div class="onboarding-repository-picker">@foreach (var repo in _repositories.Where(x => x.FullName.Contains(_search, StringComparison.OrdinalIgnoreCase)))
+            {
+                <div><MudCheckBox T="bool" Value="_selected.Contains(repo.RepositoryId)" ValueChanged="@(value => Select(repo.RepositoryId, value))" Disabled="@(!repo.Available || _busy)" Label="@($"{repo.FullName} · {(repo.IsPrivate ? "Private" : "Public")}")" />@if (!repo.Available) { <small>@repo.UnavailableReason</small> }</div>
+            }</div>
+            <MudButton Disabled="@(_busy || _selected.Count == 0)" OnClick="AddSelectedAsync">Add selected repositories</MudButton>
+        }
+        <div class="onboarding-source-list">
+        @foreach (var source in _draft.Sources)
+        {
+            <article @key="source.Id"><MudIcon Icon="@(source.Kind == "GitHub" ? Icons.Material.Outlined.Code : Icons.Material.Outlined.FolderZip)" /><div><strong>@source.Name</strong><span>@source.Kind · @source.Status @ShortSnapshot(source.Snapshot)</span>@if (source.Error is not null) { <p>@source.Error</p> }</div><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="@($"Remove {source.Name}")" Disabled="@(_busy || source.Attached)" OnClick="() => RemoveAsync(source.Id)" /></article>
+        }
+        </div>
+        <MudCheckBox T="bool" @bind-Value="_readApproved" Label="Allow my Personal Assistant to read a bounded selection of documentation and code from these sources." />
+        <footer class="business-dialog-actions"><MudButton Disabled="@(_busy || _draft.Sources.Count == 0 || !_draft.Sources.All(x => x.Status == "Ready"))" OnClick="BeginManualReview">Enter details manually</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_readApproved || _draft.Sources.Count == 0)" OnClick="AnalyzeAsync">Understand my project</MudButton></footer>
+    }
+    @if (_draft.Error is not null) { <MudAlert Severity="Severity.Warning">@_draft.Error</MudAlert> }
+    @if (_draft.Status is "AnalysisFailed" or "CreationFailed") { <MudButton OnClick="RetryAsync" Disabled="_busy">Retry saved step</MudButton> }
+    @if (_draft.Status is not ("Creating" or "Created" or "Preparing") && _draft.OrganizationId is null) { <MudButton OnClick="DiscardAsync" Disabled="_busy">Discard this draft</MudButton> }
+}
+@if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error <MudButton OnClick="RefreshAsync">Reload draft</MudButton></MudAlert> }
+
+@code {
+    [Parameter] public Guid? DraftId { get; set; }
+    [Parameter] public EventCallback<Guid> DraftCreated { get; set; }
+    [Parameter] public EventCallback Discarded { get; set; }
+    private RepositoryOnboardingDraftResponse? _draft;
+    private RepositoryBusinessReview? _review;
+    private IReadOnlyList<OnboardingGitHubAccount> _accounts = [];
+    private IReadOnlyList<OnboardingGitHubRepository> _repositories = [];
+    private HashSet<long> _selected = [];
+    private long _installation;
+    private string _search = "", _name = "", _industry = "", _mission = "", _summary = "", _goal = "";
+    private bool _busy, _disposed, _readApproved, _managementApproved, _refreshPending;
+    private string? _error;
+    private int Stage => _review is not null || _draft?.Status is "Creating" or "Created" ? 2 : _draft?.Status is "Preparing" or "Analyzing" ? 1 : 0;
+    private string PathFor(string action) => $"api/repository-onboarding/{_draft!.Id:D}/{action}";
+    protected override async Task OnInitializedAsync()
+    {
+        Realtime.EventReceived += OnEvent; Realtime.Reconnected += OnReconnect;
+        await ActAsync(async () => { SetDraft(DraftId.HasValue ? await Api.DraftAsync(DraftId.Value) : await Api.CreateDraftAsync()); await DraftCreated.InvokeAsync(_draft!.Id); await LoadAccountsAsync(); });
+        try { await Realtime.StartAsync(); } catch { }
+    }
+    private void SetDraft(RepositoryOnboardingDraftResponse draft)
+    {
+        if (_draft is not null && draft.Id == _draft.Id && draft.Revision < _draft.Revision) return;
+        var changed = _draft is null || _draft.Status != draft.Status;
+        _draft = draft;
+        if (changed && draft.Review is not null && draft.Status is "Review" or "CreationFailed") LoadReview(draft.Review);
+    }
+    private void LoadReview(RepositoryBusinessReview review) { _review = review; _name = review.BusinessName; _industry = review.Industry; _mission = review.Mission; _summary = review.Summary; _goal = review.NextGoal; }
+    private void OnEvent(AppRealtimeEventEnvelope e) { if (e.EventType == AppRealtimeEvents.RepositoryOnboardingChanged) OnReconnect(); }
+    private void OnReconnect() { if (_disposed) return; if (_busy) { _refreshPending = true; return; } _ = InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); }); }
+    private Task RefreshAsync() => ActAsync(async () => { if (_draft is not null) SetDraft(await Api.DraftAsync(_draft.Id)); });
+    private async Task ActAsync(Func<Task> action)
+    {
+        if (_busy) return; _busy = true; _error = null;
+        try { await action(); } catch (Exception e) { _error = e.Message; } finally { _busy = false; if (_refreshPending) { _refreshPending = false; OnReconnect(); } }
+    }
+    private Task ConnectGitHubAsync() => ActAsync(async () =>
+    {
+        var auth = await Api.SendAsync<DraftGitHubAuthorization>(HttpMethod.Post, PathFor("github/authorize"), null);
+        Navigation.NavigateTo(auth.AuthorizationUrl, forceLoad: true);
+    });
+    private async Task LoadAccountsAsync() { _accounts = await Api.GetAsync<IReadOnlyList<OnboardingGitHubAccount>>(PathFor("github/accounts")); }
+    private Task LoadRepositoriesAsync(long id) => ActAsync(async () => { _installation = id; _selected.Clear(); _repositories = await Api.GetAsync<IReadOnlyList<OnboardingGitHubRepository>>(PathFor($"github/repositories?installationId={id}")); });
+    private void Select(long id, bool value) { if (value) _selected.Add(id); else _selected.Remove(id); }
+    private Task AddSelectedAsync() => ActAsync(async () => { SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("sources"), new SelectOnboardingRepositoriesRequest(_draft!.Revision, _installation, _selected.ToArray()))); _selected.Clear(); });
+    private Task UploadAsync(InputFileChangeEventArgs e) => ActAsync(async () => { await using var content = e.File.OpenReadStream(512L * 1024 * 1024); SetDraft(await Api.UploadAsync(_draft!.Id, _draft.Revision, e.File.Name, content)); });
+    private Task RemoveAsync(Guid source) => ActAsync(async () => SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Delete, PathFor($"sources/{source:D}?revision={_draft!.Revision}"), null)));
+    private Task AnalyzeAsync() => ActAsync(async () => SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("analyze"), new AnalyzeOnboardingRepositoriesRequest(_draft!.Revision, _readApproved))));
+    private Task RetryAsync() => ActAsync(async () => SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("retry"), new RepositoryDraftRevisionRequest(_draft!.Revision))));
+    private void BeginManualReview() => LoadReview(_draft!.Review ?? new("", "", "", "", "", _draft.Sources.Where(x => x.Status == "Ready").Select(x => new RepositoryProjectBrief(x.Id.ToString("D"), x.Name, "", "", "", [])).ToArray(), []));
+    private void BackToSources() { _review = null; _managementApproved = false; }
+    private void EditProject(string id, Func<RepositoryProjectBrief, RepositoryProjectBrief> edit) { _review = _review! with { Projects = _review.Projects.Select(x => x.SourceId == id ? edit(x) : x).ToArray() }; }
+    private Task CreateAsync() => ActAsync(async () =>
+    {
+        var review = _review! with { BusinessName = _name, Industry = _industry, Mission = _mission, Summary = _summary, NextGoal = _goal };
+        SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Put, PathFor("review"), new SaveRepositoryBusinessReviewRequest(_draft!.Revision, review)));
+        SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("confirm"), new ConfirmRepositoryBusinessRequest(_draft.Revision, _managementApproved)));
+    });
+    private Task DiscardAsync() => ActAsync(async () => { await Api.SendAsync<System.Text.Json.JsonElement>(HttpMethod.Delete, $"api/repository-onboarding/{_draft!.Id:D}?revision={_draft.Revision}", null); await Discarded.InvokeAsync(); });
+    private static string ShortSnapshot(string? value) => string.IsNullOrEmpty(value) ? "" : value[..Math.Min(12, value.Length)];
+    public void Dispose() { _disposed = true; Realtime.EventReceived -= OnEvent; Realtime.Reconnected -= OnReconnect; }
+}

@@ -619,44 +619,45 @@ public sealed partial class WorkOrchestrator(
             ? null
             : JsonSerializer.Deserialize<Shared.WorkAssignmentSelectionEvidence>(
                 assignmentSnapshot.SelectionEvidenceJson, JsonOptions);
-        var assignment = new Shared.WorkExecutionAssignmentV1(
-            execution.Id, stage.ItemExecutionId!.Value, stage.Id, attempt.Id,
-            execution.OrganizationId, execution.BoardId, execution.SprintId, item.Id,
-            item.AssignmentRevision,
-            item.Identifier!.Split('-')[0], item.Identifier, execution.PolicyRevisionId,
-            stage.StageKey, stage.Traversal, attemptNumber, now.AddSeconds(definition.TimeoutSeconds),
-            definition.Instructions,
-            JsonSerializer.SerializeToElement(new
+        var assignment = new Shared.WorkExecutionAssignment(
+            stage.ItemExecutionId!.Value, stage.Id, attempt.Id, execution.OrganizationId,
+            board.WorkstreamId ?? Guid.Empty, execution.BoardId, item.Id, Shared.WorkExecutionScopes.Task,
+            null, 0, execution.Id, execution.SprintId, item.AssignmentRevision, item.Identifier!,
+            execution.PolicyRevisionId, stage.StageKey, stage.Traversal, attemptNumber,
+            now.AddSeconds(definition.TimeoutSeconds), definition.Instructions, JsonSerializer.SerializeToElement(new
             {
                 item.Id, item.Identifier, item.Title, item.Description,
                 kind = item.Kind.ToString(), priority = item.Priority.ToString(),
                 item.TypeKey, item.PlanningRevision, planning,
                 item.DevelopmentBriefJson, item.DeliverySpecificationJson, item.QualityBriefJson
-            }, JsonOptions),
-            JsonSerializer.SerializeToElement(new Shared.WorkExecutionInputV1(
+            }, JsonOptions), JsonSerializer.SerializeToElement(new Shared.WorkExecutionInputV1(
                 board.WorkstreamId, board.TeamId, item.PlanningRevision, planning)
             {
                 AllowedOutcomeCodes = policy.Transitions.Where(x => x.FromStageKey == stage.StageKey)
                     .Select(x => x.OutcomeCode).Distinct(StringComparer.Ordinal).ToArray(),
                 AssignmentRequirements = assignmentRequirements,
                 AssignmentSelection = assignmentSelection
-            }, JsonOptions),
-            stage.ItemExecution.Stages.SelectMany(x => x.Attempts)
+            }, JsonOptions), stage.ItemExecution.Stages.SelectMany(x => x.Attempts)
                 .Where(x => !string.IsNullOrWhiteSpace(x.ResultJson))
                 .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions)!)
-                .ToList(), evidence);
-        var capability = Shared.WorkManagementCapabilityNames.ExecutionRunV1;
-        var payload = JsonSerializer.SerializeToElement(assignment, JsonOptions);
+                .ToList(), evidence)
+        {
+            OrganizationUserId = stage.OrganizationUserId ?? Guid.Empty,
+            AgentInstallationId = installationId,
+            PlanningRevision = item.PlanningRevision,
+            PermittedOutcomes = policy.Transitions.Where(x => x.FromStageKey == stage.StageKey)
+                .Select(x => x.OutcomeCode).Distinct().ToArray()
+        };
+        var capability = Shared.WorkManagementCapabilityNames.ExecutionRun;
         var deliverySpecification = string.IsNullOrWhiteSpace(item.DeliverySpecificationJson) ? null :
             JsonSerializer.Deserialize<Shared.WorkItemDeliverySpecification>(item.DeliverySpecificationJson, JsonOptions);
         if (deliverySpecification?.DeliveryPlanId.HasValue == true)
         {
             var (deliveryPlan, _) = await WorkDeliveryTaskAuthorization.RequireAsync(db, item, cancellationToken);
-            var v2 = Shared.WorkExecutionAssignmentV2.FromTask(assignment, deliveryPlan.WorkstreamId, deliveryPlan.Id, deliveryPlan.ScopeRevision) with
-            { OrganizationUserId = stage.OrganizationUserId!.Value, AgentInstallationId = installationId,
-                PlanningRevision = item.PlanningRevision, PermittedOutcomes = policy.Transitions.Where(x => x.FromStageKey == stage.StageKey).Select(x => x.OutcomeCode).Distinct().ToArray() };
-            payload = JsonSerializer.SerializeToElement(v2, JsonOptions); capability = Shared.WorkManagementCapabilityNames.ExecutionRunV2;
+            assignment = assignment with { WorkstreamId = deliveryPlan.WorkstreamId,
+                DeliveryPlanId = deliveryPlan.Id, ScopeRevision = deliveryPlan.ScopeRevision };
         }
+        var payload = JsonSerializer.SerializeToElement(assignment, JsonOptions);
         var work = await inbox.EnqueueAsync(
             execution.OrganizationId.ToString(), installationId, AgentWorkKind.Capability,
             capability, payload, attempt.IdempotencyKey,

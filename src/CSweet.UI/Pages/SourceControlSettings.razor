@@ -7,6 +7,8 @@
 <PageTitle>Source Control Settings - C-Sweet</PageTitle>
 
 <div class="setup-shell">
+    @if ((DraftId ?? _returnDraftId) is { } draftId)
+    { <MudButton Href="@($"/?create=true&draft={draftId:D}")" StartIcon="@Icons.Material.Outlined.ArrowBack">Return to your business draft</MudButton> }
     <MudPaper Elevation="0" Class="page-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">Enterprise platform</MudText>
@@ -97,6 +99,9 @@
 
 @code {
     [SupplyParameterFromQuery(Name = "business")] public Guid? BusinessId { get; set; }
+    [SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    private Guid? _returnDraftId;
+    private bool _draftTargetStored;
     [SupplyParameterFromQuery(Name = "allowRepositoryCreation")] public bool AllowRepositoryCreation { get; set; }
     private PlatformSourceControlSetupResponse? _setup;
     private InternalGitStorageStatus? _storage;
@@ -113,6 +118,17 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!_draftTargetStored)
+        {
+            _draftTargetStored = true;
+            try
+            {
+                var module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/githubWizard.js");
+                try { var stored = await module.InvokeAsync<string?>("rememberDraftId", DraftId?.ToString("D")); if (Guid.TryParse(stored, out var draft)) { _returnDraftId = draft; StateHasChanged(); } }
+                finally { await module.DisposeAsync(); }
+            }
+            catch (JSException) { }
+        }
         if (_returnTargetRestored || _setup?.Readiness.ExistingGitHubAvailable != true || GitHubPlatformWizardFlow.IsPending(_setup)) return;
         _returnTargetRestored = true;
         try

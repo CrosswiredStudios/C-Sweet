@@ -28,7 +28,8 @@ public sealed class ApplicationRealtimeOutboxDispatcher(CSweetDbContext db) : IA
                 using var data = JsonDocument.Parse(item.DataJson);
                 var envelope = new AppRealtimeEventEnvelope(item.Id, item.Sequence, item.EventType,
                     item.OrganizationId, item.Subject, item.OccurredAt, data.RootElement.Clone());
-                await publisher.PublishAsync(new ApplicationRealtimePublication(envelope, recipients), cancellationToken);
+                await publisher.PublishAsync(new ApplicationRealtimePublication(envelope, recipients)
+                { RecipientApplicationUserId = item.RecipientApplicationUserId }, cancellationToken);
                 item.Status = ApplicationRealtimeOutboxStatus.Published;
                 item.PublishedAt = DateTimeOffset.UtcNow;
                 item.LastError = null;

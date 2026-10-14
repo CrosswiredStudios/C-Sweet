@@ -8,3 +8,8 @@ export function takeBusinessId() {
     sessionStorage.removeItem("csweet.githubSetupBusiness");
     return businessId;
 }
+
+export function rememberDraftId(draftId) {
+    if (draftId) sessionStorage.setItem("csweet.githubSetupDraft", draftId);
+    return sessionStorage.getItem("csweet.githubSetupDraft");
+}

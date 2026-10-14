@@ -259,6 +259,10 @@ public sealed partial class AgentInstallationConfigurationService(
     public async Task<AgentInstallationConfigurationSnapshot> SaveAsync(Guid installationId, string schemaVersion,
         IReadOnlyDictionary<string, JsonElement> settings, CancellationToken cancellationToken = default)
     {
+        var scope = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == installationId && x.Scope == PluginInstallationScope.User)
+            .Select(x => x.BusinessId).SingleOrDefaultAsync(cancellationToken);
+        if (scope is not null && await UserScopedAgentPolicy.IsAuthorizedAsync(db, installationId, scope, cancellationToken))
+            return await SaveUserScopedAsync(installationId, schemaVersion, settings, cancellationToken);
         var employee = await db.CoreOrganizationUsers.AsNoTracking()
             .SingleOrDefaultAsync(x => x.AgentInstallationId == installationId && x.IsActive, cancellationToken)
             ?? throw new AgentInstallationException("Configuration overrides require an active hired employee.");

@@ -1,6 +1,6 @@
 .setup-shell { width:100%; max-width:1120px; margin:0 auto; }
 .setup-progress { margin:0 auto 24px; max-width:800px; }
-.setup-progress ol { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; padding:0; margin:0; gap:12px; }
+.setup-progress ol { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); list-style:none; padding:0; margin:0; gap:12px; }
 .setup-progress li { position:relative; min-width:0; }
 .setup-progress li:not(:last-child)::after { content:''; position:absolute; height:1px; width:12px; right:-12px; top:50%; background:var(--activity-border); }
 .setup-progress button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:48px; padding:8px; border:1px solid transparent; border-radius:14px; background:transparent; color:var(--activity-muted); font:inherit; cursor:pointer; }

@@ -13,6 +13,7 @@ public sealed class SetupService : ISetupService
         ("welcome", "Welcome", true),
         ("agent-execution", "Agent hosting", true),
         ("llm-provider", "AI models", true),
+        ("personal-assistant", "AI Assistant", true),
         ("genai-provider", "Images & video", false)
     ];
 
@@ -42,6 +43,7 @@ public sealed class SetupService : ISetupService
 
         var existingSteps = await _dbContext.OnboardingSteps
             .ToDictionaryAsync(x => x.Key, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        var alreadyConfigured = await _dbContext.SystemConfigurations.AnyAsync(x => x.IsFirstRunComplete, cancellationToken);
 
         foreach (var stepDefinition in RequiredSteps)
         {
@@ -59,7 +61,8 @@ public sealed class SetupService : ISetupService
                 Key = stepDefinition.Key,
                 DisplayName = stepDefinition.DisplayName,
                 IsRequired = stepDefinition.IsRequired,
-                IsComplete = false,
+                IsComplete = alreadyConfigured,
+                CompletedAt = alreadyConfigured ? now : null,
                 CreatedAt = now,
                 UpdatedAt = now
             });
@@ -171,6 +174,9 @@ public sealed class SetupService : ISetupService
                 cancellationToken);
         }
 
+        if (normalizedKey == "personal-assistant" && !await HasAssistantDefaultsAsync(cancellationToken))
+            return await FailureAsync("assistant_model_required", "Save your AI Assistant settings before continuing.", cancellationToken);
+
         var step = await _dbContext.OnboardingSteps
             .SingleAsync(x => x.Key == normalizedKey, cancellationToken);
 
@@ -200,6 +206,8 @@ public sealed class SetupService : ISetupService
     public async Task<SetupActionResponse> CompleteFirstRunAsync(CancellationToken cancellationToken = default)
     {
         await EnsureSeededAsync(cancellationToken);
+        if ((await GetConfigurationAsync(cancellationToken)).IsFirstRunComplete)
+            return await SuccessAsync(cancellationToken);
 
         if (!await _dbContext.LlmProviderProfiles.AnyAsync(x => x.IsEnabled, cancellationToken))
         {
@@ -212,6 +220,10 @@ public sealed class SetupService : ISetupService
         }
 
         var configuration = await GetConfigurationAsync(cancellationToken);
+        if (!configuration.IsFirstRunComplete &&
+            (configuration.PersonalAssistantProviderId is null || string.IsNullOrWhiteSpace(configuration.PersonalAssistantModel) ||
+             !await _dbContext.LlmProviderProfiles.AnyAsync(x => x.Id == configuration.PersonalAssistantProviderId && x.IsEnabled, cancellationToken)))
+            return await FailureAsync("assistant_model_required", "Choose and save the Personal Assistant's provider and model before completing setup.", cancellationToken);
         var now = DateTimeOffset.UtcNow;
         configuration.IsFirstRunComplete = true;
         configuration.UpdatedAt = now;
@@ -236,6 +248,13 @@ public sealed class SetupService : ISetupService
         return await _dbContext.SystemConfigurations
             .OrderBy(x => x.CreatedAt)
             .FirstAsync(cancellationToken);
+    }
+
+    private async Task<bool> HasAssistantDefaultsAsync(CancellationToken token)
+    {
+        var configuration = await GetConfigurationAsync(token);
+        return configuration.PersonalAssistantProviderId.HasValue && !string.IsNullOrWhiteSpace(configuration.PersonalAssistantModel) &&
+            await _dbContext.LlmProviderProfiles.AnyAsync(x => x.Id == configuration.PersonalAssistantProviderId && x.IsEnabled, token);
     }
 
     private async Task<bool> ArePriorRequiredStepsCompleteAsync(CancellationToken cancellationToken)

@@ -53,7 +53,7 @@ public sealed partial class AgentMemoryServiceTests
         db.AddRange(plan, execution, stage, attempt);
         var work = await db.AgentWorkItems.SingleAsync(x => x.Id == workId);
         work.SourceType = "WorkDeliveryStage"; work.SourceId = stage.Id.ToString("D");
-        work.Name = WorkManagementCapabilityNames.ExecutionRunV2;
+        work.Name = WorkManagementCapabilityNames.ExecutionRun;
         await db.SaveChangesAsync();
         await using (var transaction = await db.Database.BeginTransactionAsync())
         {

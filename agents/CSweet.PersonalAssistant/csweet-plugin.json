@@ -1,0 +1,28 @@
+{
+  "manifestVersion": "2.0",
+  "kind": "agent",
+  "id": "com.csweet.personal-assistant",
+  "name": "C-Sweet Personal Assistant",
+  "version": "0.1.0",
+  "publisher": { "id": "com.csweet", "name": "C-Sweet" },
+  "catalog": { "role": { "key": "personal-assistant", "name": "Personal Assistant" }, "summary": "Private onboarding guidance for one C-Sweet user.", "license": { "spdxId": "LicenseRef-Proprietary" } },
+  "rolePolicy": { "baseType": "individual-contributor", "profile": "individual-contributor.v1", "declaredRoleKeys": ["personal-assistant"] },
+  "runtime": { "type": "dotnet-project", "projectPath": "src/CSweet.PersonalAssistant/CSweet.PersonalAssistant.csproj", "targetFramework": "net10.0", "defaultActivationMode": "OnDemand", "supportsMultipleInstallations": true, "maximumConcurrentJobs": 1 },
+  "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
+  "provides": [
+    { "name": "agent.configuration.describe.v1", "description": "Describe Personal Assistant settings through the standard SDK.", "inputSchema": { "type": "object", "additionalProperties": false }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 30, "idempotency": "none" },
+    { "name": "agent.configuration.update.v1", "description": "Validate Personal Assistant settings through the standard SDK.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 30, "idempotency": "none" },
+    { "name": "personal-assistant.converse.v1", "description": "Guide a human through C-Sweet and refine their current onboarding draft.", "inputSchema": { "type": "object", "properties": { "messages": { "type": "array", "minItems": 1, "maxItems": 40, "items": { "type": "object", "properties": { "role": { "type": "string", "enum": ["user", "assistant"] }, "content": { "type": "string", "maxLength": 16000 } }, "required": ["role", "content"], "additionalProperties": false } }, "context": { "type": ["string", "null"] } }, "required": ["messages"], "additionalProperties": false }, "outputSchema": { "type": "object", "properties": { "message": { "type": "string" } }, "required": ["message"], "additionalProperties": false }, "executionTimeoutSeconds": 900, "idempotency": "work-item" },
+    { "name": "personal-assistant.analyze-repositories.v1", "description": "Infer an evidence-backed company brief from authorized repository snapshots.", "inputSchema": { "type": "object", "properties": { "repositories": { "type": "array", "minItems": 1, "maxItems": 50, "items": { "type": "object", "properties": { "sourceId": { "type": "string" }, "name": { "type": "string" }, "snapshot": { "type": "string" }, "files": { "type": "array", "items": { "type": "object", "properties": { "path": { "type": "string" }, "content": { "type": "string" } }, "required": ["path", "content"], "additionalProperties": false } }, "warnings": { "type": "array", "items": { "type": "string" } } }, "required": ["sourceId", "name", "snapshot", "files", "warnings"], "additionalProperties": false } } }, "required": ["repositories"], "additionalProperties": false }, "outputSchema": { "type": "object", "properties": { "businessName": { "type": "string" }, "industry": { "type": "string" }, "mission": { "type": "string" }, "summary": { "type": "string" }, "projects": { "type": "array", "items": { "type": "object" } }, "openQuestions": { "type": "array", "items": { "type": "string" } } }, "required": ["businessName", "industry", "mission", "summary", "projects", "openQuestions"], "additionalProperties": false }, "executionTimeoutSeconds": 900, "idempotency": "work-item" }
+  ],
+  "requires": [ { "name": "platform.llm.chat-stream.v1", "scope": "system", "purpose": "Use this user's approved assistant provider and model without provider credentials.", "modelVisible": false } ],
+  "events": { "subscribes": [] },
+  "configuration": [
+    { "key": "llmProviderId", "type": "provider", "label": "Default provider", "required": true, "secret": false },
+    { "key": "llmModel", "type": "model", "label": "Assistant model", "dependsOnFieldKey": "llmProviderId", "required": true, "secret": false },
+    { "key": "maxContextWindowTokens", "type": "number", "label": "Maximum context-window tokens", "required": true, "secret": false, "minimum": 4097, "step": 1024, "defaultValue": 65536 },
+    { "key": "maxOutputTokens", "type": "number", "label": "Maximum output tokens", "required": true, "secret": false, "minimum": 2048, "step": 1024, "defaultValue": 8192, "lessThanFieldKey": "maxContextWindowTokens" }
+  ],
+  "credentials": [],
+  "webAccess": { "mode": "None" }
+}

@@ -56,7 +56,7 @@ public sealed class HierarchicalDeliverySchemaTests
         {
             var path = Path.Combine(root!.Parent!.FullName, "CSweet.Agent." + agent);
             using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(path, "csweet-plugin.json")));
-            var capability = manifest.RootElement.GetProperty("provides").EnumerateArray().Single(x => x.GetProperty("name").GetString() == WorkManagementCapabilityNames.ExecutionRunV2);
+            var capability = manifest.RootElement.GetProperty("provides").EnumerateArray().Single(x => x.GetProperty("name").GetString() == WorkManagementCapabilityNames.ExecutionRun);
             JsonSchemaValidator.Validate(outcome, capability.GetProperty("outputSchema"));
             var version = manifest.RootElement.GetProperty("version").GetString()!;
             Assert.Contains(version, File.ReadAllText(Path.Combine(path, "releases", version + ".md")).Split('\n')[0]);

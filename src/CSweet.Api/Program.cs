@@ -1,3 +1,4 @@
+using CSweet.Api.PersonalAssistant;
 using CSweet.Api.Agents;
 using CSweet.Api.BusinessOnboarding;
 using CSweet.Infrastructure.BusinessOnboarding;
@@ -148,6 +149,7 @@ builder.Services.AddHostedService<ApplicationRealtimeOutboxWorker>();
 builder.Services.AddHostedService<WorkOrchestrationWorker>();
 builder.Services.AddHostedService<AgentHireOperationWorker>();
 builder.Services.AddHostedService<BusinessOnboardingOperationWorker>();
+builder.Services.AddHostedService<CSweet.Infrastructure.PersonalAssistant.RepositoryOnboardingWorker>();
 
 builder.Services.AddHttpClient("ComputeDownloadMetadata", client => client.Timeout = TimeSpan.FromSeconds(5))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -199,6 +201,7 @@ app.MapPlanningWorkflowEndpoints();
 
 // Core business domain endpoints
 app.MapBusinessOnboardingEndpoints();
+app.MapPersonalAssistantEndpoints();
 app.MapCoreOrganizationEndpoints();
 app.MapOrganizationUserEndpoints();
 app.MapEmployeeEndpoints();

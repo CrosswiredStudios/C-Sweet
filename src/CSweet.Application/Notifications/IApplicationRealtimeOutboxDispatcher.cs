@@ -4,7 +4,10 @@ namespace CSweet.Application.Notifications;
 
 public sealed record ApplicationRealtimePublication(
     AppRealtimeEventEnvelope Envelope,
-    IReadOnlyList<Guid> RecipientOrganizationUserIds);
+    IReadOnlyList<Guid> RecipientOrganizationUserIds)
+{
+    public Guid? RecipientApplicationUserId { get; init; }
+}
 
 public interface IApplicationRealtimePublisher
 {

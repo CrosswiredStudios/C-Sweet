@@ -1,0 +1,33 @@
+@inject NavigationManager Navigation
+
+<MudDialog Visible="Visible" VisibleChanged="VisibleChanged" Options="Options" DefaultFocus="DefaultFocus.FirstChild" aria-labelledby="new-business-title">
+    <DialogContent>
+        <section class="business-dialog onboarding-dialog" aria-labelledby="new-business-title">
+            <header class="business-dialog-header"><div class="business-dialog-brand"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Business" /></span><div><span class="business-kicker">Enterprise · New business</span><h2 id="new-business-title">@(_codebase ? "Your project, its next chapter." : "Where would you like to start?")</h2><p>@(_codebase ? "Bring your work into C-Sweet, with a brief you review." : "Start with an idea, or build on what you already have.")</p></div></div><button class="business-dialog-close" aria-label="Close new business dialog" @onclick="CloseAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
+            @if (_codebase)
+            { <RepositoryBusinessOnboarding DraftId="DraftId" DraftCreated="RememberDraft" Discarded="CloseAsync" /> }
+            else
+            {
+                <div class="onboarding-story-grid">
+                    <button class="onboarding-story" @onclick="() => NewBusiness.InvokeAsync()"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><strong>New business</strong><p>Begin with a name, a mission, and an idea.</p><span>Start fresh <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
+                    <button class="onboarding-story" @onclick="() => _codebase = true"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Code" /></span><strong>Business from codebases</strong><p>Bring an app, game, or website you’ve already been building.</p><span>Connect GitHub or upload ZIPs <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
+                </div>
+                <p class="business-next-step">Your assistant helps prepare the context. You review it, then choose a Chief of Staff.</p>
+                <MudButton Href="personal-assistant" StartIcon="@Icons.Material.Outlined.ChatBubbleOutline">Talk through your idea with your Personal Assistant</MudButton>
+            }
+        </section>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback NewBusiness { get; set; }
+    [Parameter] public Guid? DraftId { get; set; }
+    private bool _codebase;
+    private bool _previousVisible;
+    private DialogOptions Options => new() { MaxWidth = MaxWidth.Medium, FullWidth = true, NoHeader = true, BackdropClick = false, CloseOnEscapeKey = true };
+    protected override void OnParametersSet() { if (Visible && !_previousVisible) _codebase = DraftId.HasValue; _previousVisible = Visible; }
+    private Task CloseAsync() => VisibleChanged.InvokeAsync(false);
+    private void RememberDraft(Guid id) { DraftId = id; Navigation.NavigateTo($"/?create=true&draft={id:D}", replace: true); }
+}

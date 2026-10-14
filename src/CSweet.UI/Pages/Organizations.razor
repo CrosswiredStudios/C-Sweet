@@ -72,6 +72,8 @@
     </section>
 </div>
 
+<NewBusinessDialog Visible="_showNewBusiness" VisibleChanged="OnNewBusinessVisibilityChanged" NewBusiness="ShowBasicCreateForm" DraftId="DraftId" />
+
 <MudDialog Visible="_showForm" VisibleChanged="OnDialogVisibilityChanged" Options="_dialogOptions" DefaultFocus="DefaultFocus.FirstChild">
     <DialogContent>
         <section class="business-dialog" aria-labelledby="business-dialog-title">
@@ -147,6 +149,8 @@
     private DialogOptions _dialogOptions => new() { MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = !_saving, BackdropClick = false, NoHeader = true };
 
     [Parameter] public bool CreateRequested { get; set; }
+    [Parameter] public Guid? DraftId { get; set; }
+    private bool _showNewBusiness;
 
     private IReadOnlyList<OrganizationResponse> _organizations = [];
     private OrganizationResponse? _editingOrg;
@@ -223,6 +227,12 @@
 
     private void ShowCreateForm()
     {
+        _showNewBusiness = true;
+    }
+
+    private void ShowBasicCreateForm()
+    {
+        _showNewBusiness = false;
         ResetForm();
         _editingOrg = null;
         _showForm = true;
@@ -296,6 +306,7 @@
     }
 
     private Task OnDialogVisibilityChanged(bool visible) { if (!visible && !_saving) HideForm(); return Task.CompletedTask; }
+    private Task OnNewBusinessVisibilityChanged(bool visible) { _showNewBusiness = visible; if (!visible && CreateRequested) Navigation.NavigateTo("/", replace: true); return Task.CompletedTask; }
     private void HideForm()
     {
         if (_saving) return;

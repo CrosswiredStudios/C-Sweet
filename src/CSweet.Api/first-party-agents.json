@@ -126,7 +126,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "work.orchestration.profile.configure.v1",
             "work.flow-metrics.read.v1",
             "management.check-in.v1"
@@ -232,7 +232,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -262,7 +262,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -292,7 +292,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -322,7 +322,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -354,8 +354,7 @@
           "IconUrls": [],
           "Capabilities": [
             "work.execution.build-readiness.v1",
-            "work.execution.run.v2",
-            "work.execution.run.v1",
+            "work.execution.run",
             "software-development.implement.v1",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
@@ -390,7 +389,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -432,7 +431,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -463,7 +462,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -493,7 +492,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -526,7 +525,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -561,7 +560,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -593,7 +592,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
@@ -627,7 +626,7 @@
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "work.execution.run.v1",
+            "work.execution.run",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1"
           ],
