@@ -70,10 +70,34 @@ public sealed partial class ProjectHealthPostgresTests
             Assert.Empty(await db.CoreConversationMessages.ToListAsync()); Assert.Empty(await db.ExecutiveDecisions.ToListAsync());
             Assert.Empty(await db.UserNotifications.ToListAsync());
             Assert.Null((await db.ProjectIncidentDeliveries.SingleAsync()).DeliveredAt);
+            Assert.Empty(await health.ReadAttentionAsync(organization.Id, owner.Id, default));
             await db.Database.ExecuteSqlRawAsync("DROP TRIGGER fail_incident_choice ON \"ExecutiveDecisions\"; DROP FUNCTION fail_incident_choice();");
             await health.DeliverAsync(default); await health.DeliverAsync(default);
             Assert.Single(await db.CoreConversationMessages.ToListAsync()); Assert.Single(await db.ExecutiveDecisions.ToListAsync());
             var attention = Assert.Single(await health.ReadAttentionAsync(organization.Id, owner.Id, default));
+            // Withdrawal must roll back obsolete choices, notifications and the delivery receipt together.
+            var savedTicket = await db.CoreWorkTasks.SingleAsync(x => x.Id == ticket.Id);
+            var previousRevision = savedTicket.Revision; var previousReason = savedTicket.BlockReason;
+            savedTicket.Revision++; savedTicket.BlockReason = "Changed evidence needs a fresh manager report.";
+            var staleDelivery = new ProjectIncidentDelivery { Id = Guid.NewGuid(), IncidentId = incident.Id,
+                RecipientId = owner.Id, SenderId = reporter.Id, Revision = incident.Revision + 1, NextAttemptAt = clock.Now };
+            db.Add(staleDelivery); await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE FUNCTION fail_attention_withdrawal() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'disposable attention withdrawal rollback'; END $$;
+                CREATE TRIGGER fail_attention_withdrawal BEFORE UPDATE ON "UserNotifications"
+                FOR EACH ROW WHEN (NEW."DismissedAt" IS NOT NULL) EXECUTE FUNCTION fail_attention_withdrawal();
+                """);
+            await Assert.ThrowsAnyAsync<Exception>(() => health.DeliverAsync(default));
+            db.ChangeTracker.Clear();
+            Assert.Equal(ExecutiveDecisionStatus.Pending, (await db.ExecutiveDecisions.SingleAsync()).Status);
+            Assert.Null((await db.UserNotifications.SingleAsync()).DismissedAt);
+            Assert.Null((await db.ProjectIncidentDeliveries.SingleAsync(x => x.Id == staleDelivery.Id)).DeliveredAt);
+            Assert.Single(await db.CoreConversationMessages.ToListAsync());
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER fail_attention_withdrawal ON \"UserNotifications\"; DROP FUNCTION fail_attention_withdrawal();");
+            savedTicket = await db.CoreWorkTasks.SingleAsync(x => x.Id == ticket.Id);
+            savedTicket.Revision = previousRevision; savedTicket.BlockReason = previousReason;
+            await db.SaveChangesAsync(); await health.DeliverAsync(default);
             async Task<AnswerExecutiveDecisionResponse> Answer()
             {
                 await using var concurrent = new CSweetDbContext(options, executionClock: clock);

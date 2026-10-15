@@ -29,6 +29,7 @@ function New-TestRelease([string] $Version, [bool] $HasBundle = $true) {
 function New-TestManifest([string] $Version) {
     return [pscustomobject]@{ schemaVersion = 1; officeVersion = $Version; protocolVersion = '1.0'
         signing = 'development'; requiresHostCertification = $true
+        environmentProfiles = @('software-development-polyglot-v1'); guestBrokerProtocolVersion = '1.1'
         assets = @('windows-support','windows-x64' | ForEach-Object {
             $name = "csweet-office-$Version-$_.zip"
             [pscustomobject]@{ name = $name; size = 100; sha256 = 'a' * 64
@@ -62,6 +63,17 @@ try {
         return $script:manifest
     }
     Check ((Resolve-CSweetOfficeRelease 'x64').Version -eq '0.6.0') 'Select the newest compatible tagged bundle, skipping signed-only releases.'
+    $script:releases = @((New-TestRelease '0.6.0'))
+    $script:manifest = New-TestManifest '0.6.0'
+    $script:manifest.PSObject.Properties.Remove('environmentProfiles')
+    Check ($null -eq (Resolve-CSweetOfficeRelease 'x64')) 'An ordinary-only legacy bundle must permit configured source preparation instead of downloading the wrong image.'
+    $script:manifest = New-TestManifest '0.6.0'
+    $script:manifest.guestBrokerProtocolVersion = '1.0'
+    Check ($null -eq (Resolve-CSweetOfficeRelease 'x64')) 'A development guest needs protocol 1.1.'
+    $script:manifest = New-TestManifest '0.6.0'
+    $script:manifest.environmentProfiles = @('ordinary')
+    Check ($null -eq (Resolve-CSweetOfficeRelease 'x64')) 'Binary version alone cannot establish guest profile support.'
+    $script:manifest = New-TestManifest '0.6.0'
     Check ($null -eq (Resolve-CSweetOfficeRelease 'arm64')) 'Unsupported architectures must not install x64.'
     $script:releases = $null
     Check ($null -eq (Resolve-CSweetOfficeRelease 'x64')) 'Offline discovery must allow source fallback.'

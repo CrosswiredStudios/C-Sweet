@@ -57,7 +57,10 @@ public sealed class OrganizationApiClient : IOrganizationApiClient
         if (response.StatusCode != System.Net.HttpStatusCode.NoContent && !response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new ApiClientException(response.StatusCode, DeleteErrorMessage(body, response.StatusCode));
+            string? errorCode = null;
+            try { errorCode = JsonSerializer.Deserialize<CoreActionResponse>(body, JsonSerializerOptions.Web)?.ErrorCode; }
+            catch (JsonException) { }
+            throw new ApiClientException(response.StatusCode, DeleteErrorMessage(body, response.StatusCode), errorCode);
         }
     }
 

@@ -201,6 +201,47 @@ before a stream failure, and every forwarded chunk is persisted first.
   the installation grant is missing or stale, or the agent called a capability it was not approved
   for; compare `AgentWorkItems.Error` with the installation's approved grant set.
 
+## Accepted pitch does not advance to Producer staffing
+
+If a pitch revision is `Accepted` but the Creative Director remains in `HighLevelReview`,
+inspect its `AgentPlatformEventOutbox` `ArtifactRevisionDecidedV1` record and the corresponding
+`AgentWorkItems.SourceId`. A saved approval alone does not establish event delivery.
+
+The October 14 Block Cascade incident in Really Cool Games had a pending approval event
+behind an owner-report event whose 143-character idempotency key overflowed the inbox's
+128-character correlation column. `AgentWorkRouter.EnqueueEventWithRecipientsAsync` copied
+that key directly, and `AgentPlatformEventDispatcher.DispatchPendingAsync` reused the failed
+EF context across its batch. Failed tracked inserts prevented later events and retry receipts
+from saving; all 28 pending events still showed zero attempts.
+
+`AgentWorkRouter` now retains correlations up to 128 characters and uses the immutable source
+event ID for longer correlations. `DeliveryKey` preserves existing recipient keys up to the
+200-character inbox limit and hashes the complete event-plus-recipient key above it. Source
+event IDs, target/subscription checks and payload conflict checks remain authoritative.
+`AgentPlatformEventDispatcher` discovers a bounded set of IDs, processes each in a fresh
+scope, and records failures in another fresh scope. Successful delivery acknowledgement,
+bounded retry/dead-letter bookkeeping, and cancellation survive an unrelated insert failure.
+Lost publication acknowledgements reuse persisted inbox work on retry.
+
+Regression coverage: `AgentPlatformEventDispatcherTests.Recovery` checks both length boundaries,
+distinct shared-prefix keys and recipients, old-key compatibility, replay and shutdown
+cancellation. Its PostgreSQL case uses a uniquely named disposable database and real trigger
+failures before inbox insertion and after inbox persistence. Set
+`CSWEET_EVENT_DELIVERY_TEST_DATABASE` to a disposable loopback PostgreSQL server to run it.
+Rebuild/restart AgentHost to resume the existing pending events; preserve approvals, original
+event identities, inbox history and hiring authority.
+
+Live recovery verified October 14 at 20:54 Pacific: the hash-matched `EventDeliveryVerified`
+AgentHost output replaced the stopped host's Debug output through a controlled Aspire restart.
+All 64 affected tests passed, including the real PostgreSQL case (no skipped tests). The
+original owner-report event and pitch-approval event published on their first recorded
+attempt. Naomi consumed the existing approval, completed vision/staffing tasks and submitted
+resource-change request `cc606ffb-6ff2-40e6-a07e-7010e5ba38d0` for one Video Game Producer.
+That proposal remains Pending for the owner's decision. The outbox contained zero Pending
+and zero Failed events after recovery. No direct live database mutations or hiring decisions
+were used. Test and deployed assembly hashes plus rollback files are retained under the
+local `artifacts/event-delivery` verification directory.
+
 ## Employee timeline
 
 The employee details **Timeline** tab correlates chat traces with messages, work attempts, tool/model calls, and runtime events using the shared audit ledger. See [Employee audit timeline](features/employee-audit-timeline.md) for capture coverage, privileged diagnostic access, and historical limitations.

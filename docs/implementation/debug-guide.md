@@ -857,6 +857,35 @@ Set-ItemProperty $key DumpCount 3 -Type DWord
 Event Viewer > Windows Logs > Application also records the faulting module for native crashes
 ("Application Error" and ".NET Runtime" entries at the crash time).
 
+## OnDemand runtime holds capacity after completing a ticket
+
+`AgentRuntimeManager.EnsureRuntimeQueuedAsync` gives every OnDemand runtime an idle deadline,
+including non-interactive ticket dispatch. `AgentRuntimeManager.ReleaseIdleRuntimeAsync`
+recovers missing deadlines from session establishment, interactive requests and completed work.
+It preserves ready inbox work and leased work, including inference waits. Periodic
+`AgentAttentionEvents.ReviewDue` completion and `PlatformLlmJobService.AccountWaitAsync`
+bookkeeping do not extend an otherwise idle runtime's lifetime. AlwaysOn and Scheduled
+runtimes retain their separate activation policies.
+
+Idle teardown and `AgentWorkInbox.ClaimCoreAsync` share PostgreSQL claim admission's
+transaction lock. Stopping and broker-session revocation commit before remote teardown;
+new work remains queued for normal OnDemand recovery. Confirmed asynchronous idle shutdown
+retains Cancelled status and its idle reason rather than reporting a runtime failure.
+`AgentRuntimeManagerTests.MissingIdleDeadline_ReleasesOnlyIdleOnDemandRuntime`,
+`IdleRelease_WaitsForConfirmedRemoteStopAndDoesNotRepeatStopTransition` and
+`AgentWorkInboxTests.IdleShutdownFencesClaimsWithoutConsumingPendingWork`
+cover deadlines, activity, active work, review bookkeeping, replay and delayed teardown.
+Rebuild/restart WorkerHost and AgentHost to apply ongoing automatic cleanup and claim fencing;
+no migration or agent package change is needed.
+
+October 15 Block Cascade recovery: all nine Office slots were occupied by eight AlwaysOn
+managers across two businesses and the idle OnDemand QA runtime. The targeted idle-release
+service call fenced Rohan's runtime, Office confirmed teardown at 09:06:21 Pacific, and
+Adrian claimed scaffold ticket `VGF99E0D5782-7` at 09:06:34 Pacific. The running older
+WorkerHost classified its asynchronous stop recovery as Failed; the completed plan and QA
+evidence were preserved. This live recovery verifies the handoff, separately from rollout
+of the source correction above.
+
 ## QA waiting behind incomplete runtime shutdown
 
 `OfficeGatewayService.ReconcileStopsAsync` (`OfficeGatewayService.Stops.cs`) uses the existing authenticated heartbeat to rediscover up to eight retired attempts without shutdown acknowledgement. Discovery rotates and repeats across reconnects. `OfficeWorker.ReadControlMessagesAsync` retains every received epoch and handles the teardown-only hint, while `AssignmentStopJournal` retains permanent replay tombstones and reports confirmed cleanup through the existing stop outbox.
@@ -885,6 +914,116 @@ the report quality reviewer is the Producer, and product QA remains independent.
 staffing or certified-build blocker remains a separate prerequisite; this correction does not
 waive it. Local package tests do not establish live sprint activation.
 
+### Shatterbeat startup and staffing stall (October 14, 2026 Pacific)
+
+Read-only inspection of project `281589c5-ec48-45a1-8893-e6371a262ffb` found Production Sprint 1
+still Planned, with no delivery plan or sprint execution. Naomi's incident reporting found real
+prerequisite failures; it did not cause the stall.
+
+- The connected node `fd8c6cef-4c78-4f35-86cf-8509d36bc46c` reports Office **0.9.0**.
+  Its latest staged `office-bundle.json` also records 0.9.0. The guest certification created on
+  this host at 13:32 Pacific instead records **v14**, protocol **1.0**, and digest
+  `sha256:f51a9b4bd6163aaa1ec8079f389ad429fbb9ec5f04fc8dcfefa9a62cb2c446a0`.
+  Fleet inventory agrees and advertises no public-internet support. Office binary version alone
+  does not establish development-profile readiness. Adrian 4.0.0 and Rohan 3.0.0 request
+  `software-development-polyglot-v1`; their snapshot contained 431 and 416 failed starts respectively.
+- Producer coverage request `20100ae2-95d9-4182-b560-fbbb9683148e` was RevisionRequested because
+  its trusted flow-metrics source revision was stale. The approved roster contains Chief,
+  Creative Director, Producer, Technical Director, Engineer and QA; the published asset work
+  also requires artist, audio and level coverage. Hierarchical recovery returned a staffing
+  exception before revisiting that coverage request. The generic author-independence wording
+  does not establish a review conflict: this failure occurred while selecting an author.
+- Naomi's current asset decision selects procedural production and is bound to the accepted
+  vision. Producer `ResolvedPlanningDirections` carried only management-direction decisions
+  into decomposition, omitting this strategy. Existing sprite-sheet and track deliverables
+  therefore reached planning without the selected generation method. Procedural production
+  does not itself waive quality criteria or prove every specialist is unnecessary.
+
+Local corrections:
+
+- `Start-CSweetDevelopmentOfficeSetup.ps1` now requests `DevelopmentTools` and the certified
+  IPv4 development variant. `Assert-DevelopmentOfficePayload` checks protocol 1.1 and v15/v15-ipv4
+  before installing services, including for a downloaded bundle. Actual certification remains
+  mandatory; no certification values or internet grants are fabricated.
+- `AgentRuntimeGuestSelection.ResolveAsync` owns both eligibility and launch selection, retaining
+  configured provider/digest pins. `AgentRuntimeEligibilityService.EvaluateAsync` reports an exact
+  environment prerequisite before queuing runtimes. Existing pending-work discovery can resume
+  after compatible inventory appears; unavailable images no longer cause repeated launch records
+  through the ordinary on-demand path. Other startup failures still need their own recovery policy.
+- Producer **3.1.2** `ReadAssetPlanningDirectionsAsync` rereads current project decisions and
+  exact accepted vision revisions before carrying the full strategy into the existing authenticated
+  planning handoff. A changed direction digest invalidates reuse of an older planning collaboration.
+  `SubmitCoverageAsync` gives stale metrics one bounded evidence correction with stable replay,
+  preserving the approved staffing baseline. `StaffWorkflowAsync` revisits uncovered task roles
+  after a hierarchical staffing failure. Hiring and spending remain separately authorized.
+
+Verification: 362 Producer tests with sibling SDK references disabled, Producer self-test,
+106 platform runtime/lifecycle tests in the separate `ShatterbeatVerified` configuration,
+and `scripts/tests/Test-DevelopmentOfficePayload.ps1` (six real guard cases) passed. The packed
+Producer NuGet manifest, SDK 4.1.1 dependency, version 3.1.2 and release heading were inspected.
+An initial sandbox testhost run could not connect; a default-output platform build encountered
+running-service file locks. The successful isolated verification did not stop or replace services.
+
+Rollout remains unverified: deploy/restart the platform and install Producer 3.1.2, drain the
+Office through supported maintenance before replacing its payload, certify the development
+guest and verify current advertised protocol/image/capacity. Then reconcile the existing
+planning with the asset strategy, resolve genuine remaining coverage through normal resource
+operations, recover expired estimate/readiness sessions and verify first implementation plus
+independent review. No live project records, grants or assignments were changed during this work.
+
 ### Reviewed authoring internet and Node dependency recovery
 
+October 14 Office update follow-up: session `f0469177-8c3d-4712-99ce-2bf8dd1bdfca` failed
+during `RunInternetSmokeAsync` before installation, with guest-channel EOF. The downloaded
+0.9.0 hosted-image build never called `Prepare-CSweetDevelopmentPayload.ps1`, leaving out the
+fixed TUN adapter and development tooling. The initializer flags correction exposed this
+separate packaging defect; it did not establish live readiness.
+
+Office 0.9.1 `build-hosted-hyperv-image.sh` stages the checksum-pinned payload through the
+existing provisioner. `Publish-HostedOfficeAssets.ps1` binds the profile declaration to the
+finished image hash and carries profile/protocol metadata into support and full archives.
+C-Sweet `Resolve-CSweetOfficeRelease` skips ordinary-only releases before downloading and
+certifying them, using the existing configured source path when no compatible release exists.
+Checksum, trust and certification failures do not become fallback permissions. The source
+preflight reports its actual version instead of the former hardcoded 0.5.0.
+
+The installed Office and identity survived the failed update and remain paused. Retry uses
+normal Office care with a fresh authorized setup session after validating preparation. The
+published 0.9.0 assets are immutable; 0.9.1 source/archive verification is not a published
+development image or live certification result.
+
+Source preparation then passed on October 14 at 15:50 Pacific: Office 0.9.1, guest protocol 1.1,
+v15-ipv4 certification, digest `sha256:d2301fccc3692f1de9945e96cf943d5b31e24b6246b3490741b8dad7f1f1f634`.
+Runtime isolation, real brokered builds, public TCP/UDP, denied private/host access,
+Node/npm dependency execution and network lease cleanup passed. IPv6 remains unavailable under
+this mode. All 929 payload hashes were verified. In-place source updates now leave the separate
+Compute image preparation to its own on-demand workflow instead of making it another Office
+upgrade dependency. The image preparation was performed with installation disabled; the
+subsequent identity-preserving Office care session remains the authority for deployment.
+
+The supported Office care update completed October 14 at 18:44 Pacific using session
+`87460f8b-ee53-4140-8b69-6ee708d98353`. The existing Office identity
+`fd8c6cef-4c78-4f35-86cf-8509d36bc46c` reconnected on 0.9.1, advertising broker protocol
+1.1, v15-ipv4 certification, the same verified development digest above, and available runtime
+and public-internet capabilities. Office care verified the connection; its Resume work action
+restored Ready status. This verifies the live Office repair, not deployment of Producer 3.1.2
+or completion of Shatterbeat's remaining planning and staffing recovery.
+
 `runtime.internet.public.v1` adds reviewed public egress through the Office Node. `AgentRuntimeManager` now resolves the certified development image for `software-development-polyglot-v1`; it cannot silently use the old ordinary image. Follow `features/runtime-public-internet.md` for pinned payload preparation, v15 real-VM certification, independent package validation and the deployment gate before retrying a missing-Node ticket. Earlier incident reports above describe older deployments and do not establish recovery of the current runtime.
+
+### Block Cascade scaffold review context failure (October 15)
+
+Scaffold publication `f9752b9d-7eaf-4cd3-bfe4-0a01ed457358` included the generated Phaser bundle in
+`dist/assets/index-B5DwHTft.js`. The technical-review request contained 1,824,859 message characters
+and the model refused it for exceeding context capacity. This was review-input packaging after a
+completed implementation; no technical approval or independent QA had been obtained.
+
+See `DeliveryTaskTechnicalReview`, `BranchDiffTechnicalReview`,
+`GitWorkspaceCapabilityHandler.ReadReviewDiffPage` and
+`InternalGitRepositoryStore.WriteSnapshotTreeAsync` for the SDK 4.2.0 reference/paging and gitignore
+correction. `BranchDiffTechnicalReviewTests`, `MergeDecisionPersistenceTests`,
+`GitWorkspaceCapabilityHandlerTests.DiffPagesAreBoundedAndRejectChangedPublicationSourceTargetOrPatch`
+and `InternalGitPublicationTests.SnapshotPublicationHonorsNestedGitignoresAndKeepsPreviouslyTrackedFiles`
+cover real callbacks, current-reference checks, bounded complete coverage and actual Git behavior.
+Roll out the platform and matching agents before retrying only the blocked review stage. Source tests
+and local packages do not upgrade the installed agents or establish live recovery of this candidate.

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -65,9 +67,11 @@ public sealed class AgentWorkRouter(
                 AgentWorkKind.Event,
                 eventName,
                 payload,
-                $"{idempotencyKey}:{installation.Id:D}",
+                DeliveryKey(idempotencyKey, installation.Id),
                 deadline ?? timeProvider.GetUtcNow().AddHours(1),
-                correlationId: idempotencyKey,
+                // Event keys can occupy all 200 outbox characters. The inbox correlation
+                // column allows 128; retain the source event identity when the key is longer.
+                correlationId: idempotencyKey.Length <= 128 ? idempotencyKey : $"platform-event:{eventId:D}",
                 sourceType: "platform-event",
                 sourceId: eventId.ToString("D"),
                 maximumAttempts: 3,
@@ -75,6 +79,15 @@ public sealed class AgentWorkRouter(
             recipients.Add(installation.Id);
         }
         return new AgentEventRoutingResult(recipients);
+    }
+
+    private static string DeliveryKey(string eventKey, Guid installationId)
+    {
+        var key = $"{eventKey}:{installationId:D}";
+        // Preserve every previously valid delivery key so replay finds existing inbox work.
+        // Hash the complete key (including recipient) rather than truncating shared prefixes.
+        return key.Length <= 200 ? key :
+            $"platform-event-sha256:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))}";
     }
 
     private static IReadOnlySet<string> Subscriptions(AgentInstallationGrant? grant)

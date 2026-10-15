@@ -17,7 +17,13 @@
         </div>
         @if (!string.IsNullOrWhiteSpace(_deleteMessage))
         {
-            <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mb-4" role="status">@_deleteMessage</MudAlert>
+            <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : _deleteCleanupPending ? Severity.Info : Severity.Error)" Variant="Variant.Outlined" Class="mb-4" role="status">
+                @_deleteMessage
+                @if (_deleteComputeOrganizationId is { } computeOrganizationId)
+                {
+                    <MudButton Href="@($"/organizations/{computeOrganizationId}/compute")" Color="Color.Primary">View compute cleanup</MudButton>
+                }
+            </MudAlert>
         }
         @if (_loading)
         {
@@ -140,6 +146,7 @@
         <section class="business-dialog business-delete-dialog" aria-labelledby="business-delete-title">
             <header class="business-dialog-header"><div><span class="business-kicker">Business management</span><h2 id="business-delete-title">Delete business?</h2></div><MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CancelDelete" aria-label="Cancel deletion" /></header>
             <p>Delete <strong>@_deleteCandidate?.Name</strong> and all of its associated business data? This cannot be undone.</p>
+            <p>Its compute instances and VM-local files will also be released. If cleanup is still running, you will need to retry deletion after it finishes.</p>
             <footer class="business-dialog-actions"><MudButton Variant="Variant.Outlined" OnClick="CancelDelete">Keep business</MudButton><MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBusinessAsync">Delete business</MudButton></footer>
         </section>
     </DialogContent>
@@ -160,6 +167,8 @@
     private bool _refreshingOnboardingOrganizations;
     private Guid? _deletingOrganizationId;
     private bool _deleteSucceeded;
+    private bool _deleteCleanupPending;
+    private Guid? _deleteComputeOrganizationId;
     private string _formName = string.Empty;
     private string _formIndustry = string.Empty;
     private string _formMission = string.Empty;
@@ -331,6 +340,8 @@
         _deletingOrganizationId = organization.Id;
         _deleteMessage = null;
         _deleteSucceeded = false;
+        _deleteCleanupPending = false;
+        _deleteComputeOrganizationId = null;
         try
         {
             await OrganizationApi.DeleteAsync(organization.Id);
@@ -338,6 +349,12 @@
             await BusinessContext.RemoveDeletedBusinessAsync(organization.Id);
             _deleteSucceeded = true;
             _deleteMessage = $"'{organization.Name}' was deleted.";
+        }
+        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "compute_cleanup_failed")
+        {
+            _deleteCleanupPending = exception.ErrorCode == "compute_cleanup_pending";
+            _deleteComputeOrganizationId = organization.Id;
+            _deleteMessage = $"'{organization.Name}': {exception.Message}";
         }
         catch (Exception exception)
         {

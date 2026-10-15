@@ -221,6 +221,30 @@ public sealed class InternalGitPublicationTests : IDisposable
         Assert.Single((await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Refs);
     }
 
+    [Fact]
+    public async Task SnapshotPublicationHonorsNestedGitignoresAndKeepsPreviouslyTrackedFiles()
+    {
+        var initial = await InitializeAsync();
+        var first = await _store.ApplySnapshotAsync(await RequestAsync(initial, "publish", "work/ignore", "first",
+            ("tracked.txt", "original")), _artifacts);
+        var request = await RequestAsync(first.CommitSha!, "publish", "work/ignore", "ignored-build",
+            (".gitignore", "dist/\nnode_modules/\ntracked.txt\n*.log\n!keep.log\n"),
+            ("src/.gitignore", "cache/\n"), ("src/main.ts", "authored"),
+            ("src/cache/generated.txt", "cache"), ("dist/game.js", new string('x', 100000)),
+            ("node_modules/phaser/index.js", "library"), ("debug.log", "ignored"),
+            ("keep.log", "deliberate source fixture"), ("tracked.txt", "changed"), ("package-lock.json", "{}"));
+        var result = await _store.ApplySnapshotAsync(request, _artifacts);
+        Assert.DoesNotContain("dist/game.js", result.ChangedFiles);
+        Assert.DoesNotContain("node_modules/phaser/index.js", result.ChangedFiles);
+        Assert.DoesNotContain("src/cache/generated.txt", result.ChangedFiles);
+        Assert.DoesNotContain("debug.log", result.ChangedFiles);
+        Assert.Contains("keep.log", result.ChangedFiles);
+        Assert.Contains("tracked.txt", result.ChangedFiles);
+        Assert.Contains("src/main.ts", result.ChangedFiles);
+        Assert.Contains("package-lock.json", result.ChangedFiles);
+        Assert.DoesNotContain("library", result.DiffSummary);
+    }
+
     public void Dispose()
     {
         var expected = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "csweet-publication-tests")) + Path.DirectorySeparatorChar;

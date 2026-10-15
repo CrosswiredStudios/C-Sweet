@@ -204,7 +204,7 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
     }
 
     private async Task<string> RunAsync(string? repository, string[] arguments, CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, string>? environment = null, string? input = null)
+        IReadOnlyDictionary<string, string>? environment = null, string? input = null, bool allowNoMatch = false)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(_options.OperationTimeoutSeconds));
@@ -252,7 +252,8 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
         var output = ReadAsync(process.StandardOutput);
         var error = ReadAsync(process.StandardError);
         await Task.WhenAll(output, error, WriteInputAsync(), process.WaitForExitAsync(timeout.Token));
-        if (process.ExitCode != 0) throw new InvalidOperationException("Git rejected the operation: " + error.Result.Trim());
+        if (process.ExitCode != 0 && !(allowNoMatch && process.ExitCode == 1))
+            throw new InvalidOperationException("Git rejected the operation: " + error.Result.Trim());
         return output.Result;
     }
 

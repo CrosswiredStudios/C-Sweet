@@ -56,6 +56,32 @@ public sealed class MergeDecisionPersistenceTests
         Assert.Equal(qa ? 1 : 0, review.QualityEvidence.Count);
         Assert.Contains("Passing QA for the exact candidate SHA", review.RequiredChecks);
         Assert.DoesNotContain("game.js", review.RequiredChecks);
+        var referenceRequest = new RequestCapability { RequestId = "reference", Capability = GitMergeCapabilities.Review, Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(
+            new ReviewGitMergeRequest(item.Id, 5, "review-reference") { IncludePatch = false })) };
+        GitMergeReview? reference = null;
+        await foreach (var metadata in handler.HandleAsync(session, referenceRequest, default))
+        {
+            Assert.True(metadata.Succeeded, metadata.Error);
+            reference = metadata.Payload.ToElement().Deserialize<GitMergeReview>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        }
+        Assert.NotNull(reference);
+        Assert.Empty(reference.DiffSummary);
+        Assert.Equal(64, reference.PatchDigest!.Length);
+        var diffRead = new GitReviewDiffRead(publication.Id, publication.CommitSha, reference.TargetCommitSha,
+            reference.PatchDigest, 0, 20);
+        var pageRequest = new RequestCapability { RequestId = "page", Capability = GitMergeCapabilities.Review, Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(
+            new ReviewGitMergeRequest(item.Id, 5, "review-page") { IncludePatch = false, DiffRead = diffRead })) };
+        await foreach (var result in handler.HandleAsync(session, pageRequest, default))
+        {
+            Assert.True(result.Succeeded, result.Error);
+            var page = result.Payload.ToElement().Deserialize<GitMergeReview>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.Empty(page.DiffSummary);
+            Assert.Equal(publication.ReviewPatch![..20], page.DiffPage!.Text);
+        }
+        var stalePage = new RequestCapability { RequestId = "stale", Capability = GitMergeCapabilities.Review, Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(
+            new ReviewGitMergeRequest(item.Id, 5, "stale-review") { IncludePatch = false,
+                DiffRead = diffRead with { PublicationId = Guid.NewGuid() } })) };
+        await foreach (var stale in handler.HandleAsync(session, stalePage, default)) Assert.False(stale.Succeeded);
         db.ChangeTracker.Clear();
         var request = new RequestCapability { RequestId = "decision", Capability = GitMergeCapabilities.Authorize,
             Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new AuthorizeGitMergeRequest(item.Id, 5, publication.Id,

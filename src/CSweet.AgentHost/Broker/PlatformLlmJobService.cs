@@ -306,7 +306,8 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
                 var previous = runtimeAccounted.GetValueOrDefault(runtimeId, job.AccountedAt);
                 if (previous < job.AccountedAt) previous = job.AccountedAt;
                 if (now > previous) runtime.RuntimeDeadlineAt += now - previous;
-                if (runtime.IdleDeadlineAt is not null) runtime.IdleDeadlineAt = now.AddMinutes(5);
+                // Durable queued/leased work protects OnDemand runtimes from idle teardown.
+                // Inference bookkeeping (including periodic attention) is not user activity.
                 await db.SaveChangesAsync(token);
                 job.AccountedAt = now;
                 runtimeAccounted[runtimeId] = now;

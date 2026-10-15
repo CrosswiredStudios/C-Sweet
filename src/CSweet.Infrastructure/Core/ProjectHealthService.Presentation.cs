@@ -163,9 +163,23 @@ public sealed partial class ProjectHealthService
         }
         if (OwnerReport(incident) is { } ownerReport)
         {
+            var current = await CurrentIncidentStateAsync(incident, token);
+            try { CSweet.Agent.SDK.ManagerIncidentCoordinator.ValidateReport(ownerReport); }
+            catch (ArgumentException)
+            {
+                // Older installed managers may have saved a wall of diagnostics. Show the
+                // shared factual summary while a durable refresh prepares the new report;
+                // preserve the stored analysis, decision bindings and prior chat messages.
+                ownerReport = CSweet.Agent.SDK.ManagerIncidentCoordinator.FactualFallback(new(Map(incident),
+                    new(Deserialize<CSweet.Agent.SDK.ProjectDiagnosticEvidence>(incident.EvidenceJson), null, [])
+                    { CurrentState = current }, "presentation")) ?? ownerReport;
+            }
+            if (ownerReport.SourceHash != current.Hash)
+                return new($"{projectName}: manager report is being refreshed",
+                    (current.Facts.FirstOrDefault(x => x.Kind is "CurrentWorkItem" or "CurrentCollaboration")?.Detail ??
+                        "The project records have changed and the manager is reassessing this incident.") + OutdatedReportNotice,
+                    recovery, "The manager is reviewing changed project records. No response to the previous report is needed.", link, label);
             summary = ownerReport.Summary;
-            if (ownerReport.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash)
-                summary += OutdatedReportNotice;
             return new(ownerReport.Title, summary, incident.ResolutionOutcome ?? ownerReport.Recovery, ownerReport.NextStep, link, label);
         }
         return new($"{projectName}: work needs attention", summary, incident.ResolutionOutcome ?? recovery, next, link, label);

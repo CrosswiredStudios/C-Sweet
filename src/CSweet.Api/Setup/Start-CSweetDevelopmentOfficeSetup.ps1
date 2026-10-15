@@ -41,6 +41,14 @@ function Get-RequiredPositiveIntProperty([object] $InputObject, [string] $Name) 
     return $parsed
 }
 
+function Assert-DevelopmentOfficePayload([object] $Manifest) {
+    $protocol = [string](Get-OptionalObjectProperty $Manifest 'brokerProtocolVersion')
+    $suite = [string](Get-OptionalObjectProperty $Manifest 'certificationSuiteVersion')
+    if ($protocol -cne '1.1' -or $suite -cnotin @('csweet-hardware-vm-smoke-v15', 'csweet-hardware-vm-smoke-v15-ipv4')) {
+        throw 'The prepared Office payload cannot run development agents. Setup requires protocol 1.1 and v15 development certification. No services were replaced; update the Office bundle and retry preparation.'
+    }
+}
+
 function Invoke-CSweetPinnedRestMethod {
     param(
         [Parameter(Mandatory = $true)][string] $Method,
@@ -205,7 +213,10 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = if ($null -ne $release) { $release.Version } else { '0.5.0' }
+        officeVersion = if ($null -ne $release) { $release.Version } else {
+            $localBuild = [xml](Get-Content -LiteralPath (Join-Path $officeScriptRoot '../../Directory.Build.props') -Raw)
+            [string]$localBuild.Project.PropertyGroup.VersionPrefix
+        }
         existingInstallationState = $existingInstallationState
     } | ConvertTo-Json -Compress
     $preflight = $null
@@ -380,7 +391,10 @@ try {
         $certificationRoot = Join-Path $officeRepositoryRoot 'artifacts\windows-test'
         $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
         Remove-TransientFile $payloadResultPath
-        $bootstrapArguments = @{}
+        # The agent profile needs the development payload even when the Office binaries
+        # are current. Select and certify it explicitly rather than accepting v14.
+        # Reviewed per-agent internet grants still govern workload network access.
+        $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
         if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
         & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
@@ -399,11 +413,14 @@ try {
             -not (Test-Path -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -PathType Leaf)) {
             throw 'The Office build returned an invalid completed payload.'
         }
+        Assert-DevelopmentOfficePayload (Get-Content -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json)
         # Reuse this setup session's UAC approval and progress channel. Image preparation
         # is an application step, never a command the user has to run.
         # Compute has its own on-demand preparation in Install-ComputeLocalProvider.ps1.
-        # Preserve eager preparation for source developers; published Office setup needs no sibling tool checkout.
-        if (-not $prebuiltRoot) {
+        # Preserve eager preparation for first source installs. An existing Office
+        # update must not depend on rebuilding a separate application-test image;
+        # Compute prepares that image on demand through its own setup workflow.
+        if (-not $prebuiltRoot -and -not $isUpgrade) {
             $headquartersRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
             $computePreparation = Join-Path $headquartersRoot 'scripts\Ensure-ComputeLinuxImage.ps1'
             if (-not (Test-Path -LiteralPath $computePreparation -PathType Leaf)) {

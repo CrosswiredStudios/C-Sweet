@@ -1,9 +1,11 @@
 using CSweet.Application.Core;
 using CSweet.Application.Setup;
+using CSweet.Compute.Contracts;
 using CSweet.Domain.Analytics;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
+using CSweet.Domain.PersonalAssistant;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Core;
@@ -165,6 +167,130 @@ public sealed class OrganizationDeletionTests
     }
 
     [Fact]
+    public async Task DeleteAsync_RequestsComputeCleanupOnceAndWaitsForSignedTeardownBeforePurging()
+    {
+        await using var f = new ComputeResultTests.Fixture();
+        await f.InitializeAsync();
+        await f.Reconciler.ApplyAsync(f.Sign(), default);
+        var db = f.Broker.Db;
+        var environment = await db.ComputeEnvironments.SingleAsync();
+        environment.LeaseExpiresAt = DateTimeOffset.MaxValue;
+        await db.SaveChangesAsync();
+        var cleanup = new CountingAgentCleanup();
+        var audit = new TestAuditEventWriter();
+        var purge = new OrganizationDataPurgeService(db, cleanup,
+            NullLogger<OrganizationDataPurgeService>.Instance, f.Broker.Broker);
+        var service = new CoreOrganizationService(db, audit, new RoleService(db, audit), purge);
+
+        for (var retry = 0; retry < 2; retry++)
+        {
+            var result = await service.DeleteAsync(f.Broker.Organization);
+            Assert.False(result.Succeeded);
+            Assert.Equal("compute_cleanup_pending", result.ErrorCode);
+            Assert.Equal(0, cleanup.Attempts);
+            Assert.True(await db.CoreOrganizations.AnyAsync(x => x.Id == f.Broker.Organization));
+            Assert.Null(environment.TeardownConfirmedAt);
+        }
+        var destroy = Assert.Single(await db.ComputeOperations.Where(x => x.Action == InfrastructureActions.Destroy).ToListAsync());
+        Assert.Equal(ComputeDesiredState.Destroyed, environment.DesiredState);
+        Assert.True(await db.ComputeProviderWakes.AnyAsync(x => x.OperationId == destroy.Id));
+        Assert.Contains(await db.AuditOutbox.ToListAsync(), x => x.RequestJson.Contains("compute.lifecycle.v1"));
+
+        destroy.Status = "Dispatching";
+        await db.SaveChangesAsync();
+        Assert.True(await f.Reconciler.ApplyAsync(f.Sign(f.Result with
+        {
+            OperationId = destroy.Id, Generation = environment.Generation,
+            Action = InfrastructureActions.Destroy, State = ComputeLifecycleState.Destroyed, TeardownConfirmed = true
+        }), default));
+
+        // A retry is a fresh HTTP request, without the provider reconciler's tracked rows.
+        db.ChangeTracker.Clear();
+        Assert.True((await service.DeleteAsync(f.Broker.Organization)).Succeeded);
+        Assert.Equal(1, cleanup.Attempts);
+        Assert.False(await db.CoreOrganizations.AnyAsync(x => x.Id == f.Broker.Organization));
+    }
+
+    [Theory]
+    [InlineData("Failed")]
+    [InlineData("Blocked")]
+    public async Task PurgeAsync_RetriesFailedComputeCleanupWithANewGeneration(string status)
+    {
+        await using var f = new ComputeBrokerTests.Fixture();
+        await f.SeedAsync();
+        await f.Send();
+        var cleanup = new CountingAgentCleanup();
+        var purge = new OrganizationDataPurgeService(f.Db, cleanup,
+            NullLogger<OrganizationDataPurgeService>.Instance, f.Broker);
+        await Assert.ThrowsAsync<OrganizationDeletionException>(() => purge.PurgeAsync(f.Organization));
+        var destroy = await f.Db.ComputeOperations.SingleAsync(x => x.Action == InfrastructureActions.Destroy);
+        destroy.Status = status;
+        await f.Db.SaveChangesAsync();
+
+        var result = await Assert.ThrowsAsync<OrganizationDeletionException>(() => purge.PurgeAsync(f.Organization));
+
+        Assert.Equal("compute_cleanup_pending", result.ErrorCode);
+        var operations = await f.Db.ComputeOperations.Where(x => x.Action == InfrastructureActions.Destroy).ToListAsync();
+        Assert.Equal(2, operations.Count);
+        Assert.Contains(operations, x => x.Generation == destroy.Generation + 1 && x.Status == "Pending");
+        Assert.Equal(0, cleanup.Attempts);
+    }
+
+    [Fact]
+    public async Task PurgeAsync_BoundsComputeCleanupAndSkipsQueuedInstancesOnRetry()
+    {
+        await using var f = new ComputeBrokerTests.Fixture();
+        await f.SeedAsync();
+        await f.Send();
+        var source = await f.Db.ComputeEnvironments.SingleAsync();
+        for (var index = 0; index < 100; index++)
+            f.Db.ComputeEnvironments.Add(new()
+            {
+                Id = Guid.NewGuid(), OrganizationId = source.OrganizationId, InstallationId = source.InstallationId,
+                WorkstreamId = source.WorkstreamId, ProviderNodeId = source.ProviderNodeId, ProviderId = source.ProviderId,
+                SpecificationJson = source.SpecificationJson, LeaseExpiresAt = source.LeaseExpiresAt
+            });
+        var otherBusiness = Guid.NewGuid();
+        f.Db.ComputeEnvironments.Add(new()
+        {
+            Id = Guid.NewGuid(), OrganizationId = otherBusiness, InstallationId = source.InstallationId,
+            WorkstreamId = source.WorkstreamId, ProviderNodeId = source.ProviderNodeId, ProviderId = source.ProviderId
+        });
+        await f.Db.SaveChangesAsync();
+        var cleanup = new CountingAgentCleanup();
+        var purge = new OrganizationDataPurgeService(f.Db, cleanup,
+            NullLogger<OrganizationDataPurgeService>.Instance, f.Broker);
+
+        await Assert.ThrowsAsync<OrganizationDeletionException>(() => purge.PurgeAsync(f.Organization));
+        Assert.Equal(100, await f.Db.ComputeOperations.CountAsync(x => x.Action == InfrastructureActions.Destroy));
+        await Assert.ThrowsAsync<OrganizationDeletionException>(() => purge.PurgeAsync(f.Organization));
+        Assert.Equal(101, await f.Db.ComputeOperations.CountAsync(x => x.Action == InfrastructureActions.Destroy));
+        Assert.False(await f.Db.ComputeOperations.AnyAsync(x => x.OrganizationId == otherBusiness));
+        Assert.Equal(0, cleanup.Attempts);
+    }
+
+    [Fact]
+    public async Task PurgeAsync_WhenComputeAuthorityIsUnavailableRetainsBusinessAndReportsCleanupFailure()
+    {
+        await using var f = new ComputeBrokerTests.Fixture();
+        await f.SeedAsync();
+        await f.Send();
+        var installation = await f.Db.AgentInstallations.SingleAsync();
+        installation.IsEnabled = false;
+        await f.Db.SaveChangesAsync();
+        var cleanup = new CountingAgentCleanup();
+        var purge = new OrganizationDataPurgeService(f.Db, cleanup,
+            NullLogger<OrganizationDataPurgeService>.Instance, f.Broker);
+
+        var result = await Assert.ThrowsAsync<OrganizationDeletionException>(() => purge.PurgeAsync(f.Organization));
+
+        Assert.Equal("compute_cleanup_failed", result.ErrorCode);
+        Assert.Equal(0, cleanup.Attempts);
+        Assert.True(await f.Db.CoreOrganizations.AnyAsync(x => x.Id == f.Organization));
+        Assert.False(await f.Db.ComputeOperations.AnyAsync(x => x.Action == InfrastructureActions.Destroy));
+    }
+
+    [Fact]
     public async Task DeleteAsync_WhenCleanupFails_ReturnsStructuredFailureAndRetainsBusiness()
     {
         var options = new DbContextOptionsBuilder<CSweetDbContext>()
@@ -277,6 +403,9 @@ public sealed class OrganizationDeletionTests
         {
             typeof(Approval), typeof(ArtifactPackageMember), typeof(BenchmarkAssessment),
             typeof(AgentCoordinationTurn), typeof(ConversationParticipant),
+            // Personal Assistant installations use personal scope, not the business ID.
+            // Their profiles stay with the account and must not be purged with a business.
+            typeof(PersonalAssistantProfile),
             typeof(WorkExecutionAttempt), typeof(WorkItemDependency), typeof(WorkItemExecution), typeof(WorkDeliveryExecution)
         }.Select(type => type.FullName).OrderBy(name => name).ToList();
 

@@ -12,6 +12,30 @@ namespace CSweet.UnitTests;
 public sealed class AgentWorkInboxTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IdleShutdownFencesClaimsWithoutConsumingPendingWork(bool completed)
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var installation = Installation(now);
+        var runtime = Runtime(installation, now);
+        runtime.TransitionTo(AgentRuntimeStatus.Stopping, now, "On-demand runtime idle timeout elapsed.");
+        if (completed) runtime.TransitionTo(AgentRuntimeStatus.Cancelled, now);
+        db.AddRange(installation, runtime);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var work = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            "example.event.v1", Json("{}"), "idle-fence", now.AddHours(1), sourceId: Guid.NewGuid().ToString("D"));
+
+        Assert.Null(await inbox.ClaimAsync(Session(installation, runtime), default));
+
+        Assert.Equal(AgentWorkStatus.Pending, work.Status);
+        Assert.Equal(0, work.AttemptCount);
+        Assert.Empty(await db.AgentWorkAttempts.ToListAsync());
+    }
+
+    [Theory]
     [InlineData(1, false)]
     [InlineData(2, true)]
     public async Task TicketFeedbackUsesStageRecoveryBudgetWhenSingleInboxAttemptIsExhausted(int stageBudget, bool retry)

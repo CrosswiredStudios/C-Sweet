@@ -155,7 +155,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         }
         catch (OrganizationDeletionException exception)
         {
-            return Failure("deletion_failed", exception.Message);
+            return Failure(exception.ErrorCode, exception.Message);
         }
         catch (DbUpdateException exception)
         {

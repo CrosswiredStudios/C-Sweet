@@ -51,7 +51,8 @@ public sealed partial class ExecutiveDecisionService
         catch (UnauthorizedAccessException) { return false; }
         if (!await db.CoreOrganizationUsers.AnyAsync(x => x.Id == actor && x.OrganizationId == organization && x.IsActive &&
             x.EmployeeType == EmployeeType.Human, token)) return false;
-        return ProjectHealthService.OwnerReport(incident)?.SourceHash == (await IncidentHealth.CurrentIncidentStateAsync(incident, token)).Hash;
+        return ProjectHealthService.OwnerReport(incident) is not null &&
+            await IncidentHealth.IncidentRequiresOwnerInputAsync(incident, token);
     }
 
     private async Task<bool> CurrentIncidentDecisionAsync(ExecutiveDecision decision, Guid actor, CancellationToken token)

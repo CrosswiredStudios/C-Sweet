@@ -42,8 +42,14 @@ public sealed partial class ProjectHealthService
                 !Deserialize<string>(installation.Grant.RequiredCapabilitiesJson).Contains(ProjectHealthCapabilities.Presentation) ||
                 !Deserialize<string>(installation.Grant.EventSubscriptionsJson).Contains(ProjectHealthEvents.OwnerReportRequested)) continue;
             var state = await CurrentIncidentStateAsync(incident, token);
-            if (OwnerReport(incident)?.SourceHash == state.Hash) continue;
-            var key = $"owner-report:{incident.Id:N}:{reporter:N}:{state.Hash}";
+            var report = OwnerReport(incident);
+            var needsReadableReport = false;
+            if (report is not null)
+                try { ManagerIncidentCoordinator.ValidateReport(report); }
+                catch (ArgumentException) { needsReadableReport = true; }
+            if (report?.SourceHash == state.Hash && !needsReadableReport) continue;
+            if (!await HasCurrentIncidentFailureAsync(incident, token)) continue;
+            var key = $"owner-report:{incident.Id:N}:{reporter:N}:{state.Hash}:plain-language-v1:{installation.PackageVersionId:N}";
             if (await db.AgentPlatformEventOutbox.AnyAsync(x => x.IdempotencyKey == key, token)) continue;
             db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = incident.OrganizationId,
                 TargetInstallationId = installation.Id, EventType = ProjectHealthEvents.OwnerReportRequested, IdempotencyKey = key,
@@ -93,8 +99,14 @@ public sealed partial class ProjectHealthService
             revisions.Single(r => r.Id == x.AcceptedRevisionId).ContentSha256))).Distinct().Take(8).ToArray();
         object? operation = null;
         if (IncidentSource(incident.Fingerprint, "coordination") is { } sessionId)
-            operation = await db.AgentCoordinationSessions.AsNoTracking().Where(x => x.Id == sessionId && x.OrganizationId == incident.OrganizationId &&
-                x.WorkstreamId == project.Id).Select(x => new { x.Id, x.Revision, x.Status, x.FinalSummary }).SingleOrDefaultAsync(token);
+        {
+            var collaboration = await db.AgentCoordinationSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sessionId &&
+                x.OrganizationId == incident.OrganizationId && x.WorkstreamId == project.Id, token);
+            operation = collaboration is null ? null : new { collaboration.Id, collaboration.Revision, collaboration.Status, collaboration.FinalSummary };
+            if (collaboration is not null)
+                facts.Add(new("CurrentCollaboration", collaboration.Id, collaboration.UpdatedAt,
+                    $"{collaboration.Subject}. Current status: {collaboration.Status}. {collaboration.FinalSummary}"));
+        }
         else if (IncidentSource(incident.Fingerprint, "stage") is { } stageId)
             operation = await db.WorkStageExecutions.AsNoTracking().Where(x => x.Id == stageId && x.ItemExecution!.WorkItem!.OrganizationId == incident.OrganizationId)
                 .Select(x => new { x.Id, x.Status, x.LastError, x.LastSummary, x.UpdatedAt }).SingleOrDefaultAsync(token);

@@ -107,3 +107,39 @@ ConfigureWorkDeliveryPlanRequest.TaskAssignments carries proposed author and qua
 HierarchicalProjectDelivery.PrepareAsync submits the proposals, finalizes task delivery against the returned draft ID, then activates. DeliveryConflictReason preserves task-specific configure/finalize/control conflicts as DeliveryStaffingException so Producer workflow and preflight commitments record recoverable waits. Product author self-review remains prohibited. Producer QueueWorkflowRecoveryAsync includes the QA proposal policy generation in its wake fingerprint; the explicit Retry staffing command requeues both workflow recovery and sprint-readiness commitments without resetting completed work or attempt history.
 
 Publish WorkManagement.Contracts 3.28.0 and Agent.SDK 3.64.1, then update C-Sweet and Producer 2.19.7. The Technical Director and Developer versions from the compute-test release do not need another change for this correction.
+
+## PR/branch diff review and source hygiene
+
+`DeliveryTaskTechnicalReview.ExecuteAsync` in SDK 4.2.0 requests reference-only metadata from
+`GitWorkspaceCapabilityHandler.ReviewMergeAsync`, then reads contiguous bounded pages using
+`ReviewGitMergeRequest.DiffRead`. Each read repeats reviewer authorization and verifies the current
+publication, source commit, target commit and patch digest. `BranchDiffTechnicalReview.ExecuteAsync`
+checks complete coverage and retains unresolved findings through final synthesis. Review input
+contains authored diffs and exact references rather than a serialized full candidate. Generated or
+installed dependency additions produce actionable rework before model dispatch; removal is allowed.
+The exact-source/target integration gate and independent QA remain mandatory.
+
+`InternalGitRepositoryStore.WriteSnapshotTreeAsync` uses Git's native `check-ignore` matching for
+new snapshot files, including nested rules, negation and `**`. Existing tracked files keep normal
+Git semantics: adding .gitignore alone does not untrack them. Both coding agents incorporate
+`RepositorySourcePolicy.Instructions`: maintain ignore rules before restoring/building, preserve
+source, authored assets, manifests and lockfiles, remove tracked dependency/output files explicitly,
+and generate deployment output through build recipes instead of committing a compiled library bundle.
+The same snapshot-tree writer serves InternalGit and GitHub publication.
+
+Release set: SDK 4.2.0, Engineer 4.0.1, Software Developer 2.0.1, Technical Director 3.1.1 and Software
+Architect 1.0.1. Deploy the platform broker and trusted Git publisher first, then publish/install the
+matching packages. A new reviewer against an older broker fails closed because reference metadata
+is missing. Existing full-patch callers remain compatible; aggregate acceptance policies are unchanged.
+For Block Cascade, retry the blocked technical-review stage after rollout. Its generated `dist/`
+files should return to the author for cleanup and a reproducible build recipe; do not mark the old
+candidate approved or rewrite its historical publication. The subsequent candidate must pass fresh
+technical review, trusted story integration and independent QA.
+
+Verification: 424 SDK tests, 2 sample tests, 668 agent tests, 7 freshly generated-template tests,
+and 69 focused platform tests passed (1,170 total), plus all four agent self-tests and the
+generated-template self-test. Agent and platform package-consumer checks disabled sibling SDK
+and WorkManagement.Contracts references. The five `.nupkg` manifests, SDK dependency pins and
+agent release-note versions were inspected; evidence is in `artifacts/branch-diff`.
+These are local build/package results. No running service or installed agent was replaced,
+and the existing blocked scaffold review was preserved for normal recovery after rollout.

@@ -75,7 +75,7 @@ public sealed partial class AgentRuntimeManager(
             QueuedAt = now,
             IsInteractive = interactive,
             LastInteractiveActivityAt = interactive ? now : null,
-            IdleDeadlineAt = interactive && activationMode != ActivationMode.AlwaysOn
+            IdleDeadlineAt = activationMode == ActivationMode.OnDemand
                 ? now.AddSeconds(Math.Max(1, options.Value.InteractiveIdleTimeoutSeconds))
                 : null
         };
@@ -471,9 +471,16 @@ public sealed partial class AgentRuntimeManager(
                     continue;
                 }
                 if (instance.Status == AgentRuntimeStatus.Running &&
+                    instance.AgentInstallation?.Schedule?.ActivationMode == ActivationMode.OnDemand &&
+                    await ReleaseIdleRuntimeAsync(instance, now, cancellationToken))
+                {
+                    changed++;
+                    continue;
+                }
+                if (instance.Status == AgentRuntimeStatus.Running &&
                     instance.IdleDeadlineAt is { } idleDeadline &&
                     idleDeadline <= now &&
-                    instance.AgentInstallation?.Schedule?.ActivationMode != ActivationMode.AlwaysOn)
+                    instance.AgentInstallation?.Schedule?.ActivationMode == ActivationMode.Scheduled)
                 {
                     await StopAndFinishAsync(
                         instance,
@@ -558,8 +565,10 @@ public sealed partial class AgentRuntimeManager(
             }
         }
 
-        const string recoveryReason = "Recovered a runtime interrupted while stopping; a fresh attempt can now start.";
-        var outcome = instance.MemoryResetRequestedAt is not null ? AgentRuntimeStatus.Cancelled :
+        var idleRelease = instance.Reason == OnDemandIdleTimeoutReason;
+        var recoveryReason = idleRelease ? OnDemandIdleTimeoutReason :
+            "Recovered a runtime interrupted while stopping; a fresh attempt can now start.";
+        var outcome = instance.MemoryResetRequestedAt is not null || idleRelease ? AgentRuntimeStatus.Cancelled :
             instance.Reason?.StartsWith(StartupCleanupReasonPrefix, StringComparison.Ordinal) == true
                 ? AgentRuntimeStatus.StartFailed : AgentRuntimeStatus.Failed;
         Transition(instance, outcome, now, recoveryReason);
@@ -778,7 +787,7 @@ public sealed partial class AgentRuntimeManager(
             using var startTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             startTimeout.CancelAfter(TimeSpan.FromSeconds(settings.WorkloadStartTimeoutSeconds));
             var entrypoint = Path.GetFileNameWithoutExtension(package.ProjectPath);
-            var runtimeRequest = ReadRuntimeRequest(package.ManifestJson);
+            var runtimeRequest = AgentRuntimeGuestSelection.ReadRequest(package.ManifestJson);
             var isDeveloperRuntime = string.Equals(
                 runtimeRequest.EnvironmentProfile,
                 "software-development-polyglot-v1",
@@ -798,38 +807,9 @@ public sealed partial class AgentRuntimeManager(
                 })
                 .SingleOrDefaultAsync(startTimeout.Token);
             var internet = RuntimeInternetGrant.IsGranted(package.ManifestJson, installation.Grant);
-            DevelopmentGuestImageOptions? developmentImage = null;
-            GuestImageReference? guestImage = null;
             var guestProtocol = internet || isDeveloperRuntime ? "1.1" : "1.0";
-            if (isDeveloperRuntime)
-            {
-                foreach (var candidate in runtimeOptions.DevelopmentImages.Where(x =>
-                    x.Architecture == package.ArtifactArchitecture && !string.IsNullOrWhiteSpace(x.Digest) &&
-                    (runtimeOptions.PreferredIsolationProviderId == null || x.ProviderId == runtimeOptions.PreferredIsolationProviderId))
-                    .OrderBy(x => x.ProviderId, StringComparer.Ordinal))
-                {
-                    try
-                    {
-                        guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(candidate.ImageId,
-                            candidate.Version, "linux", candidate.Architecture, AgentTrustLevel.UntrustedRepository,
-                            guestProtocol, candidate.ProviderId, candidate.Digest, candidate.CertificationSuiteVersion,
-                            runtimeRequest.EnvironmentProfile, internet), startTimeout.Token);
-                        developmentImage = candidate; break;
-                    }
-                    catch (IsolationUnavailableException) { }
-                }
-                if (guestImage is null && runtimeOptions.DevelopmentImages.Count == 0)
-                    guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
-                        "csweet-development-polyglot-v1", null, "linux", package.ArtifactArchitecture,
-                        AgentTrustLevel.UntrustedRepository, "1.1", runtimeOptions.PreferredIsolationProviderId,
-                        null, null, runtimeRequest.EnvironmentProfile, internet), startTimeout.Token);
-                if (guestImage is null) throw new IsolationUnavailableException("No connected provider has the configured certified development image for this architecture.");
-            }
-            else guestImage = await guestImages.ResolveAsync(new GuestImageResolutionRequest(
-                runtimeOptions.RuntimeGuestImageId, runtimeOptions.RuntimeGuestImageVersion,
-                runtimeOptions.RuntimeGuestOperatingSystem, runtimeOptions.RuntimeGuestArchitecture,
-                AgentTrustLevel.UntrustedRepository, guestProtocol, runtimeOptions.PreferredIsolationProviderId,
-                runtimeOptions.RuntimeGuestImageDigest, runtimeOptions.RequiredCertificationSuiteVersion, null, internet), startTimeout.Token);
+            var (guestImage, developmentImage) = await AgentRuntimeGuestSelection.ResolveAsync(
+                package, installation.Grant, runtimeOptions, guestImages, startTimeout.Token);
             var guestDigest = guestImage.Digest;
             var internetMode = await dbContext.ExecutionNodeProviders.AsNoTracking().AnyAsync(x => x.IsAvailable &&
                 x.GuestImageDigest == guestDigest && x.SupportsPublicInternet && x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15",
@@ -931,21 +911,6 @@ public sealed partial class AgentRuntimeManager(
         return true;
     }
 
-    private static (string? EnvironmentProfile, string WorkspaceAccess) ReadRuntimeRequest(
-        string manifestJson)
-    {
-        using var document = JsonDocument.Parse(manifestJson);
-        if (!document.RootElement.TryGetProperty("runtime", out var runtime))
-            return (null, "None");
-        var environmentProfile = runtime.TryGetProperty("environmentProfile", out var profile)
-            ? profile.GetString()
-            : null;
-        var workspaceAccess = runtime.TryGetProperty("workspaceAccess", out var access)
-            ? access.GetString() ?? "None"
-            : "None";
-        return (environmentProfile, workspaceAccess);
-    }
-
     private async Task FailBeforeStartAsync(
         AgentRuntimeInstance instance,
         DateTimeOffset occurredAt,
@@ -982,6 +947,11 @@ public sealed partial class AgentRuntimeManager(
         // Fence broker admission in the same save as Stopping, before asynchronous provider calls.
         await RevokeRuntimeSessionsAsync(instance.Id, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await FinishStopAsync(instance, terminal, reason, cancellationToken);
+    }
+
+    private async Task FinishStopAsync(AgentRuntimeInstance instance, AgentRuntimeStatus terminal, string reason, CancellationToken cancellationToken)
+    {
         var settings = await SettingsAsync(cancellationToken);
         if (!await ConfirmFleetShutdownAsync(instance, cancellationToken)) return;
         if (TryGetHandle(instance) is { } handle)

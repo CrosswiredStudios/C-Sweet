@@ -1,5 +1,7 @@
 using CSweet.Application.Core;
+using CSweet.Application.Compute;
 using CSweet.Application.Setup;
+using CSweet.Compute.Contracts;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -14,7 +16,8 @@ namespace CSweet.Infrastructure.Core;
 public sealed class OrganizationDataPurgeService(
     CSweetDbContext dbContext,
     IBusinessAgentInstallationCleanup agentCleanup,
-    ILogger<OrganizationDataPurgeService> logger) : IOrganizationDataPurgeService
+    ILogger<OrganizationDataPurgeService> logger,
+    IComputeBroker? computeBroker = null) : IOrganizationDataPurgeService
 {
     private static readonly HashSet<Type> PreservedEntityTypes =
     [
@@ -39,8 +42,10 @@ public sealed class OrganizationDataPurgeService(
                 environment => environment.OrganizationId == organizationId &&
                     environment.TeardownConfirmedAt == null, cancellationToken))
         {
+            await RequestComputeCleanupAsync(organizationId, cancellationToken);
             throw new OrganizationDeletionException(
-                "The business still has compute environments awaiting confirmed VM and disk teardown. Destroy those environments and retry the deletion after cleanup is confirmed.");
+                "Compute cleanup has been requested. Wait for confirmed VM and disk teardown, then retry deleting the business. Check Compute for progress.",
+                errorCode: "compute_cleanup_pending");
         }
         try
         {
@@ -97,6 +102,45 @@ public sealed class OrganizationDataPurgeService(
                 "The business could not be deleted because its data cleanup did not complete. The database cleanup was rolled back; agent workloads remain disabled. Retry the deletion.",
                 exception);
         }
+    }
+
+    private async Task RequestComputeCleanupAsync(Guid organizationId, CancellationToken cancellationToken)
+    {
+        if (computeBroker is null)
+            throw new OrganizationDeletionException(
+                "The business is awaiting confirmed VM and disk teardown. Release its instances on Compute, then retry deletion after cleanup is confirmed.",
+                errorCode: "compute_cleanup_failed");
+
+        // Bound each request and skip work already durably queued for this generation.
+        // Failed/blocked destroy operations can be retried with fresh current authority.
+        var environments = await dbContext.ComputeEnvironments.AsNoTracking()
+            .Where(environment => environment.OrganizationId == organizationId && environment.TeardownConfirmedAt == null &&
+                !dbContext.ComputeOperations.Any(operation => operation.EnvironmentId == environment.Id &&
+                    operation.Generation == environment.Generation && operation.Action == InfrastructureActions.Destroy &&
+                    (operation.Status == "Pending" || operation.Status == "Dispatching" || operation.Status == "Reconciling")))
+            .OrderBy(environment => environment.Id).Take(100).ToListAsync(cancellationToken);
+        var failed = false;
+        foreach (var environment in environments)
+        {
+            try
+            {
+                // Use the broker so teardown intent, audit and provider wake commit together.
+                // Never infer physical cleanup from an expired lease or a stopped/failed VM.
+                await computeBroker.ChangeLifecycleAsync(organizationId, environment.InstallationId,
+                    new(environment.Id, environment.Generation, InfrastructureActions.Destroy,
+                        $"business-delete:{environment.Id:N}:{environment.Generation}"), cancellationToken);
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or InvalidOperationException)
+            {
+                failed = true;
+                logger.LogWarning(exception, "Could not request compute cleanup for business {OrganizationId}, environment {EnvironmentId}.",
+                    organizationId, environment.Id);
+            }
+        }
+        if (failed)
+            throw new OrganizationDeletionException(
+                "Compute cleanup could not be requested for every instance. Open Compute to check or release the remaining instances, then retry deleting the business.",
+                errorCode: "compute_cleanup_failed");
     }
 
     internal static IReadOnlyList<IEntityType> ScopedEntityTypes(IModel model) =>

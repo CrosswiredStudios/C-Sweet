@@ -20,22 +20,31 @@ public sealed class AgentPlatformEventDispatcher(
 
     internal async Task DispatchPendingAsync(CancellationToken cancellationToken)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-        var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
-        var runtimeManager = scope.ServiceProvider.GetRequiredService<IAgentRuntimeManager>();
-        var audit = scope.ServiceProvider.GetService<IAuditEventWriter>();
         var now = clock.GetUtcNow();
-        var pending = await db.AgentPlatformEventOutbox
-            .Where(x => x.Status == AgentPlatformEventOutboxStatus.Pending && x.NextAttemptAt <= now)
-            .OrderBy(x => x.OccurredAt)
-            .Take(50)
-            .ToListAsync(cancellationToken);
+        List<Guid> pending;
+        await using (var scope = scopeFactory.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            pending = await db.AgentPlatformEventOutbox.AsNoTracking()
+                .Where(x => x.Status == AgentPlatformEventOutboxStatus.Pending && x.NextAttemptAt <= now)
+                .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id)
+                .Select(x => x.Id).Take(50).ToListAsync(cancellationToken);
+        }
 
-        foreach (var item in pending)
+        foreach (var eventId in pending)
         {
             try
             {
+                // Inbox.EnqueueAsync saves through this scope. A failed insert must never
+                // leave tracked entities poisoning another event or its failure receipt.
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+                var item = await db.AgentPlatformEventOutbox.SingleOrDefaultAsync(x => x.Id == eventId, cancellationToken);
+                if (item is null || item.Status != AgentPlatformEventOutboxStatus.Pending || item.NextAttemptAt > now)
+                    continue;
+                var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
+                var runtimeManager = scope.ServiceProvider.GetRequiredService<IAgentRuntimeManager>();
+                var audit = scope.ServiceProvider.GetService<IAuditEventWriter>();
                 using var payload = JsonDocument.Parse(item.DataJson);
                 var routing = await router.EnqueueEventWithRecipientsAsync(
                     item.OrganizationId.ToString("D"),
@@ -79,6 +88,7 @@ public sealed class AgentPlatformEventDispatcher(
                     item.Attempts++;
                     item.NextAttemptAt = now.AddSeconds(30);
                     item.LastError = "The target installation is unavailable or has not granted the required event subscription.";
+                    await db.SaveChangesAsync(cancellationToken);
                     continue;
                 }
                 if (item.EventType == ResourceChangeEvents.Requested &&
@@ -110,24 +120,41 @@ public sealed class AgentPlatformEventDispatcher(
                 item.LastError = deliveries == 0 && item.EventType is CSweet.Agent.SDK.ProjectHealthEvents.ReviewDue or CSweet.Agent.SDK.ProjectHealthEvents.IncidentChanged or CSweet.Agent.SDK.ProjectHealthEvents.OwnerReportRequested
                     ? "Incident recipient is unavailable or has no approved event subscription; the platform handoff deadline remains active."
                     : null;
+                await db.SaveChangesAsync(cancellationToken);
             }
             catch (Exception exception) when (
                 exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
-                item.Attempts++;
-                item.NextAttemptAt = now.AddSeconds(Math.Min(60, Math.Pow(2, item.Attempts)));
-                item.LastError = exception.Message;
-                if (item.Attempts >= 12) item.Status = AgentPlatformEventOutboxStatus.Failed;
-                if (audit is not null && item.EventType == ResourceChangeEvents.Requested)
-                    await audit.WriteAsync(
-                        "management.resource-change.delivery-retry",
-                        nameof(AgentPlatformEventOutboxItem),
-                        item.Id,
-                        $"Resource-change delivery attempt {item.Attempts} failed.",
-                        cancellationToken: cancellationToken);
-                logger.LogWarning(exception, "Could not publish platform event {EventId}.", item.Id);
+                logger.LogWarning(exception, "Could not publish platform event {EventId}.", eventId);
+                try
+                {
+                    await RecordFailureAsync(eventId, exception, cancellationToken);
+                }
+                catch (Exception receiptException) when (
+                    receiptException is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    // A receipt/database outage must not prevent trying the other selected events.
+                    // The unchanged durable event remains eligible on the next pass.
+                    logger.LogError(receiptException, "Could not record delivery failure for platform event {EventId}.", eventId);
+                }
             }
         }
-        if (pending.Count > 0) await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task RecordFailureAsync(Guid eventId, Exception exception, CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        var item = await db.AgentPlatformEventOutbox.SingleOrDefaultAsync(x => x.Id == eventId, cancellationToken);
+        if (item is null || item.Status != AgentPlatformEventOutboxStatus.Pending) return;
+        item.Attempts++;
+        item.NextAttemptAt = clock.GetUtcNow().AddSeconds(Math.Min(60, Math.Pow(2, item.Attempts)));
+        item.LastError = exception.Message.Length <= 2048 ? exception.Message : exception.Message[..2048];
+        if (item.Attempts >= 12) item.Status = AgentPlatformEventOutboxStatus.Failed;
+        await db.SaveChangesAsync(cancellationToken);
+        if (item.EventType == ResourceChangeEvents.Requested &&
+            scope.ServiceProvider.GetService<IAuditEventWriter>() is { } audit)
+            await audit.WriteAsync("management.resource-change.delivery-retry", nameof(AgentPlatformEventOutboxItem),
+                item.Id, $"Resource-change delivery attempt {item.Attempts} failed.", cancellationToken: cancellationToken);
     }
 }

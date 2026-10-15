@@ -1046,7 +1046,8 @@ public sealed partial class AgentRuntimeManagerTests
         runtime.IsolationProviderId = "test-vm";
         runtime.TransitionTo(AgentRuntimeStatus.Starting, DateTimeOffset.UtcNow);
         runtime.TransitionTo(AgentRuntimeStatus.WaitingForMcpSession, DateTimeOffset.UtcNow);
-        runtime.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow);
+        runtime.TransitionTo(AgentRuntimeStatus.Running, DateTimeOffset.UtcNow.AddMinutes(-6));
+        runtime.LastInteractiveActivityAt = DateTimeOffset.UtcNow.AddMinutes(-6);
         runtime.IdleDeadlineAt = DateTimeOffset.UtcNow.AddSeconds(-1);
         await db.SaveChangesAsync();
 

@@ -94,6 +94,13 @@ function Resolve-CSweetOfficeRelease([string] $Architecture) {
             }
             $selected[$kind] = $asset
         }
+        # Older Office binary versions can carry an ordinary-only guest. Such a
+        # release is unavailable for this setup profile, rather than an integrity
+        # failure or a reason to download and repeatedly certify the wrong image.
+        if ($null -eq $manifest.PSObject.Properties['environmentProfiles'] -or
+            @($manifest.environmentProfiles) -cnotcontains 'software-development-polyglot-v1' -or
+            $null -eq $manifest.PSObject.Properties['guestBrokerProtocolVersion'] -or
+            $manifest.guestBrokerProtocolVersion -cne '1.1') { continue }
         if ($selected.Count -eq 2) { return [pscustomobject]@{ Version = $version; Support = $selected['windows-support']; Bundle = $selected['windows-x64'] } }
     }
     return $null

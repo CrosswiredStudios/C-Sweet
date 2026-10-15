@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentPlatformEventDispatcherTests
+public sealed partial class AgentPlatformEventDispatcherTests
 {
     [Fact]
     public async Task DispatchPendingAsync_QueuesEverySubscribedRecipientRuntime()

@@ -75,6 +75,24 @@ cycles while the affected stage remained one open incident and its human-message
 
 ## Blocker destinations
 
+`ProjectHealthService.IncidentRequiresOwnerInputAsync` separates recovery tracking from owner action. Overview
+requires the incident's blocker to exist in the current authorized project observation. Queued work, runtime
+startup, active review, bounded manager investigation/recovery and answered decisions do not ask the owner to
+act. Pending inbox work with an unexpired deadline is a recorded execution wait in `ProjectHealthReader`;
+runtime failures and expired work still produce incidents. Unrelated active work never hides a separate failure.
+
+Owner reports must match `CurrentIncidentStateAsync`. Stale reports contribute neither their old title nor
+their requested action to the current presentation. Overview hides them while durable manager refresh prepares
+current choices; reports waiting for delivery are also omitted. Decision creation and answers apply the same
+current-blocker check. `ReviewAsync` and `DeliverAsync` withdraw obsolete pending choices and attention
+notifications atomically with their realtime wake hints, preserving incident history, answered decisions and
+original Communications messages. Recovery can remain an Open episode without being an owner action.
+
+`ProjectHealthTests.QueuedExecutionIsABoundedWaitRatherThanAnIdleIncident` and
+`CurrentRecoveryOrReviewDoesNotAskOwnerToActEvenWithAFreshReport` cover startup waits through deadline expiry, active/review stages,
+bounded manager recovery, stale presentations/delivery and independent failures. Owner-report and PostgreSQL
+rollback tests also verify that attention appears only after current response choices are delivered.
+
 `ProjectHealthService.ResolveWorkItemDestinationAsync` in `ProjectHealthService.Links.cs`
 resolves the incident's exact affected item (or legacy ticket, stage, or dependency-wait source)
 against its current organization, project, board membership, and personal-board owner. Personal
@@ -340,3 +358,9 @@ Rollout: deploy/restart the platform and apply `ManagerIncidentOwnerReports` fir
 `ProjectHealthService.CloseIncidentQuestionsAsync` cancels only unanswered questions bound to a resolved or superseded incident. `ReconcileClosedIncidentQuestionsAsync` repairs legacy closed-incident questions through bounded discovery using correlated report messages and exact persisted incident bindings. Incident and decision changes publish their durable realtime records through `SaveChangesAsync`; answered choices and unrelated questions retain their history.
 
 `AppRealtimeCoordinator.ShowNotification` suppresses every ProjectHealth snackbar; reports remain in Overview, Communications and the notification inbox. `ApprovalState.OnRealtimeEvent` reloads on ProjectIncidentChanged. `CommandCenter` exposes **Refresh attention items** to recover a missed update without dismissing an unresolved incident. `IncidentResolutionChoices` renders cancelled questions without actions and explains that no response is needed.
+
+SDK 4.1.1 makes reports readable for a nontechnical owner. `ManagerIncidentCoordinator.GenerateReportAsync` limits the summary to 80 words and recovery, next step and option descriptions to 25 words each, with a 1,200-token reporting budget. Invalid or verbose model output falls back to concise facts without another model call. Reporting and recovery use the same permitted-operation filter, so choices do not promise operations the shared coordinator cannot perform. Recovery responses also request everyday language. Diagnostics remain available through investigation links.
+
+`ProjectHealthService.PresentAsync` uses the shared concise factual projection for older verbose reports without rewriting their saved history or decision authority. `RefreshOwnerReportsAsync` discovers reports needing the newer format; durable keys include the installed package revision so upgrading the manager can refresh unchanged evidence. `CurrentIncidentStateAsync` includes current collaboration status alongside historical failures, allowing reports to distinguish activity from an unresolved launch problem.
+
+`ReadAttentionAsync` exposes a prepared, authorized owner report even when its chat delivery is pending. `ProjectIncidentAttentionResponse.ReportDeliveryPending` keeps investigation available and explains why choices are not available yet. Messages, decisions, receipts and notifications still commit together through delivery. Manager releases: Naomi 2.1.1, Producer 3.1.1, Product Manager 3.1.1 and Chief of Staff 2.13.1. All use packaged SDK 4.1.1 with synchronized metadata and release notes. Apply the platform update before importing the manager packages; no additional schema migration is required for this maintenance change.

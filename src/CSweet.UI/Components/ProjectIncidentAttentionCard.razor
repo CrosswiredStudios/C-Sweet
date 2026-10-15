@@ -5,7 +5,7 @@
 <AttentionRequestCard Kind="@(Incident.Collaboration is null ? "Project stalled" : "Collaboration")"
     EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
-    Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@_notice">
+    Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@(_notice ?? (Incident.ReportDeliveryPending ? "Response options are being prepared. You can review the affected work now." : null))">
     <BodyContent>
         @if (Incident.ResolutionDecision is { } decision && Incident.ReportConversationId is { } chat)
         {
@@ -26,7 +26,10 @@
     {
         <MudButton Href="@Incident.InvestigateUri" Variant="Variant.Filled" Color="Color.Primary">@(Incident.InvestigateLabel ?? "Investigate")</MudButton>
     }
-    <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
+    @if (!Incident.ReportDeliveryPending)
+    {
+        <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">Read manager report</MudButton>
+    }
     </ChildContent>
 </AttentionRequestCard>
 

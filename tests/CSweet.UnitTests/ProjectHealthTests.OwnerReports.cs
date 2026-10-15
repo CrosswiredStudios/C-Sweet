@@ -12,6 +12,24 @@ namespace CSweet.UnitTests;
 public sealed partial class ProjectHealthTests
 {
     [Fact]
+    public async Task OlderWordyReportsShowSharedConciseFactsWithoutChangingTheirHistoryOrAuthority()
+    {
+        await using var f = await Fixture.Create(); var (incident, _) = await PrepareOwnerReport(f);
+        var original = ProjectHealthService.OwnerReport(incident)!;
+        var verbose = original with { Summary = "Runtime and permission diagnostics: " + string.Join(' ', Enumerable.Repeat("technical", 100)) };
+        incident.OwnerReportJson = JsonSerializer.Serialize(verbose, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await f.Db.SaveChangesAsync();
+        var revision = incident.ReportRevision;
+        var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.Contains("accepted brief", attention.OwnerReport);
+        Assert.DoesNotContain("permission diagnostics", attention.OwnerReport);
+        Assert.Equal(revision, incident.ReportRevision);
+        Assert.Equal(verbose.Summary, ProjectHealthService.OwnerReport(incident)!.Summary);
+        Assert.Contains(original.Summary, Assert.Single(f.Db.CoreConversationMessages).Content);
+        Assert.Equal("Open", incident.Status);
+    }
+
+    [Fact]
     public async Task EvidenceOrRetryFreshnessChangesDoNotRepeatTheManagerReport()
     {
         await using var f = await Fixture.Create(); var (incident, ticket) = await PrepareOwnerReport(f);
@@ -25,9 +43,10 @@ public sealed partial class ProjectHealthTests
         Assert.Equal(message.Content, Assert.Single(f.Db.CoreConversationMessages).Content);
         Assert.Single(f.Db.UserNotifications);
         Assert.Equal(receipts + 1, f.Db.ProjectIncidentDeliveries.Count(x => x.DeliveredAt != null));
-        var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
-        Assert.Contains("Project records have changed", attention.OwnerReport);
-        Assert.Equal("Outdated", attention.ResolutionDecision!.Status);
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        var presentation = await f.Service.PresentAsync(incident, default);
+        Assert.Contains("Project records have changed", presentation.Summary);
+        Assert.Contains("No response to the previous report", presentation.NextStep);
     }
 
     [Fact]
@@ -74,7 +93,7 @@ public sealed partial class ProjectHealthTests
         Assert.Empty(f.Db.ProjectIncidentReceipts); Assert.Equal(facts, incident.Facts); Assert.Null(incident.OwnerReportJson);
     }
 
-    private static async Task<(ProjectIncident Incident, WorkTask Ticket)> PrepareOwnerReport(Fixture f)
+    private static async Task<(ProjectIncident Incident, WorkTask Ticket)> PrepareOwnerReport(Fixture f, bool deliver = true)
     {
         var ticket = await f.FailTicket(); ticket.Title = "Reconcile scope, technical backlog and delivery staffing";
         ticket.BlockReason = "Incorporate recorded authority direction in an updated accepted brief before committing scope.";
@@ -96,8 +115,19 @@ public sealed partial class ProjectHealthTests
              new("evidence", "Collect missing logistics facts", "Identify the remaining contractor and playtest facts.", "Identify and request the missing logistics facts.")], "reconcile", state.Hash);
         await f.Service.ReportAsync(f.Org, f.Chief.Id, new(incident.Id, incident.Revision, "owner-report", incident.Facts,
             "Recorded scope reconciliation blocker", "Remaining logistics facts", report.NextStep) { OwnerReport = report }, default);
-        await f.Service.DeliverAsync(default);
+        if (deliver) await f.Service.DeliverAsync(default);
         return (incident, ticket);
+    }
+
+    [Fact]
+    public async Task ManagerReportAppearsOnlyWhenItsResponseChoicesHaveBeenDelivered()
+    {
+        await using var f = await Fixture.Create(); await PrepareOwnerReport(f, deliver: false);
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.Empty(f.Db.CoreConversationMessages);
+        await f.Service.DeliverAsync(default);
+        var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.False(attention.ReportDeliveryPending); Assert.NotNull(attention.ResolutionDecision);
     }
 
     [Theory]
@@ -119,7 +149,7 @@ public sealed partial class ProjectHealthTests
         var answer = await service.AnswerAsync(f.Org, attention.ReportConversationId!.Value, choice.Id, f.Ceo.Id, request);
         var replay = await service.AnswerAsync(f.Org, attention.ReportConversationId.Value, choice.Id, f.Ceo.Id, request);
         Assert.True(answer.Succeeded, answer.Message); Assert.Equal(answer.Turn!.Id, replay.Turn!.Id); Assert.Single(f.Db.ChatTurns);
-        Assert.Equal("Open", incident.Status); Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.Equal("Open", incident.Status); Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
         var resolved = await f.Service.ReadResolutionAsync(f.Org, f.Chief.Id, new(choice.Id, answer.Turn.Id), default);
         Assert.Equal(custom ? request.SomethingElse : ProjectHealthService.OwnerReport(incident)!.Options[0].IntendedOutcome, resolved.IntendedOutcome);
         Assert.False(resolved.AlreadyHandled);
@@ -177,7 +207,7 @@ public sealed partial class ProjectHealthTests
         Assert.Equal(2, diagnostics.CurrentState!.Facts.Count(x => x.Kind == "CurrentProjectDecision"));
         Assert.All(diagnostics.CurrentState.Facts.Where(x => x.Kind == "CurrentProjectDecision"), x => Assert.Contains("Status: Decided", x.Detail));
         Assert.NotEqual(ProjectHealthService.OwnerReport(incident)!.SourceHash, diagnostics.CurrentState.Hash);
-        Assert.Equal("Outdated", Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)).ResolutionDecision!.Status);
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
     }
 
     [Fact]

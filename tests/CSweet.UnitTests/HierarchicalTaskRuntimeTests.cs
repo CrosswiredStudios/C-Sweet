@@ -36,7 +36,58 @@ public sealed class HierarchicalTaskRuntimeTests
         await RunJourney(f, true, legacyArtifact: true);
     }
 
-    internal static async Task RunJourney(Fixture f, bool artifact, bool game = false, bool legacyArtifact = false)
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ArtifactQaUsesSuccessfulRetryRegardlessOfAttemptLoadOrder(bool game, bool newestAttemptFirst)
+    {
+        await using var f = await Fixture.Create(true);
+        await RunJourney(f, true, game, authorRetryHistory: true, newestAttemptFirst: newestAttemptFirst);
+    }
+
+    [Theory]
+    [InlineData(WorkExecutionAttemptStatus.Pending)]
+    [InlineData(WorkExecutionAttemptStatus.Running)]
+    [InlineData(WorkExecutionAttemptStatus.Failed)]
+    [InlineData(WorkExecutionAttemptStatus.Cancelled)]
+    [InlineData(WorkExecutionAttemptStatus.Completed)]
+    public async Task ArtifactQaDoesNotFallBackToAnOlderDelivery(WorkExecutionAttemptStatus latestStatus)
+    {
+        await using var f = await Fixture.Create(true);
+        await f.Configure();
+        var artifactId = Guid.NewGuid(); var revisionId = Guid.NewGuid(); const string content = "Earlier delivery";
+        var digest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(content)));
+        f.Db.CoreArtifacts.Add(new() { Id = artifactId, OrganizationId = f.Org, OriginWorkItemId = f.Task.Id, Title = "Earlier artifact" });
+        f.Db.ArtifactRevisions.Add(new() { Id = revisionId, ArtifactId = artifactId, OrganizationId = f.Org,
+            CreatedByOrganizationUserId = f.Author.Id, Content = content, ContentSha256 = digest });
+        await f.Db.SaveChangesAsync();
+        var item = new WorkItemExecution { WorkItem = f.Task };
+        var author = new WorkStageExecution { Id = Guid.NewGuid(), StageKey = "development",
+            Status = WorkStageExecutionStatus.Completed, OrganizationUserId = f.Author.Id };
+        var earlier = new WorkExecutionAttempt { Id = Guid.NewGuid(), Attempt = 1, Status = WorkExecutionAttemptStatus.Completed };
+        earlier.ResultJson = JsonSerializer.Serialize(new WorkExecutionOutcomeV1(author.Id, earlier.Id,
+            WorkExecutionDispositions.Completed, "artifact-delivered", "Earlier delivery",
+            new WorkArtifactDelivery(artifactId, revisionId, digest).ToOutput(), [], []), Json);
+        var latest = new WorkExecutionAttempt { Id = Guid.NewGuid(), Attempt = 2, Status = latestStatus,
+            ResultJson = JsonSerializer.Serialize(new WorkExecutionOutcomeV1(author.Id, Guid.NewGuid(),
+                WorkExecutionDispositions.Blocked, "blocked", "No current delivery", JsonSerializer.SerializeToElement(new { }), [], []), Json) };
+        // Put the earlier delivery last, reproducing an unordered EF navigation collection.
+        author.Attempts = [latest, earlier]; item.Stages.Add(author);
+        var quality = new WorkStageExecution { Id = Guid.NewGuid(), StageKey = "quality", ItemExecution = item,
+            OrganizationUserId = f.Qa.Id, AgentInstallationId = Guid.NewGuid() };
+        var result = new WorkArtifactQualityResult(artifactId, revisionId, digest, true, "Checked earlier delivery",
+            [new("Requirement works", true, "Observed")], []);
+        var outcome = new WorkExecutionOutcomeV1(quality.Id, Guid.NewGuid(), WorkExecutionDispositions.Completed,
+            "passed", "Checked earlier delivery", JsonSerializer.SerializeToElement(result, Json), [], []);
+        var runtime = new WorkOrchestrator(f.Db, null!, null!, null!, [], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
+        Assert.Equal("The author must deliver an exact artifact revision and digest.",
+            await runtime.RecordQualityValidationAsync(new() { OrganizationId = f.Org }, quality, outcome, DateTimeOffset.UtcNow, default));
+    }
+
+    internal static async Task RunJourney(Fixture f, bool artifact, bool game = false, bool legacyArtifact = false,
+        bool authorRetryHistory = false, bool newestAttemptFirst = false)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -120,6 +171,23 @@ public sealed class HierarchicalTaskRuntimeTests
             }
             await f.Db.SaveChangesAsync();
             await Complete(f.Author, artifact ? "artifact-delivered" : "completed", authorOutput);
+            if (authorRetryHistory)
+            {
+                var producingStage = item.Stages.Single(x => x.StageKey == authorKey && x.Traversal == item.Traversal);
+                var successful = producingStage.Attempts.Single();
+                successful.Attempt = 2;
+                // A blocked outcome is still a completed delivery of an execution result.
+                var blocked = new WorkExecutionAttempt { Id = Guid.NewGuid(), StageExecutionId = producingStage.Id,
+                    Attempt = 1, Status = WorkExecutionAttemptStatus.Completed, IdempotencyKey = Guid.NewGuid().ToString("N") };
+                blocked.ResultJson = JsonSerializer.Serialize(new WorkExecutionOutcomeV1(producingStage.Id, blocked.Id,
+                    WorkExecutionDispositions.Blocked, "blocked", "The MCP service rejected the request: Bad Gateway",
+                    JsonSerializer.SerializeToElement(new { }), [], []), Json);
+                f.Db.WorkExecutionAttempts.Add(blocked);
+                producingStage.Attempts.Clear();
+                foreach (var attempt in newestAttemptFirst ? new[] { successful, blocked } : new[] { blocked, successful })
+                    producingStage.Attempts.Add(attempt);
+                await f.Db.SaveChangesAsync();
+            }
             if (!artifact)
             {
                 Assert.Equal("technical-review", item.CurrentStageKey);
@@ -142,6 +210,11 @@ public sealed class HierarchicalTaskRuntimeTests
             if (artifact)
             {
                 var exact = new WorkArtifactQualityResult(artifactId, revisionId, digest, passed, "Checked exact content", criteria, findings);
+                var agentQuality = new WorkStageExecution { StageKey = "quality", ItemExecution = item,
+                    OrganizationUserId = f.Qa.Id, AgentInstallationId = Guid.NewGuid() };
+                var agentOutcome = new WorkExecutionOutcomeV1(Current().Id, Guid.NewGuid(), WorkExecutionDispositions.Completed,
+                    passed ? "passed" : "failed", exact.Summary, JsonSerializer.SerializeToElement(exact, Json), [], []);
+                Assert.Null(await runtime.RecordQualityValidationAsync(execution, agentQuality, agentOutcome, DateTimeOffset.UtcNow, default));
                 await Assert.ThrowsAsync<InvalidOperationException>(() => Complete(f.Qa, passed ? "passed" : "failed", exact with { RevisionId = Guid.NewGuid() }));
                 await Complete(f.Qa, passed ? "passed" : "failed", exact);
                 Assert.Empty(await f.Db.ScopedActionGrants.Where(x => x.ScopeId == artifactId && x.GrantedBySubjectKind == CSweet.Domain.Security.GrantSubjectKind.AutomationIdentity &&

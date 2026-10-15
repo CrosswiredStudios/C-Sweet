@@ -170,6 +170,14 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
             if (recovered) await ResolveAsync(incident, incident.Fingerprint == "health-assessment"
                 ? "Project health assessment succeeded; any work blockers are tracked separately."
                 : "Authoritative project evidence confirms recovery.", token);
+            else
+            {
+                var observations = new Dictionary<Guid, HealthObservation> { [project.Id] = observation };
+                if (!await IncidentRequiresOwnerInputAsync(incident, token, observations))
+                    await WithdrawIncidentAttentionAsync(incident, token);
+                if (OwnerReport(incident) is { } report && report.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash)
+                    incident.OwnerReportRequestedAt = null;
+            }
         }
         var failures = observation.Failures.ToList();
         if (failures.Count == 0 && !observation.Active && observation.Waiting is null && now - state.LastProgressAt >= Threshold)

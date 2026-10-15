@@ -236,7 +236,8 @@ public sealed partial class AgentWorkInbox(
         }
 
         if (await db.AgentRuntimeInstances.AsNoTracking().AnyAsync(x => x.Id == session.RuntimeInstanceId &&
-                x.MemoryResetRequestedAt != null, cancellationToken)) return null;
+                (x.MemoryResetRequestedAt != null || x.Status == AgentRuntimeStatus.Stopping ||
+                 x.CompletedAt != null), cancellationToken)) return null;
 
         // Delivered work may already have committed business effects. If its retained context
         // outlives the execution lease/deadline, fence it before ordinary expiry can requeue it.

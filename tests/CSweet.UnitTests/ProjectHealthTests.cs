@@ -632,7 +632,7 @@ public sealed partial class ProjectHealthTests
         Assert.False(Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)).Collaboration!.CanRetry);
         f.Ceo.PermissionLevel = OrganizationPermissionLevel.Owner;
         session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Active; await f.Db.SaveChangesAsync();
-        Assert.False(Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)).Collaboration!.CanRetry);
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
         session.Status = CSweet.Domain.Communications.AgentCoordinationStatus.Failed; await f.Db.SaveChangesAsync();
         var content = Assert.Single(f.Db.CoreConversationMessages).Content;
         Assert.True(content.Length < 1000);
@@ -776,9 +776,10 @@ public sealed partial class ProjectHealthTests
             WorkstreamId = f.Project.Id, Key = "transferred", CreatedAt = f.Clock.Now };
         f.Db.Add(transferredBoard); ticket.BoardId = transferredBoard.Id; ticket.Status = WorkTaskStatus.Ready;
         await f.Db.SaveChangesAsync();
-        attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
-        Assert.Equal($"/organizations/{f.Org}/projects/boards/{transferredBoard.Id}?item={ticket.Id}", attention.InvestigateUri);
-        Assert.Equal("Open affected item", attention.InvestigateLabel);
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        var currentDestination = await f.Service.PresentAsync(incident, default);
+        Assert.Equal($"/organizations/{f.Org}/projects/boards/{transferredBoard.Id}?item={ticket.Id}", currentDestination.Link);
+        Assert.Equal("Open affected item", currentDestination.LinkLabel);
     }
 
     [Theory]

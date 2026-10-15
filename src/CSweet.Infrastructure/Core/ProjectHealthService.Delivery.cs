@@ -14,6 +14,7 @@ public sealed partial class ProjectHealthService
     public async Task DeliverAsync(CancellationToken token)
     {
         var now = clock.GetUtcNow();
+        var observations = new Dictionary<Guid, HealthObservation>();
         var pending = await db.ProjectIncidentDeliveries.Where(x => x.DeliveredAt == null && x.NextAttemptAt <= now)
             .OrderBy(x => x.NextAttemptAt).Take(50).ToListAsync(token);
         foreach (var delivery in pending)
@@ -33,6 +34,14 @@ public sealed partial class ProjectHealthService
                 if (delivery.DeliveredAt is not null) continue;
                 await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ProjectIncidents" WHERE "Id" = {incident.Id} FOR UPDATE""", token);
                 await db.Entry(incident).ReloadAsync(token);
+            }
+            if (incident.Status == "Open" && !await IncidentRequiresOwnerInputAsync(incident, token, observations))
+            {
+                await WithdrawIncidentAttentionAsync(incident, token);
+                delivery.DeliveredAt = now;
+                await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                continue;
             }
             var sender = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x => x.Id == (incident.ReporterOrganizationUserId ?? delivery.SenderId) && x.OrganizationId == incident.OrganizationId, token);
             sender ??= await db.CoreOrganizationUsers.SingleAsync(x => x.Id == incident.ProducerEmployeeId && x.OrganizationId == incident.OrganizationId, token);

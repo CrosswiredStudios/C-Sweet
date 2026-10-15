@@ -14,16 +14,21 @@ public sealed partial class ProjectHealthService
         var incidents = await db.ProjectIncidents.AsNoTracking().Where(x => x.OrganizationId == organization &&
             x.CurrentRecipientId == actor && x.Status == "Open").OrderBy(x => x.DetectedAt).Take(100).ToListAsync(token);
         var result = new List<ProjectIncidentAttentionResponse>();
+        var observations = new Dictionary<Guid, HealthObservation>();
         var canRetry = await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.Id == actor &&
             x.OrganizationId == organization && x.IsActive && x.EmployeeType == EmployeeType.Human &&
             x.PermissionLevel >= OrganizationPermissionLevel.Manager, token);
         foreach (var incident in incidents)
         {
             if (!await CanReadAsync(organization, actor, incident.WorkstreamId, incident, token)) continue;
+            if (!await IncidentRequiresOwnerInputAsync(incident, token, observations)) continue;
             var delivery = await db.ProjectIncidentDeliveries.AsNoTracking().Where(x => x.IncidentId == incident.Id &&
                 x.RecipientId == actor && x.DeliveredAt != null && x.ConversationId != null)
                 .OrderByDescending(x => x.Revision).FirstOrDefaultAsync(token);
             if (delivery is null) continue;
+            var decision = await ReadIncidentDecisionCardAsync(incident, delivery.ConversationId!.Value, actor, token);
+            // Preparing choices and handling an already answered choice are manager work.
+            if (incident.OwnerReportJson is not null && decision?.Status != "Pending") continue;
             var project = await db.Workstreams.AsNoTracking().SingleAsync(x => x.OrganizationId == organization && x.Id == incident.WorkstreamId, token);
             var reporter = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization && x.Id == (incident.ReporterOrganizationUserId ?? delivery.SenderId))
                 .Select(x => x.DisplayName).SingleOrDefaultAsync(token);
@@ -39,11 +44,13 @@ public sealed partial class ProjectHealthService
                         $"/organizations/{organization}/communications/{session.ConversationId}?perspective={session.InitiatorOrganizationUserId}&collaboration={session.Id}");
             }
             result.Add(new(incident.Id, project.Id, project.Name, reporter ?? "Project manager", presentation.Title,
-                presentation.Description, presentation.NextStep, $"/organizations/{organization}/communications/{delivery.ConversationId}", incident.DetectedAt)
+                presentation.Description, presentation.NextStep, delivery.ConversationId is { } reportChat
+                    ? $"/organizations/{organization}/communications/{reportChat}" : presentation.Link, incident.DetectedAt)
                 { Collaboration = collaboration, ReporterEmployeeId = delivery.SenderId,
                     ReporterOrganizationUserId = incident.ReporterOrganizationUserId ?? delivery.SenderId,
                     OwnerReport = presentation.Description, ReportConversationId = delivery.ConversationId,
-                    ResolutionDecision = await ReadIncidentDecisionCardAsync(incident, delivery.ConversationId!.Value, actor, token),
+                    ReportDeliveryPending = delivery.DeliveredAt is null,
+                    ResolutionDecision = decision,
                     InvestigateUri = presentation.Link, InvestigateLabel = presentation.LinkLabel });
         }
         return result;

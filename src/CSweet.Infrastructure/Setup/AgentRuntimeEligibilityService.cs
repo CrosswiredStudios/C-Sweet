@@ -2,13 +2,16 @@ using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Setup;
 
 public sealed class AgentRuntimeEligibilityService(
     CSweetDbContext db,
     IAgentConfigurationService configurations,
-    IExecutionFleetService? executionFleet = null) : IAgentRuntimeEligibilityService
+    IExecutionFleetService? executionFleet = null,
+    IGuestImageRegistry? guestImages = null,
+    IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null) : IAgentRuntimeEligibilityService
 {
     public async Task<AgentRuntimeEligibility> EvaluateAsync(
         Guid installationId,
@@ -30,6 +33,20 @@ public sealed class AgentRuntimeEligibilityService(
             return Denied("The package is not built and signed.");
         if (executionFleet is not null && !await executionFleet.IsReadyAsync(cancellationToken))
             return Denied("No approved, connected execution node has certified builder and runtime capacity.");
+        if (guestImages is not null)
+        {
+            try
+            {
+                await AgentRuntimeGuestSelection.ResolveAsync(package, installation.Grant,
+                    runtimeOptions?.Value ?? new(), guestImages, cancellationToken);
+            }
+            catch (IsolationUnavailableException exception)
+            {
+                var profile = AgentRuntimeGuestSelection.ReadRequest(package.ManifestJson).EnvironmentProfile ?? "ordinary runtime";
+                return Denied($"Execution environment unavailable for {profile}: {exception.Message} " +
+                    "Repair the connected Office's certified image and protocol before retrying; hiring another employee cannot supply this environment.");
+            }
+        }
 
         var systemService = package.PluginKind == PluginKind.Service && installation.Scope == PluginInstallationScope.System;
         if (systemService)

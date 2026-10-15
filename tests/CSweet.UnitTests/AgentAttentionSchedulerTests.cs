@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentAttentionSchedulerTests
+public sealed partial class AgentAttentionSchedulerTests
 {
     [Fact]
     public async Task StateChangesCoalesceAndDispatchOneTargetedImmediateReview()
@@ -145,6 +145,7 @@ public sealed class AgentAttentionSchedulerTests
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 }

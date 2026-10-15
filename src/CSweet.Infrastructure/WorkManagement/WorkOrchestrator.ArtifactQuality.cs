@@ -19,7 +19,10 @@ public sealed partial class WorkOrchestrator
         if (worker is null || worker.OrganizationUserId == quality.OrganizationUserId ||
             worker.AgentInstallationId.HasValue && worker.AgentInstallationId == quality.AgentInstallationId)
             return "Every artifact requires independent QA by a different eligible author identity.";
-        var delivered = worker.Attempts.LastOrDefault(x => x.Status == WorkExecutionAttemptStatus.Completed)?.ResultJson;
+        // EF navigation collections have no attempt order. A blocked outcome also completes
+        // its attempt, so inspect only the newest attempt rather than an older delivery.
+        var attempt = worker.Attempts.OrderByDescending(x => x.Attempt).FirstOrDefault();
+        var delivered = attempt?.Status == WorkExecutionAttemptStatus.Completed ? attempt.ResultJson : null;
         if (delivered is null || !WorkDeliveryService.TryDocument(WorkDeliveryService.Decode<WorkExecutionOutcomeV1>(delivered).Output,
             out var artifactId, out var revisionId, out var digest)) return "The author must deliver an exact artifact revision and digest.";
         var result = outcome.Output.Deserialize<WorkArtifactQualityResult>(WorkDeliveryService.Json);

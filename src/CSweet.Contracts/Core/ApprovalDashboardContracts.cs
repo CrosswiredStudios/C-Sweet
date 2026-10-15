@@ -118,6 +118,7 @@ public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId
     public string? OwnerReport { get; init; }
     public CSweet.Contracts.Communications.ExecutiveDecisionCardResponse? ResolutionDecision { get; init; }
     public Guid? ReportConversationId { get; init; }
+    public bool ReportDeliveryPending { get; init; }
     public string? InvestigateUri { get; init; }
     public string? InvestigateLabel { get; init; }
     public ProjectIncidentCollaborationResponse? Collaboration { get; init; }

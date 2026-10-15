@@ -91,6 +91,18 @@ public sealed partial class InternalGitRepositoryStore
         var modes = entries.Select(e => e.Split('\t', 2)).ToDictionary(e => e[1], e => e[0].Split(' ')[0], StringComparer.Ordinal);
         var files = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
             .Select(path => (Path: path, Relative: Path.GetRelativePath(directory, path).Replace('\\', '/'))).ToList();
+        if (files.Count > 0)
+        {
+            // Snapshots have no .git metadata. Use Git's own root/nested ignore semantics,
+            // including negation and **, with global excludes disabled by RunAsync.
+            // Existing tracked files retain normal Git semantics: ignoring does not delete them.
+            var ignored = (await RunAsync(repository,
+                ["--work-tree", directory, "check-ignore", "--no-index", "-z", "--stdin"], ct, environment,
+                string.Join('\0', files.Select(f => f.Path)) + "\0", allowNoMatch: true))
+                .Split('\0', StringSplitOptions.RemoveEmptyEntries).Select(Path.GetFullPath)
+                .ToHashSet(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+            files = files.Where(file => modes.ContainsKey(file.Relative) || !ignored.Contains(file.Path)).ToList();
+        }
         // Attribute lookup uses only this snapshot's declarative attributes. Git never runs a clean filter.
         foreach (var file in files.Where(f => Path.GetFileName(f.Path) == ".gitattributes")) await AddAsync(file.Path, file.Relative);
         var attributes = files.Count == 0 ? [] : (await RunAsync(repository,

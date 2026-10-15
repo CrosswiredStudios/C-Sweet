@@ -95,6 +95,8 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             var latest = attempts.Where(x => x.AgentWorkItemId == work.Id).OrderByDescending(x => x.Attempt).FirstOrDefault();
             var key = FailureKey(work);
             if (recovered.Contains(key)) continue;
+            if (Coordination(work) is { Status: AgentCoordinationStatus.Active or AgentCoordinationStatus.Summarizing } current &&
+                current.CurrentAgentWorkItemId != work.Id) continue;
             var affectedTicket = AffectedTicket(work);
             if (Coordination(work) is null && work.SourceType != "chat-turn" && tickets.Any(x => x.Id == affectedTicket && x.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) ||
                 Coordination(work)?.Status is AgentCoordinationStatus.Completed or AgentCoordinationStatus.Cancelled ||
@@ -199,6 +201,9 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             a.AgentWorkItemId == w.Id && a.Attempt == w.AttemptCount && a.FinishedAt == null && a.LeaseExpiresAt > now));
         var unfinished = tickets.Where(x => x.Status is not (WorkTaskStatus.Completed or WorkTaskStatus.Cancelled)).ToArray();
         string? waiting = null;
+        if (works.Any(w => w.Status == AgentWorkStatus.Pending && w.DeadlineAt > now &&
+            !failures.Any(f => f.Key == FailureKey(w))))
+            waiting = "Dispatched work is queued for execution or runtime startup within its deadline.";
         if (project.LifecycleStage == "Paused") waiting = "Project intentionally paused.";
         if (unfinished.Length > 0 && unfinished.All(x => x.Status == WorkTaskStatus.WaitingForApproval ||
             x.NextReviewAt > now || (x.WaitingOnOrganizationUserId.HasValue && x.NextReviewAt == null)))

@@ -82,6 +82,29 @@ public sealed class EnterpriseWorkspaceTests
     }
 
     [Fact]
+    public async Task DeleteShowsComputeCleanupProgressAndLinkThenCanBeRetried()
+    {
+        await Run(new Api { DeleteErrorCode = "compute_cleanup_pending" }, "aurora", async (page, api, render) =>
+        {
+            Invoke(page, "RequestDelete", api.Business);
+            await (Task)Invoke(page, "DeleteBusinessAsync")!;
+            Assert.True(Get<bool>(page, "_deleteCleanupPending"));
+            Assert.Single(Get<IReadOnlyList<OrganizationResponse>>(page, "_organizations"));
+            var html = await render("compute-cleanup");
+            Assert.Contains("Compute cleanup has been requested", html);
+            Assert.Contains($"/organizations/{api.Business.Id}/compute", html);
+            Assert.Contains("View compute cleanup", html);
+            Assert.DoesNotContain("could not be deleted", html);
+
+            api.DeleteErrorCode = null;
+            Invoke(page, "RequestDelete", api.Business);
+            await (Task)Invoke(page, "DeleteBusinessAsync")!;
+            Assert.True(Get<bool>(page, "_deleteSucceeded"));
+            Assert.DoesNotContain("View compute cleanup", await render("compute-cleanup-complete"));
+        });
+    }
+
+    [Fact]
     public async Task LoadingFailureIsVisibleAndRetryRecovers()
     {
         await Run(new Api { FailList = true }, "aurora", async (page, api, render) =>
@@ -191,6 +214,7 @@ public sealed class EnterpriseWorkspaceTests
     {
         public OrganizationResponse Business = new(Guid.Parse("ab2184e9-9ac3-441d-9194-3cd65fe60052"), "Super Games", "Creative & Product", "We make amazing web games.", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         public bool FailList, FailUpdate, FailDelete, FailCreate;
+        public string? DeleteErrorCode;
         public int Deletes, Creates;
         public string? UpdatedName, CreatedName;
         public Func<string> CurrentUri = () => "";
@@ -208,7 +232,14 @@ public sealed class EnterpriseWorkspaceTests
                 UpdatedName = (await request.Content!.ReadFromJsonAsync<UpdateOrganizationRequest>(cancellationToken))!.Name;
                 return new(FailUpdate ? HttpStatusCode.BadRequest : HttpStatusCode.OK) { Content = FailUpdate ? JsonContent.Create(new { message = "Please try again." }) : JsonContent.Create(Business with { Name = UpdatedName! }) };
             }
-            if (request.Method == HttpMethod.Delete) { Deletes++; return new(FailDelete ? HttpStatusCode.BadRequest : HttpStatusCode.NoContent) { Content = JsonContent.Create(new { message = "Please try again." }) }; }
+            if (request.Method == HttpMethod.Delete)
+            {
+                Deletes++;
+                if (DeleteErrorCode is not null)
+                    return new(HttpStatusCode.Conflict) { Content = JsonContent.Create(new CoreActionResponse(false,
+                        DeleteErrorCode, "Compute cleanup has been requested. Wait for teardown, then retry deletion.")) };
+                return new(FailDelete ? HttpStatusCode.BadRequest : HttpStatusCode.NoContent) { Content = JsonContent.Create(new { message = "Please try again." }) };
+            }
             return new(FailList ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK) { Content = JsonContent.Create(new[] { Business }) };
         }
     }

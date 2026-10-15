@@ -727,14 +727,37 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             .Where(x => x.OrganizationId == organizationId && x.Id == publication.RepositoryId)
             .Select(x => x.Name)
             .SingleAsync(cancellationToken);
+        var patch = RequireReviewPatch(publication.ReviewPatch);
+        var digest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(patch)));
+        var files = JsonSerializer.Deserialize<string[]>(publication.ChangedFilesJson, JsonOptions) ?? [];
+        if (files.Length > 4096) throw new InvalidOperationException("Split this publication into smaller reviewable changes.");
+        var page = input.DiffRead is { } read
+            ? ReadReviewDiffPage(read, publication.Id, publication.CommitSha, targetCommit, digest, patch) : null;
         return new GitMergeReview(
             publication.Id, publication.RepositoryId, input.WorkItemId,
             repositoryName, publication.CommitSha,
             Uri.TryCreate(publication.PullRequestUrl, UriKind.Absolute, out var pr) ? pr : null,
-            RequireReviewPatch(publication.ReviewPatch),
+            input.IncludePatch && input.DiffRead is null ? patch : "",
             evidence, ["Passing QA for the exact candidate SHA"], publication.Status.ToString())
         { ImplementationEvidence = JsonSerializer.Deserialize<GitValidationResult[]>(publication.ValidationResultsJson, JsonOptions) ?? [],
-          TargetCommitSha = targetCommit, TargetBranch = publication.TargetBranch };
+          TargetCommitSha = targetCommit, TargetBranch = publication.TargetBranch, SourceBranch = publication.TicketBranch,
+          ChangedFiles = files, PatchDigest = digest, DiffPage = page,
+          RemovedFiles = files.Where(path => patch.Contains("\n--- a/" + path + "\n+++ /dev/null", StringComparison.Ordinal)).ToArray() };
+    }
+
+    internal static GitReviewDiffPage ReadReviewDiffPage(GitReviewDiffRead read, Guid publicationId,
+        string source, string? target, string digest, string patch)
+    {
+        if (read.PublicationId != publicationId || read.CandidateCommitSha != source ||
+            read.TargetCommitSha != target || read.PatchDigest != digest)
+            throw new InvalidOperationException("The publication, source, target or review diff changed; restart review of the current reference.");
+        if (read.Offset < 0 || read.Offset >= patch.Length || read.MaximumCharacters is < 1 or > 12000)
+            throw new ArgumentException("A valid diff offset and a page size from 1 through 12000 characters are required.");
+        var length = Math.Min(read.MaximumCharacters, patch.Length - read.Offset);
+        if (read.Offset + length < patch.Length && char.IsHighSurrogate(patch[read.Offset + length - 1])) length--;
+        if (length == 0) throw new ArgumentException("The diff page must accommodate a complete Unicode character.");
+        var next = read.Offset + length;
+        return new(digest, read.Offset, patch.Length, patch.Substring(read.Offset, length), next < patch.Length ? next : null);
     }
 
     private async Task<GitMergeAuthorizationResult> AuthorizeMergeAsync(

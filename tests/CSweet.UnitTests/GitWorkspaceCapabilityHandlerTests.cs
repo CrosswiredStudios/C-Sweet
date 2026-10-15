@@ -6,6 +6,39 @@ namespace CSweet.UnitTests;
 
 public sealed class GitWorkspaceCapabilityHandlerTests
 {
+    [Fact]
+    public async Task ReferenceOnlyDiffReadStillRequiresTheMergeReviewGrant()
+    {
+        var handler = new GitWorkspaceCapabilityHandler(null!, new UnavailableTrustedGitHostClient(), null!, null!, WorkspaceSyncTestOptions.Value);
+        var session = new AgentSession("session", "agent", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "runtime", "tick",
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), 1));
+        var request = new RequestCapability { RequestId = "read", Capability = GitMergeCapabilities.Review,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new ReviewGitMergeRequest(Guid.NewGuid(), 1, "reference")
+                { IncludePatch = false })) };
+        var results = new List<CapabilityResult>();
+        await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
+        Assert.False(Assert.Single(results).Succeeded);
+    }
+
+    [Fact]
+    public void DiffPagesAreBoundedAndRejectChangedPublicationSourceTargetOrPatch()
+    {
+        var publication = Guid.NewGuid();
+        var read = new GitReviewDiffRead(publication, "source", "target", "digest", 0, 3);
+        var first = GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read, publication, "source", "target", "digest", "abcdef");
+        Assert.Equal("abc", first.Text);
+        Assert.Equal(3, first.NextOffset);
+        var last = GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { Offset = 3 }, publication, "source", "target", "digest", "abcdef");
+        Assert.Equal("def", last.Text);
+        Assert.Null(last.NextOffset);
+        Assert.Throws<InvalidOperationException>(() => GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { PublicationId = Guid.NewGuid() }, publication, "source", "target", "digest", "abcdef"));
+        Assert.Throws<InvalidOperationException>(() => GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { CandidateCommitSha = "changed" }, publication, "source", "target", "digest", "abcdef"));
+        Assert.Throws<InvalidOperationException>(() => GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { TargetCommitSha = "changed" }, publication, "source", "target", "digest", "abcdef"));
+        Assert.Throws<InvalidOperationException>(() => GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { PatchDigest = "changed" }, publication, "source", "target", "digest", "abcdef"));
+        Assert.Throws<ArgumentException>(() => GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { MaximumCharacters = 12001 }, publication, "source", "target", "digest", "abcdef"));
+        Assert.Throws<ArgumentException>(() => GitWorkspaceCapabilityHandler.ReadReviewDiffPage(read with { Offset = -1 }, publication, "source", "target", "digest", "abcdef"));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

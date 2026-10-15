@@ -36,3 +36,14 @@ item execution and the ticket, as designed. Three things then left the CEO with 
 
 `tests/CSweet.UnitTests/BlockedTicketRetryTests.cs` reproduces the ticket: a board without a Blocked column, a stage
 blocked by a provider timeout with all three attempts spent, and the CEO as the caller.
+
+`WorkOrchestrator.RecordArtifactQualityAsync` selects the author attempt with the greatest `Attempt` number before
+checking its status and document reference. EF navigation collections have no guaranteed order, and a returned
+Blocked outcome also has attempt status Completed. Selecting the last completed collection entry can therefore
+mistake an earlier blocked attempt for the successful delivery (observed on `VGF99E0D5782-6`). A newer unfinished
+or invalid attempt must not fall back to an older document. `HierarchicalTaskRuntimeTests` covers both collection
+orders, game and software authors, reviewed rework, and refusal to reuse an older delivery.
+
+For this failure, deploy the platform correction and retry the current **quality** stage through
+`WorkOrchestrationService.RetryItemAsync` or the ticket's Retry action. Preserve the completed author stage and its
+submitted artifact revision; the QA retry receives that existing delivery along with the historical attempts.
