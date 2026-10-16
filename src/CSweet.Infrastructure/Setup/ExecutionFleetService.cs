@@ -560,8 +560,7 @@ public sealed class ExecutionFleetService(
                   x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
                   x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
                   x.Status == LocalOfficeSetupSessionStatus.Ready ||
-                  x.Status == LocalOfficeSetupSessionStatus.Failed &&
-                  (x.ErrorCode == "office_removal_failed" || x.UpgradeOfficeId != null)))
+                  x.Status == LocalOfficeSetupSessionStatus.Failed))
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
         if (session is { Status: LocalOfficeSetupSessionStatus.Failed, ErrorCode: "office_removal_failed" })
@@ -595,14 +594,15 @@ public sealed class ExecutionFleetService(
             mapped = Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
                 LocalSetupLaunchMethod(session));
         }
-        if (session is not null && mapped?.State == "failed")
+        if (session is not null && mapped?.State == "failed" &&
+            (session.Status != LocalOfficeSetupSessionStatus.Failed ||
+             session.ErrorCode != mapped.ErrorCode || session.ErrorMessage != (mapped.ErrorMessage ?? mapped.Message)))
         {
             session.Status = LocalOfficeSetupSessionStatus.Failed;
-            session.ErrorCode ??= mapped.ErrorCode ?? "setup_failed";
-            session.ErrorMessage ??= mapped.ErrorMessage ?? mapped.Message;
+            session.ErrorCode = mapped.ErrorCode ?? "setup_failed";
+            session.ErrorMessage = mapped.ErrorMessage ?? mapped.Message;
             session.UpdatedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
-            if (session.UpgradeOfficeId is null) mapped = null;
         }
         return new LocalOfficeSetupActionResponse(true, null, "Local Office setup status loaded.",
             mapped,
@@ -964,6 +964,9 @@ public sealed class ExecutionFleetService(
         else
         {
             session.Status = LocalOfficeSetupSessionStatus.Failed;
+            var failure = Map(session, null, null);
+            session.ErrorCode = failure.ErrorCode;
+            session.ErrorMessage = failure.ErrorMessage ?? failure.Message;
         }
         await dbContext.SaveChangesAsync(cancellationToken);
         return true;
@@ -1889,11 +1892,12 @@ public sealed class ExecutionFleetService(
         }
     }
 
-    private LocalOfficeSetupSessionResponse Map(
+    internal LocalOfficeSetupSessionResponse Map(
         LocalOfficeSetupSession session,
         string? windowsPackageUrl,
         string? launchUri,
-        string? launchMethod = null)
+        string? launchMethod = null,
+        WindowsSetupProgressDocument? windowsProgress = null)
     {
         if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } target && session.Status == LocalOfficeSetupSessionStatus.Connected &&
             session.CompletedAt is { } completed)
@@ -1945,9 +1949,17 @@ public sealed class ExecutionFleetService(
         var effectiveErrorCode = session.ErrorCode;
         var effectiveErrorMessage = session.ErrorMessage;
         var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
-        var windowsProgress = ReadWindowsSetupProgress(session.Id, timeProvider.GetUtcNow());
-        if (windowsProgress is { } progress && status != LocalOfficeSetupSessionStatus.Ready &&
-            progress.ObservedAt >= session.UpdatedAt)
+        windowsProgress ??= ReadWindowsSetupProgress(session.Id, timeProvider.GetUtcNow());
+        // The launcher's generic result callback arrives AFTER its detailed failure file.
+        // Keep that same-session evidence without letting an old file revive a terminal session.
+        if (windowsProgress is { } progress && progress.JobId == session.Id &&
+            status is not (LocalOfficeSetupSessionStatus.Ready or LocalOfficeSetupSessionStatus.Revoked or
+                LocalOfficeSetupSessionStatus.Expired or LocalOfficeSetupSessionStatus.Removed) &&
+            (status != LocalOfficeSetupSessionStatus.Failed || progress.State == "failed") &&
+            (progress.ObservedAt >= session.UpdatedAt ||
+             status == LocalOfficeSetupSessionStatus.Failed && progress.State == "failed" &&
+             (session.ErrorCode == "office_setup_failed" || session.ErrorCode == progress.ErrorCode) &&
+             progress.ObservedAt >= (session.RedeemedAt ?? session.CreatedAt)))
         {
             phaseKey = progress.PhaseKey;
             phaseName = progress.PhaseDisplayName;
@@ -1975,10 +1987,15 @@ public sealed class ExecutionFleetService(
                 else
                 {
                     status = LocalOfficeSetupSessionStatus.Failed;
-                    phaseName = "Setup needs attention";
+                    phaseName = progress.PhaseKey == "certify-runtime"
+                        ? "Office runtime verification failed"
+                        : "Setup needs attention";
                 }
-                message = effectiveErrorMessage ?? progress.Message;
-                percent = 0;
+                message = progress.PhaseKey == "certify-runtime"
+                    ? "The Office runtime did not pass its installation checks. Review the diagnostic details below. Retrying the same package may fail again; a corrected Office package may be needed."
+                    : effectiveErrorMessage ?? progress.Message;
+                minimumSeconds = null;
+                maximumSeconds = null;
             }
             else if (progress.State == "restart-required")
             {
@@ -2248,7 +2265,8 @@ public sealed class ExecutionFleetService(
                 string.IsNullOrWhiteSpace(progress.PhaseKey) || progress.PhaseKey.Length > 64 ||
                 string.IsNullOrWhiteSpace(progress.PhaseDisplayName) || progress.PhaseDisplayName.Length > 160 ||
                 string.IsNullOrWhiteSpace(progress.Message) || progress.Message.Length > 512 ||
-                progress.PercentComplete is < 0 or > 100)
+                progress.PercentComplete is < 0 or > 100 ||
+                progress.ErrorCode?.Length > 128 || progress.ErrorMessage?.Length > 2048)
                 return null;
             progress.EstimatedRemainingMinimumSeconds = ClampEta(progress.EstimatedRemainingMinimumSeconds);
             progress.EstimatedRemainingMaximumSeconds = ClampEta(progress.EstimatedRemainingMaximumSeconds);
@@ -2308,7 +2326,7 @@ public sealed class ExecutionFleetService(
         }
     }
 
-    private sealed class WindowsSetupProgressDocument
+    internal sealed class WindowsSetupProgressDocument
     {
         public int SchemaVersion { get; set; }
         public Guid JobId { get; set; }

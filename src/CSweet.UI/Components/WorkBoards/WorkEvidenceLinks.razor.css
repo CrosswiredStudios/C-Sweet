@@ -1,0 +1,15 @@
+.work-evidence { min-width: 0; font-size: 12px; }
+summary { display: flex; align-items: center; gap: 5px; padding: 3px 0; color: var(--mud-palette-primary); cursor: pointer; overflow-wrap: anywhere; }
+summary::after { content: "+"; margin-left: auto; }
+details[open] > summary::after { content: "−"; }
+summary:focus-visible, a:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.evidence-list { list-style: none; padding: 0; margin: 6px 0 0; min-width: 0; }
+.evidence-list li + li { margin-top: 5px; }
+a { display: flex; gap: 7px; align-items: center; min-width: 0; padding: 7px; border-radius: 6px; background: color-mix(in srgb, var(--mud-palette-primary) 5%, var(--mud-palette-surface)); color: var(--mud-palette-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.evidence-copy { flex: 1; min-width: 0; }
+.evidence-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+small { display: block; font-size: 11px; color: var(--mud-palette-text-secondary); }
+.evidence-unavailable { display: block; color: var(--mud-palette-text-secondary); overflow-wrap: anywhere; }
+.work-evidence ::deep .mud-icon-root { flex-shrink: 0; font-size: 16px; }
+@media (pointer: coarse) { summary, a { min-height: 44px; } }

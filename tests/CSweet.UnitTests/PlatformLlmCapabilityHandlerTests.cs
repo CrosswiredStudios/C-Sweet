@@ -341,6 +341,8 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
                 instructions = "Be concise.",
                 temperature = 0.2f,
                 maxOutputTokens = 640,
+                responseSchema = JsonSerializer.SerializeToElement(new { type = "object", properties = new { summary = new { type = "string" } }, required = new[] { "summary" }, additionalProperties = false }),
+                responseSchemaName = "technical_review",
                 tools = new[]
                 {
                     new
@@ -425,6 +427,9 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
             StringComparison.Ordinal);
         Assert.Contains("Be concise.", chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
         Assert.Equal(0.2f, chatClient.ReceivedOptions?.Temperature);
+        var responseFormat = Assert.IsType<ChatResponseFormatJson>(chatClient.ReceivedOptions?.ResponseFormat);
+        Assert.Equal("technical_review", responseFormat.SchemaName);
+        Assert.Equal("object", responseFormat.Schema!.Value.GetProperty("type").GetString());
         Assert.Equal(128000, chatClient.ReceivedOptions?.MaxOutputTokens);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();

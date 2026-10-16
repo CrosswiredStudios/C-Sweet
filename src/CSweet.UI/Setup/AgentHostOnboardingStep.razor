@@ -363,7 +363,7 @@
 
     private void AdoptLocalSession(LocalOfficeSetupSessionResponse? session)
     {
-        if (session is null) return;
+        if (session is null || session.Id == _dismissedLocalSessionId) return;
         _installationTarget = "local";
         _localSession = session;
         _localApprovalRequested = session.AdministratorApprovalRequestedAt is not null ||
@@ -394,8 +394,12 @@
         }
     }
 
+    private Guid? _dismissedLocalSessionId;
+
     private Task ResetLocalSetupAsync()
     {
+        BeginStatusMutation();
+        _dismissedLocalSessionId = _localSession?.Id;
         _localSession = null;
         _localLaunchAttemptedAt = null;
         _localLaunchAttempts = 0;
@@ -729,7 +733,7 @@
                 }
                 <div><strong>@LocalProgressTitle</strong><span>@LocalProgressMessage</span></div>
                 </div>
-                @if (_localSession.State != "created")
+                @if (_localSession.State is not ("created" or "failed" or "expired" or "revoked"))
                 {
                     <MudProgressLinear Value="@LocalProgressPercent" Color="Color.Primary" />
                     <div class="local-progress-meta">
@@ -750,6 +754,15 @@
                 }
                 @if (_localSession.State is "failed" or "expired" or "revoked")
                 {
+                    <details class="local-setup-diagnostics">
+                        <summary>Diagnostic details</summary>
+                        @if (!string.IsNullOrWhiteSpace(_localSession.ErrorMessage))
+                        {
+                            <p>@_localSession.ErrorMessage</p>
+                        }
+                        <p>Error code: <code>@(_localSession.ErrorCode ?? _localSession.State)</code></p>
+                        <p>Setup reference: <code>@_localSession.Id</code></p>
+                    </details>
                     <div class="local-install-actions">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
                                    OnClick="ResetLocalSetupAsync">Start again</MudButton>

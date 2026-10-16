@@ -26,6 +26,8 @@ public static class WorkDeliveryEndpoints
             Handle(http, actor => service.ReadEvidenceAsync(organizationId, actor, request, ct)));
         group.MapPost("/tasks/finalize", (Guid organizationId, FinalizeWorkItemDeliveryRequest request, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>
             Handle(http, actor => service.FinalizeTaskAsync(organizationId, actor, request, ct)));
+        group.MapPost("/tasks/amend", (Guid organizationId, CSweet.Contracts.WorkManagement.AmendWorkDeliveryTaskRequest request, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>
+            Handle(http, actor => service.AmendTaskAsync(organizationId, actor, request, ct)));
         group.MapGet("/plans/{planId:guid}/executions/{executionId:guid}/repositories/{repositoryId:guid}/archive",
             async (Guid organizationId, Guid planId, Guid executionId, Guid repositoryId, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>
             {

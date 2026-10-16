@@ -383,25 +383,29 @@ public sealed partial class WorkOrchestrator(
         // Retry events are few (bounded by the attempt budget); order in memory for provider portability.
         var events = (await db.WorkOrchestrationEvents.AsNoTracking()
                 .Where(x => x.StageExecutionId == stageExecutionId && x.EventType == "stage.retry.requested")
-                .Select(x => new { x.OccurredAt, x.DataJson }).ToListAsync(cancellationToken))
-            .OrderByDescending(x => x.OccurredAt).Take(3).Select(x => x.DataJson).Reverse().ToList();
+                .Select(x => new { x.OccurredAt, x.DataJson, x.OrganizationId }).ToListAsync(cancellationToken))
+            .OrderByDescending(x => x.OccurredAt).Take(3).Reverse().ToList();
         var directions = new List<Shared.WorkExecutionEvidence>();
         foreach (var data in events)
         {
             try
             {
-                using var document = JsonDocument.Parse(data);
-                // Only the board manager's retries are directions; an assignee's own retry is not.
+                using var document = JsonDocument.Parse(data.DataJson);
+                // Retry authorization has already been checked by the service. Preserve a
+                // human operator's reason too; an agent assignee cannot direct its own verdict.
                 if (!(document.RootElement.TryGetProperty("id", out var actor) || document.RootElement.TryGetProperty("Id", out actor)) ||
-                    actor.ValueKind != JsonValueKind.String || !actor.TryGetGuid(out var actorId) || actorId != managerId)
+                    actor.ValueKind != JsonValueKind.String || !actor.TryGetGuid(out var actorId))
                     continue;
+                if (actorId != managerId && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                    x.Id == actorId && x.OrganizationId == data.OrganizationId && x.IsActive && x.ArchivedAt == null &&
+                    x.EmployeeType == EmployeeType.Human, cancellationToken)) continue;
                 if (!document.RootElement.TryGetProperty("Reason", out var reason) &&
                     !document.RootElement.TryGetProperty("reason", out reason) || reason.ValueKind != JsonValueKind.String)
                     continue;
                 var text = reason.GetString()!.Trim();
                 if (text.Length == 0) continue;
-                directions.Add(new Shared.WorkExecutionEvidence("manager-direction", "Manager retry direction",
-                    text.Length <= 1000 ? text : text[..997] + "..."));
+                directions.Add(new Shared.WorkExecutionEvidence("manager-direction", "Authorized retry direction",
+                    text.Length <= 2048 ? text : text[..2045] + "..."));
             }
             catch (JsonException) { }
         }
@@ -637,10 +641,7 @@ public sealed partial class WorkOrchestrator(
                     .Select(x => x.OutcomeCode).Distinct(StringComparer.Ordinal).ToArray(),
                 AssignmentRequirements = assignmentRequirements,
                 AssignmentSelection = assignmentSelection
-            }, JsonOptions), stage.ItemExecution.Stages.SelectMany(x => x.Attempts)
-                .Where(x => !string.IsNullOrWhiteSpace(x.ResultJson))
-                .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions)!)
-                .ToList(), evidence)
+            }, JsonOptions), AssignmentOutcomes(stage), evidence)
         {
             OrganizationUserId = stage.OrganizationUserId ?? Guid.Empty,
             AgentInstallationId = installationId,

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.Agents.AI" VersionOverride="1.15.0" />
+    <Using Include="Xunit" />
+    <ProjectReference Include="../CSweet.UnitTests/CSweet.UnitTests.csproj" />
+    <ProjectReference Include="../../../CSweet.Agent.TechnicalDirector.VideoGame/src/CSweet.Agent.TechnicalDirector.VideoGame/CSweet.Agent.TechnicalDirector.VideoGame.csproj" />
+    <ProjectReference Include="../../../CSweet.Agent.QA.VideoGame/src/CSweet.Agent.QA.VideoGame/CSweet.Agent.QA.VideoGame.csproj" />
+  </ItemGroup>
+</Project>

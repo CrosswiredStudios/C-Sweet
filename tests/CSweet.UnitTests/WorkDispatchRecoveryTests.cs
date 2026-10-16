@@ -113,17 +113,22 @@ public sealed partial class WorkDispatchRecoveryTests
         Assert.Equal(failAfterEnqueue ? 0 : 1, runtime.Wakes);
     }
 
-    [Fact]
-    public async Task Retried_stage_carries_the_managers_direction_to_the_worker()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Retried_stage_carries_the_managers_direction_to_the_worker(bool humanOperator)
     {
         // A worker asked to try again must hear why, as a teammate would.
         await using var db = CreateDb();
         var state = await Seed(db, 1);
         var managerId = Guid.NewGuid();
         (await db.WorkBoards.SingleAsync()).ManagerOrganizationUserId = managerId;
+        var authorizedActor = humanOperator ? Guid.NewGuid() : managerId;
+        if (humanOperator) db.CoreOrganizationUsers.Add(new() { Id = authorizedActor, OrganizationId = state.Execution.OrganizationId,
+            EmployeeType = EmployeeType.Human, IsActive = true, DisplayName = "Authorized retry operator" });
         foreach (var (actor, reason, at) in new[]
         {
-            (managerId, "Report unavailable desktop measurements honestly.", DateTimeOffset.UtcNow.AddMinutes(-2)),
+            (authorizedActor, "Report unavailable desktop measurements honestly.", DateTimeOffset.UtcNow.AddMinutes(-2)),
             (Guid.NewGuid(), "Architect guidance was linked and consumed.", DateTimeOffset.UtcNow.AddMinutes(-1))
         })
             db.WorkOrchestrationEvents.Add(new WorkOrchestrationEvent

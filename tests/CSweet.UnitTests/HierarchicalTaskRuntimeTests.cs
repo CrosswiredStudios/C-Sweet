@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using CSweet.Application.WorkManagement;
+using CSweet.Contracts.SourceControl;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
@@ -87,7 +88,10 @@ public sealed class HierarchicalTaskRuntimeTests
     }
 
     internal static async Task RunJourney(Fixture f, bool artifact, bool game = false, bool legacyArtifact = false,
-        bool authorRetryHistory = false, bool newestAttemptFirst = false)
+        bool authorRetryHistory = false, bool newestAttemptFirst = false,
+        Func<Fixture,string,Task<DeliveryBranchResult>>? publishCandidate = null,
+        Func<Fixture,SourceControlPublication,DeliveryBranchResult,Task<WorkExecutionOutcomeV1>>? technicalReview = null,
+        Func<Fixture,string,bool,Task<WorkExecutionOutcomeV1>>? qualityReview = null)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -161,7 +165,8 @@ public sealed class HierarchicalTaskRuntimeTests
             else
             {
                 var branch = "codex/task/one/r" + cycle;
-                var refs = await f.Client.DeliveryBranchAsync(new(f.Org, f.Repositories[0], "InternalGit", null, "", "", "inspect", branch, "codex/story/one", "inspect"));
+                var refs = publishCandidate is not null ? await publishCandidate(f,branch) :
+                    await f.Client.DeliveryBranchAsync(new(f.Org, f.Repositories[0], "InternalGit", null, "", "", "inspect", branch, "codex/story/one", "inspect"));
                 var workspace = new SourceControlWorkspace { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkItemId = f.Task.Id,
                     WorkspaceKey = "task:" + f.Task.Id.ToString("N") + ":" + cycle,
                     AssignmentRevision = f.Task.AssignmentRevision, RepositoryId = f.Repositories[0], BranchName = branch, IntegrationTargetBranch = "codex/story/one", BaseCommitSha = refs.TargetCommitSha };
@@ -192,7 +197,13 @@ public sealed class HierarchicalTaskRuntimeTests
             {
                 Assert.Equal("technical-review", item.CurrentStageKey);
                 var refs = await f.Client.DeliveryBranchAsync(new(f.Org, f.Repositories[0], "InternalGit", null, "", "", "inspect", publication!.TicketBranch, publication.TargetBranch, "inspect"));
-                await Complete(f.Technical, "approved", new { }, [new("commit", "Reviewed source", publication.CommitSha), new("target-commit", "Story target", refs.TargetCommitSha)]);
+                if (technicalReview is not null)
+                {
+                    var reviewed=await technicalReview(f,publication,refs);
+                    Assert.Equal("approved",reviewed.OutcomeCode);
+                    await Complete(f.Technical,reviewed.OutcomeCode,reviewed.Output,reviewed.Evidence);
+                }
+                else await Complete(f.Technical, "approved", new { }, [new("commit", "Reviewed source", publication.CommitSha), new("target-commit", "Story target", refs.TargetCommitSha)]);
                 Assert.Null(cycle == 0 ? f.Task.MergeCommitSha : null);
                 await Pulse(); Assert.Equal("quality", item.CurrentStageKey); Assert.NotNull(f.Task.MergeCommitSha);
             }
@@ -225,8 +236,19 @@ public sealed class HierarchicalTaskRuntimeTests
                 var sha = f.Task.MergeCommitSha!;
                 var quality = new WorkDeliveryReviewResult(sha, passed, "Ran current story tests", criteria, findings)
                     { Validations = [new(f.Repositories[0], sha, "test", passed ? 0 : 1, passed, "Observed test output")] };
+                WorkExecutionOutcomeV1? agentQualityOutcome = null;
+                if (qualityReview is not null)
+                {
+                    var reviewed=await qualityReview(f,sha,passed);
+                    Assert.Equal(passed?"passed":"failed",reviewed.OutcomeCode);
+                    Assert.Equal(sha,Assert.Single(reviewed.Evidence).Value);
+                    quality=reviewed.Output.Deserialize<WorkDeliveryReviewResult>(Json)!;
+                    agentQualityOutcome=reviewed;
+                }
                 var claimedAgentStage = new WorkStageExecution { StageKey = "quality", ItemExecution = item,
                     OrganizationUserId = f.Qa.Id, AgentInstallationId = Guid.NewGuid() };
+                if (agentQualityOutcome is not null)
+                    Assert.Null(await runtime.RecordQualityValidationAsync(execution,claimedAgentStage,agentQualityOutcome,DateTimeOffset.UtcNow,default));
                 var omittedCriteria = new WorkExecutionOutcomeV1(claimedAgentStage.Id, Guid.NewGuid(), WorkExecutionDispositions.Completed,
                     passed ? "passed" : "failed", "Omitted requirement evidence", JsonSerializer.SerializeToElement(quality with { Criteria = [] }, Json),
                     [new("commit", "Exact integrated story", sha)], []);

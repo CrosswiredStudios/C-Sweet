@@ -3,6 +3,59 @@
 Status: Windows assisted installation and stale-installation recovery implemented  
 Last updated: 2026-09-20
 
+## Failed setup diagnostics (2026-10-15)
+
+`ExecutionFleetService.ReportLocalSetupResultAsync` and `Map` preserve a same-attempt
+Windows failure record written just before the generic `office_setup_failed` callback.
+The callback's later database timestamp must not hide the installer error. Earlier recovery
+attempts, mismatched session IDs, and revoked/expired/ready sessions cannot be revived by
+progress files. `GetActiveLocalSetupSessionAsync` retains failures across browser reloads.
+`AgentHostOnboardingStep` displays error details and the setup reference, suppresses progress
+and time estimates for terminal states, and ignores rediscovery of an explicitly dismissed
+attempt while the user starts again.
+
+The October 15 attempts failed at `certify-runtime` with `dotnet-sdk-present` in Office 0.9.1.
+The hosted image installed `/usr/local/bin/dotnet`; the guest probe requires `/usr/bin/dotnet`.
+Office 0.9.2 fixes the shared provisioning recipe and checks the absolute launcher. A rebuilt
+Office release and destination-host certification are required before claiming live recovery;
+resetting Headquarters or retrying the same bundle cannot correct its guest filesystem.
+
+Regression coverage: `ExecutionFleetServiceTests`, `OnboardingWorkspaceRenderingTests`, and
+Office's `scripts/tests/test-development-dotnet-path.sh`.
+Local verification passed 119 setup/service/rendering regressions and 225 Office tests with
+sibling Office.Contracts disabled. The Linux launcher regression fails with the original
+recipe and passes with the fix. Office 0.9.2 binary bundle metadata and packaging checks pass;
+the corrected hosted image, live installation and running Headquarters deployment remain pending.
+
+## Office 0.9.2 certification failure (2026-10-15)
+
+The installed release passed the earlier .NET SDK check, then failed inside
+`RunInternetSmokeAsync` with `The guest sent an unsupported broker message.`
+Office's `GuestBrokerSession.ObserveDiagnosticsAsync` emits `runtime.logs`
+`StreamChunk` frames while dependency commands run. The copied certification host
+did not handle that message type, although the production Headquarters broker does.
+Office 0.9.3 adds bounded authenticated diagnostic handling to
+`WindowsSmokeTest/CertificationBrokerHost.cs` and surfaces retained guest diagnostics
+on internet-certification errors. Required reports, successful exits, network checks
+and lease cleanup still determine certification.
+
+The corrected host then exposed a second failure: npm dependency installation timed
+out with `EAI_AGAIN`. Direct public TCP, DNS UDP, and private/host denial checks passed.
+Offline inspection of the published VHDX found `/etc/resolv.conf` pointing to Ubuntu's
+systemd stub instead of `/run/csweet/resolv.conf`. libguestfs restores the original
+resolver around provisioning commands. Office 0.9.3 sets and verifies the link after
+customization in `scripts/release/build-hosted-hyperv-image.sh`. Its probe also preserves
+bounded stdout/stderr on timeout via `CertificationCommand`, so dependency failures name
+the actual command and diagnostic cause.
+
+All 237 Office tests passed against published Office.Contracts. Real certification
+of a separate DNS-corrected hosted-image copy passed v15-ipv4 at 18:14 Pacific:
+`CSweet.Office/artifacts/c093c/windows-hyperv.json`, guest digest
+`sha256:48c8cb2be86c4b724c95bdff6b75bd7c28c1cde11099de70a05a06d01fe4736d`.
+Runtime isolation, brokered builds, npm install/ci/test/build, portable tooling,
+public TCP/UDP, denied private/host destinations and lease cleanup passed.
+Publication of 0.9.3 and normal installation certification remain pending.
+
 ## Setup Assistant presentation (2026-10-12)
 
 `CSweet.UI/Pages/Setup.razor` hosts the four onboarding steps in the Setup Assistant:

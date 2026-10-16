@@ -1529,6 +1529,75 @@ public sealed class ExecutionFleetServiceTests
         });
 
     private static string Digest(char value) => $"sha256:{new string(value, 64)}";
+
+    [Fact]
+    public async Task FailedSetupPreservesInstallerEvidenceWrittenBeforeGenericResultCallback()
+    {
+        await using var db = CreateDb();
+        var fleet = CreateFleet(db, new MutableTimeProvider(Now));
+        var session = new LocalOfficeSetupSession
+        {
+            Id = Guid.NewGuid(), Status = LocalOfficeSetupSessionStatus.Failed,
+            CreatedAt = Now.AddMinutes(-2), RedeemedAt = Now.AddMinutes(-1), UpdatedAt = Now,
+            ErrorCode = "office_setup_failed", ErrorMessage = "The Office setup did not complete."
+        };
+        var progress = new ExecutionFleetService.WindowsSetupProgressDocument
+        {
+            JobId = session.Id, State = "failed", PhaseKey = "certify-runtime",
+            PhaseDisplayName = "Certifying agent isolation and builds", PercentComplete = 70,
+            ObservedAt = Now.AddSeconds(-1), ErrorCode = "developer-bootstrap-failed",
+            ErrorMessage = "The guest reported a failed isolation check: dotnet-sdk-present",
+            EstimatedRemainingMinimumSeconds = 30, EstimatedRemainingMaximumSeconds = 90
+        };
+        var result = fleet.Map(session, null, null, windowsProgress: progress);
+        Assert.Equal("failed", result.State);
+        Assert.Equal("certify-runtime", result.PhaseKey);
+        Assert.Equal(progress.ErrorCode, result.ErrorCode);
+        Assert.Equal(progress.ErrorMessage, result.ErrorMessage);
+        Assert.Contains("corrected Office package", result.Message);
+        Assert.Null(result.EstimatedRemainingMaximumSeconds);
+
+        // Rehydrating the persisted detailed failure must retain its phase and recovery guidance.
+        session.ErrorCode = result.ErrorCode;
+        session.ErrorMessage = result.ErrorMessage;
+        Assert.Equal(result, fleet.Map(session, null, null, windowsProgress: progress));
+
+        // A previous recovery attempt, another session, or late running progress is not evidence.
+        progress.ObservedAt = session.RedeemedAt.Value.AddSeconds(-1);
+        Assert.Equal("install", fleet.Map(session, null, null, windowsProgress: progress).PhaseKey);
+        progress.ObservedAt = Now.AddSeconds(1);
+        progress.JobId = Guid.NewGuid();
+        Assert.Equal("install", fleet.Map(session, null, null, windowsProgress: progress).PhaseKey);
+        progress.JobId = session.Id;
+        progress.State = "running";
+        Assert.Equal("install", fleet.Map(session, null, null, windowsProgress: progress).PhaseKey);
+        progress.State = "failed";
+        foreach (var status in new[] { LocalOfficeSetupSessionStatus.Ready, LocalOfficeSetupSessionStatus.Revoked,
+                     LocalOfficeSetupSessionStatus.Expired, LocalOfficeSetupSessionStatus.Removed })
+        {
+            session.Status = status;
+            Assert.Equal(status.ToString().ToLowerInvariant(), fleet.Map(session, null, null, windowsProgress: progress).State);
+        }
+    }
+
+    [Fact]
+    public async Task FailedFirstInstallRemainsDiscoverableAfterBrowserReload()
+    {
+        await using var db = CreateDb();
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, new MutableTimeProvider(Now));
+        var owner = Guid.NewGuid();
+        var session = new LocalOfficeSetupSession
+        {
+            Id = Guid.NewGuid(), CreatedByUserId = owner, Status = LocalOfficeSetupSessionStatus.Failed,
+            CreatedAt = Now.AddMinutes(-2), UpdatedAt = Now, ExpiresAt = Now.AddMinutes(3),
+            ErrorCode = "office_setup_failed", ErrorMessage = "Office runtime verification failed."
+        };
+        db.LocalOfficeSetupSessions.Add(session);
+        await db.SaveChangesAsync();
+        Assert.Equal(session.Id, (await fleet.GetActiveLocalSetupSessionAsync(owner)).Session?.Id);
+        Assert.Null((await fleet.GetActiveLocalSetupSessionAsync(Guid.NewGuid())).Session);
+    }
     private static ExecutionFleetService CreateFleet(
         CSweetDbContext db,
         TimeProvider clock,

@@ -11,6 +11,11 @@ internal static partial class WorkOrchestrationBoardState
 {
     private static async Task SynchronizeTaskArtifactGrantsAsync(CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken ct)
     {
+        // Claim processing starts with only the leased stage tracked. Missing navigation
+        // entries are not evidence that the producer or other active reviews disappeared.
+        // Tracking queries preserve in-transaction transitions and newly added stages.
+        await db.WorkItemExecutions.Where(x => x.SprintExecutionId == execution.Id)
+            .Include(x => x.WorkItem).Include(x => x.Stages).ThenInclude(x => x.Attempts).LoadAsync(ct);
         var stageIds = execution.Items.SelectMany(x => x.Stages).Select(x => x.Id).ToArray();
         var grants = (await db.ScopedActionGrants.Where(x => x.OrganizationId == execution.OrganizationId &&
             x.GrantedBySubjectKind == GrantSubjectKind.AutomationIdentity && x.GrantedBySubjectId.HasValue &&
@@ -30,8 +35,12 @@ internal static partial class WorkOrchestrationBoardState
             var author = item.Stages.SingleOrDefault(x => x.Traversal == item.Traversal && x.StageKey is "development" or "specialist-execution");
             if (author is null || author.OrganizationUserId == qa.OrganizationUserId ||
                 author.AgentInstallationId.HasValue && author.AgentInstallationId == qa.AgentInstallationId) continue;
-            var delivered = author.Attempts.Where(x => x.Status == WorkExecutionAttemptStatus.Completed && x.ResultJson != null).OrderByDescending(x => x.Attempt).FirstOrDefault();
-            if (delivered is null || !WorkDeliveryService.TryDocument(JsonSerializer.Deserialize<WorkExecutionOutcomeV1>(delivered.ResultJson!, JsonOptions)!.Output,
+            var delivered = author.Attempts.OrderByDescending(x => x.Attempt).FirstOrDefault();
+            if (author.Status != WorkStageExecutionStatus.Completed || delivered?.Status != WorkExecutionAttemptStatus.Completed || delivered.ResultJson is null) continue;
+            var outcome = JsonSerializer.Deserialize<WorkExecutionOutcomeV1>(delivered.ResultJson, JsonOptions);
+            if (outcome is null || outcome.StageExecutionId != author.Id || outcome.AttemptId != delivered.Id ||
+                outcome.Disposition != WorkExecutionDispositions.Completed || outcome.OutcomeCode is not ("completed" or "artifact-delivered") ||
+                !WorkDeliveryService.TryDocument(outcome.Output,
                 out var artifact, out var revision, out var digest)) continue;
             if (!await db.ArtifactRevisions.AnyAsync(x => x.Id == revision && x.ArtifactId == artifact && x.OrganizationId == execution.OrganizationId &&
                 x.ContentSha256 == digest && x.CreatedByOrganizationUserId == author.OrganizationUserId && x.CreatedByAgentInstallationId == author.AgentInstallationId &&

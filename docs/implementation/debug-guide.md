@@ -1027,3 +1027,221 @@ and `InternalGitPublicationTests.SnapshotPublicationHonorsNestedGitignoresAndKee
 cover real callbacks, current-reference checks, bounded complete coverage and actual Git behavior.
 Roll out the platform and matching agents before retrying only the blocked review stage. Source tests
 and local packages do not upgrade the installed agents or establish live recovery of this candidate.
+
+### NEON BREAK technical review rejected by the gateway (October 15)
+
+Ticket `VGF0E67F20A5-11` completed implementation, then failed technical review with
+`$.includePatch is not allowed`. The retry at 13:16 Pacific used Technical Director 3.1.2 and
+failed before the handler or model. The nine remaining executable tasks depend on this ticket.
+
+`McpToolCatalog.InputSchema` now accepts the SDK's serialized `ReviewGitMergeRequest`, including
+`includePatch` and nullable `diffRead`. Nested page identities, SHA/digest shapes, offsets and
+the 12,000-character limit remain strict; unknown fields remain rejected. `GitReviewSdkSchemaTests`
+uses `McpGatewayEndpoints.ValidateToolInput`; `MergeDecisionPersistenceTests` now crosses this
+validation before calling the handler, using the SDK's actual camel-case serialization.
+
+Technical Director 4.0.0 `ExecuteCapabilityCoreAsync` always uses `DeliveryTaskTechnicalReview`
+for canonical task review. `WorkOrchestrator.DispatchAsync` sends `deliverySpecificationJson`,
+not a typed `WorkItem.Delivery`; the removed routing test silently selected the old full-patch
+reviewer. The shared reviewer rereads current delivery and independent assignment from the
+authorized work API. The obsolete reviewer, custom decision parser/receipts, standalone
+merge-decision execution/delegation and unused merge-authorization grant are removed. Trusted
+integration and independent QA remain mandatory. Existing malformed/stale assignments fail
+closed; no compatibility adapter or ticket-data rewrite was added.
+
+Verification: 50 platform schema/review/integration tests and all 126 Technical Director tests
+passed. The agent was tested against published SDK/contract packages, self-tested and packed as
+4.0.0. AgentHost was stopped through Aspire, rebuilt in its existing Debug deployment with
+dependency builds disabled, and started with the schema correction. The new agent package still
+needs its normal release/import before retrying only technical review; completed implementation
+and its publication remain intact.
+
+The owner-requested schedule maintenance uses `AgentInstallationService.UpdateScheduleAsync`
+with the existing audit writer and data-protection keys. Eight active Chief/Creative Director/
+Producer/Technical Director installations across two businesses were selected by exact agent IDs
+and changed to OnDemand. Their 300-second cadence, Skip overlap, enabled state and grants were
+preserved. The service enforces the existing global 600-second maximum, so their old 86,400-second
+schedule budgets were normalized to 600 seconds. The older YouTube Account Manager, Discord and
+other agent types were outside the selection. Global definition defaults were not changed.
+
+### NEON BREAK model reversed the review commits (October 15)
+
+The 13:50 Pacific retry used installed Technical Director 4.0.0 and successfully read the current
+item, exact-publication reference and first 12,000-character diff page through the gateway. At
+13:51 it blocked with `A diff review did not preserve exact commit and page identities.`
+The model returned source `d32ae70e3eb752b64daae261b1552493946bc203` and target
+`51ac4a252d6c86632ec0b1288c982c94c003ab6d`: the inverse of the authorized pair. The five page
+findings were not accepted as a completed review; no merge or QA approval occurred.
+
+SDK 4.2.1 `BranchDiffTechnicalReview.ExecuteAsync` separates model review content from SDK-owned
+provenance. Models return page summaries/findings and the final substantive decision. After each
+authorized page passes publication/source/target/digest/coverage validation, the SDK binds its
+response to those exact commits and offset. Synthesis receives those ordered bound reviews and
+the SDK attaches the exact pair to its final result. Neither copying nor interpreting hashes is
+a model task. Current-candidate checks, full coverage and the unresolved-page-finding approval
+guard remain enforced. Technical Director 4.0.1 pins the fixed SDK; release the SDK first, then
+release/install the agent before retrying only the blocked review stage.
+
+Verification: all 431 SDK tests, two HelloAgent tests, seven generated-template tests and the
+template self-test passed. Technical Director's 126 tests and self-test passed with sibling SDK
+and work-contract references disabled, consuming the packed SDK 4.2.1. The platform SDK pin is
+4.2.1 and 50 gateway/paged-review/persistence/task-integration regressions passed using that
+package (existing Memory sibling references remain necessary). Both `.nupkg` manifests were
+inspected: SDK 4.2.1; Technical Director 4.0.1 depending on SDK 4.2.1 and work contracts 4.0.0.
+Packages remain local release artifacts. This investigation did not requeue the ticket, deploy
+the new agent or change its approvals, schedules or evidence.
+
+### NEON BREAK completion plan after malformed page review (October 15)
+
+The 14:13–14:17 Pacific run used Technical Director 4.0.1 / SDK 4.2.1. It read the
+unchanged publication `1c6752f4-dd07-4a5a-bd85-e318f1b9c356` at offsets 0, 12000,
+24000 and 36000. The first three responses parsed and retained 6, 7 and 2 findings.
+The fourth response ended in `]}}`. Offline `JsonDocument.Parse` reproduced
+`'}' is invalid after a single JSON value. Expected end of data.` The provider
+reported `stop` and 1,436 output tokens, so this was malformed completed output,
+not evidence of context/output exhaustion. The task remains at technical-review;
+there is no integration receipt or independent QA result.
+
+The identity-binding correction worked. Remaining confirmed code/configuration
+issues and forward acceptance work are:
+
+1. **Structured review output and actionable diagnostics.**
+   `BranchDiffTechnicalReview.ExecuteAsync` directly deserializes every page and
+   final response. Introduce a validated review-content contract, one bounded
+   correction for malformed output on the failing page, and explicit page/schema/
+   provider-finish diagnostics. Do not trim braces, fabricate a verdict, parse
+   reasoning as a decision or rerun successful pages. Enforcing JSON schema at
+   the provider needs a real transport change: `PlatformChatClient` does not
+   transmit `ChatOptions.ResponseFormat`, and `PlatformLlmCapabilityHandler`
+   does not apply it. Its saved installation output budget also overrides SDK
+   per-call caps intentionally; a prompt-only cap is not a transport guarantee.
+
+2. **Complete, resumable review within evidence budgets.**
+   This patch has 146,391 characters (13 pages); `package-lock.json` accounts for
+   80,268. Reviews live only in a local list and serialized page reviews have a
+   32,000-character synthesis ceiling. Overflow is a forecast, not the latest
+   observed failure. Use bounded summaries, durable full findings, deduplication
+   and explicit cross-page concern resolution. Persist validated progress with
+   the publication/source/target/digest, planning/scope revision and review-policy
+   identity; reauthorize and recheck freshness on resume. All diff coverage must
+   remain accounted for. Current TD runtime is OnDemand with 86,400 seconds after
+   upgrade, stage timeout is 3,600 seconds; the latest failure was not a timeout.
+   `AgentDefinitionInstallationSynchronizer` resets the runtime budget from the
+   definition on update, so do not diagnose this run using the prior 600-second
+   maintenance value.
+
+3. **Separate defects from observations and missing page context.**
+   The accepted page responses include literal `No defect`, `No action required
+   at Phase 0`, optional future hardening and questions answered on other pages
+   inside `findings`. The current final guard rejects approval whenever any page
+   has any finding, so synthesis cannot resolve these concerns. Use explicit
+   blocking findings with evidence/criteria, separate nonblocking observations
+   and cross-page questions, and require an evidenced disposition for every
+   blocking finding. Preserve the ban on silently dropping actual defects.
+   A model claim that Node 22 necessarily crashes on ESM `.js` without a package
+   type is not established: Node 22.7 enabled syntax detection by default
+   ([Node documentation](https://nodejs.org/download/release/v22.14.0/docs/api/packages.html#syntax-detection)).
+   Its advice to remove the second Docker build also omits the required image
+   export: build-push-action defaults `load` to false
+   ([action documentation](https://github.com/docker/build-push-action)).
+
+4. **Resolve repository/CI acceptance against the actual provider.**
+   The assigned repository is Ready/Connected InternalGit with an active team
+   policy. Accepted planning and candidate documents still describe it as
+   Pending/null, while criterion 2 requires default-branch protection and CI
+   building/deploying on main. The candidate only defines GitHub Actions/Pages.
+   A workflow file and local `npm run build` do not establish that live criterion.
+   Recommended MVP scope: retain InternalGit and use the approved platform
+   build/compute-preview path, with a normal approved planning/scope amendment
+   defining exact pipeline/deployment evidence and when it must exist. If literal
+   GitHub CI remains required, provision its supported automation separately;
+   moving managed delivery to GitHub also encounters the existing provider
+   atomic-ref/protection limitation. Do not replace approved criteria silently
+   or require release-to-main before the dependent implementation can start.
+
+5. **Fix independent QA's current-state/result integration.**
+   `WorkOrchestrator.DispatchAsync` sends raw `deliverySpecificationJson`.
+   QA 3.0.0 `GameQaExecution.ExecuteCapabilityCoreAsync` reads
+   `assignment.Item.Deserialize<WorkItem>()?.Delivery` after executing tests.
+   That is null for the actual dispatch shape, so it emits `GameQaOutcome`
+   instead of hierarchical `WorkDeliveryReviewResult`. Platform
+   `WorkOrchestrator.RecordQualityValidationAsync` requires `CandidateDigest`,
+   `Approved`, criterion evidence and repository-bound validations for the exact
+   completed integration receipt. Reread the authorized typed current item and
+   validate assignment/planning/delivery before tests, then emit that single
+   canonical hierarchical result. Preserve independent reviewer and source
+   immutability checks; no permissive platform result adapter.
+
+6. **Make fresh QA dependency restoration possible.**
+   QA 3.0.0 already requests the development image but its installed grant has
+   no `runtime.internet.public.v1` and no network rules. Engineer 4.0.1 has that
+   reviewed permission. A fresh source-only QA snapshot needs an authorized npm
+   dependency path: reviewed public registry egress or certified offline inputs.
+   Add the appropriate request and normal grant review, then verify denied
+   private/host access still holds. The missing permission is confirmed; an
+   actual QA `npm ci` failure has not occurred because review never completed.
+
+7. **Rework the candidate against verified findings and task scope.**
+   Route actual rejected findings through the existing reviewed author loop.
+   Validate malformed URL handling in `deploy/server.js` (uncaught
+   `decodeURIComponent`), missing-asset 404 behavior, and browser/static asset
+   loading instead of accepting `/healthz` alone. The current 12 unit tests cover
+   analytics, chiptune data and the governor, not CI activation or browser load.
+   Check the demo's first-click analytics opt-in against the locked consent
+   requirement and keep optional worker/caching changes proportionate to Phase 0.
+   Verify the proposed Docker smoke test uses `load: true` if removing its plain
+   Docker build, and test the exact chosen runtime. Record TD feasibility through
+   canonical review evidence; document checkboxes must not create extra gates.
+
+8. **Exercise the complete production handoff before another owner retry.**
+   Use the actual raw assignment, SDK/broker serialization, all 13 authorized
+   pages, malformed fourth-page output, final review, reviewed rework, trusted
+   InternalGit integration and the production QA callback/result validator.
+   Test page resume, stale refs/planning, duplicate delivery, overflow, unresolved
+   findings, lost integration responses and QA infrastructure inability. Published
+   package consumers must disable sibling references; bump/pack SDK and every
+   changed agent and verify release versions before normal installation.
+
+Completion is the policy's actual path: approved Technical Review → trusted
+task integration receipt → independent QA of the exact integrated story commit
+with all three accepted criteria evidenced → Done. A substantive rejection must
+return the author to its preserved candidate before integration, or current story
+state after integration; `ResolveReworkBaseAsync` already implements that choice.
+The task's revision and candidate evidence must survive those loops. Then verify
+task 12 becomes eligible; the sprint currently has nine Pending items behind the
+blocked first task. Full story/release acceptance remains separate.
+
+This section is an investigation and proposed implementation plan. Only read-only
+live diagnostics and local response parsing were performed; no new product fix,
+grant, scope amendment, retry, merge or deployment was applied for this analysis.
+
+### Implemented review/QA recovery and local verification (October 15)
+
+The follow-up implementation is documented in
+[technical review and QA recovery](features/work-management/review-qa-recovery.md).
+Final local packages are SDK 4.3.2, Technical Director 4.0.2, Engineer 4.0.2 and
+QA 4.0.0. The review schema/finish reason reaches the provider; accepted diff pages
+survive retries; every blocker needs an evidenced disposition; canonical QA reads
+and results match actual dispatch. `WorkDeliveryService.AmendTaskAsync` provides a
+revision-checked, manager-authorized way to replace obsolete task criteria while
+preserving candidate code and accepted source identities.
+
+SDK 427 tests, two sample tests, seven generated-template tests, TD 126, Engineer
+245, QA 84, 129 focused platform tests and the connected real-InternalGit agent
+journey pass. The connected journey uses scripted models/broker transport, actual
+production callbacks and actual authored-fixture commands; it is not live
+installation/provider/browser certification. The ticket was not retried. Deploy
+the platform, install the verified agents, review QA egress, amend the paused scope
+through the authenticated API, and complete installed-runtime checks before the
+explicit author retry described in that document.
+
+### Prism Break artifact QA rework access denial (October 15)
+
+See [artifact QA rework recovery](features/work-management/artifact-qa-rework.md).
+The second QA pass on `VGD0CEEB9048-8` requested the superseded document because
+unordered prior outcomes were treated as chronological history. A separate
+partial-tracking bug revoked the new document's grant when QA claimed work.
+`WorkOrchestrator.AssignmentOutcomes`, SDK `ArtifactDeliveryReview` and
+`WorkOrchestrationBoardState.SynchronizeTaskArtifactGrantsAsync` now bind current
+producer evidence and preserve grants across a fresh claim context. SDK 4.3.3 and
+QA 4.0.1 require deployment before the normal explicit quality-stage retry.

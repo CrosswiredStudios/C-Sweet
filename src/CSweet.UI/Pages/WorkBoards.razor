@@ -800,8 +800,7 @@
                                 <MudText Typo="Typo.caption">@current.PrincipalKind · attempt @current.AttemptCount · @current.LastSummary</MudText>
                                 <MudText Typo="Typo.caption">Next action: @current.StageKey · assigned @current.OrganizationUserId</MudText>
                             }
-                            @foreach (var evidence in item.Stages.SelectMany(x => x.LatestOutcome?.Evidence ?? []).Where(x => x.Kind is "commit" or "artifact-revision" or "target-commit"))
-                            { <MudText Typo="Typo.caption">Reviewed/tested @evidence.Kind: @evidence.Value</MudText> }
+                            <WorkEvidenceLinks OrganizationId="OrganizationId" Evidence="@(item.Stages.SelectMany(x => x.LatestOutcome?.Evidence ?? []))" Collapsed="false" />
                             @if (!string.IsNullOrWhiteSpace(item.BlockedReason))
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Error">@item.BlockedReason</MudText>

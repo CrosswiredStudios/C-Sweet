@@ -6,6 +6,16 @@ namespace CSweet.UI.Components.WorkBoards;
 
 public static class WorkBoardWorkspacePresentation
 {
+    /// <summary>Caps card display text without changing stored content or splitting a text element.</summary>
+    public static string CardText(string? value, int maximumLength = 80)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumLength, 1);
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        var boundaries = StringInfo.ParseCombiningCharacters(value);
+        if (boundaries.Length <= maximumLength) return value;
+        return maximumLength == 1 ? "…" : value[..boundaries[maximumLength - 1]].TrimEnd() + "…";
+    }
+
     public static Guid? SelectSprint(IEnumerable<WorkSprintResponse> sprints, Guid? selectedId)
     {
         var available = sprints.ToList();

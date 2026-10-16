@@ -281,6 +281,8 @@ public sealed partial class PlatformLlmCapabilityHandler
         var runStopwatch = Stopwatch.StartNew();
         var options = new ChatOptions
         {
+            ResponseFormat = input.ResponseSchema is { } schema
+                ? ChatResponseFormat.ForJsonSchema(schema, input.ResponseSchemaName) : null,
             Temperature = input.Temperature,
             MaxOutputTokens = effectiveMaxOutputTokens,
             Instructions = identity is null
@@ -514,7 +516,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                     .Where(content => content is TextContent or TextReasoningContent or FunctionCallContent or FunctionResultContent)
                     .Select(ToPlatformContent)
                     .ToList();
-                if (contents.Count > 0 || usage is not null || update.Role is not null)
+                if (contents.Count > 0 || usage is not null || update.Role is not null || update.FinishReason is not null)
                 {
                     _dbContext.QueueAudit(new AuditEventWriteRequest("model.response.chunk", "Model", Outcome: "Running",
                         OrganizationId: hasOrganization ? organizationId : null, EntityType: "AgentRunLog", EntityId: runLog.Id,
@@ -539,7 +541,8 @@ public sealed partial class PlatformLlmCapabilityHandler
                             usage?.OutputTokenCount,
                             update.Role?.ToString(),
                             contents,
-                            usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts)),
+                            usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts),
+                            update.FinishReason?.ToString()),
                         streamSequence++,
                         hasMore: true);
                 }

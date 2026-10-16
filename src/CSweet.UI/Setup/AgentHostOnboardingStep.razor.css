@@ -841,6 +841,15 @@
     }
 }
 
+.local-setup-diagnostics {
+    margin-block: 1rem;
+    font-size: .875rem;
+    overflow-wrap: anywhere;
+}
+
+.local-setup-diagnostics summary { cursor: pointer; font-weight: 600; }
+.local-setup-diagnostics p { margin-top: .5rem; white-space: pre-wrap; }
+
 @keyframes host-workspace-in {
     from { opacity: 0; transform: translateY(.35rem); }
     to { opacity: 1; transform: none; }

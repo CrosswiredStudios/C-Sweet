@@ -7,6 +7,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.DeliveryWorkflow.Tests" /></ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/CSweet.Compute.Guest/CSweet.Compute.Guest.csproj" />

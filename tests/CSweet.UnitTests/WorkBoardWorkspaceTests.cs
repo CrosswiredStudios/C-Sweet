@@ -17,6 +17,34 @@ public sealed class WorkBoardWorkspaceTests
     private static readonly Guid BoardId = Guid.NewGuid(), ColumnId = Guid.NewGuid();
 
     [Fact]
+    public void CardTextCapsIncludeEllipsisAndPreserveUnicodeTextElements()
+    {
+        Assert.Equal("Short title", WorkBoardWorkspacePresentation.CardText("Short title", 11));
+        Assert.Equal("1234…", WorkBoardWorkspacePresentation.CardText("123456", 5));
+        Assert.Equal("👩‍💻e\u0301…", WorkBoardWorkspacePresentation.CardText("👩‍💻e\u0301AB", 3));
+        Assert.Equal("…", WorkBoardWorkspacePresentation.CardText("Long", 1));
+        Assert.Equal(string.Empty, WorkBoardWorkspacePresentation.CardText(null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => WorkBoardWorkspacePresentation.CardText("Text", 0));
+    }
+
+    [Fact]
+    public async Task CardMetadataCapsLongUnbrokenExecutionTextWhileKeepingFullTooltip()
+    {
+        var sprint = Sprint("Active");
+        var item = Item("Pipeline validation", sprint.Id);
+        var stageKey = new string('a', 250);
+        var executionItem = ExecutionItem(item, "") with { CurrentStageKey = stageKey, Status = "Pending" };
+        var execution = new Wire.WorkSprintExecutionResponse(Guid.NewGuid(), BoardId, sprint.Id, Guid.NewGuid(), Guid.NewGuid(), "Active", 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, [executionItem]);
+        var (html, _) = await Render(Detail([item], [WorkSprintActions.Read, WorkOrchestrationActions.Read]), [sprint], HttpStatusCode.OK, execution);
+
+        var label = $"Next action: {stageKey} · Pending";
+        var preview = WorkBoardWorkspacePresentation.CardText(WorkEvidencePresentation.ReadableName(stageKey));
+        Assert.Contains($"title=\"{System.Text.Encodings.Web.HtmlEncoder.Default.Encode(label)}\"", html);
+        Assert.Contains($">{System.Text.Encodings.Web.HtmlEncoder.Default.Encode(preview)}</span>", html);
+        Assert.DoesNotContain($">{label}</span>", html);
+    }
+
+    [Fact]
     public void SelectSprintPrefersActiveThenPausedAndPreservesExplicitPastSelection()
     {
         var active = Sprint("Active"); var paused = Sprint("Paused"); var past = Sprint("Completed"); var planned = Sprint("Planned");

@@ -100,7 +100,9 @@
 
     @if (_selectedId is Guid selectedId)
     {
-        <ArtifactWorkspace OrganizationId="OrganizationId" ArtifactId="selectedId" Closed="CloseWorkspace" Changed="OnDocumentChanged" />
+        <ArtifactWorkspace OrganizationId="OrganizationId" ArtifactId="selectedId" RevisionId="_selectedRevisionId"
+                           ReviewOnly="@_selectedRevisionId.HasValue" CanDecide="@(!_selectedRevisionId.HasValue)"
+                           Closed="CloseWorkspace" Changed="OnDocumentChanged" />
     }
 </div>
 
@@ -136,7 +138,7 @@
     private readonly List<ArtifactDocumentSummary> _documents = [];
     private readonly List<ArtifactFolderResponse> _folders = [];
     private readonly List<ArtifactPackageResponse> _packages = [];
-    private Guid? _selectedId, _folderId, _newFolderId, _packageId, _folderParentId;
+    private Guid? _selectedId, _selectedRevisionId, _folderId, _newFolderId, _packageId, _folderParentId;
     private string _search = "", _status = "", _documentType = "", _creator = "", _newTitle = "", _newType = "document", _newContent = "# New document\n", _newFolderName = "";
     private bool _includeArchived, _loading, _creating, _creatingFolder, _editingFolder;
     private string? _error;
@@ -148,13 +150,14 @@
         _search = _status = _documentType = _creator = "";
         _packageId = _folderId = null;
         _includeArchived = false;
-        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents" + (_selectedId.HasValue ? $"?artifact={_selectedId:D}" : ""), false, true);
+        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents" + (_selectedId.HasValue ? $"?artifact={_selectedId:D}" + (_selectedRevisionId.HasValue ? $"&revision={_selectedRevisionId:D}" : "") : ""), false, true);
         await Task.WhenAll(ReloadAsync(), LoadFoldersAsync(), LoadPackagesAsync());
     }
 
     protected override async Task OnParametersSetAsync()
     {
         _selectedId = QueryArtifact();
+        _selectedRevisionId = _selectedId.HasValue ? QueryGuid("revision") : null;
         _packageId = QueryGuid("packageId") ?? _packageId;
         await Task.WhenAll(ReloadAsync(), LoadFoldersAsync(), LoadPackagesAsync());
     }
@@ -241,8 +244,8 @@
         _folderId = null; await Task.WhenAll(LoadFoldersAsync(), ReloadAsync());
     }
 
-    private void Open(Guid id) { _selectedId = id; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents?artifact={id:D}", false, true); }
-    private void CloseWorkspace() { _selectedId = null; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents", false, true); }
+    private void Open(Guid id) { _selectedId = id; _selectedRevisionId = null; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents?artifact={id:D}", false, true); }
+    private void CloseWorkspace() { _selectedId = _selectedRevisionId = null; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents", false, true); }
     private async Task OnDocumentChanged(ArtifactDocumentDetail _) => await ReloadAsync();
     private async Task SelectFolderAsync(Guid? id) { _folderId = id; await ReloadAsync(); }
     private async Task StatusChanged(string value) { _status = value; await ReloadAsync(); }

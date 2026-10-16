@@ -1,10 +1,15 @@
 # Universal work management
 
+See [artifact QA rework recovery](artifact-qa-rework.md) for current-cycle document
+selection, claim-time read grants, regression coverage and SDK/QA rollout.
+
 The current normative [hierarchical delivery specification](hierarchical-delivery.md) covers `WorkDeliveryPlan`, `WorkDeliveryService`, `TaskIntegrationWorkActionExecutor`, V2 assignments, exact candidates, findings and receipt recovery. It includes clean-install/package-consumer checks. Historical sections below describe preserved earlier revisions where they differ.
 
 See [branch recovery and clean installation](branch-recovery-and-clean-install.md) for managed-ref ownership, native receipts, scope amendments, provider blocks and verified new-database journeys.
 
 See [verified results and package handoff](hierarchical-delivery-validation.md) for final test counts, package versions, reproducible checks and operational boundaries.
+
+See [technical review and QA recovery](review-qa-recovery.md) for strict review schemas, retained page evidence, canonical QA results, owner-approved blocked-task scope amendment and the verified InternalGit rework journey.
 
 See [Projects workspace](projects-workspace.md) for the consolidated portfolio,
 board directories, project sections, and sprint planning UI.

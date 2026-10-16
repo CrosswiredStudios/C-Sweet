@@ -63,6 +63,18 @@ public sealed class OnboardingWorkspaceRenderingTests
         if (scenario == "recoveryrequired") Assert.Contains("Remove Office", html);
         if (scenario == "remote-approval") Assert.Contains("Not my host", html);
         if (scenario == "ready-unhealthy") Assert.DoesNotContain("Setup complete</span>", html);
+        if (scenario is "failed" or "expired" or "revoked")
+        {
+            Assert.Contains("Diagnostic details", html);
+            Assert.Contains("Setup reference:", html);
+            Assert.DoesNotContain("Estimating time remaining", html);
+            Assert.DoesNotContain("% complete", html);
+        }
+        if (scenario == "failed")
+        {
+            Assert.Contains("developer-bootstrap-failed", html);
+            Assert.Contains("dotnet-sdk-present", html);
+        }
         Assert.DoesNotContain(api.Paths, path => path.EndsWith("/recovery") || path.EndsWith("/launch"));
         if (Environment.GetEnvironmentVariable("CSWEET_SETUP_PREVIEWS") is string path)
             await File.WriteAllTextAsync(Path.Combine(path, $"setup-office-{scenario}.html"), html);
@@ -240,7 +252,8 @@ public sealed class OnboardingWorkspaceRenderingTests
         var session = new LocalOfficeSetupSessionResponse(Guid.NewGuid(), state, "install", "Installing Office",
             "Preparing the machine and verifying its connection.", 35, DateTimeOffset.UtcNow.AddMinutes(10), 4, 8192, 32768, 1, null,
             scenario == "missing-handoff" ? null : "csweet-office://test",
-            ErrorCode: scenario == "removal-failed" ? "office_removal_failed" : null,
+            ErrorCode: scenario == "removal-failed" ? "office_removal_failed" : scenario == "failed" ? "developer-bootstrap-failed" : null,
+            ErrorMessage: scenario == "failed" ? "The guest reported a failed isolation check: dotnet-sdk-present" : null,
             LaunchMethod: "server", RecoveryCanReconnect: scenario == "recoveryrequired");
         Set("_localSession", session);
         Set("_status", status with { IsReady = scenario == "ready" });
@@ -250,6 +263,25 @@ public sealed class OnboardingWorkspaceRenderingTests
             Set("_localLaunchAttempts", 1);
             Set("_localLaunchAttemptedAt", DateTimeOffset.UtcNow.AddMinutes(-2));
         }
+    }
+
+    [Fact]
+    public async Task StartAgainIgnoresRediscoveryOfDismissedFailureButAcceptsNewSession()
+    {
+        var component = new AgentHostOnboardingStep();
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var field = typeof(AgentHostOnboardingStep).GetField("_localSession", flags)!;
+        var adopt = typeof(AgentHostOnboardingStep).GetMethod("AdoptLocalSession", flags)!;
+        var reset = typeof(AgentHostOnboardingStep).GetMethod("ResetLocalSetupAsync", flags)!;
+        var failed = new LocalOfficeSetupSessionResponse(Guid.NewGuid(), "failed", "install", "Failed",
+            "Office setup failed.", 0, DateTimeOffset.UtcNow, 4, 8192, 32768, 1, null, null);
+        adopt.Invoke(component, [failed]);
+        await (Task)reset.Invoke(component, [])!;
+        adopt.Invoke(component, [failed]);
+        Assert.Null(field.GetValue(component));
+        var next = failed with { Id = Guid.NewGuid(), State = "created" };
+        adopt.Invoke(component, [next]);
+        Assert.Equal(next, field.GetValue(component));
     }
 
     private sealed class SetupApi(string currentStep) : HttpMessageHandler

@@ -1,0 +1,53 @@
+@using Wire = CSweet.WorkManagement.Contracts
+
+@if (_entries.Count > 0)
+{
+    <div class="work-evidence">
+        @if (Collapsed)
+        {
+            <details>
+                <summary><MudIcon Icon="@Icons.Material.Outlined.AttachFile" Size="Size.Small" /><span>@Summary</span></summary>
+                @EvidenceList
+            </details>
+        }
+        else
+        {
+            @EvidenceList
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public IEnumerable<Wire.WorkExecutionEvidence> Evidence { get; set; } = [];
+    [Parameter] public bool Collapsed { get; set; } = true;
+    private IReadOnlyList<WorkEvidenceEntry> _entries = [];
+    private string Summary => _entries.All(x => x.Commit is null)
+        ? $"{_entries.Count} document revision{(_entries.Count == 1 ? "" : "s")}" : $"{_entries.Count} evidence item{(_entries.Count == 1 ? "" : "s")}";
+
+    protected override void OnParametersSet() => _entries = WorkEvidencePresentation.Entries(Evidence);
+
+    private RenderFragment EvidenceList => @<ul class="evidence-list">
+        @foreach (var entry in _entries)
+        {
+            <li>
+                @if (entry.Href(OrganizationId) is { } href)
+                {
+                    <a href="@href" title="@($"Open {entry.Label}, exact reviewed revision")">
+                        <MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />
+                        <span class="evidence-copy"><span class="evidence-name">@WorkBoardWorkspacePresentation.CardText(entry.Label)</span><small>View reviewed revision</small></span>
+                        <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Size="Size.Small" />
+                    </a>
+                }
+                else if (entry.Commit is not null)
+                {
+                    <span class="evidence-unavailable">@entry.Label <code>@entry.Commit</code></span>
+                }
+                else
+                {
+                    <span class="evidence-unavailable">@WorkBoardWorkspacePresentation.CardText(entry.Label) · Revision link unavailable</span>
+                }
+            </li>
+        }
+    </ul>;
+}

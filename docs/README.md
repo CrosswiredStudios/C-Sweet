@@ -26,6 +26,8 @@ The normative plugin contract, grant lifecycle, proxy policy, administrator runb
 
 ## Product and platform guides
 
+- [Feature proposals and product specifications](features/README.md)
+- [Hosted platform and hybrid Offices](features/hosted-platform/README.md) — reviewable product, connectivity, pricing, and hosting design.
 - [Docker deployment](deployment/docker.md)
 - [Marketplace integration](MARKETPLACE_INTEGRATION.md)
 - [Agent marketplace card branding](implementation/agent-marketplace-branding.md)
