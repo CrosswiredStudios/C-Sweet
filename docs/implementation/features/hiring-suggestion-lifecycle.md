@@ -21,6 +21,14 @@ fulfilled recommendations disable contextual hiring. Automatic progress is persi
 
 ## Company overview hiring row
 
+`OverviewHiringCandidateCard` observes `AgentHireOperationState.Changed` and matches
+operations by organization and `AgentHireOperationResponse.RecommendationId`. Starting,
+queued, building, completing and uncertain hires disable both **Hire** and **Browse
+Candidates**, with an inline live status showing the operation phase and detail. The
+optimistic operation retains the recommendation ID before confirmation returns; durable
+operation reads retain it after navigation or reconnect. Failed operations release the
+card for retry. Preparing a review also guards repeat clicks until the review loads.
+
 `NavMenu` shows a count beside **Overview** for all actionable **Needs your attention**
 items, including questions, approvals, hiring recommendations, project incidents and compute
 access requests. `OverviewAttentionState` reads the existing authorized queue endpoints for

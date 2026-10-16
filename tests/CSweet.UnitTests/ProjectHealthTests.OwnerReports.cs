@@ -191,7 +191,8 @@ public sealed partial class ProjectHealthTests
         Assert.Equal(recipient, incident.CurrentRecipientId); Assert.Equal(deadline, incident.EscalateAt); Assert.Equal("Open", incident.Status);
         Assert.Equal(2, incident.ReportRevision);
         await f.Service.DeliverAsync(default);
-        Assert.Equal(2, f.Db.CoreConversationMessages.Count());
+        // Recovery prose alone cannot invent changed execution or another owner alert.
+        Assert.Single(f.Db.CoreConversationMessages);
         Assert.Single(f.Db.ExecutiveDecisions.Where(x => x.Status == ExecutiveDecisionStatus.Pending));
         Assert.Single(f.Db.ExecutiveDecisions.Where(x => x.Status == ExecutiveDecisionStatus.Superseded));
     }

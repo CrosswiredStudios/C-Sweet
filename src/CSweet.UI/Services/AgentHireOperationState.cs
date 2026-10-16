@@ -33,9 +33,10 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         Guid workflowId,
         string agentName,
         string employeeDisplayName,
-        ConfirmHiringWorkflowRequest request)
+        ConfirmHiringWorkflowRequest request,
+        Guid? recommendationId = null)
     {
-        var pending = new PendingStart(organizationId, workflowId, agentName, employeeDisplayName, request);
+        var pending = new PendingStart(organizationId, workflowId, agentName, employeeDisplayName, request, recommendationId);
         _pendingStarts[workflowId] = pending;
         Merge(Starting(pending));
         _ = StartCoreAsync(pending, _disposeCts.Token);
@@ -244,7 +245,7 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         false,
         null,
         null,
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow) { RecommendationId = pending.RecommendationId };
 
     private static async Task<string> ErrorMessageAsync(HttpResponseMessage response, string fallback)
     {
@@ -277,7 +278,8 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         Guid WorkflowId,
         string AgentName,
         string EmployeeDisplayName,
-        ConfirmHiringWorkflowRequest Request);
+        ConfirmHiringWorkflowRequest Request,
+        Guid? RecommendationId);
 
     private sealed record ApiError(string? Error, string? Message, string? Title, string? Detail);
 }

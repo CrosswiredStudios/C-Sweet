@@ -84,7 +84,10 @@ public sealed partial class ProjectHealthPostgresTests
                 Assert.All(await db.ProjectIncidents.ToListAsync(), x => Assert.Equal(recipient, x.CurrentRecipientId));
             }
             await service.DeliverAsync(default); await service.DeliverAsync(default);
-            Assert.Empty(await db.CoreConversationMessages.ToListAsync());
+            var statusMessages = await db.CoreConversationMessages.ToListAsync();
+            Assert.Equal(2, statusMessages.Count);
+            Assert.All(statusMessages, x => Assert.Contains("status report; no decision is requested", x.Content));
+            Assert.Empty(await db.ExecutiveDecisions.ToListAsync());
             Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
             Assert.Empty(await service.ReadAttentionAsync(org.Id, producer.Id, default));
             var savedPersonal = await db.CoreWorkTasks.SingleAsync(x => x.Id == personal.Id);
@@ -96,7 +99,9 @@ public sealed partial class ProjectHealthPostgresTests
             Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
             await service.DeliverAsync(default);
             var notifications = await db.UserNotifications.ToListAsync();
-            Assert.Empty(notifications); // Unseen incidents do not generate recovery notifications.
+            Assert.Equal(4, notifications.Count); // One status and one recovery per visible incident, without replay spam.
+            Assert.Equal(2, notifications.Count(x => x.Category == "ProjectHealthStatus" && x.DismissedAt != null));
+            Assert.Equal(2, notifications.Count(x => x.Severity == NotificationSeverity.Routine));
             // A direct conversation stays unscoped. Its interrupted turn is attributed
             // through the exact coordination source, while a cleared decision cannot
             // remain hidden by a fresh retry deadline.

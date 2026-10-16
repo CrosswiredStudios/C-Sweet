@@ -381,10 +381,13 @@ that the manager cannot supply may produce owner choices. `RoutineRecoveryFuncti
 mutation keys to the incident, operation and target; evidence refreshes do not duplicate a
 request. Routine tools exclude chat replay, document mutation, spending and approval changes.
 
-`ProjectHealthService.RetainManagerRecoveryAsync` returns routine recovery to the reporting
-manager and persists a five-minute review deadline. The existing health worker discovery passes
-and outbox provide wake/reconnect recovery. The episode remains open until authoritative
-work evidence clears it. Routine reporting does not claim a retry occurred.
+`ProjectHealthService.RetainManagerRecoveryAsync` retains the current management hop and its
+existing escalation deadline. Routine presentation updates may schedule a five-minute review
+only within that deadline; they cannot rewind an escalation or renew its timeout. A report
+that says no owner decision is needed withdraws obsolete choices, while an unresolved failure
+that exhausts the chain still reaches the owner as an informational status report. The existing
+health worker and atomic outbox provide wake/reconnect recovery. The episode remains open
+until authoritative work evidence clears it.
 
 `CurrentChatExecutionAsync` follows bounded retry ancestry within the same organization,
 conversation and employee. Reports include the current reply and execution state in both
@@ -393,8 +396,22 @@ execution lease and deadline. Unrelated work and expired leases cannot establish
 `PresentAsync` keeps execution summaries and recovery state platform-owned even when a
 manager supplies a current report claiming otherwise.
 
+`CurrentIncidentExecutionAsync` applies the same rule to board/personal tickets, collaborations,
+stage executions and inbox work. A collaboration must be Active/Summarizing and point to the
+same organization's current correlated work for one of its participants. A Pending item is queued;
+Running requires its current unfinished attempt, live lease and unexpired work deadline. Terminal
+sessions, completed work, unrelated monitoring activity and stale leases cannot certify a retry.
+`CurrentIncidentStateAsync` exposes this evidence to managers and includes exact operation state
+in freshness hashes. Auxiliary work on a ticket does not invalidate a separate real owner decision.
+`PresentAsync` supplies authoritative recovery status and removes unsupported execution claims
+from older explanatory report text while preserving useful owner guidance.
+
 Deploy the platform with SDK 4.4.0 and update Naomi to Creative Director 2.1.3. Other manager
 agents need an SDK 4.4.0 rebuild to emit the explicit owner-input classification. Tests:
-`ProjectHealthTests.RoutineRecoveryWithdrawsOwnerChoiceAndReturnsToManagerWithoutResolvingFailure`,
+`ProjectHealthTests.RoutineRecoveryWithdrawsOwnerChoiceWithoutRewindingEscalationOrResolvingFailure`,
 `ProjectHealthTests.InterruptedReplyUsesCorrelatedExecutionEvidenceInsteadOfManagerRetryClaims`,
-and SDK `ManagerIncidentCoordinatorTests`.
+`Repeated_routine_reports_cannot_extend_deadlines_or_stop_the_reporting_chain`,
+`Coordination_reports_require_the_current_correlated_attempt_and_live_lease`, and SDK
+`ManagerIncidentCoordinatorTests`. The Pulse Break repair passed 127 focused platform tests,
+including all three disposable PostgreSQL cases, without skipped tests. This platform change
+adds no grants or schema migration.

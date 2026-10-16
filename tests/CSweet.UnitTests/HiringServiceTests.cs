@@ -869,6 +869,7 @@ public sealed partial class HiringServiceTests
                 }
             });
         Assert.Equal(AgentHireOperationStatuses.Succeeded, hired?.Status);
+        Assert.Equal(recommendation.Id, hired?.RecommendationId);
         Assert.Equal(productManager.Id, organizationUsers.CreatedRequest!.ReportsToOrganizationUserId);
         Assert.Equal(approvedRoleCategory, organizationUsers.CreatedRequest.RoleCategoryKey);
         Assert.Equal(recommendation.Id, workflow.WorkforcePlanId);

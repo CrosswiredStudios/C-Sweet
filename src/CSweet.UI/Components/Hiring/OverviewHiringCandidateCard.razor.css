@@ -15,4 +15,7 @@
 .candidate-scope p { color: var(--mud-palette-text-secondary); font-size: .875rem; line-height: 1.6; white-space: pre-wrap; }
 .candidate-scope p { margin-top: 10px; }
 .candidate-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.candidate-hiring-status { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--mud-palette-primary); }
+.candidate-hiring-status > span { display: flex; flex-direction: column; gap: 3px; }
+.candidate-hiring-status span span { font-size: .8rem; color: var(--mud-palette-text-secondary); }
 @media (max-width: 600px) { .overview-candidate { grid-template-columns: 1fr; } .candidate-rationale { border-left: 0; border-top: 1px solid var(--mud-palette-divider); padding: 14px 0 0; } }

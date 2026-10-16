@@ -2278,7 +2278,10 @@ CompleteWorkflow:
             operation.Id, operation.WorkflowId, operation.OrganizationId, operation.AgentDefinitionId,
             agentName, employeeName, operation.Status.ToString(), phase, detail,
             completedSteps, steps.Count, workflow.ResultOrganizationUserId, installationId,
-            needsSetup, actionUri, operation.Error, operation.UpdatedAt);
+            needsSetup, actionUri, operation.Error, operation.UpdatedAt)
+        {
+            RecommendationId = workflow.WorkforcePlanId == Guid.Empty ? null : workflow.WorkforcePlanId
+        };
     }
 
     private async Task ReconcileInterruptedMarketplaceHiresAsync(

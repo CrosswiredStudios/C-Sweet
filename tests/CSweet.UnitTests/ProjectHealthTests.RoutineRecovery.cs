@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Core;
 
 namespace CSweet.UnitTests;
@@ -31,7 +32,7 @@ public sealed partial class ProjectHealthTests
     }
 
     [Fact]
-    public async Task RoutineRecoveryWithdrawsOwnerChoiceAndReturnsToManagerWithoutResolvingFailure()
+    public async Task RoutineRecoveryWithdrawsOwnerChoiceWithoutRewindingEscalationOrResolvingFailure()
     {
         await using var f = await Fixture.Create(); var (incident, _) = await PrepareOwnerReport(f);
         var message = Assert.Single(f.Db.CoreConversationMessages).Content;
@@ -42,17 +43,47 @@ public sealed partial class ProjectHealthTests
         await f.Service.UpdatePresentationAsync(f.Org, f.Chief.Id, request, default);
         await f.Service.UpdatePresentationAsync(f.Org, f.Chief.Id, request, default);
         Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
-        Assert.Equal(f.Chief.Id, incident.CurrentRecipientId);
+        Assert.Equal(f.Ceo.Id, incident.CurrentRecipientId);
         Assert.Equal("Open", incident.Status);
-        Assert.Equal(IncidentDispositions.Investigating, incident.Disposition);
-        Assert.Equal(f.Clock.Now.AddMinutes(5), incident.ReviewAt);
+        Assert.Equal(IncidentDispositions.Escalate, incident.Disposition);
+        Assert.Null(incident.ReviewAt);
+        Assert.Null(incident.EscalateAt);
         Assert.Equal(ExecutiveDecisionStatus.Cancelled, Assert.Single(f.Db.ExecutiveDecisions).Status);
         Assert.All(f.Db.UserNotifications, x => Assert.NotNull(x.DismissedAt));
         Assert.Equal(message, Assert.Single(f.Db.CoreConversationMessages).Content);
         f.Clock.Now += TimeSpan.FromMinutes(6);
         await f.Service.ReviewDueAsync(default);
         Assert.Null(incident.ReviewAt);
-        Assert.Contains(f.Db.AgentPlatformEventOutbox, x => x.TargetInstallationId == f.Chief.AgentInstallationId);
+        Assert.Contains(f.Db.ProjectIncidentDeliveries, x => x.RecipientId == f.Ceo.Id && x.DeliveredAt == null);
+    }
+
+    [Fact]
+    public async Task Repeated_routine_reports_cannot_extend_deadlines_or_stop_the_reporting_chain()
+    {
+        await using var f = await Fixture.Create();
+        await f.FailTicket();
+        var incident = Assert.Single(f.Db.ProjectIncidents);
+        var deadline = incident.EscalateAt;
+        for (var pass = 0; pass < 4; pass++)
+        {
+            var state = await f.Service.CurrentIncidentStateAsync(incident, default);
+            var report = new IncidentOwnerReport("Planning remains blocked", "The build plan is incomplete.",
+                "A corrected retry is running.", "Wait for the retry.", [], "", state.Hash) { RequiresOwnerInput = false };
+            await f.Service.ReportAsync(f.Org, f.Producer.Id,
+                new(incident.Id, incident.Revision, "routine-" + pass, "Planning failed", "Invalid output", "No completed proposal", "Retry is running") {
+                    OwnerReport = report, Disposition = IncidentDispositions.Investigating }, default);
+            Assert.Equal(deadline, incident.EscalateAt);
+            var presentation = await f.Service.PresentAsync(incident, default);
+            Assert.Contains("No correlated retry", presentation.Recovery);
+            Assert.DoesNotContain("Wait for the retry", presentation.NextStep);
+            Assert.DoesNotContain("retry is running", presentation.Recovery);
+            f.Clock.Now += TimeSpan.FromMinutes(4);
+        }
+        await f.Service.ReviewDueAsync(default);
+        Assert.Equal(f.Director.Id, incident.CurrentRecipientId);
+        Assert.Equal("Open", incident.Status);
+        // Once a hop has advanced, an older reporter cannot use presentation to take it back.
+        Assert.NotEqual(f.Producer.Id, incident.CurrentRecipientId);
     }
 
     [Fact]
@@ -106,5 +137,44 @@ public sealed partial class ProjectHealthTests
         await f.Db.SaveChangesAsync();
         Assert.Contains("No correlated retry", (await f.Service.PresentAsync(incident, default)).Recovery);
         Assert.NotEqual(current.Hash, (await f.Service.CurrentIncidentStateAsync(incident, default)).Hash);
+    }
+
+    [Theory]
+    [InlineData(AgentWorkStatus.Pending, false, AgentCoordinationStatus.Active, "retry is queued")]
+    [InlineData(AgentWorkStatus.Leased, true, AgentCoordinationStatus.Active, "active execution lease")]
+    [InlineData(AgentWorkStatus.Leased, false, AgentCoordinationStatus.Active, "No correlated retry")]
+    [InlineData(AgentWorkStatus.Leased, true, AgentCoordinationStatus.Blocked, "No correlated retry")]
+    [InlineData(AgentWorkStatus.Completed, false, AgentCoordinationStatus.Blocked, "No correlated retry")]
+    public async Task Coordination_reports_require_the_current_correlated_attempt_and_live_lease(
+        AgentWorkStatus status, bool liveLease, AgentCoordinationStatus sessionStatus, string expected)
+    {
+        await using var f = await Fixture.Create(); var (incident, _) = await PrepareOwnerReport(f);
+        var session = new CSweet.Domain.Communications.AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+            InitiatorInstallationId = f.Producer.AgentInstallationId!.Value, TargetInstallationId = Guid.NewGuid(),
+            Status = sessionStatus, Subject = "Technical planning", CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(), AgentInstallationId = session.TargetInstallationId,
+            SourceType = "agent-coordination", CorrelationId = session.Id.ToString("D"), Status = status,
+            CreatedAt = f.Clock.Now, DeadlineAt = f.Clock.Now.AddMinutes(10), AttemptCount = 1 };
+        session.CurrentAgentWorkItemId = work.Id;
+        incident.Fingerprint = $"coordination:{session.Id:N}"; incident.AffectedWorkItemId = null;
+        f.Db.AddRange(session, work, new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id, Attempt = 1,
+            LeaseExpiresAt = liveLease ? f.Clock.Now.AddMinutes(5) : f.Clock.Now.AddMinutes(-1) });
+        await f.Db.SaveChangesAsync();
+        var state = await f.Service.CurrentIncidentStateAsync(incident, default);
+        incident.OwnerReportJson = JsonSerializer.Serialize(ProjectHealthService.OwnerReport(incident)! with {
+            SourceHash = state.Hash, Title = "Corrected retry running", Summary = "The retry is in progress.",
+            Recovery = "The retry is running.", RequiresOwnerInput = false, Options = [], RecommendedOptionId = "", OwnerInputReason = null,
+            NextStep = "Wait while the retry runs." }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        await f.Db.SaveChangesAsync();
+        var presentation = await f.Service.PresentAsync(incident, default);
+        Assert.Contains(expected, presentation.Recovery);
+        Assert.DoesNotContain("Corrected retry running", presentation.Title);
+        Assert.DoesNotContain("in progress", presentation.Summary);
+        var before = (await f.Service.CurrentIncidentStateAsync(incident, default)).Hash;
+        work.CorrelationId = Guid.NewGuid().ToString("D"); // a current pointer alone cannot bind unrelated work
+        await f.Db.SaveChangesAsync();
+        Assert.Contains("No correlated retry", (await f.Service.PresentAsync(incident, default)).Recovery);
+        if (sessionStatus == AgentCoordinationStatus.Active && status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
+            Assert.NotEqual(before, (await f.Service.CurrentIncidentStateAsync(incident, default)).Hash);
     }
 }

@@ -1,6 +1,7 @@
 using CSweet.Agent.SDK;
 using CSweet.Domain.Setup;
 using CSweet.Domain.Core;
+using CSweet.Domain.Communications;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
@@ -10,16 +11,72 @@ public sealed partial class ProjectHealthService
     private async Task RetainManagerRecoveryAsync(ProjectIncident incident, Guid manager, CancellationToken token)
     {
         await WithdrawIncidentAttentionAsync(incident, token);
-        incident.CurrentRecipientId = manager;
+        // Reporting is not a recovery effect. Never rewind the management chain or
+        // extend its deadline just because another routine status report arrived.
+        if (incident.CurrentRecipientId != manager)
+        {
+            incident.Disposition = IncidentDispositions.Escalate;
+            incident.ReviewAt = null;
+            incident.Revision++;
+            await NotifyAsync(incident, token);
+            return;
+        }
         incident.Disposition = IncidentDispositions.Investigating;
-        incident.ReviewAt = clock.GetUtcNow().AddMinutes(5);
-        incident.EscalateAt = clock.GetUtcNow().Add(Threshold);
+        var now = clock.GetUtcNow();
+        incident.EscalateAt ??= now.Add(Threshold);
+        incident.ReviewAt = incident.EscalateAt <= now ? null :
+            new[] { now.AddMinutes(5), incident.EscalateAt.Value }.Min();
         incident.Revision++;
         // The scheduled review is durable and rediscovered by ReviewDueAsync. It does not
         // claim that the interrupted task itself was retried or successfully recovered.
         db.QueueAudit(new("project-health.incident.manager-recovery", OrganizationId: incident.OrganizationId,
             EntityType: nameof(ProjectIncident), EntityId: incident.Id,
-            Summary: "Routine recovery remains with the accountable manager; no owner input is required.", OccurredAt: clock.GetUtcNow()));
+            Summary: "Routine recovery remains with the current manager without extending its escalation deadline.", OccurredAt: now));
+    }
+
+    private async Task<ChatExecutionState> CurrentIncidentExecutionAsync(ProjectIncident incident, CancellationToken token)
+    {
+        if (IncidentSource(incident.Fingerprint, "chat") is { } chat)
+            return await CurrentChatExecutionAsync(incident, chat, token);
+        AgentWorkItem? work = null;
+        var organization = incident.OrganizationId.ToString();
+        if (IncidentSource(incident.Fingerprint, "coordination") is { } sessionId)
+        {
+            var session = await db.AgentCoordinationSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sessionId &&
+                x.OrganizationId == incident.OrganizationId && x.WorkstreamId == incident.WorkstreamId, token);
+            if (session?.Status is AgentCoordinationStatus.Active or AgentCoordinationStatus.Summarizing &&
+                session.CurrentAgentWorkItemId is { } currentWork)
+                work = await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x => x.Id == currentWork &&
+                    x.OrganizationId == organization && x.SourceType == "agent-coordination" && x.CorrelationId == sessionId.ToString("D") &&
+                    (x.AgentInstallationId == session.InitiatorInstallationId || x.AgentInstallationId == session.TargetInstallationId), token);
+        }
+        else if (IncidentSource(incident.Fingerprint, "work") is { } workId)
+            work = await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(x => x.Id == workId && x.OrganizationId == organization, token);
+        else
+        {
+            var ticketId = incident.AffectedWorkItemId ?? IncidentSource(incident.Fingerprint, "ticket") ??
+                IncidentSource(incident.Fingerprint, "dependency-wait") ?? IncidentSource(incident.Fingerprint, "recovery-wait");
+            var workIds = new List<Guid>();
+            if (IncidentSource(incident.Fingerprint, "stage") is { } stageId)
+                workIds.AddRange(await db.WorkExecutionAttempts.AsNoTracking().Where(x => x.StageExecutionId == stageId && x.AgentWorkItemId != null)
+                    .OrderByDescending(x => x.CreatedAt).Select(x => x.AgentWorkItemId!.Value).Take(32).ToArrayAsync(token));
+            else if (ticketId is { } ticket)
+                workIds.AddRange(await db.WorkExecutionContexts.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId &&
+                    (x.WorkItemId == ticket || x.RootWorkItemId == ticket)).OrderByDescending(x => x.Revision).ThenBy(x => x.Id)
+                    .Select(x => x.AgentWorkItemId).Take(32).ToArrayAsync(token));
+            work = await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == organization && workIds.Contains(x.Id) &&
+                (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased))
+                .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+        }
+        if (work is not null && work.DeadlineAt > clock.GetUtcNow())
+        {
+            if (work.Status == AgentWorkStatus.Pending)
+                return new(work.Id, "Queued", "A correlated retry is queued; execution and completion are not confirmed.");
+            if (work.Status == AgentWorkStatus.Leased && await db.AgentWorkAttempts.AnyAsync(x => x.AgentWorkItemId == work.Id &&
+                x.Attempt == work.AttemptCount && x.FinishedAt == null && x.LeaseExpiresAt > clock.GetUtcNow(), token))
+                return new(work.Id, "Running", "A correlated retry has an active execution lease; completion is not confirmed.");
+        }
+        return new(work?.Id, "Inactive", "No correlated retry is currently queued or running.");
     }
 
     private sealed record ChatExecutionState(Guid? WorkId, string State, string Summary);

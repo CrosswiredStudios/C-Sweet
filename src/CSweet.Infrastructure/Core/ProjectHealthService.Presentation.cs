@@ -170,6 +170,19 @@ public sealed partial class ProjectHealthService
             if (next == "Open the project, review the blocked work, and resolve its recorded dependency before retrying.")
                 next = "Open the affected item, review its current status and recorded blocker, and address the dependency before retrying.";
         }
+        var hasExecutionSource = incident.AffectedWorkItemId is not null || work is not null || session is not null ||
+            new[] { "chat", "stage", "ticket", "dependency-wait", "recovery-wait", "coordination", "work" }
+                .Any(kind => IncidentSource(incident.Fingerprint, kind) is not null);
+        if (hasExecutionSource)
+        {
+            var execution = await CurrentIncidentExecutionAsync(incident, token);
+            recovery = execution.State == "Inactive" && work is not null && recovery.Contains("execution attempt(s) recorded", StringComparison.Ordinal)
+                ? recovery + " " + execution.Summary : execution.Summary;
+            if (execution.State is "Queued" or "Running")
+                next = "The manager will follow the correlated attempt; completion is not confirmed.";
+            else if (ClaimsRecoveryExecution(next))
+                next = "Open the affected item. The accountable manager must address its recorded blocker before resuming work. No retry is currently confirmed.";
+        }
         if (OwnerReport(incident) is { } ownerReport)
         {
             var current = await CurrentIncidentStateAsync(incident, token);
@@ -194,6 +207,10 @@ public sealed partial class ProjectHealthService
                 IncidentSource(incident.Fingerprint, "stage") is not null)
                 return new($"{projectName}: recovery status", summary, recovery,
                     ownerReport.RequiresOwnerInput == true ? ownerReport.OwnerInputReason! : next, link, label);
+            if (hasExecutionSource)
+                return new(ClaimsRecoveryExecution(ownerReport.Title) ? $"{projectName}: recovery status" : ownerReport.Title,
+                    ClaimsRecoveryExecution(ownerReport.Summary) ? summary : ownerReport.Summary, recovery,
+                    ClaimsRecoveryExecution(ownerReport.Recovery + " " + ownerReport.NextStep) ? next : ownerReport.NextStep, link, label);
             summary = ownerReport.Summary;
             return new(ownerReport.Title, summary, incident.ResolutionOutcome ?? ownerReport.Recovery, ownerReport.NextStep, link, label);
         }
@@ -211,4 +228,10 @@ public sealed partial class ProjectHealthService
         var plain = Regex.Replace(value, @"[\r\n\t\[\]<>*_`#]", " ").Trim();
         return plain.Length <= 140 ? plain : plain[..137] + "…";
     }
+
+    // Operational status always comes from current execution records. Also remove
+    // unsupported status assertions embedded in explanatory prose from older managers.
+    private static bool ClaimsRecoveryExecution(string text) => Regex.IsMatch(text,
+        @"\b(retr(?:y|ies|ied|ying)|attempt|recovery|planning|build list)\b.{0,100}\b(running|queued|in progress|underway|generating|coordinat(?:ed|ing))\b|\b(corrected|automatic)\s+retry|\bwhile\s+the\s+retry\s+runs\b",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant);
 }

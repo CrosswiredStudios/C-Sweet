@@ -1,6 +1,8 @@
 @using AvailableAgent = CSweet.Agent.SDK.AvailableAgent
 @using CSweet.Contracts.Core
 @using System.Text.Json
+@implements IDisposable
+@inject AgentHireOperationState HireOperations
 
 <AttentionRequestCard Kind="Hiring" EmployeeId="RecommenderId" Name="@Recommender" Context="@Context"
     Prompt="@Recommendation.Title" PromptMeta="@($"{Recommendation.RemainingHeadcount} of {Recommendation.Headcount} positions remaining")" RightAlignedActions="true">
@@ -47,12 +49,22 @@
         }
     </BodyContent>
     <ChildContent>
+        @if (PendingOperation is { } operation)
+        {
+            <div class="candidate-hiring-status" role="status" aria-live="polite" aria-atomic="true">
+                @if (AgentHireOperationStatuses.IsActive(operation.Status))
+                {
+                    <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
+                }
+                <span><strong>@operation.Phase</strong><span>@operation.Detail</span></span>
+            </div>
+        }
         <div class="candidate-actions">
             @if (_candidate is not null)
             {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenHireAsync">Hire @_candidate.Name</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="IsHireDisabled" OnClick="OpenHireAsync">@(PendingOperation is not null ? "Hiring in progress…" : _openingReview ? "Preparing review…" : $"Hire {_candidate.Name}")</MudButton>
             }
-            <MudButton Href="@Recommendation.HiringUrl" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">Browse Candidates</MudButton>
+            <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">Browse Candidates</MudButton>
         </div>
     </ChildContent>
 </AttentionRequestCard>
@@ -70,6 +82,15 @@
     private AvailableAgent? _candidate;
     private string? _candidateJson;
     private bool _imageFailed;
+    private bool _openingReview;
+    private AgentHireOperationResponse? PendingOperation => HireOperations.Operations
+        .Where(x => x.OrganizationId == OrganizationId && x.RecommendationId == Recommendation.Id &&
+            (AgentHireOperationStatuses.IsActive(x.Status) || x.Status is AgentHireOperationState.UnconfirmedStatus or AgentHireOperationStatuses.AwaitingConfirmation))
+        .OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
+    private bool IsHireDisabled => _openingReview || PendingOperation is not null;
+    protected override void OnInitialized() => HireOperations.Changed += OnHireOperationsChanged;
+    private void OnHireOperationsChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => HireOperations.Changed -= OnHireOperationsChanged;
     private bool IsInterviewing => _candidate is null && string.IsNullOrWhiteSpace(_candidateJson) &&
         string.IsNullOrWhiteSpace(Recommendation.SelectionRationale);
     private string PreparationTitle => IsInterviewing ? "Interviewing agents"
@@ -101,6 +122,11 @@
         }
         catch (JsonException) { }
     }
-    private Task OpenHireAsync() => _candidate is not null && _hireDialog is not null
-        ? _hireDialog.OpenAsync(_candidate, Recommendation.Title, Recommendation.Id) : Task.CompletedTask;
+    private async Task OpenHireAsync()
+    {
+        if (IsHireDisabled || _candidate is null || _hireDialog is null) return;
+        _openingReview = true;
+        try { await _hireDialog.OpenAsync(_candidate, Recommendation.Title, Recommendation.Id); }
+        finally { _openingReview = false; }
+    }
 }

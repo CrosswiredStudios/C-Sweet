@@ -199,7 +199,10 @@ public sealed record AgentHireOperationResponse(
     bool RequiresSetup,
     string? ActionUri,
     string? Error,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    public Guid? RecommendationId { get; init; }
+}
 
 public static class HiringWorkflowDecisionKinds
 {

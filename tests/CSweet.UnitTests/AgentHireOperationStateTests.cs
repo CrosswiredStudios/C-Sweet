@@ -46,6 +46,7 @@ public sealed class AgentHireOperationStateTests
     public async Task UnreadableHireResultStaysUnconfirmed()
     {
         var workflowId = Guid.NewGuid();
+        var recommendationId = Guid.NewGuid();
         using var http = new HttpClient(new UnavailableHireResponseHandler())
         {
             BaseAddress = new Uri("http://localhost/")
@@ -60,9 +61,10 @@ public sealed class AgentHireOperationStateTests
                 observed.TrySetResult();
         };
         state.Start(Guid.NewGuid(), workflowId, "Evelyn Brooks", "Evelyn Brooks",
-            new ConfirmHiringWorkflowRequest("confirm-unknown"));
+            new ConfirmHiringWorkflowRequest("confirm-unknown"), recommendationId);
         await observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(AgentHireOperationState.UnconfirmedStatus, Assert.Single(state.Operations).Status);
+        Assert.Equal(recommendationId, Assert.Single(state.Operations).RecommendationId);
     }
 
     private sealed class UnavailableHireResponseHandler : HttpMessageHandler

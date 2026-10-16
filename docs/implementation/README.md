@@ -20,6 +20,10 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Progressive game planning](progressive-game-planning.md) describes complete scope outlines,
+bounded increment refinement, checkpoint recovery, independent delivery acceptance and the
+verified Sweet Sweet Games rollout.
+
 [Delegation with tracking](features/delegation-with-tracking.md) describes instruction publication,
 canonical work, coordinator reporting, subscriptions, recovery and the future continuity boundary.
 
@@ -60,6 +64,7 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
   provider-independent package upgrades, retained settings, and local readiness checks.
 - [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - incident diagnosis, recovery behavior and the next-step/escalation convention for waiting agents. Current remaining acceptance is tracked in Memory System Implementation.
 - [October 13 Breakout startup stall](./breakout-startup-stall-2026-10-13.md) - fresh-install Office image mismatch, OnDemand retry churn, V1/V2 staffing mismatch, misleading recovery alerts, and next-run acceptance gates.
+- [October 16 Pulse Break planning stall](./pulse-break-planning-stall-2026-10-16.md) - incomplete planning responses, durable planning pages, verified retry reporting, bounded escalation and local recovery.
 - [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.

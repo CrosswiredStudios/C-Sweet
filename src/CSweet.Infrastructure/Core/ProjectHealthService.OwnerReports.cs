@@ -123,10 +123,16 @@ public sealed partial class ProjectHealthService
                 facts.Add(new("CurrentInterruptedReply", turn.Id, turn.UpdatedAt, ProjectHealthReader.Safe(
                     $"Reply status: {turn.Status}. {turn.ErrorMessage} {execution.Summary}")));
         }
-        var serialized = JsonSerializer.SerializeToUtf8Bytes(new { ownerInputPolicy = 2, project.Id, project.Revision, incident.Fingerprint,
+        var executionEvidence = await CurrentIncidentExecutionAsync(incident, token);
+        facts.Add(new("CurrentRecoveryExecution", executionEvidence.WorkId ?? incident.Id, clock.GetUtcNow(), executionEvidence.Summary));
+        // An auxiliary attempt on a ticket cannot stale a separate, still-required
+        // owner decision. Exact operation incidents do bind their current execution.
+        var operationExecution = new[] { "chat", "coordination", "stage", "work" }.Any(kind =>
+            IncidentSource(incident.Fingerprint, kind) is not null) ? executionEvidence : null;
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(new { ownerInputPolicy = 3, project.Id, project.Revision, incident.Fingerprint,
             incident.Reason, incident.EvidenceJson, ticket = ticket is null ? null : new { ticket.Id, ticket.Revision, ticket.Status, ticket.BlockReason,
                 ticket.WaitingReason, ticket.ResultSummary, ticket.AssignedEmployeeId, ticket.AccountableOrganizationUserId },
-            decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation }, Json);
+            decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation, operationExecution }, Json);
         return new(Convert.ToHexString(SHA256.HashData(serialized)), project.Name, facts, documents);
     }
 

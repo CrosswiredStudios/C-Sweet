@@ -19,6 +19,69 @@ namespace CSweet.UnitTests;
 public sealed class OverviewHiringCandidateTests
 {
     [Theory]
+    [InlineData(AgentHireOperationStatuses.Starting, true)]
+    [InlineData(AgentHireOperationStatuses.Queued, true)]
+    [InlineData(AgentHireOperationStatuses.Building, true)]
+    [InlineData(AgentHireOperationStatuses.CompletingHire, true)]
+    [InlineData(AgentHireOperationState.UnconfirmedStatus, true)]
+    [InlineData(AgentHireOperationStatuses.AwaitingConfirmation, true)]
+    [InlineData(AgentHireOperationStatuses.Failed, false)]
+    public async Task MatchingHireDisablesActionsAndUpdatesWhenTheOperationChanges(string status, bool disabled)
+    {
+        var organization = Guid.NewGuid();
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Director", "Own direction", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        {
+            HiringUrl = "/marketplace",
+            SelectedCatalogAgentJson = """{"agentReference":"catalog:naomi","name":"Naomi Chen"}"""
+        };
+        var operation = new AgentHireOperationResponse(Guid.NewGuid(), Guid.NewGuid(), organization, null,
+            "Naomi Chen", "Naomi Chen", status, "Preparing Naomi", "Preparing the build environment",
+            0, 0, null, null, false, null, null, DateTimeOffset.UtcNow) { RecommendationId = recommendation.Id };
+        var handler = new OperationHandler { Operations = [operation with { OrganizationId = Guid.NewGuid() }, operation with { RecommendationId = Guid.NewGuid() }] };
+        var activator = new CapturingActivator();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        services.AddSingleton<IComponentActivator>(activator);
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigation>();
+        services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        var state = provider.GetRequiredService<AgentHireOperationState>();
+        await state.RefreshAsync();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<OverviewHiringCandidateCard>(ParameterView.FromDictionary(new Dictionary<string, object?>
+        { ["OrganizationId"] = organization, ["Recommendation"] = recommendation })));
+        var hire = Assert.Single(activator.Buttons, x => x.Variant == Variant.Filled);
+        var browse = Assert.Single(activator.Buttons, x => x.Href is not null);
+        Assert.False(hire.Disabled);
+        handler.Operations = [operation];
+        await renderer.Dispatcher.InvokeAsync(() => state.RefreshAsync());
+        Assert.Equal(disabled, hire.Disabled);
+        Assert.Equal(disabled, browse.Disabled);
+        var html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Equal(disabled, html.Contains("Preparing the build environment"));
+        if (disabled)
+        {
+            await renderer.Dispatcher.InvokeAsync(() => hire.OnClick.InvokeAsync(new MouseEventArgs()));
+            Assert.Equal(0, handler.Posts);
+        }
+        handler.Operations = [];
+        await renderer.Dispatcher.InvokeAsync(() => state.RefreshAsync());
+        Assert.False(hire.Disabled);
+        Assert.False(browse.Disabled);
+    }
+
+    private sealed class OperationHandler : HttpMessageHandler
+    {
+        public AgentHireOperationResponse[] Operations { get; set; } = [];
+        public int Posts { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            if (request.Method == HttpMethod.Post) Posts++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Operations) });
+        }
+    }
+
+    [Theory]
     [InlineData("Evelyn Brooks", "Naomi Chen", "Video Game Team", "Evelyn Brooks", true)]
     [InlineData("Evelyn Brooks", "Naomi Chen", null, "Evelyn Brooks", true)]
     [InlineData("Evelyn Brooks", "Evelyn Brooks", "Video Game Team", "Evelyn Brooks", false)]
