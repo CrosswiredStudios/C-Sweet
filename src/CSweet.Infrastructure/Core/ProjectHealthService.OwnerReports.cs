@@ -47,9 +47,9 @@ public sealed partial class ProjectHealthService
             if (report is not null)
                 try { ManagerIncidentCoordinator.ValidateReport(report); }
                 catch (ArgumentException) { needsReadableReport = true; }
-            if (report?.SourceHash == state.Hash && !needsReadableReport) continue;
+            if (report is { RequiresOwnerInput: not null } && report.SourceHash == state.Hash && !needsReadableReport) continue;
             if (!await HasCurrentIncidentFailureAsync(incident, token)) continue;
-            var key = $"owner-report:{incident.Id:N}:{reporter:N}:{state.Hash}:plain-language-v1:{installation.PackageVersionId:N}";
+            var key = $"owner-report:{incident.Id:N}:{reporter:N}:{state.Hash}:owner-input-v2:{installation.PackageVersionId:N}";
             if (await db.AgentPlatformEventOutbox.AnyAsync(x => x.IdempotencyKey == key, token)) continue;
             db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = incident.OrganizationId,
                 TargetInstallationId = installation.Id, EventType = ProjectHealthEvents.OwnerReportRequested, IdempotencyKey = key,
@@ -114,9 +114,16 @@ public sealed partial class ProjectHealthService
             operation = await db.AgentWorkItems.AsNoTracking().Where(x => x.Id == workId && x.OrganizationId == incident.OrganizationId.ToString())
                 .Select(x => new { x.Id, x.Status, x.LastError, x.AttemptCount }).SingleOrDefaultAsync(token);
         else if (IncidentSource(incident.Fingerprint, "chat") is { } turnId)
-            operation = await db.ChatTurns.AsNoTracking().Where(x => x.Id == turnId && x.OrganizationId == incident.OrganizationId)
+        {
+            var turn = await db.ChatTurns.AsNoTracking().Where(x => x.Id == turnId && x.OrganizationId == incident.OrganizationId)
                 .Select(x => new { x.Id, x.Status, x.ErrorCode, x.ErrorMessage, x.UpdatedAt }).SingleOrDefaultAsync(token);
-        var serialized = JsonSerializer.SerializeToUtf8Bytes(new { project.Id, project.Revision, incident.Fingerprint,
+            var execution = await CurrentChatExecutionAsync(incident, turnId, token);
+            operation = new { turn, execution };
+            if (turn is not null)
+                facts.Add(new("CurrentInterruptedReply", turn.Id, turn.UpdatedAt, ProjectHealthReader.Safe(
+                    $"Reply status: {turn.Status}. {turn.ErrorMessage} {execution.Summary}")));
+        }
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(new { ownerInputPolicy = 2, project.Id, project.Revision, incident.Fingerprint,
             incident.Reason, incident.EvidenceJson, ticket = ticket is null ? null : new { ticket.Id, ticket.Revision, ticket.Status, ticket.BlockReason,
                 ticket.WaitingReason, ticket.ResultSummary, ticket.AssignedEmployeeId, ticket.AccountableOrganizationUserId },
             decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation }, Json);
@@ -140,6 +147,7 @@ public sealed partial class ProjectHealthService
         // Sanitization and bounds also apply to model-generated presentation text.
         report = report with { Title = ValidateText(report.Title), Summary = ValidateText(report.Summary),
             Recovery = ValidateText(report.Recovery), NextStep = ValidateText(report.NextStep),
+            OwnerInputReason = report.OwnerInputReason is null ? null : ValidateText(report.OwnerInputReason),
             Options = report.Options.Select(x => x with { Label = ValidateText(x.Label), Description = ValidateText(x.Description),
                 IntendedOutcome = ValidateText(x.IntendedOutcome) }).ToArray() };
         return report;
@@ -168,7 +176,11 @@ public sealed partial class ProjectHealthService
         }
         await RequirePresentationAuthorAsync(incident, actor, token);
         if (incident.Revision != request.ExpectedRevision) throw new InvalidOperationException("Incident changed.");
-        if (request.OwnerReport is not null) StoreOwnerReport(incident, actor, await ValidateOwnerReportAsync(incident, request.OwnerReport, token));
+        if (request.OwnerReport is not null)
+        {
+            StoreOwnerReport(incident, actor, await ValidateOwnerReportAsync(incident, request.OwnerReport, token));
+            if (request.OwnerReport.RequiresOwnerInput == false) await RetainManagerRecoveryAsync(incident, actor, token);
+        }
         else
         {
             var decision = await db.ExecutiveDecisions.SingleOrDefaultAsync(x => x.Id == request.ResolutionDecisionId && x.OrganizationId == organization &&

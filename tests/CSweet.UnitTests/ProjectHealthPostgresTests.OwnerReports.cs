@@ -56,7 +56,8 @@ public sealed partial class ProjectHealthPostgresTests
             var report = new IncidentOwnerReport("Scope reconciliation is blocked", "The task needs the recorded direction incorporated into its accepted brief.",
                 "No confirmed recovery.", "Coordinate a brief revision.",
                 [new("reconcile", "Reconcile the brief", "Coordinate the accepted direction", "Coordinate a revision with the accountable employee."),
-                 new("evidence", "Collect facts", "Identify missing evidence", "Identify and request the missing logistics facts.")], "reconcile", current.Hash);
+                 new("evidence", "Collect facts", "Identify missing evidence", "Identify and request the missing logistics facts.")], "reconcile", current.Hash)
+                { RequiresOwnerInput = true, OwnerInputReason = "Confirm the budget needed for delivery." };
             await health.ReportAsync(organization.Id, reporter.Id, new(incident.Id, incident.Revision, "report", "Current blocker", "Recorded direction needs reconciliation",
                 "Missing logistics facts", report.NextStep) { OwnerReport = report }, default);
             await db.Database.ExecuteSqlRawAsync("""

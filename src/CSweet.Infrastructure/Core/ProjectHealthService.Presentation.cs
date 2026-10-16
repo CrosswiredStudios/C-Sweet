@@ -129,10 +129,14 @@ public sealed partial class ProjectHealthService
             var attempts = session is null || causation is null ? work.AttemptCount : await db.AgentWorkItems.AsNoTracking().Where(x =>
                 x.OrganizationId == work.OrganizationId && x.SourceType == "agent-coordination" && x.CorrelationId == correlation && x.CausationId == causation)
                 .SumAsync(x => x.AttemptCount, token);
-            recovery = work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased
-                ? $"A retry is {(work.Status == AgentWorkStatus.Leased ? "running" : "queued")}; completion is not yet confirmed."
+            var queued = work.Status == AgentWorkStatus.Pending && work.DeadlineAt > clock.GetUtcNow();
+            var running = work.Status == AgentWorkStatus.Leased && work.DeadlineAt > clock.GetUtcNow() &&
+                await db.AgentWorkAttempts.AnyAsync(x => x.AgentWorkItemId == work.Id && x.Attempt == work.AttemptCount &&
+                    x.FinishedAt == null && x.LeaseExpiresAt > clock.GetUtcNow(), token);
+            recovery = queued || running
+                ? $"An execution attempt is {(running ? "running" : "queued")}; completion is not yet confirmed."
                 : $"{attempts} execution attempt(s) recorded; no retry is currently queued.";
-            if (work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
+            if (queued || running)
                 next = "No action is needed while the current attempt runs. This item clears when recovery is confirmed.";
         }
         else if (IncidentSource(incident.Fingerprint, "chat") is { } chatTurnId)
@@ -155,6 +159,11 @@ public sealed partial class ProjectHealthService
         }
         if (incident.ActionReference is not null && work?.Status is not (AgentWorkStatus.Pending or AgentWorkStatus.Leased))
             recovery = "A manager recorded a recovery action; completion has not yet been confirmed.";
+        if (IncidentSource(incident.Fingerprint, "chat") is { } interruptedTurn)
+        {
+            recovery = (await CurrentChatExecutionAsync(incident, interruptedTurn, token)).Summary;
+            next = "The manager will check saved outputs and coordinate any remaining work. Completed actions must not be replayed blindly.";
+        }
         if (destination is not null)
         {
             link = destination.Link; label = destination.Label;
@@ -179,6 +188,12 @@ public sealed partial class ProjectHealthService
                     (current.Facts.FirstOrDefault(x => x.Kind is "CurrentWorkItem" or "CurrentCollaboration")?.Detail ??
                         "The project records have changed and the manager is reassessing this incident.") + OutdatedReportNotice,
                     recovery, "The manager is reviewing changed project records. No response to the previous report is needed.", link, label);
+            // Execution state is platform-owned. A fresh evidence hash does not verify an
+            // LLM's assertion that a retry was queued, started or completed.
+            if (work is not null || session is not null || IncidentSource(incident.Fingerprint, "chat") is not null ||
+                IncidentSource(incident.Fingerprint, "stage") is not null)
+                return new($"{projectName}: recovery status", summary, recovery,
+                    ownerReport.RequiresOwnerInput == true ? ownerReport.OwnerInputReason! : next, link, label);
             summary = ownerReport.Summary;
             return new(ownerReport.Title, summary, incident.ResolutionOutcome ?? ownerReport.Recovery, ownerReport.NextStep, link, label);
         }

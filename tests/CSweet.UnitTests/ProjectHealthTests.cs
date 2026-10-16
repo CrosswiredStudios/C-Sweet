@@ -244,6 +244,7 @@ public sealed partial class ProjectHealthTests
             Assert.Equal(recipient, incident.CurrentRecipientId);
         }
         Assert.Null(incident.EscalateAt);
+        await RecordOwnerRequirement(f, incident);
         await f.Service.DeliverAsync(default); await f.Service.DeliverAsync(default);
         Assert.Single(f.Db.CoreConversationMessages); Assert.Single(f.Db.UserNotifications);
         Assert.Contains(f.Db.ApplicationRealtimeOutbox, x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ProjectIncidentChanged &&
@@ -559,6 +560,7 @@ public sealed partial class ProjectHealthTests
             incident = Assert.Single(f.Db.ProjectIncidents);
             Assert.Equal(recipient, incident.CurrentRecipientId);
         }
+        await RecordOwnerRequirement(f, incident);
         await f.Service.DeliverAsync(default); await f.Service.DeliverAsync(default);
         Assert.Equal(f.Director.Id, Assert.Single(f.Db.CoreConversationMessages).SenderOrganizationUserId);
         Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
@@ -618,7 +620,7 @@ public sealed partial class ProjectHealthTests
             Facts = new string('x', 8000) + "model.response.chunk", RecommendedAction = "My responsibility is creative direction; manager review is needed." };
         var canonical = Old($"coordination:{session.Id:N}"); var duplicate = Old($"work:{work.Id:N}");
         f.Db.AddRange(session, work, canonical, duplicate);
-        await f.Db.SaveChangesAsync(); await f.Review(); await f.Service.DeliverAsync(default);
+        await f.Db.SaveChangesAsync(); await f.Review(); await RecordOwnerRequirement(f, canonical); await f.Service.DeliverAsync(default);
         Assert.Equal("Superseded", duplicate.Status); Assert.Equal("Open", canonical.Status);
         Assert.Null(duplicate.ResolvedAt);
         var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
@@ -703,6 +705,7 @@ public sealed partial class ProjectHealthTests
         }
         foreach (var actor in new[] { f.Producer.Id, f.Director.Id, f.Chief.Id })
             await f.Service.ForwardAsync(f.Org, actor, new(incident.Id, incident.Revision, $"forward:{actor}", "Review needed"), default);
+        await RecordOwnerRequirement(f, incident);
         await f.Service.DeliverAsync(default);
         var alert = Assert.Single(f.Db.UserNotifications);
         Assert.Equal(CSweet.Domain.Communications.NotificationSeverity.Important, alert.Severity);
@@ -759,6 +762,7 @@ public sealed partial class ProjectHealthTests
         var incident = Assert.Single(f.Db.ProjectIncidents);
         foreach (var actor in new[] { f.Producer.Id, f.Director.Id, f.Chief.Id })
             await f.Service.ForwardAsync(f.Org, actor, new(incident.Id, incident.Revision, $"forward:{actor}", "Review needed"), default);
+        await RecordOwnerRequirement(f, incident);
         await f.Service.DeliverAsync(default);
 
         var expected = personal

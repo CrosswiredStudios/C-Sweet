@@ -71,3 +71,44 @@ measurements. It passed repository/branch guidance but rejected four other
 criteria. The orchestrator advanced to traversal 2 `specialist-execution` for
 Victor's rework and revoked the QA grant only after the review completed.
 This proves the repaired handoff and grant lifecycle; the document is not approved.
+
+## Progress-aware rework
+
+`WorkReworkPolicy.Evaluate` replaces the lifetime traversal cap for review-to-author
+edges with the configured number of consecutive stagnant review cycles. A new
+candidate must improve the best review's satisfied criteria (without losing any),
+or reduce its finding count without criterion regression. The criterion sets must
+match. A new revision identifier alone is not progress: immutable content/commit
+digests must differ, and cycling back to previously reviewed content does not reset
+the counter. Criterion text and finding counts are conservative structured signals;
+this is not semantic proof that every remaining issue is unchanged. Unknown evidence
+does not establish progress. Non-review workflow loops retain their original bound.
+
+`WorkOrchestrator.AdvanceAsync` and `WorkOrchestrationService.CompleteStageAsync`
+use the same policy for agent and human reviews. Stagnation preserves the accepted
+review and blocks for management direction. `WorkReworkPolicy.QueueEscalationAsync`
+persists a deduplicated `stage.rework.stalled` event and board-manager notification
+in the same save as the blocked state and realtime outbox.
+
+`WorkOrchestrationService.RetryAsync` recognizes the old traversal-limit failure
+and, after its normal authorization/concurrency checks, resumes the accepted review
+when progress allows it. It creates the next author stage and retry event together;
+it does not create another QA attempt. Completed attempts and findings are retained.
+
+Regression coverage: `WorkReworkPolicyTests` exercises long incremental progress,
+criterion gains with newly discovered findings, three stagnant cycles, regression,
+oscillation, repeated content, missing evidence and non-review limits.
+`WorkDispatchRecoveryTests` exercises both completion paths, durable escalation and
+authorized/idempotent recovery from a fresh database context.
+
+Verification on October 15: all 56 focused policy, dispatch, hierarchical runtime
+and artifact-handoff tests passed against packaged SDK/work/Office/Isolation
+dependencies. No public contract or agent package changed. Existing dependency
+advisory and unrelated compiler/analyzer warnings remain.
+
+The local app restart loaded this change at 21:23 Pacific. The owner's board
+action at 21:24 recorded `stage.retry.requested` with `resumedAcceptedReview: true`,
+completed the previously stopped quality stage, and dispatched Victor's
+`specialist-execution` at traversal 4. No new QA attempt was needed. The original
+v4 review and its three remaining findings are preserved; delivery remains subject
+to the next independent review.

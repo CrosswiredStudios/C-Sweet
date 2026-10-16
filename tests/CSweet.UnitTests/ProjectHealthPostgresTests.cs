@@ -12,7 +12,7 @@ namespace CSweet.UnitTests;
 public sealed partial class ProjectHealthPostgresTests
 {
     [HealthPostgresFact]
-    public async Task JsonScopedWorkAndFailedPlanningReachDirectorThenOwnerAttention()
+    public async Task JsonScopedWorkAndFailedPlanningReachManagementWithoutInventingOwnerInput()
     {
         var settings = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CSWEET_COMPUTE_TEST_DATABASE"));
         Assert.Contains(settings.Host, new[] { "localhost", "127.0.0.1", "::1" });
@@ -84,11 +84,8 @@ public sealed partial class ProjectHealthPostgresTests
                 Assert.All(await db.ProjectIncidents.ToListAsync(), x => Assert.Equal(recipient, x.CurrentRecipientId));
             }
             await service.DeliverAsync(default); await service.DeliverAsync(default);
-            Assert.Equal(2, await db.CoreConversationMessages.CountAsync());
-            Assert.All(await db.CoreConversationMessages.ToListAsync(), x => Assert.Equal(director.Id, x.SenderOrganizationUserId));
-            Assert.All(await db.CoreConversationMessages.ToListAsync(), x => Assert.True(x.Content.Length < 1000));
-            Assert.Contains(await db.CoreConversationMessages.ToListAsync(), x => x.Content.Contains("Retry collaboration"));
-            Assert.Equal(2, (await service.ReadAttentionAsync(org.Id, owner.Id, default)).Count);
+            Assert.Empty(await db.CoreConversationMessages.ToListAsync());
+            Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
             Assert.Empty(await service.ReadAttentionAsync(org.Id, producer.Id, default));
             var savedPersonal = await db.CoreWorkTasks.SingleAsync(x => x.Id == personal.Id);
             savedPersonal.Status = WorkTaskStatus.Completed;
@@ -99,10 +96,7 @@ public sealed partial class ProjectHealthPostgresTests
             Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
             await service.DeliverAsync(default);
             var notifications = await db.UserNotifications.ToListAsync();
-            Assert.Equal(2, notifications.Count(x => x.Severity == NotificationSeverity.Important && x.DismissedAt != null));
-            Assert.Equal(2, notifications.Count(x => x.Severity == NotificationSeverity.Routine));
-            Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(), x =>
-                x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.NotificationUpdated);
+            Assert.Empty(notifications); // Unseen incidents do not generate recovery notifications.
             // A direct conversation stays unscoped. Its interrupted turn is attributed
             // through the exact coordination source, while a cleared decision cannot
             // remain hidden by a fresh retry deadline.
@@ -137,7 +131,7 @@ public sealed partial class ProjectHealthPostgresTests
                 Assert.All(await db.ProjectIncidents.Where(x => x.Status == "Open").ToListAsync(), x => Assert.Equal(recipient, x.CurrentRecipientId));
             }
             await service.DeliverAsync(default);
-            Assert.Equal(2, (await service.ReadAttentionAsync(org.Id, owner.Id, default)).Count);
+            Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
             dependency = await db.CoreWorkTasks.SingleAsync(x => x.Id == waiting.Id);
             dependency.Status = WorkTaskStatus.Completed; dependency.WaitingReason = null;
             var retryMessage = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = direct.Id,

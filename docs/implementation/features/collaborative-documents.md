@@ -61,6 +61,13 @@ actions in `PendingAgentQuestions` (Overview) and `Approvals`. Both open the exi
 An Approvals `approvalId` deep link opens that item's document pane automatically.
 
 `ArtifactWorkspace.RevisionId` pins the preview and decisions to the same immutable revision.
+`Documents` accepts `?artifact={artifactId}&revision={revisionId}` links and passes the
+revision pin to `ArtifactWorkspace` in read-only mode. `WorkEvidencePresentation` parses
+artifact-revision evidence into these links; `WorkEvidenceLinks` shows readable labels
+in the Focused work card footer and sprint execution details instead of raw JSON.
+Repeated references to the same document revision are collapsed. Malformed references
+show an unavailable label; a missing or inaccessible document uses the workspace's
+existing access handling, and a missing revision never falls back to the latest draft.
 Without a pin, the workspace previews the current submitted revision during review, otherwise
 the latest draft. `ReviewOnly` retains Preview, History and authorized decisions while omitting
 editing and access administration. Historical, missing and superseded revisions cannot be

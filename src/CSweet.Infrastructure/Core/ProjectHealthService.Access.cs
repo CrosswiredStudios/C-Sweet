@@ -89,7 +89,7 @@ public sealed partial class ProjectHealthService
         IncidentOwnerReport? preparedReport = null;
         if (await IsReplayAsync(incident, actor, request.IdempotencyKey, request, request.ExpectedRevision, token, () =>
         {
-            if (request.Disposition != IncidentDispositions.Escalate &&
+            if (request.OwnerReport?.RequiresOwnerInput != false && request.Disposition != IncidentDispositions.Escalate &&
                 (request.ReviewAt is null || request.ReviewAt <= clock.GetUtcNow() || incident.EscalateAt is null || request.ReviewAt >= incident.EscalateAt))
                 throw new ArgumentException("Follow-up must occur before the existing escalation deadline.");
             if (request.Disposition == IncidentDispositions.AwaitingRecovery && reference is null)
@@ -102,7 +102,9 @@ public sealed partial class ProjectHealthService
         if (preparedReport is not null) StoreOwnerReport(incident, actor, preparedReport);
         incident.MissingEvidence = missing; incident.RecommendedAction = action;
         incident.Disposition = request.Disposition; incident.ActionReference = reference;
-        if (request.Disposition == IncidentDispositions.Escalate)
+        if (preparedReport?.RequiresOwnerInput == false)
+            await RetainManagerRecoveryAsync(incident, actor, token);
+        else if (request.Disposition == IncidentDispositions.Escalate)
             await ForwardCoreAsync(incident, action, token);
         else
         {

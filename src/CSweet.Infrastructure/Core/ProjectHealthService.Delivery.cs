@@ -108,7 +108,7 @@ public sealed partial class ProjectHealthService
                 if (grant is not null && Deserialize<string>(grant.RequiredCapabilitiesJson).Contains(ProjectHealthCapabilities.Resolution) &&
                     Deserialize<string>(grant.RequiredCapabilitiesJson).Contains(ProjectHealthCapabilities.Presentation))
                     await new ExecutiveDecisionService(db, new ChatTurnService(db)).CreateAsync(new(incident.OrganizationId, chat.Id, null,
-                        existing.Id, installation, "How should I help resolve this blocker?",
+                        existing.Id, installation, report.OwnerInputReason!,
                         report.Options.Select(x => new CreateExecutiveDecisionOption(x.Id, x.Label, x.Description)).ToArray(), report.RecommendedOptionId,
                         $"incident-choice:{incident.Id:N}:{incident.ReportRevision}:{recipient.Id:N}")
                         { Incident = new(incident.Id, incident.ReportRevision) }, token);

@@ -18,6 +18,20 @@ namespace CSweet.UnitTests;
 public sealed class DocumentApprovalRenderingTests
 {
     [Fact]
+    public async Task DocumentsRevisionDeepLinkShowsTheReferencedContentInsteadOfTheLatestDraft()
+    {
+        await using var f = new Fixture();
+        f.Navigation.SetUri($"http://localhost/organizations/{f.Api.Organization:D}/documents?artifact={f.Api.Artifact:D}&revision={f.Api.Submitted:D}");
+        var output = await f.RenderAsync<Documents>(new() { ["OrganizationId"] = f.Api.Organization });
+        var html = await f.Html(output);
+        Assert.Contains("SUBMITTED CONTENT", html);
+        Assert.DoesNotContain("LATEST DRAFT CONTENT", html);
+        Assert.DoesNotContain("Save draft", html);
+        Assert.DoesNotContain("artifact-decision-bar", html);
+        Assert.Contains("The latest draft is revision 2", html);
+    }
+
+    [Fact]
     public async Task OverviewChipOpensTheExactSubmittedRevisionWithoutNavigation()
     {
         await using var f = new Fixture();
@@ -189,6 +203,7 @@ public sealed class DocumentApprovalRenderingTests
         private readonly ServiceProvider _services;
         private readonly CapturingActivator _activator = new();
         public ApiHandler Api { get; } = new();
+        public TestNavigation Navigation { get; } = new();
         public HtmlRenderer Renderer { get; }
         public List<MudButton> Buttons => _activator.Buttons;
         public List<MudTextField<string>> Inputs => _activator.Inputs;
@@ -200,7 +215,7 @@ public sealed class DocumentApprovalRenderingTests
             services.AddMudServices(); services.AddCSweetApiClients();
             services.AddSingleton<IComponentActivator>(_activator);
             services.AddSingleton<IJSRuntime, NoJavaScript>();
-            services.AddSingleton<NavigationManager, TestNavigation>();
+            services.AddSingleton<NavigationManager>(Navigation);
             services.AddSingleton(new HttpClient(Api) { BaseAddress = new Uri("http://localhost/") });
             _services = services.BuildServiceProvider();
             Renderer = new(_services, _services.GetRequiredService<ILoggerFactory>());
@@ -283,6 +298,7 @@ public sealed class DocumentApprovalRenderingTests
     private sealed class TestNavigation : NavigationManager
     {
         public TestNavigation() => Initialize("http://localhost/", "http://localhost/");
+        public void SetUri(string uri) => Uri = uri;
         protected override void NavigateToCore(string uri, bool forceLoad) => throw new InvalidOperationException("Document review must stay on the current page.");
     }
 }

@@ -76,7 +76,7 @@ public sealed partial class WorkOrchestrator(
             if (stage.StageType == WorkOrchestrationStageType.Terminal)
                 CompleteTerminal(execution, stage, definition, now);
             else
-                Advance(execution, policy, stage, "ready", "Queue eligibility satisfied.", "{}", now);
+                await AdvanceAsync(execution, policy, stage, "ready", "Queue eligibility satisfied.", "{}", now, cancellationToken);
         }
 
         foreach (var stage in execution.Items.Select(x => x.Stages.OrderByDescending(s => s.CreatedAt).First())
@@ -321,8 +321,8 @@ public sealed partial class WorkOrchestrator(
             case Shared.WorkExecutionDispositions.Failed:
                 FailStage(stage, outcome.Summary, now); break;
             default:
-                Advance(execution, policy, stage, outcome.OutcomeCode, outcome.Summary,
-                    outcome.Output.GetRawText(), now); break;
+                await AdvanceAsync(execution, policy, stage, outcome.OutcomeCode, outcome.Summary,
+                    outcome.Output.GetRawText(), now, cancellationToken); break;
         }
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
@@ -765,7 +765,7 @@ public sealed partial class WorkOrchestrator(
         else if (result.Disposition == Shared.WorkExecutionDispositions.Failed)
             FailStage(stage, result.Summary, now);
         else
-            Advance(execution, policy, stage, result.OutcomeCode, result.Summary, result.Output.GetRawText(), now);
+            await AdvanceAsync(execution, policy, stage, result.OutcomeCode, result.Summary, result.Output.GetRawText(), now, cancellationToken);
     }
 
     private static void CompleteTerminal(
@@ -783,18 +783,25 @@ public sealed partial class WorkOrchestrator(
         execution.UpdatedAt = now; execution.Revision++;
     }
 
-    private void Advance(
+    private async Task AdvanceAsync(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
-        WorkStageExecution stage, string outcomeCode, string summary, string outputJson, DateTimeOffset now)
+        WorkStageExecution stage, string outcomeCode, string summary, string outputJson, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var transition = policy.Transitions.SingleOrDefault(x =>
             x.FromStageKey == stage.StageKey && x.OutcomeCode == outcomeCode)
             ?? throw new InvalidOperationException($"Outcome '{outcomeCode}' is not valid for stage '{stage.StageKey}'.");
         var item = stage.ItemExecution!;
         var nextTraversal = item.Traversal + (transition.MaximumTraversals.HasValue ? 1 : 0);
-        if (transition.MaximumTraversals.HasValue && nextTraversal > transition.MaximumTraversals.Value)
+        var rework = WorkReworkPolicy.Evaluate(stage, transition, outcomeCode, JsonSerializer.Deserialize<JsonElement>(outputJson));
+        if (!rework.Allowed)
         {
-            FailStage(stage, "The workflow traversal limit was reached.", now); return;
+            if (rework.ReviewRework)
+            {
+                Block(stage, rework.Reason!, now);
+                await WorkReworkPolicy.QueueEscalationAsync(db, stage, rework, now, cancellationToken);
+            }
+            else FailStage(stage, rework.Reason!, now);
+            return;
         }
         stage.Status = WorkStageExecutionStatus.Completed; stage.CompletedAt = now;
         stage.LastOutcomeCode = outcomeCode; stage.LastSummary = summary; stage.UpdatedAt = now;

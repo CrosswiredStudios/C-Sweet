@@ -350,7 +350,32 @@ public sealed partial class WorkOrchestrationService(
                 throw new UnauthorizedAccessException(
                     "The stage assignee is no longer an active member of the board team. Reassign the ticket, then retry.");
         }
+        var recoverTraversal = stage.LastError == WorkReworkPolicy.LegacyLimitReason;
         var now = timeProvider.GetUtcNow();
+        // Recover the accepted review, rather than asking QA to review the same candidate again.
+        if (recoverTraversal && stage.ItemExecution!.CurrentStageKey == stage.StageKey &&
+            stage.ItemExecution.Traversal == stage.Traversal &&
+            stage.ItemExecution.SprintExecution!.Status == WorkSprintExecutionStatus.Active &&
+            WorkReworkPolicy.CompletedOutcome(stage) is { } accepted)
+        {
+            var pinned = await db.WorkOrchestrationPolicyRevisions.Include(x => x.Transitions)
+                .SingleAsync(x => x.Id == stage.ItemExecution.SprintExecution.PolicyRevisionId, cancellationToken);
+            var transition = pinned.Transitions.SingleOrDefault(x => x.FromStageKey == stage.StageKey && x.OutcomeCode == accepted.OutcomeCode);
+            if (transition is not null && WorkReworkPolicy.Evaluate(stage, transition, accepted.OutcomeCode, accepted.Output)
+                    is { Allowed: true, ReviewRework: true })
+            {
+                stage.LastError = null;
+                stage.ItemExecution.BlockedReason = null;
+                workItem.BlockReason = null;
+                workItem.ClaimEventId = null; workItem.ClaimExpiresAt = null;
+                workItem.WaitingReason = null; workItem.WaitingOnOrganizationUserId = null; workItem.NextReviewAt = null;
+                AddEvent(organizationId, boardId, stage.ItemExecution.SprintExecutionId, stage.ItemExecutionId, stage.Id, null,
+                    "stage.retry.requested", new { member.Id, request.Reason, request.IdempotencyKey, resumedAcceptedReview = true }, request.IdempotencyKey);
+                await CompleteStageAsync(stage, accepted.Disposition, accepted.OutcomeCode, accepted.Summary,
+                    accepted.Output.GetRawText(), member.Id, request.IdempotencyKey, cancellationToken);
+                return ToResponse(stage);
+            }
+        }
         stage.Status = WorkStageExecutionStatus.Pending; stage.LastError = null; stage.RetryAt = now; stage.UpdatedAt = now;
         stage.ItemExecution!.Status = WorkItemExecutionStatus.Pending;
         stage.ItemExecution.BlockedReason = null; stage.ItemExecution.UpdatedAt = now;
@@ -655,11 +680,17 @@ public sealed partial class WorkOrchestrationService(
         stage.LastSummary = summary; stage.CompletedAt = now; stage.UpdatedAt = now;
         var next = policy.Stages.Single(x => x.Key == transition.ToStageKey);
         var traversal = stage.ItemExecution.Traversal + (transition.MaximumTraversals.HasValue ? 1 : 0);
-        if (transition.MaximumTraversals.HasValue && traversal > transition.MaximumTraversals.Value)
+        var rework = WorkReworkPolicy.Evaluate(stage, transition, outcomeCode, JsonSerializer.Deserialize<JsonElement>(outputJson));
+        if (!rework.Allowed)
         {
-            stage.ItemExecution.Status = WorkItemExecutionStatus.Failed;
-            stage.ItemExecution.BlockedReason = "The workflow traversal limit was reached.";
-            stage.ItemExecution.WorkItem!.Status = WorkTaskStatus.Failed;
+            stage.Status = rework.ReviewRework ? WorkStageExecutionStatus.Blocked : WorkStageExecutionStatus.Failed;
+            stage.LastError = rework.Reason;
+            stage.ItemExecution.Status = rework.ReviewRework ? WorkItemExecutionStatus.Blocked : WorkItemExecutionStatus.Failed;
+            stage.ItemExecution.BlockedReason = rework.Reason;
+            stage.ItemExecution.WorkItem!.Status = rework.ReviewRework ? WorkTaskStatus.Blocked : WorkTaskStatus.Failed;
+            stage.ItemExecution.WorkItem.BlockReason = rework.Reason;
+            if (rework.ReviewRework)
+                await WorkReworkPolicy.QueueEscalationAsync(db, stage, rework, now, cancellationToken);
         }
         else
         {
@@ -681,6 +712,7 @@ public sealed partial class WorkOrchestrationService(
             var nextExecution = CreateStageExecution(stage.ItemExecution, next, assignments,
                 (await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == execution.BoardId, cancellationToken)).ManagerOrganizationUserId!.Value, now);
             db.WorkStageExecutions.Add(nextExecution);
+            WorkOrchestrationBoardState.SynchronizeAgentCard(policy, nextExecution, now);
         }
         stage.ItemExecution.UpdatedAt = now; execution.UpdatedAt = now; execution.Revision++;
         AddEvent(execution.OrganizationId, execution.BoardId, execution.Id, stage.ItemExecutionId, stage.Id, null,

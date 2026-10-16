@@ -2,18 +2,20 @@
 @using CSweet.Contracts.WorkManagement
 @using Present = CSweet.UI.Components.WorkBoards.WorkBoardWorkspacePresentation
 @using Wire = CSweet.WorkManagement.Contracts
-@implements IAsyncDisposable
+@implements IDisposable
 @inject HttpClient Http
-@inject IJSRuntime JavaScript
 
 <main class="work-board @(_compact ? "is-compact" : "")" aria-label="@Detail.Board.Name">
-    <header class="board-header">
+    <header class="board-header @(Embedded ? "is-embedded" : "")">
         @if (!Embedded)
         {
         <button type="button" class="back-link" @onclick="OnBack"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" Size="Size.Small" />All boards</button>
         }
         <div class="board-title-row">
-            <div><div class="board-eyebrow">@(Embedded ? "Project board" : "Projects / Board")</div><h2>@Detail.Board.Name</h2></div>
+            @if (!Embedded)
+            {
+                <div><div class="board-eyebrow">Projects / Board</div><h2>@Detail.Board.Name</h2></div>
+            }
             <div class="board-title-actions">
                 @if (Detail.Board.IsArchived) { <span class="status-label">Archived · read only</span> }
                 <button type="button" class="icon-button" aria-label="Board information" aria-expanded="@_showInfo" @onclick="@(() => _showInfo = !_showInfo)"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /></button>
@@ -59,11 +61,7 @@
                             @if (SelectedSprint is { } selected) { <span class="status-label @StatusClass(selected.Status)">@selected.Status</span> }
                         </div>
                     }
-                    @if (SelectedSprint is { } current)
-                    {
-                        <p class="sprint-goal">@(string.IsNullOrWhiteSpace(current.Goal) ? "No sprint goal has been set." : current.Goal)</p>
-                    }
-                    else
+                    @if (SelectedSprint is null)
                     {
                         <h2>@(string.IsNullOrWhiteSpace(SprintError) ? "No active sprint" : "Sprint information unavailable")</h2>
                         <p class="sprint-goal">Review the backlog or choose a planned sprint to prepare the next commitment.</p>
@@ -147,14 +145,8 @@
         }
         else
         {
-            <nav class="workflow-navigation" aria-label="Jump to workflow stage">
-                @foreach (var column in VisibleColumns)
-                {
-                    <button type="button" @onclick="@(() => JumpToColumnAsync(column.Id))">@column.Name <span>@VisibleItems.Count(x => x.ColumnId == column.Id)</span></button>
-                }
-            </nav>
             @if (HasFilters && VisibleItems.Count == 0) { <p class="board-notice" role="status">No work matches these filters. <button type="button" @onclick="ClearFilters">Clear filters</button></p> }
-            <div class="workflow-columns" @ref="_columns" aria-label="Work board columns">
+            <div class="workflow-columns" aria-label="Work board columns">
                 @foreach (var column in VisibleColumns)
                 {
                     var columnItems = VisibleItems.Where(x => x.ColumnId == column.Id).ToList();
@@ -238,8 +230,6 @@
     private Guid? _requestedSprintId;
     private int _executionRequest;
     private IReadOnlyDictionary<Guid, Wire.WorkItemExecutionResponse> _executionItems = new Dictionary<Guid, Wire.WorkItemExecutionResponse>();
-    private ElementReference _columns;
-    private IJSObjectReference? _module;
     private bool CanPlan(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status is "Planned" or "Active" && Detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope);
     private bool CanStart(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status == "Planned" && !Sprints.Any(x => x.Status is "Active" or "Paused") && Detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Start);
     private bool CanReadSprints => Detail.Board.AllowedActions.Contains(WorkSprintActions.Read);
@@ -335,19 +325,9 @@
         if (item is not null && item.Id != beforeId && !Busy && WorkBoardPresentation.CanMove(Detail, item, column))
             await OnDrop.InvokeAsync(new WorkBoardDropRequest(item, column, beforeId));
     }
-    private async Task JumpToColumnAsync(Guid id)
-    {
-        try
-        {
-            _module ??= await JavaScript.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/workBoard.js");
-            await _module.InvokeVoidAsync("scrollToColumn", _columns, id.ToString());
-        }
-        catch (JSDisconnectedException) { }
-    }
-    public async ValueTask DisposeAsync()
+    public void Dispose()
     {
         _disposed = true;
         _executionRequest++;
-        if (_module is not null) { try { await _module.DisposeAsync(); } catch (JSDisconnectedException) { } }
     }
 }

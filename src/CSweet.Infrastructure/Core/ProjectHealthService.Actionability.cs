@@ -16,6 +16,9 @@ public sealed partial class ProjectHealthService
             incident.ReviewAt > clock.GetUtcNow()) return false;
         if (OwnerReport(incident) is { } report &&
             report.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash) return false;
+        // A failure is evidence for manager recovery, not by itself a request for human input.
+        // Legacy reports must be reassessed; never infer authority from their prose or choices.
+        if (OwnerReport(incident) is not { RequiresOwnerInput: true, OwnerInputReason: { Length: > 0 } }) return false;
         return await HasCurrentIncidentFailureAsync(incident, token, observations);
     }
 

@@ -45,6 +45,32 @@ public sealed class WorkBoardWorkspaceTests
     }
 
     [Fact]
+    public async Task FocusedCardShowsRevisionLinksOutsideTheOpenTicketButton()
+    {
+        var sprint = Sprint("Active");
+        var item = Item("[prisma-feasibility] Pipeline & architecture validation", sprint.Id) with { AssignedDisplayName = "Victor Lin", EstimatePoints = 6 };
+        var artifact = Guid.NewGuid(); var revision = Guid.NewGuid();
+        var evidence = new Wire.WorkExecutionEvidence("artifact-revision", "video-game.technical-design.v1",
+            System.Text.Json.JsonSerializer.Serialize(new { artifactId = artifact, revisionId = revision, sha256 = "hash-hidden-from-card" }));
+        var outcome = new Wire.WorkExecutionOutcomeV1(Guid.NewGuid(), Guid.NewGuid(), "Completed", "accepted", "Reviewed", default, [evidence], []);
+        var stage = new Wire.WorkStageExecutionResponse(Guid.NewGuid(), "review", "Agent", 1, "Completed", "Agent", null, null, null, 1, null, null, null, null, DateTimeOffset.UtcNow)
+        { LatestOutcome = outcome with { Output = System.Text.Json.JsonSerializer.SerializeToElement(new { }) } };
+        var executionItem = ExecutionItem(item, "") with { CurrentStageKey = "specialist-execution", Status = "Pending", Stages = [stage] };
+        var execution = new Wire.WorkSprintExecutionResponse(Guid.NewGuid(), BoardId, sprint.Id, Guid.NewGuid(), Guid.NewGuid(), "Active", 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, [executionItem]);
+        var (html, requests) = await Render(Detail([item], [WorkSprintActions.Read, WorkOrchestrationActions.Read]), [sprint], HttpStatusCode.OK, execution);
+        Assert.Single(requests);
+        Assert.Contains("1 document revision", html);
+        Assert.Contains($"revision={revision:D}", html);
+        Assert.Contains("Technical Design", html);
+        Assert.DoesNotContain("hash-hidden-from-card", html);
+        var start = html.IndexOf("class=\"ticket-open\"", StringComparison.Ordinal);
+        var end = html.IndexOf("</button>", start, StringComparison.Ordinal);
+        Assert.DoesNotContain("<a ", html[start..end]);
+        if (Environment.GetEnvironmentVariable("CSWEET_DETAIL_PREVIEWS") is string path)
+            await File.WriteAllTextAsync(Path.Combine(path, "focused-card-component.html"), html);
+    }
+
+    [Fact]
     public void SelectSprintPrefersActiveThenPausedAndPreservesExplicitPastSelection()
     {
         var active = Sprint("Active"); var paused = Sprint("Paused"); var past = Sprint("Completed"); var planned = Sprint("Planned");

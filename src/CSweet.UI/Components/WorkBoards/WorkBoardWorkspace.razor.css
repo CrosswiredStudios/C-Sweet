@@ -5,6 +5,9 @@ button { cursor: pointer; color: inherit; }
 button:disabled { cursor: default; opacity: .55; }
 button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
 .board-header { padding: 16px 24px 0; background: var(--mud-palette-surface); border-bottom: 1px solid var(--board-line); }
+.board-header.is-embedded { display: flex; align-items: center; gap: 16px; }
+.board-header.is-embedded .board-title-row { order: 2; flex-shrink: 0; margin: 0 0 10px; }
+.board-header.is-embedded .board-tabs { flex: 1; min-width: 0; }
 .back-link { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; font-size: 12px; color: var(--board-muted); }
 .board-title-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 12px 0 18px; }
 .board-title-row > div:first-child { min-width: 0; }
@@ -54,10 +57,6 @@ h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .board-error { padding: 12px; border: 1px solid var(--mud-palette-warning); border-radius: 7px; margin-bottom: 12px; font-size: 13px; overflow-wrap: anywhere; }
 .board-error button, .board-notice button { border: 0; background: transparent; text-decoration: underline; }
 .board-notice { padding: 9px 0; font-size: 13px; color: var(--board-muted); }
-.workflow-navigation { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 0 12px; }
-.workflow-navigation button { border: 0; border-radius: 4px; padding: 5px 7px; background: transparent; color: var(--board-muted); font-size: 12px; }
-.workflow-navigation button:hover { background: var(--board-soft); }
-.workflow-navigation span { margin-left: 4px; color: var(--mud-palette-text-primary); }
 .workflow-columns { display: flex; gap: 8px; align-items: stretch; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding: 0 0 16px; scrollbar-width: thin; scrollbar-color: var(--board-line) transparent; }
 /* Columns share the available width (about nine fit a 1080p screen) and scroll only when they cannot. */
 .workflow-column { flex: 1 1 180px; min-width: 180px; max-width: 280px; padding: 6px; min-height: 360px; border: 1px solid transparent; border-radius: 8px; background: var(--board-soft); }
@@ -141,7 +140,7 @@ h3 { margin: 0; font-size: 14px; font-weight: 600; }
     .display-options-panel { right: auto; left: 0; }
 }
 @media (pointer: coarse) {
-    .board-tabs button, .icon-button, .quiet-button, .primary-button, .workflow-navigation button, .display-options summary { min-height: 44px; }
+    .board-tabs button, .icon-button, .quiet-button, .primary-button, .display-options summary { min-height: 44px; }
     .board-search input, .sprint-selection select { font-size: 16px; }
     .ticket-drag { width: 32px; height: 44px; top: 0; right: 0; }
     .ticket-top { padding-right: 22px; }

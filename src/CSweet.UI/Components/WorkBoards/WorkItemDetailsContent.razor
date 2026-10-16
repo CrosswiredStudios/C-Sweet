@@ -1,0 +1,236 @@
+@using System.Net
+@using CSweet.Contracts.WorkManagement
+@using Wire = CSweet.WorkManagement.Contracts
+@inject HttpClient Http
+@implements IDisposable
+
+<div class="editorial-ticket" aria-label="@Item.Title">
+    <header class="ticket-editorial-header">
+        <div class="ticket-breadcrumb"><span>@Board.Board.Name</span><span aria-hidden="true">/</span><strong>@(Item.Identifier ?? "Work item")</strong></div>
+        <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="@(() => Closed.InvokeAsync())" aria-label="Close work item details" />
+    </header>
+    <div class="ticket-editorial-hero">
+        <div class="ticket-eyebrow"><MudIcon Icon="@Icons.Material.Outlined.Assignment" Size="Size.Small" />@WorkBoardWorkspacePresentation.TypeLabel(Item)</div>
+        <h2>@DisplayTitle</h2>
+        <div class="ticket-title-context">
+            @if (TitleTag is { } tag) { <span class="ticket-title-tag">@tag</span> }
+            <span>Planning revision @Item.PlanningRevision</span>
+        </div>
+        <div class="ticket-properties">
+            <span class="ticket-state @StateClass"><MudIcon Icon="@Icons.Material.Outlined.RadioButtonChecked" Size="Size.Small" />@Item.Status</span>
+            <span class="ticket-importance"><MudIcon Icon="@Icons.Material.Outlined.Flag" Size="Size.Small" />@Item.Priority</span>
+            <span class="ticket-assignee"><span class="ticket-assignee-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="Item.AssignedEmployeeId" IsAgent="@(Item.AssignedInstallationId.HasValue)" Initials="@Initials(Item.AssignedDisplayName)" /></span><span>@(Item.AssignedDisplayName ?? "Unassigned")</span></span>
+            <span class="ticket-points"><MudIcon Icon="@Icons.Material.Outlined.Speed" Size="Size.Small" />@(Item.EstimatePoints.HasValue ? $"{Item.EstimatePoints:0.##} points" : "No estimate")</span>
+        </div>
+    </div>
+    <MudTabs Class="ticket-editorial-tabs" KeepPanelsAlive="true" LazyLoadPanels="true" ActivePanelIndex="_tab" ActivePanelIndexChanged="SelectTabAsync" MinimumTabWidth="0" Elevation="0">
+        <MudTabPanel Text="Overview">
+            <div class="ticket-editorial-body">
+                @AttentionContent
+                <div class="ticket-editorial-grid">
+                    <main class="ticket-reading-column">
+                        <section class="ticket-reading-section">
+                            <h3><MudIcon Icon="@Icons.Material.Outlined.Explore" Size="Size.Small" />Outcome</h3>
+                            <p class="ticket-outcome">@(string.IsNullOrWhiteSpace(Item.Description) ? "No description has been added." : Item.Description)</p>
+                        </section>
+                        @if (Item.Planning is { } planning)
+                        {
+                            <section class="ticket-reading-section">
+                                <h3><MudIcon Icon="@Icons.Material.Outlined.FactCheck" Size="Size.Small" />Acceptance criteria <span class="ticket-section-count">@planning.AcceptanceCriteria.Count</span></h3>
+                                @if (planning.AcceptanceCriteria.Count > 0)
+                                {
+                                    <ol class="ticket-criteria">@foreach (var criterion in planning.AcceptanceCriteria) { <li>@criterion</li> }</ol>
+                                }
+                                else { <p class="ticket-secondary">No acceptance criteria have been added.</p> }
+                            </section>
+                            <section class="ticket-reading-section">
+                                <details class="ticket-disclosure">
+                                    <summary><MudIcon Icon="@Icons.Material.Outlined.FormatListBulleted" Size="Size.Small" />Requirements <span class="ticket-section-count">@planning.Requirements.Count</span></summary>
+                                    <div class="ticket-disclosure-content">
+                                        @if (planning.Requirements.Count > 0) { <ul>@foreach (var value in planning.Requirements) { <li>@value</li> }</ul> }
+                                        else { <p>No requirements have been added.</p> }
+                                    </div>
+                                </details>
+                                @if (planning.Constraints is { Count: > 0 } constraints)
+                                {
+                                    <details class="ticket-disclosure"><summary><MudIcon Icon="@Icons.Material.Outlined.Tune" Size="Size.Small" />Constraints <span class="ticket-section-count">@constraints.Count</span></summary><div class="ticket-disclosure-content"><ul>@foreach (var value in constraints) { <li>@value</li> }</ul></div></details>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(planning.ArchitectureArtifactDigest))
+                                {
+                                    <details class="ticket-disclosure"><summary><MudIcon Icon="@Icons.Material.Outlined.Fingerprint" Size="Size.Small" />Architecture reference</summary><div class="ticket-disclosure-content"><code>@planning.ArchitectureArtifactDigest</code></div></details>
+                                }
+                            </section>
+                        }
+                        <section class="ticket-reading-section">
+                            <h3><MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Small" />Related work</h3>
+                            @if (Board.Items.FirstOrDefault(x => x.Id == Item.ParentItemId) is { } parent)
+                            {
+                                <button type="button" class="ticket-related-link" @onclick="@(() => OnSelectItem.InvokeAsync(parent))"><MudIcon Icon="@Icons.Material.Outlined.SubdirectoryArrowLeft" Size="Size.Small" /><span>@parent.Title<small>Parent @parent.Kind.ToLowerInvariant() · @parent.Identifier</small></span></button>
+                            }
+                            @{ var children = Board.Items.Where(x => x.ParentItemId == Item.Id).OrderBy(x => x.Rank).ToList(); }
+                            <details class="ticket-disclosure"><summary>Child tickets <span class="ticket-section-count">@children.Count(x => x.Status == "Completed") / @children.Count complete</span></summary><div class="ticket-disclosure-content">
+                                @if (children.Count == 0) { <p>No child tickets.</p> }
+                                @foreach (var child in children)
+                                {
+                                    <button type="button" class="ticket-related-link" @onclick="@(() => OnSelectItem.InvokeAsync(child))"><MudIcon Icon="@Icons.Material.Outlined.SubdirectoryArrowRight" Size="Size.Small" /><span>@child.Title<small>@child.Identifier · @child.Status</small></span></button>
+                                }
+                            </div></details>
+                            @foreach (var related in RelatedItems)
+                            {
+                                <button type="button" class="ticket-related-link" @onclick="@(() => OnSelectItem.InvokeAsync(related))"><MudIcon Icon="@Icons.Material.Outlined.Link" Size="Size.Small" /><span>@related.Title<small>@related.Identifier · @related.Status</small></span></button>
+                            }
+                        </section>
+                    </main>
+                    <aside class="ticket-delivery-sidebar" aria-label="Ticket delivery">
+                        <section><h3>Delivery</h3>@DeliveryContent
+                            @if (_execution is not null) { <div class="ticket-stage-label">Current stage</div><p class="ticket-stage-name">@WorkEvidencePresentation.ReadableName(_execution.CurrentStageKey)</p> }
+                        </section>
+                        <section>
+                            <h3><MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />Documents &amp; evidence @if (EvidenceCount > 0) { <span class="ticket-section-count">@EvidenceCount</span> }</h3>
+                            @if (_executionLoading) { <p class="ticket-secondary" role="status">Loading references…</p> }
+                            else if (_executionError is not null) { <p class="ticket-secondary" role="alert">@_executionError</p><MudButton Size="Size.Small" OnClick="LoadExecutionAsync">Retry references</MudButton> }
+                            else if (EvidenceCount > 0) { <WorkEvidenceLinks OrganizationId="Board.Board.OrganizationId" Evidence="Evidence" Collapsed="false" /> }
+                            else { <p class="ticket-secondary">No references available in this view.</p> }
+                        </section>
+                        <section><h3><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" Size="Size.Small" />Approvals</h3>
+                            @if (Item.Approvals.Count == 0) { <p class="ticket-approval-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircleOutline" Size="Size.Small" />No specialist approval required.</p> }
+                            @foreach (var approval in Item.Approvals)
+                            {
+                                <MudAlert Severity="@ApprovalSeverity(approval.Status)" Variant="Variant.Outlined" Dense="true" Class="mt-2">@approval.PolicyKey · @approval.Status · revision @approval.PlanningRevision @if (!string.IsNullOrWhiteSpace(approval.Rationale)) { <div>@approval.Rationale</div> }</MudAlert>
+                            }
+                        </section>
+                    </aside>
+                </div>
+            </div>
+        </MudTabPanel>
+        <MudTabPanel Text="Discussion">
+            <div class="ticket-editorial-body ticket-discussion"><WorkItemComments @ref="_comments" @key="(Board.Board.OrganizationId, Item.Id)" OrganizationId="Board.Board.OrganizationId" BoardId="Board.Board.Id" ItemId="Item.Id" /></div>
+        </MudTabPanel>
+        <MudTabPanel Text="Activity">
+            <div class="ticket-editorial-body">
+                <div class="ticket-activity-heading"><h3>Activity</h3><MudButton Size="Size.Small" Disabled="_activityLoading" OnClick="LoadActivityAsync">Refresh activity</MudButton></div>
+                @if (_activityLoading) { <MudProgressLinear Indeterminate="true" /> }
+                else if (_activityError is not null) { <MudAlert Severity="Severity.Warning" role="alert">@_activityError</MudAlert> }
+                else if (_activity.Count == 0) { <p class="ticket-secondary">No recorded activity yet.</p> }
+                else
+                {
+                    <ol class="ticket-activity-list">@foreach (var activity in _activity)
+                    {
+                        <li><span class="ticket-activity-mark" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.History" Size="Size.Small" /></span><div><strong>@activity.ActorDisplayName</strong><p>@ActivityLabel(activity.EventType)</p><time datetime="@activity.OccurredAt.ToString("O")">@activity.OccurredAt.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</time></div></li>
+                    }</ol>
+                }
+            </div>
+        </MudTabPanel>
+    </MudTabs>
+    <footer class="ticket-editorial-footer"><WorkTracking @key="(Board.Board.OrganizationId, Item.Id)" OrganizationId="Board.Board.OrganizationId" ItemId="Item.Id" /><div class="ticket-footer-actions">@FooterContent</div></footer>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public WorkBoardDetailResponse Board { get; set; } = default!;
+    [Parameter, EditorRequired] public WorkBoardItemResponse Item { get; set; } = default!;
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback Closed { get; set; }
+    [Parameter] public EventCallback<WorkBoardItemResponse> OnSelectItem { get; set; }
+    [Parameter] public RenderFragment? DeliveryContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+    [Parameter] public RenderFragment? AttentionContent { get; set; }
+
+    private int _tab, _executionRequest, _activityRequest;
+    private bool _wasOpen, _executionLoading, _activityLoading, _activityLoaded, _disposed;
+    private string? _executionError, _activityError;
+    private (Guid Organization, Guid Board, Guid Item, Guid? Sprint)? _binding;
+    private Wire.WorkItemExecutionResponse? _execution;
+    private IReadOnlyList<WorkItemActivityResponse> _activity = [];
+    private WorkItemComments? _comments;
+    private IEnumerable<Wire.WorkExecutionEvidence> Evidence => _execution?.Stages.SelectMany(x => x.LatestOutcome?.Evidence ?? []) ?? [];
+    private int EvidenceCount => WorkEvidencePresentation.Entries(Evidence).Count;
+    private int TitlePrefixEnd => Item.Title.StartsWith('[') && Item.Title.IndexOf(']') is > 1 and <= 65 ? Item.Title.IndexOf(']') : -1;
+    private string? TitleTag => TitlePrefixEnd > 0 ? Item.Title[1..TitlePrefixEnd] : null;
+    private string DisplayTitle => TitlePrefixEnd > 0 && !string.IsNullOrWhiteSpace(Item.Title[(TitlePrefixEnd + 1)..]) ? Item.Title[(TitlePrefixEnd + 1)..].TrimStart() : Item.Title;
+    private string StateClass => Item.Status switch { "Blocked" or "Failed" => "is-blocked", "Completed" => "is-complete", _ => "" };
+    private IEnumerable<WorkBoardItemResponse> RelatedItems => Board.Items.Where(x => x.Id != Item.Id &&
+        ((Item.Planning?.DependencyItemIds.Contains(x.Id) ?? false) || (x.Planning?.DependencyItemIds.Contains(Item.Id) ?? false))).OrderBy(x => x.Rank);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var binding = (Board.Board.OrganizationId, Board.Board.Id, Item.Id, Item.SprintId);
+        var changed = _binding != binding;
+        if (changed)
+        {
+            _binding = binding; _tab = 0; _execution = null; _activity = []; _activityLoaded = false;
+            _activityError = null; _executionError = null; _executionRequest++; _activityRequest++;
+        }
+        if (!Board.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
+        { _executionRequest++; _execution = null; _executionLoading = false; _executionError = null; }
+        if (!Open) { _wasOpen = false; _executionRequest++; _activityRequest++; return; }
+        var reopened = !_wasOpen;
+        _wasOpen = true;
+        if (changed || reopened) await LoadExecutionAsync();
+        if (reopened && _tab == 2) await LoadActivityAsync();
+    }
+
+    public async Task ReloadAsync()
+    {
+        if (!Open || _disposed) return;
+        await LoadExecutionAsync();
+        if (_comments is not null) await _comments.ReloadAsync();
+        if (_activityLoaded || _tab == 2) await LoadActivityAsync();
+        if (!_disposed) await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SelectTabAsync(int tab)
+    {
+        _tab = tab;
+        if (tab == 2 && !_activityLoaded) await LoadActivityAsync();
+    }
+
+    private async Task LoadExecutionAsync()
+    {
+        var request = ++_executionRequest;
+        _executionError = null;
+        if (!Open || Item.SprintId is null || !Board.Board.AllowedActions.Contains(WorkOrchestrationActions.Read)) { _execution = null; _executionLoading = false; return; }
+        _executionLoading = true;
+        var itemId = Item.Id;
+        try
+        {
+            using var response = await Http.GetAsync($"api/organizations/{Board.Board.OrganizationId:D}/work/boards/{Board.Board.Id:D}/orchestration/sprints/{Item.SprintId:D}/execution");
+            if (_disposed || request != _executionRequest) return;
+            if (response.StatusCode == HttpStatusCode.NotFound) { _execution = null; return; }
+            response.EnsureSuccessStatusCode();
+            var execution = await response.Content.ReadFromJsonAsync<Wire.WorkSprintExecutionResponse>();
+            if (!_disposed && request == _executionRequest) _execution = execution?.Items.FirstOrDefault(x => x.WorkItemId == itemId);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (!_disposed && request == _executionRequest) { _execution = null; _executionError = "References are unavailable or your access has changed."; } }
+        finally { if (!_disposed && request == _executionRequest) _executionLoading = false; }
+    }
+
+    private async Task LoadActivityAsync()
+    {
+        var request = ++_activityRequest;
+        _activityError = null; _activityLoading = true;
+        try
+        {
+            using var response = await Http.GetAsync($"api/organizations/{Board.Board.OrganizationId:D}/work/boards/{Board.Board.Id:D}/items/{Item.Id:D}/collaboration");
+            response.EnsureSuccessStatusCode();
+            var collaboration = await response.Content.ReadFromJsonAsync<WorkItemCollaborationResponse>();
+            if (!_disposed && request == _activityRequest) { _activity = collaboration?.Activity.OrderByDescending(x => x.OccurredAt).ToList() ?? []; _activityLoaded = true; }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        { if (!_disposed && request == _activityRequest) { _activity = []; _activityError = "Activity is unavailable or your access has changed."; } }
+        finally { if (!_disposed && request == _activityRequest) _activityLoading = false; }
+    }
+
+    private static string Initials(string? name) => string.IsNullOrWhiteSpace(name) ? "—" : string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
+    private static Severity ApprovalSeverity(string status) => status switch { "Approved" or "Waived" => Severity.Success, "ChangesRequested" => Severity.Error, _ => Severity.Warning };
+    private static string ActivityLabel(string value) => value switch
+    {
+        "comment.created" => "Added a comment", "comment.updated" => "Edited a comment", "comment.deleted" => "Deleted a comment",
+        "item.created" => "Created the ticket", "item.moved" => "Moved the ticket", "item.transferred" => "Transferred the ticket",
+        "item.completed" => "Completed the ticket", "item.cancelled" => "Cancelled the ticket", "item.reopened" => "Reopened the ticket",
+        "item.sprint.assigned" => "Assigned the ticket to a sprint", "item.sprint.removed" => "Returned the ticket to the backlog",
+        "item.sprint.carried-over" => "Carried the ticket into another sprint", "item.estimate.changed" => "Changed the estimate",
+        _ => WorkEvidencePresentation.ReadableName(value.Replace('.', ' '))
+    };
+    public void Dispose() { _disposed = true; _executionRequest++; _activityRequest++; }
+}

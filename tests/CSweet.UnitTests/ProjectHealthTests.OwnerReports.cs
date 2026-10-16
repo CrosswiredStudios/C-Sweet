@@ -112,7 +112,8 @@ public sealed partial class ProjectHealthTests
             "The scope reconciliation task remains blocked. Recorded authority direction must be incorporated into the accepted brief. Remaining logistics facts must be collected while unaffected work continues.",
             "No completed recovery is recorded.", "Coordinate a brief revision with the accountable Producer.",
             [new("reconcile", "Reconcile the accepted brief", "Coordinate the accepted direction with the Producer.", "Coordinate the accepted brief revision with the accountable Producer, preserving approvals."),
-             new("evidence", "Collect missing logistics facts", "Identify the remaining contractor and playtest facts.", "Identify and request the missing logistics facts.")], "reconcile", state.Hash);
+             new("evidence", "Collect missing logistics facts", "Identify the remaining contractor and playtest facts.", "Identify and request the missing logistics facts.")], "reconcile", state.Hash)
+            { RequiresOwnerInput = true, OwnerInputReason = "Confirm the contractor budget before committing delivery scope." };
         await f.Service.ReportAsync(f.Org, f.Chief.Id, new(incident.Id, incident.Revision, "owner-report", incident.Facts,
             "Recorded scope reconciliation blocker", "Remaining logistics facts", report.NextStep) { OwnerReport = report }, default);
         if (deliver) await f.Service.DeliverAsync(default);

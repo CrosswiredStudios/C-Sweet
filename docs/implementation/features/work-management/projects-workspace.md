@@ -51,6 +51,29 @@ and `sprint` query parameters select an authorized project board and optionally
 open a ticket or sprint. Board operations continue to use their own grants;
 project membership does not confer board access.
 
+When embedded in a project, `WorkBoardWorkspace` starts with its view tabs and
+board controls instead of repeating the project title or a "Project board" label.
+The sprint summary shows the selection and progress without the generated goal
+text; full goals remain in the sprint directory. Workflow names and counts appear
+in the columns themselves without a second navigation strip above them.
+
+`WorkBoards` keeps its temporary ticket drawer mounted so opening and closing
+can animate. `WorkBoards.razor.css` sizes it to `min(1180px, 92vw)`, uses the full
+viewport below 800px, and places requirements beside delivery controls on desktop.
+The header and close footer stay visible while the body scrolls. The closed pane
+is inert with its focus trap disabled; reduced-motion preferences disable sliding.
+
+`WorkItemDetailsContent` implements the Editorial presentation inside that drawer.
+Its Overview tab prioritizes the outcome and numbered acceptance criteria, with
+requirements, constraints, and the architecture digest in native disclosures.
+The delivery sidebar retains the authorized sprint control, approvals, current
+stage, and exact revision links from `WorkEvidenceLinks`. Discussion reuses
+`WorkItemComments`; Activity reads the existing collaboration endpoint on demand.
+Visited tabs stay mounted to preserve comment drafts. The host retains estimate,
+move, retry and more-actions commands, and refreshes the pane on board events and
+reconnect. Revision requests are scoped to the selected ticket and sprint, and
+late responses cannot replace a newer selection's references or activity.
+
 `WorkBoards` also handles `/projects/boards/{boardId}`. The original `/work` and
 `/work/boards/{boardId}` routes remain valid for existing links. The sidebar has a
 single Projects entry, and switching organizations returns to a directory rather

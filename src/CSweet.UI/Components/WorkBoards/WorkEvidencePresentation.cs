@@ -19,8 +19,7 @@ public static class WorkEvidencePresentation
             else
             {
                 // Commit evidence has no repository URL; never treat its arbitrary value as a link.
-                entries.Add(new(item.Kind == "target-commit" ? "Target commit" : "Commit", null, null,
-                    WorkBoardWorkspacePresentation.CardText(item.Value, 12)));
+                entries.Add(new(item.Kind == "target-commit" ? "Target commit" : "Commit", null, null, item.Value));
             }
         }
         return entries.DistinctBy(x => x.ArtifactId.HasValue

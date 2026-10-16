@@ -2,7 +2,7 @@
 @using CSweet.Contracts.Communications
 @inject HttpClient Http
 
-<AttentionRequestCard Kind="@(Incident.Collaboration is null ? "Project stalled" : "Collaboration")"
+<AttentionRequestCard Kind="Input needed"
     EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
     Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@(_notice ?? (Incident.ReportDeliveryPending ? "Response options are being prepared. You can review the affected work now." : null))">

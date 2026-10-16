@@ -364,3 +364,37 @@ SDK 4.1.1 makes reports readable for a nontechnical owner. `ManagerIncidentCoord
 `ProjectHealthService.PresentAsync` uses the shared concise factual projection for older verbose reports without rewriting their saved history or decision authority. `RefreshOwnerReportsAsync` discovers reports needing the newer format; durable keys include the installed package revision so upgrading the manager can refresh unchanged evidence. `CurrentIncidentStateAsync` includes current collaboration status alongside historical failures, allowing reports to distinguish activity from an unresolved launch problem.
 
 `ReadAttentionAsync` exposes a prepared, authorized owner report even when its chat delivery is pending. `ProjectIncidentAttentionResponse.ReportDeliveryPending` keeps investigation available and explains why choices are not available yet. Messages, decisions, receipts and notifications still commit together through delivery. Manager releases: Naomi 2.1.1, Producer 3.1.1, Product Manager 3.1.1 and Chief of Staff 2.13.1. All use packaged SDK 4.1.1 with synchronized metadata and release notes. Apply the platform update before importing the manager packages; no additional schema migration is required for this maintenance change.
+
+## Owner input and routine recovery
+
+`ProjectHealthService.IncidentRequiresOwnerInputAsync` requires a current report with
+`IncidentOwnerReport.RequiresOwnerInput == true`, a concrete `OwnerInputReason`, and a
+correlated current failure. Routing an incident to a human and supplying resolution options
+are not evidence that human input is needed. Older reports without the classification stay
+in diagnostics and receive a durable `OwnerReportRequested` refresh; stale pending choices
+and notifications are withdrawn without deleting history or marking the incident resolved.
+
+SDK 4.4.0 `ManagerIncidentCoordinator.GenerateReportAsync` performs bounded investigation
+and tracked delegation using existing grants before generating its report. Routine recovery
+has no owner options. Only a specific decision, approval, missing fact or external action
+that the manager cannot supply may produce owner choices. `RoutineRecoveryFunction` binds
+mutation keys to the incident, operation and target; evidence refreshes do not duplicate a
+request. Routine tools exclude chat replay, document mutation, spending and approval changes.
+
+`ProjectHealthService.RetainManagerRecoveryAsync` returns routine recovery to the reporting
+manager and persists a five-minute review deadline. The existing health worker discovery passes
+and outbox provide wake/reconnect recovery. The episode remains open until authoritative
+work evidence clears it. Routine reporting does not claim a retry occurred.
+
+`CurrentChatExecutionAsync` follows bounded retry ancestry within the same organization,
+conversation and employee. Reports include the current reply and execution state in both
+diagnostics and the freshness hash. Pending work is queued; running requires an unexpired
+execution lease and deadline. Unrelated work and expired leases cannot establish a retry.
+`PresentAsync` keeps execution summaries and recovery state platform-owned even when a
+manager supplies a current report claiming otherwise.
+
+Deploy the platform with SDK 4.4.0 and update Naomi to Creative Director 2.1.3. Other manager
+agents need an SDK 4.4.0 rebuild to emit the explicit owner-input classification. Tests:
+`ProjectHealthTests.RoutineRecoveryWithdrawsOwnerChoiceAndReturnsToManagerWithoutResolvingFailure`,
+`ProjectHealthTests.InterruptedReplyUsesCorrelatedExecutionEvidenceInsteadOfManagerRetryClaims`,
+and SDK `ManagerIncidentCoordinatorTests`.

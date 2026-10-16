@@ -41,7 +41,7 @@
                 }
                 else if (entry.Commit is not null)
                 {
-                    <span class="evidence-unavailable">@entry.Label <code>@entry.Commit</code></span>
+                    <span class="evidence-unavailable">@entry.Label <code>@WorkBoardWorkspacePresentation.CardText(entry.Commit, 12)</code></span>
                 }
                 else
                 {
