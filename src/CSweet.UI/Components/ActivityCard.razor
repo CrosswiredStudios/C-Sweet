@@ -34,6 +34,15 @@
             <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
         }
     </div>
+    @if (Item.CanInspect && Item.PreviousSteps.Any(x => x.Kind == "Workspace"))
+    {
+        <ul class="activity-workspace-progress" aria-label="Recent workspace operations">
+            @foreach (var step in Item.PreviousSteps.Where(x => x.Kind == "Workspace"))
+            {
+                <li><time datetime="@step.OccurredAt.ToString("O")">@step.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time> @step.Text</li>
+            }
+        </ul>
+    }
     <button type="button" class="activity-stream-toggle" data-current-activity-open="@Item.Key" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)">
         <MudIcon Icon="@(IsSelected ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" Size="Size.Small" />
         @(IsSelected ? "Close provider stream" : "Peek at provider stream")

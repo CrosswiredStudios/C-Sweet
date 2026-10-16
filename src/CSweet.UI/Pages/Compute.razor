@@ -1,5 +1,6 @@
 @page "/organizations/{OrganizationId:guid}/compute"
 @using CSweet.Contracts.Compute
+@using CSweet.UI.Components
 @implements IDisposable
 @inject HttpClient Http
 
@@ -10,14 +11,14 @@
         <div>
             <MudText Typo="Typo.overline">Business resources</MudText>
             <MudText Typo="Typo.h4">Compute</MudText>
-            <MudText Color="Color.Secondary">Monitor the environments your agents use to build and test.</MudText>
+            <MudText Color="Color.Secondary">Prepare environments. Give your agents room to build.</MudText>
         </div>
 
     </div>
     <div class="compute-freshness" role="status">
         @if (_dashboard is not null)
         {
-            <span>Checked @_dashboard.CheckedAt.ToLocalTime().ToString("T") · Refreshes every 10 seconds</span>
+            <span>Status checked @_dashboard.CheckedAt.ToLocalTime().ToString("T") · Refreshes every 10 seconds</span>
         }
     </div>
     @if (_error is not null)
@@ -30,84 +31,55 @@
     }
     @if (_dashboard is { } dashboard)
     {
-        @if (dashboard.Setup is { } setup)
+        <div class="compute-heading compute-section-heading">
+            <MudText Typo="Typo.h6">Compute types</MudText>
+            <span class="compute-secondary">Set up once · Reuse across instances</span>
+        </div>
+        <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork"
+                            Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
+        @if (_showCreate && dashboard.CanManageNetwork && dashboard.Setup?.State == "Ready")
         {
-            <MudPaper Outlined="true" Elevation="0" Class="compute-setup pa-5 mb-6">
-                <div class="compute-heading">
-                    <MudText Typo="Typo.h6">Linux preparation</MudText>
-                    <MudChip T="string" Color="@StateColor(setup.State)" Size="Size.Small">@SetupLabel(setup.State)</MudChip>
-                </div>
-                <MudText Class="mt-2">@(setup.DownloadSecondsRemaining == 0 ? "Download complete. Preparing the Linux image." : setup.Stage)</MudText>
-                @if (setup.State == "Running" && setup.PreparationStep > 0)
+            <section class="compute-create" aria-labelledby="create-instance-title">
+                <div class="compute-heading"><h3 id="create-instance-title">Create Linux instance</h3><MudButton OnClick="CloseCreate" Disabled="_creating">Cancel</MudButton></div>
+                <p class="compute-secondary">Choose an agent and its assigned project. Existing compute permissions and capacity limits apply.</p>
+                @if (_creationOptions is null)
                 {
-                    <MudText Typo="Typo.body2" Class="mt-2">Step @setup.PreparationStep of 3 · Download image → Prepare Linux image → Install compute service</MudText>
+                    @if (_creationError is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading instance options" /> }
                 }
-                @if (setup.PreparationStep == 2)
+                else if (_creationOptions.Options.Count == 0)
                 {
-                    <MudText Typo="Typo.h6" Class="mt-3">Expected duration: 10–30 minutes</MudText>
-                    <MudText Typo="Typo.caption">This is the expected duration of the image-build stage. A reliable time remaining is not available yet.</MudText>
+                    <MudAlert Severity="Severity.Info">No eligible agent/project assignments. Assign a compute-capable agent to an active project to create an instance.</MudAlert>
                 }
-                @if (setup.DownloadedBytes is { } bytes)
+                else
                 {
-                    @if (setup.TotalDownloadBytes is > 0)
-                    {
-                        var percent = Math.Clamp(100d * bytes / setup.TotalDownloadBytes.Value, 0, 100);
-                        <div class="compute-heading mt-3">
-                            <MudText Typo="Typo.h6">@percent.ToString("0")% · @Downloaded(bytes) of @Downloaded(setup.TotalDownloadBytes.Value)</MudText>
-                            <MudText Typo="Typo.subtitle1">@DownloadEta(setup)</MudText>
-                        </div>
-                        <MudProgressLinear Value="percent" Color="Color.Primary" Size="Size.Medium" Class="my-3"
-                                           aria-label="Linux image download progress" />
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.h6" Class="mt-2">@Downloaded(bytes) downloaded</MudText>
-                        <MudText Typo="Typo.body2">Total size unavailable · Estimated time unavailable</MudText>
-                    }
-                    @if (setup.DownloadBytesPerSecond is { } speed)
-                    {
-                        <MudText Typo="Typo.body2">@(speed / 1_000_000d < 1 ? $"{speed / 1_000d:0} KB/s" : $"{speed / 1_000_000d:0.0} MB/s") · Recent average speed</MudText>
-                    }
-                    @if (setup.DownloadSecondsRemaining != 0)
-                    {
-                        <MudText Typo="Typo.caption">Time remaining is for the download. Image preparation and instance startup follow.</MudText>
-                    }
+                    <div class="compute-create-fields">
+                        <MudSelect T="ComputeCreationOption" Label="Agent / project" @bind-Value="_creationOption" ToStringFunc="@(option => option is null ? string.Empty : $"{option.Agent} · {option.Project}")" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
+                            @foreach (var option in _creationOptions.Options)
+                            {
+                                <MudSelectItem T="ComputeCreationOption" Value="option">@option.Agent · @option.Project</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudTextField T="string" Label="Instance name" @bind-Value="_instanceName" Variant="Variant.Outlined" MaxLength="64" HelperText="Lowercase letters, numbers and hyphens; start with a letter." Disabled="@(_creating || _pendingCreation is not null)" />
+                        <MudSelect T="int" Label="Lifetime" @bind-Value="_instanceLifetime" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
+                            @if (_creationOptions.MaximumLifetimeSeconds == 0) { <MudSelectItem T="int" Value="0">Until released</MudSelectItem> }
+                            <MudSelectItem T="int" Value="@DefaultLifetime">Release after @TimeSpan.FromSeconds(DefaultLifetime).TotalMinutes.ToString("0") minutes</MudSelectItem>
+                        </MudSelect>
+                    </div>
+                    <p class="compute-secondary">2 vCPU · 2 GiB RAM · 20 GiB disk · Linux only</p>
+                    <p class="compute-secondary">Network access follows the agent's reviewed permissions. Creating an instance grants no new network access.</p>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateInstanceAsync" Disabled="@(_creating || _creationOption is null || string.IsNullOrWhiteSpace(_instanceName))">@(_creating ? "Requesting instance…" : "Create instance")</MudButton>
                 }
-                @if (setup.State is "Running" or "Pending")
-                {
-                    @if (setup.InstallerRunning == true)
-                    {
-                        <MudText Typo="Typo.body2" Class="mt-2">Installer process is running · Verified @dashboard.CheckedAt.ToLocalTime().ToString("T")</MudText>
-                    }
-                    <MudText Typo="Typo.body2" Class="mt-2">Agents waiting for compute continue automatically when preparation finishes.</MudText>
-                    @if (setup.LastProgressAt is { } progress && dashboard.CheckedAt - progress > TimeSpan.FromMinutes(2))
-                    {
-                        <MudAlert Severity="Severity.Warning" Class="mt-3">No recent progress reported. The last update was @progress.ToLocalTime().ToString("g"). Preparation may still be working; this is not confirmation that it has stopped.</MudAlert>
-                    }
-                    else if (setup.LastProgressAt is { } recent)
-                    {
-                        <MudText Typo="Typo.caption">Progress reported @recent.ToLocalTime().ToString("T")</MudText>
-                    }
-                }
-                @if (setup.FailureCode is not null)
-                {
-                    <MudAlert Severity="Severity.Error" Class="mt-3">Preparation could not complete. Reference: @setup.FailureCode</MudAlert>
-                    @if (dashboard.CanManageNetwork)
-                    {
-                        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="_repairingSetup" OnClick="RepairSetupAsync">
-                            @(_repairingSetup ? "Requesting repair…" : "Repair Linux preparation")
-                        </MudButton>
-                    }
-                }
-            </MudPaper>
+                @if (_creationError is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">@_creationError</MudAlert> }
+            </section>
         }
-        <MudText Typo="Typo.h6" Class="mb-3">Instances <span class="compute-count">@dashboard.Resources.Count</span></MudText>
+        @if (_creationNotice is not null) { <MudAlert Severity="Severity.Success" Class="mt-4">@_creationNotice</MudAlert> }
+        <MudText Typo="Typo.h6" Class="compute-instances-heading">Instances <span class="compute-count">@dashboard.Resources.Count</span></MudText>
         @if (dashboard.Resources.Count == 0)
         {
             <MudPaper Outlined="true" Elevation="0" Class="compute-empty pa-8">
                 <MudIcon Icon="@Icons.Material.Outlined.Dns" Size="Size.Large" Color="Color.Secondary" />
                 <MudText Typo="Typo.h6" Class="mt-2">No compute instances yet</MudText>
-                <MudText Class="mt-2">@(dashboard.Setup?.State is "Pending" or "Running" ? "Linux preparation is underway. Provisioned instances will appear here." : "Instances appear here when an agent requests compute for this business.")</MudText>
+                <MudText Class="mt-2">@(dashboard.Setup?.State == "Ready" ? "Linux is ready. Create an instance, or let an agent request one when it needs to build or test." : "Prepare Linux to make instances available. Existing requests continue automatically when compute is ready.")</MudText>
             </MudPaper>
         }
         else
@@ -117,14 +89,14 @@
                     <MudTh>Instance</MudTh><MudTh>Agent / project</MudTh><MudTh>State</MudTh><MudTh>Resources</MudTh><MudTh>Lease expires</MudTh><MudTh>Last change</MudTh><MudTh>Browser access</MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Instance"><strong>@context.OperatingSystem</strong><br /><span class="compute-id">@context.Id.ToString("N")[..8]</span></MudTd>
+                    <MudTd DataLabel="Instance"><strong>@(context.Name ?? context.OperatingSystem)</strong><br /><span class="compute-id">@context.OperatingSystem · @context.Id.ToString("N")[..8]</span></MudTd>
                     <MudTd DataLabel="Agent / project"><strong>@context.Agent</strong><br />@context.Project</MudTd>
                     <MudTd DataLabel="State">
                         <MudChip T="string" Color="@StateColor(context.State)" Size="Size.Small">@context.State</MudChip>
                         @if (context.FailureCode is not null) { <div class="compute-failure">@context.FailureCode</div> }
                         @if (context.State is "Requested" or "Provisioning" or "Bootstrapping" && dashboard.CheckedAt - context.UpdatedAt > TimeSpan.FromMinutes(2))
                         {
-                            <div class="compute-failure">No recent provider update. Startup may be stalled.</div>
+                            <div class="compute-secondary">Waiting for a provider update. Last confirmed state shown.</div>
                         }
                         @if (context.DesiredState == "Destroyed" && context.State != "Destroyed") { <div>Removal requested</div> }
                         @if (context.LeaseExpiresAt <= dashboard.CheckedAt && context.State != "Destroyed") { <div>Lease expired</div> }
@@ -198,18 +170,116 @@
     private Guid? _grantBusy;
     private Guid? _releaseConfirm;
     private bool _repairingSetup;
-    private async Task RepairSetupAsync()
+    private bool _showCreate;
+    private bool _creating;
+    private int _createGeneration;
+    private ComputeCreationOptions? _creationOptions;
+    private ComputeCreationOption? _creationOption;
+    private CreateLinuxInstance? _pendingCreation;
+    private Guid _creationRequestId;
+    private string _instanceName = "linux-build-01";
+    private int _instanceLifetime;
+    private string? _creationError;
+    private string? _creationNotice;
+    private int DefaultLifetime => _creationOptions?.MaximumLifetimeSeconds is > 0 and var maximum ? Math.Min(3600, maximum) : 3600;
+    private void CloseCreate() { _showCreate = false; _createGeneration++; }
+    private async Task OpenCreateAsync()
+    {
+        _showCreate = true;
+        _creationOptions = null;
+        _creationOption = null;
+        _creationError = null;
+        var generation = ++_createGeneration;
+        var organization = OrganizationId;
+        try
+        {
+            var options = await Http.GetFromJsonAsync<ComputeCreationOptions>($"api/organizations/{organization}/compute/creation-options", _stop.Token);
+            if (organization != OrganizationId || generation != _createGeneration) return;
+            _creationOptions = options;
+            _creationOption = _pendingCreation is { } pending
+                ? options?.Options.FirstOrDefault(option => option.InstallationId == pending.InstallationId && option.ProjectId == pending.ProjectId)
+                : options?.Options.FirstOrDefault();
+            if (_pendingCreation is null)
+            {
+                _creationRequestId = Guid.NewGuid();
+                _instanceName = $"linux-{_creationRequestId.ToString("N")[..8]}";
+                _instanceLifetime = options?.MaximumLifetimeSeconds == 0 ? 0 : DefaultLifetime;
+            }
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            if (organization != OrganizationId || generation != _createGeneration) return;
+            _creationOptions = null;
+            _creationError = "Could not load instance options. Close this form and try again.";
+        }
+    }
+    private async Task CreateInstanceAsync()
+    {
+        if (_creating || _creationOption is null) return;
+        var organization = OrganizationId;
+        var generation = _createGeneration;
+        _creating = true;
+        _creationError = null;
+        _pendingCreation ??= new(_creationOption.InstallationId, _creationOption.ProjectId, _instanceName.Trim(), _creationRequestId, _instanceLifetime);
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/organizations/{organization}/compute/instances", _pendingCreation, _stop.Token);
+            if (organization != OrganizationId || generation != _createGeneration) return;
+            if (!response.IsSuccessStatusCode)
+            {
+                if ((int)response.StatusCode < 500)
+                {
+                    _pendingCreation = null;
+                    _creationError = response.StatusCode == System.Net.HttpStatusCode.BadRequest
+                        ? "Use a name starting with a lowercase letter, containing only lowercase letters, numbers and hyphens (up to 64 characters), and an allowed lifetime."
+                        : "The request could not be admitted. Check the agent's project permissions, host capacity and existing instances before retrying.";
+                    return;
+                }
+                response.EnsureSuccessStatusCode();
+            }
+            _pendingCreation = null;
+            _showCreate = false;
+            _creationNotice = "Instance request accepted. Provisioning progress appears in Instances.";
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            if (organization == OrganizationId && generation == _createGeneration)
+                _creationError = "The request outcome is not yet confirmed. Retry with the same details to recover it without creating a duplicate.";
+        }
+        finally { if (organization == OrganizationId && generation == _createGeneration) _creating = false; }
+    }
+    private async Task StartSetupAsync()
     {
         if (_repairingSetup) return;
+        var organization = OrganizationId;
         _repairingSetup = true;
         try
         {
-            using var response = await Http.PostAsync($"api/organizations/{OrganizationId}/compute/setup/repair", null, _stop.Token);
+            using var response = await Http.PostAsync($"api/organizations/{organization}/compute/setup", null, _stop.Token);
             response.EnsureSuccessStatusCode();
-            await LoadAsync();
+            if (organization == OrganizationId) await LoadAsync();
         }
-        catch (Exception) { _error = "Could not request Linux preparation repair. Refresh Compute and try again."; }
-        finally { _repairingSetup = false; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception) { if (organization == OrganizationId) _error = "Could not request Linux preparation. Refresh Compute and try again."; }
+        finally { if (organization == OrganizationId) _repairingSetup = false; }
+    }
+    private async Task RepairSetupAsync()
+    {
+        if (_repairingSetup) return;
+        var organization = OrganizationId;
+        _repairingSetup = true;
+        try
+        {
+            using var response = await Http.PostAsync($"api/organizations/{organization}/compute/setup/repair", null, _stop.Token);
+            response.EnsureSuccessStatusCode();
+            if (organization == OrganizationId) await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception) { if (organization == OrganizationId) _error = "Could not request Linux preparation repair. Refresh Compute and try again."; }
+        finally { if (organization == OrganizationId) _repairingSetup = false; }
     }
     private async Task ReleaseAsync(ComputeResourceStatus resource)
     {
@@ -245,6 +315,13 @@
         _loadedOrganization = OrganizationId;
         _dashboard = null;
         _error = null;
+        _showCreate = false;
+        _creating = false;
+        _repairingSetup = false;
+        _pendingCreation = null;
+        _creationNotice = null;
+        _creationError = null;
+        _createGeneration++;
         await LoadAsync();
     }
     private async Task LoadAsync()
@@ -273,18 +350,6 @@
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
     }
-    private static string Downloaded(long bytes) => bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.00} GB" : $"{bytes / 1_000_000d:0} MB";
-    private static string DownloadEta(ComputeSetupStatus setup)
-    {
-        if (setup.DownloadSecondsRemaining == 0) return "Download complete";
-        if (setup.DownloadWaitingForProgress) return "Waiting for download progress · ETA unavailable";
-        if (setup.DownloadSecondsRemaining is not { } seconds) return "Estimating time remaining…";
-        if (seconds < 60) return "Less than a minute remaining";
-        if (seconds < 3600) return $"About {Math.Ceiling(seconds / 60):0} minutes remaining";
-        var minutes = (long)Math.Ceiling(seconds / 60);
-        return $"About {minutes / 60}h {minutes % 60}m remaining";
-    }
-    private static string SetupLabel(string state) => state == "Running" ? "Preparing" : state;
     private static Color StateColor(string state) => state switch { "Ready" => Color.Success, "Failed" => Color.Error,
         "Running" or "Provisioning" or "Bootstrapping" or "Busy" => Color.Info, "Stopped" or "Destroyed" => Color.Default, _ => Color.Warning };
     public void Dispose() { _stop.Cancel(); _stop.Dispose(); }

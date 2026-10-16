@@ -3,6 +3,12 @@ namespace CSweet.Infrastructure.Setup;
 /// <summary>Interprets the SDK's structured failure envelope without exposing exception text.</summary>
 public static class AgentWorkFailure
 {
+    public static bool IsWorkspaceCommandTimeout(string? error) =>
+        error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
+        (error.Split(';').Contains("code=workspace.command.timeout", StringComparer.Ordinal) ||
+         error.Split(';').Contains("code=agent.unhandled", StringComparer.Ordinal) &&
+         error.Split(';').Any(x => x is "exceptionType=WorkspaceCommandTimeoutException" or "exceptionType=WorkspaceCommandTerminationException"));
+
     public static bool IsNonRetryable(string? error) =>
         error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
         error.Split(';').Contains("retryable=false", StringComparer.Ordinal);

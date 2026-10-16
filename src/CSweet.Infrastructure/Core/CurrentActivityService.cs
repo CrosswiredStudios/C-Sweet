@@ -201,7 +201,8 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             "Needs attention" => Safe(c.Ticket?.BlockReason) ?? "Work is blocked",
             "Recovering" => "Execution lease expired; awaiting recovery",
             "Unconfirmed" => "No task progress reported in the last five minutes",
-            _ => inspect ? recent.FirstOrDefault()?.Text ?? (c.Stage is null ? "Executing work" : $"Executing {c.Stage}") : "Executing work"
+            _ => inspect ? recent.FirstOrDefault(x => x.Kind == "Workspace")?.Text ?? recent.FirstOrDefault()?.Text ??
+                (c.Stage is null ? "Executing work" : $"Executing {c.Stage}") : "Executing work"
         };
         var provider = inspect && run is not null ? await db.LlmProviderProfiles.AsNoTracking().Where(x => x.Id == run.ProviderProfileId).Select(x => x.Name).SingleOrDefaultAsync(token) : null;
         if (inspect && state == "Waiting" && run?.Status == "Queued")
@@ -241,7 +242,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             c.Employee.Id, c.Employee.DisplayName, title,
             c.Ticket?.Identifier, c.Category, c.Context, state, action, c.Attempt?.ClaimedAt ?? c.StandaloneRun?.StartedAt ?? c.Ticket?.UpdatedAt ?? c.Work!.CreatedAt,
             lastProgress, c.Attempt?.LeaseExpiresAt, provider, inspect ? run?.Model : null, inspect,
-            recent.Where(x => x.Text != action).Take(2).Reverse().ToArray(), c.StandaloneRun?.Id,
+            recent.Where(x => x.Text != action).OrderByDescending(x => x.Kind == "Workspace").Take(2).Reverse().ToArray(), c.StandaloneRun?.Id,
             kind, c.Employee.Role?.Name, collaborator, inspect ? c.Work?.Name : null,
             c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null,
             c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null);

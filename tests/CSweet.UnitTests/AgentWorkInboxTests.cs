@@ -12,6 +12,60 @@ namespace CSweet.UnitTests;
 public sealed class AgentWorkInboxTests
 {
     [Theory]
+    [InlineData("agent-failure:v1;code=workspace.command.timeout;retryable=true", true)]
+    [InlineData("agent-failure:v1;code=agent.unhandled;exceptionType=WorkspaceCommandTimeoutException;retryable=true", true)]
+    [InlineData("agent-failure:v1;code=runtime.transport;retryable=true", false)]
+    [InlineData("untrusted workspace.command.timeout text", false)]
+    public async Task WorkspaceTimeoutFencesRuntimeBeforeBoundedRetry(string error, bool fences)
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow()); var runtime = Runtime(installation, clock.GetUtcNow());
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var work = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Capability,
+            "example.execute.v1", Json("{}"), "command-timeout", clock.GetUtcNow().AddHours(1));
+        var session = Session(installation, runtime);
+        var claim = (await inbox.ClaimAsync(session, default))!;
+        await inbox.FailAsync(session, work.Id, claim.Attempt, claim.LeaseToken, error, default);
+        Assert.Equal(AgentWorkStatus.Pending, work.Status);
+        Assert.NotNull((await db.AgentWorkAttempts.SingleAsync()).FinishedAt);
+        Assert.Equal(fences ? AgentRuntimeStatus.Stopping : AgentRuntimeStatus.Queued, runtime.Status);
+        if (!fences) return;
+        Assert.Single(db.AgentRuntimeEvents.Where(x => x.Status == AgentRuntimeStatus.Stopping));
+        clock.Advance(TimeSpan.FromSeconds(5));
+        Assert.Null(await inbox.ClaimAsync(session, default));
+        Assert.Equal(1, work.AttemptCount);
+        runtime.TransitionTo(AgentRuntimeStatus.Cancelled, clock.GetUtcNow());
+        var replacement = Runtime(installation, clock.GetUtcNow()); db.Add(replacement); await db.SaveChangesAsync();
+        Assert.NotNull(await inbox.ClaimAsync(Session(installation, replacement), default));
+        Assert.Equal(2, work.AttemptCount);
+    }
+
+    [Fact]
+    public async Task Tool_progress_has_room_beyond_legacy_budget_but_remains_bounded()
+    {
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var installation = Installation(now); var runtime = Runtime(installation, now);
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var session = Session(installation, runtime);
+        var work = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Capability,
+            "example.execute.v1", Json("{}"), "progress-budget", now.AddHours(1));
+        var claim = await inbox.ClaimAsync(session, default);
+        Assert.NotNull(claim);
+        var attempt = await db.AgentWorkAttempts.SingleAsync();
+        attempt.LastProgressSequence = 1000; await db.SaveChangesAsync();
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 1001, Json("{}"), default);
+        attempt.LastProgressSequence = 4095; await db.SaveChangesAsync();
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 4096, Json("{}"), default);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => inbox.AppendProgressAsync(
+            session, work.Id, claim.Attempt, claim.LeaseToken, 4097, Json("{}"), default));
+        Assert.Equal(4096, attempt.LastProgressSequence);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task IdleShutdownFencesClaimsWithoutConsumingPendingWork(bool completed)

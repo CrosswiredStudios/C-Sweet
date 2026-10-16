@@ -17,6 +17,17 @@
 - Keep downstream package pins and each package repository's documented/template/test versions in
   sync. Before handoff, build/test and pack every changed package and verify the `.nupkg` version.
 
+## Developer agent core parity
+
+- Adrian (`CSweet.Agent.Engineer.VideoGame`) and Daniel Kim (`CSweet.Agent.SoftwareDeveloper`)
+  share execution behavior. Apply core fixes to both repositories in the same change, including
+  recovery, workspace checkpoints, progress reporting, validation and execution regression tests.
+  Keep role profiles, identities and independent package versions distinct.
+- Run `./scripts/Test-DeveloperAgentCoreParity.ps1` before handoff of changes to either core.
+  It requires both sibling repositories and compares source (except role profiles) plus harness
+  and progress regression tests after explicit identity substitutions. Do not suppress a mismatch
+  without reviewing whether the change belongs in both agents. Test and package each changed agent.
+
 ## Agent release notes
 
 - When changing an agent repository, bump and synchronize its version BEFORE writing release notes.

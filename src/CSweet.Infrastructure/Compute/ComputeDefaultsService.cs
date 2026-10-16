@@ -120,6 +120,27 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         };
     }
 
+    public async Task<IReadOnlyList<CSweet.Contracts.Compute.ComputeCreationOption>> ListCreationOptionsAsync(Guid organizationId, CancellationToken token)
+    {
+        var agents = await db.CoreOrganizationUsers.AsNoTracking().Where(employee => employee.OrganizationId == organizationId &&
+                employee.EmployeeType == EmployeeType.Agent && employee.IsActive && employee.ArchivedAt == null && employee.AgentInstallationId != null)
+            .OrderBy(employee => employee.DisplayName).ThenBy(employee => employee.Id).Take(100).ToListAsync(token);
+        List<CSweet.Contracts.Compute.ComputeCreationOption> options = [];
+        foreach (var employee in agents)
+        {
+            var installation = await db.AgentInstallations.AsNoTracking().Include(item => item.Grant).SingleOrDefaultAsync(item =>
+                item.Id == employee.AgentInstallationId && item.BusinessId == organizationId.ToString("D") && item.IsEnabled &&
+                item.RevisionStatus == PluginRevisionStatus.Active && item.SetupState == PluginSetupState.Ready, token);
+            if (installation is null || !Approved(installation).Contains(InfrastructureActions.Provision) ||
+                !Approved(installation).Contains(InfrastructureActions.Read)) continue;
+            var projects = await ProjectScopes(organizationId, employee.Id).OrderBy(project => project.Name).ThenBy(project => project.Id)
+                .Take(100 - options.Count).Select(project => new { project.Id, project.Name }).ToListAsync(token);
+            options.AddRange(projects.Select(project => new CSweet.Contracts.Compute.ComputeCreationOption(installation.Id, project.Id, employee.DisplayName, project.Name)));
+            if (options.Count == 100) break;
+        }
+        return options;
+    }
+
     private IQueryable<Workstream> ProjectScopes(Guid organizationId, Guid employeeId) =>
         db.Workstreams.Where(project => project.OrganizationId == organizationId &&
             (project.Status == WorkstreamStatus.Active || project.Status == WorkstreamStatus.Approved) &&

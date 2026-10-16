@@ -9,7 +9,7 @@ internal sealed record ComputeSetupObservation(bool? InstallerRunning, string? F
     internal static ComputeSetupObservation Read(ComputeLocalSetup setup, string directory,
         Func<int, DateTimeOffset, bool?>? running = null)
     {
-        if (setup.State != "Running") return new(null, null);
+        if (setup.State is not ("Running" or "Failed")) return new(null, null);
         try
         {
             var result = ReadJson(Path.Combine(directory, "result.json"));
@@ -26,6 +26,7 @@ internal sealed record ComputeSetupObservation(bool? InstallerRunning, string? F
                 return new(alive, alive == false ? "setup_interrupted" : null);
             }
             // Older installers have no process/result receipt. A terminated transcript can still prove failure.
+            if (setup.PreparationAttemptId is not null) return new(null, null);
             var log = new FileInfo(Path.Combine(directory, "installation.log"));
             if (log.Exists && log.Length <= 1_048_576 && log.LastWriteTimeUtc >= setup.UpdatedAt.UtcDateTime)
             {
@@ -37,12 +38,14 @@ internal sealed record ComputeSetupObservation(bool? InstallerRunning, string? F
                     return new(false, text.Contains("Error exporting vm", StringComparison.Ordinal) ? "image_export_failed" : "local_setup_failed");
             }
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or KeyNotFoundException) { }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or KeyNotFoundException or FormatException) { }
         return new(null, null);
     }
 
     private static bool Matches(JsonDocument? document, ComputeLocalSetup setup) => document is not null &&
-        setup.HandoffHash is not null && document.RootElement.TryGetProperty("attemptHash", out var hash) && hash.GetString() == setup.HandoffHash;
+        (setup.PreparationAttemptId is { } attempt
+            ? document.RootElement.TryGetProperty("attemptId", out var id) && id.TryGetGuid(out var parsed) && parsed == attempt
+            : setup.HandoffHash is not null && document.RootElement.TryGetProperty("attemptHash", out var hash) && hash.GetString() == setup.HandoffHash);
 
     private static JsonDocument? ReadJson(string path)
     {

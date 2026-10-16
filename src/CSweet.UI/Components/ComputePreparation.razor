@@ -1,0 +1,239 @@
+@using CSweet.Contracts.Compute
+@implements IDisposable
+
+<section class="compute-type" aria-labelledby="linux-compute-title">
+    <div class="type-heading">
+        <div class="type-icon"><MudIcon Icon="@Icons.Material.Outlined.Terminal" /></div>
+        <div class="type-identity">
+            <h3 id="linux-compute-title">Linux</h3>
+            <p>Ubuntu · Local compute · Hyper-V</p>
+        </div>
+        <span class="setup-badge @BadgeClass" role="status">@StatusLabel</span>
+        @if (Setup?.State == "Ready" && CanManage)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OnCreate">Create instance</MudButton>
+        }
+        <button type="button" class="preparation-toggle" aria-expanded="@(!_collapsed ? "true" : "false")"
+                aria-controls="linux-preparation-details" @onclick="ToggleDetails">
+            @(_collapsed ? "View preparation" : "Hide preparation")
+            <MudIcon Icon="@(_collapsed ? Icons.Material.Outlined.ExpandMore : Icons.Material.Outlined.ExpandLess)" Size="Size.Small" />
+        </button>
+    </div>
+    <div id="linux-preparation-details" hidden="@_collapsed">
+        <div class="preparation-layout">
+            <ol class="preparation-steps" aria-label="Linux preparation milestones">
+                @for (var index = 0; index < Milestones.Length; index++)
+                {
+                    var step = index + 1;
+                    var complete = Setup?.State == "Ready" || step < Milestone;
+                    var current = step == Milestone && Setup?.State != "Ready";
+                    <li class="@(complete ? "complete" : current ? "current" : "")" aria-current="@(current ? "step" : null)">
+                        <span class="step-marker" aria-hidden="true">@(complete ? "✓" : step.ToString())</span>
+                        <span>@Milestones[index]<span class="sr-only">@(complete ? ", complete" : current ? ", current" : ", pending")</span></span>
+                    </li>
+                }
+            </ol>
+            <div class="preparation-detail">
+                <div aria-live="polite">
+                    <div class="preparation-eyebrow">@(Setup?.State == "Ready" ? "Preparation complete" : Milestone > 0 ? $"Step {Milestone} of 6" : "One-time setup")</div>
+                    <h4>@Title</h4>
+                    <p class="preparation-description">@Description</p>
+                </div>
+                @if (Setup is { State: "Running", DownloadedBytes: { } bytes } download)
+                {
+                    @if (download.TotalDownloadBytes is > 0)
+                    {
+                        var percent = Math.Clamp(100d * bytes / download.TotalDownloadBytes.Value, 0, 100);
+                        <MudProgressLinear Value="percent" Color="Color.Primary" Size="Size.Medium" Class="my-3" aria-label="Linux image download progress" />
+                        <p><strong>@percent.ToString("0")%</strong> · @Downloaded(bytes) of @Downloaded(download.TotalDownloadBytes.Value)</p>
+                    }
+                    else
+                    {
+                        <p>@Downloaded(bytes) downloaded · Total size unavailable</p>
+                    }
+                    <p>@DownloadEta(download)</p>
+                    @if (download.DownloadBytesPerSecond is { } speed)
+                    {
+                        <p class="preparation-secondary">@(speed < 1_000_000 ? $"{speed / 1_000d:0} KB/s" : $"{speed / 1_000_000d:0.0} MB/s") · Recent average speed</p>
+                    }
+                    <p class="preparation-secondary">Time remaining is for the download. Installation and verification follow.</p>
+                }
+                @if (Setup is not null)
+                {
+                    <dl class="preparation-health">
+                        <div><dt>@(Setup.State is "Ready" or "Failed" ? "Attempt started" : "Time in this step")</dt><dd>@Elapsed</dd></div>
+                        <div><dt>Installer health</dt><dd>@HealthLabel</dd></div>
+                    </dl>
+                }
+                @if (Notice is { Length: > 0 })
+                {
+                    <div class="preparation-notice @BadgeClass">@Notice</div>
+                }
+                <div class="preparation-actions">
+                    @if (CanManage && Setup is null)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnSetup">@(Busy ? "Requesting setup…" : "Set up Linux")</MudButton>
+                    }
+                    else if (CanManage && Setup?.CanRetry == true)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnRetry">@(Busy ? "Requesting preparation…" : Setup.Health == "NeedsPermission" ? "Continue setup" : "Retry preparation")</MudButton>
+                    }
+                    else if (Setup is { State: "Running", Health: "Unknown" })
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="OnRefresh">Check status</MudButton>
+                    }
+                    @if (Setup?.LastProgressAt is { } last)
+                    {
+                        <span class="preparation-secondary">Last milestone · @last.ToLocalTime().ToString("t")</span>
+                    }
+                </div>
+                @if (Setup?.Activity.Count > 0 || Setup?.FailureCode is not null)
+                {
+                    <details class="preparation-activity">
+                        <summary>Preparation activity</summary>
+                        <ol>
+                            @foreach (var entry in Setup.Activity)
+                            {
+                                <li><time datetime="@entry.At.ToString("O")">@entry.At.ToLocalTime().ToString("T")</time> @entry.Message</li>
+                            }
+                        </ol>
+                        @if (Setup.FailureCode is not null) { <p>Reference: @Setup.FailureCode</p> }
+                    </details>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="preparation-footer">@Footer</div>
+</section>
+
+@code {
+    [Parameter] public ComputeSetupStatus? Setup { get; set; }
+    [Parameter] public DateTimeOffset CheckedAt { get; set; }
+    [Parameter] public bool CanManage { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnSetup { get; set; }
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback OnCreate { get; set; }
+    private static readonly string[] Milestones = ["Check requirements", "Download image", "Install Ubuntu", "Finalize image", "Connect compute service", "Verify readiness"];
+    private readonly CancellationTokenSource _lifetime = new();
+    private string? _observedState;
+    private Guid? _observedAttempt;
+    private bool _collapsed;
+    private bool _disposed;
+    private int _collapseVersion;
+    private int Milestone => Setup?.Milestone > 0 ? Setup.Milestone : Setup?.PreparationStep switch { 1 => 2, 2 => 3, 3 => 5, _ => 0 };
+    private string StatusLabel => Setup switch
+    {
+        null => "Not configured",
+        { State: "Ready" } => "Ready",
+        { Health: "NeedsPermission" } => "Needs permission",
+        { State: "Failed" } => "Failed",
+        { State: "Pending" } => "Queued",
+        { Health: "Unknown" } => "Status unknown",
+        { Milestone: 6 } => "Verifying",
+        _ => "Preparing"
+    };
+    private string BadgeClass => Setup switch
+    {
+        { State: "Ready" } => "success",
+        { Health: "NeedsPermission" } => "warning",
+        { State: "Failed" } => "error",
+        { State: "Running", Health: "Unknown" } => "warning",
+        _ => ""
+    };
+    private string Title => Setup switch
+    {
+        null => "Set up Linux compute",
+        { State: "Ready" } => "Linux is ready",
+        { Health: "NeedsPermission" } => "Administrator permission is needed",
+        { State: "Failed" } => "Preparation could not complete",
+        { State: "Pending" } => "Waiting to start preparation",
+        { Health: "Unknown" } => "Checking the existing preparation",
+        _ when Milestone > 0 => Milestones[Milestone - 1],
+        _ => "Preparing Linux"
+    };
+    private string Description => Setup switch
+    {
+        null => "Prepare a reusable Ubuntu image and connect local compute to this business.",
+        { State: "Ready" } => "The Linux image and compute service are ready to accept instance requests.",
+        { State: "Pending" } => "Setup will start automatically. Watch for the system permission prompt on the host machine.",
+        { State: "Failed" } => FailureDescription,
+        _ => Setup.Stage
+    };
+    private string FailureDescription => Setup?.FailureCode switch
+    {
+        "administrator_approval_required" => "Continue setup and approve the system permission prompt on the host machine.",
+        "setup_interrupted" => "The installer stopped before preparation completed. Retry to validate and reuse any completed work.",
+        "image_export_failed" => "The image export failed. Check available host disk space and retry preparation.",
+        "local_provider_unavailable" => "Local Linux compute currently needs a Windows host with Hyper-V.",
+        "setup_components_unavailable" => "The host is missing required setup components or its secure compute connection. Restore the host configuration before retrying.",
+        _ => "Review preparation activity, resolve any host setup issue, and retry. Completed images are verified before reuse."
+    };
+    private string HealthLabel => Setup switch
+    {
+        { State: "Ready" } => "Readiness confirmed",
+        { Health: "NeedsPermission" } => "Waiting for permission",
+        { InstallerRunning: true } => $"Process running · checked {Setup.InstallerCheckedAt?.ToLocalTime().ToString("T") ?? CheckedAt.ToLocalTime().ToString("T")}",
+        { State: "Failed" } => "Preparation stopped",
+        { State: "Pending" } => "Not started",
+        _ => "Could not verify process"
+    };
+    private string Elapsed => Setup?.State is "Ready" or "Failed"
+        ? Setup.StartedAt?.ToLocalTime().ToString("g") ?? "Unavailable"
+        : Setup?.PhaseStartedAt is { } started ? $"{Math.Max(0, (int)(CheckedAt - started).TotalMinutes)} min {Math.Max(0, (CheckedAt - started).Seconds)} sec" : "Not yet reported";
+    private string Notice => Setup switch
+    {
+        { State: "Running", Health: "Unknown" } => "We cannot confirm the installer status. Preparation may still be running. Check the existing attempt before starting another.",
+        { State: "Running", InstallerRunning: true } when Setup.LastProgressAt is { } last && CheckedAt - last > TimeSpan.FromMinutes(2) =>
+            "No new milestone has been reported. The installer process is still running; quiet steps do not by themselves indicate failure.",
+        { State: "Running" } when Milestone is 3 or 4 => "Expected duration: 10–30 minutes for image preparation. This is an expected range, not a countdown.",
+        { State: "Failed", CanRetry: false, InstallerRunning: true } => "The installer process is still running. Another preparation cannot start until it exits.",
+        _ => ""
+    };
+    private string Footer => Setup?.State switch
+    {
+        "Ready" => "Set up once · Reuse across instances · Subject to host capacity and approved permissions",
+        "Failed" => "Waiting agents remain queued until Linux preparation recovers.",
+        "Running" or "Pending" => "You can leave this page. Agents waiting for compute continue automatically when preparation finishes.",
+        _ => CanManage ? "Setup is managed here. No terminal commands or image paths required." : "A business owner can set up Linux compute."
+    };
+    protected override void OnParametersSet()
+    {
+        if (_observedState == Setup?.State && _observedAttempt == Setup?.AttemptId) return;
+        var completedWhileViewing = _observedState is "Running" or "Pending";
+        _observedState = Setup?.State;
+        _observedAttempt = Setup?.AttemptId;
+        _collapseVersion++;
+        _collapsed = Setup?.State == "Ready" && !completedWhileViewing;
+        if (Setup?.State == "Ready" && !_collapsed) _ = CollapseAfterCompletionAsync(_collapseVersion);
+    }
+    private async Task CollapseAfterCompletionAsync(int version)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), _lifetime.Token);
+            await InvokeAsync(() =>
+            {
+                if (_disposed || version != _collapseVersion || Setup?.State != "Ready") return;
+                _collapsed = true;
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (ObjectDisposedException) when (_disposed) { }
+    }
+    private void ToggleDetails() { _collapseVersion++; _collapsed = !_collapsed; }
+    private static string Downloaded(long bytes) => bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.00} GB" : $"{bytes / 1_000_000d:0} MB";
+    private static string DownloadEta(ComputeSetupStatus setup)
+    {
+        if (setup.DownloadSecondsRemaining == 0) return "Download complete · Verifying image";
+        if (setup.DownloadWaitingForProgress) return "Waiting for download progress · ETA unavailable";
+        if (setup.DownloadSecondsRemaining is not { } seconds) return "Estimating time remaining…";
+        if (seconds < 60) return "Less than a minute remaining";
+        if (seconds < 3600) return $"About {Math.Ceiling(seconds / 60):0} minutes remaining";
+        var minutes = (long)Math.Ceiling(seconds / 60);
+        return $"About {minutes / 60}h {minutes % 60}m remaining";
+    }
+    public void Dispose() { _disposed = true; _lifetime.Cancel(); _lifetime.Dispose(); }
+}

@@ -4,6 +4,7 @@ param(
     [string] $RepositoryRoot = "$PSScriptRoot\..",
     [string] $ProgressPath,
     [string] $SetupProgressPath,
+    [guid] $SetupAttemptId = [guid]::Empty,
     [guid] $ProgressJobId = [guid]::Empty,
     [string] $ProgressHelperPath = "$PSScriptRoot\..\..\CSweet.Office\scripts\windows\CSweet.WindowsSetupProgress.ps1"
 )
@@ -21,7 +22,7 @@ $report = {
     Write-Host $message
     if ($SetupProgressPath) {
         . (Join-Path $repositoryRoot 'scripts\Write-ComputeSetupProgress.ps1')
-        Write-ComputeSetupProgress -Path $SetupProgressPath -Message $message
+        Write-ComputeSetupProgress -Path $SetupProgressPath -Message $message -Phase $phase -AttemptId $SetupAttemptId
     }
     if (-not $ProgressPath -or $ProgressJobId -eq [guid]::Empty) { return }
     . $ProgressHelperPath
@@ -95,6 +96,7 @@ try {
         }
         $imagePath = Join-Path $imageRoot ("ubuntu-compute-$fingerprint-$([guid]::NewGuid().ToString('N')).vhdx")
         & (Join-Path $repositoryRoot 'scripts\New-ComputeLinuxImage.ps1') -OutputPath $imagePath -ReportProgress $report | Out-Host
+        & $report 'finalize-image' 'Verifying and saving the reusable Linux image.'
         $build = Get-Content -LiteralPath ($imagePath + '.build.json') -Raw | ConvertFrom-Json
         if ($build.ImagePath -cne $imagePath -or
             (Get-FileHash -LiteralPath $imagePath -Algorithm SHA256).Hash -ine $build.Sha256) { throw 'The Linux image could not be verified.' }
@@ -103,6 +105,7 @@ try {
         [IO.File]::WriteAllText($temporary, ($receipt | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
         if (Test-Path -LiteralPath $receiptPath) { [IO.File]::Replace($temporary, $receiptPath, ($receiptPath + '.previous')) }
         else { [IO.File]::Move($temporary, $receiptPath) }
+        & $report 'image-ready' 'The reusable Linux image is prepared.'
         Write-Output $imagePath
     } finally { $cacheLock.Dispose() }
 } finally {

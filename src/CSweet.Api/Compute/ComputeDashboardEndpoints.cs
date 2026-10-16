@@ -14,6 +14,7 @@ public static class ComputeDashboardEndpoints
     public static IEndpointRouteBuilder MapComputeDashboardEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapComputeNetworkGrantEndpoints();
+        endpoints.MapComputeManagementEndpoints();
         endpoints.MapGet("/api/organizations/{organizationId:guid}/compute", async (Guid organizationId,
             HttpContext http, CSweetDbContext db, IConfiguration configuration, IWebHostEnvironment environment,
             ComputeDownloadProgress downloads, CancellationToken token) =>
@@ -44,6 +45,7 @@ public static class ComputeDashboardEndpoints
             setup.HandoffExpiresAt = null;
             setup.Revision++;
             setup.UpdatedAt = DateTimeOffset.UtcNow;
+            ComputeManagementEndpoints.QueueOwnerAudit(db, organizationId, userId, setup.Id, "compute.workspace.preparation-retried.v1");
             await db.SaveChangesAsync(token);
             return Results.Accepted();
         }).RequireAuthorization();
@@ -52,9 +54,11 @@ public static class ComputeDashboardEndpoints
 
     internal static bool IsRepairable(ComputeLocalSetup setup, string setupDirectory, DateTimeOffset now)
     {
+        var observation = ComputeSetupObservation.Read(setup, setupDirectory);
+        if (observation.InstallerRunning == true) return false;
         if (setup.State == "Failed") return true;
         if (setup.State != "Running") return false;
-        return setup.HandoffExpiresAt <= now || ComputeSetupObservation.Read(setup, setupDirectory).FailureCode is not null;
+        return observation.FailureCode is not null;
     }
 
     internal static async Task<ComputeDashboard?> ReadAsync(CSweetDbContext db, Guid organizationId, Guid userId,
@@ -92,6 +96,7 @@ public static class ComputeDashboardEndpoints
                 ComputeNetworkGrantEndpoints.Actions.All(a => networkGrants.Any(g => g.Id == ComputeNetworkGrantEndpoints.GrantId(x.Id, a))))
             {
                 EmployeeId = employee?.Id,
+                Name = x.DesiredEnvironmentKey,
                 LocalLinkRequested = installation is { IsEnabled: true } && employee is { IsActive: true, ArchivedAt: null } &&
                     ComputeLocalLinkGrants.Actions.All(approved.Contains)
             };
@@ -113,9 +118,30 @@ public static class ComputeDashboardEndpoints
         DateTimeOffset? progressAt = setup.UpdatedAt;
         long? downloaded = null;
         var step = 0;
-        var observation = ComputeSetupObservation.Read(setup, Path.Combine(localData, "CSweet", "ComputeSetup", setup.Id.ToString("N")));
-        if (observation.FailureCode is { } failure)
-            return new("Failed", "Preparation failed", setup.UpdatedAt, null, failure, InstallerRunning: false);
+        var directory = Path.Combine(localData, "CSweet", "ComputeSetup", setup.Id.ToString("N"));
+        var observation = ComputeSetupObservation.Read(setup, directory);
+        if (setup.PreparationAttemptId is not null)
+        {
+            var structured = ComputePreparationProgress.Read(setup, directory) ?? new(setup.State, stage, null, null, setup.ErrorCode);
+            if (setup.State == "Running" && structured.Phase == "download-ubuntu" && observation.FailureCode is null)
+            {
+                try
+                {
+                    var cache = new DirectoryInfo(Path.GetFullPath(Path.Combine(repositoryRoot, "..", "CSweet.Isolation", "artifacts", "linux-images", "cache")));
+                    var image = cache.Exists ? cache.EnumerateFiles("ubuntu-*-live-server-amd64.iso")
+                        .Where(file => file.LastWriteTimeUtc >= structured.StartedAt?.UtcDateTime)
+                        .OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault() : null;
+                    if (image is not null)
+                    {
+                        image.Refresh();
+                        structured = structured with { DownloadedBytes = image.Length };
+                        observeFile?.Invoke(image.Name);
+                    }
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            }
+            return ComputePreparationProgress.Observe(structured, setup, observation, DateTimeOffset.UtcNow);
+        }
         if (setup.State == "Running")
         {
             try
@@ -162,6 +188,9 @@ public static class ComputeDashboardEndpoints
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException) { }
         }
-        return new(setup.State, stage, progressAt, downloaded, setup.ErrorCode, PreparationStep: step, InstallerRunning: observation.InstallerRunning);
+        return ComputePreparationProgress.Observe(new(setup.State, stage, progressAt, downloaded, setup.ErrorCode, PreparationStep: step)
+        {
+            Milestone = step switch { 1 => 2, 2 => 3, 3 => 5, _ => 0 }
+        }, setup, observation, DateTimeOffset.UtcNow);
     }
 }

@@ -7,6 +7,7 @@ public sealed class ComputeLocalSetup
     public Guid OrganizationId { get; set; }
     public string State { get; set; } = "Pending";
     public long Revision { get; set; } = 1;
+    public Guid? PreparationAttemptId { get; set; }
     public string? HandoffHash { get; set; }
     public DateTimeOffset? HandoffExpiresAt { get; set; }
     public string? TemplateId { get; set; }

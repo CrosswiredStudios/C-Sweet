@@ -41,6 +41,7 @@ public sealed class ProjectsWorkspaceTests
         Assert.Contains("Read full brief", html);
         Assert.Contains($"/projects/{api.ProjectId}?tab=delivery", html);
         Assert.Contains($"/projects/{api.ProjectId}?tab=work", html);
+        Assert.Contains($"/organizations/{api.OrganizationId}/projects?view=boards", html);
         Assert.Contains($"/employees/{api.ManagerId}", html);
         if (Environment.GetEnvironmentVariable("CSWEET_PROJECTS_PREVIEW") is string path) await File.WriteAllTextAsync(path, html);
         Assert.All(api.Methods, method => Assert.Equal(HttpMethod.Get, method));

@@ -18,6 +18,40 @@ namespace CSweet.UnitTests;
 public sealed class CurrentActivityTests
 {
     [Fact]
+    public async Task Workspace_progress_survives_content_free_audits_and_newer_model_chatter()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var progressId = await f.ProgressAsync(f.Ticket.Id, "Typecheck failed (exit 2)");
+        for (var i = 0; i < 25; i++) await f.ProgressAsync(f.Ticket.Id, null);
+        await f.RunAsync(f.Attempt.Id, f.Ticket.Id);
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal("Typecheck failed (exit 2)", row.CurrentAction);
+        var page = await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default);
+        Assert.Contains(page.Entries, x => x.Kind == "Workspace" && x.Text == "Typecheck failed (exit 2)");
+        f.Db.AgentWorkProgress.Remove(await f.Db.AgentWorkProgress.SingleAsync(x => x.Id == progressId));
+        await f.Db.SaveChangesAsync();
+        page = await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default);
+        Assert.DoesNotContain(page.Entries, x => x.Kind == "Workspace");
+    }
+
+    [Fact]
+    public async Task Workspace_progress_does_not_cross_task_or_diagnostic_authority()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.ProgressAsync(Guid.NewGuid(), "Other task command");
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.DoesNotContain("Other task", row.CurrentAction);
+        Assert.Empty((await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default)).Entries);
+        await f.ProgressAsync(f.Ticket.Id, "Private workspace operation");
+        f.Owner.PermissionLevel = OrganizationPermissionLevel.Contributor;
+        await f.Db.SaveChangesAsync();
+        row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.DoesNotContain("Private workspace", row.CurrentAction);
+        Assert.Empty(row.PreviousSteps);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default));
+    }
+
+    [Fact]
     public async Task PersonalTaskNavigationUsesBoardOwnerRatherThanExecutor()
     {
         await using var f = new Fixture(); await f.SeedAsync();
@@ -335,9 +369,9 @@ public sealed class CurrentActivityTests
         public WorkTask Ticket { get; private set; } = null!;
         public AgentWorkAttempt Attempt { get; private set; } = null!;
         private readonly ServiceProvider services;
+        private readonly IDataProtectionProvider protection = new EphemeralDataProtectionProvider();
         public Fixture()
         {
-            var protection = new EphemeralDataProtectionProvider();
             var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
             Db = new(options, protection);
             services = new ServiceCollection().AddScoped(_ => new CSweetDbContext(options, protection)).BuildServiceProvider();
@@ -364,6 +398,18 @@ public sealed class CurrentActivityTests
             var run = new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = Org, EmployeeId = Agent.Id, AgentInstallationId = Agent.AgentInstallationId,
                 AgentWorkAttemptId = attempt, WorkItemId = task, StartedAt = DateTimeOffset.UtcNow, Status = "Running" };
             Db.Add(run); await Db.SaveChangesAsync(); return run.Id;
+        }
+        public async Task<Guid> ProgressAsync(Guid task, string? message)
+        {
+            var record = new AgentWorkProgress { Id = Guid.NewGuid(), AgentWorkItemId = Attempt.AgentWorkItemId,
+                AgentWorkAttemptId = Attempt.Id, Sequence = await Db.AgentWorkProgress.CountAsync() + 1,
+                OccurredAt = DateTimeOffset.UtcNow, ProtectedValue = protection.CreateProtector("CSweet.AgentWorkInbox.v1").Protect(
+                    JsonSerializer.SerializeToUtf8Bytes(new { itemId = task, kind = "workspace-tool", message })) };
+            Db.Add(record); await Db.SaveChangesAsync();
+            await Writer.AppendAsync(new("agent.work.progress", "AgentWork", OrganizationId: Org,
+                EntityType: "AgentWorkProgress", EntityId: record.Id, ContentType: "application/json",
+                Payload: JsonSerializer.SerializeToUtf8Bytes(new { evidence = new { contentPolicy = "memory-content-omitted-v1" } })));
+            return record.Id;
         }
         public Task<Guid> ChunkAsync(Guid run, long sequence, string text) => Writer.AppendAsync(new("model.response.chunk", "Model", OrganizationId: Org,
             EntityType: "AgentRunLog", EntityId: run, ContentType: "application/json", Payload: JsonSerializer.SerializeToUtf8Bytes(new { sequence, contents = new[] { new { kind = "reasoning", text } } })));

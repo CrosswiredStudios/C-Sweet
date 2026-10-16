@@ -70,6 +70,19 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             .ToListAsync(token)).Where(x => !CSweetDbContext.IsHealthWork(x.Name)).ToArray();
         workIds = works.Select(x => x.Id).ToArray();
         var attempts = await db.AgentWorkAttempts.AsNoTracking().Where(x => workIds.Contains(x.AgentWorkItemId)).ToListAsync(token);
+        var attemptIds = attempts.Select(x => x.Id).ToArray();
+        var lastProgress = await db.AgentWorkProgress.AsNoTracking().Where(x => attemptIds.Contains(x.AgentWorkAttemptId))
+            .GroupBy(x => x.AgentWorkAttemptId).Select(x => new { AttemptId = x.Key, At = x.Max(p => p.OccurredAt) })
+            .ToDictionaryAsync(x => x.AttemptId, x => x.At, token);
+        // Independently recorded provider waits are different from lease heartbeats.
+        var modelWaits = await db.AgentRunLogs.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
+            x.AgentWorkAttemptId != null && attemptIds.Contains(x.AgentWorkAttemptId.Value) && x.CompletedAt == null &&
+            (x.Status == "Queued" || x.Status == "Received" || x.Status == "Generating" || x.Status == "Running"))
+            .Select(x => x.AgentWorkAttemptId!.Value).Distinct().ToArrayAsync(token);
+        var modelCompletions = await db.AgentRunLogs.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
+            x.AgentWorkAttemptId != null && attemptIds.Contains(x.AgentWorkAttemptId.Value) && x.CompletedAt != null)
+            .GroupBy(x => x.AgentWorkAttemptId!.Value).Select(x => new { AttemptId = x.Key, At = x.Max(m => m.CompletedAt) })
+            .ToDictionaryAsync(x => x.AttemptId, x => x.At, token);
         var failures = new List<HealthFailure>();
         var evidence = new List<ProjectDiagnosticEvidence>();
         var recovered = new HashSet<string>(StringComparer.Ordinal);
@@ -114,6 +127,14 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
                 continue;
             }
             var error = latest?.Error ?? work.LastError;
+            var taskProgressAt = latest is null ? work.CreatedAt : lastProgress.GetValueOrDefault(latest.Id, latest.ClaimedAt);
+            if (latest is not null && modelCompletions.GetValueOrDefault(latest.Id) is { } modelAt && modelAt > taskProgressAt)
+                taskProgressAt = modelAt;
+            var stalled = work.Status == AgentWorkStatus.Leased && latest is { FinishedAt: null } &&
+                latest.Attempt == work.AttemptCount && now - taskProgressAt >= TimeSpan.FromMinutes(15) && !modelWaits.Contains(latest.Id);
+            if (error is null && stalled)
+                error = $"No task progress has been recorded since {taskProgressAt:O}; a renewed lease does not confirm command progress. " +
+                    "Inspect the last workspace operation and its timeout/cleanup before retrying from the saved checkpoint.";
             if (error is null && work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
             {
                 var runtime = await db.AgentRuntimeInstances.AsNoTracking().Where(x => x.AgentInstallationId == work.AgentInstallationId)
@@ -128,7 +149,7 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             var fact = new ProjectDiagnosticEvidence("AgentWorkAttempt", latest?.Id ?? work.Id, latest?.FinishedAt ?? latest?.LeaseExpiresAt ?? work.DeadlineAt,
                 Safe(error ?? "Execution deadline or lease expired without completion."),
                 employee.HasValue ? $"/organizations/{project.OrganizationId}/employees/{employee}" : null);
-            failures.Add(new(key, Coordination(work) is null ? "Agent execution failure" : "Planning coordination stopped", affectedTicket, [fact])); evidence.Add(fact);
+            failures.Add(new(key, stalled ? "Agent execution stopped reporting progress" : Coordination(work) is null ? "Agent execution failure" : "Planning coordination stopped", affectedTicket, [fact])); evidence.Add(fact);
         }
         foreach (var stage in stages)
         {

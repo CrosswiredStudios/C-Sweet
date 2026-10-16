@@ -16,6 +16,21 @@ namespace CSweet.UnitTests;
 public sealed class CurrentActivityRenderingTests
 {
     [Fact]
+    public async Task Workspace_history_is_visible_without_opening_stream_and_is_html_encoded()
+    {
+        await using var f = new Fixture();
+        f.Handler.Items = [f.Handler.Item with { PreviousSteps = [
+            new("tool-1", "Workspace", "Tests failed (exit 1) <script>alert(1)</script>", DateTimeOffset.UtcNow),
+            new("model-1", "Model", "Model call completed", DateTimeOffset.UtcNow)] }];
+        var html = await f.RenderAsync();
+        Assert.Contains("Recent workspace operations", html);
+        Assert.Contains("Tests failed (exit 1)", html);
+        Assert.DoesNotContain("<script>alert(1)</script>", html);
+        Assert.Contains("&lt;script&gt;", html);
+        Assert.Equal(0, f.Handler.FeedRequests);
+    }
+
+    [Fact]
     public async Task FullListKeepsLiveExecutionAheadOfExpiredAndWaitingRows()
     {
         await using var f = new Fixture();
@@ -97,7 +112,7 @@ public sealed class CurrentActivityRenderingTests
     {
         await using var f = new Fixture();
         var owner = Guid.NewGuid();
-        f.Handler.Item = f.Handler.Item with { PersonalBoardOwnerId = owner, Category = "Project" };
+        f.Handler.Item = f.Handler.Item with { PersonalBoardOwnerId = owner, ProjectId = Guid.NewGuid(), Category = "Project" };
         var html = await f.RenderAsync();
         var path = $"/employees/{owner}?tab=personal-board&amp;item={f.Handler.Item.WorkItemId}";
         Assert.Contains(path, html);
@@ -105,6 +120,15 @@ public sealed class CurrentActivityRenderingTests
         await f.InvokeAsync("OpenAsync", f.Handler.Item);
         html = await f.HtmlAsync();
         Assert.Equal(2, html.Split(path).Length - 1);
+    }
+
+    [Fact]
+    public async Task TaskWithoutProjectRetainsStandaloneBoardLink()
+    {
+        await using var f = new Fixture();
+        f.Handler.Item = f.Handler.Item with { ProjectId = null };
+        var html = await f.RenderAsync();
+        Assert.Contains($"/projects/boards/{f.Handler.Item.BoardId}?item={f.Handler.Item.WorkItemId}", html);
     }
 
     [Fact]
@@ -123,13 +147,16 @@ public sealed class CurrentActivityRenderingTests
         Assert.DoesNotContain("<script>", html);
         Assert.Contains("Architect", html);
         Assert.Contains($"/employees/{partnerId}", html);
-        Assert.Contains($"/work/boards/{f.Handler.Item.BoardId}?item={f.Handler.Item.WorkItemId}", html);
+        var taskPath = $"/projects/{projectId}?tab=work&amp;board={f.Handler.Item.BoardId}&amp;item={f.Handler.Item.WorkItemId}";
+        Assert.Contains(taskPath, html);
         Assert.DoesNotContain("Technical details", html);
         Assert.DoesNotContain("Recent progress", html);
         Assert.DoesNotContain("com.csweet.agent.coordination.turn-requested.v1</code>", html);
         Assert.Contains("Peek at provider stream", html);
         Assert.Equal(2, html.Split($"/employees/{partnerId}").Length - 1); // Portrait and name.
         Assert.Equal(0, f.Handler.FeedRequests);
+        await f.InvokeAsync("OpenAsync", f.Handler.Item);
+        Assert.Equal(2, (await f.HtmlAsync()).Split(taskPath).Length - 1);
         if (Environment.GetEnvironmentVariable("CSWEET_ACTIVITY_CARD_PREVIEW") is string path) await File.WriteAllTextAsync(path, html);
     }
 

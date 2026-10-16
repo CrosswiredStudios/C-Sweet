@@ -253,6 +253,8 @@ public static class AgentTicketFeedback
             "I couldn't finish this ticket. " + ReportedReason(x["reported:".Length..]),
         var x when x.Contains("lease expired", StringComparison.OrdinalIgnoreCase) =>
             "This execution attempt expired because C-Sweet stopped receiving its work heartbeat. A lease expiry alone does not identify the underlying cause.",
+        var x when CSweet.Infrastructure.Setup.AgentWorkFailure.IsWorkspaceCommandTimeout(x) =>
+            "A workspace command exceeded its deadline. Coding stopped and C-Sweet is replacing the isolated runtime before any retry from the last saved checkpoint.",
         var x when x.Contains("code=runtime.transport", StringComparison.Ordinal) => "I couldn’t finish this attempt because the connection to the runtime failed.",
         // Checked before the capability-specific cases: a refusal is an authority problem, not an outage.
         var x when IsDenied(x) =>
@@ -312,13 +314,17 @@ public static class AgentTicketFeedback
                 .OrderByDescending(x => x.OccurredAt).Select(x => x.DataJson).FirstOrDefaultAsync(ct);
             using var prior = previous is null ? null : JsonDocument.Parse(previous);
             var sameIssue = prior?.RootElement.GetProperty("fingerprint").GetString() == fingerprint;
+            // A lost runtime heartbeat is not evidence that the developer repeated a coding
+            // mistake. Respect the inbox/stage's bounded recovery budget before parking it.
+            var blockRepeat = sameIssue && !(willRetry && (error == "The prior runtime lease expired." ||
+                CSweet.Infrastructure.Setup.AgentWorkFailure.IsWorkspaceCommandTimeout(error)));
             added = true;
             // Each decision request goes to the decision maker; a repeat is not a failure to block again.
-            repeated |= sameIssue && !(decisionRequired && awaitingManager);
+            repeated |= blockRepeat && !(decisionRequired && awaitingManager);
             // A decision request is not a failure: keep the specialist's own words instead of "I couldn't finish".
             var body = decisionRequired && awaitingManager && error.StartsWith("reported:", StringComparison.Ordinal)
                 ? ReportedReason(error["reported:".Length..]) + " This is now waiting for a manager decision."
-                : FailureSentence(error) + (sameIssue
+                : FailureSentence(error) + (blockRepeat
                 ? " The same issue happened again, so I’ve blocked the ticket until we resolve it."
                 : willRetry ? " I’ll retry from the saved work."
                 : awaitingManager ? " This is now waiting for a manager to decide how to proceed."

@@ -61,7 +61,8 @@ public sealed partial class AgentWorkInbox(
     private const int MaximumProgressBytes = 64 * 1024;
     private const int MaximumResultBytes = 1024 * 1024;
     private const int MaximumQueuedWorkPerInstallation = 1000;
-    private const int MaximumProgressRecordsPerWork = 1000;
+    // Bounded local tool start/result reports share this budget with SDK model progress.
+    private const int MaximumProgressRecordsPerWork = 4096;
     private readonly IDataProtector _protector =
         protectionProvider.CreateProtector("CSweet.AgentWorkInbox.v1");
 
@@ -623,6 +624,20 @@ public sealed partial class AgentWorkInbox(
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));
+        if (AgentWorkFailure.IsWorkspaceCommandTimeout(error))
+        {
+            // A shell cancellation cannot prove that every descendant stopped. Fence the
+            // entire isolated runtime before another callback or retry can touch its files.
+            var runtime = await db.AgentRuntimeInstances.SingleOrDefaultAsync(x => x.Id == attempt.RuntimeInstanceId,
+                cancellationToken);
+            if (runtime is not null && AgentRuntimeInstance.IsActive(runtime.Status) && runtime.Status != AgentRuntimeStatus.Stopping)
+            {
+                const string reason = "A workspace command timed out; replace the isolated runtime before retrying from its last completed checkpoint.";
+                runtime.TransitionTo(AgentRuntimeStatus.Stopping, now, reason);
+                db.AgentRuntimeEvents.Add(new() { Id = Guid.NewGuid(), AgentRuntimeInstanceId = runtime.Id,
+                    Status = AgentRuntimeStatus.Stopping, Reason = reason, OccurredAt = now });
+            }
+        }
         await RecordTicketFailureAsync(item, attemptNumber, error, now, cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate)
         {
@@ -678,7 +693,9 @@ public sealed partial class AgentWorkInbox(
                         ? "Cause: the control plane cancelled the runtime. The original cancellation trigger was not retained. Check WorkerHost startup and runtime lifecycle events."
                         : runtime?.Status == AgentRuntimeStatus.RuntimeTimedOut
                             ? "Cause: the runtime reached its configured maximum duration. Review the runtime limit or split the task before retrying."
-                            : null;
+                            : runtime?.Events.Any(x => x.Reason == "The authenticated MCP session expired or was revoked; the runtime will be replaced.") == true
+                                ? "Cause: the authenticated runtime session ended after work heartbeats stopped. This is an infrastructure interruption, not evidence of a repeated coding error. Check runtime connectivity and guest health."
+                                : null;
                 evidence = new(work.Id, attemptNumber, attempt.RuntimeInstanceId, attempt.LastConfirmedAt ?? attempt.ClaimedAt, attempt.LeaseExpiresAt, cause);
             }
         }

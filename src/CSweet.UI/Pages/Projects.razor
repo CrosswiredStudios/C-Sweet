@@ -22,7 +22,13 @@
             else { <p>A clear view of your projects.</p> }
         </div>
         @if (WorkstreamId.HasValue) { <MudButton Href="@($"{ProjectHref(WorkstreamId.Value)}/members")" Variant="Variant.Outlined">Manage members</MudButton> }
-        else { <MudButton Href="@($"{PortfolioHref}/new")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">New project</MudButton> }
+        else
+        {
+            <div class="project-header-actions">
+                @if (HubView != "boards") { <MudButton Href="@($"{PortfolioHref}?view=boards")" Variant="Variant.Outlined">All boards</MudButton> }
+                <MudButton Href="@($"{PortfolioHref}/new")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">New project</MudButton>
+            </div>
+        }
     </header>
     @if (!WorkstreamId.HasValue && HubView is "boards" or "personal")
     {

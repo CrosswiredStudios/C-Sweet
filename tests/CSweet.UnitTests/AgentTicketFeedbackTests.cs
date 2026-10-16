@@ -13,6 +13,28 @@ public sealed class AgentTicketFeedbackTests
     private const string Error = "agent-failure:v1;code=runtime.transport;exceptionType=IOException;diagnosticId=one";
 
     [Fact]
+    public async Task Repeated_lease_expiry_uses_bounded_recovery_before_blocking()
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        var now = DateTimeOffset.UtcNow;
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            Assert.False(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+                $"runtime-{attempt}", "The prior runtime lease expired.", true, now.AddMinutes(attempt), default));
+            await db.SaveChangesAsync();
+            Assert.Equal(WorkTaskStatus.Running, ticket.Status);
+        }
+        Assert.Empty(db.CoreConversationMessages);
+        Assert.All(db.WorkItemComments, comment => Assert.DoesNotContain("blocked the ticket", comment.Body));
+        Assert.True(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "runtime-exhausted", "The prior runtime lease expired.", false, now.AddMinutes(3), default));
+        await db.SaveChangesAsync();
+        Assert.Equal(WorkTaskStatus.Blocked, ticket.Status);
+        Assert.Single(db.CoreConversationMessages);
+    }
+
+    [Fact]
     public async Task ExpiredAttemptShowsEvidenceAndRecoveryClaimSupersedesItsFailureIdempotently()
     {
         await using var db = CreateDb();

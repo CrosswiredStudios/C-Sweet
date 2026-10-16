@@ -272,7 +272,7 @@ public sealed partial class ProjectHealthTests
     }
 
     [Fact]
-    public async Task RunningLabelDoesNotSuppressStallButLiveAttemptDoes()
+    public async Task RunningLabelDoesNotSuppressStallButRecentAttemptProgressDoes()
     {
         await using var f = await Fixture.Create();
         var ticket = f.Ticket(WorkTaskStatus.Running); f.Db.Add(ticket); await f.Db.SaveChangesAsync();
@@ -285,7 +285,10 @@ public sealed partial class ProjectHealthTests
         var attempt = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id, Attempt = 1, ClaimedAt = live.Clock.Now, LeaseExpiresAt = live.Clock.Now.AddHours(1) };
         live.Db.AddRange(work, attempt, new CSweet.Domain.Analytics.WorkExecutionContext { Id = attempt.Id, OrganizationId = live.Org,
             AgentInstallationId = work.AgentInstallationId, AgentWorkItemId = work.Id, RootWorkItemId = task.Id });
-        await live.Db.SaveChangesAsync(); await live.Review(); live.Clock.Now += TimeSpan.FromMinutes(16); await live.Review();
+        await live.Db.SaveChangesAsync(); await live.Review(); live.Clock.Now += TimeSpan.FromMinutes(16);
+        live.Db.Add(new AgentWorkProgress { Id = Guid.NewGuid(), AgentWorkItemId = work.Id, AgentWorkAttemptId = attempt.Id,
+            Sequence = 1, OccurredAt = live.Clock.Now });
+        await live.Db.SaveChangesAsync(); await live.Review();
         Assert.Empty(live.Db.ProjectIncidents);
     }
 

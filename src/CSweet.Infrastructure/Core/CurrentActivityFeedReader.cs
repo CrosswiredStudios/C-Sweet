@@ -16,7 +16,7 @@ public sealed class CurrentActivityFeedReader(CSweetDbContext db, IDataProtectio
     public async Task<IReadOnlyList<CurrentActivityStep>> ProgressAsync(Guid attemptId, Guid? taskId, int limit, CancellationToken token)
     {
         var records = await db.AgentWorkProgress.AsNoTracking().Where(x => x.AgentWorkAttemptId == attemptId)
-            .OrderByDescending(x => x.Sequence).Take(20).ToListAsync(token);
+            .OrderByDescending(x => x.Sequence).Take(150).ToListAsync(token);
         var steps = new List<CurrentActivityStep>();
         foreach (var record in records)
         {
@@ -25,11 +25,11 @@ public sealed class CurrentActivityFeedReader(CSweetDbContext db, IDataProtectio
                 using var payload = JsonDocument.Parse(protection.CreateProtector("CSweet.AgentWorkInbox.v1").Unprotect(record.ProtectedValue));
                 if (!MatchesItem(payload.RootElement, taskId)) continue;
                 var text = ProgressText(payload.RootElement);
-                if (!string.IsNullOrWhiteSpace(text)) steps.Add(new(record.Id.ToString(), "Progress", Bound(text, 500), record.OccurredAt));
+                if (!string.IsNullOrWhiteSpace(text)) steps.Add(new(record.Id.ToString(), ProgressKind(payload.RootElement), Bound(text, 500), record.OccurredAt));
             }
             catch (Exception error) when (error is CryptographicException or JsonException) { }
         }
-        return steps.DistinctBy(x => x.Text).Take(limit).ToArray();
+        return steps.OrderByDescending(x => x.Kind == "Workspace").DistinctBy(x => x.Text).Take(limit).ToArray();
     }
 
     public async Task<CurrentActivityFeedPage> ReadAsync(Guid organizationId, Guid employeeId, AgentWorkAttempt? attempt,
@@ -53,6 +53,11 @@ public sealed class CurrentActivityFeedReader(CSweetDbContext db, IDataProtectio
         batch = batch.OrderBy(x => x.Sequence).ToList();
         var ids = batch.Select(x => x.Id).ToArray();
         var payloads = await db.AuditEventPayloads.AsNoTracking().Where(x => ids.Contains(x.AuditEventId)).ToDictionaryAsync(x => x.AuditEventId, token);
+        var progressEntityIds = batch.Where(x => x.EventType == "agent.work.progress").Select(x => x.EntityId!.Value).ToArray();
+        // Audit receipts intentionally omit work content. Read the authorized, erasable source instead;
+        // never restore erased progress from an immutable historical payload.
+        var progressRecords = await db.AgentWorkProgress.AsNoTracking().Where(x => x.AgentWorkAttemptId == attemptId &&
+            progressEntityIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, token);
         var entries = new List<CurrentActivityFeedEntry>();
         var unavailable = false;
         foreach (var record in batch)
@@ -70,10 +75,12 @@ public sealed class CurrentActivityFeedReader(CSweetDbContext db, IDataProtectio
                 var root = document.RootElement;
                 if (record.EventType == "agent.work.progress")
                 {
-                    var evidence = Property(root, "evidence");
+                    if (!progressRecords.TryGetValue(record.EntityId!.Value, out var progress)) { unavailable = true; continue; }
+                    using var progressDocument = JsonDocument.Parse(protection.CreateProtector("CSweet.AgentWorkInbox.v1").Unprotect(progress.ProtectedValue));
+                    var evidence = progressDocument.RootElement;
                     if (!MatchesItem(evidence, taskId)) continue;
                     var message = ProgressText(evidence);
-                    if (!string.IsNullOrWhiteSpace(message)) entries.Add(Entry(record, record.Id.ToString(), "Progress", "Agent progress", message));
+                    if (!string.IsNullOrWhiteSpace(message)) entries.Add(Entry(record, record.Id.ToString(), ProgressKind(evidence), "Agent progress", message));
                 }
                 else if (record.EventType == "model.response.chunk") entries.AddRange(ParseModelChunk(record, root));
                 else entries.Add(Entry(record, $"model:{record.EntityId}:status", "Model", "Model call",
@@ -123,6 +130,7 @@ public sealed class CurrentActivityFeedReader(CSweetDbContext db, IDataProtectio
     }
     private static string? ProgressText(JsonElement root) => Text(root, "message") ??
         (Text(root, "kind") is "progress" or "activity" ? Text(root, "delta") : null);
+    private static string ProgressKind(JsonElement root) => Text(root, "kind") == "workspace-tool" ? "Workspace" : "Progress";
     private static string Bound(string text, int length)
     {
         var safe = AuditPayloadSanitizer.RedactText(text);

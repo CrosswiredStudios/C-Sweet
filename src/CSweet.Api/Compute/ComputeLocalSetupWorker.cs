@@ -40,7 +40,7 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             var observation = ComputeSetupObservation.Read(interrupted, Path.GetDirectoryName(HandoffPath(interrupted.Id))!);
             if (observation.FailureCode is { } failure)
             {
-                await FailAsync(db, interrupted.Id, failure, token);
+                await FailAsync(db, interrupted, failure, token);
                 continue;
             }
             if (File.Exists(HandoffPath(interrupted.Id))) continue;
@@ -52,7 +52,8 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
         // Recover a lost installer or declined UAC without repeatedly launching administrator prompts.
         await db.Set<ComputeLocalSetup>().Where(x => x.State == "Running" && x.HandoffExpiresAt < DateTimeOffset.UtcNow)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Failed").SetProperty(x => x.ErrorCode, "setup_interrupted")
-                .SetProperty(x => x.HandoffHash, (string?)null), token);
+                .SetProperty(x => x.HandoffHash, (string?)null).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow)
+                .SetProperty(x => x.Revision, x => x.Revision + 1), token);
         var defaults = scope.ServiceProvider.GetRequiredService<ComputeDefaultsService>();
         foreach (var ready in await db.Set<ComputeLocalSetup>().Where(x => x.State == "Ready").Take(100).ToListAsync(token))
         {
@@ -63,21 +64,25 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
         }
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().Where(x => x.State == "Pending").OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(token);
         if (setup is null) return;
-        if (!OperatingSystem.IsWindows()) { await FailAsync(db, setup.Id, "local_provider_unavailable", token); return; }
+        if (!OperatingSystem.IsWindows()) { await FailAsync(db, setup, "local_provider_unavailable", token); return; }
         var root = configuration["CSweet:Compute:RepositoryRoot"] ?? Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
         var script = Path.Combine(root, "scripts", "Install-ComputeLocalProvider.ps1");
         var origin = configuration["CSweet:ExecutionGateway:PublicUrl"];
         var pin = configuration["CSweet:ExecutionGateway:PublicCertificateSha256"];
         if (!File.Exists(script) || !Uri.TryCreate(origin, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "https" ||
             pin is not { Length: 64 } || !pin.All(Uri.IsHexDigit))
-        { await FailAsync(db, setup.Id, "setup_components_unavailable", token); return; }
+        { await FailAsync(db, setup, "setup_components_unavailable", token); return; }
         var secret = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
         var now = DateTimeOffset.UtcNow;
+        var attemptId = Guid.NewGuid();
         if (await db.Set<ComputeLocalSetup>().Where(x => x.Id == setup.Id && x.State == "Pending").ExecuteUpdateAsync(s =>
                 s.SetProperty(x => x.State, "Running").SetProperty(x => x.HandoffHash, hash)
+                .SetProperty(x => x.PreparationAttemptId, attemptId)
                 .SetProperty(x => x.HandoffExpiresAt, now.AddHours(2)).SetProperty(x => x.UpdatedAt, now)
                 .SetProperty(x => x.Revision, x => x.Revision + 1), token) != 1) return;
+        setup.State = "Running";
+        setup.PreparationAttemptId = attemptId;
         var handoff = HandoffPath(setup.Id);
         var directory = Path.GetDirectoryName(handoff)!;
         try
@@ -91,7 +96,7 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             new DirectoryInfo(directory).SetAccessControl(acl);
             var signing = await scope.ServiceProvider.GetRequiredService<IComputeDispatchSigner>().GetIdentityAsync(token);
             await File.WriteAllTextAsync(handoff, JsonSerializer.Serialize(new { version = 1, setupId = setup.Id,
-                organizationId = setup.OrganizationId, secret, coreOrigin = endpoint.GetLeftPart(UriPartial.Authority) + "/",
+                organizationId = setup.OrganizationId, attemptId, secret, coreOrigin = endpoint.GetLeftPart(UriPartial.Authority) + "/",
                 coreCertificateSha256 = pin, controlPlaneKey = signing, repositoryRoot = root }), token);
             using var process = Process.Start(new ProcessStartInfo
             {
@@ -101,13 +106,13 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             }) ?? throw new IOException("The local installer did not start.");
             await process.WaitForExitAsync(token);
             var completed = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync(x => x.Id == setup.Id, token);
-            if (completed.State != "Ready") await FailAsync(db, setup.Id, "local_setup_failed", token);
+            if (completed.State != "Ready") await FailAsync(db, setup, "local_setup_failed", token);
         }
-        catch (System.ComponentModel.Win32Exception) { await FailAsync(db, setup.Id, "administrator_approval_required", token); }
+        catch (System.ComponentModel.Win32Exception) { await FailAsync(db, setup, "administrator_approval_required", token); }
         catch (Exception error) when (error is not OperationCanceledException)
         {
             logger.LogWarning(error, "Local compute setup {SetupId} failed.", setup.Id);
-            await FailAsync(db, setup.Id, "local_setup_failed", token);
+            await FailAsync(db, setup, "local_setup_failed", token);
         }
         finally { if (!token.IsCancellationRequested && File.Exists(handoff)) File.Delete(handoff); }
     }
@@ -132,8 +137,9 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
         await db.SaveChangesAsync(ct);
     }
 
-    private static Task<int> FailAsync(CSweetDbContext db, Guid id, string code, CancellationToken token) =>
-        db.Set<ComputeLocalSetup>().Where(x => x.Id == id && x.State != "Ready").ExecuteUpdateAsync(s =>
+    private static Task<int> FailAsync(CSweetDbContext db, ComputeLocalSetup setup, string code, CancellationToken token) =>
+        db.Set<ComputeLocalSetup>().Where(x => x.Id == setup.Id && x.State == setup.State &&
+            x.PreparationAttemptId == setup.PreparationAttemptId).ExecuteUpdateAsync(s =>
             s.SetProperty(x => x.State, "Failed").SetProperty(x => x.ErrorCode, code)
                 .SetProperty(x => x.HandoffHash, (string?)null).SetProperty(x => x.HandoffExpiresAt, (DateTimeOffset?)null)
                 .SetProperty(x => x.Revision, x => x.Revision + 1).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);

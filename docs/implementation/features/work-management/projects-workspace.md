@@ -5,9 +5,9 @@
 `boards`, or `personal`. Board and personal directory views load through
 `WorkBoards.razor` independently of project inspection permissions.
 
-The portfolio has no top-level board tabs. Project boards are reached from the
-project Work section; personal boards live in employee details. Existing directory
-URLs remain supported, including the project Work section's All boards fallback.
+The portfolio header links to All boards (`?view=boards`). Project boards are reached
+from the project Work section; personal boards live in employee details. Existing
+directory URLs remain supported, including the project Work section's All boards fallback.
 `Projects.razor` presents real inspection data in Aurora cards with a clamped
 outcome, expandable full brief, delivery readiness, phase, target, manager link,
 and health links. Search and expanded filters retain their original behavior.
@@ -50,6 +50,15 @@ The Work section embeds the existing `WorkBoards` workspace. Its `board`, `item`
 and `sprint` query parameters select an authorized project board and optionally
 open a ticket or sprint. Board operations continue to use their own grants;
 project membership does not confer board access.
+
+`CurrentActivityNavigation.WorkItemHref` links project tasks directly to
+`projects/{projectId}?tab=work&board={boardId}&item={itemId}` for both the activity
+card and provider popover. `WorkBoards.OpenBoardAsync` uses the project Work section
+for project boards. Standalone legacy `work/boards/{boardId}` and
+`projects/boards/{boardId}` routes resolve the authorized board and replace the
+current history entry with that project URL, retaining `item` and `sprint`.
+Boards without a project retain the standalone workspace; personal activity links
+retain the owner's employee personal-board tab.
 
 When embedded in a project, `WorkBoardWorkspace` starts with its view tabs and
 board controls instead of repeating the project title or a "Project board" label.

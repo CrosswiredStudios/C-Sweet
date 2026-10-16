@@ -1,5 +1,38 @@
 # Agent startup recovery and acknowledged inference waiting
 
+## Developer runtime interruption and source preservation
+
+Video Game Engineer 4.0.4 and Software Developer 2.0.3 consume SDK 4.4.1.
+`McpAgentRuntimeClient.SendAsync` retries interrupted work-heartbeat requests and
+temporary HTTP gateway errors at most three times within the existing control timeout.
+It reuses the same authenticated attempt and does not revive expired/revoked leases.
+`AgentTicketFeedback.RecordFailureAsync` leaves repeated lease expiry within the
+inbox/stage's bounded retry policy rather than prematurely labeling it a repeated coding
+issue. Exhaustion still blocks/escalates. `AgentWorkInbox.RecordTicketFailureAsync`
+retains the session-expiry explanation from runtime events even when stop recovery
+has replaced the final runtime reason.
+
+Both developer harnesses attach `WorkspaceCheckpoint` when a checkpoint callback is
+available. Completed source edits and shell commands upload before another tool or
+model call. Tools and snapshots are serialized; failed commands also checkpoint partial
+edits. Completion-report writes are excluded because SDK snapshots exclude `.csweet`.
+Final outcome validation retains its separate checkpoint. A failed upload cancels the
+harness and reports preservation failure without replaying the local mutation.
+
+Cancellation does not grant cleanup upload authority. A hard crash during a tool or
+upload can still lose changes since the last completed checkpoint. The replacement
+runtime materializes that checkpoint through the existing authorized SDK Git client.
+No polling loop or additional capability is introduced. Upgrade the host and both agent
+packages after active work is checkpointed; source changes do not update an already
+running VM.
+
+Observed Adrian failure: last confirmed work heartbeat 2026-10-16 08:41:25 UTC,
+lease expiry 08:44:25, MCP session expiry 08:45:06. Retained logs do not establish
+whether the initiating failure was connectivity, guest resource pressure, or another
+guest failure. These changes close reproduced recovery/preservation gaps, not proof
+of that initiating cause. Regression tests reproduce the old failures and exercise
+actual confined file/shell tools, SDK upload, interruption and fresh materialization.
+
 The reported Creative Director failure was an MCP startup failure. Logs showed PostgreSQL
 entering recovery, an unhandled exception in an event dispatcher stopping AgentHost, and
 subsequent MCP initialization requests returning gateway errors. The preceding LLM calls

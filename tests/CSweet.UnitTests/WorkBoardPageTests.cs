@@ -15,6 +15,47 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkBoardPageTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProjectBoardRedirectsLegacyPageButOpensRequestedTicketWhenEmbedded(bool embedded)
+    {
+        var api = new BoardApi(false, projectBoard: true);
+        var navigation = new TestNavigation();
+        var services = new ServiceCollection().AddLogging();
+        services.AddMudServices();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager>(navigation);
+        services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
+        services.AddScoped<IAgentApiClient, AgentApiClient>();
+        services.AddScoped<AppRealtimeState>();
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = await renderer.RenderComponentAsync<WorkBoards>(ParameterView.FromDictionary(new Dictionary<string, object?>
+            {
+                [nameof(WorkBoards.OrganizationId)] = BoardApi.OrganizationId,
+                [nameof(WorkBoards.BoardId)] = BoardApi.BoardId,
+                [nameof(WorkBoards.Embedded)] = embedded,
+                [nameof(WorkBoards.RequestedItemId)] = BoardApi.ItemId,
+                [nameof(WorkBoards.RequestedSprintId)] = BoardApi.SprintId
+            }));
+            return component.ToHtmlString();
+        });
+        if (embedded)
+        {
+            Assert.Null(navigation.Destination);
+            Assert.Contains("Deep-linked ticket description", html);
+            Assert.Contains("mud-drawer--open", html);
+        }
+        else
+        {
+            Assert.Equal($"/organizations/{BoardApi.OrganizationId}/projects/{BoardApi.ProjectId}?tab=work&board={BoardApi.BoardId}&item={BoardApi.ItemId}&sprint={BoardApi.SprintId}", navigation.Destination);
+            Assert.True(navigation.ReplaceHistory);
+        }
+    }
+
     [Fact]
     public async Task BoardDirectoryShowsPersonalBoardLoadFailure()
     {
@@ -107,20 +148,22 @@ public sealed class WorkBoardPageTests
             html);
     }
 
-    private sealed class BoardApi(bool sprintRequestFails) : HttpMessageHandler
+    private sealed class BoardApi(bool sprintRequestFails, bool projectBoard = false) : HttpMessageHandler
     {
         public static readonly Guid OrganizationId = Guid.NewGuid(), BoardId = Guid.NewGuid();
+        public static readonly Guid ProjectId = Guid.NewGuid(), ItemId = Guid.NewGuid(), SprintId = Guid.NewGuid();
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var now = DateTimeOffset.UtcNow;
-            var summary = new WorkBoardSummaryResponse(BoardId, OrganizationId, null, "BLAST GRID", "Game delivery", false, false, false,
+            var summary = new WorkBoardSummaryResponse(BoardId, OrganizationId, projectBoard ? ProjectId : null, "BLAST GRID", "Game delivery", false, false, false,
                 null, 0, 0, 1, now, now, [WorkSprintActions.Read]) { Key = "GAME" };
             var path = request.RequestUri!.AbsolutePath;
             object result;
             if (path.EndsWith("/boards"))
                 result = new WorkBoardDirectoryResponse([summary], true);
             else if (path.EndsWith(BoardId.ToString()))
-                result = new WorkBoardDetailResponse(summary, [], []);
+                result = new WorkBoardDetailResponse(summary, [], projectBoard
+                    ? [new(ItemId, BoardId, Guid.NewGuid(), null, null, "Task", "Requested ticket", "Deep-linked ticket description", "Ready", "Medium", null, 1, 1, null, now, now)] : []);
             else if (path.EndsWith("/sprints"))
             {
                 if (sprintRequestFails)
@@ -178,8 +221,11 @@ public sealed class WorkBoardPageTests
 
     private sealed class TestNavigation : NavigationManager
     {
+        public string? Destination { get; private set; }
+        public bool ReplaceHistory { get; private set; }
         public TestNavigation() => Initialize("http://localhost/", "http://localhost/");
         protected override void NavigateToCore(string uri, bool forceLoad) { }
+        protected override void NavigateToCore(string uri, NavigationOptions options) { Destination = uri; ReplaceHistory = options.ReplaceHistoryEntry; }
     }
 
     private sealed class NoJavaScript : IJSRuntime

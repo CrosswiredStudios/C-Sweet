@@ -35,7 +35,14 @@ public sealed partial class ProjectHealthService
                 await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ProjectIncidents" WHERE "Id" = {incident.Id} FOR UPDATE""", token);
                 await db.Entry(incident).ReloadAsync(token);
             }
-            if (incident.Status == "Open" && !await IncidentRequiresOwnerInputAsync(incident, token, observations))
+            var requiresOwnerInput = await IncidentRequiresOwnerInputAsync(incident, token, observations);
+            if (!requiresOwnerInput) await WithdrawIncidentAttentionAsync(incident, token);
+            // Exhausting the management chain remains visible without fabricated choices.
+            // An informational report never grants authority or creates a decision request.
+            var statusReport = incident.Status == "Open" && incident.CurrentRecipientId == recipient.Id &&
+                incident.Disposition == IncidentDispositions.Escalate && !requiresOwnerInput &&
+                await HasCurrentIncidentFailureAsync(incident, token, observations);
+            if (incident.Status == "Open" && !requiresOwnerInput && !statusReport)
             {
                 await WithdrawIncidentAttentionAsync(incident, token);
                 delivery.DeliveredAt = now;
@@ -61,6 +68,9 @@ public sealed partial class ProjectHealthService
             foreach (var member in chat.Participants.Where(x => x.OrganizationUserId == recipient.Id || x.OrganizationUserId == sender.Id)) member.LeftAt = null;
             var messageKey = $"project-health:{delivery.Id:N}";
             var presentation = await PresentAsync(incident, token);
+            if (statusReport) presentation = presentation with { NextStep =
+                "Management has escalated this unresolved issue. This is a status report; no decision is requested. " +
+                "Review the affected work and the recorded recovery status. Managers still own diagnosis and follow-up." };
             delivery.Markdown = presentation.Markdown;
             var existing = await db.CoreConversationMessages.Where(x => x.ConversationId == chat.Id &&
                 x.CorrelationId == incident.Id && x.SenderOrganizationUserId == sender.Id &&
@@ -72,7 +82,7 @@ public sealed partial class ProjectHealthService
                     .Select(x => x.Id).ToArrayAsync(token);
                 var notificationKeys = keys.Select(x => $"project-health:{x:N}").ToArray();
                 foreach (var notification in await db.UserNotifications.Where(x => x.OrganizationId == incident.OrganizationId &&
-                    x.RecipientOrganizationUserId == recipient.Id && x.Category == "ProjectHealth" && x.DismissedAt == null &&
+                    x.RecipientOrganizationUserId == recipient.Id && (x.Category == "ProjectHealth" || x.Category == "ProjectHealthStatus") && x.DismissedAt == null &&
                     notificationKeys.Contains(x.DeduplicationKey!)).ToListAsync(token))
                     notification.DismissedAt = now;
             }
@@ -80,7 +90,7 @@ public sealed partial class ProjectHealthService
             // state gets a concise update; preserve prior messages and their memory/audit lineage.
             // Freshness changes disable stale choices and refresh Overview, but are not a
             // second manager finding. Do not repeat the full report for a retry or evidence wake.
-            if ((existing is not null || incident.Status == "Open") && (existing is null ||
+            if ((!statusReport || existing is null) && (existing is not null || incident.Status == "Open") && (existing is null ||
                 existing.Content.Replace(OutdatedReportNotice, "", StringComparison.Ordinal) !=
                 delivery.Markdown.Replace(OutdatedReportNotice, "", StringComparison.Ordinal)))
             {
@@ -92,7 +102,7 @@ public sealed partial class ProjectHealthService
                 db.UserNotifications.Add(new() { Id = Guid.NewGuid(), OrganizationId = incident.OrganizationId,
                     RecipientOrganizationUserId = recipient.Id, OriginatingAgentOrganizationUserId = sender.Id,
                     Severity = incident.Status == "Resolved" ? NotificationSeverity.Routine : NotificationSeverity.Important,
-                    Category = "ProjectHealth", Title = incident.Status == "Resolved" ? "Project incident resolved" : "Project needs management attention",
+                    Category = statusReport ? "ProjectHealthStatus" : "ProjectHealth", Title = incident.Status == "Resolved" ? "Project incident resolved" : "Project needs management attention",
                     Body = presentation.Summary, ActionUri = $"/organizations/{incident.OrganizationId}/communications/{chat.Id}",
                     DeduplicationKey = messageKey, CreatedAt = now });
             }
@@ -101,7 +111,7 @@ public sealed partial class ProjectHealthService
             QueueAttentionChange(incident, recipient.Id);
             // Message, unread/realtime capture, notification and receipt commit together.
             await db.SaveChangesAsync(token);
-            if (incident.Status == "Open" && incident.CurrentRecipientId == recipient.Id && OwnerReport(incident) is { } report && existing is not null &&
+            if (requiresOwnerInput && incident.Status == "Open" && incident.CurrentRecipientId == recipient.Id && OwnerReport(incident) is { } report && existing is not null &&
                 report.SourceHash == (await CurrentIncidentStateAsync(incident, token)).Hash && sender.AgentInstallationId is { } installation)
             {
                 var grant = await db.AgentInstallationGrants.AsNoTracking().SingleOrDefaultAsync(x => x.AgentInstallationId == installation, token);

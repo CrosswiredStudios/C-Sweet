@@ -45,6 +45,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 
 ## Feature plans
 
+- [Compute page and Linux preparation](compute-page.md) - Linux-only compute types, owner instancing, preparation milestones, process-health evidence, retry isolation and completion collapse.
+
 - [Chief hiring autonomy](features/chief-hiring-autonomy.md) - owner policy, conversational setup, approved-plan delegation, shared hire review, and marketplace attribution.
 
 - [Project approval review](features/project-approval-review.md) - human-readable project proposals, inline Communications approval tools, exact decision binding and history.
@@ -61,6 +63,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 - [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.
+- [Adrian CI timeout](./adrian-ci-timeout-2026-10-16.md) - retained evidence, bounded command cleanup,
+  runtime fencing, checkpoint recovery and informational CEO escalation.
 
 Cross-cutting features are documented as a phased series in their own folder:
 

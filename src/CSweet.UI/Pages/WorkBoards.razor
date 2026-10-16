@@ -1689,7 +1689,17 @@
     private async Task OpenBoardAsync(WorkBoardSummaryResponse board)
     {
         await Task.CompletedTask;
-        Navigation.NavigateTo($"/organizations/{OrganizationId:D}/projects/boards/{board.Id:D}");
+        Navigation.NavigateTo(board.WorkstreamId is { } projectId
+            ? ProjectBoardHref(projectId, board.Id)
+            : $"/organizations/{OrganizationId:D}/projects/boards/{board.Id:D}");
+    }
+
+    private string ProjectBoardHref(Guid projectId, Guid boardId)
+    {
+        var href = $"/organizations/{OrganizationId:D}/projects/{projectId:D}?tab=work&board={boardId:D}";
+        if ((RequestedItemId ?? ItemQuery) is { } itemId) href += $"&item={itemId:D}";
+        if ((RequestedSprintId ?? SprintQuery) is { } sprintId) href += $"&sprint={sprintId:D}";
+        return href;
     }
 
     private void BackToBoards() =>
@@ -1733,6 +1743,12 @@
             if (_detail is null)
             {
                 _detailError = "The server returned an empty board response. Please try again.";
+                return;
+            }
+
+            if (!Embedded && _detail.Board.WorkstreamId is { } projectId)
+            {
+                Navigation.NavigateTo(ProjectBoardHref(projectId, _detail.Board.Id), replace: true);
                 return;
             }
 

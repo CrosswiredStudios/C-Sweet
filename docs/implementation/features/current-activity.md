@@ -42,7 +42,8 @@ organization changes, and disposal cancel stale page reads. The full list is alw
 available by scrolling, with no Show all, Show fewer, or Load more work action.
 `ActivityCard` uses readable headings for
 collaboration, review, Communications, model calls, and task work. Linked task titles
-open the board's `item` deep link. Personal tasks use the authorized board owner's
+open the project's Work tab with `board` and `item` query parameters when linked
+to a project, or the standalone board otherwise. Personal tasks use the authorized board owner's
 employee page with `tab=personal-board&item=...`, including the diagnostic panel's
 Open work item link. `EmployeePersonalBoard.RequestedItemId` opens only a ticket
 present in the authorized board response and preserves drafts across refreshes.
@@ -57,8 +58,9 @@ retain a static highlight. Waiting, recovering and unconfirmed rows do not pulse
 `ActivityCard` places the current action or “What's needed” beside the agent identity
 in a compact summary row; needs-attention rows retain their attention label. Narrow
 cards stack the summary using container queries, including collaboration layouts.
-Waiting cards emphasize the reported dependency or queue reason. Recent progress
-and Technical details disclosures have been removed from cards. Peek at provider
+Waiting cards emphasize the reported dependency or queue reason. Cards show recent
+workspace operations with timestamps; generic model-call chatter stays out of this
+compact history. Technical details disclosures have been removed. Peek at provider
 stream opens the existing authorized feed inline and fetches only on demand.
 No synthetic progress or percentage completion is generated.
 
@@ -140,6 +142,37 @@ filters, or attempts cancels stale requests.
   task/attempt isolation, diagnostic and board grants, standalone calls, pagination,
   redaction, replay/out-of-order fragments, waiting/recovery, encoding, and layout compatibility.
 
-No database migration or external agent package change is required. Restart/rebuild
-the API and web frontend to load the feature. Existing uncorrelated historical
-model records cannot be retroactively attributed to a task.
+No database migration is required. Restart/rebuild the API and web frontend to load
+the feature. Existing uncorrelated historical model records cannot be retroactively
+attributed to a task.
+
+### Local workspace operations
+
+Video Game Engineer 4.0.3 and Software Developer 2.0.2 use `WorkspaceProgress` in assigned development to emit
+`kind: workspace-tool` progress before/after file operations and confined shell
+execution. These are actual tool invocation reports, not model intentions. Shell
+results include exit codes and timeouts; operation counters and consecutive identical
+command counts make repeated attempts visible without asserting that repetition is
+necessarily a loop. File-tool returns are labelled as returns, not successful checks.
+Only fixed labels and counters are reported: no paths, commands, file content, or
+shell output. A telemetry failure does not replay a tool mutation.
+
+`CurrentActivityFeedReader` validates each audit receipt and reads progress from its
+attempt-bound, protected `AgentWorkProgress` source. This works with content-free
+audit receipts and does not recreate erased content from audit history. Up to 150
+recent progress records are considered; workspace summaries take precedence over
+model-call chatter, and `ActivityCard` shows two timestamped recent operations.
+Normal task and employee-diagnostic authorization still applies.
+
+The inbox has a 4,096-record bound shared by model and local tool progress. The
+agent reports at most 500 local operations (start/result pairs), then emits an
+explicit reporting-limit notice and continues work. This leaves room for its
+bounded model continuations rather than exhausting the inbox with telemetry.
+
+The reporting agent package must be rebuilt/upgraded as well as the API, AgentHost,
+and UI (including the expanded bounded progress budget). An
+already running VM retains its old agent code; do not restart it to gain telemetry
+while it has uncheckpointed work. New telemetry cannot reconstruct old local tools.
+
+`scripts/Test-DeveloperAgentCoreParity.ps1` checks the two agents' execution source and
+harness/progress regression tests for drift. Their role profiles and versions remain distinct.

@@ -253,6 +253,10 @@ in the same planning cycle; that other role's completion can still wake the owne
 
 ## Producer staffing and recovery
 
+[Small tasks and comment revisions](small-tasks-and-comment-revisions.md) documents
+Technical Director implementation briefs, developer assumption checks, comment corrections,
+guarded resumption and the boundary between correction and replacement planning.
+
 Producer `SprintPlanning.cs` and `SpecialistAgent.HandleAttentionReviewAsync` select
 the existing planned sprint or the next sequence after historical sprints. In
 Producer 2.20.3, `SprintEstimationCorrelation` gives successor preparation a recovery
