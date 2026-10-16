@@ -531,7 +531,11 @@ public sealed partial class PlatformLlmCapabilityHandler
                             additionalUsage = usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts) }, JsonOptions),
                         EventId: CSweetDbContext.AuditSourceId($"model:{runLog.Id:D}:chunk:{streamSequence}"),
                         Employees: hasEmployeeIdentity ? [new(employeeId, "Actor")] : []));
-                    try { await _dbContext.SaveChangesAsync(CancellationToken.None); }
+                    try
+                    {
+                        await _dbContext.SaveChangesAsync(CancellationToken.None);
+                        ReleasePersistedStreamAudits(runLog.Id);
+                    }
                     catch (Exception error) { _logger.LogWarning(error, "Could not persist model stream audit evidence for {RunId}.", runLog.Id); }
                     yield return Success(
                         request.RequestId,
@@ -659,6 +663,21 @@ public sealed partial class PlatformLlmCapabilityHandler
             // Benchmarks require a durable receipt before dispatch. Preserve ordinary inference availability.
             if (runLog.BenchmarkTrialId.HasValue) throw;
         }
+    }
+
+    private void ReleasePersistedStreamAudits(Guid runId)
+    {
+        // The stream owns one long-lived context. Keeping every committed fragment
+        // tracked makes each later SaveChanges scan all earlier fragments repeatedly.
+        // Detach only this run's successfully saved outbox receipts: durable delivery
+        // reads them from the database, and the run/authority entities must stay tracked.
+        // Failed saves keep Added receipts for retry; an outer transaction still owns
+        // its commit, so it must retain its tracked state as well.
+        if (_dbContext.Database.CurrentTransaction is not null) return;
+        foreach (var entry in _dbContext.ChangeTracker.Entries<CSweet.Domain.Compute.ComputeAuditOutbox>()
+                     .Where(x => x.State == EntityState.Unchanged &&
+                         x.Entity.SourceEntityType == nameof(AgentRunLog) && x.Entity.SourceEntityId == runId).ToArray())
+            entry.State = EntityState.Detached;
     }
 
     private static int? ToNullableInt(long? value) => value switch

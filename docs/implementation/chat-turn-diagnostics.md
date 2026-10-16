@@ -161,6 +161,40 @@ update is immediate; accumulated text flushes on the next update after 500 ms,
 tools, usage and terminal updates keep their boundaries. Buffered text is retained
 before a stream failure, and every forwarded chunk is persisted first.
 
+`PlatformLlmCapabilityHandler.ReleasePersistedStreamAudits` detaches only the current
+model run's successfully saved audit outbox receipts from its long-lived EF context.
+The database still holds those receipts for normal audit delivery. Run/authority
+entities remain tracked; failed saves retain pending receipts for the next save,
+and an explicit outer transaction retains its tracked receipts until its owner commits.
+Without this cleanup, every streamed fragment adds another tracked row and later
+`CSweetDbContext.SaveChangesAsync` calls repeatedly scan the entire accumulated set.
+An idle inference server can then coexist with a `Running` model log and fresh
+`model.response.chunk` timestamps while the application slowly drains buffered output.
+Current Activity treats those timestamps as progress, so its working indicator does
+not establish that the provider is still generating.
+
+The October 15 Adrian investigation reproduced this through the production handler:
+2,048 reasoning fragments retained 2,053 audit rows and took 39.5 seconds. The first
+fixed run retained at most two and took 4.1 seconds, without changing fragment
+boundaries. `PlatformLlmStreamPersistenceTests` covers bounded tracking, complete
+output/usage, encrypted audit receipts and recovery after an injected save failure.
+`PlatformLlmStreamLiveTests` is opt-in with `CSWEET_STREAM_TEST_PROVIDER`,
+`CSWEET_STREAM_TEST_MODEL` and `CSWEET_STREAM_TEST_DATABASE`; it requires loopback
+services, creates/deletes only its own randomly named PostgreSQL database and uses
+the real provider adapter and stream handler with synthetic work. The application
+database and active employee work are not used. A rebuilt AgentHost must be loaded
+at a safe restart to apply the fix to installed work; restarting during an inference
+call can lose its process-local response buffer and expire the old work lease.
+
+Verification on October 15: 105 focused inference/queue/authority/audit/activity
+regressions passed, followed by the opt-in live test using `qwen3.8-27b` and a
+disposable PostgreSQL 18.3 database. The live call completed in 33.1 seconds with
+952 reported output tokens, 80 ordered encrypted chunk receipts and a peak of two
+tracked audit rows. Both long-stream cases also passed with exact persisted
+reasoning/sequence assertions, including the injected save failure. This verifies
+the patched handler and real provider/database path, not an installed-agent rollout.
+Adrian's resumed attempt was left running on the existing application host.
+
 - Retry a failed turn from the turn dialog; the durable work item allows 3 attempts.
 - For `memory.runtime_reset`, the runtime retained memory that is no longer valid, lacks verifiable
   evidence, or reached its receipt limit. `AgentMemoryRuntimeReset.RequestAsync` fences sessions and
