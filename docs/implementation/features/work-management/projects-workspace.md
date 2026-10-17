@@ -62,9 +62,14 @@ retain the owner's employee personal-board tab.
 
 When embedded in a project, `WorkBoardWorkspace` starts with its view tabs and
 board controls instead of repeating the project title or a "Project board" label.
-The sprint summary shows the selection and progress without the generated goal
-text; full goals remain in the sprint directory. Workflow names and counts appear
-in the columns themselves without a second navigation strip above them.
+`WorkBoardWorkspace` combines sprint selection, completion, search, attention,
+display options, and primary actions in one desktop toolbar; controls wrap on
+smaller screens. Completion exposes sprint dates in its tooltip and accessible
+label. Add tickets, Execution, Refresh board, and permitted board settings share
+the overflow menu. Full goals remain in the sprint directory. Cards omit the
+repetitive execution-stage summary; execution details remain in the ticket pane,
+while blockers and document revision links stay on cards. Workflow names and
+counts appear in the columns themselves without a second navigation strip.
 
 `WorkBoards` keeps its temporary ticket drawer mounted so opening and closing
 can animate. `WorkBoards.razor.css` sizes it to `min(1180px, 92vw)`, uses the full

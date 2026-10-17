@@ -19,6 +19,11 @@ public sealed class AgentRuntimeGlobalSettings
     public int PerInstallationMaxActiveWorkloads { get; set; } = 1;
     public int DefaultWorkloadMemoryMb { get; set; } = 1024;
     public int MaximumWorkloadMemoryMb { get; set; } = 2048;
+    // Separate administrator-approved complete-guest envelope for coding callbacks.
+    // Coordination and agent-package builds retain their independent policies.
+    public int CodingInitialMemoryMb { get; set; } = 4096;
+    public int CodingMaximumMemoryMb { get; set; } = 16384;
+    public int CodingMaximumReplacements { get; set; } = 2;
     public int DefaultWorkloadCpuPercent { get; set; } = 50;
     public int MaximumWorkloadCpuPercent { get; set; } = 200;
     public int DefaultWorkloadProcessLimit { get; set; } = 100;

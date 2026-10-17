@@ -5960,6 +5960,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("OwnerReportJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("OwnerReportRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("ProducerEmployeeId")
                         .HasColumnType("uuid");
 
@@ -5969,6 +5975,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("RecommendedAction")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("ReportRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("ReporterOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResolutionOutcome")
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("ResolvedAt")
@@ -5987,21 +6002,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("WorkstreamId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("OwnerReportJson")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("ReporterOrganizationUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("ReportRevision")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ResolutionOutcome")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("OwnerReportRequestedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -9749,6 +9749,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("BuildTimeoutSeconds")
                         .HasColumnType("integer");
 
+                    b.Property<int>("CodingInitialMemoryMb")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CodingMaximumMemoryMb")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CodingMaximumReplacements")
+                        .HasColumnType("integer");
+
                     b.Property<int>("CompletedRuntimeRetentionDays")
                         .HasColumnType("integer");
 
@@ -9865,6 +9874,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AgentInstallationId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("AllocatedMemoryMb")
+                        .HasColumnType("integer");
+
                     b.Property<string>("BrokerTokenHash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -9912,6 +9924,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long>("PeakWorkloadMemoryBytes")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("ProviderInstanceId")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -9922,6 +9937,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("Reason")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("ResourceFailureCode")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("ResourceMeasurementsRecordedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("RuntimeDeadlineAt")
                         .HasColumnType("timestamp with time zone");
@@ -10062,6 +10084,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LastConfirmedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("LastOperationDigest")
+                        .HasColumnType("text");
+
                     b.Property<long>("LastProgressSequence")
                         .HasColumnType("bigint");
 
@@ -10075,6 +10100,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("RuntimeInstanceId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool?>("WorkSucceeded")
+                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 
@@ -10168,6 +10196,27 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<byte[]>("ProtectedResult")
                         .HasColumnType("bytea");
+
+                    b.Property<int>("RequestedMemoryMb")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ResourceCheckpointDigest")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResourceProfileKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResourceRecoveryState")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("ResourceReplacementCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ResourceResumeWorkItemId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("ResultHash")
                         .HasMaxLength(64)
@@ -13336,6 +13385,24 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<DateTimeOffset?>("CheckpointAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CheckpointCommandClass")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CheckpointDigest")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CheckpointInputFingerprint")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CheckpointRuntimeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CheckpointSummaryJson")
+                        .HasColumnType("text");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -13610,6 +13677,54 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("TeamRepositoryPolicies");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.WorkloadResourceProfile", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CommandClass")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("InputFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("MemoryFailures")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MemoryMb")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OrganizationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("PeakWorkloadMemoryBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SuccessfulSamples")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("WorkloadResourceProfiles");
                 });
 
             modelBuilder.Entity("CSweet.Domain.WorkManagement.TrackedDelegation", b =>

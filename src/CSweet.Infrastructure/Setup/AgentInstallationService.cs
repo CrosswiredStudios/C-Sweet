@@ -1873,6 +1873,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         runtime.Events.OrderBy(x => x.OccurredAt)
             .Select(x => new AgentRuntimeEventResponse(x.Status.ToString(), x.Reason, x.OccurredAt))
             .ToList(),
-        runtime.LogExcerpt) { NetworkMode = mode, ImageTools = tools };
+        runtime.LogExcerpt) { NetworkMode = mode, ImageTools = tools, AllocatedMemoryMb = runtime.AllocatedMemoryMb,
+            PeakWorkloadMemoryBytes = runtime.PeakWorkloadMemoryBytes, ResourceFailureCode = runtime.ResourceFailureCode };
     }
 }

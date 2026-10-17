@@ -68,6 +68,31 @@ public sealed class ComputeProgressRenderingTests
     }
 
     [Fact]
+    public async Task ConfigurationFailureExplainsTheRepairAndReusableImage()
+    {
+        var html = await Render(new("Failed", "Installing the service", DateTimeOffset.UtcNow, null, "setup_configuration_invalid")
+        {
+            Health = "Stopped", CanRetry = true, Milestone = 5
+        }, canManage: true);
+        Assert.Contains("could not read its setup configuration", html);
+        Assert.Contains("Update C-Sweet and retry preparation", html);
+        Assert.Contains("completed Linux image can be reused", html);
+        Assert.Contains("Retry preparation", html);
+        Assert.DoesNotContain("resolve any host setup issue", html);
+    }
+
+    [Fact]
+    public async Task OlderGenericFailureStillExplainsWhichStepFailed()
+    {
+        var html = await Render(new("Failed", "Installing the service", DateTimeOffset.UtcNow, null, "local_setup_failed")
+        {
+            Health = "Stopped", CanRetry = true, Milestone = 5
+        }, canManage: true);
+        Assert.Contains("Linux image is ready, but compute service setup failed", html);
+        Assert.Contains("reuse the completed image", html);
+    }
+
+    [Fact]
     public async Task OnlyOwnerGetsSetupAndCreationActions()
     {
         Assert.DoesNotContain("Create instance", await Render(new("Ready", "Ready", null, null, null)));

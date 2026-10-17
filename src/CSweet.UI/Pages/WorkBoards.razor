@@ -274,28 +274,26 @@
                             OnExecution="OpenExecutionAsync" OnOpenItem="OpenItemDetailsAsync" OnRetryItem="RetryItemAsync"
                             OnDrop="@((WorkBoardDropRequest request) => MoveItemAsync(request.Item, request.Column, request.BeforeItemId))">
             <BoardActions>
-                <MudMenu Icon="@Icons.Material.Outlined.MoreVert" AriaLabel="Board settings">
-                    @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
-                    {
-                        <MudMenuItem OnClick="@(() => _sprintsOpen = true)">Manage sprints</MudMenuItem>
-                    }
-                    @if (_detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
-                    {
-                        <MudMenuItem OnClick="OpenOrchestrationAsync">Orchestration</MudMenuItem>
-                    }
-                    @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) && !_detail.Board.IsArchived)
-                    {
-                        <MudMenuItem OnClick="OpenColumnEditor">Configure columns</MudMenuItem>
-                    }
-                    @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Manage))
-                    {
-                        <MudMenuItem OnClick="OpenAutomationsAsync">Automations</MudMenuItem>
-                    }
-                    @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants))
-                    {
-                        <MudMenuItem OnClick="OpenAgentAccessAsync">Access management</MudMenuItem>
-                    }
-                </MudMenu>
+                @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
+                {
+                    <button type="button" @onclick="@(() => _sprintsOpen = true)">Manage sprints</button>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
+                {
+                    <button type="button" @onclick="OpenOrchestrationAsync">Orchestration</button>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) && !_detail.Board.IsArchived)
+                {
+                    <button type="button" @onclick="OpenColumnEditor">Configure columns</button>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Manage))
+                {
+                    <button type="button" @onclick="OpenAutomationsAsync">Automations</button>
+                }
+                @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants))
+                {
+                    <button type="button" @onclick="OpenAgentAccessAsync">Access management</button>
+                }
             </BoardActions>
             <ContextContent>
             @if (_deliveryPipeline is not null)

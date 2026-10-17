@@ -48,6 +48,12 @@ public sealed class AgentWorkItem
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string? LastError { get; set; }
+    public int RequestedMemoryMb { get; set; }
+    public int ResourceReplacementCount { get; set; }
+    public string? ResourceProfileKey { get; set; }
+    public string? ResourceRecoveryState { get; set; }
+    public string? ResourceCheckpointDigest { get; set; }
+    public Guid? ResourceResumeWorkItemId { get; set; }
 
     public AgentInstallation? AgentInstallation { get; set; }
     public ICollection<AgentWorkAttempt> Attempts { get; set; } = [];
@@ -68,6 +74,8 @@ public sealed class AgentWorkAttempt
     public long LastProgressSequence { get; set; }
     public string? CompletionHash { get; set; }
     public string? Error { get; set; }
+    public string? LastOperationDigest { get; set; }
+    public bool? WorkSucceeded { get; set; }
 
     public AgentWorkItem? AgentWorkItem { get; set; }
     public AgentRuntimeInstance? RuntimeInstance { get; set; }

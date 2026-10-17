@@ -35,4 +35,9 @@ public sealed record UpdateAgentRuntimeSettingsRequest(
     int? FailedRuntimeRetentionDays = null,
     int? BuildLogRetentionDays = null,
     bool? RemoveWorkloadsAfterCompletion = null,
-    bool? RemoveWorkspacesAfterCompletion = null);
+    bool? RemoveWorkspacesAfterCompletion = null)
+{
+    public int? CodingInitialMemoryMb { get; init; }
+    public int? CodingMaximumMemoryMb { get; init; }
+    public int? CodingMaximumReplacements { get; init; }
+}

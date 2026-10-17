@@ -70,6 +70,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
   durable incidents, management escalation and rollout.
 - [Adrian CI timeout](./adrian-ci-timeout-2026-10-16.md) - retained evidence, bounded command cleanup,
   runtime fencing, checkpoint recovery and informational CEO escalation.
+- [Prism Break runtime build interruption](./prism-break-runtime-build-2026-10-16.md) -
+  VGAEBFF008A8-33 evidence, guest reproduction and the retained workflow improvement register.
 
 Cross-cutting features are documented as a phased series in their own folder:
 
@@ -192,3 +194,5 @@ The first full vertical slice is complete when:
 - [Project compute scope](features/project-compute-scope.md) — shared host preparation, existing project testing permissions, durable wakes and generated workspace cleanup.
 
 - [Runtime public internet and dependency setup](features/runtime-public-internet.md) — reviewed execution permission, common Office egress, certified development guests and rollout gates.
+
+- [Coding workload resources and recovery](coding-workload-resources.md) — resource policy, checkpointed VM replacement, guest memory evidence and rollout acceptance.

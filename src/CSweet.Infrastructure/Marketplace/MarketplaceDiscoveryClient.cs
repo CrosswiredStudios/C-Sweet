@@ -247,7 +247,7 @@ public sealed class MarketplaceDiscoveryClient(
                 x.Category,
                 x.Capabilities,
                 "OpenSourceFree",
-                null,
+                0,
                 1,
                 "USD",
                 null,

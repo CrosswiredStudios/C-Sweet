@@ -263,7 +263,7 @@ public sealed partial class ProjectHealthTests
         await f.Service.ReportAsync(f.Org, f.Producer.Id, report, default);
         Assert.Equal(f.Director.Id, incident.CurrentRecipientId);
         var deadline = incident.EscalateAt;
-        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.ForwardAsync(f.Org, f.Producer.Id,
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.ForwardAsync(f.Org, f.Producer.Id,
             new(incident.Id, report.ExpectedRevision, "stale", "Forward"), default));
         Assert.Equal(deadline, incident.EscalateAt);
         await f.Service.ForwardAsync(f.Org, f.Director.Id, new(incident.Id, incident.Revision, "director", "Platform schema errors are outside creative direction."), default);

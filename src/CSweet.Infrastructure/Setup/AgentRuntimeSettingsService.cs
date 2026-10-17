@@ -81,6 +81,12 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         AgentRuntimeGlobalSettings settings)
     {
         var errors = new List<string>();
+        var codingInitial = request.CodingInitialMemoryMb ?? settings.CodingInitialMemoryMb;
+        var codingMaximum = request.CodingMaximumMemoryMb ?? settings.CodingMaximumMemoryMb;
+        if (!WorkloadResourcePolicy.Tiers.Contains(codingInitial) || !WorkloadResourcePolicy.Tiers.Contains(codingMaximum) || codingInitial > codingMaximum)
+            errors.Add("Coding memory must use 2048, 4096, 8192 or 16384 MiB tiers, with initial memory at or below the maximum.");
+        if (request.CodingMaximumReplacements is < 0 or > 2)
+            errors.Add("Coding runtime replacements must be between zero and two per operation.");
         var minimumTickFrequencySeconds = request.MinimumTickFrequencySeconds ?? settings.MinimumTickFrequencySeconds;
         var defaultTickFrequencySeconds = request.DefaultTickFrequencySeconds ?? settings.DefaultTickFrequencySeconds;
         var defaultWorkloadMemoryMb = request.DefaultWorkloadMemoryMb ?? settings.DefaultWorkloadMemoryMb;
@@ -181,6 +187,9 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
 
     private static void Apply(UpdateAgentRuntimeSettingsRequest request, AgentRuntimeGlobalSettings settings)
     {
+        ApplyInt(request.CodingInitialMemoryMb, v => settings.CodingInitialMemoryMb = v);
+        ApplyInt(request.CodingMaximumMemoryMb, v => settings.CodingMaximumMemoryMb = v);
+        ApplyInt(request.CodingMaximumReplacements, v => settings.CodingMaximumReplacements = v);
         ApplyBool(request.EnableImportedAgents, v => settings.EnableImportedAgents = v);
         ApplyString(request.DefaultActivationMode, v => settings.DefaultActivationMode = ParseActivationMode(v));
         ApplyInt(request.DefaultTickFrequencySeconds, v => settings.DefaultTickFrequencySeconds = v);
@@ -279,7 +288,12 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
             settings.BuildLogRetentionDays,
             settings.RemoveWorkloadsAfterCompletion,
             settings.RemoveWorkspacesAfterCompletion,
-            settings.UpdatedAt);
+            settings.UpdatedAt)
+        {
+            CodingInitialMemoryMb = settings.CodingInitialMemoryMb,
+            CodingMaximumMemoryMb = settings.CodingMaximumMemoryMb,
+            CodingMaximumReplacements = settings.CodingMaximumReplacements
+        };
     }
 
     private static ActivationMode ParseActivationMode(string value)

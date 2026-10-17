@@ -110,7 +110,7 @@ public sealed class InferenceAnalyticsService(
                 logs.Count,
                 inputTokens,
                 outputTokens,
-                inputTokens + outputTokens),
+                inputTokens + outputTokens) { Coverage = InferenceMeasurements.Coverage(logs) },
             rows);
     }
 
@@ -146,7 +146,7 @@ public sealed class InferenceAnalyticsService(
             inputTokens,
             outputTokens,
             inputTokens + outputTokens,
-            group.Max(x => x.StartedAt));
+            group.Max(x => x.StartedAt)) { Coverage = InferenceMeasurements.Coverage(group) };
     }
 
     private static CurrentAgentConfiguration CurrentConfiguration(

@@ -85,6 +85,28 @@ public sealed class ComputePreparationProgressTests : IDisposable
     }
 
     [Fact]
+    public void SpecificReceiptFailureSurvivesGenericPersistedFailureWithoutLeakingRawText()
+    {
+        Write(phase: "connect-service");
+        setup.State = "Failed";
+        setup.ErrorCode = "local_setup_failed";
+        void Receipt(Guid? attempt, string code) => File.WriteAllText(Path.Combine(directory, "result.json"),
+            JsonSerializer.Serialize(new { attemptId = attempt, state = "Failed", failureCode = code }));
+        Receipt(setup.PreparationAttemptId, "setup_configuration_invalid");
+        var observed = ComputePreparationProgress.Observe(ComputePreparationProgress.Read(setup, directory)!, setup,
+            ComputeSetupObservation.Read(setup, directory), DateTimeOffset.UtcNow);
+        Assert.Equal("setup_configuration_invalid", observed.FailureCode);
+        Assert.True(observed.CanRetry);
+        Assert.Equal(5, observed.Milestone);
+        Receipt(setup.PreparationAttemptId, "private host path and secret");
+        Assert.Equal("local_setup_failed", ComputeSetupObservation.Read(setup, directory).FailureCode);
+        Receipt(Guid.NewGuid(), "setup_configuration_invalid");
+        Assert.Null(ComputeSetupObservation.Read(setup, directory).FailureCode);
+        setup.State = "Ready";
+        Assert.Null(ComputePreparationProgress.Observe(observed, setup, new(false, "setup_configuration_invalid"), DateTimeOffset.UtcNow).FailureCode);
+    }
+
+    [Fact]
     public void MalformedOrPartialSnapshotDoesNotInventProgress()
     {
         File.WriteAllText(Path.Combine(directory, "progress.json"), "{\"version\":2");

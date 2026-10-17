@@ -79,6 +79,13 @@ GET/PUT and explicit existing-plan apply routes. Optimistic revisions reject sta
 
 ## Candidate selection and execution
 
+`FirstPartyAgentCatalogProvider.Map` and `MarketplaceDiscoveryClient.FirstPartyAgents`
+report all current first-party agent packages as free (`0 USD`, rather than an unknown
+price). `AgentCatalogService.Consolidate` and `ResolveAsync` carry that price onto installed
+copies only when the package repository and manifest identity match the first-party listing.
+Unknown prices from other sources continue to require owner review. Package price does
+not include inference-provider or compute charges.
+
 `SelectCandidateAsync` uses approved role requirements, canonical role-family eligibility,
 availability, specialization ranking, and publisher preference. It persists the selected
 `AvailableAgent` and concise rationale on `WorkforcePlan`. Choosing candidates manually

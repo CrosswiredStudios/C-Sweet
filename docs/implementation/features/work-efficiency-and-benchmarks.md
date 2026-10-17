@@ -17,6 +17,32 @@ and separate human/judge scores. Partial rubric scores are not presented as fina
 
 ## Metric semantics
 
+- `InferenceSourceAttribution.CaptureAsync` fills accounting ownership from the authenticated
+  inbox source: exact collaboration deliveries (including retained turn links and server-owned
+  correlation IDs), their source tickets/projects, and project-scoped chat turns. These are
+  accounting links, never execution grants. `CSweetDbContext.ExecutionProjectAsync` also captures
+  the validated project in a personal commitment's `PersonalTodoWorkContext` into new intervals.
+- `InferenceSourceAttribution.BackfillAsync` runs during database initialization and is available
+  through `tools/CSweet.Analytics.Repair`. It processes completed, non-erased provider receipts
+  in batches of 256, preserving captured ownership and every token count. Historical dispatch
+  intervals take precedence; exact collaboration/stage/TaskRun sources and claim-event receipts
+  for simple commitments are fallback evidence. Claims never guess a plan's missing child focus.
+  Changed task ancestry or conversation project membership is not reconstructed from today's
+  state. Unlinked chat-created tasks are never assigned an arbitrary share of conversation usage.
+- Inference and work-efficiency views distinguish pending calls, unknown usage, partial reported
+  subtotals, and measured zero. Work rows with no linked calls show unknown ownership coverage.
+  Inference refreshes every 30 seconds. CSV leaves unreported amounts empty and includes pending,
+  unknown, and per-dimension coverage counts. Numeric API sums remain reported subtotals for
+  compatibility; callers must inspect coverage before interpreting them as complete totals.
+
+October 16 verification: 135 targeted unit tests and three analytics endpoint tests passed;
+one existing conditional test was skipped. The PostgreSQL maintenance command repaired 11
+completed receipts for the inspected business, assigning 257,678 already recorded tokens to
+`Prism Break — Executive Pitch` (174,899 Victor, 37,152 Gabriel, 45,627 Naomi). No token values
+were changed. A second transactional preview, including the claim-event fallback, found zero
+further repairs. Existing unlinked chat-created tasks remain unknown. Running services were
+left active; new-call capture and UI changes require the rebuilt services on the next restart.
+
 - `AgentRunLog` is the inference receipt. New provider attempts record a start and update
   the same ID at completion, failure, or cancellation. Streaming usage updates are not
   additional calls. `InferenceMeasurements.ProviderCalls` excludes queue bookkeeping and

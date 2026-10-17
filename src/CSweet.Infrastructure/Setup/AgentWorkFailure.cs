@@ -58,6 +58,10 @@ public static class AgentWorkFailure
                 "Resolve that failure, then move this task back to To Do to retry.";
         var capability = FailureField(error, "capability");
         var code = FailureField(error, "code");
+        if (code == "runtime.resources.exhausted")
+            return "The workload reached its approved memory or replacement limit. The last saved source is retained. Automatic coding retries stopped; review capacity, the checkpoint and guest evidence before authorizing recovery.";
+        if (code == "runtime.repeated_operation")
+            return "The same operation was interrupted repeatedly. Source and attempt evidence are retained. Automatic coding retries stopped for infrastructure diagnosis; a missing heartbeat alone does not establish a memory failure.";
         var exceptionType = SafeExceptionType(FailureField(error, "exceptionType"));
         var httpStatus = SafeHttpStatus(FailureField(error, "httpStatus"));
         var diagnosticId = SafeDiagnosticId(FailureField(error, "diagnosticId"));

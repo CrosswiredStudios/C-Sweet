@@ -27,6 +27,10 @@ public sealed class AgentRuntimeInstance
     public DateTimeOffset? LastInteractiveActivityAt { get; set; }
     public DateTimeOffset? IdleDeadlineAt { get; set; }
     public bool IsInteractive { get; set; }
+    public int AllocatedMemoryMb { get; set; }
+    public string? ResourceFailureCode { get; set; }
+    public long PeakWorkloadMemoryBytes { get; set; }
+    public DateTimeOffset? ResourceMeasurementsRecordedAt { get; set; }
 
     public AgentInstallation? AgentInstallation { get; set; }
     public ICollection<AgentRuntimeEvent> Events { get; set; } = [];

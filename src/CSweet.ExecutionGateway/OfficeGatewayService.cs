@@ -320,7 +320,7 @@ public sealed partial class OfficeGatewayService(
             existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
             existing.SupportsToolchainBuildWorkloads = reported.SupportsToolchainBuildWorkloads;
             existing.SupportsPublicInternet = reported.SupportsPublicInternet && reported.BrokerProtocolVersion == "1.1" &&
-                reported.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4";
+                reported.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" or "csweet-hardware-vm-smoke-v16" or "csweet-hardware-vm-smoke-v16-ipv4";
             existing.IsAvailable = reported.IsAvailable;
             existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason) ? null : reported.UnavailableReason;
             existing.UpdatedAt = now;

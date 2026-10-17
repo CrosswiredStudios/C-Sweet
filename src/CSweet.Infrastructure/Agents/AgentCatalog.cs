@@ -422,7 +422,7 @@ public sealed class FirstPartyAgentCatalogProvider(IOptions<MarketplaceOptions> 
         item.RoleAliases,
         item.Keywords,
         item.Capabilities,
-        null,
+        0m,
         "USD",
         null,
         0,

@@ -14,9 +14,6 @@ namespace CSweet.Compute.HyperV;
 /// <summary>Application installer entry point. Never reachable from agent dispatch or guest commands.</summary>
 internal static class LocalComputeInstaller
 {
-    internal sealed record Handoff(int Version, Guid SetupId, Guid OrganizationId, string Secret, string CoreOrigin,
-        string CoreCertificateSha256, ComputeSigningIdentity ControlPlaneKey, string RepositoryRoot);
-
     public static async Task ConfigureAsync(string? handoffPath, string imagePath, string acceptancePath, CancellationToken token)
     {
         if (!OperatingSystem.IsWindows() || !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
@@ -147,7 +144,7 @@ internal static class LocalComputeInstaller
             CoreCertificateSha256 = handoff.CoreCertificateSha256
         }, token);
     }
-    private static HttpClient CreateClient(Handoff handoff)
+    private static HttpClient CreateClient(ComputeLocalSetupHandoff handoff)
     {
         var expected = Convert.FromHexString(handoff.CoreCertificateSha256);
         var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseDefaultCredentials = false };
@@ -157,11 +154,11 @@ internal static class LocalComputeInstaller
         return new(handler) { BaseAddress = new Uri(handoff.CoreOrigin), Timeout = TimeSpan.FromSeconds(30) };
     }
 
-    private static async Task<Handoff> ReadHandoffAsync(string path, CancellationToken token)
+    internal static async Task<ComputeLocalSetupHandoff> ReadHandoffAsync(string path, CancellationToken token)
     {
         if (!Path.IsPathFullyQualified(path) || new FileInfo(path).Length > 16384) throw new InvalidDataException();
-        var handoff = JsonSerializer.Deserialize<Handoff>(await File.ReadAllBytesAsync(path, token), ComputeProtocol.Json) ?? throw new InvalidDataException();
-        if (handoff.Version != 1 || handoff.SetupId == Guid.Empty || handoff.OrganizationId == Guid.Empty ||
+        var handoff = JsonSerializer.Deserialize<ComputeLocalSetupHandoff>(await File.ReadAllBytesAsync(path, token), ComputeProtocol.Json) ?? throw new InvalidDataException();
+        if (handoff.Version != 1 || handoff.SetupId == Guid.Empty || handoff.OrganizationId == Guid.Empty || handoff.AttemptId == Guid.Empty ||
             handoff.Secret is not { Length: 64 } || !handoff.Secret.All(Uri.IsHexDigit) ||
             handoff.CoreCertificateSha256 is not { Length: 64 } || !handoff.CoreCertificateSha256.All(Uri.IsHexDigit) ||
             !Uri.TryCreate(handoff.CoreOrigin, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||

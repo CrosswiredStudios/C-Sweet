@@ -1502,7 +1502,7 @@ public sealed class ExecutionFleetService(
     private bool ProviderQualifies(ExecutionNodeProvider provider, DateTimeOffset now, ExecutionWorkloadKind kind)
     {
         var development = (RuntimePolicy.DevelopmentImages.Count == 0 && provider.SupportsPublicInternet &&
-            provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" && provider.BrokerProtocolVersion == "1.1") || RuntimePolicy.DevelopmentImages.Any(image => image.ProviderId == provider.ProviderId &&
+            provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" or "csweet-hardware-vm-smoke-v16" or "csweet-hardware-vm-smoke-v16-ipv4" && provider.BrokerProtocolVersion == "1.1") || RuntimePolicy.DevelopmentImages.Any(image => image.ProviderId == provider.ProviderId &&
             image.Digest == provider.GuestImageDigest && image.CertificationSuiteVersion == provider.CertificationSuiteVersion &&
             provider.BrokerProtocolVersion == "1.1");
         var expectedDigest = kind == ExecutionWorkloadKind.Builder
@@ -1730,7 +1730,7 @@ public sealed class ExecutionFleetService(
             existing.SupportsRuntimeWorkloads = reported.SupportsRuntimeWorkloads;
             existing.SupportsToolchainBuildWorkloads = reported.SupportsToolchainBuildWorkloads;
             existing.SupportsPublicInternet = reported.SupportsPublicInternet && reported.BrokerProtocolVersion == "1.1" &&
-                reported.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4";
+                reported.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" or "csweet-hardware-vm-smoke-v16" or "csweet-hardware-vm-smoke-v16-ipv4";
             existing.IsAvailable = reported.IsAvailable;
             existing.UnavailableReason = string.IsNullOrWhiteSpace(reported.UnavailableReason)
                 ? null : reported.UnavailableReason.Trim()[..Math.Min(1024, reported.UnavailableReason.Trim().Length)];

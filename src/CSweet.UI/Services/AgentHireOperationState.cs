@@ -122,6 +122,7 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
 
     private async Task StartCoreAsync(PendingStart pending, CancellationToken cancellationToken)
     {
+        var rejected = false;
         try
         {
             var response = await http.PostAsJsonAsync(
@@ -129,7 +130,11 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
                 pending.Request,
                 cancellationToken);
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(await ErrorMessageAsync(response, "The hire request did not return a result."));
+            {
+                var error = await ReadErrorAsync(response);
+                rejected = IsConfirmationRejection(response, error);
+                throw new InvalidOperationException(ErrorMessage(response, error, "The hire request did not return a result."));
+            }
             var operation = await response.Content.ReadFromJsonAsync<AgentHireOperationResponse>(cancellationToken)
                 ?? throw new InvalidOperationException("The agent hire response was empty.");
             _pendingStarts.Remove(pending.WorkflowId);
@@ -154,9 +159,9 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
             }
             Merge(Starting(pending) with
             {
-                Status = UnconfirmedStatus,
-                Phase = "Could not confirm hire status",
-                Detail = $"The hire result is unknown. {exception.Message}",
+                Status = rejected ? AgentHireOperationStatuses.Failed : UnconfirmedStatus,
+                Phase = rejected ? "Hire rejected" : "Could not confirm hire status",
+                Detail = rejected ? exception.Message : $"The hire result is unknown. {exception.Message}",
                 Error = exception.Message,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
@@ -247,20 +252,36 @@ public sealed class AgentHireOperationState(HttpClient http, AppRealtimeState re
         null,
         DateTimeOffset.UtcNow) { RecommendationId = pending.RecommendationId };
 
-    private static async Task<string> ErrorMessageAsync(HttpResponseMessage response, string fallback)
+    // Only the confirmation endpoint's explicit, pre-commit rejections prove failure.
+    // Proxy responses, timeouts and server errors can follow a committed hire.
+    private static bool IsConfirmationRejection(HttpResponseMessage response, ApiError? error) =>
+        ((int)response.StatusCode, error?.Error) is
+            (400, "invalid_hire") or
+            (403, "owner_required") or
+            (409, "agent_build_pending" or "approval_invalidated" or "installation_rejected" or "agent_source_unavailable");
+
+    private static async Task<string> ErrorMessageAsync(HttpResponseMessage response, string fallback) =>
+        ErrorMessage(response, await ReadErrorAsync(response), fallback);
+
+    private static async Task<ApiError?> ReadErrorAsync(HttpResponseMessage response)
     {
         try
         {
-            var error = await response.Content.ReadFromJsonAsync<ApiError>();
-            if (!string.IsNullOrWhiteSpace(error?.Message)) return error.Message;
-            if (!string.IsNullOrWhiteSpace(error?.Detail)) return error.Detail;
-            if (!string.IsNullOrWhiteSpace(error?.Title) && (int)response.StatusCode < 500)
-                return error.Title;
+            return await response.Content.ReadFromJsonAsync<ApiError>();
         }
         catch (Exception exception) when (exception is JsonException or NotSupportedException)
         {
             // An HTML or empty error response has no application message.
         }
+        return null;
+    }
+
+    private static string ErrorMessage(HttpResponseMessage response, ApiError? error, string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(error?.Message)) return error.Message;
+        if (!string.IsNullOrWhiteSpace(error?.Detail)) return error.Detail;
+        if (!string.IsNullOrWhiteSpace(error?.Title) && (int)response.StatusCode < 500)
+            return error.Title;
         return $"{fallback} (HTTP {(int)response.StatusCode}). Check the API logs for the failed request.";
     }
 

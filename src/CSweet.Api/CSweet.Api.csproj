@@ -5,6 +5,7 @@
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />
     <ProjectReference Include="..\CSweet.Infrastructure\CSweet.Infrastructure.csproj" />
     <ProjectReference Include="..\CSweet.AI\CSweet.AI.csproj" />
+    <ProjectReference Include="..\CSweet.Compute.Runtime\CSweet.Compute.Runtime.csproj" />
     <ProjectReference Include="..\CSweet.ServiceDefaults\CSweet.ServiceDefaults.csproj" />
   </ItemGroup>
 

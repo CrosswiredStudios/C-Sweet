@@ -19,7 +19,10 @@ public sealed record InferenceAnalyticsTotalsResponse(
     int RequestCount,
     long InputTokens,
     long OutputTokens,
-    long TotalTokens);
+    long TotalTokens)
+{
+    public InferenceUsageCoverage Coverage { get; init; } = new();
+}
 
 public sealed record EmployeeModelInferenceUsageResponse(
     Guid? EmployeeId,
@@ -34,4 +37,16 @@ public sealed record EmployeeModelInferenceUsageResponse(
     long InputTokens,
     long OutputTokens,
     long TotalTokens,
-    DateTimeOffset? LastUsedAt);
+    DateTimeOffset? LastUsedAt)
+{
+    public InferenceUsageCoverage Coverage { get; init; } = new();
+}
+
+public sealed record InferenceUsageCoverage
+{
+    public long InputReportedCalls { get; init; }
+    public long OutputReportedCalls { get; init; }
+    public long FullyReportedCalls { get; init; }
+    public long PendingCalls { get; init; }
+    public long UnknownCalls { get; init; }
+}

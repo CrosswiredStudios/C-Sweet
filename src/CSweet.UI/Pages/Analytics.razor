@@ -2,6 +2,7 @@
 @using System.Net
 @using CSweet.Contracts.Analytics
 @inject HttpClient Http
+@implements IAsyncDisposable
 
 <PageTitle>Analytics - C-Sweet</PageTitle>
 
@@ -54,11 +55,12 @@
             else if (_analytics is not null)
             {
                 <section class="analytics-summary-grid" aria-label="Inference token summary">
-                    @SummaryCard("Input tokens", _analytics.Totals.InputTokens, Icons.Material.Outlined.Input)
-                    @SummaryCard("Output tokens", _analytics.Totals.OutputTokens, Icons.Material.Outlined.Output)
-                    @SummaryCard("Total tokens", _analytics.Totals.TotalTokens, Icons.Material.Outlined.DataUsage)
-                    @SummaryCard("Model calls", _analytics.Totals.RequestCount, Icons.Material.Outlined.Send)
+                    @SummaryCard("Input tokens", Usage(_analytics.Totals.InputTokens, _analytics.Totals.RequestCount, _analytics.Totals.Coverage.InputReportedCalls, _analytics.Totals.Coverage.PendingCalls), Icons.Material.Outlined.Input)
+                    @SummaryCard("Output tokens", Usage(_analytics.Totals.OutputTokens, _analytics.Totals.RequestCount, _analytics.Totals.Coverage.OutputReportedCalls, _analytics.Totals.Coverage.PendingCalls), Icons.Material.Outlined.Output)
+                    @SummaryCard("Total tokens", Total(_analytics.Totals.TotalTokens, _analytics.Totals.RequestCount, _analytics.Totals.Coverage), Icons.Material.Outlined.DataUsage)
+                    @SummaryCard("Model calls", _analytics.Totals.RequestCount.ToString("N0"), Icons.Material.Outlined.Send)
                 </section>
+                <MudText Typo="Typo.body2">@_analytics.Totals.Coverage.FullyReportedCalls / @_analytics.Totals.RequestCount calls fully reported · @_analytics.Totals.Coverage.PendingCalls pending · @_analytics.Totals.Coverage.UnknownCalls unknown. Active calls may report usage only when generation finishes.</MudText>
 
                 <MudTable T="EmployeeModelInferenceUsageResponse" Items="_analytics.Employees" Dense="true" Hover="true"
                           Breakpoint="Breakpoint.Md" Loading="_loading" Class="analytics-table" AriaLabel="Employee inference usage">
@@ -91,9 +93,9 @@
                             }
                         </MudTd>
                         <MudTd DataLabel="Provider">@(context.ProviderName ?? "Not configured")</MudTd>
-                        <MudTd DataLabel="Input">@FormatTokens(context.InputTokens)</MudTd>
-                        <MudTd DataLabel="Output">@FormatTokens(context.OutputTokens)</MudTd>
-                        <MudTd DataLabel="Total"><strong>@FormatTokens(context.TotalTokens)</strong></MudTd>
+                        <MudTd DataLabel="Input">@Usage(context.InputTokens, context.RequestCount, context.Coverage.InputReportedCalls, context.Coverage.PendingCalls)</MudTd>
+                        <MudTd DataLabel="Output">@Usage(context.OutputTokens, context.RequestCount, context.Coverage.OutputReportedCalls, context.Coverage.PendingCalls)</MudTd>
+                        <MudTd DataLabel="Total"><strong>@Total(context.TotalTokens, context.RequestCount, context.Coverage)</strong><br /><small>@context.Coverage.PendingCalls pending · @context.Coverage.UnknownCalls unknown</small></MudTd>
                         <MudTd DataLabel="Model calls">@context.RequestCount.ToString("N0")</MudTd>
                         <MudTd DataLabel="Last used">@FormatTimestamp(context.LastUsedAt)</MudTd>
                     </RowTemplate>
@@ -121,6 +123,16 @@
     private bool _forbidden;
     private string? _error;
     private InferenceAnalyticsResponse? _analytics;
+    private readonly CancellationTokenSource _dispose = new();
+    private Task? _refresh;
+    protected override void OnInitialized() => _refresh = RefreshPeriodicallyAsync();
+    private async Task RefreshPeriodicallyAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try { while (await timer.WaitForNextTickAsync(_dispose.Token)) await InvokeAsync(async () => { if (!_loading) await LoadAsync(); StateHasChanged(); }); }
+        catch (OperationCanceledException) { }
+    }
+    public async ValueTask DisposeAsync() { await _dispose.CancelAsync(); if (_refresh is not null) await _refresh; _dispose.Dispose(); }
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -165,19 +177,17 @@
         return LoadAsync();
     }
 
-    private static RenderFragment SummaryCard(string label, long value, string icon) => @<MudPaper Elevation="1" Class="analytics-summary-card">
+    private static RenderFragment SummaryCard(string label, string value, string icon) => @<MudPaper Elevation="1" Class="analytics-summary-card">
         <MudIcon Icon="@icon" Color="Color.Primary" />
         <div>
             <MudText Typo="Typo.overline" Color="Color.Secondary">@label</MudText>
-            <MudText Typo="Typo.h5">@FormatTokens(value)</MudText>
+            <MudText Typo="Typo.h5">@value</MudText>
         </div>
     </MudPaper>;
 
-    private static string FormatTokens(long tokens) => tokens >= 1_000_000
-        ? $"{tokens / 1_000_000d:0.##}M"
-        : tokens >= 1_000
-            ? $"{tokens / 1_000d:0.#}K"
-            : tokens.ToString("N0");
+    private static string Usage(long value, long calls, long reported, long pending) => TokenUsageDisplay.Format(value, calls, reported, pending);
+    private static string Total(long value, long calls, InferenceUsageCoverage coverage) =>
+        Usage(value, calls * 2, coverage.InputReportedCalls + coverage.OutputReportedCalls, coverage.PendingCalls * 2);
 
     private static string FormatTimestamp(DateTimeOffset? value) =>
         value?.ToLocalTime().ToString("g") ?? "Never";

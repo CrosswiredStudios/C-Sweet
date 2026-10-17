@@ -62,6 +62,19 @@ public sealed class WorkExecutionTests
     }
 
     [Fact]
+    public async Task PersonalCommitment_ProjectContextIsCapturedInIntervalsAndCalls()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var board = await f.Db.WorkBoards.SingleAsync(); board.WorkstreamId = null;
+        f.Epic.PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = f.Project });
+        f.Attempt.LastConfirmedAt = f.Clock.Now.AddMinutes(1);
+        await f.Db.SaveChangesAsync();
+        var call = await f.Call();
+        Assert.Equal(f.Project, call.WorkstreamId);
+        Assert.Equal(f.Project, (await f.Db.WorkExecutionIntervals.SingleAsync(x => x.EndedAt == null)).WorkstreamId);
+    }
+
+    [Fact]
     public async Task EpicPlanningAndTaskExecution_ReconcileThroughStoryAndProject_AndCaptureOwnership()
     {
         await using var f = new Fixture(); await f.Seed();

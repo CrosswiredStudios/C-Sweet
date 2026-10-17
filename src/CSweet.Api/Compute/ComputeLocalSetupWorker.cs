@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Application.Compute;
+using CSweet.Compute.Contracts;
+using CSweet.Compute.Runtime;
 using CSweet.Domain.Compute;
 using CSweet.Infrastructure.Compute;
 using CSweet.Infrastructure.Persistence;
@@ -95,9 +97,9 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
                     PropagationFlags.None, AccessControlType.Allow));
             new DirectoryInfo(directory).SetAccessControl(acl);
             var signing = await scope.ServiceProvider.GetRequiredService<IComputeDispatchSigner>().GetIdentityAsync(token);
-            await File.WriteAllTextAsync(handoff, JsonSerializer.Serialize(new { version = 1, setupId = setup.Id,
-                organizationId = setup.OrganizationId, attemptId, secret, coreOrigin = endpoint.GetLeftPart(UriPartial.Authority) + "/",
-                coreCertificateSha256 = pin, controlPlaneKey = signing, repositoryRoot = root }), token);
+            await File.WriteAllTextAsync(handoff, JsonSerializer.Serialize(new ComputeLocalSetupHandoff(1, setup.Id,
+                setup.OrganizationId, secret, endpoint.GetLeftPart(UriPartial.Authority) + "/", pin, signing, root, attemptId),
+                ComputeProtocol.Json), token);
             using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -106,7 +108,8 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             }) ?? throw new IOException("The local installer did not start.");
             await process.WaitForExitAsync(token);
             var completed = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync(x => x.Id == setup.Id, token);
-            if (completed.State != "Ready") await FailAsync(db, setup, "local_setup_failed", token);
+            if (completed.State != "Ready") await FailAsync(db, setup,
+                ComputeSetupObservation.Read(completed, directory).FailureCode ?? "local_setup_failed", token);
         }
         catch (System.ComponentModel.Win32Exception) { await FailAsync(db, setup, "administrator_approval_required", token); }
         catch (Exception error) when (error is not OperationCanceledException)

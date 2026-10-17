@@ -24,7 +24,10 @@ public sealed record ClaimedAgentWork(
     DateTimeOffset LeaseExpiresAt,
     DateTimeOffset Deadline,
     Guid? EventId,
-    string CorrelationId);
+    string CorrelationId)
+{
+    public CSweet.Agent.SDK.WorkloadResources? Resources { get; init; }
+}
 
 public sealed record AgentWorkCompletion(
     bool Succeeded,
@@ -292,7 +295,7 @@ public sealed partial class AgentWorkInbox(
             expiredAttempt.FinishedAt = now;
             expiredAttempt.Error = "lease_expired";
             var work = expiredAttempt.AgentWorkItem!;
-            work.Status = work.AttemptCount >= work.MaximumAttempts
+            work.Status = work.AttemptCount - work.ResourceReplacementCount >= work.MaximumAttempts
                 ? AgentWorkStatus.DeadLetter
                 : AgentWorkStatus.Pending;
             work.AvailableAt = now;
@@ -402,6 +405,7 @@ public sealed partial class AgentWorkInbox(
         }
         var leaseToken = Base64Url(RandomNumberGenerator.GetBytes(32));
         item.Status = AgentWorkStatus.Leased;
+        if (item.ResourceRecoveryState is not null) item.ResourceRecoveryState = "Running";
         item.AttemptCount++;
         var attempt = new AgentWorkAttempt
         {
@@ -432,7 +436,10 @@ public sealed partial class AgentWorkInbox(
             item.Kind == AgentWorkKind.Event
                 ? Guid.Parse(item.SourceId!)
                 : null,
-            item.CorrelationId);
+            item.CorrelationId)
+        {
+            Resources = await ReadResourcesAsync(item, session.RuntimeInstanceId, cancellationToken)
+        };
     }
 
     public async Task<DateTimeOffset> ReadDeadlineAsync(McpAgentSession session, Guid workId,
@@ -519,6 +526,10 @@ public sealed partial class AgentWorkInbox(
             throw new InvalidOperationException(
                 $"Work items may not emit more than {MaximumProgressRecordsPerWork} progress records.");
         attempt.LastProgressSequence = sequence;
+        if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("kind", out var kind) && kind.GetString() == "workspace-tool" &&
+            value.TryGetProperty("phase", out var phase) && phase.GetString() == "started" && value.TryGetProperty("commandDigest", out var digest) &&
+            digest.ValueKind == JsonValueKind.String && digest.GetString() is { Length: 64 } operationDigest && operationDigest.All(Uri.IsHexDigit))
+            attempt.LastOperationDigest = operationDigest;
         attempt.LastConfirmedAt = timeProvider.GetUtcNow();
         attempt.LeaseExpiresAt = attempt.LastConfirmedAt.Value.Add(LeaseDuration);
         db.AgentWorkProgress.Add(new AgentWorkProgress
@@ -535,15 +546,20 @@ public sealed partial class AgentWorkInbox(
         AgentRuntimeMetrics.Work("progressed", attempt.AgentWorkItem!.Kind);
     }
 
-    public Task CompleteAsync(
+    public async Task CompleteAsync(
         McpAgentSession session,
         Guid workId,
         int attemptNumber,
         string leaseToken,
         AgentWorkCompletion completion,
-        CancellationToken cancellationToken) =>
-        WorkExecutionConflictRetry.RunAsync(db,
-            () => CompleteCoreAsync(session, workId, attemptNumber, leaseToken, completion, cancellationToken), cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var gate = ClaimLocks.GetOrAdd(session.AgentInstallationId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try { await WorkExecutionConflictRetry.RunAsync(db,
+            () => CompleteCoreAsync(session, workId, attemptNumber, leaseToken, completion, cancellationToken), cancellationToken); }
+        finally { gate.Release(); }
+    }
 
     private async Task CompleteCoreAsync(
         McpAgentSession session,
@@ -553,6 +569,12 @@ public sealed partial class AgentWorkInbox(
         AgentWorkCompletion completion,
         CancellationToken cancellationToken)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (db.Database.IsNpgsql())
+        {
+            var key = $"agent-work-claim:{session.OrganizationId}:{session.AgentInstallationId:D}";
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key},0))", cancellationToken);
+        }
         var bytes = JsonSerializer.SerializeToUtf8Bytes(completion);
         if (bytes.Length > MaximumResultBytes)
             throw new InvalidOperationException($"Agent work results may not exceed {MaximumResultBytes} bytes.");
@@ -569,21 +591,43 @@ public sealed partial class AgentWorkInbox(
         }
         ValidateLease(session, item, attempt, leaseToken);
         var now = timeProvider.GetUtcNow();
+        if (completion.FailureCode == "runtime.resources.handoff")
+        {
+            await StageResourceHandoffAsync(session, item, attempt, completion, completionHash, now, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return;
+        }
         attempt.LastConfirmedAt = now;
         attempt.FinishedAt = now;
         attempt.CompletionHash = completionHash;
         item.ProtectedResult = _protector.Protect(bytes);
         item.ResultHash = completionHash;
         item.Status = AgentWorkStatus.Completed;
+        attempt.WorkSucceeded = completion.Succeeded;
         item.CompletedAt = now;
         item.LastError = completion.Succeeded ? null : completion.Error;
+        if (!completion.Succeeded && completion.FailureCode is { Length: > 0 and <= 200 } safeCode && safeCode.All(x => char.IsAsciiLetterOrDigit(x) || x is '.' or '_' or '-'))
+            item.LastError = $"agent-failure:v1;code={safeCode};retryable={(completion.Retryable == true ? "true" : "false")}";
+        if (AgentWorkFailure.IsWorkspaceCommandTimeout(item.LastError))
+        {
+            var runtime = await db.AgentRuntimeInstances.SingleAsync(x => x.Id == attempt.RuntimeInstanceId, cancellationToken);
+            if (AgentRuntimeInstance.IsActive(runtime.Status) && runtime.Status != AgentRuntimeStatus.Stopping)
+            {
+                const string reason = "A workspace command timed out; replace the isolated runtime before retrying from its last completed checkpoint.";
+                runtime.TransitionTo(AgentRuntimeStatus.Stopping, now, reason);
+                db.AgentRuntimeEvents.Add(new() { Id = Guid.NewGuid(), AgentRuntimeInstanceId = runtime.Id, Status = AgentRuntimeStatus.Stopping, Reason = reason, OccurredAt = now });
+            }
+        }
         if (!completion.Succeeded)
-            await RecordTicketFailureAsync(item, attemptNumber, completion.Error ?? "Agent returned no result.", now, cancellationToken);
+            await RecordTicketFailureAsync(item, attemptNumber, item.LastError ?? "Agent returned no result.", now, cancellationToken);
+        if (!completion.Succeeded) attempt.Error = item.LastError;
         if (item.Kind == AgentWorkKind.ConfigurationUpdate)
             ApplyConfigurationAcknowledgement(item, completion, now);
         foreach (var observer in resultObservers ?? [])
             await observer.ObserveAsync(item, completion.Succeeded, completion.Value, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate && audit is not null)
             await audit.WriteAsync(
                 "agent-installation.configuration.refresh-acknowledged",
@@ -620,7 +664,7 @@ public sealed partial class AgentWorkInbox(
         attempt.FinishedAt = now;
         attempt.Error = Truncate(error, 2048);
         item.LastError = attempt.Error;
-        item.Status = AgentWorkFailure.IsNonRetryable(error) || item.AttemptCount >= item.MaximumAttempts || item.DeadlineAt <= now
+        item.Status = AgentWorkFailure.IsNonRetryable(error) || item.AttemptCount - item.ResourceReplacementCount >= item.MaximumAttempts || item.DeadlineAt <= now
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));
@@ -665,6 +709,20 @@ public sealed partial class AgentWorkInbox(
         if (ticket is null || ticket.Status is CSweet.Domain.Core.WorkTaskStatus.Completed or CSweet.Domain.Core.WorkTaskStatus.Cancelled ||
             (ticket.Board?.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
              ticket.AssignedAgentInstallationId != work.AgentInstallationId)) return;
+        if (error == "The prior runtime lease expired." || AgentWorkFailure.IsWorkspaceCommandTimeout(error))
+        {
+            var current = await db.AgentWorkAttempts.SingleOrDefaultAsync(x => x.AgentWorkItemId == work.Id && x.Attempt == attemptNumber, token);
+            if (current?.LastOperationDigest is { } operation && await db.AgentWorkAttempts.AnyAsync(x => x.Id != current.Id &&
+                x.LastOperationDigest == operation && x.FinishedAt != null &&
+                (x.Error == "lease_expired" || x.Error != null && x.Error.Contains("workspace.command.timeout")) &&
+                x.AgentWorkItem!.AgentInstallationId == work.AgentInstallationId && x.AgentWorkItem.SourceType == work.SourceType &&
+                x.AgentWorkItem.SourceId == work.SourceId, token))
+            {
+                error = "agent-failure:v1;code=runtime.repeated_operation;retryable=false";
+                work.LastError = error; work.ResourceRecoveryState = "DiagnosisRequired";
+                if (work.Status == AgentWorkStatus.Pending) work.Status = AgentWorkStatus.DeadLetter;
+            }
+        }
         var willRetry = work.Status == AgentWorkStatus.Pending;
         if (!willRetry && work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stageId))
         {
@@ -674,7 +732,7 @@ public sealed partial class AgentWorkInbox(
             {
                 var policy = await db.WorkOrchestrationPolicyRevisions.Include(x => x.Stages)
                     .SingleAsync(x => x.Id == sprint.PolicyRevisionId, token);
-                willRetry = stage.Attempts.Count < policy.Stages.Single(x => x.Key == stage.StageKey).MaximumAttempts &&
+                willRetry = !AgentWorkFailure.IsNonRetryable(error) && stage.Attempts.Count < policy.Stages.Single(x => x.Key == stage.StageKey).MaximumAttempts &&
                     error != CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RepeatedIssueError;
             }
         }
@@ -701,7 +759,7 @@ public sealed partial class AgentWorkInbox(
         }
         if (await CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordFailureAsync(db, ticket,
             work.AgentInstallationId, $"{work.Id:N}:{attemptNumber}", error,
-            willRetry, now, token, evidence: evidence))
+            willRetry, now, token, evidence: evidence, awaitingManager: AgentWorkFailure.IsNonRetryable(error)))
         {
             work.Status = AgentWorkStatus.DeadLetter;
             work.LastError = CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RepeatedIssueError;

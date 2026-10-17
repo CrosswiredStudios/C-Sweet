@@ -16,7 +16,10 @@ internal sealed record ComputeSetupObservation(bool? InstallerRunning, string? F
             using (result)
             {
                 if (Matches(result, setup) && result!.RootElement.GetProperty("state").GetString() == "Failed")
-                    return new(false, "local_setup_failed");
+                    return new(false, result.RootElement.TryGetProperty("failureCode", out var code) && code.ValueKind == JsonValueKind.String &&
+                        code.GetString() is "setup_configuration_invalid" or "compute_checks_failed" or "compute_provider_publish_failed" or
+                            "compute_enrollment_failed" or "compute_service_start_failed" or "compute_readiness_failed"
+                        ? code.GetString() : "local_setup_failed");
             }
             using var process = ReadJson(Path.Combine(directory, "process.json"));
             if (Matches(process, setup))

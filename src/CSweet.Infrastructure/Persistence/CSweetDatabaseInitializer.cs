@@ -26,6 +26,9 @@ public static class CSweetDatabaseInitializer
             await dbContext.Database.EnsureCreatedAsync(cancellationToken);
         }
 
+        // Only fills missing ownership from durable sources; never changes token counts.
+        await Analytics.InferenceSourceAttribution.BackfillAsync(dbContext, ct: cancellationToken);
+
         // Finish the versioned historical repair before the migrator releases dependent
         // services. Deployments must keep old writers stopped throughout this phase.
         if (dbContext.Database.IsNpgsql())

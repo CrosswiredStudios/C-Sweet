@@ -28,7 +28,8 @@ function Get-CoreFiles([string] $root, [string] $project) {
         if ($relative -in @('GameEngineerProfile.cs', 'SoftwareDeveloperProfile.cs')) { continue }
         $files[(Normalize-Core $relative)] = $file.FullName
     }
-    foreach ($test in @('HarnessExecutionTests.cs', 'WorkspaceProgressTests.cs', 'WorkspaceShellTests.cs')) {
+    foreach ($test in @('HarnessExecutionTests.cs', 'WorkspaceProgressTests.cs', 'WorkspaceShellTests.cs',
+        'WorkspaceResourceSizingTests.cs', 'BrowserDeliveryRecipeTests.cs', 'PlanningExecutionTests.cs', 'PlanCompletionRecoveryTests.cs')) {
         $files["tests/$test"] = Join-Path $root "tests/$project.Tests/$test"
     }
     return $files

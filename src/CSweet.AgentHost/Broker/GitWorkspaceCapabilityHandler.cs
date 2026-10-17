@@ -82,7 +82,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                     Read<ReservePersonalRepositoryRequest>(request), cancellationToken),
                 PersonalPrepareCapability => await PreparePersonalAsync(organizationId, installationId,
                     Read<PersonalPrepareInput>(request), cancellationToken),
-                GitWorkspaceCapabilities.Sync => await SyncWorkspaceAsync(organizationId, installationId, Read<GitWorkspaceSyncRequest>(request), cancellationToken),
+                GitWorkspaceCapabilities.Sync => await SyncWorkspaceAsync(organizationId, installationId, Read<GitWorkspaceSyncRequest>(request), cancellationToken, Guid.Parse(session.RuntimeInstanceId), session.Grant.Revision),
                 GitWorkspaceCapabilities.Prepare => await PrepareAsync(
                     organizationId, installationId,
                     Read<PrepareGitWorkspaceRequest>(request), cancellationToken),

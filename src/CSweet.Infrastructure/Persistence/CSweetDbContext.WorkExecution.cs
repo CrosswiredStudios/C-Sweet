@@ -90,6 +90,7 @@ public sealed partial class CSweetDbContext
                 }
             }
             var ancestors = focus is null ? [] : await ExecutionAncestorsAsync(org, focus, ct);
+            var project = root is null ? null : await ExecutionProjectAsync(org, root, ct);
             var ancestryJson = JsonSerializer.Serialize(ancestors);
             var eligible = running && executionAllowed;
             var interval = WorkExecutionIntervals.Local.FirstOrDefault(x => x.AgentWorkAttemptId == attempt.Id && x.EndedAt is null)
@@ -109,7 +110,7 @@ public sealed partial class CSweetDbContext
             {
                 if (confirmed > interval.ConfirmedThrough) interval.ConfirmedThrough = confirmed;
                 if (!eligible || focus?.Id != interval.WorkItemId || interval.AncestorWorkItemIdsJson != ancestryJson ||
-                    interval.WorkstreamId != root?.Board?.WorkstreamId)
+                    interval.WorkstreamId != project)
                 {
                     interval.EndedAt = interval.ConfirmedThrough;
                     interval.EndReason = expired ? "LeaseLost" : attempt.FinishedAt.HasValue ? "AttemptEnded" : "FocusChangedOrPaused";
@@ -118,7 +119,7 @@ public sealed partial class CSweetDbContext
             if (eligible && (interval is null || interval.EndedAt is not null))
             {
                 WorkExecutionIntervals.Add(new WorkExecutionInterval { Id = Guid.NewGuid(), OrganizationId = org,
-                    AgentWorkAttemptId = attempt.Id, WorkItemId = focus?.Id, WorkstreamId = root?.Board?.WorkstreamId,
+                    AgentWorkAttemptId = attempt.Id, WorkItemId = focus?.Id, WorkstreamId = project,
                     AncestorWorkItemIdsJson = ancestryJson, StartedAt = now, ConfirmedThrough = now });
             }
             context.RootWorkItemId = root?.Id;
@@ -134,6 +135,19 @@ public sealed partial class CSweetDbContext
         try { return JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkItemPlanningSpecification>(
             item.PlanningSpecificationJson ?? "{}", new JsonSerializerOptions(JsonSerializerDefaults.Web))?.PersonalPlan?.RootItemId; }
         catch (JsonException) { return null; }
+    }
+
+    internal async Task<Guid?> ExecutionProjectAsync(Guid organization, WorkTask item, CancellationToken ct)
+    {
+        Guid? project = item.Board?.OrganizationId == organization ? item.Board.WorkstreamId : null;
+        if (project is null && item.PersonalWorkContextJson is { } json)
+        {
+            try { project = JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.PersonalTodoWorkContext>(json,
+                EventJsonOptions)?.WorkstreamId; }
+            catch (JsonException) { }
+        }
+        return project.HasValue && await Workstreams.AnyAsync(x => x.Id == project && x.OrganizationId == organization, ct)
+            ? project : null;
     }
 
     private static bool BelongsTo(WorkTask item, Guid root, IReadOnlyList<WorkTask> items)

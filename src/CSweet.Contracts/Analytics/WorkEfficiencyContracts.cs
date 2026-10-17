@@ -8,6 +8,8 @@ public sealed record EfficiencyUsage(
     public long TotalTokens => InputTokens + OutputTokens;
     public long ActiveAgentTimeMs { get; init; }
     public long FullyReportedCalls { get; init; }
+    public long PendingCalls { get; init; }
+    public long UnknownUsageCalls => ModelCalls - FullyReportedCalls - PendingCalls;
 }
 
 public sealed record EfficiencyLifecycle(DateTimeOffset? CreatedAt, DateTimeOffset? StartedAt,

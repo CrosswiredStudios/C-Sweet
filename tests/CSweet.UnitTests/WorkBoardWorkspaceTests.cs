@@ -28,7 +28,7 @@ public sealed class WorkBoardWorkspaceTests
     }
 
     [Fact]
-    public async Task CardMetadataCapsLongUnbrokenExecutionTextWhileKeepingFullTooltip()
+    public async Task CardsOmitRepetitiveExecutionStageMetadata()
     {
         var sprint = Sprint("Active");
         var item = Item("Pipeline validation", sprint.Id);
@@ -37,17 +37,15 @@ public sealed class WorkBoardWorkspaceTests
         var execution = new Wire.WorkSprintExecutionResponse(Guid.NewGuid(), BoardId, sprint.Id, Guid.NewGuid(), Guid.NewGuid(), "Active", 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, [executionItem]);
         var (html, _) = await Render(Detail([item], [WorkSprintActions.Read, WorkOrchestrationActions.Read]), [sprint], HttpStatusCode.OK, execution);
 
-        var label = $"Next action: {stageKey} · Pending";
-        var preview = WorkBoardWorkspacePresentation.CardText(WorkEvidencePresentation.ReadableName(stageKey));
-        Assert.Contains($"title=\"{System.Text.Encodings.Web.HtmlEncoder.Default.Encode(label)}\"", html);
-        Assert.Contains($">{System.Text.Encodings.Web.HtmlEncoder.Default.Encode(preview)}</span>", html);
-        Assert.DoesNotContain($">{label}</span>", html);
+        Assert.Contains("Pipeline validation", html);
+        Assert.DoesNotContain("Next action", html);
+        Assert.DoesNotContain(stageKey, html);
     }
 
     [Fact]
     public async Task FocusedCardShowsRevisionLinksOutsideTheOpenTicketButton()
     {
-        var sprint = Sprint("Active");
+        var sprint = Sprint("Active") with { Name = "Production Sprint 2" };
         var item = Item("[prisma-feasibility] Pipeline & architecture validation", sprint.Id) with { AssignedDisplayName = "Victor Lin", EstimatePoints = 6 };
         var artifact = Guid.NewGuid(); var revision = Guid.NewGuid();
         var evidence = new Wire.WorkExecutionEvidence("artifact-revision", "video-game.technical-design.v1",
@@ -57,7 +55,7 @@ public sealed class WorkBoardWorkspaceTests
         { LatestOutcome = outcome with { Output = System.Text.Json.JsonSerializer.SerializeToElement(new { }) } };
         var executionItem = ExecutionItem(item, "") with { CurrentStageKey = "specialist-execution", Status = "Pending", Stages = [stage] };
         var execution = new Wire.WorkSprintExecutionResponse(Guid.NewGuid(), BoardId, sprint.Id, Guid.NewGuid(), Guid.NewGuid(), "Active", 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, [executionItem]);
-        var (html, requests) = await Render(Detail([item], [WorkSprintActions.Read, WorkOrchestrationActions.Read]), [sprint], HttpStatusCode.OK, execution);
+        var (html, requests) = await Render(Detail([item], [WorkSprintActions.Read, WorkOrchestrationActions.Read, WorkSprintActions.ManageScope, WorkItemActions.Create]), [sprint], HttpStatusCode.OK, execution);
         Assert.Single(requests);
         Assert.Contains("1 document revision", html);
         Assert.Contains($"revision={revision:D}", html);

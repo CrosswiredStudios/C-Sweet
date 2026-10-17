@@ -168,6 +168,13 @@
         "image_export_failed" => "The image export failed. Check available host disk space and retry preparation.",
         "local_provider_unavailable" => "Local Linux compute currently needs a Windows host with Hyper-V.",
         "setup_components_unavailable" => "The host is missing required setup components or its secure compute connection. Restore the host configuration before retrying.",
+        "setup_configuration_invalid" => "The compute service could not read its setup configuration. Update C-Sweet and retry preparation. The completed Linux image can be reused.",
+        "compute_checks_failed" => "The compute service checks failed before installation. Update or repair C-Sweet, then retry preparation. The completed Linux image can be reused.",
+        "compute_provider_publish_failed" => "The compute service software could not be prepared. Check the host build tools and available disk space, then retry preparation.",
+        "compute_enrollment_failed" => "The Linux image is ready, but the compute service could not connect to this business. Check the host installation and secure connection, then retry preparation.",
+        "compute_service_start_failed" => "The compute service was installed but could not start. Check the Windows service on the host, then retry preparation.",
+        "compute_readiness_failed" => "The compute service started but could not confirm readiness with C-Sweet. Check the host connection, then retry preparation.",
+        _ when Milestone == 5 => "The Linux image is ready, but compute service setup failed. Update or repair C-Sweet, then retry preparation to reuse the completed image.",
         _ => "Review preparation activity, resolve any host setup issue, and retry. Completed images are verified before reuse."
     };
     private string HealthLabel => Setup switch

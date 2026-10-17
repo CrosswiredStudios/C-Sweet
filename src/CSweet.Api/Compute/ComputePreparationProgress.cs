@@ -66,7 +66,8 @@ internal static class ComputePreparationProgress
     internal static ComputeSetupStatus Observe(ComputeSetupStatus status, ComputeLocalSetup setup,
         ComputeSetupObservation observation, DateTimeOffset now)
     {
-        var failure = setup.State == "Ready" ? null : setup.ErrorCode ?? observation.FailureCode;
+        var failure = setup.State == "Ready" ? null : setup.ErrorCode is null or "local_setup_failed"
+            ? observation.FailureCode ?? setup.ErrorCode : setup.ErrorCode;
         var state = failure is not null ? "Failed" : setup.State;
         var health = state switch
         {

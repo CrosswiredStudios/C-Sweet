@@ -37,4 +37,9 @@ public sealed record AgentRuntimeSettingsResponse(
     int BuildLogRetentionDays,
     bool RemoveWorkloadsAfterCompletion,
     bool RemoveWorkspacesAfterCompletion,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    public int CodingInitialMemoryMb { get; init; } = 4096;
+    public int CodingMaximumMemoryMb { get; init; } = 16384;
+    public int CodingMaximumReplacements { get; init; } = 2;
+}

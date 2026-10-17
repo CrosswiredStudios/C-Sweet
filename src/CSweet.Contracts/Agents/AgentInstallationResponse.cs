@@ -83,6 +83,9 @@ public sealed record AgentRuntimeRunResponse(
 {
     public string NetworkMode { get; init; } = "not-running";
     public IReadOnlyList<string> ImageTools { get; init; } = [];
+    public int AllocatedMemoryMb { get; init; }
+    public long PeakWorkloadMemoryBytes { get; init; }
+    public string? ResourceFailureCode { get; init; }
 }
 
 public sealed record AgentRuntimeEventResponse(

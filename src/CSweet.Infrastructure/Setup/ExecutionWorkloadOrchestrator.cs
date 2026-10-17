@@ -687,8 +687,8 @@ public sealed partial class ExecutionWorkloadOrchestrator(
         {
             var mode = network.TryGetProperty("Mode", out var value) || network.TryGetProperty("mode", out value) ? value.GetString() : null;
             return provider.SupportsPublicInternet && provider.BrokerProtocolVersion == "1.1" &&
-                (mode == RuntimeNetworkPolicy.PublicInternetIpv4 && provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" || mode == RuntimeNetworkPolicy.PublicInternet &&
-                    provider.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15");
+                (mode == RuntimeNetworkPolicy.PublicInternetIpv4 && provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v15-ipv4" or "csweet-hardware-vm-smoke-v16" or "csweet-hardware-vm-smoke-v16-ipv4" || mode == RuntimeNetworkPolicy.PublicInternet &&
+                    provider.CertificationSuiteVersion is "csweet-hardware-vm-smoke-v15" or "csweet-hardware-vm-smoke-v16");
         }
         return true;
     }

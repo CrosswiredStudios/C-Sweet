@@ -36,9 +36,19 @@ public sealed class ProjectHealthCapabilityHandler(ProjectHealthService health) 
         }
         catch (Exception error) when (error is UnauthorizedAccessException or ArgumentException or InvalidOperationException or JsonException or DbUpdateException)
         {
-            result = new() { RequestId = request.RequestId, Succeeded = false, FailureCode = "project-health.unavailable",
-                Error = "The incident is unavailable, permission was revoked, or its revision changed. Re-read current state before acting." };
+            var (code, retryable, message) = Classify(error);
+            result = new() { RequestId = request.RequestId, Succeeded = false, FailureCode = code, Retryable = retryable, Error = message };
         }
         yield return result;
     }
+
+    internal static (string Code, bool Retryable, string Message) Classify(Exception error) => error switch
+    {
+        ProjectHealthStateException conflict => (conflict.Code, conflict.Code is "project-health.stale_revision" or "project-health.stale_evidence", conflict.Message),
+        UnauthorizedAccessException => ("project-health.denied", false, "The incident is unavailable or current authority was revoked."),
+        ArgumentException or JsonException => ("project-health.invalid_report", false, "The incident report failed validation; correct its fields before resubmitting."),
+        DbUpdateConcurrencyException => ("project-health.stale_revision", true, "Incident state changed concurrently; read current state."),
+        DbUpdateException => ("project-health.persistence_failed", true, "The incident report could not be persisted; retain the same request identity."),
+        _ => ("project-health.conflict", false, "The incident operation conflicts with current state; read its current diagnostics.")
+    };
 }

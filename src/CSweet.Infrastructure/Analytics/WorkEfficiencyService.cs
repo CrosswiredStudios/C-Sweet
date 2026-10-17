@@ -151,11 +151,16 @@ public sealed class WorkEfficiencyService(CSweetDbContext db, TimeProvider clock
             rows.Count(x => x.Status == "Failed"), rows.Count(x => x.Status == "Cancelled"),
             rows.Count(x => x.MeasurementKind == "Legacy"), rows.Sum(x => x.ProviderStartedAt.HasValue && x.CompletedAt.HasValue
                 ? Math.Max(0, (long)(x.CompletedAt.Value - x.ProviderStartedAt.Value).TotalMilliseconds) : x.DurationMs))
-        { FullyReportedCalls = rows.Count(x => InferenceMeasurements.HasInput(x) && InferenceMeasurements.HasOutput(x)) };
+        {
+            FullyReportedCalls = rows.Count(x => InferenceMeasurements.HasInput(x) && InferenceMeasurements.HasOutput(x)),
+            PendingCalls = rows.Count(x => InferenceMeasurements.IsPending(x) &&
+                (!InferenceMeasurements.HasInput(x) || !InferenceMeasurements.HasOutput(x)))
+        };
     }
 
     private static string AttributionCoverage(IReadOnlyList<AgentRunLog> logs, bool truncated) =>
-        truncated || logs.Any(x => x.AttributionKind == "Unknown" || x.MeasurementKind == "Legacy" ||
+        logs.Count == 0 ? "No linked calls" : truncated || logs.Any(x => x.AttributionKind == "Unknown" ||
+            x.AttributionKind.Contains("Historical") || x.MeasurementKind == "Legacy" ||
             x.AgentWorkItemId.HasValue && !x.AgentWorkAttemptId.HasValue) ? "History incomplete" : "Captured";
 
     private static bool HasHistoricalExecution(IEnumerable<WorkLifecycleEvent> events) =>

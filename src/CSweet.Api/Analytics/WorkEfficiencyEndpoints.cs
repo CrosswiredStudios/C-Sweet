@@ -34,13 +34,16 @@ public static class WorkEfficiencyEndpoints
             IWorkEfficiencyService service, CancellationToken ct) =>
         {
             var report = await service.GetAsync(organizationId, from, to, ct);
-            var csv = new StringBuilder("Kind,Title,Status,Direct tokens,Total tokens,Model calls,Reported calls,Legacy calls,Lifetime lead time ms,Lifetime cycle time ms,Lifetime elapsed time ms,Direct active agent ms,Total active agent ms,Timing coverage,Attribution coverage,Timing state,Window from UTC,Window to UTC,Partial\r\n");
+            var csv = new StringBuilder("Kind,Title,Status,Direct tokens,Total tokens,Model calls,Reported calls,Legacy calls,Lifetime lead time ms,Lifetime cycle time ms,Lifetime elapsed time ms,Direct active agent ms,Total active agent ms,Timing coverage,Attribution coverage,Timing state,Window from UTC,Window to UTC,Partial,Pending calls,Unknown usage calls,Input reported calls,Output reported calls\r\n");
             foreach (var r in report.Projects.Concat(report.WorkItems))
-                csv.AppendLine($"{r.Kind},{Csv(r.Title)},{r.Status},{r.Direct.TotalTokens},{r.Total.TotalTokens},{r.Total.ModelCalls},{r.Total.FullyReportedCalls},{r.Total.LegacyCalls},{r.Lifecycle.LeadTimeMs},{r.Lifecycle.CycleTimeMs},{r.Lifecycle.ElapsedTimeMs},{r.Direct.ActiveAgentTimeMs},{r.Total.ActiveAgentTimeMs},{r.TimingCoverage},{r.AttributionCoverage},{r.Lifecycle.TimingState},{report.From:O},{report.To:O},{report.Truncated}");
+                csv.AppendLine($"{r.Kind},{Csv(r.Title)},{r.Status},{ReportedTokens(r.Direct)},{ReportedTokens(r.Total)},{r.Total.ModelCalls},{r.Total.FullyReportedCalls},{r.Total.LegacyCalls},{r.Lifecycle.LeadTimeMs},{r.Lifecycle.CycleTimeMs},{r.Lifecycle.ElapsedTimeMs},{r.Direct.ActiveAgentTimeMs},{r.Total.ActiveAgentTimeMs},{r.TimingCoverage},{r.AttributionCoverage},{r.Lifecycle.TimingState},{report.From:O},{report.To:O},{report.Truncated},{r.Total.PendingCalls},{r.Total.UnknownUsageCalls},{r.Total.InputReportedCalls},{r.Total.OutputReportedCalls}");
             return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv", "work-efficiency.csv");
         });
         return routes;
     }
+
+    private static long? ReportedTokens(CSweet.Contracts.Analytics.EfficiencyUsage usage) =>
+        usage.InputReportedCalls + usage.OutputReportedCalls > 0 ? usage.TotalTokens : null;
 
     internal static string Csv(string value) => "\"" + (value.Length > 0 && "=+-@\t\r".Contains(value[0]) ? "'" : "") + value.Replace("\"", "\"\"") + "\"";
 }

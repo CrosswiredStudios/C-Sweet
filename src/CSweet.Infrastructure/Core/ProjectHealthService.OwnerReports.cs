@@ -149,7 +149,7 @@ public sealed partial class ProjectHealthService
     {
         ManagerIncidentCoordinator.ValidateReport(report);
         if (report.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash)
-            throw new InvalidOperationException("The report's source evidence changed.");
+            throw new ProjectHealthStateException("project-health.stale_evidence", "The report's source evidence changed.");
         // Sanitization and bounds also apply to model-generated presentation text.
         report = report with { Title = ValidateText(report.Title), Summary = ValidateText(report.Summary),
             Recovery = ValidateText(report.Recovery), NextStep = ValidateText(report.NextStep),
@@ -181,7 +181,7 @@ public sealed partial class ProjectHealthService
             return Map(incident);
         }
         await RequirePresentationAuthorAsync(incident, actor, token);
-        if (incident.Revision != request.ExpectedRevision) throw new InvalidOperationException("Incident changed.");
+        if (incident.Revision != request.ExpectedRevision) throw new ProjectHealthStateException("project-health.stale_revision", "Incident changed.");
         if (request.OwnerReport is not null)
         {
             StoreOwnerReport(incident, actor, await ValidateOwnerReportAsync(incident, request.OwnerReport, token));

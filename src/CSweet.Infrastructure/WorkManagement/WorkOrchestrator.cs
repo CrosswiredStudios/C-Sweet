@@ -261,7 +261,7 @@ public sealed partial class WorkOrchestrator(
         {
             await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
             attempt.Status = WorkExecutionAttemptStatus.Failed; attempt.ErrorCategory = "infrastructure";
-            attempt.ErrorMessage = state.Completion?.Error ?? "Agent returned no result."; attempt.CompletedAt = now;
+            attempt.ErrorMessage = state.Error ?? state.Completion?.Error ?? "Agent returned no result."; attempt.CompletedAt = now;
             ScheduleRetryOrFail(execution, policy, stage, attempt.ErrorMessage, now); return;
         }
         Shared.WorkExecutionOutcomeV1? outcome;
@@ -845,8 +845,15 @@ public sealed partial class WorkOrchestrator(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
         WorkStageExecution stage, string error, DateTimeOffset now)
     {
-        if (error == AgentTicketFeedback.RepeatedIssueError)
+        if (error == AgentTicketFeedback.RepeatedIssueError || CSweet.Infrastructure.Setup.AgentWorkFailure.IsNonRetryable(error))
         {
+            if (error != AgentTicketFeedback.RepeatedIssueError && stage.ItemExecution?.WorkItem is { } ticket)
+            {
+                ticket.Status = WorkTaskStatus.Blocked;
+                ticket.BlockReason = CSweet.Infrastructure.Setup.AgentWorkFailure.DescribeBlocker(error);
+                ticket.WaitingReason = null; ticket.NextReviewAt = null;
+                ticket.UpdatedAt = now; ticket.Revision++;
+            }
             stage.Status = WorkStageExecutionStatus.Blocked; stage.RetryAt = null;
             stage.LastError = error; stage.UpdatedAt = now;
             stage.ItemExecution!.Status = WorkItemExecutionStatus.Blocked;

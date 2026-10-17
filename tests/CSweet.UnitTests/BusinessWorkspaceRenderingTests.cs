@@ -21,6 +21,24 @@ namespace CSweet.UnitTests;
 
 public sealed class BusinessWorkspaceRenderingTests
 {
+    [Fact]
+    public async Task Analytics_RendersPendingAndUnknownInsteadOfZeroUsage()
+    {
+        var html = await Render(typeof(Analytics), "analytics-coverage", exercise: instance =>
+        {
+            var pending = new CSweet.Contracts.Analytics.InferenceUsageCoverage { PendingCalls = 1 };
+            var unknown = new CSweet.Contracts.Analytics.InferenceUsageCoverage { UnknownCalls = 1 };
+            Set(instance, "_analytics", new CSweet.Contracts.Analytics.InferenceAnalyticsResponse("30d", DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, new(2, 0, 0, 0) { Coverage = pending with { UnknownCalls = 1 } },
+                [new(Guid.NewGuid(), "Pending Victor", true, "test", null, null, "test", true, 1, 0, 0, 0, null) { Coverage = pending },
+                 new(Guid.NewGuid(), "Unknown usage", true, "test", null, null, "test", true, 1, 0, 0, 0, null) { Coverage = unknown }]));
+            return Task.CompletedTask;
+        });
+        Assert.Contains(">Pending<", html); Assert.Contains(">Unknown<", html);
+        Assert.Contains("1 pending", html); Assert.Contains("1 unknown", html);
+        Assert.DoesNotContain("DataLabel=\"Input\">0<", html, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static readonly Guid BusinessId = Guid.Parse("ab2184e9-9ac3-441d-9194-3cd65fe60052");
     private static readonly Guid ItemId = Guid.Parse("10000000-0000-0000-0000-000000000001");
     [Theory]

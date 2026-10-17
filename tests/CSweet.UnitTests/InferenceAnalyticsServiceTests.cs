@@ -12,6 +12,27 @@ namespace CSweet.UnitTests;
 public sealed class InferenceAnalyticsServiceTests
 {
     [Fact]
+    public async Task Coverage_IsExposedForEmployeeRowsAndBusinessTotals()
+    {
+        await using var db = CreateDbContext(); var org = Guid.NewGuid(); var provider = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow; db.LlmProviderProfiles.Add(Provider(provider));
+        var agent = AddAgent(db, org, "Victor", provider, "current-model");
+        var running = Log(org, agent.Employee.Id, agent.Installation.Id, provider, "test", "current-model", now, 0, 0);
+        running.TokenInputCount = running.TokenOutputCount = null; running.CompletedAt = null; running.Status = "Running";
+        var missing = Log(org, agent.Employee.Id, agent.Installation.Id, provider, "test", "current-model", now, 0, 0);
+        missing.TokenInputCount = missing.TokenOutputCount = null; missing.Status = "Cancelled";
+        var zero = Log(org, agent.Employee.Id, agent.Installation.Id, provider, "test", "current-model", now, 0, 0);
+        db.AddRange(running, missing, zero); await db.SaveChangesAsync();
+        var result = await new InferenceAnalyticsService(db,
+            new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), new FixedTimeProvider(now))
+            .GetAsync(org, InferenceAnalyticsWindow.Last24Hours);
+        var row = Assert.Single(result.Employees);
+        Assert.Equal(3, row.RequestCount); Assert.Equal(0, row.TotalTokens);
+        Assert.Equal(1, row.Coverage.PendingCalls); Assert.Equal(1, row.Coverage.UnknownCalls);
+        Assert.Equal(1, row.Coverage.FullyReportedCalls); Assert.Equal(result.Totals.Coverage, row.Coverage);
+    }
+
+    [Fact]
     public async Task GetAsync_ScopesGroupsAndIncludesCurrentAndArchivedEmployees()
     {
         await using var db = CreateDbContext();

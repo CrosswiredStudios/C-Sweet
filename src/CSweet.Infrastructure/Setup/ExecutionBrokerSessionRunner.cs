@@ -105,6 +105,11 @@ public sealed class ExecutionBrokerSessionRunner(
             workspaceSyncOptions.Value.MaximumExpandedBytes.ToString(CultureInfo.InvariantCulture));
         start.Environment.Add("CSWEET_WORKSPACE_MAXIMUM_FILE_COUNT",
             workspaceSyncOptions.Value.MaximumFileCount.ToString(CultureInfo.InvariantCulture));
+        if (workload.EnvironmentProfile == "software-development-polyglot-v1")
+        {
+            start.Environment.Add("CSWEET_WORKLOAD_MEMORY_MB", workload.ResourceLimits.MemoryMegabytes.ToString(CultureInfo.InvariantCulture));
+            start.Environment.Add("CSWEET_WORKLOAD_PROCESS_LIMIT", workload.ResourceLimits.MaximumProcessCount.ToString(CultureInfo.InvariantCulture));
+        }
         var diagnostics = new RuntimeDiagnosticBrokerStreamHandler(
             workload.WorkloadId, workload.Identity.InstallationId,
             excerpt => PersistRuntimeDiagnosticsAsync(assignment, workload.WorkloadId, excerpt));
@@ -122,6 +127,28 @@ public sealed class ExecutionBrokerSessionRunner(
         }
         finally
         {
+            if (session.WorkloadExit is { } exit)
+            {
+                long peak = 0;
+                try
+                {
+                    using var detail = JsonDocument.Parse(exit.Detail ?? "{}");
+                    if (detail.RootElement.TryGetProperty("peakMemoryBytes", out var bytes)) bytes.TryGetInt64(out peak);
+                }
+                catch (JsonException) { /* Legacy guests only send a bounded diagnostic tail. */ }
+                try
+                {
+                    using var persist = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    await dbContext.AgentRuntimeInstances.Where(x => x.Id == workload.WorkloadId).ExecuteUpdateAsync(updates => updates
+                        .SetProperty(x => x.ResourceFailureCode, exit.ReasonCode == "workload-memory-limit-exceeded" ? exit.ReasonCode : null)
+                        .SetProperty(x => x.PeakWorkloadMemoryBytes, Math.Max(0, peak)), persist.Token);
+                    if (exit.ExitCode == 0) await WorkloadResourceMeasurements.RecordAsync(dbContext, workload.WorkloadId, peak, persist.Token);
+                }
+                catch (Exception error)
+                {
+                    logger.LogWarning(error, "Could not retain resource evidence for runtime {RuntimeId}.", workload.WorkloadId);
+                }
+            }
             diagnostics.CaptureExitDetail(session.WorkloadExit?.Detail);
             await PersistRuntimeDiagnosticsAsync(
                 assignment, workload.WorkloadId, diagnostics.Latest);

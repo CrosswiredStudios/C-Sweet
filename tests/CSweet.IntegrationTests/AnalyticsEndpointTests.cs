@@ -20,6 +20,28 @@ namespace CSweet.IntegrationTests;
 public sealed class AnalyticsEndpointTests
 {
     [Fact]
+    public async Task Csv_DistinguishesUnlinkedUsageFromMeasuredZero_AndExportsCoverage()
+    {
+        await using var factory = CreateFactory(); var org = Guid.NewGuid(); var owner = Guid.NewGuid();
+        await SeedAsync(factory, org, owner, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+            var unknown = new WorkTask { Id = Guid.NewGuid(), OrganizationId = org, Title = "Unknown task", Status = WorkTaskStatus.Completed };
+            var zero = new WorkTask { Id = Guid.NewGuid(), OrganizationId = org, Title = "Measured zero", Status = WorkTaskStatus.Completed };
+            db.AddRange(unknown, zero, new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = org, WorkItemId = zero.Id,
+                MeasurementKind = "ProviderAttempt", ProviderStartedAt = DateTimeOffset.UtcNow, StartedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow, Status = "Completed", ReportedInputTokens = 0, ReportedOutputTokens = 0 });
+            await db.SaveChangesAsync();
+        }
+        using var client = factory.CreateClient(); client.DefaultRequestHeaders.Add("X-Analytics-Test-UserId", owner.ToString());
+        var csv = await client.GetStringAsync($"/api/organizations/{org}/analytics/efficiency/export");
+        Assert.Contains("Pending calls,Unknown usage calls,Input reported calls,Output reported calls", csv);
+        Assert.Contains("Task,\"Unknown task\",Completed,,,0,0,", csv);
+        Assert.Contains("Task,\"Measured zero\",Completed,0,0,1,1,", csv);
+    }
+
+    [Fact]
     public async Task EfficiencyAndBenchmarks_EnforceOrganizationAndHostBoundaries()
     {
         await using var factory = CreateFactory();

@@ -47,5 +47,5 @@ public sealed class DevelopmentGuestImageOptions
     public string ImageId { get; set; } = "csweet-development-polyglot-v1";
     public string Version { get; set; } = string.Empty;
     public string Digest { get; set; } = string.Empty;
-    public string CertificationSuiteVersion { get; set; } = "csweet-hardware-vm-smoke-v15";
+    public string CertificationSuiteVersion { get; set; } = "csweet-hardware-vm-smoke-v16";
 }

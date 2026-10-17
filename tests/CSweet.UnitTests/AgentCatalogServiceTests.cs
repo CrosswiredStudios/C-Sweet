@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using CSweet.Agent.SDK;
 using CSweet.Application.Agents;
 using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Agents;
+using CSweet.Infrastructure.Marketplace;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +19,55 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCatalogServiceTests
 {
+    [Fact]
+    public async Task CurrentFirstPartyAgentsHaveZeroCostInDiscoveryAndInstalledResolution()
+    {
+        var listings = ReadCurrentFirstPartyAgents();
+        Assert.NotEmpty(listings);
+        var provider = new FirstPartyAgentCatalogProvider(Options.Create(new MarketplaceOptions
+        {
+            FirstPartyAgents = listings
+        }));
+        var installed = listings.Select(x => Agent($"installed:{x.Id:N}", AgentCatalogSource.Installed) with
+        {
+            AgentId = x.AgentId, RepositoryUrl = x.RepositoryUrl, Price = null, Capabilities = []
+        }).ToArray();
+        var service = new AgentCatalogService(
+            [provider, new StubProvider(AgentCatalogSource.Installed, installed)],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var discovery = await provider.SearchAsync(null, new());
+        Assert.Equal(listings.Count, discovery.Agents.Count);
+        foreach (var listing in listings)
+        {
+            var candidate = Assert.Single(discovery.Agents, x => x.AgentId == listing.AgentId);
+            Assert.Equal(0m, candidate.Price);
+            Assert.Equal("USD", candidate.Currency);
+            var catalogAgent = await provider.ResolveAsync(null, candidate.AgentReference);
+            Assert.NotNull(catalogAgent);
+            Assert.Equal(listing.AgentId, catalogAgent.AgentId);
+            Assert.Equal(0m, catalogAgent.Price);
+            Assert.Equal("USD", catalogAgent.Currency);
+            var resolved = await service.ResolveAsync(null, $"installed:{listing.Id:N}");
+            Assert.NotNull(resolved);
+            Assert.Equal(0m, resolved.Price);
+            Assert.Equal("USD", resolved.Currency);
+            Assert.Empty(resolved.Capabilities);
+        }
+        var available = await service.GetAvailableAgentsAsync(null, new(Limit: 100));
+        Assert.Equal(listings.Count, available.Agents.Count);
+        Assert.All(available.Agents, candidate => Assert.Equal(0m, candidate.Price));
+    }
+
+    private static List<FirstPartyMarketplaceAgentOptions> ReadCurrentFirstPartyAgents([CallerFilePath] string sourceFile = "")
+    {
+        var path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFile)!,
+            "..", "..", "src", "CSweet.Api", "first-party-agents.json"));
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        return document.RootElement.GetProperty("CSweet").GetProperty("Marketplace")
+            .GetProperty("FirstPartyAgents").Deserialize<List<FirstPartyMarketplaceAgentOptions>>()!;
+    }
+
     [Theory]
     [InlineData("game-engineer", null)]
     [InlineData("Game Engineer", null)]

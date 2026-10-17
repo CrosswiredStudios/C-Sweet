@@ -76,6 +76,9 @@
                         <MudNumericField T="int" Label="Active workloads per installation" @bind-Value="_perInstallationMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Default memory (MB)" @bind-Value="_defaultWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Maximum memory (MB)" @bind-Value="_maximumWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Coding initial memory (MiB)" @bind-Value="_codingInitialMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Coding maximum memory (MiB)" @bind-Value="_codingMaximumMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="Maximum coding VM replacements" @bind-Value="_codingMaximumReplacements" Min="0" Max="2" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Default CPU (%)" @bind-Value="_defaultWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Maximum CPU (%)" @bind-Value="_maximumWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="Default process limit" @bind-Value="_defaultWorkloadProcessLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
@@ -163,6 +166,8 @@
 
     private void Hydrate(AgentRuntimeSettingsResponse s)
     {
+        _codingInitialMemoryMb = s.CodingInitialMemoryMb; _codingMaximumMemoryMb = s.CodingMaximumMemoryMb;
+        _codingMaximumReplacements = s.CodingMaximumReplacements;
         _enableImportedAgents = s.EnableImportedAgents; _defaultActivationMode = s.DefaultActivationMode;
         _defaultTickFrequencySeconds = s.DefaultTickFrequencySeconds; _minimumTickFrequencySeconds = s.MinimumTickFrequencySeconds;
         _defaultMaxRuntimeSeconds = s.DefaultMaxRuntimeSeconds; _defaultOverlapPolicy = s.DefaultOverlapPolicy;
@@ -182,6 +187,8 @@
         _removeWorkloadsAfterCompletion = s.RemoveWorkloadsAfterCompletion; _removeWorkspacesAfterCompletion = s.RemoveWorkspacesAfterCompletion;
     }
 
+    private int _codingInitialMemoryMb = 4096, _codingMaximumMemoryMb = 16384, _codingMaximumReplacements = 2;
+
     private async Task SaveAsync()
     {
         _isBusy = true; _actionMessage = null; _actionSucceeded = null;
@@ -197,7 +204,11 @@
                 _allowPublicInternetByDefault, _allowedPackageFeedHosts, _blockedNetworkCidrs, _buildTimeoutSeconds,
                 _buildMemoryMb, _buildCpuPercent, _maximumRepositorySizeMb, _maximumBuildLogMb,
                 _keepFailedBuildWorkspaces, _completedRuntimeRetentionDays, _failedRuntimeRetentionDays,
-                _buildLogRetentionDays, _removeWorkloadsAfterCompletion, _removeWorkspacesAfterCompletion));
+                _buildLogRetentionDays, _removeWorkloadsAfterCompletion, _removeWorkspacesAfterCompletion)
+            {
+                CodingInitialMemoryMb = _codingInitialMemoryMb, CodingMaximumMemoryMb = _codingMaximumMemoryMb,
+                CodingMaximumReplacements = _codingMaximumReplacements
+            });
             _actionSucceeded = result.Succeeded;
             _actionMessage = result.Message ?? (result.Succeeded ? "Runtime settings saved." : "Runtime settings could not be saved.");
             if (result.Settings is not null) Hydrate(result.Settings);

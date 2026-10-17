@@ -119,6 +119,9 @@ public sealed class MarketplaceDiscoveryClientTests
         Assert.False(browse.IsOnline);
         var agent = Assert.Single(browse.Items);
         Assert.True(agent.IsFirstParty);
+        Assert.Equal("OpenSourceFree", agent.PricingModel);
+        Assert.Equal(0, agent.PriceInCents);
+        Assert.Equal("USD", agent.Currency);
         Assert.Equal(firstParty.ImageUrl, agent.ImageUrl);
         Assert.Equal(firstParty.CompanyLogoUrl, agent.CompanyLogoUrl);
         Assert.Equal(firstParty.AccentColor, agent.AccentColor);
@@ -129,6 +132,8 @@ public sealed class MarketplaceDiscoveryClientTests
         var candidate = Assert.Single(workforce.Candidates);
         Assert.True(workforce.MarketplaceAvailable);
         Assert.Equal("CSweetEmbeddedCatalog", candidate.Source);
+        Assert.Equal(0m, candidate.EstimatedCost);
+        Assert.Equal("USD", candidate.Currency);
         Assert.Equal(firstParty.RepositoryUrl, candidate.RepositoryUrl);
         Assert.Contains(firstParty.RepositoryUrl, candidate.Rationale);
         Assert.NotNull(workforce.UnavailableReason);

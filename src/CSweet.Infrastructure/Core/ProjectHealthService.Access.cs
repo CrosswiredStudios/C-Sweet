@@ -135,7 +135,7 @@ public sealed partial class ProjectHealthService
         var receipt = await db.ProjectIncidentReceipts.FindAsync([incident.Id, actor, key], token);
         if (receipt is not null)
         {
-            if (receipt.RequestHash != hash) throw new InvalidOperationException("Idempotency key reused with different content.");
+            if (receipt.RequestHash != hash) throw new ProjectHealthStateException("project-health.idempotency_conflict", "Idempotency key reused with different content.");
             return true;
         }
         RequireCurrent(incident, actor, revision);
@@ -147,8 +147,9 @@ public sealed partial class ProjectHealthService
 
     private static void RequireCurrent(ProjectIncident incident, Guid actor, long revision)
     {
-        if (incident.Status != "Open" || incident.CurrentRecipientId != actor || incident.Revision != revision)
-            throw new InvalidOperationException("Incident changed; read its current revision and recipient.");
+        if (incident.CurrentRecipientId != actor) throw new UnauthorizedAccessException("The incident recipient changed.");
+        if (incident.Status != "Open" || incident.Revision != revision)
+            throw new ProjectHealthStateException("project-health.stale_revision", "Incident changed; read its current revision and recipient.");
     }
 
     private static string ValidateText(string value)

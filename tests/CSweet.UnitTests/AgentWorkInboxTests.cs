@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentWorkInboxTests
+public sealed partial class AgentWorkInboxTests
 {
     [Theory]
     [InlineData("agent-failure:v1;code=workspace.command.timeout;retryable=true", true)]
@@ -30,6 +30,7 @@ public sealed class AgentWorkInboxTests
         await inbox.FailAsync(session, work.Id, claim.Attempt, claim.LeaseToken, error, default);
         Assert.Equal(AgentWorkStatus.Pending, work.Status);
         Assert.NotNull((await db.AgentWorkAttempts.SingleAsync()).FinishedAt);
+        Assert.Equal(0, work.RequestedMemoryMb); Assert.Equal(0, work.ResourceReplacementCount);
         Assert.Equal(fences ? AgentRuntimeStatus.Stopping : AgentRuntimeStatus.Queued, runtime.Status);
         if (!fences) return;
         Assert.Single(db.AgentRuntimeEvents.Where(x => x.Status == AgentRuntimeStatus.Stopping));

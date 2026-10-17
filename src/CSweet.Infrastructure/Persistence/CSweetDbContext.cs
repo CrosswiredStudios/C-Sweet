@@ -86,6 +86,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<AgentRuntimeEvent> AgentRuntimeEvents => Set<AgentRuntimeEvent>();
     public DbSet<McpAgentSession> McpAgentSessions => Set<McpAgentSession>();
     public DbSet<AgentWorkItem> AgentWorkItems => Set<AgentWorkItem>();
+    public DbSet<WorkloadResourceProfile> WorkloadResourceProfiles => Set<WorkloadResourceProfile>();
     public DbSet<AgentWorkAttempt> AgentWorkAttempts => Set<AgentWorkAttempt>();
     public DbSet<AgentWorkProgress> AgentWorkProgress => Set<AgentWorkProgress>();
     public DbSet<AgentCapabilityBinding> AgentCapabilityBindings => Set<AgentCapabilityBinding>();
@@ -1526,6 +1527,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
         modelBuilder.Entity<AgentRuntimeInstance>(entity =>
         {
+            entity.Property(x => x.ResourceMeasurementsRecordedAt).IsConcurrencyToken();
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(48).IsRequired().IsConcurrencyToken();
             entity.Property(x => x.MemoryResetRequestedAt).IsConcurrencyToken();
@@ -1659,6 +1661,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.PayloadHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.ResultHash).HasMaxLength(64);
             entity.Property(x => x.LastError).HasMaxLength(2048);
+            entity.Property(x => x.ResourceProfileKey).HasMaxLength(64);
+            entity.Property(x => x.ResourceRecoveryState).HasMaxLength(40);
+            entity.Property(x => x.ResourceCheckpointDigest).HasMaxLength(64);
             entity.HasIndex(x => new { x.AgentInstallationId, x.Status, x.AvailableAt });
             entity.HasIndex(x => new { x.AgentInstallationId, x.IdempotencyKey }).IsUnique();
             entity.HasOne(x => x.AgentInstallation).WithMany()
@@ -1677,6 +1682,16 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.HasIndex(x => x.OrganizationId);
             // Work completion/deletion must not erase historical audit/erasure evidence.
             entity.HasOne<AgentRuntimeInstance>().WithMany().HasForeignKey(x => x.RuntimeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkloadResourceProfile>(entity =>
+        {
+            entity.HasKey(x => x.Key);
+            entity.Property(x => x.Key).HasMaxLength(64);
+            entity.Property(x => x.OrganizationId).HasMaxLength(200);
+            entity.Property(x => x.CommandClass).HasMaxLength(40);
+            entity.Property(x => x.InputFingerprint).HasMaxLength(64);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<AgentWorkAttempt>(entity =>

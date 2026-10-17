@@ -67,11 +67,19 @@ public sealed partial class ProjectHealthService
             work = await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == organization && workIds.Contains(x.Id) &&
                 (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased))
                 .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
+            work ??= await db.AgentWorkItems.AsNoTracking().Where(x => x.OrganizationId == organization && workIds.Contains(x.Id))
+                .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(token);
         }
+        if (work?.ResourceRecoveryState == "DiagnosisRequired")
+            return new(work.Id, "DiagnosisRequired", "Automatic recovery stopped after a repeated operation failure or exhausted memory policy. Retained source and attempt evidence require infrastructure diagnosis; another full coding retry is not queued.");
+        if (work?.ResourceRecoveryState == "WaitingForPolicy" && work.Status == AgentWorkStatus.Pending)
+            return new(work.Id, "WaitingForPolicy", $"Checkpointed work needs {work.RequestedMemoryMb} MiB and is waiting for the approved resource ceiling. No replacement is authorized yet.");
         if (work is not null && work.DeadlineAt > clock.GetUtcNow())
         {
             if (work.Status == AgentWorkStatus.Pending)
-                return new(work.Id, "Queued", "A correlated retry is queued; execution and completion are not confirmed.");
+                return work.ResourceRecoveryState == "WaitingForReplacement"
+                    ? new(work.Id, "WaitingForReplacement", $"The same checkpointed operation is waiting for a {work.RequestedMemoryMb} MiB VM; the previous VM must stop before it resumes.")
+                    : new(work.Id, "Queued", "A correlated retry is queued; execution and completion are not confirmed.");
             if (work.Status == AgentWorkStatus.Leased && await db.AgentWorkAttempts.AnyAsync(x => x.AgentWorkItemId == work.Id &&
                 x.Attempt == work.AttemptCount && x.FinishedAt == null && x.LeaseExpiresAt > clock.GetUtcNow(), token))
                 return new(work.Id, "Running", "A correlated retry has an active execution lease; completion is not confirmed.");

@@ -27,9 +27,9 @@
     {
         var total = SelectedScope?.Total ?? _report.BusinessTotal;
         <div class="efficiency-stats">
-            <div class="efficiency-stat"><small>Reported tokens</small><strong>@total.TotalTokens.ToString("N0")</strong><small>@total.InputTokens.ToString("N0") input · @total.OutputTokens.ToString("N0") output</small></div>
+            <div class="efficiency-stat"><small>Reported tokens</small><strong>@Tokens(total, SelectedScope is not null)</strong><small>@TokenUsageDisplay.Format(total.InputTokens, total.ModelCalls, total.InputReportedCalls, total.PendingCalls, SelectedScope is not null) input · @TokenUsageDisplay.Format(total.OutputTokens, total.ModelCalls, total.OutputReportedCalls, total.PendingCalls, SelectedScope is not null) output</small></div>
             <div class="efficiency-stat"><small>Model calls</small><strong>@total.ModelCalls.ToString("N0")</strong><small>@total.FailedCalls failed · @total.CancelledCalls cancelled</small></div>
-            <div class="efficiency-stat"><small>Usage coverage</small><strong>@total.FullyReportedCalls / @total.ModelCalls</strong><small>Calls reporting both input and output</small></div>
+            <div class="efficiency-stat"><small>Usage coverage</small><strong>@total.FullyReportedCalls / @total.ModelCalls</strong><small>@total.PendingCalls pending · @total.UnknownUsageCalls unknown</small></div>
             <div class="efficiency-stat"><small>Active agent time</small><strong>@Duration(total.ActiveAgentTimeMs)</strong><small>Confirmed effort · selected period · parallel agents add together</small></div>
         </div>
         @if (_report.Truncated) { <MudAlert Severity="Severity.Warning">Partial report. Narrow the date range before using totals for comparison.</MudAlert> }
@@ -48,7 +48,7 @@
                             else { <span class="efficiency-expand-spacer"></span> }
                             <button class="efficiency-work-link" @onclick="() => SelectAsync(row)"><small>@row.Kind</small> @row.Title</button>
                         </div></td>
-                        <td>@row.Status</td><td>@row.Total.TotalTokens.ToString("N0")</td>
+                        <td>@row.Status</td><td>@Tokens(row.Total, true)<br /><small>@row.AttributionCoverage</small></td>
                         <td>@row.Total.ModelCalls.ToString("N0")</td><td>@Elapsed(row)@if (row.Lifecycle.ElapsedTimeMs.HasValue) { <br /><small>@row.Lifecycle.TimingState</small> }</td>
                         <td>@Duration(row.Total.ActiveAgentTimeMs)<br /><small>@row.TimingCoverage</small></td>
                     </tr>
@@ -65,7 +65,7 @@
                 <MudText>Active agent time: @Duration(_selected.Direct.ActiveAgentTimeMs) direct + @Duration(_selected.Total.ActiveAgentTimeMs - _selected.Direct.ActiveAgentTimeMs) descendants = @Duration(_selected.Total.ActiveAgentTimeMs) total.</MudText>
                 <MudText>Model calls: @_selected.Direct.ModelCalls direct + @(_selected.Total.ModelCalls - _selected.Direct.ModelCalls) descendants = @_selected.Total.ModelCalls total.</MudText>
                 <MudText>Timing: @_selected.TimingCoverage · Attribution: @_selected.AttributionCoverage</MudText>
-                <MudText>Tokens: @_selected.Direct.TotalTokens.ToString("N0") direct + @((_selected.Total.TotalTokens - _selected.Direct.TotalTokens).ToString("N0")) descendants = @_selected.Total.TotalTokens.ToString("N0") total.</MudText>
+                <MudText>Tokens: @Tokens(_selected.Direct, true) direct · @Tokens(_selected.Total, true) including descendants. @_selected.Total.PendingCalls pending · @_selected.Total.UnknownUsageCalls unknown calls.</MudText>
                 <MudText Typo="Typo.body2">Lead time (lifetime): @(_selected.Lifecycle.IsOpen ? "In progress" : Duration(_selected.Lifecycle.LeadTimeMs)) · Waiting: @Duration(_selected.Lifecycle.WaitingTimeMs) · Reopens: @_selected.Lifecycle.ReopenCount</MudText>
                 @if (!_selected.Lifecycle.CompleteHistory) { <MudAlert Severity="Severity.Info" Class="my-2">Lifecycle recording began after this item was created, or evidence is incomplete.</MudAlert> }
                 <MudSelect T="bool" Label="Activity scope" Value="_subtree" ValueChanged="ChangeActivityScope">
@@ -77,14 +77,14 @@
                     <MudText Typo="Typo.subtitle2" Class="mt-3">Model call history - selected reporting period</MudText>
                     <div class="efficiency-table"><table><thead><tr><th>When</th><th>Model / purpose</th><th>Input</th><th>Output</th><th>Outcome</th></tr></thead><tbody>
                     @foreach (var call in _activity.Calls)
-                    { <tr><td>@call.StartedAt.ToLocalTime().ToString("g")</td><td>@call.Model<br /><small>@call.Purpose · @call.AttributionKind</small></td><td>@(call.InputTokens?.ToString("N0") ?? "Unknown")</td><td>@(call.OutputTokens?.ToString("N0") ?? "Unknown")</td><td>@call.Status</td></tr> }
+                    { <tr><td>@call.StartedAt.ToLocalTime().ToString("g")</td><td>@call.Model<br /><small>@call.Purpose · @call.AttributionKind</small></td><td>@(call.InputTokens?.ToString("N0") ?? (call.CompletedAt is null && call.Status == "Running" ? "Pending" : "Unknown"))</td><td>@(call.OutputTokens?.ToString("N0") ?? (call.CompletedAt is null && call.Status == "Running" ? "Pending" : "Unknown"))</td><td>@call.Status</td></tr> }
                     </tbody></table></div>
                     <MudButton Disabled="@(_activity.Offset == 0)" OnClick="PreviousAsync">Previous</MudButton>
                     <MudButton Disabled="@(!_activity.HasMore)" OnClick="NextAsync">Next</MudButton>
                 }
             </MudPaper>
         }
-        @if (!WorkstreamId.HasValue && !WorkItemId.HasValue) { <MudText Typo="Typo.caption" Class="mt-4">Business overhead: @_report.BusinessOverhead.TotalTokens.ToString("N0") tokens · Unattributed: @_report.Unattributed.TotalTokens.ToString("N0") · Historical calls with partial instrumentation: @_report.BusinessTotal.LegacyCalls.ToString("N0")</MudText> }
+        @if (!WorkstreamId.HasValue && !WorkItemId.HasValue) { <MudText Typo="Typo.caption" Class="mt-4">Business overhead: @Tokens(_report.BusinessOverhead) tokens · Unattributed: @Tokens(_report.Unattributed) · Historical calls with partial instrumentation: @_report.BusinessTotal.LegacyCalls.ToString("N0")</MudText> }
         <div class="efficiency-toolbar mt-3">
             <MudLink Href="@($"api/organizations/{OrganizationId}/analytics/efficiency/export{ReportQuery()}")" download="work-efficiency.csv">Export business report (CSV)</MudLink>
             @if (!WorkstreamId.HasValue && !WorkItemId.HasValue) { <MudLink Href="benchmarks">Compare businesses</MudLink> }
@@ -200,6 +200,7 @@
         try { _activity = await Http.GetFromJsonAsync<EfficiencyActivityResponse>($"api/organizations/{OrganizationId}/analytics/efficiency/activity?{(_selected.Kind == "Project" ? "workstreamId" : "workItemId")}={_selected.Id}&offset={offset}&limit=25&subtree={_subtree.ToString().ToLowerInvariant()}{ReportQuery().Replace("?", "&")}"); }
         catch { _error = "Call history could not be loaded."; }
     }
+    private static string Tokens(EfficiencyUsage usage, bool unlinked = false) => TokenUsageDisplay.Format(usage.TotalTokens, usage.ModelCalls * 2, usage.InputReportedCalls + usage.OutputReportedCalls, usage.PendingCalls * 2, unlinked);
     private static string Duration(long? milliseconds) => !milliseconds.HasValue ? "History incomplete"
         : milliseconds < 60_000 ? $"{milliseconds / 1000:N0}s"
         : milliseconds < 3_600_000 ? $"{milliseconds / 60_000:N0}m {TimeSpan.FromMilliseconds(milliseconds.Value).Seconds}s"

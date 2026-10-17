@@ -418,6 +418,12 @@ public sealed class SourceControlOnboardingSession
 /// </summary>
 public sealed class SourceControlWorkspace
 {
+    public Guid? CheckpointRuntimeId { get; set; }
+    public string? CheckpointDigest { get; set; }
+    public DateTimeOffset? CheckpointAt { get; set; }
+    public string? CheckpointCommandClass { get; set; }
+    public string? CheckpointInputFingerprint { get; set; }
+    public string? CheckpointSummaryJson { get; set; }
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid TeamId { get; set; }

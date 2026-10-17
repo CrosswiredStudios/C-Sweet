@@ -77,6 +77,8 @@ public static class InferenceAttribution
                 }
             }
         }
+        if (log.WorkItemId is null)
+            await InferenceSourceAttribution.CaptureAsync(db, log, workId, historical: false, ct);
         // TaskRun links are an authoritative fallback for platform-hosted workflows.
         if (log.WorkItemId is null && log.TaskRunId is { } taskRunId)
         {
@@ -87,7 +89,7 @@ public static class InferenceAttribution
                     x.Id == run.TaskId && x.OrganizationId == organizationId, ct);
                 if (item is not null)
                 {
-                    log.WorkItemId = item.Id; log.WorkstreamId = item.Board?.WorkstreamId;
+                    log.WorkItemId = item.Id; log.WorkstreamId = await db.ExecutionProjectAsync(organizationId, item, ct);
                     log.AttributionKind = "TaskRun";
                 }
             }
@@ -105,6 +107,7 @@ public static class InferenceAttribution
             }
             log.AncestorWorkItemIdsJson = JsonSerializer.Serialize(ancestors);
         }
-        if (log.WorkItemId is null) log.AttributionKind = workId.HasValue ? "Unknown" : "BusinessOverhead";
+        if (log.WorkItemId is null && log.WorkstreamId is null)
+            log.AttributionKind = workId.HasValue ? "Unknown" : "BusinessOverhead";
     }
 }

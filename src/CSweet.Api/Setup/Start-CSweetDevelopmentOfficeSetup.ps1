@@ -44,7 +44,7 @@ function Get-RequiredPositiveIntProperty([object] $InputObject, [string] $Name) 
 function Assert-DevelopmentOfficePayload([object] $Manifest) {
     $protocol = [string](Get-OptionalObjectProperty $Manifest 'brokerProtocolVersion')
     $suite = [string](Get-OptionalObjectProperty $Manifest 'certificationSuiteVersion')
-    if ($protocol -cne '1.1' -or $suite -cnotin @('csweet-hardware-vm-smoke-v15', 'csweet-hardware-vm-smoke-v15-ipv4')) {
+    if ($protocol -cne '1.1' -or $suite -cnotin @('csweet-hardware-vm-smoke-v16', 'csweet-hardware-vm-smoke-v16-ipv4')) {
         throw 'The prepared Office payload cannot run development agents. Setup requires protocol 1.1 and v15 development certification. No services were replaced; update the Office bundle and retry preparation.'
     }
 }

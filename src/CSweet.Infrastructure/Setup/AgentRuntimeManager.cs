@@ -361,6 +361,16 @@ public sealed partial class AgentRuntimeManager(
         foreach (var installation in stoppedRestartIds)
             installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart;
         if (stoppedRestartIds.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
+        if (workInbox is not null)
+        {
+            // A typed guest exit can race ordinary runtime teardown. Recover still-live work
+            // from terminal runtimes too, before a generic expired-lease retry loses its cause.
+            var memoryFailures = await dbContext.AgentRuntimeInstances.AsNoTracking().Where(x =>
+                x.ResourceFailureCode == "workload-memory-limit-exceeded" &&
+                dbContext.AgentWorkAttempts.Any(a => a.RuntimeInstanceId == x.Id && a.FinishedAt == null))
+                .Select(x => x.Id).Take(32).ToArrayAsync(cancellationToken);
+            foreach (var id in memoryFailures) await workInbox.RecoverResourceFailureAsync(id, cancellationToken);
+        }
         var instanceIds = await dbContext.AgentRuntimeInstances.AsNoTracking()
             .Where(x => x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))
             .OrderBy(x => x.QueuedAt)
@@ -381,6 +391,15 @@ public sealed partial class AgentRuntimeManager(
                         (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                         cancellationToken);
                 if (instance is null) continue;
+
+                if (instance.ResourceFailureCode == "workload-memory-limit-exceeded" && instance.Status == AgentRuntimeStatus.Running && workInbox is not null)
+                {
+                    await workInbox.RecoverResourceFailureAsync(instance.Id, cancellationToken);
+                    if (instance.Status != AgentRuntimeStatus.Stopping)
+                        await StopAndFinishAsync(instance, AgentRuntimeStatus.Failed, "runtime.resources.exhausted: memory boundary reached; diagnosis is required.", now, cancellationToken);
+                    changed++;
+                    continue;
+                }
 
                 if (instance.MemoryResetRequestedAt is not null)
                 {
@@ -566,9 +585,10 @@ public sealed partial class AgentRuntimeManager(
         }
 
         var idleRelease = instance.Reason == OnDemandIdleTimeoutReason;
-        var recoveryReason = idleRelease ? OnDemandIdleTimeoutReason :
+        var resourceHandoff = instance.Reason?.StartsWith("runtime.resources.handoff:", StringComparison.Ordinal) == true;
+        var recoveryReason = resourceHandoff ? "runtime.resources.handoff: old VM stopped; checkpointed operation is queued for replacement." : idleRelease ? OnDemandIdleTimeoutReason :
             "Recovered a runtime interrupted while stopping; a fresh attempt can now start.";
-        var outcome = instance.MemoryResetRequestedAt is not null || idleRelease ? AgentRuntimeStatus.Cancelled :
+        var outcome = instance.MemoryResetRequestedAt is not null || idleRelease || resourceHandoff ? AgentRuntimeStatus.Cancelled :
             instance.Reason?.StartsWith(StartupCleanupReasonPrefix, StringComparison.Ordinal) == true
                 ? AgentRuntimeStatus.StartFailed : AgentRuntimeStatus.Failed;
         Transition(instance, outcome, now, recoveryReason);
@@ -776,11 +796,29 @@ public sealed partial class AgentRuntimeManager(
             }
             return false;
         }
+        var codingRuntime = AgentRuntimeGuestSelection.ReadRequest(package.ManifestJson).EnvironmentProfile == "software-development-polyglot-v1";
+        var requestedMemory = await dbContext.AgentWorkItems.Where(x => x.AgentInstallationId == installation.Id &&
+                x.Status == AgentWorkStatus.Pending && x.DeadlineAt > now)
+            .Select(x => (int?)x.RequestedMemoryMb).MaxAsync(cancellationToken) ?? 0;
+        try
+        {
+            instance.AllocatedMemoryMb = codingRuntime
+                ? WorkloadResourcePolicy.Tier(Math.Max(WorkloadResourcePolicy.Initial(settings, installation.Grant.MemoryMb), requestedMemory), settings.CodingMaximumMemoryMb)
+                : installation.Grant.MemoryMb;
+        }
+        catch (InvalidOperationException)
+        {
+            Transition(instance, AgentRuntimeStatus.Queued, now, "runtime.resources.policy_limit: coding allocation is waiting for an approved memory ceiling.");
+            var waiting = await dbContext.AgentWorkItems.Where(x => x.AgentInstallationId == installation.Id && x.Status == AgentWorkStatus.Pending && x.RequestedMemoryMb > settings.CodingMaximumMemoryMb).ToArrayAsync(cancellationToken);
+            foreach (var work in waiting) work.ResourceRecoveryState = "WaitingForPolicy";
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return false;
+        }
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         instance.BrokerTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
         instance.IsolationProviderId = null;
         instance.ProviderInstanceId = null;
-        Transition(instance, AgentRuntimeStatus.Starting, now, "Creating a certified hardware-isolated runtime VM.");
+        Transition(instance, AgentRuntimeStatus.Starting, now, $"Creating a certified hardware-isolated runtime VM with {instance.AllocatedMemoryMb} MiB memory.");
         await dbContext.SaveChangesAsync(cancellationToken);
         try
         {
@@ -812,7 +850,7 @@ public sealed partial class AgentRuntimeManager(
                 package, installation.Grant, runtimeOptions, guestImages, startTimeout.Token);
             var guestDigest = guestImage.Digest;
             var internetMode = await dbContext.ExecutionNodeProviders.AsNoTracking().AnyAsync(x => x.IsAvailable &&
-                x.GuestImageDigest == guestDigest && x.SupportsPublicInternet && x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15",
+                x.GuestImageDigest == guestDigest && x.SupportsPublicInternet && (x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v15" || x.CertificationSuiteVersion == "csweet-hardware-vm-smoke-v16"),
                 startTimeout.Token) ? RuntimeNetworkPolicy.PublicInternet : RuntimeNetworkPolicy.PublicInternetIpv4;
             var artifactDigest = NormalizeDigest(package.PackageDigest, "agent artifact");
             var artifact = new AgentArtifactReference(
@@ -835,7 +873,7 @@ public sealed partial class AgentRuntimeManager(
             var limits = new WorkloadResourceLimits(
                 Math.Max(1, (int)Math.Ceiling(installation.Grant.CpuPercent / 100d)),
                 installation.Grant.CpuPercent,
-                installation.Grant.MemoryMb,
+                instance.AllocatedMemoryMb,
                 runtimeOptions.RuntimeWritableDiskMb,
                 settings.DefaultWorkloadProcessLimit,
                 checked(settings.DefaultWorkloadLogLimitMb * 1024 * 1024),

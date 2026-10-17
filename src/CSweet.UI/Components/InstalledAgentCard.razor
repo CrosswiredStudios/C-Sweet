@@ -97,6 +97,7 @@
             <div><dt>Public internet</dt><dd>@(Installation.PublicInternetGranted ? "Allowed" : "Restricted")</dd></div>
             <div><dt>Runtime network</dt><dd>@(Installation.LatestRuntime?.NetworkMode ?? "not-running")</dd></div>
             <div><dt>Runtime image tools</dt><dd>@List(Installation.LatestRuntime?.ImageTools ?? [])</dd></div>
+            <div><dt>Runtime memory</dt><dd>@(Installation.LatestRuntime?.AllocatedMemoryMb is > 0 and var memory ? $"{memory} MiB" : "Not allocated")</dd></div>
             <div><dt>Network access</dt><dd>@List(Installation.GrantedNetworkAccess)</dd></div>
         </dl>
         <MudDivider Class="my-4" />

@@ -29,6 +29,15 @@ optimistic operation retains the recommendation ID before confirmation returns; 
 operation reads retain it after navigation or reconnect. Failed operations release the
 card for retry. Preparing a review also guards repeat clicks until the review loads.
 
+`AgentHireOperationState.StartCoreAsync` reconciles a failed confirmation response with
+the durable operation before choosing a local result. Explicit confirmation rejections
+(`invalid_hire`, `owner_required`, or the endpoint's known conflict codes) show **Hire
+rejected** with the server's explanation and release the candidate actions. Retry reuses
+the same review and confirmation key; dismissal removes the local notification.
+Transport failures, unrecognized error responses and server errors retain **Hire status
+unknown** because confirmation may have committed. An authoritative server operation
+always takes precedence over either local result.
+
 `NavMenu` shows a count beside **Overview** for all actionable **Needs your attention**
 items, including questions, approvals, hiring recommendations, project incidents and compute
 access requests. `OverviewAttentionState` reads the existing authorized queue endpoints for

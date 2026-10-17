@@ -14,6 +14,7 @@ $setupProgress = Join-Path $logRoot 'progress.json'
 $hasher = [Security.Cryptography.SHA256]::Create()
 try { $attemptHash = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($setup.secret))).Replace('-','').ToLowerInvariant() } finally { $hasher.Dispose() }
 $installerState = 'Failed'
+$failureCode = 'local_setup_failed'
 $preparationAttempt = if ($setup.PSObject.Properties['attemptId']) { [guid]$setup.attemptId } else { [guid]::Empty }
 Write-ComputeInstallerReceipt -Directory $logRoot -AttemptHash $attemptHash -State 'Running' -AttemptId $preparationAttempt
 Write-ComputeSetupProgress -Path $setupProgress -Phase 'checking' -Message 'Checking requirements for Linux compute.' -AttemptId $preparationAttempt
@@ -34,6 +35,7 @@ try {
         $existingExecutable = Join-Path $protectedRoot 'runtime\CSweet.Compute.HyperV.exe'
         $registered = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
         if ($registered.PathName -cne ('"' + $existingExecutable + '" ' + $serviceArguments)) { throw 'The existing compute service has an unexpected executable.' }
+        $failureCode = 'compute_checks_failed'
         & $existingExecutable @validationArguments
         if ($LASTEXITCODE -ne 0) { throw 'The existing compute service did not pass validation.' }
         $installedCatalog = Get-Content -LiteralPath (Join-Path $protectedRoot 'catalog.json') -Raw | ConvertFrom-Json
@@ -47,6 +49,7 @@ try {
             # catalog, images, or workloads.
             Write-ComputeSetupProgress -Path $setupProgress -Phase 'connect-service' -Message 'Restoring the compute connection.' -AttemptId $preparationAttempt
             $recoveryRoot = Join-Path $logRoot 'recovery-provider'
+            $failureCode = 'compute_provider_publish_failed'
             dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Compute.HyperV\CSweet.Compute.HyperV.csproj') `
                 -c Release -r win-x64 --self-contained true --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false -o $recoveryRoot --verbosity quiet
             if ($LASTEXITCODE -ne 0) { throw 'The compute recovery utility could not be prepared.' }
@@ -54,30 +57,38 @@ try {
             Stop-Service -Name $serviceName -ErrorAction Stop
             (Get-Service -Name $serviceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
             $recoveryStoppedService = $true
+            $failureCode = 'compute_enrollment_failed'
             & $recoveryExecutable reenroll-local $HandoffPath
+            if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }
             if ($LASTEXITCODE -ne 0) { throw 'The existing compute service could not restore its enrollment.' }
+            $failureCode = 'compute_service_start_failed'
             Start-Service -Name $serviceName -ErrorAction Stop
             (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
             $recoveryStoppedService = $false
             Write-ComputeSetupProgress -Path $setupProgress -Phase 'verify-readiness' -Message 'Verifying compute readiness.' -AttemptId $preparationAttempt
+            $failureCode = 'compute_readiness_failed'
             & $recoveryExecutable complete-local $HandoffPath
+            if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }
             if ($LASTEXITCODE -ne 0) { throw 'The existing compute service could not complete this setup.' }
             $installerState = 'Completed'
             return
         }
     }
     # The Office image service owns prerequisites and immutable Linux image preparation.
+    $failureCode = 'local_setup_failed'
     $imagePath = & (Join-Path $repositoryRoot 'scripts\Ensure-ComputeLinuxImage.ps1') -SetupProgressPath $setupProgress -SetupAttemptId $preparationAttempt
     if (-not (Test-Path -LiteralPath $imagePath -PathType Leaf)) { throw 'The Linux test image was not prepared.' }
     $publishRoot = Join-Path $logRoot 'provider'
     $acceptanceRoot = Join-Path $logRoot 'acceptance'
     Write-ComputeSetupProgress -Path $setupProgress -Phase 'check-service' -Message 'Checking the compute service.' -AttemptId $preparationAttempt
+    $failureCode = 'compute_checks_failed'
     dotnet test (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release `
         --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false `
         --filter 'FullyQualifiedName~Compute&FullyQualifiedName!~Postgres' `
         --logger 'trx;LogFileName=compute.trx' --results-directory $acceptanceRoot --verbosity quiet
     if ($LASTEXITCODE -ne 0) { throw 'The compute component checks did not pass.' }
     Write-ComputeSetupProgress -Path $setupProgress -Phase 'connect-service' -Message 'Installing the compute service.' -AttemptId $preparationAttempt
+    $failureCode = 'compute_provider_publish_failed'
     dotnet publish (Join-Path $repositoryRoot 'src\CSweet.Compute.HyperV\CSweet.Compute.HyperV.csproj') `
         -c Release -r win-x64 --self-contained true --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false -o $publishRoot --verbosity quiet
     if ($LASTEXITCODE -ne 0) { throw 'The compute provider could not be prepared.' }
@@ -146,7 +157,9 @@ try {
     & "$env:SystemRoot\System32\icacls.exe" $protectedRoot '/setowner' '*S-1-5-32-544' '/T' '/C' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Compute payload ownership could not be protected.' }
     $providerExecutable = Join-Path $runtimeRoot 'CSweet.Compute.HyperV.exe'
+    $failureCode = 'compute_enrollment_failed'
     & $providerExecutable configure-local $HandoffPath $installedImage (Join-Path $acceptanceRoot 'compute.trx')
+    if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }
     if ($LASTEXITCODE -ne 0) { throw 'The compute provider could not be enrolled.' }
     & (Join-Path $repositoryRoot 'scripts\Register-ComputeGuestService.ps1') | Out-Host
     & $providerExecutable @validationArguments
@@ -155,10 +168,13 @@ try {
         New-Service -Name $serviceName -DisplayName ("C-Sweet Compute - $($setup.organizationId)") -BinaryPathName ('"' + $providerExecutable + '" ' + $serviceArguments) -StartupType Automatic | Out-Null
     }
     & (Join-Path $repositoryRoot 'scripts\Set-ComputeServiceRecovery.ps1') -ServiceName $serviceName
+    $failureCode = 'compute_service_start_failed'
     Start-Service -Name $serviceName
     (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
     Write-ComputeSetupProgress -Path $setupProgress -Phase 'verify-readiness' -Message 'Verifying compute readiness.' -AttemptId $preparationAttempt
+    $failureCode = 'compute_readiness_failed'
     & $providerExecutable complete-local $HandoffPath
+    if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }
     if ($LASTEXITCODE -ne 0) { throw 'Compute readiness could not be reported.' }
     $installerState = 'Completed'
 } catch {
@@ -190,6 +206,6 @@ try {
     Write-Error 'C-Sweet could not finish preparing local Linux compute.'
     exit 1
 } finally {
-    try { Write-ComputeInstallerReceipt -Directory $logRoot -AttemptHash $attemptHash -State $installerState -AttemptId $preparationAttempt }
+    try { Write-ComputeInstallerReceipt -Directory $logRoot -AttemptHash $attemptHash -State $installerState -AttemptId $preparationAttempt -FailureCode $failureCode }
     finally { Stop-Transcript | Out-Null }
 }
