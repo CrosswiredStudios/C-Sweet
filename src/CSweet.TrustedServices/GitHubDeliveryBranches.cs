@@ -45,7 +45,7 @@ public sealed partial class GitHubAppClient
         if (source is null) throw new InvalidOperationException("The delivery source branch is missing.");
         if (operation.Operation is "ensure" or "inspect") return new(source, target, null);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(operation.IdempotencyKey))).ToLowerInvariant();
-        var candidateBranch = "codex/candidate/" + key;
+        var candidateBranch = "csweet/candidate/" + key;
         if (operation.Operation == "promote" && target == operation.CandidateCommitSha)
             return new(operation.ExpectedSourceSha!, operation.ExpectedTargetSha!, target, true);
         if (source != operation.ExpectedSourceSha || target != operation.ExpectedTargetSha)

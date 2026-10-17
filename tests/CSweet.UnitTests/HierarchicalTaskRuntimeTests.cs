@@ -21,6 +21,13 @@ public sealed class HierarchicalTaskRuntimeTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    [Fact]
+    public async Task CodeJourneyAdvancesThroughIntegrationQaReworkAndDoneWithIdenticalStageTimestamps()
+    {
+        await using var f = await Fixture.Create(false);
+        await RunJourney(f, false, identicalStageTimestamps: true);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -91,7 +98,8 @@ public sealed class HierarchicalTaskRuntimeTests
         bool authorRetryHistory = false, bool newestAttemptFirst = false,
         Func<Fixture,string,Task<DeliveryBranchResult>>? publishCandidate = null,
         Func<Fixture,SourceControlPublication,DeliveryBranchResult,Task<WorkExecutionOutcomeV1>>? technicalReview = null,
-        Func<Fixture,string,bool,Task<WorkExecutionOutcomeV1>>? qualityReview = null)
+        Func<Fixture,string,bool,Task<WorkExecutionOutcomeV1>>? qualityReview = null,
+        bool identicalStageTimestamps = false)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -131,10 +139,11 @@ public sealed class HierarchicalTaskRuntimeTests
             CreatedAt = DateTimeOffset.UtcNow, ItemExecutionId = item.Id, ItemExecution = item };
         var authorStage = Initial(); item.Stages.Add(authorStage); f.Db.WorkStageExecutions.Add(authorStage);
         await f.Db.SaveChangesAsync();
-        var manual = new WorkOrchestrationService(f.Db, TimeProvider.System);
-        var inbox = new AgentWorkInbox(f.Db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        TimeProvider clock = identicalStageTimestamps ? new FrozenClock(DateTimeOffset.UtcNow.AddMinutes(1)) : TimeProvider.System;
+        var manual = new WorkOrchestrationService(f.Db, clock);
+        var inbox = new AgentWorkInbox(f.Db, new EphemeralDataProtectionProvider(), clock);
         var runtime = new WorkOrchestrator(f.Db, inbox, null!, null!,
-            [new TaskIntegrationWorkActionExecutor(f.Db, f.Client, TimeProvider.System)], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
+            [new TaskIntegrationWorkActionExecutor(f.Db, f.Client, clock)], clock, NullLogger<WorkOrchestrator>.Instance);
         async Task Pulse() => await (Task)typeof(WorkOrchestrator).GetMethod("ReconcileExecutionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(runtime, [execution.Id, CancellationToken.None])!;
         WorkStageExecution Current() => item.Stages.Single(x => x.StageKey == item.CurrentStageKey && x.Traversal == item.Traversal);
@@ -164,14 +173,14 @@ public sealed class HierarchicalTaskRuntimeTests
             }
             else
             {
-                var branch = "codex/task/one/r" + cycle;
+                var branch = "csweet/task/one/r" + cycle;
                 var refs = publishCandidate is not null ? await publishCandidate(f,branch) :
-                    await f.Client.DeliveryBranchAsync(new(f.Org, f.Repositories[0], "InternalGit", null, "", "", "inspect", branch, "codex/story/one", "inspect"));
+                    await f.Client.DeliveryBranchAsync(new(f.Org, f.Repositories[0], "InternalGit", null, "", "", "inspect", branch, "csweet/story/one", "inspect"));
                 var workspace = new SourceControlWorkspace { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkItemId = f.Task.Id,
                     WorkspaceKey = "task:" + f.Task.Id.ToString("N") + ":" + cycle,
-                    AssignmentRevision = f.Task.AssignmentRevision, RepositoryId = f.Repositories[0], BranchName = branch, IntegrationTargetBranch = "codex/story/one", BaseCommitSha = refs.TargetCommitSha };
+                    AssignmentRevision = f.Task.AssignmentRevision, RepositoryId = f.Repositories[0], BranchName = branch, IntegrationTargetBranch = "csweet/story/one", BaseCommitSha = refs.TargetCommitSha };
                 publication = new() { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkspaceId = workspace.Id, RepositoryId = f.Repositories[0],
-                    CommitSha = refs.SourceCommitSha, TicketBranch = branch, TargetBranch = "codex/story/one", CreatedAt = DateTimeOffset.UtcNow };
+                    CommitSha = refs.SourceCommitSha, TicketBranch = branch, TargetBranch = "csweet/story/one", CreatedAt = DateTimeOffset.UtcNow };
                 f.Db.AddRange(workspace, publication); authorOutput = new { commitSha = publication.CommitSha };
             }
             await f.Db.SaveChangesAsync();
@@ -267,5 +276,9 @@ public sealed class HierarchicalTaskRuntimeTests
         Assert.Equal(artifact ? 0 : 2, await f.Db.WorkTaskIntegrationReceipts.CountAsync(x => x.Status == "Completed"));
         await f.Service.PulseAsync();
         Assert.Equal("WaitingForHuman", (await f.Read()).Executions.Single(x => x.Scope == "Story").Status);
+    }
+    private sealed class FrozenClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

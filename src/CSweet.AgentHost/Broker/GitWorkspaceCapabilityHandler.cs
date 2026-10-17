@@ -1119,7 +1119,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
     private static string DeterministicBranch(WorkTask item)
     {
         if (JsonSerializer.Deserialize<WorkItemDeliverySpecification>(item.DeliverySpecificationJson ?? "null", JsonOptions)?.DeliveryPlanId.HasValue == true)
-            return $"codex/task/{item.Id:N}/r{item.AssignmentRevision}";
+            return $"csweet/task/{item.Id:N}/r{item.AssignmentRevision}";
         var slug = new string(item.Title.ToLowerInvariant()
             .Select(x => char.IsAsciiLetterOrDigit(x) ? x : '-')
             .ToArray());

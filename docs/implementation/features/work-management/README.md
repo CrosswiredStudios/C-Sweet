@@ -11,6 +11,8 @@ See [verified results and package handoff](hierarchical-delivery-validation.md) 
 
 See [technical review and QA recovery](review-qa-recovery.md) for strict review schemas, retained page evidence, canonical QA results, owner-approved blocked-task scope amendment and the verified InternalGit rework journey.
 
+See [review validation recovery, October 17](review-validation-recovery-2026-10-17.md) for expanded review budgets, field-specific correction feedback, package verification and ticket 15's authorized recovery.
+
 See [Projects workspace](projects-workspace.md) for the consolidated portfolio,
 board directories, project sections, and sprint planning UI.
 

@@ -31,6 +31,23 @@ This is the normative specification for new game and software installations. Exe
 
 Code flows task → story → shared release → repository default branch. Architects may bind an optional epic branch between story and release. Repository-specific `WorkDeliveryBranchBinding` records are authoritative, including workspace preparation, refresh, retries and PR targets.
 
+New managed branches use the model-independent `csweet/` namespace: `csweet/task/<item-id>/r<assignment-revision>`,
+`csweet/story/<story-id>`, `csweet/epic/<epic-id>`, `csweet/release/<project-id>/<scope-key>`
+and `csweet/candidate/<key>`. The broker, SDK 4.6.3 kickoff, release configuration UI and
+trusted Git providers use the same namespace. Existing refs and saved bindings are not migrated.
+
+The namespace change was initially verified as SDK 4.6.1 and Producer 3.2.4. Verification passed
+445 SDK tests, two sample tests, seven generated-template tests, 373 Producer tests,
+117 platform tests, five disposable PostgreSQL tests and one real-Git agent delivery
+journey (950 total). Package-consumer checks disabled sibling SDK and WorkManagement
+Contracts references; both NuGet package versions were verified. Running services and
+installed agents require their normal update/restart to use the changed defaults.
+
+Current local packages are SDK 4.6.3 and Producer 3.2.4, including the later
+[review validation recovery](review-validation-recovery-2026-10-17.md). Its targeted
+scheduler rollout preserves the running candidate namespace until the complete
+branch-prefix rollout; ordinary builds use the new defaults above.
+
 `GitWorkspaceCapabilityHandler.PrepareAsync` preserves the existing workspace on reconnect. For a new task assignment revision, `ResolveReworkBaseAsync` carries forward the immediately preceding revision's latest unintegrated publication for the same organization, repository, task and story target. Technical Review rework therefore edits the rejected candidate instead of rebuilding from an empty story. Completed integration receipts or merged publications select the current story instead, preserving other integrated work during QA fixes. Rework still has its own task branch/revision and must pass the existing review and integration gates. A previously prepared workspace is never silently reset to an older candidate; recovery of an already incorrect workspace requires stopping its writer and preserving its snapshot first.
 
 | Scope | Required gates | Authority |

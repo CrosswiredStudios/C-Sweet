@@ -20,7 +20,7 @@ public sealed class TaskScopeAmendmentTests
         var (request, execution) = await Prepare(f);
         var publication = new CSweet.Domain.Setup.SourceControlPublication { Id=Guid.NewGuid(), OrganizationId=f.Org,
             RepositoryId=f.Repositories[0], WorkspaceId=Guid.NewGuid(), CommitSha=new string('a',40),
-            TicketBranch="codex/task/preserved",TargetBranch="codex/story/one" };
+            TicketBranch="csweet/task/preserved",TargetBranch="csweet/story/one" };
         f.Db.SourceControlPublications.Add(publication); await f.Db.SaveChangesAsync();
         var before = f.Task.AssignmentRevision;
         var amended = await f.Service.AmendTaskAsync(f.Org,f.Manager.Id,request);

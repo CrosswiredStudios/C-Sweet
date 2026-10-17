@@ -127,7 +127,7 @@ public sealed partial class WorkDeliveryService
         if (branch != repositoryCandidate.TargetBranch && repositoryCandidate.CandidateCommitSha != repositoryCandidate.SourceCommitSha)
         {
             var key = $"candidate:{execution.Id:N}:{repositoryCandidate.SourceCommitSha}:{repositoryCandidate.TargetCommitSha}";
-            branch = "codex/candidate/" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
+            branch = "csweet/candidate/" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key))).ToLowerInvariant();
         }
         var snapshot = repository.Connection!.Provider == SourceControlProvider.InternalGit
             ? await sourceControl.PrepareInternalWorkspaceAsync(new(org, repositoryId, execution.Id, repositoryCandidate.TargetBranch,

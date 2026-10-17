@@ -51,14 +51,14 @@ public partial class ProjectReleases
             if (plan is not null) _branchInputs.AddRange(plan.Branches.Select(x => new BranchInput(x)));
             else
             {
-                var releaseName = $"codex/release/{ProjectId:N}/{Guid.NewGuid():N}";
+                var releaseName = $"csweet/release/{ProjectId:N}/{Guid.NewGuid():N}";
                 foreach (var board in _boards)
                 foreach (var story in board.Items.Where(x => x.Kind == "Story" && x.ExecutionMode == WorkItemExecutionModes.Container))
                 foreach (var repo in board.Items.Where(x => x.ParentItemId == story.Id && x.Delivery is { DeliveryKind: "Code" })
                     .Select(x => x.Delivery!.RepositoryId).Distinct())
                 {
                     var option = _repositories.Single(x => x.Id == repo);
-                    _branchInputs.Add(new(new(repo, "Story", story.Id, $"codex/story/{story.Id:N}", releaseName)));
+                    _branchInputs.Add(new(new(repo, "Story", story.Id, $"csweet/story/{story.Id:N}", releaseName)));
                     if (!_branchInputs.Any(x => x.RepositoryId == repo && x.Scope == "Release"))
                         _branchInputs.Add(new(new(repo, "Release", null, releaseName, option.DefaultBranch)));
                 }
@@ -82,11 +82,11 @@ public partial class ProjectReleases
         var release = _branchInputs.FirstOrDefault(x => x.RepositoryId == repository.Id && x.Scope == "Release");
         if (release is null)
         {
-            release = new(new(repository.Id, "Release", null, $"codex/release/{ProjectId:N}/{Guid.NewGuid():N}", repository.DefaultBranch));
+            release = new(new(repository.Id, "Release", null, $"csweet/release/{ProjectId:N}/{Guid.NewGuid():N}", repository.DefaultBranch));
             _branchInputs.Add(release);
         }
         if (!_branchInputs.Any(x => x.Scope == "Story" && x.RepositoryId == repository.Id && x.Binding().ItemId == _bindingStory))
-            _branchInputs.Add(new(new(repository.Id, "Story", _bindingStory, $"codex/story/{_bindingStory:N}", release.Source)));
+            _branchInputs.Add(new(new(repository.Id, "Story", _bindingStory, $"csweet/story/{_bindingStory:N}", release.Source)));
     }
     private async Task OpenTaskAssignmentsAsync(WorkDeliveryPlanResponse plan)
     {
@@ -130,7 +130,7 @@ public partial class ProjectReleases
                     {
                         var ownedStories = stories.Where(x => x.ParentItemId == epic.Id).Select(x => x.Id).ToHashSet();
                         if (!bindings.Any(x => x.Scope == "Story" && ownedStories.Contains(x.ItemId!.Value) && x.RepositoryId == release.RepositoryId)) continue;
-                        var source = $"codex/epic/{epic.Id:N}";
+                        var source = $"csweet/epic/{epic.Id:N}";
                         bindings.Add(new(release.RepositoryId, "Epic", epic.Id, source, release.SourceBranch));
                         for (var index = 0; index < bindings.Count; index++)
                             if (bindings[index].Scope == "Story" && ownedStories.Contains(bindings[index].ItemId!.Value) && bindings[index].RepositoryId == release.RepositoryId)

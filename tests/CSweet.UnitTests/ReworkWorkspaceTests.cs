@@ -28,7 +28,7 @@ public sealed class ReworkWorkspaceTests
             RepositoryId = repo, WorkItemId = task, AssignmentRevision = 1 };
         var publication = new SourceControlPublication { Id = Guid.NewGuid(), OrganizationId = org,
             RepositoryId = repo, WorkspaceId = workspace.Id, CommitSha = new string('a', 40),
-            TargetBranch = "codex/story/one", Status = SourceControlPublicationStatus.AwaitingValidation };
+            TargetBranch = "csweet/story/one", Status = SourceControlPublicationStatus.AwaitingValidation };
         switch (scenario)
         {
             case "merged": publication.Status = SourceControlPublicationStatus.Merged; break;
@@ -37,14 +37,14 @@ public sealed class ReworkWorkspaceTests
             case "other-task": workspace.WorkItemId = Guid.NewGuid(); break;
             case "other-repository": workspace.RepositoryId = publication.RepositoryId = Guid.NewGuid(); break;
             case "other-organization": workspace.OrganizationId = publication.OrganizationId = Guid.NewGuid(); break;
-            case "other-target": publication.TargetBranch = "codex/story/other"; break;
+            case "other-target": publication.TargetBranch = "csweet/story/other"; break;
             case "older-revision": workspace.AssignmentRevision = 0; break;
             case "receipt": db.WorkTaskIntegrationReceipts.Add(new WorkTaskIntegrationReceipt {
                 Id = Guid.NewGuid(), OrganizationId = org, RepositoryId = repo, WorkItemId = task,
                 PublicationId = publication.Id, Status = "Completed" }); break;
         }
         db.AddRange(workspace, publication); await db.SaveChangesAsync();
-        var result = await GitWorkspaceCapabilityHandler.ResolveReworkBaseAsync(db, org, repo, task, 2, "codex/story/one", default);
+        var result = await GitWorkspaceCapabilityHandler.ResolveReworkBaseAsync(db, org, repo, task, 2, "csweet/story/one", default);
         Assert.Equal(carries ? publication.CommitSha : null, result);
     }
 }

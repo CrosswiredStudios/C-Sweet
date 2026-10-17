@@ -66,7 +66,7 @@ public sealed partial class WorkOrchestrator(
             stage.UpdatedAt = now;
         }
 
-        var advancing = execution.Items.Select(x => x.Stages.OrderByDescending(s => s.CreatedAt).First())
+        var advancing = execution.Items.Select(WorkOrchestrationBoardState.CurrentStage)
             .Where(x => x.Status == WorkStageExecutionStatus.Pending &&
                         x.StageType is WorkOrchestrationStageType.Queue or WorkOrchestrationStageType.Terminal)
             .ToList();
@@ -79,14 +79,14 @@ public sealed partial class WorkOrchestrator(
                 await AdvanceAsync(execution, policy, stage, "ready", "Queue eligibility satisfied.", "{}", now, cancellationToken);
         }
 
-        foreach (var stage in execution.Items.Select(x => x.Stages.OrderByDescending(s => s.CreatedAt).First())
+        foreach (var stage in execution.Items.Select(WorkOrchestrationBoardState.CurrentStage)
                      .Where(x => x.Status == WorkStageExecutionStatus.Pending &&
                                  x.StageType == WorkOrchestrationStageType.TrustedPlatformAction).ToList())
             await ExecuteTrustedActionAsync(execution, policy, stage, now, cancellationToken);
 
         // Repair cards placed in execution columns by older scheduler versions as well.
         foreach (var item in execution.Items)
-            WorkOrchestrationBoardState.SynchronizeAgentCard(policy, item.Stages.OrderByDescending(x => x.CreatedAt).First(), now);
+            WorkOrchestrationBoardState.SynchronizeAgentCard(policy, WorkOrchestrationBoardState.CurrentStage(item), now);
         await WorkOrchestrationBoardState.ParkBlockedCardsAsync(db, execution, now, cancellationToken);
 
         if (execution.Items.All(x => x.Status is WorkItemExecutionStatus.Completed or WorkItemExecutionStatus.Cancelled))
@@ -118,7 +118,7 @@ public sealed partial class WorkOrchestrator(
 
         var candidates = execution.Items
             .Where(item => item.Status == WorkItemExecutionStatus.Pending && DependenciesComplete(item, execution.Items))
-            .Select(item => item.Stages.OrderByDescending(x => x.CreatedAt).First())
+            .Select(WorkOrchestrationBoardState.CurrentStage)
             .Where(stage => stage.Status == WorkStageExecutionStatus.Pending &&
                             (stage.StageType == WorkOrchestrationStageType.AgentExecution ||
                              (stage.StageType == WorkOrchestrationStageType.MemberExecution &&

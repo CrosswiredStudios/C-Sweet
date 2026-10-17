@@ -211,7 +211,7 @@ public sealed class HierarchicalDeliveryServiceTests
         {
             EpicItemIds = [f.Epic.Id, epic.Id], IdempotencyKey = "cross-board-plan",
             Branches = [.. initial.Branches.Where(x => x.Scope != "Story" || x.RepositoryId == f.Repositories[0]),
-                new(f.Repositories[1], "Story", story.Id, "codex/story/second", "codex/release/initial")],
+                new(f.Repositories[1], "Story", story.Id, "csweet/story/second", "csweet/release/initial")],
             Assignments = [.. initial.Assignments, new("Story", story.Id, board.Id, [new("quality", "Human", f.Qa.Id)]),
                 new("Epic", epic.Id, board.Id, [new("technical-review", "Human", f.Technical.Id)])]
         };
@@ -226,7 +226,7 @@ public sealed class HierarchicalDeliveryServiceTests
         await f.Db.SaveChangesAsync();
         var plan = await f.Service.ConfigureAsync(f.Org, f.Manager.Id, request); f.PlanId = plan.Id;
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-        foreach (var binding in new[] { (Item: f.Task, Repo: f.Repositories[0], Branch: "codex/story/one"), (Item: task, Repo: f.Repositories[1], Branch: "codex/story/second") })
+        foreach (var binding in new[] { (Item: f.Task, Repo: f.Repositories[0], Branch: "csweet/story/one"), (Item: task, Repo: f.Repositories[1], Branch: "csweet/story/second") })
             binding.Item.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(binding.Repo, ["Deliver requirement"], ["Requirement works"])
                 { DeliveryPlanId = plan.Id, BaseBranch = binding.Branch }, json);
         await f.Db.SaveChangesAsync(); await f.Activate(plan);
@@ -473,8 +473,8 @@ public sealed class HierarchicalDeliveryServiceTests
             await Db.SaveChangesAsync();
         }
         public ConfigureWorkDeliveryPlanRequest Request() => new(Project, "Initial release", Manager.Id, [Epic.Id],
-            Repositories.SelectMany(id => new[] { new WorkDeliveryBranchBinding(id, "Release", null, "codex/release/initial", "main"),
-                new WorkDeliveryBranchBinding(id, "Story", Story.Id, "codex/story/one", "codex/release/initial") }).ToArray(),
+            Repositories.SelectMany(id => new[] { new WorkDeliveryBranchBinding(id, "Release", null, "csweet/release/initial", "main"),
+                new WorkDeliveryBranchBinding(id, "Story", Story.Id, "csweet/story/one", "csweet/release/initial") }).ToArray(),
             [new("Story", Story.Id, Board.Id, [new("quality", "Human", Qa.Id)]),
              new("Epic", Epic.Id, Board.Id, [new("technical-review", "Human", Technical.Id)]),
              new("Release", null, Board.Id, [new("quality", "Human", Qa.Id), new("technical-review", "Human", Technical.Id)])], "configure");
@@ -483,7 +483,7 @@ public sealed class HierarchicalDeliveryServiceTests
             var result = await Service.ConfigureAsync(Org, Manager.Id, request ?? Request()); PlanId = result.Id;
             Task = await Db.CoreWorkTasks.SingleAsync(x => x.Id == Task.Id);
             Task.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(Artifact ? Guid.Empty : Repositories[0],
-                ["Deliver requirement"], ["Requirement works"]) { BaseBranch = Artifact ? "" : "codex/story/one", DeliveryKind = Artifact ? "Artifact" : "Code", DeliveryPlanId = PlanId }, Json);
+                ["Deliver requirement"], ["Requirement works"]) { BaseBranch = Artifact ? "" : "csweet/story/one", DeliveryKind = Artifact ? "Artifact" : "Code", DeliveryPlanId = PlanId }, Json);
             await Db.SaveChangesAsync(); return result;
         }
         public Task<WorkDeliveryPlanResponse> Activate(WorkDeliveryPlanResponse draft) => Service.ControlAsync(Org, Manager.Id, new(draft.Id, draft.Revision, "activate", "activate"));

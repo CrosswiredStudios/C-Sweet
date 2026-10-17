@@ -22,28 +22,28 @@ public sealed class HierarchicalGitDeliveryTests : IDisposable
     public async Task FreshRepositoryPromotesThroughConfiguredHierarchyAndReplaysExactly(bool epicIsolation)
     {
         await store.ExecuteAsync(new(org, repository, "create", "main"));
-        await Ensure("codex/release/initial", "main");
-        var target = epicIsolation ? "codex/epic/one" : "codex/release/initial";
-        if (epicIsolation) await Ensure(target, "codex/release/initial");
-        await Ensure("codex/story/one", target);
+        await Ensure("csweet/release/initial", "main");
+        var target = epicIsolation ? "csweet/epic/one" : "csweet/release/initial";
+        if (epicIsolation) await Ensure(target, "csweet/release/initial");
+        await Ensure("csweet/story/one", target);
         var initial = await Head("main");
-        var task = await Publish("codex/task/one/r1", "codex/story/one", "first.txt", "first task");
-        var integrated = await Promote("codex/task/one/r1", "codex/story/one", "task-one");
+        var task = await Publish("csweet/task/one/r1", "csweet/story/one", "first.txt", "first task");
+        var integrated = await Promote("csweet/task/one/r1", "csweet/story/one", "task-one");
         Assert.NotEqual(task.CommitSha, integrated.CandidateCommitSha); Assert.Equal(initial, await Head("main"));
-        Assert.Equal("first task", await Content("codex/story/one", "first.txt"));
+        Assert.Equal("first task", await Content("csweet/story/one", "first.txt"));
         // A QA failure is repaired through a NEW branch based on the integrated story.
-        await Publish("codex/task/one/r2", "codex/story/one", "first.txt", "reviewed fix");
-        await Promote("codex/task/one/r2", "codex/story/one", "task-one-fix");
-        Assert.Equal("reviewed fix", await Content("codex/story/one", "first.txt"));
-        await Promote("codex/story/one", target, "story-one");
-        if (epicIsolation) await Promote(target, "codex/release/initial", "epic-one");
-        var release = await Promote("codex/release/initial", "main", "release-one");
+        await Publish("csweet/task/one/r2", "csweet/story/one", "first.txt", "reviewed fix");
+        await Promote("csweet/task/one/r2", "csweet/story/one", "task-one-fix");
+        Assert.Equal("reviewed fix", await Content("csweet/story/one", "first.txt"));
+        await Promote("csweet/story/one", target, "story-one");
+        if (epicIsolation) await Promote(target, "csweet/release/initial", "epic-one");
+        var release = await Promote("csweet/release/initial", "main", "release-one");
         Assert.Equal(release.CandidateCommitSha, await Head("main"));
         Assert.Equal("reviewed fix", await Content("main", "first.txt"));
-        var replay = await store.DeliveryBranchAsync(Operation("codex/release/initial", "main", "promote", "release-one") with
+        var replay = await store.DeliveryBranchAsync(Operation("csweet/release/initial", "main", "promote", "release-one") with
             { ExpectedSourceSha = release.SourceCommitSha, ExpectedTargetSha = release.TargetCommitSha, CandidateCommitSha = release.CandidateCommitSha });
         Assert.True(replay.Promoted); Assert.Equal(release.CandidateCommitSha, replay.CandidateCommitSha);
-        var recovered = await store.DeliveryBranchAsync(Operation("codex/release/initial", "main", "receipt", "release-one") with
+        var recovered = await store.DeliveryBranchAsync(Operation("csweet/release/initial", "main", "receipt", "release-one") with
             { ExpectedSourceSha = release.SourceCommitSha, ExpectedTargetSha = release.TargetCommitSha, CandidateCommitSha = release.CandidateCommitSha });
         Assert.True(recovered.Promoted); Assert.Equal(release.CandidateCommitSha, recovered.CandidateCommitSha);
     }
@@ -52,12 +52,12 @@ public sealed class HierarchicalGitDeliveryTests : IDisposable
     public async Task PreIntegrationReworkPreservesRejectedCodeAndPublishesAnIncrementalFix()
     {
         await store.ExecuteAsync(new(org, repository, "create", "main"));
-        await Ensure("codex/story/one", "main");
-        var first = await Publish("codex/task/one/r1", "codex/story/one", "implementation.txt", "existing implementation");
-        await Assert.ThrowsAsync<ArgumentException>(() => Content("codex/story/one", "implementation.txt"));
+        await Ensure("csweet/story/one", "main");
+        var first = await Publish("csweet/task/one/r1", "csweet/story/one", "implementation.txt", "existing implementation");
+        await Assert.ThrowsAsync<ArgumentException>(() => Content("csweet/story/one", "implementation.txt"));
         var workspace = Guid.NewGuid();
-        var snapshot = await store.PrepareAsync(new(org, repository, workspace, "codex/story/one",
-            "codex/task/one/r2", first.CommitSha, "rework"), artifacts);
+        var snapshot = await store.PrepareAsync(new(org, repository, workspace, "csweet/story/one",
+            "csweet/task/one/r2", first.CommitSha, "rework"), artifacts);
         Assert.Equal(first.CommitSha, snapshot.BaseCommitSha);
         var input = Path.Combine(root, "rework");
         await artifacts.ExtractZipAsync(new MemoryStream(snapshot.Archive), input);
@@ -65,48 +65,48 @@ public sealed class HierarchicalGitDeliveryTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(input, "review-fix.txt"), "addressed review finding");
         using var output = new MemoryStream(); var manifest = await artifacts.CreateZipAsync(input, output);
         await store.ApplySnapshotAsync(new(org, repository, workspace, "publish", snapshot.BaseCommitSha,
-            "codex/task/one/r2", "codex/story/one", "rework-publish", output.ToArray(), manifest.Sha256,
+            "csweet/task/one/r2", "csweet/story/one", "rework-publish", output.ToArray(), manifest.Sha256,
             manifest.FileCount, manifest.TotalBytes, "Address review feedback"), artifacts);
-        Assert.Equal("existing implementation", await Content("codex/task/one/r2", "implementation.txt"));
-        Assert.Equal("addressed review finding", await Content("codex/task/one/r2", "review-fix.txt"));
-        await Promote("codex/task/one/r2", "codex/story/one", "rework-integrate");
-        Assert.Equal("existing implementation", await Content("codex/story/one", "implementation.txt"));
+        Assert.Equal("existing implementation", await Content("csweet/task/one/r2", "implementation.txt"));
+        Assert.Equal("addressed review finding", await Content("csweet/task/one/r2", "review-fix.txt"));
+        await Promote("csweet/task/one/r2", "csweet/story/one", "rework-integrate");
+        Assert.Equal("existing implementation", await Content("csweet/story/one", "implementation.txt"));
     }
 
     [Fact]
     public async Task ConcurrentTargetChangeRejectsStaleCandidateAndAuthorBypassesAreDenied()
     {
         await store.ExecuteAsync(new(org, repository, "create", "main"));
-        await Ensure("codex/release/initial", "main"); await Ensure("codex/story/one", "codex/release/initial");
-        await Publish("codex/task/one", "codex/story/one", "one.txt", "one");
-        await Publish("codex/task/two", "codex/story/one", "two.txt", "two");
-        var refs = await store.DeliveryBranchAsync(Operation("codex/task/one", "codex/story/one", "inspect", "read"));
-        var candidate = await store.DeliveryBranchAsync(Operation("codex/task/one", "codex/story/one", "candidate", "stale") with
+        await Ensure("csweet/release/initial", "main"); await Ensure("csweet/story/one", "csweet/release/initial");
+        await Publish("csweet/task/one", "csweet/story/one", "one.txt", "one");
+        await Publish("csweet/task/two", "csweet/story/one", "two.txt", "two");
+        var refs = await store.DeliveryBranchAsync(Operation("csweet/task/one", "csweet/story/one", "inspect", "read"));
+        var candidate = await store.DeliveryBranchAsync(Operation("csweet/task/one", "csweet/story/one", "candidate", "stale") with
             { ExpectedSourceSha = refs.SourceCommitSha, ExpectedTargetSha = refs.TargetCommitSha });
-        await Promote("codex/task/two", "codex/story/one", "two");
-        var stopped = await store.DeliveryBranchAsync(Operation("codex/task/one", "codex/story/one", "promote", "stale") with
+        await Promote("csweet/task/two", "csweet/story/one", "two");
+        var stopped = await store.DeliveryBranchAsync(Operation("csweet/task/one", "csweet/story/one", "promote", "stale") with
             { ExpectedSourceSha = refs.SourceCommitSha, ExpectedTargetSha = refs.TargetCommitSha, CandidateCommitSha = candidate.CandidateCommitSha });
         Assert.False(stopped.Promoted); Assert.Contains("changed", stopped.Error);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Publish("codex/story/one", "main", "bypass.txt", "bypass"));
-        var current = await Head("codex/story/one");
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.ExecuteAsync(new(org, repository, "update-ref", Ref: "refs/heads/codex/story/one", TargetSha: current, ExpectedSha: current)));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.ExecuteAsync(new(org, repository, "delete-ref", Ref: "refs/heads/codex/story/one", ExpectedSha: current)));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Publish("csweet/story/one", "main", "bypass.txt", "bypass"));
+        var current = await Head("csweet/story/one");
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.ExecuteAsync(new(org, repository, "update-ref", Ref: "refs/heads/csweet/story/one", TargetSha: current, ExpectedSha: current)));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.ExecuteAsync(new(org, repository, "delete-ref", Ref: "refs/heads/csweet/story/one", ExpectedSha: current)));
     }
 
     [Fact]
     public async Task MultipleStoriesShareOneReleaseWithoutPromotingTasksToMain()
     {
-        await store.ExecuteAsync(new(org, repository, "create", "main")); await Ensure("codex/release/shared", "main");
+        await store.ExecuteAsync(new(org, repository, "create", "main")); await Ensure("csweet/release/shared", "main");
         var initial = await Head("main");
         foreach (var name in new[] { "one", "two" })
         {
-            await Ensure("codex/story/" + name, "codex/release/shared");
-            await Publish("codex/task/" + name, "codex/story/" + name, name + ".txt", name);
-            await Promote("codex/task/" + name, "codex/story/" + name, "task-" + name);
-            await Promote("codex/story/" + name, "codex/release/shared", "story-" + name);
+            await Ensure("csweet/story/" + name, "csweet/release/shared");
+            await Publish("csweet/task/" + name, "csweet/story/" + name, name + ".txt", name);
+            await Promote("csweet/task/" + name, "csweet/story/" + name, "task-" + name);
+            await Promote("csweet/story/" + name, "csweet/release/shared", "story-" + name);
             Assert.Equal(initial, await Head("main"));
         }
-        await Promote("codex/release/shared", "main", "release");
+        await Promote("csweet/release/shared", "main", "release");
         Assert.Equal("one", await Content("main", "one.txt")); Assert.Equal("two", await Content("main", "two.txt"));
     }
 

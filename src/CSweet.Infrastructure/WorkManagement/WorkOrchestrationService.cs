@@ -418,7 +418,7 @@ public sealed partial class WorkOrchestrationService(
         if (item?.WorkItem is null || item.Stages.Count == 0) return null;
         if (item.WorkItem.Revision != request.ExpectedRevision)
             throw new DbUpdateConcurrencyException("The ticket changed since it was loaded. Refresh the board and retry.");
-        var stage = item.Stages.OrderByDescending(x => x.CreatedAt).First();
+        var stage = WorkOrchestrationBoardState.CurrentStage(item);
         if (stage.Status is not (WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed))
             throw new InvalidOperationException("This ticket is not blocked, so there is nothing to retry.");
         return await RetryAsync(organizationId, boardId, stage.Id, applicationUserId,

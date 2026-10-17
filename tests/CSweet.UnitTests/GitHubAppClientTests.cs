@@ -30,7 +30,7 @@ public sealed class GitHubAppClientTests
     {
         var handler = new SequenceHandler();
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateClient(handler).DeliveryBranchAsync(
-            new(Guid.NewGuid(), Guid.NewGuid(), "GitHub", 12, "owner", "repo", "ensure", "codex/release/one", "main", "release-one"), default));
+            new(Guid.NewGuid(), Guid.NewGuid(), "GitHub", 12, "owner", "repo", "ensure", "csweet/release/one", "main", "release-one"), default));
         Assert.Contains("managed-branch write restrictions", error.Message);
         Assert.Empty(handler.Requests);
     }
@@ -43,7 +43,7 @@ public sealed class GitHubAppClientTests
             Json(HttpStatusCode.OK, "{\"object\":{\"sha\":\"" + sha + "\"}}"),
             Json(HttpStatusCode.OK, "{\"object\":{\"sha\":\"" + sha + "\"}}"));
         var result = await CreateClient(handler).DeliveryBranchAsync(new(Guid.NewGuid(), Guid.NewGuid(), "GitHub", 12,
-            "owner", "repo", "promote", "codex/release/one", "main", "release-one", sha, sha, new string('b',40)), default);
+            "owner", "repo", "promote", "csweet/release/one", "main", "release-one", sha, sha, new string('b',40)), default);
         Assert.False(result.Promoted);
         Assert.Contains("atomically compare", result.Error);
         Assert.DoesNotContain(handler.Requests, x => x.Method == "PATCH" || x.Path.EndsWith("/merges"));

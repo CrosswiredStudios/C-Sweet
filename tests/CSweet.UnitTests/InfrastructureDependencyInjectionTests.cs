@@ -38,7 +38,7 @@ public sealed class InfrastructureDependencyInjectionTests
         using var host = builder.Build();
         var client = host.Services.GetRequiredService<ITrustedSourceControlHostClient>();
         var operation = new DeliveryBranchOperation(Guid.NewGuid(), Guid.NewGuid(), "InternalGit", null,
-            "", "project", "ensure", "codex/story/test", "main", "delivery-test");
+            "", "project", "ensure", "csweet/story/test", "main", "delivery-test");
         if (!configured)
         {
             Assert.IsType<UnavailableTrustedSourceControlHostClient>(client);

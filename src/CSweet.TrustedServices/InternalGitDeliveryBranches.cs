@@ -61,7 +61,7 @@ public sealed partial class InternalGitRepositoryStore
         if (request.Operation == "candidate")
         {
             if (source == target) return new(source, target, target);
-            var candidateRef = "refs/heads/codex/candidate/" + key;
+            var candidateRef = "refs/heads/csweet/candidate/" + key;
             var existing = (await RunAsync(repository, ["for-each-ref", "--format=%(objectname)", candidateRef], ct)).Trim();
             if (existing.Length > 0)
             {

@@ -51,16 +51,16 @@ public sealed class AgentDeliveryJourneyTests
             var cycle=0; var reviewedPages=0; var corrections=0; var qaRuns=0;
             async Task<DeliveryBranchResult> Publish(Fixture current,string branch)
             {
-                var workspace=Guid.NewGuid(); var source=await store.PrepareAsync(new(f.Org,f.Repositories[0],workspace,"codex/story/one",branch,null,"prepare"),artifacts);
+                var workspace=Guid.NewGuid(); var source=await store.PrepareAsync(new(f.Org,f.Repositories[0],workspace,"csweet/story/one",branch,null,"prepare"),artifacts);
                 var path=Path.Combine(root,"author-"+cycle); await artifacts.ExtractZipAsync(new MemoryStream(source.Archive),path);
                 await File.WriteAllTextAsync(Path.Combine(path,"state.json"),JsonSerializer.Serialize(new {works=cycle++>0}));
                 // Authored fixture, never a fetched project's script executed on the host.
                 await File.WriteAllTextAsync(Path.Combine(path,"verify.cjs"),"const s=require('./state.json'); console.log('works='+s.works); process.exit(s.works?0:1);");
                 await File.WriteAllTextAsync(Path.Combine(path,"design.txt"),new string('x',146391));
                 using var archive=new MemoryStream(); var manifest=await artifacts.CreateZipAsync(path,archive);
-                await store.ApplySnapshotAsync(new(f.Org,f.Repositories[0],workspace,"publish",source.BaseCommitSha,branch,"codex/story/one",
+                await store.ApplySnapshotAsync(new(f.Org,f.Repositories[0],workspace,"publish",source.BaseCommitSha,branch,"csweet/story/one",
                     "publish-"+cycle,archive.ToArray(),manifest.Sha256,manifest.FileCount,manifest.TotalBytes,"Fixture implementation"),artifacts);
-                return await f.Client.DeliveryBranchAsync(new(f.Org,f.Repositories[0],"InternalGit",null,"","","inspect",branch,"codex/story/one","inspect"));
+                return await f.Client.DeliveryBranchAsync(new(f.Org,f.Repositories[0],"InternalGit",null,"","","inspect",branch,"csweet/story/one","inspect"));
             }
             async Task<WorkExecutionOutcomeV1> Review(Fixture current,SourceControlPublication publication,DeliveryBranchResult refs)
             {
@@ -96,7 +96,7 @@ public sealed class AgentDeliveryJourneyTests
             }
             async Task<WorkExecutionOutcomeV1> Quality(Fixture current,string commit,bool expectedPass)
             {
-                var workspace=Guid.NewGuid(); var snapshot=await store.PrepareAsync(new(f.Org,f.Repositories[0],workspace,"codex/story/one","qa-fixture",commit,"qa"),artifacts);
+                var workspace=Guid.NewGuid(); var snapshot=await store.PrepareAsync(new(f.Org,f.Repositories[0],workspace,"csweet/story/one","qa-fixture",commit,"qa"),artifacts);
                 var local=PlatformGitWorkspaceClient.LocalWorkspacePath(workspace); localQaPaths.Add(local); var calls=0;
                 var runtime=StateRuntime().RegisterCapability<WorkItemReference,WorkItem>(WorkManagementCapabilityNames.ItemRead,(_,_)=>Task.FromResult(Current("quality")))
                     .RegisterCapability<PrepareGitWorkspaceRequest,GitWorkspaceResult>(GitWorkspaceCapabilities.Prepare,(_,_)=>Task.FromResult(new GitWorkspaceResult(workspace,f.Task.Id,"/remote/qa",f.Repositories[0],"InternalGit","PullRequest",commit,"Ready",false)))

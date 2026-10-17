@@ -14,6 +14,10 @@ namespace CSweet.Infrastructure.WorkManagement;
 internal static partial class WorkOrchestrationBoardState
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    // Multiple stages may be created in one reconciliation with the same timestamp.
+    // The persisted cursor, including its rework traversal, is authoritative.
+    internal static WorkStageExecution CurrentStage(WorkItemExecution item) =>
+        item.Stages.Single(x => x.StageKey == item.CurrentStageKey && x.Traversal == item.Traversal);
     // Called inside the inbox lease transaction, before the worker receives its payload.
     // Execution authorization must not wait for the next scheduler reconciliation.
     internal static async Task RecordClaimAsync(CSweetDbContext db, AgentWorkItem work,
@@ -99,7 +103,7 @@ internal static partial class WorkOrchestrationBoardState
         CSweetDbContext db, WorkSprintExecution execution, DateTimeOffset now, CancellationToken token)
     {
         var parked = execution.Items.Where(x => x.WorkItem is not null &&
-                x.Stages.OrderByDescending(s => s.CreatedAt).FirstOrDefault() is
+                CurrentStage(x) is
                     { Status: WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Failed })
             .ToList();
         if (parked.Count == 0) return;
