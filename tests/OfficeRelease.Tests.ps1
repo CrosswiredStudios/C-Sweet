@@ -104,12 +104,93 @@ try {
     Reject { Expand-CSweetOfficeArchive $bad "$testRoot/duplicate" } 'Reject case-insensitive duplicate paths.'
     $script:fixture = $archive
     function Invoke-CSweetReleaseDownload { param($Uri, $OutputPath, $MaximumBytes, $TimeoutSeconds); Copy-Item $script:fixture $OutputPath }
-    $asset = [pscustomobject]@{ url = 'https://github.com/fixture'; size = (Get-Item $archive).Length; sha256 = '0' * 64 }
+    $asset = [pscustomobject]@{ name = 'csweet-office-0.6.0-windows-x64.zip'
+        url = 'https://github.com/CrosswiredStudios/CSweet.Office/releases/download/v0.6.0/csweet-office-0.6.0-windows-x64.zip'
+        size = (Get-Item $archive).Length; sha256 = '0' * 64 }
     Reject { Receive-CSweetOfficeAsset $asset "$testRoot/tampered" } 'A bad checksum must never execute or fall back.'
     Check (-not (Test-Path "$testRoot/tampered")) 'Validate integrity before extraction.'
     $asset.sha256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
     Receive-CSweetOfficeAsset $asset "$testRoot/verified" | Out-Null
     Check (Test-Path "$testRoot/verified/guest/image.vhdx") 'Verified downloads must be usable.'
+
+    # Real ZIP bytes split at a small boundary exercise the production transport without GiB fixtures.
+    $bytes = [IO.File]::ReadAllBytes($archive)
+    $partBytes = [int][Math]::Ceiling($bytes.Length / 3.0)
+    $script:partFiles = @{}
+    $parts = @()
+    for ($offset = 0; $offset -lt $bytes.Length; $offset += $partBytes) {
+        $name = '{0}.part{1:D3}' -f $asset.name, ($parts.Count + 1)
+        $path = Join-Path $testRoot $name
+        $length = [Math]::Min($partBytes, $bytes.Length - $offset)
+        $chunk = [byte[]]::new($length); [Array]::Copy($bytes, $offset, $chunk, 0, $length)
+        [IO.File]::WriteAllBytes($path, $chunk)
+        $url = "$($asset.url).part$('{0:D3}' -f ($parts.Count + 1))"
+        $parts += [pscustomobject]@{ name = $name; size = $length; sha256 = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant(); url = $url }
+        $script:partFiles[$url] = $path
+    }
+    $multipart = [pscustomobject]@{ name = $asset.name; size = $bytes.Length; sha256 = $asset.sha256; parts = $parts }
+    $multipartJson = $multipart | ConvertTo-Json -Depth 6
+    $script:manifest = New-TestManifest '0.6.0'
+    $script:manifest.schemaVersion = 2
+    $script:manifest.assets[1] = $multipart
+    Check ((Resolve-CSweetOfficeRelease 'x64').Bundle.parts.Count -eq 3) 'Schema 2 multipart discovery must remain automatic.'
+    $script:manifest.schemaVersion = 1
+    Reject { Resolve-CSweetOfficeRelease 'x64' } 'Schema 1 must not admit multipart metadata.'
+    $script:manifest.schemaVersion = 2
+    foreach ($change in @('missing','reordered','duplicate','foreign-url','wrong-sum','oversized','too-many','fractional','mixed-url','bad-digest','unequal')) {
+        $bad = $multipartJson | ConvertFrom-Json
+        switch ($change) {
+            'missing' { $bad.parts = @($bad.parts[0], $bad.parts[2]) }
+            'reordered' { $bad.parts = @($bad.parts[1], $bad.parts[0], $bad.parts[2]) }
+            'duplicate' { $bad.parts[1] = $bad.parts[0] }
+            'foreign-url' { $bad.parts[0].url = 'https://example.org/part001' }
+            'wrong-sum' { $bad.size++ }
+            'oversized' { $bad.parts[0].size = 1GB + 1L }
+            'too-many' { $bad.parts = @($bad.parts) * 6 }
+            'fractional' { $bad.parts[0].size = 1.5 }
+            'mixed-url' { $bad | Add-Member -NotePropertyName url -NotePropertyValue $asset.url }
+            'bad-digest' { $bad.parts[0].sha256 = 'invalid' }
+            'unequal' { $bad.parts[0].size--; $bad.parts[1].size++ }
+        }
+        $script:manifest.assets[1] = $bad
+        Reject { Resolve-CSweetOfficeRelease 'x64' } "Reject malformed multipart discovery: $change"
+    }
+    $script:manifest.assets[1] = $multipart
+    $script:requestedParts = @()
+    $script:downloadFault = ''
+    function Invoke-CSweetReleaseDownload {
+        param($Uri, $OutputPath, $MaximumBytes, $TimeoutSeconds)
+        $script:requestedParts += [string]$Uri
+        if ($script:downloadFault -eq 'missing' -or ($script:downloadFault -eq 'missing-last' -and ([string]$Uri).EndsWith('part003'))) { throw [Net.Http.HttpRequestException]::new('Missing release part') }
+        if ($script:downloadFault -eq 'timeout-last' -and ([string]$Uri).EndsWith('part003')) { throw [OperationCanceledException]::new('Download timeout') }
+        $source = if ($script:downloadFault -eq 'swapped' -and ([string]$Uri).EndsWith('part001')) { $script:partFiles[$parts[1].url] } else { $script:partFiles[[string]$Uri] }
+        Copy-Item -LiteralPath $source -Destination $OutputPath
+        if ($script:downloadFault -eq 'truncated') {
+            $stream = [IO.File]::OpenWrite($OutputPath)
+            try { $stream.SetLength($stream.Length - 1) } finally { $stream.Dispose() }
+        }
+        if ($script:downloadFault -eq 'corrupt') {
+            $chunk = [IO.File]::ReadAllBytes($OutputPath); $chunk[0] = $chunk[0] -bxor 255; [IO.File]::WriteAllBytes($OutputPath, $chunk)
+        }
+    }
+    Receive-CSweetOfficeAsset $multipart "$testRoot/multipart" | Out-Null
+    Check ((Get-Content "$testRoot/multipart/guest/image.vhdx") -eq 'fixture') 'Verified multipart downloads reconstruct and extract the original archive.'
+    Check (($script:requestedParts -join ',') -ceq (($multipart.parts | ForEach-Object url) -join ',')) 'Parts download exactly once in manifest order.'
+    Check (-not (Test-Path "$testRoot/multipart.zip")) 'Successful reconstruction removes its temporary archive.'
+    foreach ($fault in @('missing','missing-last','timeout-last','truncated','corrupt','swapped','whole-digest')) {
+        $script:downloadFault = $fault
+        $candidate = $multipartJson | ConvertFrom-Json
+        if ($fault -eq 'whole-digest') { $candidate.sha256 = '0' * 64 }
+        $destination = "$testRoot/failure-$fault"
+        Reject { Receive-CSweetOfficeAsset $candidate $destination } "Reject multipart download failure: $fault"
+        Check (-not (Test-Path $destination)) 'Never extract before all integrity checks pass.'
+        Check (-not (Test-Path "$destination.zip")) 'Failed reconstruction removes its partial archive.'
+        Check (@(Get-ChildItem -LiteralPath $testRoot -Filter "failure-$fault.part-*").Count -eq 0) 'Failed reconstruction removes its temporary part.'
+    }
+    $script:downloadFault = ''
+    [IO.File]::WriteAllText("$testRoot/existing.zip", 'preserve')
+    Reject { Receive-CSweetOfficeAsset $multipart "$testRoot/existing" } 'Do not overwrite another archive.'
+    Check ((Get-Content "$testRoot/existing.zip") -eq 'preserve') 'Cleanup must preserve files this invocation did not create.'
     Write-Host "Passed $script:checks Office release checks."
 } finally {
     # This exact GUID directory was created above and contains only test fixtures.

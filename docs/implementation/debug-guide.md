@@ -556,7 +556,11 @@ Node-suite failures entering bounded repair without issuing a review link.
 The Windows AppHost launcher no longer needs a sibling Office checkout. Setup, reconnect, repair,
 and upgrade first check stable GitHub Office releases for `office-bootstrap.json`, verify the selected
 bundle, then certify and development-sign the guest on this machine. No production signing key is
-needed. `CSweet.OfficeRelease.ps1` reports a download/integrity failure; it only uses configured source
+needed. `CSweet.OfficeRelease.ps1` supports legacy single-file bundles and automatically
+reconstructs schema 2 bundles from checksum-verified parts of at most 1 GiB. It checks the
+complete archive before extraction. See [multipart transport](features/office-assisted-installation.md#multipart-release-transport-2026-10-16)
+for limits, verification and Headquarters-first rollout ordering.
+`CSweet.OfficeRelease.ps1` reports a download/integrity failure; it only uses configured source
 when release discovery is unavailable. Source fallback still needs its SDK, image tooling, and cached
 dependencies.
 

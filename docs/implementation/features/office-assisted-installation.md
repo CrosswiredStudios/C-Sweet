@@ -87,6 +87,41 @@ bundle within the 20 most recent releases. It requires canonical versioned GitHu
 SHA-256 agreement, and safe bounded ZIP extraction. Missing/offline releases allow a configured
 local checkout fallback; malformed metadata and bad downloads fail with a visible recovery error.
 
+### Multipart release transport (2026-10-16)
+
+`Assert-CSweetOfficeAsset` and `Receive-CSweetOfficeAsset` support both legacy schema 1
+single-file releases and schema 2 multipart bundles from Office 0.11.0. Each multipart
+archive has at most 16 ordered, canonically named parts of at most 1 GiB, with a 16 GiB
+whole-archive limit. The small support archive remains a single download capped at 10 MiB.
+Names and URLs bind every part to the selected repository, version and logical archive.
+Part sizes are positive integers; all nonfinal parts have the same size and their sum
+matches the complete archive. Missing, reordered, duplicate, cross-tag and invalid parts
+fail before downloading.
+
+The receiver stages one part at a time, verifies its exact byte count and SHA-256, and
+streams it into a temporary archive with a 1 MiB copy buffer. It verifies the complete
+archive's size and digest before invoking the existing bounded, traversal-resistant ZIP
+extractor. One total download deadline covers all parts. Failure removes this invocation's
+temporary part and archive, preserves pre-existing files, and never silently switches to
+local source. The existing automatic setup call site and certification flow are unchanged;
+no manual joining, additional tool installation or user choice is required.
+
+Deploy Headquarters with this consumer before publishing/using schema 2 Office bundles.
+`tests/OfficeRelease.Tests.ps1` covers discovery, metadata rejection, corruption, truncation,
+missing/lost parts, swapped bytes, whole-archive checksum mismatch and cleanup under both
+PowerShell 7 and Windows PowerShell 5.1. `.github/workflows/office-release-tests.yml` runs
+the consumer fixtures on Windows and Linux. Office's actual publisher-to-consumer fixture
+is run with `Test-HostedManifest.ps1 -InstallerScript <path-to-CSweet.OfficeRelease.ps1>`;
+it verifies the retained guest image digest after extraction. These are transport tests;
+they do not establish a new installed-host certification or successful hosted publication.
+
+Verified 2026-10-16: 76 consumer fixture checks passed under PowerShell 7 and Windows
+PowerShell 5.1; eight publisher boundary checks, schema validation and the actual
+publisher-to-installer fixture passed. Office's independent Release suite passed 241 tests
+against the published Contracts package. No live Office installation or release was changed.
+
+### Automatic setup sequence
+
 `Start-CSweetDevelopmentOfficeSetup.ps1` downloads the small support asset before preflight and
 the full bundle after handoff redemption. The Office bootstrap's `PrebuiltRoot` path runs real
 Hyper-V certification and local development signing without invoking a compiler or building an
