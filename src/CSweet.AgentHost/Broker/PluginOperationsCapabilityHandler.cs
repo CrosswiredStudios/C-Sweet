@@ -193,7 +193,7 @@ public sealed class PluginOperationsCapabilityHandler(
                 string.IsNullOrWhiteSpace(x.Key) || x.Key.Length > 80 || x.Value.Length > 160) ||
             input.ConditionCodes.Count > 32 || input.ConditionCodes.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 80) ||
             input.OpenCommitmentCorrelations.Count > 32 || input.OpenCommitmentCorrelations.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 200) ||
-            input.Payload.GetRawText().Length > 65_536)
+            input.Payload.GetRawText().Length > 128_000)
             throw new InvalidOperationException("Operating-state revisions, conditions, commitments, or payload exceed platform bounds.");
     }
 

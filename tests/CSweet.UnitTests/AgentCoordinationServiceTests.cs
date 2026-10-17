@@ -23,6 +23,21 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCoordinationServiceTests
 {
+    [Fact]
+    public async Task Coordination_retains_a_128000_character_planning_payload_with_JSON_escaping()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // Default JSON escaping expands these characters; the previous 256 KiB bound
+        // rejected valid 128,000-character planning content during handoff.
+        var payload = JsonSerializer.SerializeToElement(new string('\u2265', 127998));
+        var response = await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId,
+            new RespondToAgentCoordinationRequest(fixture.SessionId, 1, 1, AgentCoordinationDispositions.Continue,
+                "Planning output is ready for review.", "large-planning-output") {
+                Artifact = new("planning.v1", "1", "exact-scope", 0, true, payload) });
+        Assert.Equal(payload.GetRawText(), response.Turns.Last().Artifact!.Payload.GetRawText());
+        Assert.Equal(payload.GetString(), response.Turns.Last().Artifact!.Payload.GetString());
+    }
+
     [Theory]
     [InlineData("ready", true)]
     [InlineData("offline", false)]
@@ -116,7 +131,7 @@ public sealed class AgentCoordinationServiceTests
         Assert.Equal(specialist ? fixture.TargetId : fixture.InitiatorId, first.CurrentOrganizationUserId);
         Assert.Equal(2, first.Turns.Count);
         var pending = Assert.Single(await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync());
-        var lease = await fixture.Inbox.ClaimAsync(new McpAgentSession { Id = Guid.NewGuid(), RuntimeInstanceId = Guid.NewGuid(),
+        var lease = await fixture.ClaimAsync(new McpAgentSession { Id = Guid.NewGuid(), RuntimeInstanceId = Guid.NewGuid(),
             TickId = Guid.NewGuid(), AgentInstallationId = pending.AgentInstallationId, OrganizationId = fixture.OrganizationId.ToString("D") }, CancellationToken.None);
         var payload = lease!.Payload.Deserialize<AgentCoordinationTurnRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Contains(request.Reason, payload!.Objective);
@@ -250,7 +265,7 @@ public sealed class AgentCoordinationServiceTests
             fixture.InitiatorInstallationId, new(fixture.TargetId, boardId, "Planning", "Plan delivery",
                 ["Grounded backlog"], "Decompose accepted scope", "board-context"));
         fixture.Db.ChangeTracker.Clear();
-        var lease = await fixture.Inbox.ClaimAsync(new McpAgentSession
+        var lease = await fixture.ClaimAsync(new McpAgentSession
         {
             Id = Guid.NewGuid(), RuntimeInstanceId = Guid.NewGuid(), TickId = Guid.NewGuid(),
             AgentInstallationId = fixture.TargetInstallationId, OrganizationId = fixture.OrganizationId.ToString("D")
@@ -506,7 +521,7 @@ public sealed class AgentCoordinationServiceTests
             AgentInstallationId = fixture.TargetInstallationId,
             OrganizationId = fixture.OrganizationId.ToString("D")
         };
-        var lease = await fixture.Inbox.ClaimAsync(runtimeSession, CancellationToken.None);
+        var lease = await fixture.ClaimAsync(runtimeSession, CancellationToken.None);
         Assert.NotNull(lease);
         await fixture.Inbox.FailAsync(runtimeSession, work.Id, lease!.Attempt, lease.LeaseToken,
             "runtime failure", CancellationToken.None);
@@ -698,6 +713,15 @@ public sealed class AgentCoordinationServiceTests
 
     private sealed class Fixture : IAsyncDisposable
     {
+        // A real inbox claim always belongs to a persisted runtime. Resource evidence
+        // now reads that identity even when this fixture does not configure memory policy.
+        public async Task<ClaimedAgentWork?> ClaimAsync(McpAgentSession session, CancellationToken token)
+        {
+            Db.Add(new AgentRuntimeInstance { Id = session.RuntimeInstanceId, AgentInstallationId = session.AgentInstallationId,
+                QueuedAt = DateTimeOffset.UtcNow });
+            await Db.SaveChangesAsync(token);
+            return await Inbox.ClaimAsync(session, token);
+        }
         public required CSweetDbContext Db { get; init; }
         public required AgentCoordinationService Service { get; init; }
         public required AgentWorkInbox Inbox { get; init; }

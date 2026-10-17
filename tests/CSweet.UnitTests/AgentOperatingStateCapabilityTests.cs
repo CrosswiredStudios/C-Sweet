@@ -10,6 +10,22 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentOperatingStateCapabilityTests
 {
+    [Theory]
+    [InlineData(128000, true)]
+    [InlineData(128001, false)]
+    public async Task Operating_state_supports_exact_128000_character_boundary(int length, bool accepted)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var handler = new PluginOperationsCapabilityHandler(db, new TestAuditEventWriter());
+        // JSON string quotes count toward the platform's serialized-character bound.
+        var request = new AgentOperatingStateWriteRequest("planning.page", "planning.v1", 1, "Active",
+            new Dictionary<string,string>(), [], "input-digest", [], Guid.NewGuid(),
+            JsonSerializer.SerializeToElement(new string('x', length - 2)), null, "page-1");
+        var response = await InvokeAsync(handler, Session(Guid.NewGuid(), Guid.NewGuid()), PlatformCapabilities.AgentOperatingStateWrite, request);
+        Assert.Equal(accepted, response.Succeeded);
+        Assert.Equal(accepted ? 1 : 0, db.PluginOperationalStates.Count());
+    }
+
     [Fact]
     public async Task Write_IsScopedRevisionSafeAndIdempotent()
     {

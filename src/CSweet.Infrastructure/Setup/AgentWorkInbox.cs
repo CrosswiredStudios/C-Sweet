@@ -104,8 +104,12 @@ public sealed partial class AgentWorkInbox(
             memoryRecallReceiptJson = CSweet.Infrastructure.Core.MemoryRecallDispatchEvidence.BindPayload(
                 memoryRecallReceiptJson, payloadHash, organizationId, installationId, sourceType, sourceId);
         }
-        if (bytes.Length > MaximumPayloadBytes)
-            throw new InvalidOperationException($"Agent work payloads may not exceed {MaximumPayloadBytes} bytes.");
+        // Coordination carries the retained transcript as well as the current artifact.
+        // Allow its larger reviewed planning handoff without widening unrelated events.
+        var maximumPayloadBytes = sourceType == "agent-coordination" && name == CSweet.Agent.SDK.AgentCoordinationEvents.TurnRequested
+            ? 4 * 1024 * 1024 : MaximumPayloadBytes;
+        if (bytes.Length > maximumPayloadBytes)
+            throw new InvalidOperationException($"Agent work payloads may not exceed {maximumPayloadBytes} bytes.");
         if (deadline <= timeProvider.GetUtcNow())
             throw new InvalidOperationException("Agent work must have a future deadline.");
         if (kind == AgentWorkKind.Event &&

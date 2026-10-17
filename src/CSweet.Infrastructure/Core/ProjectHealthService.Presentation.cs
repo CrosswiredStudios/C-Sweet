@@ -183,6 +183,11 @@ public sealed partial class ProjectHealthService
             else if (ClaimsRecoveryExecution(next))
                 next = "Open the affected item. The accountable manager must address its recorded blocker before resuming work. No retry is currently confirmed.";
         }
+        if (await TechnicalPlanningDiagnosticAsync(incident, token) is { } technicalDiagnostic)
+            return new($"{projectName}: C-Sweet technical issue",
+                "Sprint planning is blocked because C-Sweet could not generate or validate its planning output. " +
+                "This requires a technical correction. Specialist diagnostic: " + ProjectHealthReader.Safe(technicalDiagnostic),
+                (await CurrentIncidentExecutionAsync(incident, token)).Summary, TechnicalPlanningAction, link, label);
         if (OwnerReport(incident) is { } ownerReport)
         {
             var current = await CurrentIncidentStateAsync(incident, token);

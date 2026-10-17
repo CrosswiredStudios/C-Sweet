@@ -189,6 +189,8 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
                 .DistinctBy(x => new { x.Kind, x.SourceId, x.Detail }).OrderBy(x => x.OccurredAt).TakeLast(100).ToArray();
             if (existing is not null)
             {
+                if (await TechnicalPlanningDiagnosticAsync(existing, token) is { } diagnostic)
+                    RetainTechnicalPlanningDiagnosis(existing, diagnostic);
                 var combined = Deserialize<ProjectDiagnosticEvidence>(existing.EvidenceJson).Concat(evidence)
                     .DistinctBy(x => new { x.Kind, x.SourceId, x.Detail }).OrderBy(x => x.OccurredAt).TakeLast(100).ToArray();
                 var serialized = JsonSerializer.Serialize(combined, Json);
@@ -206,6 +208,8 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
                 EvidenceJson = JsonSerializer.Serialize(evidence, Json), DetectedAt = now, LastProgressAt = state.LastProgressAt,
                 EscalateAt = now.Add(Threshold), MissingEvidence = "Only recorded, correlated evidence is available; missing calls or runtime detail cannot be reconstructed." };
             db.ProjectIncidents.Add(created);
+            if (await TechnicalPlanningDiagnosticAsync(created, token) is { } createdDiagnostic)
+                RetainTechnicalPlanningDiagnosis(created, createdDiagnostic);
             await NotifyAsync(created, token);
         }
         await db.SaveChangesAsync(token);

@@ -1,5 +1,11 @@
 # Progressive game planning
 
+Current size, checkpoint and incident behavior: [October 17 planning output recovery](planning-output-recovery-2026-10-17.md).
+Technical Director 4.2.1 uses a complete identity manifest followed by separately checkpointed
+outline-detail and source-coverage pages. Response/checkpoint payloads allow 128,000 characters;
+the matching platform carries the larger handoffs and classifies generator failures as C-Sweet
+technical issues for management-to-CEO code-correction escalation.
+
 ## Entry points and scope
 
 Technical Director `SpecialistAgent.GenerateProgressivePlanningAsync` in the sibling

@@ -11,6 +11,8 @@ public sealed partial class ProjectHealthService
     private async Task RetainManagerRecoveryAsync(ProjectIncident incident, Guid manager, CancellationToken token)
     {
         await WithdrawIncidentAttentionAsync(incident, token);
+        var technicalDiagnostic = await TechnicalPlanningDiagnosticAsync(incident, token);
+        if (technicalDiagnostic is not null) RetainTechnicalPlanningDiagnosis(incident, technicalDiagnostic);
         // Reporting is not a recovery effect. Never rewind the management chain or
         // extend its deadline just because another routine status report arrived.
         if (incident.CurrentRecipientId != manager)
@@ -19,6 +21,11 @@ public sealed partial class ProjectHealthService
             incident.ReviewAt = null;
             incident.Revision++;
             await NotifyAsync(incident, token);
+            return;
+        }
+        if (technicalDiagnostic is not null)
+        {
+            await ForwardCoreAsync(incident, TechnicalPlanningAction, token);
             return;
         }
         incident.Disposition = IncidentDispositions.Investigating;

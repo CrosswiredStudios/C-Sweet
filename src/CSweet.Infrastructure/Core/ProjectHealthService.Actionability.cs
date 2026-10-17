@@ -11,6 +11,7 @@ public sealed partial class ProjectHealthService
     internal async Task<bool> IncidentRequiresOwnerInputAsync(ProjectIncident incident, CancellationToken token,
         IDictionary<Guid, HealthObservation>? observations = null)
     {
+        if (await TechnicalPlanningDiagnosticAsync(incident, token) is not null) return false;
         if (incident.Status != "Open" ||
             incident.Disposition is IncidentDispositions.Investigating or IncidentDispositions.AwaitingRecovery &&
             incident.ReviewAt > clock.GetUtcNow()) return false;

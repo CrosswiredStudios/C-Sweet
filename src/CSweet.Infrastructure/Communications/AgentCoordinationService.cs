@@ -1092,7 +1092,7 @@ public sealed class AgentCoordinationService(
             string.IsNullOrWhiteSpace(artifact.Key) || artifact.Key.Length > 500 ||
             artifact.PageOrdinal < 0 || artifact.Payload.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
             throw new ArgumentException("The coordination artifact metadata is invalid.");
-        if (Encoding.UTF8.GetByteCount(artifact.Payload.GetRawText()) > 256 * 1024)
-            throw new ArgumentException("A coordination artifact cannot exceed 256 KiB.");
+        if (Encoding.UTF8.GetByteCount(artifact.Payload.GetRawText()) > 1024 * 1024)
+            throw new ArgumentException("A coordination artifact cannot exceed 1 MiB.");
     }
 }

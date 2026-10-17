@@ -90,7 +90,12 @@ public sealed partial class ProjectHealthService
             // state gets a concise update; preserve prior messages and their memory/audit lineage.
             // Freshness changes disable stale choices and refresh Overview, but are not a
             // second manager finding. Do not repeat the full report for a retry or evidence wake.
-            if ((!statusReport || existing is null) && (existing is not null || incident.Status == "Open") && (existing is null ||
+            var technicalCorrection = statusReport && existing is not null &&
+                !await db.CoreConversationMessages.AnyAsync(x => x.ConversationId == chat.Id && x.CorrelationId == incident.Id &&
+                    x.SenderOrganizationUserId == sender.Id && x.IdempotencyKey != null && x.IdempotencyKey.StartsWith("project-health:") &&
+                    x.Content.Contains("C-Sweet technical issue"), token) &&
+                await TechnicalPlanningDiagnosticAsync(incident, token) is not null;
+            if ((!statusReport || existing is null || technicalCorrection) && (existing is not null || incident.Status == "Open") && (existing is null ||
                 existing.Content.Replace(OutdatedReportNotice, "", StringComparison.Ordinal) !=
                 delivery.Markdown.Replace(OutdatedReportNotice, "", StringComparison.Ordinal)))
             {

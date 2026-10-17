@@ -65,6 +65,10 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 - [Producer ↔ Creative Director handoff stall](./producer-director-handoff-stall.md) - incident diagnosis, recovery behavior and the next-step/escalation convention for waiting agents. Current remaining acceptance is tracked in Memory System Implementation.
 - [October 13 Breakout startup stall](./breakout-startup-stall-2026-10-13.md) - fresh-install Office image mismatch, OnDemand retry churn, V1/V2 staffing mismatch, misleading recovery alerts, and next-run acceptance gates.
 - [October 16 Pulse Break planning stall](./pulse-break-planning-stall-2026-10-16.md) - incomplete planning responses, durable planning pages, verified retry reporting, bounded escalation and local recovery.
+- [October 17 planning output recovery](./planning-output-recovery-2026-10-17.md) - 128,000-character responses/checkpoints, paginated outlines and coverage, accurate technical classification, manager-to-CEO escalation and existing-report correction.
+- [October 17 saved-outline handoff recovery](./planning-digest-handoff-recovery-2026-10-17.md) - exact digest compatibility, terminal retry suppression, valid informational reports and reuse of the completed outline.
+- [October 17 workspace sync schema recovery](./workspace-sync-schema-recovery-2026-10-17.md) - SDK/gateway request compatibility for source download, checkpoint upload and resource recovery after sprint activation.
+- [October 17 developer validation recovery](./developer-validation-recovery-2026-10-17.md) - quoted validation commands, real assertion exit codes, bounded completion correction and paired developer releases.
 - [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.

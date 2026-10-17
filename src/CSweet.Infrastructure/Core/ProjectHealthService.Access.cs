@@ -101,8 +101,12 @@ public sealed partial class ProjectHealthService
         incident.Facts = facts; incident.LikelyCause = cause;
         if (preparedReport is not null) StoreOwnerReport(incident, actor, preparedReport);
         incident.MissingEvidence = missing; incident.RecommendedAction = action;
+        var technicalDiagnostic = await TechnicalPlanningDiagnosticAsync(incident, token);
+        if (technicalDiagnostic is not null) RetainTechnicalPlanningDiagnosis(incident, technicalDiagnostic);
         incident.Disposition = request.Disposition; incident.ActionReference = reference;
-        if (preparedReport?.RequiresOwnerInput == false)
+        if (technicalDiagnostic is not null)
+            await ForwardCoreAsync(incident, TechnicalPlanningAction, token);
+        else if (preparedReport?.RequiresOwnerInput == false)
             await RetainManagerRecoveryAsync(incident, actor, token);
         else if (request.Disposition == IncidentDispositions.Escalate)
             await ForwardCoreAsync(incident, action, token);

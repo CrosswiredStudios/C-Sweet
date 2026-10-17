@@ -11,6 +11,16 @@ namespace CSweet.UnitTests;
 
 public sealed class McpCapabilityRegistryTests
 {
+    [Theory]
+    [InlineData(PlatformCapabilities.AgentOperatingStateWrite)]
+    [InlineData(CommunicationCapabilities.CoordinationRespond)]
+    public void Planning_payload_transports_support_128000_characters_with_JSON_and_UTF8_overhead(string capability)
+    {
+        var tool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { capability }));
+        // Even 128,000 characters escaped as six ASCII bytes each fit with metadata.
+        Assert.True(tool.MaximumInputBytes >= 128000 * 6 + 16384);
+    }
+
     [Fact]
     public void MediaSourceSchemaAcceptsTypedProvenanceAndRejectsArbitrarySourceFields()
     {

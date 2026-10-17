@@ -110,7 +110,7 @@ public sealed class McpToolCatalog(
         HiddenRead(PlatformCapabilities.AgentOperatingStateRead, "read_agent_operating_state",
             "Read this installation's revision-controlled operating assessment checkpoint."),
         HiddenWrite(PlatformCapabilities.AgentOperatingStateWrite, "write_agent_operating_state",
-            "Write this installation's bounded operating assessment checkpoint with optimistic concurrency."),
+            "Write this installation's bounded operating assessment checkpoint with optimistic concurrency.") with { MaximumInputBytes = 1024 * 1024 },
         Approval(PlatformCapabilities.ConnectorActionRequest, "request_connector_action",
             "Request an exact declared connector action; approval does not mean execution.") with { ModelVisible = false },
         HiddenRead(PlatformCapabilities.ConnectorActionRead, "read_connector_action",
@@ -212,9 +212,9 @@ public sealed class McpToolCatalog(
         HiddenWrite(CommunicationCapabilities.CoordinationStartBoard, "start_board_coordination",
             "Start or resume bounded collaboration scoped to one exact shared board."),
         HiddenWrite(CommunicationCapabilities.CoordinationRespond, "respond_to_agent_coordination",
-            "Continue, complete, or block the current durable coordination turn."),
+            "Continue, complete, or block the current durable coordination turn.") with { MaximumInputBytes = 2 * 1024 * 1024, MaximumOutputBytes = 8 * 1024 * 1024 },
         HiddenRead(CommunicationCapabilities.CoordinationRead, "read_agent_coordination",
-            "Read a coordination session visible to the calling participant."),
+            "Read a coordination session visible to the calling participant.") with { MaximumOutputBytes = 8 * 1024 * 1024 },
         HiddenRead(CommunicationCapabilities.CoordinationList, "list_agent_coordination",
             "List coordination sessions in which the calling agent is a participant."),
         HiddenWrite(CommunicationCapabilities.CoordinationResume, "resume_agent_coordination",
@@ -949,7 +949,34 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["itemId","idempotencyKey"],"properties":{"taskItemId":{"type":["string","null"],"format":"uuid"},"sourceWorkItemId":{"type":["string","null"],"format":"uuid"},"itemId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Sync => Schema("""
-            {"type":"object","required":["workspaceId","assignmentRevision","direction","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"direction":{"type":"string","enum":["pull","push"]},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"archive":{"type":["string","null"]}},"additionalProperties":false}
+            {
+              "type":"object","required":["workspaceId","assignmentRevision","direction","idempotencyKey"],
+              "properties":{
+                "workspaceId":{"type":"string","format":"uuid"},
+                "assignmentRevision":{"type":"integer","minimum":1},
+                "direction":{"type":"string","enum":["pull","push"]},
+                "idempotencyKey":{"type":"string","minLength":1,"maxLength":160},
+                "archive":{"type":["string","null"]},
+                "commandClass":{"type":["string","null"],"enum":["build","test","restore","analysis",null]},
+                "inputFingerprint":{"type":["string","null"],"pattern":"^[a-fA-F0-9]{64}$"},
+                "resumeSummary":{
+                  "type":["object","null"],"required":["sourceFingerprint","validations"],
+                  "properties":{
+                    "sourceFingerprint":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"},
+                    "validations":{
+                      "type":"array","maxItems":16,
+                      "items":{
+                        "type":"object","required":["command","succeeded","exitCode"],
+                        "properties":{
+                          "command":{"type":"string","minLength":1,"maxLength":512},
+                          "succeeded":{"type":"boolean"},"exitCode":{"type":"integer"}
+                        },"additionalProperties":false
+                      }
+                    }
+                  },"additionalProperties":false
+                }
+              },"additionalProperties":false
+            }
             """),
         GitWorkspaceCapabilities.Prepare => Schema("""
             {"type":"object","required":["workItemId","assignmentRevision","idempotencyKey"],"properties":{"workItemId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
