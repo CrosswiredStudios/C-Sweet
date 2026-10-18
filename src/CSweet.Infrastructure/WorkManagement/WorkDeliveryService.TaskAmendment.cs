@@ -48,8 +48,8 @@ public sealed partial class WorkDeliveryService
                 Constraints=request.Planning.Constraints }) != Encode(request.Planning))
             throw new ArgumentException("This amendment preserves dependencies, staffing and accepted source-document identities.");
         var scopes = Scopes(plan).ToList();
-        var storyIndex = scopes.FindIndex(s => s.Scope == "Story" && s.ItemId == item.ParentWorkTaskId && s.ChildIds.Contains(item.Id));
-        if (storyIndex < 0) throw new UnauthorizedAccessException("Task is outside the approved release hierarchy.");
+        var storyIndex = scopes.FindIndex(s => s.ChildIds.Contains(item.Id));
+        if (storyIndex < 0) throw new UnauthorizedAccessException("Task is outside the declared evidence inputs.");
         var execution = await db.WorkItemExecutions.Include(e => e.SprintExecution).Include(e => e.Stages).ThenInclude(s => s.Attempts)
             .SingleAsync(e => e.WorkItemId == item.Id && e.Status == WorkItemExecutionStatus.Blocked &&
                 (e.SprintExecution!.Status == WorkSprintExecutionStatus.Active || e.SprintExecution.Status == WorkSprintExecutionStatus.Paused), ct);
@@ -62,9 +62,10 @@ public sealed partial class WorkDeliveryService
             if (repository.Connection?.Provider != SourceControlProvider.InternalGit ||
                 repository.Connection.Status != SourceControlConnectionStatus.Connected || repository.Status != SourceControlRepositoryStatus.Ready)
                 throw new InvalidOperationException("The selected platform-preview amendment requires the current Ready InternalGit repository.");
-            if (!scopes.Single(s => s.Scope == "Release").Stages.Any(s => s.StageKey == "build-readiness"))
-                throw new InvalidOperationException("Keep an assigned release build-readiness stage for exact-source preview evidence.");
-            branches = branches.Select(b => b.Scope == "Release" ? b with { ReadinessMode = "compute-test", Build = null } : b).ToList();
+            var readiness=scopes.Where(s=>s.TicketWorkflow?.Steps.Any(step=>step.Handler is "build-readiness" or "compute-test")==true).ToArray();
+            if (!readiness.Any(s=>branches.Any(b=>b.Scope==s.Scope&&b.ItemId==s.ItemId&&b.RepositoryId==delivery.RepositoryId)))
+                throw new InvalidOperationException("Declare an assigned readiness operation for this repository's exact-source preview evidence.");
+            branches = branches.Select(b => readiness.Any(s=>s.Scope==b.Scope&&s.ItemId==b.ItemId) ? b with { ReadinessMode = "compute-test", Build = null } : b).ToList();
         }
         var now = clock.GetUtcNow();
         item.PlanningSpecificationJson = Encode(request.Planning); item.PlanningRevision++; item.AssignmentRevision++; item.Revision++; item.UpdatedAt = now;

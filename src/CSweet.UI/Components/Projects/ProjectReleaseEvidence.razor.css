@@ -1,0 +1,9 @@
+.candidate-evidence { background:var(--activity-tint,var(--mud-palette-action-default-hover)); border-radius:12px; padding:10px 16px; margin:12px 0; }
+summary { cursor:pointer; padding:6px 0; }
+p { margin:12px 0; line-height:1.65; overflow-wrap:anywhere; }
+table { display:block; width:100%; overflow-x:auto; border-collapse:collapse; margin:14px 0; font-size:.8rem; }
+th,td { text-align:left; border-bottom:1px solid var(--mud-palette-divider); padding:10px; min-width:120px; max-width:380px; overflow-wrap:anywhere; }
+th { color:var(--mud-palette-text-secondary); font-weight:500; }
+code { overflow-wrap:anywhere; font-size:.75rem; }
+a { color:var(--mud-palette-primary); }
+summary:focus-visible,a:focus-visible { outline:2px solid var(--mud-palette-primary); outline-offset:4px; }

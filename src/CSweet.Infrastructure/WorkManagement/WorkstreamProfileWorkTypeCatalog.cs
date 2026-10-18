@@ -37,6 +37,7 @@ public static class WorkstreamProfileWorkTypeCatalog
         }).ToList();
         if (result.Select(x => x.Key).Distinct(StringComparer.Ordinal).Count() != result.Count)
             throw new InvalidOperationException("Workstream profile work item type keys must be unique.");
+        if (result.All(t => t.Key != WorkItemTypeKeys.WorkflowTicketV1)) result.Add(PlatformWorkTypeCatalog.WorkflowTicketFor(boardProfileKey));
         return result;
     }
 

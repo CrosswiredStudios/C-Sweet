@@ -10,6 +10,8 @@ using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -19,9 +21,34 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
 {
     private sealed record Candidate(WorkTask? Ticket, OrganizationUser Employee, AgentWorkItem? Work,
         AgentWorkAttempt? Attempt, string Category, string Context, string? Stage, AgentRunLog? StandaloneRun = null,
-        AgentCoordinationSession? Coordination = null)
+        AgentCoordinationSession? Coordination = null, DeliveryActivity? Delivery = null)
     {
         public string Key => Ticket is null ? StandaloneRun is not null ? $"model:{StandaloneRun.Id}" : $"work:{Work!.Id}" : $"task:{Ticket.Id}:{Employee.Id}";
+    }
+
+    private sealed record DeliveryActivity(Guid WorkId, Guid StageId, Guid? InstallationId, Guid? EmployeeId,
+        Guid BoardId, Guid? WorkItemId, Guid ProjectId, string Name, string Scope, string Stage, string ScopesJson);
+
+    // The canonical execution attempt binds a delivery to its review stage. Never
+    // inspect the protected assignment or guess a release from the employee's role.
+    private async Task<List<DeliveryActivity>> ReadDeliveriesAsync(Guid organizationId, Guid[] workIds, CancellationToken token)
+    {
+        if (workIds.Length == 0) return [];
+        var deliveries = await (from attempt in db.WorkExecutionAttempts.AsNoTracking()
+                      let stage = attempt.StageExecution!
+                      let execution = stage.DeliveryExecution!
+                      let plan = execution.Plan!
+                      join board in db.WorkBoards on execution.BoardId equals board.Id
+                      where attempt.AgentWorkItemId.HasValue && workIds.Contains(attempt.AgentWorkItemId!.Value) &&
+                          plan.OrganizationId == organizationId && board.OrganizationId == organizationId &&
+                          board.ArchivedAt == null && board.WorkstreamId == plan.WorkstreamId
+                      select new DeliveryActivity(attempt.AgentWorkItemId!.Value, stage.Id, stage.AgentInstallationId,
+                          stage.OrganizationUserId, board.Id, execution.WorkItemId, plan.WorkstreamId, plan.Name, execution.Scope, stage.StageKey, plan.ScopesJson))
+            .ToListAsync(token);
+        return deliveries.Select(delivery => delivery with {
+            WorkItemId = JsonSerializer.Deserialize<WorkDeliveryScopeSnapshot[]>(delivery.ScopesJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))?
+                .SingleOrDefault(s=>s.Scope==delivery.Scope&&s.ItemId==delivery.WorkItemId)?.TicketWorkflow?.TicketId ?? delivery.WorkItemId
+        }).ToList();
     }
 
     public async Task<CurrentActivityPage> ReadAsync(Guid organizationId, Guid userId, int offset = 0,
@@ -39,6 +66,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 SourceType = x.SourceType, SourceId = x.SourceId, Name = x.Name, AttemptCount = x.AttemptCount,
                 CreatedAt = x.CreatedAt, AvailableAt = x.AvailableAt }).ToListAsync(token);
         var workIds = works.Select(x => x.Id).ToArray();
+        var deliveries = await ReadDeliveriesAsync(organizationId, works.Where(x => x.SourceType == "WorkDeliveryStage").Select(x => x.Id).ToArray(), token);
         // The session's current delivery is the exact binding. Never infer a partner
         // or task from an employee's latest conversation or from protected payloads.
         var collaborations = await db.AgentCoordinationSessions.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
@@ -70,6 +98,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         var stageTasks = await db.WorkStageExecutions.AsNoTracking().Where(x => stageIds.Contains(x.Id) && x.ItemExecution!.SprintExecution!.OrganizationId == organizationId)
             .Select(x => new { x.Id, x.ItemExecution!.WorkItemId }).ToDictionaryAsync(x => x.Id, x => x.WorkItemId, token);
         var missingIds = stageTasks.Values.Concat(standaloneRuns.Where(x => x.WorkItemId.HasValue).Select(x => x.WorkItemId!.Value))
+            .Concat(deliveries.Where(x => x.WorkItemId.HasValue).Select(x => x.WorkItemId!.Value))
             .Concat(collaborations.Where(x => x.SourceWorkItemId.HasValue).Select(x => x.SourceWorkItemId!.Value))
             .Except(tickets.Select(x => x.Id)).ToArray();
         tickets.AddRange(await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).Where(x => missingIds.Contains(x.Id) &&
@@ -77,7 +106,9 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         var projects = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .Select(x => new { x.Id, x.Name }).ToDictionaryAsync(x => x.Id, x => x.Name, token);
         var boardsAllowed = new Dictionary<Guid, bool>();
-        foreach (var board in tickets.Select(x => x.Board!).DistinctBy(x => x.Id))
+        var deliveryBoardIds = deliveries.Select(x => x.BoardId).ToArray();
+        var deliveryBoards = await db.WorkBoards.AsNoTracking().Where(x => deliveryBoardIds.Contains(x.Id)).ToListAsync(token);
+        foreach (var board in tickets.Select(x => x.Board!).Concat(deliveryBoards).DistinctBy(x => x.Id))
         {
             var action = board.Kind == WorkBoardKind.Personal ? PersonalTodoActions.Read : WorkBoardActions.Read;
             boardsAllowed[board.Id] = (await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.OrganizationUser,
@@ -87,6 +118,9 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         foreach (var work in works.OrderByDescending(x => x.Status == AgentWorkStatus.Leased).ThenByDescending(x => x.CreatedAt))
         {
             var employee = employees.First(x => x.AgentInstallationId == work.AgentInstallationId);
+            var delivery = deliveries.FirstOrDefault(x => x.WorkId == work.Id && x.InstallationId == work.AgentInstallationId &&
+                x.EmployeeId == employee.Id && Guid.TryParse(work.SourceId, out var sourceStage) && x.StageId == sourceStage);
+            if (work.SourceType == "WorkDeliveryStage" && (delivery is null || !boardsAllowed.GetValueOrDefault(delivery.BoardId))) continue;
             var collaboration = work.SourceType == "agent-coordination" ? collaborations.FirstOrDefault(x =>
                 x.CurrentAgentWorkItemId == work.Id && x.CurrentOrganizationUserId == employee.Id &&
                 (x.InitiatorOrganizationUserId == employee.Id && x.InitiatorInstallationId == work.AgentInstallationId ||
@@ -98,6 +132,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             // an earlier attempt's model/progress stream as the new attempt's activity.
             ticketId ??= contexts.FirstOrDefault(x => x.AgentWorkItemId == work.Id)?.RootWorkItemId;
             ticketId ??= collaboration?.SourceWorkItemId;
+            ticketId ??= delivery?.WorkItemId;
             if (ticketId is null && work.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stageId))
                 ticketId = stageTasks.GetValueOrDefault(stageId) is var mapped && mapped != Guid.Empty ? mapped : null;
             if (ticketId is null && Guid.TryParse(work.SourceId, out var eventId))
@@ -106,8 +141,10 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             // Never relabel inaccessible or unresolved ticket work as unrestricted background work.
             if (ticketId.HasValue && (ticket is null || !boardsAllowed.GetValueOrDefault(ticket.BoardId!.Value))) continue;
             if (ticket is null && (work.SourceType == "WorkStageExecution" || !EmployeeAuditAccess.CanRead(people, employee.Id, actor.Id))) continue;
-            if (ticket?.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) continue;
-            candidates.Add(Create(ticket, employee, work, attempt) with { Coordination = collaboration });
+            if (delivery is null && ticket?.Status is (WorkTaskStatus.Completed or WorkTaskStatus.Cancelled)) continue;
+            var candidate = Create(ticket, employee, work, attempt) with { Coordination = collaboration, Delivery = delivery };
+            if (delivery is not null) candidate = candidate with { Category = "Project", Context = projects.GetValueOrDefault(delivery.ProjectId, "Project"), Stage = delivery.Stage };
+            candidates.Add(candidate);
         }
         foreach (var run in standaloneRuns.OrderByDescending(x => x.StartedAt))
         {
@@ -194,15 +231,16 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         var state = snapshot.State;
         var lastProgress = snapshot.LastProgress;
         var recent = snapshot.Steps.OrderByDescending(x => x.OccurredAt).ToArray();
+        var (kind, label) = DescribeActivity(c);
         var action = state switch
         {
-            "Waiting" => (c.Coordination is null ? Safe(c.Ticket?.WaitingReason) : null) ??
-                (c.Coordination is null && c.Ticket?.Status == WorkTaskStatus.WaitingForApproval ? "Waiting for review or approval" : run?.Status == "Queued" ? "Waiting for model capacity" : "Waiting for an agent claim"),
+            "Waiting" => (c.Coordination is null && c.Delivery is null ? Safe(c.Ticket?.WaitingReason) : null) ??
+                (c.Coordination is null && c.Delivery is null && c.Ticket?.Status == WorkTaskStatus.WaitingForApproval ? "Waiting for review or approval" : run?.Status == "Queued" ? "Waiting for model capacity" : "Waiting for an agent claim"),
             "Needs attention" => Safe(c.Ticket?.BlockReason) ?? "Work is blocked",
             "Recovering" => "Execution lease expired; awaiting recovery",
             "Unconfirmed" => "No task progress reported in the last five minutes",
-            _ => inspect ? recent.FirstOrDefault(x => x.Kind == "Workspace")?.Text ?? recent.FirstOrDefault()?.Text ??
-                (c.Stage is null ? "Executing work" : $"Executing {c.Stage}") : "Executing work"
+            _ => inspect ? recent.FirstOrDefault(x => x.Kind == "Workspace")?.Text ?? recent.FirstOrDefault(x => x.Kind == "Progress")?.Text ??
+                recent.FirstOrDefault()?.Text ?? label ?? "Executing work" : label ?? "Executing work"
         };
         var provider = inspect && run is not null ? await db.LlmProviderProfiles.AsNoTracking().Where(x => x.Id == run.ProviderProfileId).Select(x => x.Name).SingleOrDefaultAsync(token) : null;
         if (inspect && state == "Waiting" && run?.Status == "Queued")
@@ -224,9 +262,6 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 x.AgentInstallationId == c.Employee.AgentInstallationId && x.Status == AgentWorkStatus.Leased && x.Id != c.Work.Id, token);
             if (busy) action = "Queued while this employee handles another request";
         }
-        var kind = c.Work?.SourceType == "agent-coordination" ? "Collaboration" :
-            c.Work?.Name == "com.csweet.agent.attention.review-due.v1" ? "Review" :
-            c.Category == "Chat" ? "Chat" : c.Ticket is not null ? "Work" : c.StandaloneRun is not null ? "Model" : "Background";
         CurrentActivityParticipant? collaborator = null;
         if (inspect && c.Coordination is { } session)
         {
@@ -236,21 +271,52 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             if (other is not null && EmployeeAuditAccess.CanRead(people, other.Id, actor.Id))
                 collaborator = new(other.Id, other.DisplayName, other.Role?.Name);
         }
-        var title = c.Ticket?.Title ?? (kind switch { "Collaboration" => "Collaborating", "Review" => "Reviewing work",
+        var title = c.Ticket?.Title ?? (c.Delivery is { } delivery ? Safe($"{delivery.Scope}: {delivery.Name}") : null) ?? label ?? (kind switch { "Collaboration" => "Collaborating", "Review" => "Reviewing work",
             "Chat" => "Responding in Communications", "Model" => "Generating a response", _ => "Background activity" });
-        return new(c.Key, c.Ticket?.Id, c.Ticket?.BoardId, c.Work?.Id, c.Attempt?.Id, c.Attempt?.Attempt ?? 0,
+        return new(c.Key, c.Ticket?.Id, c.Ticket?.BoardId ?? c.Delivery?.BoardId, c.Work?.Id, c.Attempt?.Id, c.Attempt?.Attempt ?? 0,
             c.Employee.Id, c.Employee.DisplayName, title,
             c.Ticket?.Identifier, c.Category, c.Context, state, action, c.Attempt?.ClaimedAt ?? c.StandaloneRun?.StartedAt ?? c.Ticket?.UpdatedAt ?? c.Work!.CreatedAt,
             lastProgress, c.Attempt?.LeaseExpiresAt, provider, inspect ? run?.Model : null, inspect,
             recent.Where(x => x.Text != action).OrderByDescending(x => x.Kind == "Workspace").Take(2).Reverse().ToArray(), c.StandaloneRun?.Id,
             kind, c.Employee.Role?.Name, collaborator, inspect ? c.Work?.Name : null,
             c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null,
-            c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null);
+            c.Delivery?.ProjectId ?? c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null, label);
     }
 
-    // Collaboration can continue while the source task awaits a decision. Its
-    // current speaker's delivery lease, rather than the ticket state, proves activity.
-    private static string BaseState(Candidate c, DateTimeOffset now) => c.Coordination is not null ?
+    private static (string Kind, string? Label) DescribeActivity(Candidate c)
+    {
+        if (c.Work?.SourceType == "agent-coordination") return ("Collaboration", null);
+        if (c.Category == "Chat") return ("Chat", null);
+        // Stage names describe the assignment, never model reasoning or completion.
+        var stage = c.Stage switch
+        {
+            "technical-review" => ("Review", "Technical review"),
+            "manager-review" or "producer-review" => ("Review", "Delivery acceptance review"),
+            "build-readiness" => ("Build", "Checking build readiness"),
+            "quality" => ("Testing", "Testing delivery"),
+            _ => ((string, string)?)null
+        };
+        if (stage.HasValue) return stage.Value;
+        return c.Work?.Name switch
+        {
+            "com.csweet.agent.attention.review-due.v1" => ("Review", "Reviewing work"),
+            "com.csweet.project-health.review-due.v1" => ("Review", "Reviewing project health"),
+            "com.csweet.management.incident.owner-report-requested.v1" => ("Update", "Preparing a project status report"),
+            "com.csweet.work.item.discussion.changed.v1" => ("Discussion", "Responding to a task discussion"),
+            "com.csweet.work-delivery.changed.v1" => ("Update", "Checking delivery updates"),
+            "com.csweet.compute.changed.v1" or "com.csweet.compute.available.v1" => ("Update", "Checking compute updates"),
+            "com.csweet.repository.provisioning.changed.v1" => ("Update", "Checking repository readiness"),
+            "work.execution.build-readiness.v1" => ("Build", "Checking build readiness"),
+            "work.execution.compute-test.v1" => ("Testing", "Testing delivery"),
+            "software.architecture-review.v1" => ("Review", "Architecture review"),
+            "work.execution.run" => ("Work", "Executing assigned work"),
+            _ => (c.Ticket is not null ? "Work" : c.StandaloneRun is not null ? "Model" : "Background", null)
+        };
+    }
+
+    // Collaboration and aggregate review can continue while the source task awaits
+    // a decision. Their own delivery lease, rather than the ticket state, proves activity.
+    private static string BaseState(Candidate c, DateTimeOffset now) => c.Coordination is not null || c.Delivery is not null ?
         c.Work?.Status == AgentWorkStatus.Pending ? "Waiting" : c.Attempt is { FinishedAt: null } && c.Attempt.LeaseExpiresAt > now ? "Executing" : "Recovering" :
         c.Ticket?.Status == WorkTaskStatus.Blocked ? "Needs attention" :
         c.Ticket?.Status == WorkTaskStatus.WaitingForApproval || c.Ticket?.WaitingReason is not null || c.Ticket?.NextReviewAt is not null ? "Waiting" :
@@ -275,6 +341,16 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             x.AgentWorkItem!.OrganizationId == organizationId.ToString() && x.AgentWorkItem.AgentInstallationId == employee.AgentInstallationId, token)
             ?? throw new KeyNotFoundException();
         var context = await db.WorkExecutionContexts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == attemptId && x.OrganizationId == organizationId, token);
+        DeliveryActivity? delivery = null;
+        if (attempt.AgentWorkItem!.SourceType == "WorkDeliveryStage")
+        {
+            delivery = (await ReadDeliveriesAsync(organizationId, [attempt.AgentWorkItemId], token)).FirstOrDefault(x =>
+                x.InstallationId == employee.AgentInstallationId && x.EmployeeId == employeeId &&
+                Guid.TryParse(attempt.AgentWorkItem.SourceId, out var stageId) && x.StageId == stageId)
+                ?? throw new KeyNotFoundException();
+            if (!(await authorization.AuthorizeAsync(organizationId, GrantSubjectKind.OrganizationUser, actor.Id,
+                WorkBoardActions.Read, GrantScopeKind.Board, delivery.BoardId, token)).Allowed) throw new UnauthorizedAccessException();
+        }
         var collaborationTask = attempt.AgentWorkItem!.SourceType == "agent-coordination" ? await db.AgentCoordinationSessions.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.CurrentAgentWorkItemId == attempt.AgentWorkItemId &&
                 x.CurrentOrganizationUserId == employeeId &&
@@ -284,7 +360,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         // A task must be explicitly linked to this attempt, now or in an immutable effort interval.
         if (workItemId.HasValue)
         {
-            if (context?.WorkItemId != workItemId && context?.RootWorkItemId != workItemId && collaborationTask != workItemId && !await db.WorkExecutionIntervals.AnyAsync(x =>
+            if (context?.WorkItemId != workItemId && context?.RootWorkItemId != workItemId && collaborationTask != workItemId && delivery?.WorkItemId != workItemId && !await db.WorkExecutionIntervals.AnyAsync(x =>
                 x.OrganizationId == organizationId && x.AgentWorkAttemptId == attemptId && x.WorkItemId == workItemId, token)) throw new KeyNotFoundException();
             var task = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).SingleOrDefaultAsync(x => x.Id == workItemId && x.OrganizationId == organizationId && x.ArchivedAt == null, token);
             if (task?.Board is not { ArchivedAt: null } board) throw new KeyNotFoundException();
@@ -292,7 +368,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 board.Kind == WorkBoardKind.Personal ? PersonalTodoActions.Read : WorkBoardActions.Read, GrantScopeKind.Board, board.Id, token)).Allowed)
                 throw new UnauthorizedAccessException();
         }
-        else if (context?.RootWorkItemId is not null || context?.WorkItemId is not null || collaborationTask is not null || attempt.AgentWorkItem!.SourceType == "WorkStageExecution")
+        else if (context?.RootWorkItemId is not null || context?.WorkItemId is not null || collaborationTask is not null || delivery?.WorkItemId is not null || attempt.AgentWorkItem!.SourceType == "WorkStageExecution")
             throw new UnauthorizedAccessException();
         return await feed.ReadAsync(organizationId, employeeId, attempt, workItemId, Math.Max(0, afterSequence), token);
     }

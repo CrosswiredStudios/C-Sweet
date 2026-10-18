@@ -21,6 +21,7 @@ internal sealed class HyperVComputeExecutor
     private readonly Func<Guid, CancellationToken, Task<Stream>>? connectGuest;
     private readonly ComputeLocalPortPublisher publisher = new();
     internal Func<Guid, CancellationToken, Task<bool>>? AuthorizePublication { get; set; }
+    internal Func<Guid, CancellationToken, Task<bool>>? AuthorizeDependencies { get; set; }
     public void ClosePublishedPorts() => publisher.Dispose();
     private ComputeLeaseMonitor? leaseMonitor;
     private ComputeMaintenanceDeliveryWorker? maintenanceDelivery;
@@ -80,8 +81,13 @@ internal sealed class HyperVComputeExecutor
                     {
                         var vm = observation.Id.Value;
                         if (dispatch.Workload!.Command is { } command)
-                            result = new(Command: await ComputeGuestCommandClient.ExecuteAsync(ct => connectGuest(vm, ct), command,
+                        {
+                            if (dispatch.Workload.NodeDependencies is { } dependencies)
+                                result = await ComputeNodeDependencyInstaller.ExecuteAsync(dependencies, command, claim.OperationId,
+                                    ct => connectGuest(vm, ct), ct => AuthorizeDependencies is null ? Task.FromResult(false) : AuthorizeDependencies(claim.OperationId, ct), cancellation);
+                            else result = new(Command: await ComputeGuestCommandClient.ExecuteAsync(ct => connectGuest(vm, ct), command,
                                 dispatch.Specification.OperatingSystem, cancellation));
+                        }
                         else
                             result = await publisher.PublishAsync(claim.EnvironmentId, dispatch.Workload.PublishPort!.Value,
                                                                 claim.EnvironmentLeaseExpiresAt, async ct =>
@@ -145,7 +151,13 @@ internal sealed class HyperVComputeExecutor
             var lifecycle = LifecycleObservation(claim.Action, observation);
             if (claim.Action == InfrastructureActions.Destroy && observation.State == "Missing")
             {
-                if (decision == ComputeJournalDecision.Execute) RemoveWorkloadDirectory(claim.EnvironmentId, observation.Id);
+                if (decision == ComputeJournalDecision.Execute)
+                {
+                    verifyProtectedPath(root);
+                    if (observation.Id is { } removed)
+                        await driver.ProtectRemovedWorkloadAsync(identity, removed, environmentDirectory, cancellation);
+                    RemoveWorkloadDirectory(claim.EnvironmentId, observation.Id);
+                }
                 if (!Directory.Exists(environmentDirectory)) lifecycle = new(ComputeLifecycleState.Destroyed, TeardownConfirmed: true);
             }
             if (connectGuest is not null && observation is { Id: { } vmId, State: "Running" } &&

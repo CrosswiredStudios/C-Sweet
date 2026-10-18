@@ -57,9 +57,11 @@ public sealed class CollaborationReviewAuthorityTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task SubmittedBriefGrantsReviewOnlyToItsCreatorsAssignedManager(bool isManager)
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task SubmittedBriefGrantsReviewOnlyToItsCreatorsAssignedManager(bool isManager, bool retainedEvidence)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -71,7 +73,8 @@ public sealed class CollaborationReviewAuthorityTests
                 ReportsToOrganizationUserId = isManager ? reviewer : Guid.NewGuid() },
             new() { Id = reviewer, OrganizationId = org, AgentInstallationId = reviewerInstallation, EmployeeType = EmployeeType.Agent });
         db.CoreArtifacts.Add(new() { Id = document, OrganizationId = org, CreatedByOrganizationUserId = author,
-            StewardOrganizationUserId = reviewer, LatestRevisionId = revision, DocumentType = "production-brief",
+            StewardOrganizationUserId = reviewer, LatestRevisionId = revision,
+            DocumentType = retainedEvidence ? ArtifactDocumentTypes.RecoveredQaEvidence : "production-brief",
             Revisions = [new() { Id = revision, OrganizationId = org, ArtifactId = document, Status = ArtifactRevisionStatus.Draft }] });
         db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, SubjectKind = GrantSubjectKind.AgentInstallation,
             SubjectId = installation, ScopeKind = GrantScopeKind.Artifact, ScopeId = document, Action = ArtifactActions.Submit });
@@ -85,8 +88,18 @@ public sealed class CollaborationReviewAuthorityTests
         await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
         Assert.True(Assert.Single(results).Succeeded);
         var actions = db.ScopedActionGrants.Where(x => x.SubjectId == reviewerInstallation).Select(x => x.Action).ToList();
-        Assert.Equal(isManager, actions.Contains(ArtifactActions.Decide));
-        Assert.Equal(isManager, actions.Contains(ArtifactActions.Read));
+        Assert.Equal(isManager && !retainedEvidence, actions.Contains(ArtifactActions.Decide));
+        Assert.Equal(isManager && !retainedEvidence, actions.Contains(ArtifactActions.Read));
         Assert.DoesNotContain(ArtifactActions.Revise, actions);
+        if (retainedEvidence)
+        {
+            var saved = await db.CoreArtifacts.SingleAsync();
+            Assert.Equal(ApprovalStatus.NotRequired, saved.ApprovalStatus);
+            Assert.Equal(ArtifactDocumentStatus.Retained, saved.DocumentStatus);
+            Assert.Null(saved.SubmittedRevisionId);
+            Assert.Null(saved.AcceptedRevisionId);
+            Assert.Empty(await db.ArtifactReviewJobs.ToListAsync());
+            Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync());
+        }
     }
 }

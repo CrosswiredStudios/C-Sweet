@@ -81,9 +81,12 @@ public sealed class ComputeRegistryTests
     public async Task Every_administration_route_requires_host_administration()
     {
         var builder = WebApplication.CreateSlimBuilder();
+        builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<CSweet.Application.Setup.IAuditExecutionContextAccessor, AuditExecutionContextAccessor>();
         builder.Services.AddScoped<ComputeRegistry>();
         builder.Services.AddSingleton<CSweet.Application.Compute.IComputeDispatchSigner>(_ => new ComputeDispatchTests.Signer());
-        builder.Services.AddScoped<CSweet.Infrastructure.Persistence.CSweetDbContext>();
+        builder.Services.AddDbContext<CSweet.Infrastructure.Persistence.CSweetDbContext>(options =>
+            options.UseInMemoryDatabase("compute-administration-routes-" + Guid.NewGuid()));
         await using var app = builder.Build();
         app.MapComputeAdministrationEndpoints();
         var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints).ToArray();

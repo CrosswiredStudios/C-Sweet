@@ -29,6 +29,27 @@ public sealed class HierarchicalTaskRuntimeTests
     }
 
     [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task IntegrationConflictReturnsToAuthorThenRequiresFreshTechnicalReviewAndQa(bool game, bool oldPolicy)
+    {
+        await using var f = await Fixture.Create(false);
+        f.Host.IntegrationConflictOnce = true;
+        await RunJourney(f, false, game, integrationConflict: true, oldPolicy: oldPolicy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ChangedStoryRequiresFreshReviewWithoutReauthoringOrReusingOldApproval(bool oldPolicy)
+    {
+        await using var f = await Fixture.Create(false);
+        await RunJourney(f, false, oldPolicy: oldPolicy, targetChange: true);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task TaskRunsThroughReviewIntegrationAndExactQaWithReviewedRework(bool artifact)
@@ -99,7 +120,7 @@ public sealed class HierarchicalTaskRuntimeTests
         Func<Fixture,string,Task<DeliveryBranchResult>>? publishCandidate = null,
         Func<Fixture,SourceControlPublication,DeliveryBranchResult,Task<WorkExecutionOutcomeV1>>? technicalReview = null,
         Func<Fixture,string,bool,Task<WorkExecutionOutcomeV1>>? qualityReview = null,
-        bool identicalStageTimestamps = false)
+        bool identicalStageTimestamps = false, bool integrationConflict = false, bool oldPolicy = false, bool targetChange = false)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -119,7 +140,7 @@ public sealed class HierarchicalTaskRuntimeTests
         foreach (var stage in definitions.Stages)
             policy.Stages.Add(new() { Id = Guid.NewGuid(), PolicyRevisionId = policy.Id, Key = stage.Key == "development" ? authorKey : stage.Key, Name = stage.Name,
                 Type = Enum.Parse<WorkOrchestrationStageType>(stage.StageType), PlatformAction = stage.PlatformAction, IsSuccessfulTerminal = stage.IsSuccessfulTerminal });
-        foreach (var edge in definitions.Transitions)
+        foreach (var edge in definitions.Transitions.Where(x => !oldPolicy || x.OutcomeCode is not ("integration_conflicts" or "target_changed")))
             policy.Transitions.Add(new() { Id = Guid.NewGuid(), PolicyRevisionId = policy.Id,
                 ToStageKey = edge.ToStageKey == "development" ? authorKey : edge.ToStageKey, OutcomeCode = edge.OutcomeCode, MaximumTraversals = edge.MaximumTraversals,
                 FromStageKey = edge.FromStageKey == "development" ? authorKey : edge.FromStageKey });
@@ -154,6 +175,7 @@ public sealed class HierarchicalTaskRuntimeTests
                 new(f.Board.Id, execution.Id, stage.Id, outcome, "Exact evidence observed", JsonSerializer.SerializeToElement(output, Json), Guid.NewGuid().ToString("N"))
                 { Evidence = evidence ?? [] });
         }
+        var conflictReworks = 0;
         for (var cycle = 0; cycle < 2; cycle++)
         {
             object authorOutput;
@@ -173,7 +195,7 @@ public sealed class HierarchicalTaskRuntimeTests
             }
             else
             {
-                var branch = "csweet/task/one/r" + cycle;
+                var branch = "csweet/task/one/r" + cycle + "-" + f.Task.AssignmentRevision;
                 var refs = publishCandidate is not null ? await publishCandidate(f,branch) :
                     await f.Client.DeliveryBranchAsync(new(f.Org, f.Repositories[0], "InternalGit", null, "", "", "inspect", branch, "csweet/story/one", "inspect"));
                 var workspace = new SourceControlWorkspace { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkItemId = f.Task.Id,
@@ -214,7 +236,39 @@ public sealed class HierarchicalTaskRuntimeTests
                 }
                 else await Complete(f.Technical, "approved", new { }, [new("commit", "Reviewed source", publication.CommitSha), new("target-commit", "Story target", refs.TargetCommitSha)]);
                 Assert.Null(cycle == 0 ? f.Task.MergeCommitSha : null);
-                await Pulse(); Assert.Equal("quality", item.CurrentStageKey); Assert.NotNull(f.Task.MergeCommitSha);
+                var assignmentBeforeIntegration = f.Task.AssignmentRevision;
+                if (targetChange && cycle == 0) f.Host.AdvanceStory(publication.RepositoryId, publication.TargetBranch);
+                await Pulse();
+                if (targetChange && cycle == 0)
+                {
+                    Assert.Equal("technical-review", item.CurrentStageKey); Assert.Null(f.Task.MergeCommitSha);
+                    Assert.Equal(assignmentBeforeIntegration, f.Task.AssignmentRevision);
+                    Assert.Empty(await f.Db.WorkTaskIntegrationReceipts.ToListAsync());
+                    await Complete(f.Technical, "approved", new { },
+                        [new("commit", "Source", publication.CommitSha), new("target-commit", "Old Story", refs.TargetCommitSha)]);
+                    await Pulse();
+                    Assert.Equal("technical-review", item.CurrentStageKey); Assert.Null(f.Task.MergeCommitSha);
+                    Assert.Empty(await f.Db.WorkTaskIntegrationReceipts.ToListAsync());
+                    refs = await f.Client.DeliveryBranchAsync(new(f.Org, publication.RepositoryId, "InternalGit", null, "", "", "inspect",
+                        publication.TicketBranch, publication.TargetBranch, "current-story"));
+                    await Complete(f.Technical, "approved", new { },
+                        [new("commit", "Source", publication.CommitSha), new("target-commit", "Current Story", refs.TargetCommitSha)]);
+                    await Pulse();
+                }
+                if (integrationConflict && conflictReworks == 0)
+                {
+                    Assert.Equal(authorKey, item.CurrentStageKey); Assert.Equal(1, item.Traversal);
+                    Assert.Equal(assignmentBeforeIntegration + 1, f.Task.AssignmentRevision);
+                    Assert.Null(f.Task.MergeCommitSha); Assert.Empty(await f.Db.WorkTaskIntegrationReceipts.ToListAsync());
+                    var conflict = Assert.Single(item.Stages.Where(x => x.LastOutcomeCode == "integration_conflicts"));
+                    Assert.Equal(WorkStageExecutionStatus.Completed, conflict.Status);
+                    Assert.Contains("conflict markers", conflict.LastSummary);
+                    var comment = Assert.Single(await f.Db.WorkItemComments.Where(x => x.AuthorDisplayName == "C-Sweet integration").ToListAsync());
+                    Assert.Equal(CSweet.Domain.Security.GrantSubjectKind.AutomationIdentity, comment.AuthorKind);
+                    Assert.Contains("fresh technical review", comment.Body);
+                    conflictReworks++; cycle--; continue;
+                }
+                Assert.Equal("quality", item.CurrentStageKey); Assert.NotNull(f.Task.MergeCommitSha);
             }
             Assert.Equal("quality", item.CurrentStageKey);
             if (artifact)
@@ -267,7 +321,7 @@ public sealed class HierarchicalTaskRuntimeTests
                     { Validations = [new(f.Repositories[0], sha, "test", passed ? 0 : 1, passed, "")] }, [new("commit", "Integrated story", sha)]));
                 await Complete(f.Qa, passed ? "passed" : "failed", quality, [new("commit", "Integrated story", sha)]);
             }
-            if (!passed) { Assert.Equal(authorKey, item.CurrentStageKey); Assert.Equal(1, item.Traversal); }
+            if (!passed) { Assert.Equal(authorKey, item.CurrentStageKey); Assert.Equal(1 + conflictReworks + (targetChange ? 2 : 0), item.Traversal); }
         }
         await Pulse();
         Assert.Equal(WorkTaskStatus.Completed, f.Task.Status);

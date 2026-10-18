@@ -11,6 +11,24 @@ namespace CSweet.UnitTests;
 
 public sealed partial class AgentWorkInboxTests
 {
+    [Fact]
+    public async Task InformationalOwnerReportsDoNotCrowdOutDueDeliveryAndPersonalContinuation()
+    {
+        await using var db = CreateDb(); var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow()); var runtime = Runtime(installation, clock.GetUtcNow());
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var report = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            CSweet.Agent.SDK.ProjectHealthEvents.OwnerReportRequested, Json("{}"), "older-report", clock.GetUtcNow().AddHours(1), sourceId: Guid.NewGuid().ToString("D"));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var continuation = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available, Json("{}"), "continuation", clock.GetUtcNow().AddHours(1), sourceId: Guid.NewGuid().ToString("D"));
+        var session = Session(installation, runtime); var claim = (await inbox.ClaimAsync(session, default))!;
+        Assert.Equal(continuation.Id, claim.WorkId);
+        await inbox.CompleteAsync(session, claim.WorkId, claim.Attempt, claim.LeaseToken, new(true, Json("{}"), null), default);
+        Assert.Equal(report.Id, (await inbox.ClaimAsync(session, default))!.WorkId);
+    }
+
     [Theory]
     [InlineData("agent-failure:v1;code=workspace.command.timeout;retryable=true", true)]
     [InlineData("agent-failure:v1;code=agent.unhandled;exceptionType=WorkspaceCommandTimeoutException;retryable=true", true)]

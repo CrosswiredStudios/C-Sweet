@@ -29,7 +29,10 @@ internal static class ComputeMcpTools
     private const string WorkloadSchema = """
         {"type":"object","additionalProperties":false,"required":["environmentId","expectedGeneration","idempotencyKey","workload"],"properties":{
           "environmentId":{"type":"string","format":"uuid"},"expectedGeneration":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":128},
-          "workload":{"type":"object","additionalProperties":false,"minProperties":1,"maxProperties":1,"properties":{
+          "workload":{"type":"object","additionalProperties":false,"minProperties":1,"maxProperties":2,"properties":{
+            "nodeDependencies":{"type":"object","additionalProperties":false,"required":["lockfileSha256","packages"],"properties":{
+              "lockfileSha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"packages":{"type":"array","maxItems":256,"items":{"type":"object","additionalProperties":false,"required":["url","integrity"],"properties":{"url":{"type":"string","maxLength":1024},"integrity":{"type":"string","maxLength":95}}}}
+            }},
             "publishPort":{"type":"integer","minimum":1024,"maximum":65535},
             "command":{"type":"object","additionalProperties":false,"required":["requestId","executable","workingDirectory","arguments","timeoutSeconds","maximumOutputBytes"],"properties":{
               "requestId":{"type":"string","format":"uuid"},"executable":{"type":"string","maxLength":1024},"workingDirectory":{"type":"string","maxLength":1024},
@@ -41,7 +44,7 @@ internal static class ComputeMcpTools
 
     public static IReadOnlyList<McpToolDescriptor> All { get; } =
     [
-        Tool(InfrastructureActions.Execute, "execute_compute_command", "Queue one bounded command inside your ready VM. Use workload.command with absolute guest paths and literal arguments; 30 second timeout, 8192 output bytes. Read the returned operationId for output. Services must be started explicitly inside the guest (for example systemd-run); children of the bounded command are cleaned up. Lost outcomes must not be blindly retried.", WorkloadSchema),
+        Tool(InfrastructureActions.Execute, "execute_compute_command", "Queue one bounded command inside your ready VM. Use workload.command with absolute guest paths and literal arguments; 30 second timeout, 8192 output bytes. Optional workload.nodeDependencies supplies a lockfile SHA-256 and SHA-512-pinned public npm tarballs. Managed restore requires a separate current network.outbound.v1 grant, verifies downloads, and populates a guest-only offline npm cache before the command. It gives the VM no network adapter. Read the operationId for output. Lost outcomes must not be blindly retried.", WorkloadSchema),
         Tool(InfrastructureActions.PublishPort, "publish_compute_port", "Publish a running guest HTTP app using workload.publishPort. Requires independent inbound and port grants. Returns an operationId; read its result for a health-checked URL on the provider machine's loopback interface and expiry. This MVP link is usable on that machine only. No NIC, outbound access, public internet URL or DNS is implied.", WorkloadSchema),
         Tool(InfrastructureActions.Provision, "request_compute_environment", "Request isolated compute under current scoped grants. Reuse stable desired-environment and idempotency keys. Provisioning is asynchronous; this response does not mean the machine is ready. Network and persistence require separate grants.", ProvisionSchema),
         Tool(InfrastructureActions.Read, "read_compute_environment", "Read your environment status with environmentId, or command/publication status and result with operationId. Alternatively send defaults:true to read platform-selected workspace and template readiness without technical configuration; optionally include workstreamId for an authorized project. Supply exactly one selector. Re-read after a compute changed event; never resubmit an uncertain command with a new key.", ReadSchema, true),
@@ -57,6 +60,6 @@ internal static class ComputeMcpTools
             JsonSerializer.SerializeToElement(new { type = "object" }),
             read ? McpToolExecutionPolicy.ReadOnly : McpToolExecutionPolicy.AdvisoryWrite,
             RiskClass: read ? "read-only" : capability == InfrastructureActions.Destroy ? "destructive" : "infrastructure-write",
-            ScopeResolver: "organization-installation-workstream", MaximumInputBytes: 32768, QuotaClass: "compute",
+            ScopeResolver: "organization-installation-workstream", MaximumInputBytes: capability == InfrastructureActions.Execute ? 131072 : 32768, QuotaClass: "compute",
             ApprovalBehavior: "scoped-grant-required", OwningService: "compute");
 }

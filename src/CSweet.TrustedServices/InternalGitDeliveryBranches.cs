@@ -58,6 +58,8 @@ public sealed partial class InternalGitRepositoryStore
         if ((request.ExpectedSourceSha is { } expectedSource && source != expectedSource) ||
             (request.ExpectedTargetSha is { } expectedTarget && target != expectedTarget))
             return new(source, target, null, Error: "The source or target changed; prepare and validate a new candidate.");
+        if (request.Operation == "rework")
+            return await PrepareIntegrationReworkAsync(repository, request, source, target, key, ct);
         if (request.Operation == "candidate")
         {
             if (source == target) return new(source, target, target);
@@ -70,10 +72,11 @@ public sealed partial class InternalGitRepositoryStore
                     throw new InvalidOperationException("The candidate operation key belongs to different source or target revisions.");
                 return new(source, target, existing);
             }
-            string tree;
-            try { tree = (await RunAsync(repository, ["merge-tree", "--write-tree", target, source], ct)).Split('\n')[0].Trim(); }
-            catch (InvalidOperationException) { return new(source, target, null, Error: "Resolve integration conflicts before validation."); }
-            ValidateSha(tree);
+            var merge = await ReadIntegrationMergeAsync(repository, target, source, ct);
+            if (merge.Paths.Count > 0)
+                return new(source, target, null, Error: "Resolve integration conflicts before validation.")
+                    { ErrorCode = "integration_conflicts", ConflictPaths = merge.Paths };
+            var tree = merge.Tree;
             var candidate = (await RunAsync(repository, ["commit-tree", tree, "-p", target, "-p", source,
                 "-m", "C-Sweet delivery candidate " + key], ct)).Trim();
             await RunAsync(repository, ["update-ref", candidateRef, candidate, new string('0', candidate.Length)], ct);

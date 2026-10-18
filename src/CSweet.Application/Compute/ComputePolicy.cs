@@ -16,7 +16,8 @@ public sealed record ComputeGrantConstraints(
     bool AllowOutbound = false,
     bool AllowPublicEndpoint = false,
     HashSet<int>? AllowedPublishedPorts = null,
-    Guid? EnvironmentId = null)
+    Guid? EnvironmentId = null,
+    HashSet<string>? AllowedDependencyRegistries = null)
 {
     public bool Allows(ComputeSpecification specification, int activeEnvironments) =>
         Version == 1 && MaximumResources is { IsValid: true } &&
@@ -27,7 +28,7 @@ public sealed record ComputeGrantConstraints(
         OperatingSystems?.Contains(specification.OperatingSystem) == true &&
         Architectures?.Contains(specification.Architecture) == true && Templates?.Contains(specification.TemplateId) == true &&
         (specification.Persistence != ComputePersistence.Persistent || AllowPersistent) &&
-        (!specification.NetworkPolicy.AllowOutbound || AllowOutbound) &&
+        (!specification.NetworkPolicy.AllowOutbound || AllowOutbound && AllowedDependencyRegistries is null) &&
         (!specification.NetworkPolicy.PublicEndpoint || AllowPublicEndpoint) &&
         specification.NetworkPolicy.Ports.All(port => AllowedPublishedPorts?.Contains(port) == true);
 }

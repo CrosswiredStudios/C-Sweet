@@ -18,6 +18,18 @@ automatically.
 
 - Human UI and API work uses `IArtifactDocumentService` and
   `/api/organizations/{organizationId}/documents`.
+- `ArtifactDocumentTypes.RecoveredQaEvidence` is an informational evidence record. Creation
+  sets `ApprovalStatus.NotRequired`; saving through `ArtifactDocumentService.SubmitAsync` or
+  `ArtifactCapabilityHandler.SubmitAsync` retains the exact revision with status `Retained`
+  instead of requesting a review. It creates no approval, reviewer job or review-submission
+  event and grants no QA verdict. New drafts do not replace the last retained input.
+  `ArtifactEvidenceRetention.DismissLegacyApprovalsAsync`, called by
+  `CSweetDatabaseInitializer.EnsureDatabaseReadyAsync`, removes legacy pending approvals and
+  completes their review jobs/notifications in the same save as the realtime outbox records.
+  It preserves original content, digests, revision states, source bindings and decision history;
+  legacy submitted input remains readable by old workers during rollout. Dashboard and review
+  worker policies exclude this document type even before repair runs. Decision endpoints reject
+  evidence approval, including the compatibility API and agent capabilities.
 - Agents use the governed `platform.artifact.*` capabilities. Capability handlers must enforce the
   installed agent identity, grants, idempotency, and audit requirements.
 - Document creation and revision always include stable idempotency keys. When available, preserve
@@ -59,6 +71,11 @@ automatically.
 actions in `PendingAgentQuestions` (Overview) and `Approvals`. Both open the existing
 `ArtifactWorkspace` through `DocumentApprovalSelection`, without navigating to Documents.
 An Approvals `approvalId` deep link opens that item's document pane automatically.
+The card asks whether to approve the named document and explains that acceptance makes the
+displayed revision the reviewed version the team can use. The decision pane also explains
+that a changes request sends it back to the author. Informational recovered QA records instead
+show an evidence summary, state that no human action is needed, and preserve original logs
+as escaped text inside a collapsed disclosure. They never render approval controls.
 
 `ArtifactWorkspace.RevisionId` pins the preview and decisions to the same immutable revision.
 `Documents` accepts `?artifact={artifactId}&revision={revisionId}` links and passes the

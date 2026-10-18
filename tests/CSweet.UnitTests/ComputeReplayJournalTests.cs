@@ -16,7 +16,7 @@ public sealed class ComputeReplayJournalTests
         public ComputeProviderEnrollment Enrollment { get; private set; } = null!;
         public ComputeDispatchVerifier Verifier { get; private set; } = null!;
         public ComputeDispatchPacket Packet { get; private set; } = null!;
-        public ComputeReplayJournal Journal(ComputeProviderCapacity? capacity = null) => new(Root, Enrollment, capacity ?? new(10, new(40, 81920, 409600)), Core.Time, path =>
+        public ComputeReplayJournal Journal(ComputeProviderCapacity? capacity = null, TimeProvider? clock = null) => new(Root, Enrollment, capacity ?? new(10, new(40, 81920, 409600)), clock ?? Core.Time, path =>
         {
             var resolved = Path.GetFullPath(path);
             if (resolved != Root && !resolved.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))

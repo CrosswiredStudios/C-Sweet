@@ -30,9 +30,20 @@ identifiers, hashes and correlations remain in expandable audit details.
 `ProjectResourceSection` adds name/type/status search, group counts and sorting by
 attention, recency or name. Unavailable technical fields are omitted rather than
 rendered as repeated placeholders. Dates are formatted for display; resource
-deep links remain authoritative. `ProjectReleases` separates actionable execution
-status from expandable candidate evidence and scope topology, preserving exact
-candidate review, recovery and release controls. Existing realtime updates remain.
+deep links remain authoritative. `ProjectReleases` leads with recorded readiness,
+the delivery manager, accepted epic counts and a next action.
+`ProjectReleases.Presentation` derives conservative labels from current plan/check
+state; no blockers does not imply readiness. Open findings and current blocked-check
+reasons are deduplicated into Current blockers, with the manager accountable for
+resolution. Active checks name their assigned owner and next action; blocked-check
+recovery belongs to the manager. Past findings and completed, cancelled or superseded
+checks are retained under closed History disclosures. Superseded is not described
+as resolved. `ProjectReleaseEvidence` keeps exact commits, documents, repository
+promotion receipts and review outcomes behind technical disclosures. Scope,
+staffing and cancellation controls sit under Release scope and settings; exact
+candidate review and activation/pause/resume retain their existing principals.
+Recovery forms are expandable. `Projects.razor` also collapses the supporting
+builds, previews and evidence directory by default. Existing realtime updates remain.
 
 `Projects.razor.css` scopes Aurora styling to the embedded Work and Efficiency
 components. The Work board keeps its original commands and grants. In

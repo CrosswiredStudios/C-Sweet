@@ -7,6 +7,7 @@ using CSweet.Contracts.WorkManagement;
 using CSweet.UI.Components.Projects;
 using CSweet.UI.Pages;
 using CSweet.UI.Services;
+using CSweet.WorkManagement.Contracts;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -185,6 +186,97 @@ public sealed class ProjectsWorkspaceTests
         if (Environment.GetEnvironmentVariable("CSWEET_DETAIL_PREVIEWS") is string path) await File.WriteAllTextAsync(Path.Combine(path, $"detail-delivery-{partial}.html"), html);
     }
 
+    [Fact]
+    public async Task DeliverySeparatesCurrentBlockersFromHistoryAndKeepsEvidenceClosed()
+    {
+        var api = new Api();
+        const string reason = "Compute validation failed or its result is unknown: outcome-unknown";
+        var blocked = DeliveryExecution("Blocked", "build-readiness") with { BlockedReason = reason };
+        var completed = DeliveryExecution("Completed", "manager-review") with { Scope = "Epic", ItemId = Guid.NewGuid() };
+        var plan = DeliveryPlan(api, "Paused", [blocked, completed]) with
+        {
+            EpicItemIds = [completed.ItemId!.Value],
+            Findings = [new(Guid.NewGuid(), blocked.Id, "candidate", reason, "Open", [], null),
+                new(Guid.NewGuid(), blocked.Id, "old-candidate", "Old browser validation concern", "Superseded", [], null),
+                new(Guid.NewGuid(), blocked.Id, "old-candidate", "Old build failure", "Resolved", [], "Fresh QA passed")]
+        };
+        api.DeliveryPlans = [plan];
+        var html = await RenderDelivery(api);
+        if (Environment.GetEnvironmentVariable("CSWEET_DETAIL_PREVIEWS") is string path)
+            await File.WriteAllTextAsync(Path.Combine(path, "delivery-simplified.html"), html);
+        var current = html[..html.IndexOf("class=\"release-history\"", StringComparison.Ordinal)];
+        Assert.Contains(">Blocked</dd>", current);
+        Assert.Contains("Gabriel Reyes", current);
+        Assert.Contains("1 of 2 completed", current);
+        Assert.Contains("then resume delivery", current);
+        Assert.Matches("Current blockers <span[^>]*>1</span>", current);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(current, reason).Cast<System.Text.RegularExpressions.Match>());
+        Assert.DoesNotContain("Old browser validation concern", current);
+        Assert.DoesNotContain("Old build failure", current);
+        Assert.Contains("Old browser validation concern", html);
+        Assert.Contains("Fresh QA passed", html);
+        Assert.Contains("Resolve blockers and recover", html);
+        Assert.Contains("Recover unfinished operations", html);
+        Assert.Contains("Resume delivery", html);
+        Assert.Contains("Technical details and review evidence", html);
+        Assert.Contains("Reviewed/tested candidate", html);
+        Assert.DoesNotMatch("<details[^>]*\\sopen(?:[=\\s>])", html);
+        Assert.Contains("Builds, previews, and delivery evidence", html);
+    }
+
+    [Theory]
+    [InlineData("Active", "WaitingForChildren", "Waiting for scoped work", "Complete and accept the required work")]
+    [InlineData("Active", "WaitingForEvidence", "Waiting for validation", "Wait for build or test results")]
+    [InlineData("Active", "Running", "Checks in progress", "complete qa and regression testing")]
+    [InlineData("Active", "WaitingForHuman", "Awaiting review", "Review the exact candidate")]
+    [InlineData("Active", "WaitingForApproval", "Awaiting acceptance", "Accept the exact candidate")]
+    [InlineData("Active", "PartiallyPromoted", "Partially integrated", "recover only the unfinished integrations")]
+    [InlineData("Paused", "WaitingForChildren", "Paused", "resume delivery when appropriate")]
+    [InlineData("Draft", "WaitingForChildren", "Scope awaiting activation", "review scope and staffing")]
+    [InlineData("Completed", "Completed", "Delivered", "Delivery is complete")]
+    [InlineData("Cancelled", "Cancelled", "Cancelled", "No further delivery is scheduled")]
+    public async Task DeliveryReadinessAndNextActionsReflectRecordedState(string planStatus, string executionStatus, string readiness, string nextAction)
+    {
+        var api = new Api();
+        api.DeliveryPlans = [DeliveryPlan(api, planStatus, [DeliveryExecution(executionStatus, "quality")])];
+        var html = await RenderDelivery(api);
+        Assert.Contains($">{readiness}</dd>", html);
+        Assert.Contains(nextAction, html);
+        Assert.DoesNotContain(">Ready</dd>", html);
+        if (planStatus is "Completed" or "Cancelled") Assert.DoesNotContain("class=\"release-execution\"", html);
+    }
+
+    [Fact]
+    public async Task DeliveryShowsAssignedReviewerAndOnlyOffersReviewToThatPerson()
+    {
+        var api = new Api();
+        var reviewer = Guid.NewGuid();
+        api.DeliveryPeople = [new(reviewer, "Independent QA", "Human", null, false)];
+        var execution = DeliveryExecution("WaitingForHuman", "quality") with
+        {
+            Stages = [new(Guid.NewGuid(), "quality", "Human", 1, "WaitingForHuman", "OrganizationUser", reviewer,
+                null, null, 1, null, null, null, null, DateTimeOffset.UtcNow)]
+        };
+        api.DeliveryPlans = [DeliveryPlan(api, "Active", [execution])];
+        var managerHtml = await RenderDelivery(api);
+        Assert.Contains("Owner: Independent QA", managerHtml);
+        Assert.DoesNotContain(">Review exact candidate</button>", managerHtml);
+        api.CurrentUserId = reviewer;
+        var reviewerHtml = await RenderDelivery(api);
+        Assert.Contains(">Review exact candidate</button>", reviewerHtml);
+        Assert.DoesNotContain(">Pause delivery</button>", reviewerHtml);
+    }
+
+    private static WorkDeliveryExecutionResponse DeliveryExecution(string status, string stage) => new(Guid.NewGuid(), "Release", null,
+        Guid.NewGuid(), status, stage, 1, new("candidate-digest", 1, [], []), null, [], []);
+
+    private static WorkDeliveryPlanResponse DeliveryPlan(Api api, string status, IReadOnlyList<WorkDeliveryExecutionResponse> executions) =>
+        new(Guid.NewGuid(), api.ProjectId, "Scaffold & Procedural Asset Pipeline", api.ManagerId, status, 1, 1,
+            [], [], executions.Select(e=>new WorkDeliveryScopeSnapshot(e.Scope,e.ItemId,e.BoardId,1,[],new(["Requirement"],["Works"]),[])).ToArray(), executions, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+    private static Task<string> RenderDelivery(Api api) => Render(api,
+        new() { ["OrganizationId"] = api.OrganizationId, ["WorkstreamId"] = api.ProjectId, ["Tab"] = "delivery" });
+
     private static async Task<string> Render(Api api, Dictionary<string, object?> parameters)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices();
@@ -206,7 +298,9 @@ public sealed class ProjectsWorkspaceTests
         public bool HasProjectUsage { get; init; }
         public List<string> Paths { get; } = [];
         public List<HttpMethod> Methods { get; } = [];
-        public IReadOnlyList<CSweet.WorkManagement.Contracts.WorkDeliveryPlanResponse> DeliveryPlans { get; init; } = [];
+        public IReadOnlyList<WorkDeliveryPlanResponse> DeliveryPlans { get; set; } = [];
+        public IReadOnlyList<ProjectSetupPerson> DeliveryPeople { get; set; } = [];
+        public Guid? CurrentUserId { get; set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath; Paths.Add(path); Methods.Add(request.Method);
@@ -215,6 +309,8 @@ public sealed class ProjectsWorkspaceTests
             else if (path.EndsWith("/workstreams/inspection")) result = new ProjectPortfolioResponse(DateTimeOffset.UtcNow, 1, 1,
                 [new(ProjectId, "Neon Bash", "Ship a prototype", "Active", "Development", "software-prototype.v1", 1, ManagerId, null, null, null, 1, DateTimeOffset.UtcNow, 1, 1, 5, 0, 0, null) { AccountableManagerName = "Matt", BlockedItems = 2, ReleaseReady = false }]);
             else if (path.EndsWith("/work/delivery/read")) result = DeliveryPlans;
+            else if (path.EndsWith("/project-setup/options")) result = new ProjectSetupOptions(CurrentUserId ?? ManagerId, false,
+                [new(ManagerId, "Gabriel Reyes", "Human", null, true), .. DeliveryPeople], [], []);
             else if (path.EndsWith("/analytics/efficiency"))
             {
                 var total = new EfficiencyUsage(10, 999999, 0, 0, 0, 10, 10, 0, 0, 0, 1000);

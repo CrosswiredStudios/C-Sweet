@@ -44,6 +44,9 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
             return Failure("approval_conflict", "Artifact is already approved.");
         }
 
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            return Failure("approval_not_required", "These logs are saved as evidence and do not need approval.");
+
         var now = DateTimeOffset.UtcNow;
         var revision = CurrentOrMigratedRevision(artifact, now);
         var approval = new Approval
@@ -89,6 +92,9 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
             return Failure("not_found", "Artifact was not found.");
         }
 
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            return Failure("approval_not_required", "These logs are saved as evidence and do not need approval.");
+
         var now = DateTimeOffset.UtcNow;
         var revision = CurrentOrMigratedRevision(artifact, now);
         var approval = new Approval
@@ -132,6 +138,9 @@ public sealed class ArtifactApprovalService : IArtifactApprovalService
         {
             return Failure("not_found", "Artifact was not found.");
         }
+
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            return Failure("approval_not_required", "These logs are saved as evidence and do not need approval.");
 
         var now = DateTimeOffset.UtcNow;
         var revision = CurrentOrMigratedRevision(artifact, now);

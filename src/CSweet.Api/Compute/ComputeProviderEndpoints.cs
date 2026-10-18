@@ -13,6 +13,7 @@ namespace CSweet.Api.Compute;
 public static class ComputeProviderEndpoints
 {
     public const string MaintenanceRatePolicy = "compute-provider-maintenance";
+    public const string DependencyRatePolicy = "compute-provider-dependency-permissions";
 
     public static IServiceCollection AddComputeProviderIngress(this IServiceCollection services)
     {
@@ -25,6 +26,11 @@ public static class ComputeProviderEndpoints
             options.AddPolicy(MaintenanceRatePolicy, context => RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
                 { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+            // A bounded restore rechecks permission throughout up to 256 packages and
+            // 192 MiB of transfer. Keep these read-only proofs separate from mutation intake.
+            options.AddPolicy(DependencyRatePolicy, context => RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+                { PermitLimit = 1200, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
         return services;
     }
@@ -49,6 +55,9 @@ public static class ComputeProviderEndpoints
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
         endpoints.MapPost(ComputeProviderWakeTransport.Path, ComputeWorkEndpoints.WakeAsync)
             .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
+        endpoints.MapPost(ComputeWorkTransport.DependencyAccessPath, ComputeWorkEndpoints.DependencyAccessAsync)
+            .AllowAnonymous().RequireRateLimiting(DependencyRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
         endpoints.MapPost(ComputeWorkTransport.PublicationAccessPath, ComputeWorkEndpoints.PublicationAccessAsync)
             .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)

@@ -6,7 +6,10 @@ namespace CSweet.Infrastructure.WorkManagement;
 public static class PlatformWorkTypeCatalog
 {
     public const string ProviderKey = WorkItemTypeProviderKeys.Platform;
-    public const long Revision = 2;
+    public const long Revision = 3;
+    public static WorkItemTypeDefinition WorkflowTicketFor(string profileKey) => new(
+        WorkItemTypeKeys.WorkflowTicketV1, "Workflow ticket", WorkItemKinds.Task, [profileKey], [], ProviderKey, [])
+        { ExecutionMode = WorkItemExecutionModes.Container };
 
     private static readonly IReadOnlyList<WorkItemApprovalPolicyDefinition> Policies =
     [
@@ -16,6 +19,10 @@ public static class PlatformWorkTypeCatalog
 
     private static readonly IReadOnlyList<WorkItemTypeDefinition> Types =
     [
+        new(WorkItemTypeKeys.WorkflowTicketV1, "Workflow ticket", WorkItemKinds.Task,
+            [WorkBoardProfileKeys.SoftwareDeliveryV2, WorkBoardProfileKeys.ProjectDeliveryV2,
+             WorkBoardProfileKeys.GeneralWorkV1, WorkBoardProfileKeys.SoftwareDeliveryV1], [], ProviderKey, [])
+            { ExecutionMode = WorkItemExecutionModes.Container },
         new(WorkItemTypeKeys.SoftwareEpicV2, "Software epic", WorkItemKinds.Epic,
             [WorkBoardProfileKeys.SoftwareDeliveryV2], [], ProviderKey, []),
         new(WorkItemTypeKeys.SoftwareStoryV2, "Software story", WorkItemKinds.Story,
@@ -51,15 +58,15 @@ public static class PlatformWorkTypeCatalog
     private static readonly IReadOnlyList<WorkBoardProfileDefinition> Profiles =
     [
         new(WorkBoardProfileKeys.SoftwareDeliveryV2, "Hierarchical software delivery",
-            [WorkItemTypeKeys.SoftwareEpicV2, WorkItemTypeKeys.SoftwareStoryV2, WorkItemTypeKeys.SoftwareTaskV2], "software-delivery.v4"),
+            [WorkItemTypeKeys.SoftwareEpicV2, WorkItemTypeKeys.SoftwareStoryV2, WorkItemTypeKeys.SoftwareTaskV2, WorkItemTypeKeys.WorkflowTicketV1], "software-delivery.v4"),
         new(WorkBoardProfileKeys.ProjectDeliveryV2, "Hierarchical project delivery",
-            [WorkItemTypeKeys.ProjectEpicV2, WorkItemTypeKeys.ProjectStoryV2, WorkItemTypeKeys.ProjectTaskV2], null),
+            [WorkItemTypeKeys.ProjectEpicV2, WorkItemTypeKeys.ProjectStoryV2, WorkItemTypeKeys.ProjectTaskV2, WorkItemTypeKeys.WorkflowTicketV1], null),
         new(WorkBoardProfileKeys.GeneralWorkV1, "General work",
             [WorkItemTypeKeys.GeneralInitiativeV1, WorkItemTypeKeys.GeneralEpicV1,
-             WorkItemTypeKeys.GeneralStoryV1, WorkItemTypeKeys.GeneralTaskV1], null),
+             WorkItemTypeKeys.GeneralStoryV1, WorkItemTypeKeys.GeneralTaskV1, WorkItemTypeKeys.WorkflowTicketV1], null),
         new(WorkBoardProfileKeys.SoftwareDeliveryV1, "Software delivery",
             [WorkItemTypeKeys.SoftwareEpicV1, WorkItemTypeKeys.SoftwareStoryV1,
-             WorkItemTypeKeys.SoftwareTaskV1], "software-delivery.v1")
+             WorkItemTypeKeys.SoftwareTaskV1, WorkItemTypeKeys.WorkflowTicketV1], "software-delivery.v1")
     ];
 
     private static readonly IReadOnlyDictionary<string, WorkItemTypeDefinition> TypesByKey =
@@ -106,7 +113,7 @@ public static class PlatformWorkTypeCatalog
     }
 
     public static string DefaultTypeKey(string profileKey, string kind) =>
-        Types.SingleOrDefault(x => x.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase) &&
+        Types.SingleOrDefault(x => x.Key != WorkItemTypeKeys.WorkflowTicketV1 && x.Kind.Equals(kind, StringComparison.OrdinalIgnoreCase) &&
             x.CompatibleBoardProfiles.Contains(profileKey, StringComparer.Ordinal))?.Key
         ?? throw new ArgumentException($"Board profile '{profileKey}' does not support work kind '{kind}'.");
 }

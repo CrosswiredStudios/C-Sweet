@@ -35,7 +35,10 @@ public sealed class ComputeDispatchIntake(ComputeDispatchVerifier verifier)
                 throw new UnauthorizedAccessException("The dispatch does not match discovered work.");
             linked.Token.ThrowIfCancellationRequested();
             // Preserve Execute/Observe exactly. The executor verifies again and applies its durable fence.
-            await execute(new(packet.Authorization, verified.Specification, verified.Template, verified.Workload), linked.Token);
+            // The discovery-page budget must not interrupt an admitted physical operation.
+            // The executor separately bounds guest commands and managed dependency ingress;
+            // shutdown still cancels execution, and this page's next claim remains deadline-bound.
+            await execute(new(packet.Authorization, verified.Specification, verified.Template, verified.Workload), token);
             executed++;
         }
         // Exceptions are not converted to success: failed journal/physical work needs recovery.

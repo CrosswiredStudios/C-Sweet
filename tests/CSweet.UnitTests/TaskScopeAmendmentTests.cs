@@ -88,7 +88,7 @@ public sealed class TaskScopeAmendmentTests
         var configuration=f.Request();
         if(preview) configuration=configuration with {
             Branches=configuration.Branches.Select(b=>b.Scope=="Release"?b with {ReadinessMode="compute-test"}:b).ToArray(),
-            Assignments=configuration.Assignments.Select(a=>a.Scope=="Release"?a with {Stages=[..a.Stages,new("build-readiness","Human",f.Technical.Id)]}:a).ToArray()};
+            TicketWorkflows=configuration.TicketWorkflows.Select(w=>w.Scope=="Release"?w with {Steps=[new("build-readiness","build-readiness",new("build-readiness","Human",f.Technical.Id)),..w.Steps]}:w).ToArray()};
         var active=await f.Activate(await f.Configure(configuration));
         var paused=await f.Service.ControlAsync(f.Org,f.Manager.Id,new(active.Id,active.Revision,"pause","amend-pause"));
         var policyId=Guid.NewGuid();

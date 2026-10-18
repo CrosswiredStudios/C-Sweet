@@ -185,6 +185,40 @@ public sealed class CurrentActivityRenderingTests
     }
 
     [Fact]
+    public async Task ReleaseReviewShowsActivityScopeAndRuntimeStatusWithoutOpeningStream()
+    {
+        await using var f = new Fixture();
+        var projectId = Guid.NewGuid();
+        f.Handler.Item = f.Handler.Item with { ActivityKind = "Review", ActivityLabel = "Technical review",
+            Title = "Release: First playable <candidate>", EmployeeName = "Victor Lin", ProjectId = projectId,
+            WorkItemId = null, CurrentAction = "Waiting for model response" };
+        var html = await f.RenderAsync();
+        Assert.Contains("Technical review", html);
+        Assert.Contains("Reviewing now", html);
+        Assert.Contains("Release: First playable &lt;candidate&gt;", html);
+        Assert.Contains("Waiting for model response", html);
+        Assert.Contains($"/projects/{projectId}", html);
+        Assert.DoesNotContain("Background activity", html);
+        Assert.DoesNotContain("activity-task-link", html);
+        Assert.Equal(0, f.Handler.FeedRequests);
+    }
+
+    [Theory]
+    [InlineData("Waiting", "Queued while this employee handles another request")]
+    [InlineData("Recovering", "Execution lease expired; awaiting recovery")]
+    [InlineData("Unconfirmed", "No task progress reported in the last five minutes")]
+    public async Task SpecificActivityNeverImpliesExecutionWhenWaitingOrStale(string state, string action)
+    {
+        await using var f = new Fixture();
+        f.Handler.Item = f.Handler.Item with { ActivityKind = "Review", ActivityLabel = "Technical review",
+            WorkItemId = null, State = state, CurrentAction = action };
+        var html = await f.RenderAsync();
+        Assert.Contains("Technical review", html); Assert.Contains(action, html);
+        Assert.DoesNotContain("Reviewing now", html);
+        Assert.DoesNotContain("activity-agent-avatar active", html);
+    }
+
+    [Fact]
     public async Task CompactRowsShowExecutorWithoutOldDetailsAndLoadDiagnosticsOnlyWhenOpened()
     {
         await using var f = new Fixture();

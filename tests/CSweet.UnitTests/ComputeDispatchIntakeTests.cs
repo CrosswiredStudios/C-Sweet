@@ -8,6 +8,18 @@ namespace CSweet.UnitTests;
 public sealed class ComputeDispatchIntakeTests
 {
     [Fact]
+    public async Task Admitted_physical_execution_uses_shutdown_token_instead_of_discovery_page_deadline()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync();
+        using var shutdown = new CancellationTokenSource();
+        CancellationToken discovery = default;
+        await new ComputeDispatchIntake(f.Verifier).RunOnceAsync(null,
+            (_, token) => { discovery = token; return Task.FromResult(new ComputeProviderWorkPage([f.Claim.OperationId], null)); },
+            (_, token) => { Assert.Equal(discovery, token); return Task.FromResult<ComputeDispatchPacket?>(f.Packet); },
+            (_, token) => { Assert.Equal(shutdown.Token, token); Assert.NotEqual(discovery, token); return Task.CompletedTask; }, shutdown.Token);
+    }
+
+    [Fact]
     public async Task Discovery_claim_execution_and_replay_preserve_one_physical_machine()
     {
         await using var f = new Fixture(); await f.InitializeAsync();

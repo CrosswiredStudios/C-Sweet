@@ -23,7 +23,8 @@ public sealed partial class WorkOrchestrator(
     IAgentRuntimeManager runtimes,
     IEnumerable<ITrustedWorkActionExecutor> trustedActions,
     TimeProvider timeProvider,
-    ILogger<WorkOrchestrator> logger) : IWorkOrchestrator
+    ILogger<WorkOrchestrator> logger,
+    CSweet.Application.SourceControl.ITrustedSourceControlHostClient? repositoryInputs = null) : IWorkOrchestrator
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -331,7 +332,11 @@ public sealed partial class WorkOrchestrator(
     private async Task RecordReviewDiscussionAsync(WorkSprintExecution execution, WorkStageExecution stage,
         WorkExecutionAttempt attempt, Shared.WorkExecutionOutcomeV1 outcome, DateTimeOffset now, CancellationToken token)
     {
-        if (stage.AgentInstallationId is not { } author) return;
+        var integrationRework = stage.StageKey == "task-integration" &&
+            stage.PlatformAction == TaskIntegrationWorkActionExecutor.ActionName && outcome.OutcomeCode == "integration_conflicts";
+        if (stage.AgentInstallationId is null && !integrationRework) return;
+        var author = stage.AgentInstallationId ?? stage.Id;
+        var authorKind = integrationRework ? GrantSubjectKind.AutomationIdentity : GrantSubjectKind.AgentInstallation;
         var key = $"review-result:{attempt.Id:N}";
         if (await db.WorkItemComments.AnyAsync(c => c.WorkItemId == stage.ItemExecution!.WorkItemId && c.IdempotencyKey == key, token)) return;
         var body = $"{stage.StageKey}: {outcome.OutcomeCode}\n\n{outcome.Summary}";
@@ -341,8 +346,8 @@ public sealed partial class WorkOrchestrator(
         if (findings.Count > 0) body += "\n\n" + string.Join("\n\n", findings.Select((f, index) => $"{index + 1}. {f}"));
         if (body.Length > 8100) body = body[..8000] + "\n\nFull findings are retained in this ticket's execution history.";
         var comment = new WorkItemComment { Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,
-            WorkItemId = stage.ItemExecution!.WorkItemId, AuthorKind = GrantSubjectKind.AgentInstallation,
-            AuthorSubjectId = author, AuthorDisplayName = await db.CoreOrganizationUsers.Where(u => u.AgentInstallationId == author &&
+            WorkItemId = stage.ItemExecution!.WorkItemId, AuthorKind = authorKind,
+            AuthorSubjectId = author, AuthorDisplayName = integrationRework ? "C-Sweet integration" : await db.CoreOrganizationUsers.Where(u => u.AgentInstallationId == author &&
                 u.OrganizationId == execution.OrganizationId).Select(u => u.DisplayName).FirstOrDefaultAsync(token) ?? "Reviewer",
             Body = body, Kind = "review.result", CausationId = attempt.Id.ToString("D"), IdempotencyKey = key, CreatedAt = now };
         db.WorkItemComments.Add(comment);
@@ -657,7 +662,11 @@ public sealed partial class WorkOrchestrator(
             var (deliveryPlan, _) = await WorkDeliveryTaskAuthorization.RequireAsync(db, item, cancellationToken);
             assignment = assignment with { WorkstreamId = deliveryPlan.WorkstreamId,
                 DeliveryPlanId = deliveryPlan.Id, ScopeRevision = deliveryPlan.ScopeRevision };
+            if (deliverySpecification.DeliveryKind == "Artifact" && stage.StageKey == "specialist-execution")
+                assignment = assignment with { Candidate = await WorkArtifactRepositoryInput.PinAsync(
+                    db, repositoryInputs, item, assignment, cancellationToken) };
         }
+        assignment = assignment with { Evidence = assignment.Evidence.Concat(await QaRecoveryEvidenceAsync(assignment, board, cancellationToken)).ToArray() };
         var payload = JsonSerializer.SerializeToElement(assignment, JsonOptions);
         var work = await inbox.EnqueueAsync(
             execution.OrganizationId.ToString(), installationId, AgentWorkKind.Capability,
@@ -750,6 +759,11 @@ public sealed partial class WorkOrchestrator(
             execution.OrganizationId, execution.BoardId, execution.Id, stage.ItemExecutionId!.Value,
             stage.Id, stage.ItemExecution.WorkItemId, stage.ItemExecution.ItemIdentifier,
             stage.PlatformAction!, JsonSerializer.SerializeToElement(new { }, JsonOptions)), cancellationToken);
+        if (result.OutcomeCode is "integration_conflicts" or "target_changed" &&
+            TaskIntegrationRework.Transition(policy, stage, result.OutcomeCode) is null)
+            result = new(Shared.WorkExecutionDispositions.Blocked, "blocked",
+                "The pinned workflow has no safe integration recovery path to its author or technical reviewer. A manager must correct the workflow.",
+                result.Output, result.Diagnostics);
         var attempt = new WorkExecutionAttempt
         {
             Id = Guid.NewGuid(), StageExecutionId = stage.Id, Attempt = stage.Attempts.Count + 1,
@@ -759,6 +773,9 @@ public sealed partial class WorkOrchestrator(
         attempt.ResultJson = JsonSerializer.Serialize(new Shared.WorkExecutionOutcomeV1(stage.Id, attempt.Id,
             result.Disposition, result.OutcomeCode, result.Summary, result.Output, [], result.Diagnostics), JsonOptions);
         db.WorkExecutionAttempts.Add(attempt);
+        if (result.OutcomeCode == "integration_conflicts")
+            await RecordReviewDiscussionAsync(execution, stage, attempt,
+                JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(attempt.ResultJson!, JsonOptions)!, now, cancellationToken);
         stage.LastOutcomeCode = result.OutcomeCode; stage.LastSummary = result.Summary;
         if (result.Disposition == Shared.WorkExecutionDispositions.Blocked)
             Block(stage, result.Summary, now);
@@ -787,8 +804,7 @@ public sealed partial class WorkOrchestrator(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
         WorkStageExecution stage, string outcomeCode, string summary, string outputJson, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var transition = policy.Transitions.SingleOrDefault(x =>
-            x.FromStageKey == stage.StageKey && x.OutcomeCode == outcomeCode)
+        var transition = TaskIntegrationRework.Transition(policy, stage, outcomeCode)
             ?? throw new InvalidOperationException($"Outcome '{outcomeCode}' is not valid for stage '{stage.StageKey}'.");
         var item = stage.ItemExecution!;
         var nextTraversal = item.Traversal + (transition.MaximumTraversals.HasValue ? 1 : 0);
@@ -826,6 +842,7 @@ public sealed partial class WorkOrchestrator(
         var nextExecution = WorkOrchestrationService.CreateStageExecution(
             item, next, assignments, execution.StartedByOrganizationUserId, now);
         db.WorkStageExecutions.Add(nextExecution);
+        await TaskIntegrationRework.SeedWorkspaceAsync(db, stage, nextExecution, outputJson, now, cancellationToken);
         if (next.ColumnId.HasValue) item.WorkItem!.BoardColumnId = next.ColumnId;
         item.WorkItem!.Status = item.Status == WorkItemExecutionStatus.Blocked
             ? WorkTaskStatus.Blocked

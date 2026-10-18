@@ -16,30 +16,37 @@ public sealed partial class WorkDeliveryService
         var ids = await db.WorkDeliveryPlans.AsNoTracking().Where(x => x.Status == "Active").OrderBy(x => x.CreatedAt).Select(x => x.Id).Take(100).ToListAsync(ct);
         foreach (var id in ids)
         {
+            var runtimeHints = new HashSet<Guid>();
             await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
             var plan = await Load().SingleAsync(x => x.Id == id, ct);
             if (plan.Status != "Active") continue;
             try
             {
                 await ValidateCurrentScopeAsync(plan, ct);
-                foreach (var execution in plan.Executions.Where(x => x.ScopeRevision == plan.ScopeRevision &&
-                    x.Status is not ("Completed" or "Cancelled" or "Superseded" or "Blocked" or "PartiallyPromoted")).OrderBy(x =>
-                        x.Scope == WorkExecutionScopes.Story ? 0 : x.Scope == WorkExecutionScopes.Epic ? 1 : 2).ToList())
+                foreach (var execution in OrderedTicketExecutions(plan).Where(x =>
+                    x.Status is not ("Completed" or "Cancelled" or "Superseded" or "Blocked" or "PartiallyPromoted")))
                 {
-                    try { await ReconcileDeliveryAsync(plan, execution, ct); }
+                    try { await ReconcileDeliveryAsync(plan, execution, runtimeHints, ct); }
                     catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException or JsonException or HttpRequestException)
                     { Stop(execution, error.Message); }
                 }
-                if (plan.Executions.Any(x => x.Scope == WorkExecutionScopes.Release && x.ScopeRevision == plan.ScopeRevision && x.Status == "Completed"))
+                var declared = Scopes(plan);
+                if (declared.Count > 0 && declared.All(s => plan.Executions.Any(e => e.ScopeRevision == plan.ScopeRevision && e.Scope == s.Scope && e.WorkItemId == s.ItemId && e.Status == "Completed")))
                     plan.Status = "Completed";
             }
             catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException)
             {
-                foreach (var execution in plan.Executions.Where(x => x.Status != "Completed")) Stop(execution, error.Message);
+                foreach (var execution in plan.Executions.Where(x => x.ScopeRevision == plan.ScopeRevision &&
+                    x.Status is not ("Completed" or "Cancelled" or "Superseded"))) Stop(execution, error.Message);
             }
+            foreach (var ticketExecution in plan.Executions.Where(e => e.ScopeRevision == plan.ScopeRevision))
+                await SynchronizeTicketAsync(plan, ticketExecution, ct);
             foreach (var stopped in plan.Executions.Where(x => x.Status is "Blocked" or "PartiallyPromoted"))
                 foreach (var stage in stopped.Stages)
                 {
+                    if (inbox is not null)
+                        await inbox.CancelBySourceAsync("WorkDeliveryStage", stage.Id.ToString("D"),
+                            "Delivery validation stopped; stale queued assignments cannot reserve reviewer capacity.", ct);
                     foreach (var attempt in stage.Attempts.Where(x => x.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running))
                     {
                         if (attempt.AgentWorkItemId is { } workId && inbox is not null)
@@ -53,11 +60,16 @@ public sealed partial class WorkDeliveryService
             db.ChangeTracker.DetectChanges();
             if (db.ChangeTracker.Entries().Any(x => x.State is EntityState.Added or EntityState.Modified))
             { plan.Revision++; plan.UpdatedAt = clock.GetUtcNow(); Queue(plan, "execution.changed"); }
-            await SaveDeliveryAsync(ct); if (tx is not null) await tx.CommitAsync(ct);
+            await SaveDeliveryAsync(ct); if (tx is not null) { await tx.CommitAsync(ct); await tx.DisposeAsync(); }
+            // Activation is a wake hint after the assignment, inbox and outbox commit.
+            // Runtime preparation may reset its tracking context after a transient failure.
+            if (runtimes is not null)
+                foreach (var installation in runtimeHints)
+                    await runtimes.EnsureRuntimeQueuedAsync(installation, "Delivery review " + plan.Name, cancellationToken: ct);
         }
     }
 
-    private async Task ReconcileDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
+    private async Task ReconcileDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, ISet<Guid> runtimeHints, CancellationToken ct)
     {
         var scope = Scopes(plan).Single(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId);
         if (execution.CandidateJson is not null && execution.Status != "WaitingForChildren")
@@ -65,7 +77,7 @@ public sealed partial class WorkDeliveryService
         if (execution.Status == "WaitingForEvidence")
         {
             await RequireCandidateCurrentAsync(plan, execution, ct);
-            var retained = Decode<WorkExecutionOutcomeV1>(execution.Stages.Last().Attempts.Last().ResultJson!);
+            var retained = Decode<WorkExecutionOutcomeV1>(CurrentDeliveryStage(execution).Attempts.MaxBy(x => x.Attempt)!.ResultJson!);
             if (retained.OutcomeCode == "awaiting-compute")
             {
                 var wait = retained.Output.Deserialize<WorkDeliveryComputePending>(Json)!;
@@ -73,7 +85,7 @@ public sealed partial class WorkDeliveryService
                     .Where(x => x.OrganizationId == plan.OrganizationId && wait.OperationIds.Contains(x.Id)).ToListAsync(ct);
                 if (operations.Count != wait.OperationIds.Count) throw new InvalidOperationException("A pending compute operation is unavailable.");
                 if ((operations.Count == 0 || operations.Any(x => x.Status is "Pending" or "Dispatching")) && wait.RetryAt > clock.GetUtcNow()) return;
-                await CreateReviewAsync(plan, execution, scope, "build-readiness", ct);
+                await CreateReviewAsync(plan, execution, scope, execution.CurrentStageKey, ct);
             }
             else
             {
@@ -82,32 +94,38 @@ public sealed partial class WorkDeliveryService
                 if (builds.Count != pending.BuildIds.Count) throw new InvalidOperationException("The pending candidate build is unavailable.");
                 if (builds.Any(x => x.Status is "Queued" or "Claimed" or "Running")) return;
                 if (builds.Any(x => x.Status != "Succeeded")) throw new InvalidOperationException("A candidate build failed; inspect its certified-provider evidence and authorize remediation.");
-                await CreateReviewAsync(plan, execution, scope, "build-readiness", ct);
+                await CreateReviewAsync(plan, execution, scope, execution.CurrentStageKey, ct);
             }
         }
         if (execution.Status == "WaitingForChildren")
         {
-            if (plan.Findings.Any(x => x.Status == "Open"))
-                throw new InvalidOperationException("Linked remediation findings remain open. The manager must authorize and complete remediation before fresh aggregate validation.");
-            if (!await ChildrenCompleteAsync(plan, scope, ct)) return;
+            if (!await TicketPredecessorsCompleteAsync(plan, scope, ct)) return;
             execution.CandidateJson = Encode(await PrepareCandidateAsync(plan, execution, ct));
-            var initial = scope.Scope == WorkExecutionScopes.Epic && !Branches(plan).Any(x => x.Scope == scope.Scope && x.ItemId == scope.ItemId)
-                ? "technical-review" : scope.Stages.Any(x => x.StageKey == "build-readiness") ? "build-readiness" : "quality";
+            var initial = scope.TicketWorkflow!.Steps[0].Key;
             await CreateReviewAsync(plan, execution, scope, initial, ct);
+        }
+        if (execution.Status == "Ready" && scope.TicketWorkflow is not null && Handler(scope,execution.CurrentStageKey) == "completion")
+        {
+            var mechanical = CurrentDeliveryStage(execution);
+            mechanical.Status = WorkStageExecutionStatus.Completed; mechanical.LastOutcomeCode = "approved";
+            mechanical.LastSummary = Encode(new { kind = "source-preparation", predecessorItemIds = scope.PredecessorItemIds,
+                candidateDigest = Candidate(execution)!.Digest, summary = "Declared predecessors and source preparation completed; this is mechanical evidence." });
+            mechanical.CompletedAt = clock.GetUtcNow();
+            await AdvanceTicketAsync(plan, execution, scope, mechanical, ct);
         }
         if (execution.Status == "Ready")
         {
-            var current = execution.Stages.Last();
+            var current = CurrentDeliveryStage(execution);
             if (current.Status == WorkStageExecutionStatus.Completed)
             {
                 if (current.LastOutcomeCode != "approved") throw new InvalidOperationException("A failed review cannot authorize promotion; obtain fresh validation.");
                 await AdvanceDeliveryAsync(plan, execution, scope, current, ct);
             }
-            else await DispatchDeliveryAsync(plan, execution, scope, current, ct);
+            else await DispatchDeliveryAsync(plan, execution, scope, current, runtimeHints, ct);
         }
         if (execution.Status == "Running" && inbox is not null)
         {
-            var stage = execution.Stages.Last(); var attempt = stage.Attempts.Last();
+            var stage = CurrentDeliveryStage(execution); var attempt = stage.Attempts.MaxBy(x => x.Attempt)!;
             if (attempt.AgentWorkItemId is not { } workId) throw new InvalidOperationException("The delivery attempt has no inbox work.");
             var state = await inbox.ReadStateAsync(workId, ct);
             if (state.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased && attempt.CreatedAt.AddHours(1) <= clock.GetUtcNow())
@@ -118,7 +136,7 @@ public sealed partial class WorkDeliveryService
             var outcome = value.Deserialize<WorkExecutionOutcomeV1>(Json) ?? throw new InvalidOperationException("The delivery result is missing.");
             if (outcome.StageExecutionId != stage.Id || outcome.AttemptId != attempt.Id || outcome.Disposition != WorkExecutionDispositions.Completed)
                 throw new InvalidOperationException(outcome.Summary.Length > 0 ? outcome.Summary : "The result does not match its authoritative attempt.");
-            if (stage.StageKey == "build-readiness" && outcome.OutcomeCode == "awaiting-compute")
+            if (Handler(scope, stage.StageKey) is "build-readiness" or "compute-test" && outcome.OutcomeCode == "awaiting-compute")
             {
                 var pending = outcome.Output.Deserialize<WorkDeliveryComputePending>(Json)!;
                 await ValidateComputeWaitAsync(plan, execution, stage, pending, ct);
@@ -127,7 +145,7 @@ public sealed partial class WorkDeliveryService
                 execution.Status = "WaitingForEvidence"; execution.BlockedReason = outcome.Summary; execution.Revision++;
                 return;
             }
-            if (stage.StageKey == "build-readiness" && outcome.OutcomeCode == "awaiting-build")
+            if (Handler(scope, stage.StageKey) is "build-readiness" or "compute-test" && outcome.OutcomeCode == "awaiting-build")
             {
                 var pending = outcome.Output.Deserialize<WorkDeliveryBuildPending>(Json)!;
                 if (pending.CandidateDigest != Candidate(execution)!.Digest || pending.BuildIds.Count == 0 ||
@@ -143,8 +161,8 @@ public sealed partial class WorkDeliveryService
                 outcome.OutcomeCode != (review.Approved ? "approved" : "changes_requested"))
                 throw new InvalidOperationException("The review result does not bind the current candidate and outcome.");
             ValidateCriteria(scope.Planning.AcceptanceCriteria, review.Approved, review.Summary, review.Criteria, review.Findings);
-            if (stage.StageKey == "quality") ValidateQualityEvidence(Candidate(execution)!, review);
-            if (stage.StageKey == "build-readiness") await ValidateReadinessAsync(plan, execution, stage, review, ct);
+            if (Handler(scope, stage.StageKey) == "quality") ValidateQualityEvidence(Candidate(execution)!, review);
+            if (Handler(scope, stage.StageKey) is "build-readiness" or "compute-test") await ValidateReadinessAsync(plan, execution, stage, review, ct);
             await RequireCandidateCurrentAsync(plan, execution, ct);
             attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.ResultJson = Encode(outcome); attempt.CompletedAt = clock.GetUtcNow();
             stage.Status = WorkStageExecutionStatus.Completed; stage.CompletedAt = clock.GetUtcNow();
@@ -160,38 +178,12 @@ public sealed partial class WorkDeliveryService
         if (execution.Status == "Promoting") await PromoteDeliveryAsync(plan, execution, ct);
     }
 
-    private async Task<bool> ChildrenCompleteAsync(WorkDeliveryPlan plan, WorkDeliveryScopeSnapshot scope, CancellationToken ct)
-    {
-        if (scope.Scope == WorkExecutionScopes.Story)
-        {
-            var tasks = await db.CoreWorkTasks.AsNoTracking().Where(x => scope.ChildIds.Contains(x.Id) && x.OrganizationId == plan.OrganizationId && x.ArchivedAt == null).ToListAsync(ct);
-            if (tasks.Count != scope.ChildIds.Count || tasks.Any(x => x.Status != WorkTaskStatus.Completed)) return false;
-            // Manual completion cannot substitute for authoritative independent task QA.
-            foreach (var task in tasks)
-            {
-                var latest = await db.WorkItemExecutions.AsNoTracking().Include(x => x.Stages).ThenInclude(x => x.Attempts)
-                    .Where(x => x.WorkItemId == task.Id).OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
-                if (latest?.Status != WorkItemExecutionStatus.Completed || !latest.Stages.Any(x => x.Traversal == latest.Traversal &&
-                    x.StageKey == "quality" && x.Status == WorkStageExecutionStatus.Completed && x.LastOutcomeCode == "passed")) return false;
-            }
-            return true;
-        }
-        var childScope = scope.Scope == WorkExecutionScopes.Epic ? WorkExecutionScopes.Story : WorkExecutionScopes.Epic;
-        return scope.ChildIds.All(id => plan.Executions.Any(x => x.ScopeRevision == plan.ScopeRevision && x.Scope == childScope && x.WorkItemId == id && x.Status == "Completed"));
-    }
+
 
     private async Task<WorkDeliveryCandidate> PrepareCandidateAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
     {
         var repositoryCandidates = new List<WorkDeliveryRepositoryCandidate>();
         var selected = Branches(plan).Where(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId).ToList();
-        // Shared-release epics accept the integrated release revision; they perform no separate Git promotion.
-        if (execution.Scope == WorkExecutionScopes.Epic && selected.Count == 0)
-        {
-            var stories = Scopes(plan).Single(x => x.ItemId == execution.WorkItemId && x.Scope == WorkExecutionScopes.Epic).ChildIds;
-            selected = Branches(plan).Where(x => x.Scope == WorkExecutionScopes.Story && stories.Contains(x.ItemId!.Value))
-                .Select(x => x with { SourceBranch = x.TargetBranch, Scope = execution.Scope, ItemId = execution.WorkItemId })
-                .DistinctBy(x => x.RepositoryId).ToList();
-        }
         foreach (var binding in selected.OrderBy(x => x.RepositoryId))
         {
             var completed = execution.Promotions.SingleOrDefault(x => x.RepositoryId == binding.RepositoryId && x.Status == "Completed");
@@ -211,11 +203,13 @@ public sealed partial class WorkDeliveryService
             repositoryCandidates.Add(new(binding.RepositoryId, binding.SourceBranch, binding.TargetBranch, refs.SourceCommitSha, refs.TargetCommitSha, candidate));
         }
         var descendants = new HashSet<Guid>();
+        var collected = new HashSet<Guid>();
         void Collect(WorkDeliveryScopeSnapshot scope)
         {
             foreach (var id in scope.ChildIds)
             {
-                var child = Scopes(plan).SingleOrDefault(x => x.ItemId == id);
+                if (!collected.Add(id)) continue;
+                var child = Scopes(plan).SingleOrDefault(x => x.TicketWorkflow!.TicketId == id);
                 if (child is null) descendants.Add(id); else Collect(child);
             }
         }
@@ -248,16 +242,7 @@ public sealed partial class WorkDeliveryService
 
     private async Task CreateReviewAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, WorkDeliveryScopeSnapshot scope, string key, CancellationToken ct)
     {
-        WorkStageAssignment assignment;
-        if (key == "manager-review")
-        {
-            var managerId = scope.Scope == WorkExecutionScopes.Release ? plan.ManagerOrganizationUserId :
-                await db.WorkBoards.Where(x => x.Id == scope.BoardId).Select(x => x.ManagerOrganizationUserId).SingleAsync(ct)
-                ?? throw new InvalidOperationException("The epic has no assigned board manager.");
-            var manager = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == managerId && x.OrganizationId == plan.OrganizationId && x.IsActive, ct);
-            assignment = new(key, manager.AgentInstallationId.HasValue ? "AgentInstallation" : "Human", manager.Id, manager.AgentInstallationId);
-        }
-        else assignment = scope.Stages.Single(x => x.StageKey == key);
+        var assignment = TicketStep(scope, key)!.Assignment;
         var stage = new WorkStageExecution { Id = Guid.NewGuid(), DeliveryExecutionId = execution.Id, StageKey = key,
             Traversal = execution.Stages.Count(x => x.StageKey == key), StageType = assignment.AgentInstallationId.HasValue ? WorkOrchestrationStageType.AgentExecution : WorkOrchestrationStageType.ManualWork,
             PrincipalKind = assignment.AgentInstallationId.HasValue ? WorkOrchestrationPrincipalKind.AgentInstallation : WorkOrchestrationPrincipalKind.Human,
@@ -272,18 +257,25 @@ public sealed partial class WorkDeliveryService
                 ScopeKind = GrantScopeKind.Artifact, ScopeId = document.ArtifactId,
                 GrantedBySubjectKind = GrantSubjectKind.AutomationIdentity, GrantedBySubjectId = execution.Id,
                 GrantedAt = clock.GetUtcNow(), ExpiresAt = assignment.AgentInstallationId.HasValue ? clock.GetUtcNow().AddHours(1) : null });
-        execution.Status = assignment.AgentInstallationId.HasValue ? "Ready" : key == "manager-review" ? "WaitingForApproval" : "WaitingForHuman";
+        execution.Status = Handler(scope,key) == "completion" || assignment.AgentInstallationId.HasValue ? "Ready" : Handler(scope,key) is "acceptance" or "manager-review" ? "WaitingForApproval" : "WaitingForHuman";
         execution.UpdatedAt = clock.GetUtcNow(); execution.Revision++;
-        await SetAggregateCardAsync(execution, key == "manager-review" ? "Producer Review" : key == "quality" ? "QA" : "Technical Review", WorkTaskStatus.WaitingForApproval, ct);
+
     }
 
-    private async Task DispatchDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, WorkDeliveryScopeSnapshot scope, WorkStageExecution stage, CancellationToken ct)
+    private async Task DispatchDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, WorkDeliveryScopeSnapshot scope, WorkStageExecution stage, ISet<Guid> runtimeHints, CancellationToken ct)
     {
         if (inbox is null || stage.AgentInstallationId is not { } installation) return;
         await RequireCandidateCurrentAsync(plan, execution, ct);
+        if (await ResumePendingDeliveryDispatchAsync(plan, execution, stage, installation, ct))
+        { runtimeHints.Add(installation); return; }
         if (stage.Attempts.Count >= 3) { Stop(execution, "The bounded review retry budget is exhausted."); return; }
-        // Aggregate work shares the installation's inbox lease capacity with sprint work.
-        if (await db.AgentWorkItems.AnyAsync(x => x.AgentInstallationId == installation && (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased), ct)) return;
+        // Queue behind a leased informational report so the inbox can prioritize this
+        // assignment as soon as that report finishes. Waiting to enqueue until idle
+        // lets the next report claim first and can starve aggregate acceptance forever.
+        // Other leased work and due capabilities still reserve production capacity.
+        if (await db.AgentWorkItems.AnyAsync(x => x.AgentInstallationId == installation &&
+            (x.Status == AgentWorkStatus.Leased && (x.Kind != AgentWorkKind.Event || x.Name != CSweet.Agent.SDK.ProjectHealthEvents.OwnerReportRequested) || x.Status == AgentWorkStatus.Pending &&
+                x.AvailableAt <= clock.GetUtcNow() && x.Kind == AgentWorkKind.Capability), ct)) return;
         var policy = await db.WorkOrchestrationPolicies.AsNoTracking().Where(x => x.BoardId == execution.BoardId)
             .SelectMany(x => x.Revisions.Where(r => r.Id == x.PublishedRevisionId)).SingleOrDefaultAsync(ct);
         var active = new[] { WorkStageExecutionStatus.Dispatching, WorkStageExecutionStatus.Running };
@@ -300,9 +292,7 @@ public sealed partial class WorkDeliveryService
         var assignment = new WorkExecutionAssignment(execution.Id, stage.Id, attempt.Id, plan.OrganizationId, plan.WorkstreamId,
             execution.BoardId, execution.WorkItemId, scope.Scope, plan.Id, plan.ScopeRevision, null, null, execution.Revision,
             execution.WorkItemId?.ToString("D") ?? plan.Name, null, stage.StageKey, stage.Traversal, attempt.Attempt,
-            clock.GetUtcNow().AddHours(1), stage.StageKey == "quality" ? "Run full testing and regression against the exact candidate; validate every acceptance criterion including documents." :
-                stage.StageKey == "manager-review" ? "Accept the delivered epic or release against every criterion using the completed technical and QA evidence." :
-                "Verify integration and technical readiness against every criterion using the exact candidate and completed task reviews.",
+            clock.GetUtcNow().AddHours(1), TicketStep(scope,stage.StageKey)!.Instructions,
             JsonSerializer.SerializeToElement(scope, Json), JsonSerializer.SerializeToElement(new WorkExecutionInputV1(plan.WorkstreamId, null, scope.PlanningRevision, scope.Planning)
                 { AllowedOutcomeCodes = ["approved", "changes_requested"] }, Json),
             execution.Stages.SelectMany(x => x.Attempts).Where(x => x.Status == WorkExecutionAttemptStatus.Completed && x.ResultJson != null)
@@ -310,7 +300,8 @@ public sealed partial class WorkDeliveryService
                 .Where(x => x.Output.ValueKind == JsonValueKind.Object && x.Output.TryGetProperty("candidateDigest", out var digest) &&
                     digest.GetString() == Candidate(execution)!.Digest).ToArray(), [], Candidate(execution))
             { OrganizationUserId = stage.OrganizationUserId!.Value, AgentInstallationId = installation,
-              PlanningRevision = scope.PlanningRevision, PermittedOutcomes = stage.StageKey == "build-readiness"
+              PlanningRevision = scope.PlanningRevision, Handler = TicketStep(scope, stage.StageKey)?.Handler,
+              WorkflowTicketId = scope.TicketWorkflow?.TicketId, PermittedOutcomes = Handler(scope,stage.StageKey) is "build-readiness" or "compute-test"
                   ? ["approved", "changes_requested", "awaiting-build", "awaiting-compute"] : ["approved", "changes_requested"] };
         // Persist the canonical stage before admission checks read it. The outer
         // transaction commits the stage, inbox work and event outbox together.
@@ -320,39 +311,16 @@ public sealed partial class WorkDeliveryService
             "WorkDeliveryStage", stage.Id.ToString("D"), 1, ct);
         attempt.AgentWorkItemId = work.Id; stage.Attempts.Add(attempt); db.WorkExecutionAttempts.Add(attempt); stage.Status = WorkStageExecutionStatus.Dispatching;
         execution.Status = "Running"; execution.Revision++;
-        if (runtimes is not null) await runtimes.EnsureRuntimeQueuedAsync(installation, "Delivery review " + plan.Name, cancellationToken: ct);
+        runtimeHints.Add(installation);
     }
 
-    private async Task AdvanceDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, WorkDeliveryScopeSnapshot scope, WorkStageExecution completed, CancellationToken ct)
-    {
-        if (completed.StageKey == "build-readiness")
-        {
-            var result = Decode<WorkExecutionOutcomeV1>(completed.Attempts.Last().ResultJson!).Output.Deserialize<WorkDeliveryReviewResult>(Json)!;
-            execution.BlockedReason = null;
-            if (result.ComputeTests.Count > 0)
-            {
-                await CreateReviewAsync(plan, execution, scope, "quality", ct);
-                return;
-            }
-            var builds = await db.DeliveryBuilds.AsNoTracking().Where(x => result.BuildIds.Contains(x.Id) && x.OrganizationId == plan.OrganizationId).ToListAsync(ct);
-            var candidate = Candidate(execution)! with { Repositories = Candidate(execution)!.Repositories
-                .Select(r => r with { BuildId = builds.Single(b => b.RepositoryId == r.RepositoryId && b.SourceRevision == r.CandidateCommitSha).Id }).ToArray(), Digest = "" };
-            execution.CandidateJson = Encode(candidate with { Digest = Digest(candidate) });
-            await CreateReviewAsync(plan, execution, scope, "quality", ct);
-        }
-        else if (completed.StageKey == "quality")
-        {
-            if (scope.Scope == WorkExecutionScopes.Story) execution.Status = "Promoting";
-            else await CreateReviewAsync(plan, execution, scope, "technical-review", ct);
-        }
-        else if (completed.StageKey == "technical-review") await CreateReviewAsync(plan, execution, scope, "manager-review", ct);
-        else if (completed.StageKey == "manager-review")
-        { execution.AcceptanceJson = completed.Attempts.LastOrDefault()?.ResultJson ?? completed.LastSummary; execution.Status = "Promoting"; }
-        execution.Revision++; execution.UpdatedAt = clock.GetUtcNow();
-    }
+    private Task AdvanceDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, WorkDeliveryScopeSnapshot scope, WorkStageExecution completed, CancellationToken ct) =>
+        AdvanceTicketAsync(plan, execution, scope, completed, ct);
 
     private async Task PromoteDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
     {
+        if (!await ReleaseObligationsCompleteAsync(plan, ct))
+            throw new InvalidOperationException("A declared release dependency is unfinished; default-branch promotion is waiting for that work.");
         await RequireCandidateCurrentAsync(plan, execution, ct);
         foreach (var candidate in Candidate(execution)!.Repositories.Where(x => x.SourceBranch != x.TargetBranch))
         {
@@ -372,18 +340,29 @@ public sealed partial class WorkDeliveryService
             { Stop(execution, result.Error ?? "The provider did not confirm promotion."); return; }
         }
         execution.Status = "Completed"; execution.BlockedReason = null; execution.Revision++; execution.UpdatedAt = clock.GetUtcNow();
-        await SetAggregateCardAsync(execution, "Done", WorkTaskStatus.Completed, ct);
+        await SynchronizeTicketAsync(plan,execution,ct);
     }
 
-    private async Task SetAggregateCardAsync(WorkDeliveryExecution execution, string name, WorkTaskStatus status, CancellationToken ct)
+    internal async Task<bool> ReleaseObligationsCompleteAsync(WorkDeliveryPlan plan, CancellationToken ct)
     {
-        if (execution.WorkItemId is not { } id) return;
-        var item = await db.CoreWorkTasks.SingleAsync(x => x.Id == id, ct);
-        var columns = await db.WorkBoardColumns.Where(x => x.BoardId == execution.BoardId).ToListAsync(ct);
-        var column = columns.FirstOrDefault(x => x.Name == name || name == "Producer Review" && x.Name == "Manager Review") ??
-            (status == WorkTaskStatus.Completed ? columns.FirstOrDefault(x => x.Category == WorkBoardColumnCategory.Done) : null);
-        item.BoardColumnId = column?.Id ?? item.BoardColumnId; item.Status = status; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
+        var finalRepositories = new List<Guid>();
+        foreach (var branch in Branches(plan).Where(b => b.SourceBranch != b.TargetBranch))
+            if (branch.TargetBranch == (await RepositoryAsync(plan.OrganizationId, branch.RepositoryId, ct)).DefaultBranch)
+                finalRepositories.Add(branch.RepositoryId);
+        if (finalRepositories.Count == 0) return true;
+        // Obligations survive successor plans, omission from a new request, and cancellation.
+        var history = await db.WorkDeliveryPlans.AsNoTracking().Where(p => p.OrganizationId == plan.OrganizationId && p.WorkstreamId == plan.WorkstreamId).ToListAsync(ct);
+        var required = history.Where(p => Branches(p).Any(b => finalRepositories.Contains(b.RepositoryId)))
+            .SelectMany(p => Scopes(p).SelectMany(s => s.TicketWorkflow!.FinalReleaseDependencyItemIds)).Distinct().ToArray();
+        foreach (var id in required)
+        {
+            if (!await db.CoreWorkTasks.AnyAsync(t => t.Id == id && t.OrganizationId == plan.OrganizationId && t.ArchivedAt == null && t.Status == WorkTaskStatus.Completed, ct)) return false;
+
+        }
+        return true;
     }
+
+
     private void Stop(WorkDeliveryExecution execution, string reason)
     {
         execution.Status = execution.Promotions.Any(x => x.Status == "Completed") ? "PartiallyPromoted" : "Blocked";
@@ -407,7 +386,7 @@ public sealed partial class WorkDeliveryService
                 plan.Findings.Add(finding); db.Set<WorkDeliveryFinding>().Add(finding);
             }
         }
-        var itemIds = execution.WorkItemId is { } item ? new[] { item } : Scopes(plan).Single(x => x.Scope == WorkExecutionScopes.Release).ChildIds.ToArray();
+        var itemIds = new[] { ScopeFor(plan, execution).TicketWorkflow!.TicketId };
         foreach (var id in itemIds)
         {
         var marker = $"delivery-finding:{execution.Id:N}:{Candidate(execution)!.Digest}";

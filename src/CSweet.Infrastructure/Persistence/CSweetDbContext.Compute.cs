@@ -89,7 +89,7 @@ public sealed partial class CSweetDbContext
         }
         foreach (var entry in ChangeTracker.Entries<ScopedActionGrant>().Where(x =>
             x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted &&
-            x.Entity.Action is "network.inbound.v1" or "network.publish-port.v1").ToArray())
+            x.Entity.Action is "network.inbound.v1" or "network.publish-port.v1" or "network.outbound.v1").ToArray())
         {
             changedOrganizations.Add(entry.Entity.OrganizationId);
         }

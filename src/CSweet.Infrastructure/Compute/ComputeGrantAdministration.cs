@@ -51,6 +51,18 @@ public sealed class ComputeGrantAdministration(CSweetDbContext db, TimeProvider 
         // An explicit owner edit supersedes the hiring-derived permission's provenance.
         grant.GrantedBySubjectId = null;
         grant.ExpiresAt = request.ExpiresAt; grant.RevokedAt = request.Enabled ? null : now;
+        if (request.Action == InfrastructureActions.Outbound)
+        {
+            var affected = await db.ComputeEnvironments.AsNoTracking().Where(e => e.OrganizationId == organizationId &&
+                e.InstallationId == request.InstallationId && e.WorkstreamId == request.WorkstreamId && e.TeardownConfirmedAt == null &&
+                (request.Constraints.EnvironmentId == null || e.Id == request.Constraints.EnvironmentId)).Take(100).ToArrayAsync(token);
+            foreach (var environment in affected)
+                db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                    TargetInstallationId = request.InstallationId, EventType = "com.csweet.compute.changed.v1",
+                    DataJson = JsonSerializer.Serialize(new { environmentId = environment.Id, revision = environment.Revision }),
+                    IdempotencyKey = $"compute-grant:{grantId:N}:{grant.Revision}:{environment.Id:N}",
+                    Status = CSweet.Domain.Core.AgentPlatformEventOutboxStatus.Pending, OccurredAt = now, NextAttemptAt = now });
+        }
         var id = Guid.NewGuid();
         db.AuditOutbox.Add(new() { Id = id, CreatedAt = now, RequestJson = JsonSerializer.Serialize(new AuditEventWriteRequest(
             "compute.grant.changed.v1", Category: "Infrastructure", Outcome: request.Enabled ? "Granted" : "Revoked", OrganizationId: organizationId,

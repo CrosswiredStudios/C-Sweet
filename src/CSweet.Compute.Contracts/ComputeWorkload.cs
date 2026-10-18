@@ -1,17 +1,26 @@
 namespace CSweet.Compute.Contracts;
 
 /// <summary>Exactly one guest operation. No host paths, addresses, or hypervisor selectors.</summary>
-public sealed record ComputeWorkload(ComputeGuestCommand? Command = null, int? PublishPort = null)
+public sealed record ComputeWorkload(ComputeGuestCommand? Command = null, int? PublishPort = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    ComputeNodeDependencies? NodeDependencies = null)
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> RequiredActions => PublishPort.HasValue
+        ? [InfrastructureActions.PublishPort, InfrastructureActions.Inbound]
+        : NodeDependencies is null ? [InfrastructureActions.Execute] : [InfrastructureActions.Execute, InfrastructureActions.Outbound];
     public ComputeWorkload Validate(string operatingSystem)
     {
         if ((Command is null) == (PublishPort is null)) throw new ArgumentException("Choose one workload operation.");
         if (PublishPort is { } port && port is < 1024 or > 65535) throw new ArgumentException("Invalid guest port.");
         var command = Command?.ValidateAndSnapshot(operatingSystem);
+        var dependencies = NodeDependencies?.Validate();
+        if (dependencies is not null && (command is null || operatingSystem != "linux"))
+            throw new ArgumentException("Managed npm restore requires a Linux guest command.");
         // Fit signed provider result envelopes and the short dispatch window.
         if (command is not null && (command.TimeoutSeconds > 30 || command.MaximumOutputBytes > 8192))
             throw new ArgumentException("MVP commands allow 30 seconds and 8192 output bytes.");
-        return this with { Command = command };
+        return this with { Command = command, NodeDependencies = dependencies };
     }
 }
 

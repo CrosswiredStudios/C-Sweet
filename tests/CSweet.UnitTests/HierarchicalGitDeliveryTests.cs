@@ -6,6 +6,32 @@ namespace CSweet.UnitTests;
 
 public sealed class HierarchicalGitDeliveryTests : IDisposable
 {
+    [Fact]
+    public async Task SuccessorIncrementInheritsAcceptedScaffoldWhileDefaultBranchStaysUnpromoted()
+    {
+        await store.ExecuteAsync(new(org, repository, "create", "main"));
+        var integration = "csweet/integration/" + Guid.NewGuid().ToString("N");
+        await Ensure(integration, "main"); var main = await Head("main");
+        await Ensure("csweet/release/scaffold", integration);
+        await Ensure("csweet/story/scaffold", "csweet/release/scaffold");
+        await Publish("csweet/task/scaffold", "csweet/story/scaffold", "scaffold.txt", "accepted scaffold");
+        await Promote("csweet/task/scaffold", "csweet/story/scaffold", "task-scaffold");
+        await Promote("csweet/story/scaffold", "csweet/release/scaffold", "story-scaffold");
+        await Promote("csweet/release/scaffold", integration, "increment-scaffold");
+        // Host provisioning on reconnect must keep the accepted integration head.
+        var accepted = await Head(integration); await Ensure(integration, "main"); Assert.Equal(accepted, await Head(integration));
+        await Ensure("csweet/release/gameplay", integration);
+        await Ensure("csweet/story/gameplay", "csweet/release/gameplay");
+        Assert.Equal("accepted scaffold", await Content("csweet/story/gameplay", "scaffold.txt"));
+        await Publish("csweet/task/gameplay", "csweet/story/gameplay", "gameplay.txt", "next increment");
+        await Promote("csweet/task/gameplay", "csweet/story/gameplay", "task-gameplay");
+        await Promote("csweet/story/gameplay", "csweet/release/gameplay", "story-gameplay");
+        await Promote("csweet/release/gameplay", integration, "increment-gameplay");
+        Assert.Equal("accepted scaffold", await Content(integration, "scaffold.txt"));
+        Assert.Equal("next increment", await Content(integration, "gameplay.txt"));
+        Assert.Equal(main, await Head("main"));
+    }
+
     private readonly string root = Path.Combine(Path.GetTempPath(), "csweet-hierarchical-git", Guid.NewGuid().ToString("N"));
     private readonly Guid org = Guid.NewGuid(), repository = Guid.NewGuid();
     private readonly WorkspaceArtifactValidator artifacts = new();
@@ -71,6 +97,69 @@ public sealed class HierarchicalGitDeliveryTests : IDisposable
         Assert.Equal("addressed review finding", await Content("csweet/task/one/r2", "review-fix.txt"));
         await Promote("csweet/task/one/r2", "csweet/story/one", "rework-integrate");
         Assert.Equal("existing implementation", await Content("csweet/story/one", "implementation.txt"));
+    }
+
+    [Fact]
+    public async Task ConflictedReworkPreservesBothHistoriesAndRequiresResolutionBeforePublication()
+    {
+        await store.ExecuteAsync(new(org, repository, "create", "main"));
+        await Ensure("csweet/story/one", "main");
+        await Publish("csweet/task/base", "csweet/story/one", "shared.txt", "base\n");
+        await Promote("csweet/task/base", "csweet/story/one", "base");
+        var task = await Publish("csweet/task/one/r1", "csweet/story/one", "shared.txt", "task feature\n");
+        await Publish("csweet/task/two", "csweet/story/one", "shared.txt", "story feature\n");
+        await Promote("csweet/task/two", "csweet/story/one", "two");
+        var target = await Head("csweet/story/one");
+        var request = Operation("csweet/task/one/r1", "csweet/story/one", "candidate", "conflicted") with
+            { ExpectedSourceSha = task.CommitSha, ExpectedTargetSha = target };
+        var stopped = await store.DeliveryBranchAsync(request);
+        Assert.Equal("integration_conflicts", stopped.ErrorCode);
+        Assert.Equal("shared.txt", Assert.Single(stopped.ConflictPaths));
+        Assert.Null(stopped.CandidateCommitSha);
+        var rework = await store.DeliveryBranchAsync(request with { Operation = "rework" });
+        Assert.Equal(rework.ReworkCommitSha, (await store.DeliveryBranchAsync(request with { Operation = "rework" })).ReworkCommitSha);
+        Assert.Null(rework.CandidateCommitSha); Assert.False(rework.Promoted);
+        Assert.Equal(target, await Head("csweet/story/one"));
+        Assert.Equal(task.CommitSha, await Head("csweet/task/one/r1"));
+        var workspace = Guid.NewGuid();
+        var snapshot = await store.PrepareAsync(new(org, repository, workspace, "csweet/story/one",
+            "csweet/task/one/r2", rework.ReworkCommitSha, "rework"), artifacts);
+        var directory = Path.Combine(root, "conflict-resolution");
+        await artifacts.ExtractZipAsync(new MemoryStream(snapshot.Archive), directory);
+        var content = await File.ReadAllTextAsync(Path.Combine(directory, "shared.txt"));
+        Assert.Contains("<<<<<<<", content); Assert.Contains("task feature", content); Assert.Contains("story feature", content);
+        async Task<InternalGitSnapshotResult> PublishResolved()
+        {
+            using var archive = new MemoryStream(); var manifest = await artifacts.CreateZipAsync(directory, archive);
+            return await store.ApplySnapshotAsync(new(org, repository, workspace, "publish", snapshot.BaseCommitSha,
+                "csweet/task/one/r2", "csweet/story/one", "resolved", archive.ToArray(), manifest.Sha256,
+                manifest.FileCount, manifest.TotalBytes, "Resolve integration conflicts"), artifacts);
+        }
+        Assert.Contains("conflict marker", (await Assert.ThrowsAsync<InvalidOperationException>(PublishResolved)).Message);
+        await File.WriteAllTextAsync(Path.Combine(directory, "shared.txt"), "story feature\ntask feature\n");
+        await PublishResolved();
+        var integrated = await Promote("csweet/task/one/r2", "csweet/story/one", "resolved");
+        Assert.True(integrated.Promoted);
+        Assert.Equal("story feature\ntask feature\n", await Content("csweet/story/one", "shared.txt"));
+        var stale = await store.DeliveryBranchAsync(request with { Operation = "rework" });
+        Assert.Null(stale.ReworkCommitSha); Assert.Contains("changed", stale.Error);
+    }
+
+    [Fact]
+    public async Task BinaryConflictStopsWithoutDiscardingEitherBranch()
+    {
+        await store.ExecuteAsync(new(org, repository, "create", "main"));
+        await Ensure("csweet/story/one", "main");
+        await Publish("csweet/task/base", "csweet/story/one", "shared.bin", "\0base");
+        await Promote("csweet/task/base", "csweet/story/one", "base");
+        var task = await Publish("csweet/task/one", "csweet/story/one", "shared.bin", "\0task");
+        await Publish("csweet/task/two", "csweet/story/one", "shared.bin", "\0story");
+        await Promote("csweet/task/two", "csweet/story/one", "two");
+        var target = await Head("csweet/story/one");
+        var result = await store.DeliveryBranchAsync(Operation("csweet/task/one", "csweet/story/one", "rework", "binary") with
+            { ExpectedSourceSha = task.CommitSha, ExpectedTargetSha = target });
+        Assert.Equal("unsupported_integration_conflict", result.ErrorCode); Assert.Null(result.ReworkCommitSha);
+        Assert.Equal(task.CommitSha, await Head("csweet/task/one")); Assert.Equal(target, await Head("csweet/story/one"));
     }
 
     [Fact]

@@ -18,6 +18,39 @@ namespace CSweet.UnitTests;
 public sealed class DocumentApprovalRenderingTests
 {
     [Fact]
+    public async Task DocumentApprovalExplainsTheDecisionAndItsEffect()
+    {
+        await using var f = new Fixture();
+        var html = await f.Html(await f.RenderCard());
+        Assert.Contains("Approve Game design document?", html);
+        Assert.Contains("Accept revision 1 as the reviewed version your team can use.", html);
+        Assert.Contains("Request changes if it needs more work.", html);
+        Assert.DoesNotContain("give your team direction", html);
+        html = await f.Html(await f.RenderPane());
+        Assert.Contains("Requesting changes sends it back to the author for revision.", html);
+    }
+
+    [Fact]
+    public async Task HistoricalEvidenceHasNoDecisionAndKeepsOriginalLogsBehindADisclosure()
+    {
+        await using var f = new Fixture();
+        f.Api.Detail = f.Api.Detail with {
+            Document = f.Api.Detail.Document with { DocumentType = ArtifactDocumentTypes.RecoveredQaEvidence },
+            Revisions = f.Api.Detail.Revisions.Select(r => r.Id == f.Api.Submitted
+                ? r with { Content = "{\"result\":\"<script>original log</script>\\n\\u001b[32m\"}" } : r).ToList()
+        };
+        var html = await f.Html(await f.RenderPane());
+        Assert.Contains("Evidence saved", html);
+        Assert.Contains("No action is needed from you.", html);
+        Assert.Contains("View original command logs", html);
+        Assert.Contains("<details>", html);
+        Assert.DoesNotContain("<details open", html);
+        Assert.Contains("&lt;script&gt;original log&lt;/script&gt;", html);
+        Assert.DoesNotContain("artifact-decision-bar", html);
+        Assert.DoesNotContain("Accepted none", html);
+    }
+
+    [Fact]
     public async Task DocumentsRevisionDeepLinkShowsTheReferencedContentInsteadOfTheLatestDraft()
     {
         await using var f = new Fixture();

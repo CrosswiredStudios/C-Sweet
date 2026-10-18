@@ -24,7 +24,7 @@ public sealed partial class ComputeBroker
             var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)!;
             var workload = request.Workload.Validate(spec.OperatingSystem);
             var action = workload.Command is null ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
-            var actions = action == InfrastructureActions.PublishPort ? new[] { action, InfrastructureActions.Inbound } : new[] { action };
+            var actions = workload.RequiredActions.Concat(spec.NetworkPolicy.AllowOutbound ? [InfrastructureActions.Outbound] : Array.Empty<string>()).Distinct().ToArray();
             if (action == InfrastructureActions.PublishPort)
             {
                 foreach (var required in actions)
@@ -39,17 +39,34 @@ public sealed partial class ComputeBroker
                 await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, required, token, environment.Id);
                 RequireAction(grants, required, now);
                 var grant = grants.FirstOrDefault(g => g.Action == required && g.ExpiresAt >= environment.LeaseExpiresAt &&
-                    g.Id != Guid.Empty && g.Revision > 0 && Allows(g.ConstraintsJson))
+                    g.Id != Guid.Empty && g.Revision > 0 && Allows(g.ConstraintsJson, required))
                     ?? throw new UnauthorizedAccessException("Workload exceeds current grants.");
                 authority.Add(new(grant.Id, grant.Revision, required, grant.ExpiresAt!.Value));
             }
             var json = JsonSerializer.Serialize(workload, Json);
             var digest = Digest(JsonSerializer.Serialize(new { request.EnvironmentId, request.ExpectedGeneration, workload }, Json));
-            var prior = await db.ComputeOperations.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            var prior = await db.ComputeOperations.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
                 x.InstallationId == installationId && x.IdempotencyKey == request.IdempotencyKey, token);
             if (prior is not null)
             {
                 if (prior.RequestDigest != digest) throw new InvalidOperationException("Request key already has different terms.");
+                // Reconsider only work denied before any signed dispatch. Unknown or
+                // physically attempted effects retain their execution fence.
+                if (prior.Status == "Blocked" && prior.FailureCode == "dispatch-authority-denied" && prior.Attempts == 0 &&
+                    prior.DispatchLeaseId is null && prior.DispatchLeaseExpiresAt is null && prior.CompletedAt is null &&
+                    environment.Generation == prior.Generation && environment.State == ComputeLifecycleState.Busy &&
+                    environment.DesiredState == ComputeDesiredState.Running && environment.TeardownConfirmedAt is null &&
+                    environment.LeaseExpiresAt > now.AddSeconds(45) && environment.ProviderResourceId is not null)
+                {
+                    prior.Status = "Pending"; prior.FailureCode = null; prior.Revision++; prior.NextAttemptAt = now;
+                    prior.AuthorityJson = JsonSerializer.Serialize(authority, Json);
+                    environment.LastFailureCode = null; environment.UpdatedAt = now;
+                    var wake = await db.ComputeProviderWakes.SingleAsync(x => x.Id == prior.Id, token);
+                    wake.PublishedAt = null; wake.NextAttemptAt = now; wake.Revision++;
+                    QueueAudit(environment, "ReconsideredUndispatched", authority, action);
+                    await db.SaveChangesAsync(token);
+                    if (transaction is not null) await transaction.CommitAsync(token);
+                }
                 return OperationView(prior);
             }
             if (environment.Generation != request.ExpectedGeneration || environment.State != ComputeLifecycleState.Ready ||
@@ -70,14 +87,17 @@ public sealed partial class ComputeBroker
             if (transaction is not null) await transaction.CommitAsync(token);
             return OperationView(operation);
 
-            bool Allows(string constraintsJson)
+            bool Allows(string constraintsJson, string required)
             {
                 try
                 {
                     var constraints = JsonSerializer.Deserialize<ComputeGrantConstraints>(constraintsJson, Json);
                     return constraints?.Allows(spec, 0) == true &&
+                        (required != InfrastructureActions.Outbound || constraints.AllowOutbound &&
+                            (constraints.AllowedDependencyRegistries is null || constraints.AllowedDependencyRegistries.Contains(ComputeNodeDependencies.Registry))) &&
                         (constraints.EnvironmentId is null || constraints.EnvironmentId == environment.Id) &&
-                        (workload.PublishPort is null || constraints.AllowedPublishedPorts?.Contains(workload.PublishPort.Value) == true);
+                        (workload.PublishPort is null || required is not (InfrastructureActions.Inbound or InfrastructureActions.PublishPort) ||
+                            constraints.AllowedPublishedPorts?.Contains(workload.PublishPort.Value) == true);
                 }
                 catch (JsonException) { return false; }
             }

@@ -136,6 +136,11 @@ public sealed class CurrentActivityTests
 
     [Theory]
     [InlineData("com.csweet.agent.attention.review-due.v1", "Review", "Reviewing work")]
+    [InlineData("com.csweet.project-health.review-due.v1", "Review", "Reviewing project health")]
+    [InlineData("com.csweet.work.item.discussion.changed.v1", "Discussion", "Responding to a task discussion")]
+    [InlineData("work.execution.build-readiness.v1", "Build", "Checking build readiness")]
+    [InlineData("work.execution.compute-test.v1", "Testing", "Testing delivery")]
+    [InlineData("work.execution.run", "Work", "Executing assigned work")]
     [InlineData("com.example.unknown.event.v2", "Background", "Background activity")]
     public async Task BackgroundEventsHaveHumanReadableTitles(string name, string kind, string title)
     {
@@ -145,6 +150,79 @@ public sealed class CurrentActivityTests
         f.Db.Add(work); await f.Db.SaveChangesAsync();
         var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.AgentWorkItemId == work.Id);
         Assert.Equal(title, row.Title); Assert.Equal(kind, row.ActivityKind); Assert.Equal(name, row.TechnicalName);
+    }
+
+    [Theory]
+    [InlineData("technical-review", "Review", "Technical review")]
+    [InlineData("manager-review", "Review", "Delivery acceptance review")]
+    [InlineData("build-readiness", "Build", "Checking build readiness")]
+    [InlineData("quality", "Testing", "Testing delivery")]
+    public async Task ReleaseStageShowsCanonicalActivityAndScopeWithoutInventingATask(string stageKey, string kind, string label)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var delivery = await f.DeliveryAsync(stageKey);
+        await f.RunAsync(f.Attempt.Id, null);
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User, projectsOnly: true)).Items, x => x.AgentWorkItemId == f.Attempt.AgentWorkItemId);
+        Assert.Equal(kind, row.ActivityKind); Assert.Equal(label, row.ActivityLabel);
+        Assert.Equal("Release: First playable", row.Title);
+        Assert.Equal(delivery.Plan!.WorkstreamId, row.ProjectId);
+        Assert.Equal(delivery.BoardId, row.BoardId);
+        Assert.Null(row.WorkItemId); Assert.Equal("Executing", row.State);
+        Assert.Equal("Waiting for model response", row.CurrentAction);
+        await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, null, 0, default);
+        f.Grants.Allow = false;
+        Assert.DoesNotContain((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.AgentWorkItemId == f.Attempt.AgentWorkItemId);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, null, 0, default));
+    }
+
+    [Fact]
+    public async Task EpicReviewKeepsTaskAuthorizationAndDoesNotInheritItsDependencyWait()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.DeliveryAsync("technical-review", f.Ticket.Id);
+        f.Ticket.Status = WorkTaskStatus.WaitingForApproval;
+        f.Ticket.WaitingReason = "Waiting for this technical review";
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal(f.Ticket.Id, row.WorkItemId); Assert.Equal("Executing", row.State);
+        Assert.Equal("Technical review", row.ActivityLabel);
+        await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, null, 0, default));
+    }
+
+    [Theory]
+    [InlineData("foreign-organization")]
+    [InlineData("wrong-agent")]
+    [InlineData("wrong-source")]
+    [InlineData("missing-attempt")]
+    [InlineData("archived-board")]
+    public async Task InvalidDeliveryBindingCannotFallBackToBackgroundOrExposeItsFeed(string invalid)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var delivery = await f.DeliveryAsync("technical-review");
+        var stage = Assert.Single(delivery.Stages);
+        var work = await f.Db.AgentWorkItems.SingleAsync();
+        switch (invalid)
+        {
+            case "foreign-organization": delivery.Plan!.OrganizationId = Guid.NewGuid(); break;
+            case "wrong-agent": stage.AgentInstallationId = Guid.NewGuid(); break;
+            case "wrong-source": work.SourceId = Guid.NewGuid().ToString(); break;
+            case "missing-attempt": f.Db.WorkExecutionAttempts.RemoveRange(stage.Attempts); break;
+            case "archived-board": (await f.Db.WorkBoards.SingleAsync()).ArchivedAt = DateTimeOffset.UtcNow; break;
+        }
+        await f.Db.SaveChangesAsync();
+        Assert.DoesNotContain((await f.Service.ReadAsync(f.Org, f.User)).Items, x => x.AgentWorkItemId == work.Id);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, null, 0, default));
+    }
+
+    [Fact]
+    public async Task ReportedActivityTakesPriorityOverNewerModelStatus()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.ProgressAsync(f.Ticket.Id, "Reviewing acceptance criteria", "activity");
+        await f.RunAsync(f.Attempt.Id, f.Ticket.Id);
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal("Reviewing acceptance criteria", row.CurrentAction);
     }
 
     [Theory]
@@ -399,12 +477,29 @@ public sealed class CurrentActivityTests
                 AgentWorkAttemptId = attempt, WorkItemId = task, StartedAt = DateTimeOffset.UtcNow, Status = "Running" };
             Db.Add(run); await Db.SaveChangesAsync(); return run.Id;
         }
-        public async Task<Guid> ProgressAsync(Guid task, string? message)
+        public async Task<WorkDeliveryExecution> DeliveryAsync(string stageKey, Guid? taskId = null)
+        {
+            var board = await Db.WorkBoards.SingleAsync();
+            var plan = new WorkDeliveryPlan { Id = Guid.NewGuid(), OrganizationId = Org, WorkstreamId = board.WorkstreamId!.Value, Name = "First playable" };
+            var execution = new WorkDeliveryExecution { Id = Guid.NewGuid(), PlanId = plan.Id, Plan = plan,
+                BoardId = board.Id, WorkItemId = taskId, Scope = taskId.HasValue ? "Epic" : "Release", CurrentStageKey = stageKey };
+            var stage = new WorkStageExecution { Id = Guid.NewGuid(), DeliveryExecutionId = execution.Id, DeliveryExecution = execution,
+                StageKey = stageKey, OrganizationUserId = Agent.Id, AgentInstallationId = Agent.AgentInstallationId };
+            var work = await Db.AgentWorkItems.SingleAsync();
+            work.SourceType = "WorkDeliveryStage"; work.SourceId = stage.Id.ToString(); work.Name = "work.execution.run";
+            // Aggregate deliveries can have no task focus, even during an active review.
+            foreach (var context in await Db.WorkExecutionContexts.ToListAsync()) { context.RootWorkItemId = null; context.WorkItemId = null; }
+            var attempt = new WorkExecutionAttempt { Id = Guid.NewGuid(), StageExecutionId = stage.Id, StageExecution = stage,
+                AgentWorkItemId = work.Id, Attempt = 1 };
+            Db.AddRange(plan, execution, stage, attempt); await Db.SaveChangesAsync();
+            return execution;
+        }
+        public async Task<Guid> ProgressAsync(Guid task, string? message, string kind = "workspace-tool")
         {
             var record = new AgentWorkProgress { Id = Guid.NewGuid(), AgentWorkItemId = Attempt.AgentWorkItemId,
                 AgentWorkAttemptId = Attempt.Id, Sequence = await Db.AgentWorkProgress.CountAsync() + 1,
                 OccurredAt = DateTimeOffset.UtcNow, ProtectedValue = protection.CreateProtector("CSweet.AgentWorkInbox.v1").Protect(
-                    JsonSerializer.SerializeToUtf8Bytes(new { itemId = task, kind = "workspace-tool", message })) };
+                    JsonSerializer.SerializeToUtf8Bytes(new { itemId = task, kind, message })) };
             Db.Add(record); await Db.SaveChangesAsync();
             await Writer.AppendAsync(new("agent.work.progress", "AgentWork", OrganizationId: Org,
                 EntityType: "AgentWorkProgress", EntityId: record.Id, ContentType: "application/json",

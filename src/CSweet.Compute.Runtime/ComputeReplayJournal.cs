@@ -159,8 +159,20 @@ public sealed partial class ComputeReplayJournal
         // Persist the fence and receipt before any hypervisor effect. Failure after this write
         // must lead to observation/inventory reconciliation, not another execution claim.
         await WriteAsync(state, token);
-        var remaining = claim.ExpiresAt - clock.GetUtcNow();
-        if (remaining <= TimeSpan.Zero) throw new UnauthorizedAccessException("The dispatch expired while recording its fence.");
+        var admittedAt = clock.GetUtcNow();
+        if (claim.ExpiresAt <= admittedAt) throw new UnauthorizedAccessException("The dispatch expired while recording its fence.");
+        var executionDeadline = claim.ExpiresAt;
+        if (decision == ComputeJournalDecision.Execute && claim.Action == InfrastructureActions.Execute && dispatch.Workload?.NodeDependencies is not null)
+        {
+            // The one-minute signature window admits this exact managed workload; it is not its setup budget.
+            // Derive the bounded setup deadline only from signed terms, never beyond any grant or VM lease.
+            // Normal commands and observation-only recovery retain their existing short deadline.
+            executionDeadline = claim.IssuedAt.AddMinutes(7);
+            if (executionDeadline > claim.EnvironmentLeaseExpiresAt) executionDeadline = claim.EnvironmentLeaseExpiresAt;
+            foreach (var grant in claim.Grants) if (executionDeadline > grant.ExpiresAt) executionDeadline = grant.ExpiresAt;
+        }
+        var remaining = executionDeadline - admittedAt;
+        if (remaining <= TimeSpan.Zero) throw new UnauthorizedAccessException("The compute execution window expired.");
         using var deadline = new CancellationTokenSource(remaining, clock);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token);
         linked.Token.ThrowIfCancellationRequested();

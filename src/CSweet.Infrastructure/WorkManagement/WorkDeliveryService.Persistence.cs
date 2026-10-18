@@ -10,7 +10,7 @@ public sealed partial class WorkDeliveryService
 {
     private async Task RevokeTaskArtifactGrantsAsync(WorkDeliveryPlan plan, CancellationToken ct)
     {
-        var taskIds = Scopes(plan).Where(x => x.Scope == WorkExecutionScopes.Story).SelectMany(x => x.ChildIds).ToArray();
+        var taskIds = Scopes(plan).SelectMany(x => x.ChildIds).Distinct().ToArray();
         var stageIds = await db.WorkStageExecutions.Where(x => x.ItemExecution != null && taskIds.Contains(x.ItemExecution.WorkItemId))
             .Select(x => x.Id).ToListAsync(ct);
         var grants = await db.ScopedActionGrants.Where(x => x.OrganizationId == plan.OrganizationId && x.GrantedBySubjectKind == GrantSubjectKind.AutomationIdentity &&

@@ -262,7 +262,8 @@ public sealed class ApprovalDashboardService(
 
         var artifacts = await db.CoreArtifacts.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId &&
-                x.ApprovalStatus != ApprovalStatus.NotRequired)
+                x.ApprovalStatus != ApprovalStatus.NotRequired &&
+                x.DocumentType != ArtifactDocumentTypes.RecoveredQaEvidence)
             .OrderByDescending(x => x.UpdatedAt)
             .Take(250)
             .ToListAsync(cancellationToken);
@@ -297,7 +298,7 @@ public sealed class ApprovalDashboardService(
                 artifact.Id,
                 ApprovalDashboardKinds.Artifact,
                 $"Artifact: {artifact.Title}",
-                $"Version {artifact.Version} {artifact.Type}.",
+                $"Approve the submitted version of {artifact.Title} for your team to use, or request changes from the author.",
                 artifact.ApprovalStatus.ToString(),
                 artifact.CreatedByOrganizationUserId.HasValue
                     ? Name(names, artifact.CreatedByOrganizationUserId.Value, artifact.CreatorDisplayName)

@@ -12,6 +12,36 @@ namespace CSweet.UnitTests;
 public sealed partial class ProjectHealthTests
 {
     [Fact]
+    public async Task OwnerReportWakeCoalescesChangedEvidenceThroughOutboxAndInboxThenRefreshesAfterCompletion()
+    {
+        await using var f = await Fixture.Create();
+        var (incident, ticket) = await PrepareOwnerReport(f, deliver: false);
+        async Task ChangeEvidence()
+        {
+            f.Clock.Now += TimeSpan.FromMinutes(16);
+            ticket.Revision++; ticket.UpdatedAt = f.Clock.Now;
+            await f.Db.SaveChangesAsync(); await f.Service.ReviewDueAsync(default);
+        }
+        await ChangeEvidence();
+        var wake = Assert.Single(f.Db.AgentPlatformEventOutbox.Where(x => x.EventType == ProjectHealthEvents.OwnerReportRequested));
+        await ChangeEvidence();
+        Assert.Single(f.Db.AgentPlatformEventOutbox.Where(x => x.EventType == ProjectHealthEvents.OwnerReportRequested));
+        wake.Status = AgentPlatformEventOutboxStatus.Published;
+        var delivery = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+            AgentInstallationId = f.Chief.AgentInstallationId!.Value, Name = ProjectHealthEvents.OwnerReportRequested,
+            SourceType = "platform-event", SourceId = wake.Id.ToString("D"), Status = AgentWorkStatus.Pending };
+        f.Db.Add(delivery); await f.Db.SaveChangesAsync();
+        await ChangeEvidence();
+        delivery.Status = AgentWorkStatus.Leased; await f.Db.SaveChangesAsync();
+        await ChangeEvidence();
+        Assert.Single(f.Db.AgentPlatformEventOutbox.Where(x => x.EventType == ProjectHealthEvents.OwnerReportRequested));
+        delivery.Status = AgentWorkStatus.Completed; await f.Db.SaveChangesAsync();
+        await ChangeEvidence();
+        Assert.Equal(2, f.Db.AgentPlatformEventOutbox.Count(x => x.EventType == ProjectHealthEvents.OwnerReportRequested));
+        Assert.Equal("Open", incident.Status); // Coalescing never resolves the actual incident.
+    }
+
+    [Fact]
     public async Task OlderWordyReportsShowSharedConciseFactsWithoutChangingTheirHistoryOrAuthority()
     {
         await using var f = await Fixture.Create(); var (incident, _) = await PrepareOwnerReport(f);

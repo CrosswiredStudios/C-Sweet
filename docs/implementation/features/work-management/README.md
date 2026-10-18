@@ -1,5 +1,11 @@
 # Universal work management
 
+See [ticket-defined workflows](ticket-defined-workflows.md) for the current delivery model: agents declare visible workflow tickets, dependencies, criteria and assigned steps. Source-scope labels do not impose aggregate review gates. Clean-start plans replace the former implicit delivery sequence.
+
+See [grant-controlled compute dependency restore](compute-dependency-restore.md) for lockfile-pinned npm ingress, independent grants, provider isolation, exact-source build proof and recovery of the missing-Phaser compute setup failure.
+
+See [progressive sprint continuation](progressive-sprint-continuation.md) for increment-scoped staffing, provenance-bound planning, aggregate dispatch persistence, bounded continuation recovery and successor-sprint regression coverage.
+
 See [artifact QA rework recovery](artifact-qa-rework.md) for current-cycle document
 selection, claim-time read grants, regression coverage and SDK/QA rollout.
 
@@ -10,6 +16,14 @@ See [branch recovery and clean installation](branch-recovery-and-clean-install.m
 See [verified results and package handoff](hierarchical-delivery-validation.md) for final test counts, package versions, reproducible checks and operational boundaries.
 
 See [technical review and QA recovery](review-qa-recovery.md) for strict review schemas, retained page evidence, canonical QA results, owner-approved blocked-task scope amendment and the verified InternalGit rework journey.
+
+See [automatic integration conflict recovery](integration-conflict-recovery.md) for author merge workspaces, pinned-policy recovery, fresh approval and live ticket 17 evidence.
+
+See [repository inputs for artifact reports](artifact-repository-inputs.md) for pinned Story snapshots, current-attempt authorization and the QA report handoff.
+
+See [unattended QA tool and evidence recovery](qa-tool-approval-recovery.md) for fixed-destination writers, durable observed results and the verified-audit recovery input.
+
+See [artifact QA criterion correction](artifact-criterion-correction.md) for exact criterion identity, bounded JSON correction, current authorization checks and ticket 20's retained review evidence.
 
 See [review validation recovery, October 17](review-validation-recovery-2026-10-17.md) for expanded review budgets, field-specific correction feedback, package verification and ticket 15's authorized recovery.
 

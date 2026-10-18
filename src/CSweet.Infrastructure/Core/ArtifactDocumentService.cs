@@ -106,7 +106,8 @@ public sealed class ArtifactDocumentService(
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, Type = ArtifactType.Document,
             Title = request.Title.Trim(), Content = request.Content, Version = 1,
-            ApprovalStatus = ApprovalStatus.Pending, CreatedAt = now, UpdatedAt = now,
+            ApprovalStatus = ArtifactDocumentTypes.IsRetainedEvidence(request.DocumentType.Trim())
+                ? ApprovalStatus.NotRequired : ApprovalStatus.Pending, CreatedAt = now, UpdatedAt = now,
             FolderId = request.FolderId, PackageId = request.PackageId,
             OriginConversationId = request.OriginConversationId, OriginWorkItemId = request.OriginWorkItemId,
             CreatedByOrganizationUserId = member.Id, StewardOrganizationUserId = request.StewardOrganizationUserId ?? member.Id,
@@ -145,6 +146,8 @@ public sealed class ArtifactDocumentService(
         artifact.Content = request.Content;
         artifact.Version = revision.Number;
         artifact.DocumentStatus = ArtifactDocumentStatus.Draft;
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            artifact.ApprovalStatus = ApprovalStatus.NotRequired;
         artifact.UpdatedAt = now;
         await db.SaveChangesAsync(cancellationToken);
         await AuditContentAsync("artifact.revision.created", organizationId, artifact, revision, member, cancellationToken);
@@ -159,6 +162,15 @@ public sealed class ArtifactDocumentService(
         await RequireActionAsync(organizationId, member, artifactId, ArtifactActions.Submit, cancellationToken);
         var artifact = await LoadArtifactAsync(organizationId, artifactId, cancellationToken) ?? throw NotFound();
         var revision = artifact.Revisions.SingleOrDefault(x => x.Id == request.RevisionId) ?? throw NotFound();
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+        {
+            if (revision.Status == ArtifactRevisionStatus.Retained && artifact.LatestRevisionId == revision.Id)
+                return await DetailAsync(artifact, cancellationToken);
+            await ArtifactEvidenceRetention.RetainAsync(db, artifact, revision, clock.GetUtcNow(), cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await AuditContentAsync("artifact.evidence.retained", organizationId, artifact, revision, member, cancellationToken);
+            return await DetailAsync(artifact, cancellationToken);
+        }
         if (revision.Status == ArtifactRevisionStatus.Submitted)
             return await DetailAsync(artifact, cancellationToken);
         if (artifact.LatestRevisionId != revision.Id || revision.Status != ArtifactRevisionStatus.Draft)
@@ -199,6 +211,8 @@ public sealed class ArtifactDocumentService(
         await RequireActionAsync(organizationId, member, artifactId, ArtifactActions.Decide, cancellationToken);
         var artifact = await LoadArtifactAsync(organizationId, artifactId, cancellationToken) ?? throw NotFound();
         var revision = artifact.Revisions.SingleOrDefault(x => x.Id == request.RevisionId) ?? throw NotFound();
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            throw new InvalidOperationException("These logs are saved as evidence and do not need approval.");
         var decision = request.Decision.Trim().ToLowerInvariant();
         if (decision is not ("accept" or "approve" or "reject" or "request-revision"))
             throw new ArgumentException("Decision must be accept, reject, or request-revision.");
@@ -280,6 +294,9 @@ public sealed class ArtifactDocumentService(
         var artifact = await LoadArtifactAsync(organizationId, artifactId, cancellationToken) ?? throw NotFound();
         artifact.ArchivedAt = archived ? clock.GetUtcNow() : null;
         artifact.DocumentStatus = archived ? ArtifactDocumentStatus.Archived :
+            ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType) &&
+                artifact.Revisions.Any(x => x.Id == artifact.LatestRevisionId && x.Status == ArtifactRevisionStatus.Retained)
+                ? ArtifactDocumentStatus.Retained :
             artifact.AcceptedRevisionId.HasValue ? ArtifactDocumentStatus.Approved : ArtifactDocumentStatus.Draft;
         artifact.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(cancellationToken);

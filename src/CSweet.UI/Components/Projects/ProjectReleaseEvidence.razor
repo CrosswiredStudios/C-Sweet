@@ -1,0 +1,48 @@
+@using CSweet.WorkManagement.Contracts
+
+@if (Execution.Candidate is { } candidate)
+{
+    <details class="candidate-evidence"><summary>Reviewed/tested candidate</summary>
+        <p><code>@candidate.Digest</code> · scope revision @candidate.ScopeRevision</p>
+        <table><thead><tr><th>Repository</th><th>Candidate commit</th><th>Promotion</th><th>Integrated commit</th><th>Recovery state</th></tr></thead><tbody>
+        @foreach (var repository in candidate.Repositories)
+        {
+            var receipt = Execution.Promotions.SingleOrDefault(x => x.RepositoryId == repository.RepositoryId);
+            <tr><td>@repository.RepositoryId</td><td><code>@repository.CandidateCommitSha</code>@if (repository.BuildId is { } buildId) { <span> · build @buildId</span> }</td><td>@(receipt?.Status ?? "Awaiting validation")</td><td><code>@receipt?.MergeCommitSha</code></td><td>@receipt?.Error</td></tr>
+        }
+        </tbody></table>
+        @foreach (var document in candidate.Documents) { <p>Document @document.ArtifactId · revision <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }
+    </details>
+}
+@foreach (var stage in Execution.Stages)
+{
+    <p>@stage.StageKey · @stage.Status · @PersonName(stage.OrganizationUserId) · @stage.LastOutcomeCode</p>
+    @if (stage.LatestOutcome is { } outcome)
+    {
+        <p>@outcome.Summary</p>
+        @foreach (var test in ComputeLinks(outcome, Execution.Candidate?.Digest))
+        {
+            @if (test.UrlExpiresAt > DateTimeOffset.UtcNow)
+            { <p><a href="@test.Url" target="_blank" rel="noopener noreferrer">Open test application</a> · Available on the compute host · expires @test.UrlExpiresAt.ToLocalTime()</p> }
+            else { <p>The test link has expired.</p> }
+        }
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public WorkDeliveryExecutionResponse Execution { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<Guid?, string> PersonName { get; set; } = default!;
+
+    private static IReadOnlyList<WorkDeliveryComputeEvidence> ComputeLinks(WorkExecutionOutcomeV1 outcome, string? digest)
+    {
+        if (outcome.OutcomeCode != "approved" || outcome.Output.ValueKind != System.Text.Json.JsonValueKind.Object) return [];
+        try
+        {
+            var review = System.Text.Json.JsonSerializer.Deserialize<WorkDeliveryReviewResult>(outcome.Output,
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            return review is not null && review.CandidateDigest == digest ? review.ComputeTests.Where(x => Uri.TryCreate(x.Url, UriKind.Absolute, out var uri) &&
+                uri.Scheme == "http" && uri.Host == "127.0.0.1").ToArray() : [];
+        }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
+}

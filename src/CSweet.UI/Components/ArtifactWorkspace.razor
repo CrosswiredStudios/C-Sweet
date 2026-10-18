@@ -16,7 +16,7 @@
                 <MudText Typo="Typo.h5">@(_detail?.Document.Title ?? "Loading…")</MudText>
                 @if (_detail is { } headingDetail)
                 {
-                    <span class="artifact-workspace-type">@(headingDetail.DocumentTypeDisplayName ?? FormatDocumentType(headingDetail.Document.DocumentType))</span>
+                    <span class="artifact-workspace-type">@(IsRetainedEvidence ? "QA test history" : headingDetail.DocumentTypeDisplayName ?? FormatDocumentType(headingDetail.Document.DocumentType))</span>
                 }
             </div>
         </div>
@@ -48,10 +48,11 @@
     else if (_detail is { } detail)
     {
         <div class="artifact-workspace-meta">
-            <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)" Variant="Variant.Filled">@StatusLabel(detail.Document.Status)</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)" Variant="Variant.Filled">@(IsRetainedEvidence && detail.Document.ArchivedAt is null ? "Evidence saved" : StatusLabel(detail.Document.Status))</MudChip>
             @if (PreviewRevision is { } displayedRevision)
             { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.HistoryEdu" Size="Size.Small" />Revision @displayedRevision.Number</span> }
-            <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />Accepted @(detail.AcceptedRevision is null ? "none" : $"revision {detail.AcceptedRevision.Number}")</span>
+            @if (!IsRetainedEvidence)
+            { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />Accepted @(detail.AcceptedRevision is null ? "none" : $"revision {detail.AcceptedRevision.Number}")</span> }
             @if (detail.Document.PackageId.HasValue)
             {
                 <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Small" />Document package</span>
@@ -77,10 +78,19 @@
                 {
                 <div class="artifact-preview-shell">
                     <div class="artifact-preview-caption">
-                        <span>Revision @preview.Number · @preview.Status</span>
+                        <span>Revision @preview.Number · @(IsRetainedEvidence ? "Saved evidence" : preview.Status)</span>
                         <span>Updated @preview.CreatedAt.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</span>
                     </div>
-                    <article class="artifact-markdown-preview"><ChatMarkdown Content="@preview.Content" /></article>
+                    @if (IsRetainedEvidence)
+                    {
+                        <article class="artifact-markdown-preview">
+                            <p>Earlier QA command results were saved so the team can recover after an interruption. No action is needed from you.</p>
+                            <p>These logs support further testing. They do not mean QA passed.</p>
+                            <details><summary>View original command logs</summary><pre>@preview.Content</pre></details>
+                        </article>
+                    }
+                    else
+                    { <article class="artifact-markdown-preview"><ChatMarkdown Content="@preview.Content" /></article> }
                 </div>
                 }
             </MudTabPanel>
@@ -91,7 +101,7 @@
                               Lines="22" FullWidth="true" Immediate="true" />
                 <div class="artifact-workspace-actions">
                     <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="SaveDraftAsync">Save draft</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SubmitAsync">Submit for review</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SubmitAsync">@(IsRetainedEvidence ? "Save evidence" : "Submit for review")</MudButton>
                 </div>
             </MudTabPanel>
             }
@@ -156,6 +166,7 @@
                 <div class="artifact-decision-copy">
                     <span>REVIEW DECISION</span>
                     <strong>Decision for submitted revision @(PreviewRevision!.Number).</strong>
+                    <p>Approving makes this the reviewed version your team can use. Requesting changes sends it back to the author for revision.</p>
                 </div>
                 <div class="artifact-decision-controls">
                     <MudTextField @bind-Value="_decisionComment" Label="Decision comment" Placeholder="Optional for approval; required when requesting changes" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Disabled="_busy" />
@@ -199,6 +210,7 @@
     private bool _disposed;
     private long _loadVersion;
     private (Guid Organization, Guid Artifact, Guid? Revision)? _binding;
+    private bool IsRetainedEvidence => ArtifactDocumentTypes.IsRetainedEvidence(_detail?.Document.DocumentType ?? "");
     private ArtifactRevisionResponse? PreviewRevision
     {
         get
@@ -209,7 +221,7 @@
                 : _detail.LatestRevision;
         }
     }
-    private bool CanReviewDisplayedRevision => CanDecide && _detail?.Document.Status == "InReview" &&
+    private bool CanReviewDisplayedRevision => CanDecide && !IsRetainedEvidence && _detail?.Document.Status == "InReview" &&
         PreviewRevision is { Status: "Submitted" } revision && _detail.Document.SubmittedRevisionId == revision.Id;
 
     protected override async Task OnParametersSetAsync()

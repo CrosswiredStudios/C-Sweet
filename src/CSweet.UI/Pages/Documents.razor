@@ -24,7 +24,7 @@
                           DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
             <MudSelect T="string" Label="Status" Value="_status" ValueChanged="StatusChanged" Variant="Variant.Outlined">
                 <MudSelectItem T="string" Value="@string.Empty">All statuses</MudSelectItem>
-                @foreach (var value in new[] { "Draft", "InReview", "Approved", "ChangesRequested" })
+                @foreach (var value in new[] { "Draft", "InReview", "Approved", "ChangesRequested", "Retained" })
                 { <MudSelectItem T="string" Value="@value">@DocumentStatusLabel(value)</MudSelectItem> }
             </MudSelect>
         </div>
@@ -144,7 +144,7 @@
     private string? _error;
     private int ExtraFilterCount => (_packageId.HasValue ? 1 : 0) + (!string.IsNullOrWhiteSpace(_documentType) ? 1 : 0) + (!string.IsNullOrWhiteSpace(_creator) ? 1 : 0) + (_includeArchived ? 1 : 0);
     private bool HasFilters => ExtraFilterCount > 0 || !string.IsNullOrWhiteSpace(_search) || !string.IsNullOrWhiteSpace(_status) || _folderId.HasValue;
-    private static string DocumentStatusLabel(string value) => value switch { "InReview" => "In review", "ChangesRequested" => "Changes requested", _ => value };
+    private static string DocumentStatusLabel(string value) => value switch { "InReview" => "In review", "ChangesRequested" => "Changes requested", "Retained" => "Evidence saved", _ => value };
     private async Task ClearFiltersAsync()
     {
         _search = _status = _documentType = _creator = "";

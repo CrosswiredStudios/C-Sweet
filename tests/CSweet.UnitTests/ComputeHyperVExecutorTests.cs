@@ -123,6 +123,20 @@ public sealed class ComputeHyperVExecutorTests
     }
 
     [Fact]
+    public async Task Fresh_authorized_destroy_cleans_partial_create_and_replay_never_repeats_permission_changes()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync();
+        f.Runner.LoseCreateResponse = true;
+        await f.Executor().ExecuteAsync(f.Packet, default);
+        var destroy = await f.Control(InfrastructureActions.Destroy, 2);
+        await f.Executor().ExecuteAsync(destroy, default);
+        await f.Executor().ExecuteAsync(destroy, default);
+        Assert.Single(f.Runner.Scripts, s => s == HyperVComputeDriver.ProtectRemovedWorkloadScript);
+        Assert.False(Directory.Exists(Path.Combine(f.Workloads, f.Claim.EnvironmentId.ToString("N"))));
+        Assert.Contains(await f.Journal.Journal().ListResultsAsync(100, default), x => x.Result.TeardownConfirmed);
+    }
+
+    [Fact]
     public async Task Signed_provision_replay_start_and_destroy_remove_only_the_owned_vm_and_disk()
     {
         await using var f = new Fixture(); await f.InitializeAsync();

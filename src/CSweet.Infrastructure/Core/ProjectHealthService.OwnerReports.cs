@@ -49,6 +49,19 @@ public sealed partial class ProjectHealthService
                 catch (ArgumentException) { needsReadableReport = true; }
             if (report is { RequiresOwnerInput: not null } && report.SourceHash == state.Hash && !needsReadableReport) continue;
             if (!await HasCurrentIncidentFailureAsync(incident, token)) continue;
+            // Reports reread authorized current state. Keep one outstanding wake per
+            // incident/recipient even if the evidence hash changes while it is queued.
+            // Do not reset the debounce timestamp: completion permits a later fresh hint.
+            var prefix = $"owner-report:{incident.Id:N}:{reporter:N}:";
+            var outstanding = await db.AgentPlatformEventOutbox.Where(x => x.TargetInstallationId == installation.Id &&
+                x.EventType == ProjectHealthEvents.OwnerReportRequested && x.IdempotencyKey.StartsWith(prefix))
+                .Select(x => new { x.Id, x.Status }).ToArrayAsync(token);
+            var sourceIds = outstanding.Select(x => x.Id.ToString("D")).ToArray();
+            if (outstanding.Any(x => x.Status == AgentPlatformEventOutboxStatus.Pending) ||
+                await db.AgentWorkItems.AnyAsync(x => x.AgentInstallationId == installation.Id &&
+                    x.Name == ProjectHealthEvents.OwnerReportRequested && x.SourceType == "platform-event" &&
+                    sourceIds.Contains(x.SourceId!) &&
+                    (x.Status == CSweet.Domain.Setup.AgentWorkStatus.Pending || x.Status == CSweet.Domain.Setup.AgentWorkStatus.Leased), token)) continue;
             var key = $"owner-report:{incident.Id:N}:{reporter:N}:{state.Hash}:owner-input-v2:{installation.PackageVersionId:N}";
             if (await db.AgentPlatformEventOutbox.AnyAsync(x => x.IdempotencyKey == key, token)) continue;
             db.AgentPlatformEventOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = incident.OrganizationId,

@@ -11,6 +11,81 @@ namespace CSweet.UnitTests;
 
 public sealed class ArtifactDocumentServiceTests
 {
+    [Fact]
+    public async Task RecoveredEvidenceIsRetainedWithoutReviewAndRemainsImmutableAcrossRetries()
+    {
+        await using var db = CreateDb();
+        var (organization, owner) = SeedHuman(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = new ArtifactDocumentService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var actor = new ArtifactHumanActor(owner.ApplicationUserId!.Value);
+        const string logs = "{\"observations\":{\"commands\":[{\"result\":\"original output\\n\\u001b[32mpassed\"}]}}";
+        var created = await service.CreateAsync(organization.Id, actor,
+            new("Recovered QA results", logs, ArtifactDocumentTypes.RecoveredQaEvidence, "create-evidence"));
+        Assert.Equal(ApprovalStatus.NotRequired, (await db.CoreArtifacts.SingleAsync()).ApprovalStatus);
+        var retained = await service.SubmitAsync(organization.Id, actor, created.Document.Id,
+            new(created.LatestRevision.Id, "save-evidence"));
+        var retry = await service.SubmitAsync(organization.Id, actor, created.Document.Id,
+            new(created.LatestRevision.Id, "save-evidence"));
+        Assert.Equal("Retained", retained.Document.Status);
+        Assert.Equal("Retained", retained.LatestRevision.Status);
+        Assert.Null(retained.Document.SubmittedRevisionId);
+        Assert.Null(retained.Document.AcceptedRevisionId);
+        Assert.Null(retained.LatestRevision.DecidedAt);
+        Assert.Equal(logs, retry.LatestRevision.Content);
+        Assert.Equal(created.LatestRevision.ContentSha256, retry.LatestRevision.ContentSha256);
+        Assert.Single(await db.ArtifactRevisions.ToListAsync());
+        Assert.Empty(await db.ArtifactReviewJobs.ToListAsync());
+        Assert.Empty(await db.CoreApprovals.ToListAsync());
+        Assert.Empty(await db.AgentPlatformEventOutbox.ToListAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DecideAsync(organization.Id, actor,
+            created.Document.Id, new(created.LatestRevision.Id, "accept", null, "wrong-approval")));
+        var compatibility = new ArtifactApprovalService(db, new TestAuditEventWriter());
+        Assert.False((await compatibility.ApproveAsync(created.Document.Id)).Succeeded);
+        var inbox = new ApprovalDashboardService(db, new ResourceChangeService(db, new TestAuditEventWriter()), new HiringService(db, null!, null!));
+        Assert.Empty((await inbox.GetAsync(organization.Id, owner.ApplicationUserId.Value)).Items);
+    }
+
+    [Fact]
+    public async Task LegacyEvidenceRepairRemovesOnlyItsReviewAndPreservesAllLogsAndBindings()
+    {
+        await using var db = CreateDb();
+        var (organization, owner) = SeedHuman(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = new ArtifactDocumentService(db, new TestAuditEventWriter(), TimeProvider.System);
+        var actor = new ArtifactHumanActor(owner.ApplicationUserId!.Value);
+        var created = await service.CreateAsync(organization.Id, actor,
+            new("Historical logs", "exact historical output", "old-type", "legacy-create"));
+        var submitted = await service.SubmitAsync(organization.Id, actor, created.Document.Id,
+            new(created.LatestRevision.Id, "legacy-submit"));
+        var artifact = await db.CoreArtifacts.SingleAsync();
+        artifact.DocumentType = ArtifactDocumentTypes.RecoveredQaEvidence;
+        var job = new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            ArtifactId = artifact.Id, RevisionId = created.LatestRevision.Id, LastError = "Reviewer unavailable" };
+        db.Add(job);
+        await service.CreateAsync(organization.Id, actor, new("Real decision", "Review me", "brief", "normal-create"));
+        await db.SaveChangesAsync();
+        // Excluded even before startup repair runs.
+        var inbox = new ApprovalDashboardService(db, new ResourceChangeService(db, new TestAuditEventWriter()), new HiringService(db, null!, null!));
+        Assert.DoesNotContain((await inbox.GetAsync(organization.Id, owner.ApplicationUserId.Value)).Items,
+            x => x.Id == artifact.Id);
+        Assert.Equal(1, await ArtifactEvidenceRetention.DismissLegacyApprovalsAsync(db, DateTimeOffset.UtcNow));
+        Assert.Equal(0, await ArtifactEvidenceRetention.DismissLegacyApprovalsAsync(db, DateTimeOffset.UtcNow));
+        Assert.Equal(ApprovalStatus.NotRequired, artifact.ApprovalStatus);
+        Assert.Equal(ArtifactReviewJobStatus.Completed, job.Status);
+        Assert.Null(job.LastError);
+        Assert.Equal(submitted.Document.SubmittedRevisionId, artifact.SubmittedRevisionId);
+        var revision = await db.ArtifactRevisions.SingleAsync(x => x.Id == created.LatestRevision.Id);
+        Assert.Equal(submitted.LatestRevision.Content, revision.Content);
+        Assert.Equal(submitted.LatestRevision.ContentSha256, revision.ContentSha256);
+        Assert.Equal(ArtifactRevisionStatus.Submitted, revision.Status);
+        Assert.Null(revision.DecidedAt);
+        Assert.Empty(await db.CoreApprovals.ToListAsync());
+        Assert.Equal(ApprovalStatus.Pending, (await db.CoreArtifacts.SingleAsync(x => x.Id != artifact.Id)).ApprovalStatus);
+        Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(), x =>
+            x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ApprovalChanged);
+    }
+
     [Theory]
     [InlineData("active", "Approved")]
     [InlineData("partial", "Pending")]

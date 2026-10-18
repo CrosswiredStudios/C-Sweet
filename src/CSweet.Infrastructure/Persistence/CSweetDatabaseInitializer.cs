@@ -26,6 +26,8 @@ public static class CSweetDatabaseInitializer
             await dbContext.Database.EnsureCreatedAsync(cancellationToken);
         }
 
+        await ArtifactEvidenceRetention.DismissLegacyApprovalsAsync(dbContext, DateTimeOffset.UtcNow, cancellationToken);
+
         // Only fills missing ownership from durable sources; never changes token counts.
         await Analytics.InferenceSourceAttribution.BackfillAsync(dbContext, ct: cancellationToken);
 

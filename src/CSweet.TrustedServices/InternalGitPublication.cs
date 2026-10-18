@@ -48,6 +48,8 @@ public sealed partial class InternalGitRepositoryStore
             if (request.Operation != "publish")
                 return new(changed.Length == 0 ? "Clean" : "Modified", request.BaseSha, null, changed, summary, source ?? target);
 
+            await RequireResolvedIntegrationAsync(repository, request.BaseSha, tree, ct);
+
             // Review the complete proposal, including earlier commits on this work branch.
             // RunAsync rejects oversized output rather than returning a silently truncated patch.
             var reviewBase = target is null ? request.BaseSha

@@ -59,7 +59,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                     if (energizing && environment.LeaseExpiresAt <= now) throw new UnauthorizedAccessException();
                     var required = energizing
                         ? ComputePolicy.RequiredProvisionActions(spec).Where(x => x != InfrastructureActions.Provision).Prepend(operation.Action).ToArray()
-                        : operation.Action == InfrastructureActions.PublishPort ? new[] { operation.Action, InfrastructureActions.Inbound } : new[] { operation.Action };
+                        : workload is not null ? workload.RequiredActions.Concat(spec.NetworkPolicy.AllowOutbound ? [InfrastructureActions.Outbound] : Array.Empty<string>()).Distinct().ToArray() : new[] { operation.Action };
                     if (operation.Action is not (InfrastructureActions.Provision or InfrastructureActions.Start or InfrastructureActions.Restart or
                         InfrastructureActions.Stop or InfrastructureActions.Destroy or InfrastructureActions.Execute or InfrastructureActions.PublishPort)) throw new UnauthorizedAccessException();
                     var recorded = JsonSerializer.Deserialize<ComputeActionAuthorization[]>(operation.AuthorityJson, ComputeBroker.Json)
@@ -80,9 +80,14 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                             throw new UnauthorizedAccessException();
                         if (workloadAction) {
                             var constraints = JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, ComputeBroker.Json);
-                            if (grant.ExpiresAt < environment.LeaseExpiresAt || constraints?.Allows(spec, Math.Max(0, reservations - 1)) != true ||
+                            // An instance-bound grant covers only its exact instance. Sibling
+                            // reservations still count against project-wide grants.
+                            var otherReservations = constraints?.EnvironmentId == environment.Id ? 0 : Math.Max(0, reservations - 1);
+                            if (grant.ExpiresAt < environment.LeaseExpiresAt || constraints?.Allows(spec, otherReservations) != true ||
                                 constraints.EnvironmentId is { } target && target != environment.Id ||
-                                workload!.PublishPort is { } port && constraints.AllowedPublishedPorts?.Contains(port) != true) throw new UnauthorizedAccessException();
+                                workload!.PublishPort is { } port && action is (InfrastructureActions.Inbound or InfrastructureActions.PublishPort) && constraints.AllowedPublishedPorts?.Contains(port) != true ||
+                                action == InfrastructureActions.Outbound && (!constraints.AllowOutbound ||
+                                    (constraints.AllowedDependencyRegistries is not null && !constraints.AllowedDependencyRegistries.Contains(ComputeNodeDependencies.Registry)))) throw new UnauthorizedAccessException();
                         }
                         if (grant.ExpiresAt < expires) expires = grant.ExpiresAt!.Value;
                         authority.Add(evidence);
@@ -113,8 +118,10 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                 ComputeBroker.Digest(environment.SpecificationJson), template is null ? null : ComputeBroker.Digest(operation.TemplateJson),
                 environment.ProviderResourceId, now, expires, environment.LeaseExpiresAt, authority, workload is null ? null : ComputeBroker.Digest(JsonSerializer.Serialize(workload, ComputeBroker.Json)));
             var signed = await signer.SignAsync(authorization, token);
-            operation.DispatchLeaseId = claimId; operation.DispatchLeaseExpiresAt = expires;
-            operation.Attempts++; operation.Revision++; operation.Status = "Dispatching"; operation.NextAttemptAt = expires;
+            var dispatchLease = workload?.NodeDependencies is null ? expires : now.AddMinutes(8);
+            if (dispatchLease > environment.LeaseExpiresAt) dispatchLease = environment.LeaseExpiresAt;
+            operation.DispatchLeaseId = claimId; operation.DispatchLeaseExpiresAt = dispatchLease;
+            operation.Attempts++; operation.Revision++; operation.Status = "Dispatching"; operation.NextAttemptAt = dispatchLease;
             operation.FailureCode = null;
             environment.AttemptCount++; environment.LastAttemptAt = now; environment.NextAttemptAt = expires;
             environment.LastFailureCode = null; environment.UpdatedAt = now;

@@ -95,6 +95,7 @@ public sealed class ArtifactReviewJobWorkerTests
     [InlineData("decided")]
     [InlineData("superseded")]
     [InlineData("archived")]
+    [InlineData("retained-evidence")]
     public async Task ObsoleteSubmissionDoesNotEscalateAnInactiveReviewer(string state)
     {
         await using var f = await Fixture.CreateAsync();
@@ -102,6 +103,7 @@ public sealed class ArtifactReviewJobWorkerTests
         if (state == "decided") f.Revision.Status = ArtifactRevisionStatus.Accepted;
         if (state == "superseded") f.Artifact.SubmittedRevisionId = Guid.NewGuid();
         if (state == "archived") f.Artifact.ArchivedAt = f.Clock.Now;
+        if (state == "retained-evidence") f.Artifact.DocumentType = CSweet.Contracts.Core.ArtifactDocumentTypes.RecoveredQaEvidence;
         await f.Db.SaveChangesAsync();
         await f.Worker.ProcessNextAsync(default);
         await f.ReloadAsync();

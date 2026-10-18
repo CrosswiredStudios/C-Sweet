@@ -48,6 +48,33 @@ public sealed class ComputeWorkloadTests
         Assert.DoesNotContain(InfrastructureActions.Provision, operation.AuthorityJson);
     }
 
+    [Theory]
+    [InlineData("undispatched",true)] [InlineData("attempted",false)]
+    [InlineData("completed",false)] [InlineData("changed-generation",false)]
+    public async Task Exact_retry_reconsiders_only_authority_denial_before_any_dispatch(string condition,bool reconsidered)
+    {
+        await using var f=new ComputeBrokerTests.Fixture();await f.SeedAsync();
+        var environment=await ReadyAsync(f);await GrantAsync(f,InfrastructureActions.Execute);
+        var request=new RequestComputeWorkload(environment.Id,1,"retry-before-dispatch",new(new(Guid.NewGuid(),"/bin/echo","/tmp",["safe"],20,1024)));
+        var accepted=await f.Broker.SubmitWorkloadAsync(f.Organization,f.Installation,request,default);
+        var operation=await f.Db.ComputeOperations.SingleAsync(o=>o.Id==accepted.Id);
+        operation.Status=condition=="completed"?"Completed":"Blocked";operation.FailureCode="dispatch-authority-denied";
+        if(condition=="attempted")operation.Attempts=1;
+        if(condition=="changed-generation")(await f.Db.ComputeEnvironments.SingleAsync()).Generation++;
+        var wake=await f.Db.ComputeProviderWakes.SingleAsync(w=>w.Id==accepted.Id);wake.PublishedAt=DateTimeOffset.UtcNow;
+        await f.Db.SaveChangesAsync();
+        var replay=await f.Broker.SubmitWorkloadAsync(f.Organization,f.Installation,request,default);
+        Assert.Equal(accepted.Id,replay.Id);Assert.Equal(accepted.Generation,replay.Generation);
+        Assert.Equal(reconsidered,replay.Status=="Pending");
+        Assert.Equal(reconsidered,(await f.Db.ComputeProviderWakes.SingleAsync(w=>w.Id==accepted.Id)).PublishedAt is null);
+        Assert.Equal(2,await f.Db.ComputeOperations.CountAsync());
+        if(reconsidered) {
+            (await f.Db.ScopedActionGrants.SingleAsync(g=>g.Action==InfrastructureActions.Execute)).RevokedAt=DateTimeOffset.UtcNow.AddYears(-100);
+            await f.Db.SaveChangesAsync();
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Broker.SubmitWorkloadAsync(f.Organization,f.Installation,request,default));
+        }
+    }
+
     [Fact]
     public void Workload_shape_and_limits_are_closed()
     {

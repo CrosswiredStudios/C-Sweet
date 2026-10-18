@@ -7,6 +7,28 @@ namespace CSweet.UnitTests;
 public sealed class WorkspaceArtifactValidatorTests
 {
     [Fact]
+    public async Task RepeatedSourceDownloadsHaveIdenticalBytesAcrossTimeAndDifferentFilesystemMetadata()
+    {
+        var source=NewTemporaryDirectory();var copy=NewTemporaryDirectory();
+        try {
+            Directory.CreateDirectory(Path.Combine(source,"a"));
+            await File.WriteAllTextAsync(Path.Combine(source,"a","z.txt"),"Exact source\n");
+            await File.WriteAllTextAsync(Path.Combine(source,"a0.txt"),"Pinned manifest\n");
+            var validator=new WorkspaceArtifactValidator();
+            using var first=new MemoryStream();var manifest=await validator.CreateZipAsync(source,first);
+            first.Position=0;await validator.ExtractZipAsync(first,copy);
+            File.SetLastWriteTimeUtc(Path.Combine(copy,"a0.txt"),new DateTime(2020,1,1,0,0,0,DateTimeKind.Utc));
+            // Cross ZIP's two-second clock precision to reproduce the original transport-hash drift.
+            await Task.Delay(TimeSpan.FromMilliseconds(2200));
+            using var second=new MemoryStream();Assert.Equal(manifest,await validator.CreateZipAsync(copy,second));
+            Assert.Equal(first.ToArray(),second.ToArray());
+            using var zip=new ZipArchive(new MemoryStream(second.ToArray()),ZipArchiveMode.Read);
+            Assert.Equal(new[]{"a/z.txt","a0.txt"},zip.Entries.Select(e=>e.FullName));
+            Assert.All(zip.Entries,e=>Assert.Equal(1980,e.LastWriteTime.Year));
+        } finally {DeleteTemporaryDirectory(source);DeleteTemporaryDirectory(copy);}
+    }
+
+    [Fact]
     public async Task RoundTripProducesStableContentManifestWithoutGitMetadata()
     {
         var source = NewTemporaryDirectory();

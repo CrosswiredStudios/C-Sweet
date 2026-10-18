@@ -16,13 +16,16 @@ public sealed class ComputePublicationAccess(CSweetDbContext db, ComputeProvider
         var operation = await db.ComputeOperations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == proof.OrganizationId, token);
         if (operation is null || operation.Action != InfrastructureActions.PublishPort || operation.Status is not ("Dispatching" or "Completed")) return new(id, false);
         var environment = await db.ComputeEnvironments.AsNoTracking().SingleAsync(x => x.Id == operation.EnvironmentId, token);
-        if (environment.ProviderNodeId != proof.NodeId || environment.ProviderId != proof.ProviderId ||
+        if (environment.ProviderNodeId != proof.NodeId || environment.ProviderId != proof.ProviderId || environment.Generation != operation.Generation ||
             environment.LeaseExpiresAt <= clock.GetUtcNow() || environment.DesiredState != ComputeDesiredState.Running ||
             environment.State is not (ComputeLifecycleState.Ready or ComputeLifecycleState.Busy) || environment.TeardownConfirmedAt is not null) return new(id, false);
         try
         {
             var evidence = JsonSerializer.Deserialize<ComputeActionAuthorization[]>(operation.AuthorityJson, ComputeProtocol.Json);
-            if (evidence is not { Length: 2 } || !evidence.Select(x => x.Action).ToHashSet().SetEquals([InfrastructureActions.Inbound, InfrastructureActions.PublishPort])) return new(id, false);
+            var specification = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, ComputeProtocol.Json)!;
+            var required = new[] { InfrastructureActions.Inbound, InfrastructureActions.PublishPort }
+                .Concat(specification.NetworkPolicy.AllowOutbound ? [InfrastructureActions.Outbound] : Array.Empty<string>()).ToHashSet();
+            if (evidence is null || evidence.Length != required.Count || !evidence.Select(x => x.Action).ToHashSet().SetEquals(required)) return new(id, false);
             var current = await broker.GrantsAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, token);
             foreach (var grant in evidence)
             {

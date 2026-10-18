@@ -10,6 +10,7 @@ public sealed record ComputePublicationPermission(Guid OperationId, bool Allowed
 public static class ComputeWorkTransport
 {
     public const string PublicationAccessPath = "/api/compute/providers/publication-access";
+    public const string DependencyAccessPath = "/api/compute/providers/dependency-access";
     public const string DiscoveryPath = "/api/compute/providers/work";
     public const string ClaimPath = "/api/compute/providers/claims";
     public const string ReceiptPath = "/api/compute/providers/result-receipts";

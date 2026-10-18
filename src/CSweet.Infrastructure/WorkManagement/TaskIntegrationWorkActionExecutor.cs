@@ -55,12 +55,42 @@ public sealed class TaskIntegrationWorkActionExecutor(CSweetDbContext db, ITrust
             if (!await db.TeamRepositoryPolicies.AnyAsync(x => x.OrganizationId == item.OrganizationId && x.RepositoryId == repository.Id && x.DisabledAt == null &&
                 db.WorkBoards.Any(b => b.Id == item.BoardId && b.TeamId == x.TeamId), ct)) throw new UnauthorizedAccessException("The task team repository grant was revoked.");
             var binding = new WorkDeliveryBranchBinding(repository.Id, WorkExecutionScopes.Task, item.Id, publication.TicketBranch, publication.TargetBranch);
+            var current = await host.DeliveryBranchAsync(WorkDeliveryService.Operation(plan, repository, binding, "inspect",
+                $"integration-inspect:{publication.Id:N}", sourceSha, targetSha), ct);
+            if (current.SourceCommitSha != sourceSha)
+                throw new InvalidOperationException("The published task branch changed; publish and independently review its current candidate.");
+            var approvedTarget = targetSha;
+            targetSha = current.TargetCommitSha;
+            var targetChanged = approvedTarget != targetSha;
+            if (targetChanged && receipt is not null)
+                throw new InvalidOperationException("The Story changed after an integration receipt was prepared; reconcile its native promotion receipt before retrying.");
             var key = $"task-integration:{publication.Id:N}:{sourceSha}:{targetSha}";
             if (receipt is null)
             {
                 var candidate = await host.DeliveryBranchAsync(WorkDeliveryService.Operation(plan, repository, binding, "receipt", key, sourceSha, targetSha), ct);
                 if (!candidate.Promoted) candidate = await host.DeliveryBranchAsync(WorkDeliveryService.Operation(plan, repository, binding, "candidate", key, sourceSha, targetSha), ct);
+                if (candidate.ErrorCode == "integration_conflicts")
+                {
+                    var rework = await host.DeliveryBranchAsync(WorkDeliveryService.Operation(plan, repository, binding,
+                        "rework", key + ":rework", sourceSha, targetSha), ct);
+                    if (rework.ReworkCommitSha is not { Length: 40 } reworkSha)
+                        throw new InvalidOperationException(rework.Error ?? "The integration conflict workspace could not be prepared.");
+                    var summary = "Integration conflicts require author rework. The new workspace contains the latest Story code and " +
+                        "the previous task changes with conflict markers. Resolve every conflict while preserving both features, " +
+                        "rerun validation, and publish a replacement candidate for fresh technical review, integration and exact-commit QA. " +
+                        "Conflicting files: " + string.Join(", ", rework.ConflictPaths);
+                    return new(WorkExecutionDispositions.Completed, "integration_conflicts", summary.Length <= 4096 ? summary : summary[..4093] + "...",
+                        JsonSerializer.SerializeToElement(new { publicationId = publication.Id, repositoryId = repository.Id,
+                            sourceCommitSha = sourceSha, targetCommitSha = targetSha, reworkCommitSha = reworkSha,
+                            targetBranch = publication.TargetBranch, conflictPaths = rework.ConflictPaths,
+                            assignmentRevision = item.AssignmentRevision }), []);
+                }
                 if (candidate.CandidateCommitSha is null) throw new InvalidOperationException(candidate.Error ?? "The task integration candidate could not be prepared.");
+                if (targetChanged)
+                    return new(WorkExecutionDispositions.Completed, "target_changed",
+                        "The Story advanced after approval. Independently review the same published source against the current Story before integration.",
+                        JsonSerializer.SerializeToElement(new { sourceCommitSha = sourceSha, targetCommitSha = targetSha,
+                            approvedTargetCommitSha = approvedTarget, publicationId = publication.Id }), []);
                 receipt = new() { Id = Guid.NewGuid(), OrganizationId = item.OrganizationId, PlanId = plan.Id, ScopeRevision = plan.ScopeRevision,
                     ItemExecutionId = execution.Id, WorkItemId = item.Id, RepositoryId = repository.Id, PublicationId = publication.Id,
                     SourceCommitSha = sourceSha, TargetCommitSha = targetSha, CandidateCommitSha = candidate.CandidateCommitSha, CreatedAt = clock.GetUtcNow() };

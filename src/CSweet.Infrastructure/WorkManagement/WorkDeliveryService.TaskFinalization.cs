@@ -29,18 +29,17 @@ public sealed partial class WorkDeliveryService
             throw new InvalidOperationException("Obtain every required discipline planning approval first.");
         if (await db.WorkItemExecutions.AnyAsync(x => x.WorkItemId == item.Id && x.Status != WorkItemExecutionStatus.Completed && x.Status != WorkItemExecutionStatus.Cancelled, ct))
             throw new InvalidOperationException("Stop the existing sprint execution before replacing its delivery assignments.");
-        var story = Scopes(plan).SingleOrDefault(x => x.Scope == "Story" && x.ItemId == item.ParentWorkTaskId && x.BoardId == item.BoardId && x.ChildIds.Contains(item.Id))
-            ?? throw new UnauthorizedAccessException("The task must belong to the manager-approved story and epic scope.");
+        var story = Scopes(plan).SingleOrDefault(x => x.BoardId == item.BoardId && x.ChildIds.Contains(item.Id))
+            ?? throw new UnauthorizedAccessException("The task must be an explicitly declared evidence input.");
         var planning = Decode<WorkItemPlanningSpecification>(item.PlanningSpecificationJson ?? "null") ?? throw new InvalidOperationException("Accepted task planning is required.");
         if (!planning.Requirements.SequenceEqual(request.Delivery.Requirements) || !planning.AcceptanceCriteria.SequenceEqual(request.Delivery.AcceptanceCriteria) ||
             !(planning.Constraints ?? []).SequenceEqual(request.Delivery.Constraints ?? []) || !planning.DependencyItemIds.Order().SequenceEqual(request.Delivery.DependencyItemIds.Order()))
             throw new InvalidOperationException("Task finalization must preserve the exact accepted planning.");
         var policy = await db.WorkOrchestrationPolicyRevisions.Include(x => x.Stages).SingleOrDefaultAsync(x => x.BoardId == request.BoardId && x.IsPublished &&
-            db.WorkOrchestrationPolicies.Any(p => p.PublishedRevisionId == x.Id), ct) ?? throw new InvalidOperationException("Publish the hierarchical task workflow first.");
-        if (!policy.Stages.Any(x => x.PlatformAction == HierarchicalWorkflows.TaskIntegrationAction) ||
-            request.StageAssignments.Select(x => x.StageKey).Distinct().Count() != request.StageAssignments.Count ||
+            db.WorkOrchestrationPolicies.Any(p => p.PublishedRevisionId == x.Id), ct) ?? throw new InvalidOperationException("Publish the task workflow first.");
+        if (request.StageAssignments.Select(x => x.StageKey).Distinct().Count() != request.StageAssignments.Count ||
             request.StageAssignments.Any(x => !policy.Stages.Any(s => s.Key == x.StageKey)))
-            throw new ArgumentException("Use unique assignments belonging to the current hierarchical workflow.");
+            throw new ArgumentException("Use unique assignments belonging to the current declared workflow.");
         item.AccountableOrganizationUserId = request.AccountableOrganizationUserId;
         if (!await db.CoreOrganizationUsers.AnyAsync(x => x.Id == request.AccountableOrganizationUserId && x.OrganizationId == org && x.IsActive && x.ArchivedAt == null, ct))
             throw new ArgumentException("The accountable employee must be active.");

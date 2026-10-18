@@ -65,6 +65,7 @@ public sealed class ComputeDispatchVerifier(ComputeProviderEnrollment enrollment
             var energizing = claim.Action is InfrastructureActions.Provision or InfrastructureActions.Start or InfrastructureActions.Restart;
             var required = new HashSet<string>(StringComparer.Ordinal) { claim.Action };
             if (claim.Action == InfrastructureActions.PublishPort) required.Add(InfrastructureActions.Inbound);
+            if (workload is not null && (workload.NodeDependencies is not null || spec.NetworkPolicy.AllowOutbound)) required.Add(InfrastructureActions.Outbound);
             if (energizing)
             {
                 if (claim.EnvironmentLeaseExpiresAt <= now || claim.ExpiresAt > claim.EnvironmentLeaseExpiresAt ||

@@ -43,126 +43,11 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         return result;
     }
 
-    public async Task<WorkDeliveryPlanResponse> ConfigureAsync(Guid org, Guid actorId, ConfigureWorkDeliveryPlanRequest request, CancellationToken ct = default)
+    public Task<WorkDeliveryPlanResponse> ConfigureAsync(Guid org, Guid actorId, ConfigureWorkDeliveryPlanRequest request, CancellationToken ct = default)
     {
-        await AuthorizeProjectAsync(org, actorId, request.WorkstreamId, WorkDeliveryCapabilities.Configure, ct);
-        await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
-        var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "configure", request, ct);
-        if (replay is not null) return Response(replay);
-        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 160 || request.EpicItemIds.Count is < 1 or > 100 ||
-            request.EpicItemIds.Distinct().Count() != request.EpicItemIds.Count) throw new ArgumentException("Provide a release name and unique epic scope (maximum 100 epics).");
-        var project = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.WorkstreamId && x.OrganizationId == org &&
-            (x.Status == WorkstreamStatus.Active || x.Status == WorkstreamStatus.Approved), ct)
-            ?? throw new InvalidOperationException("An approved, active project is required.");
-        var manager = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.ManagerOrganizationUserId &&
-            x.OrganizationId == org && x.IsActive && x.ArchivedAt == null, ct) ?? throw new InvalidOperationException("The release manager must be an active project participant.");
-        if (!await db.ProjectParticipants.AnyAsync(x => x.WorkstreamId == project.Id && x.OrganizationId == org &&
-            x.OrganizationUserId == manager.Id && x.RemovedAt == null, ct)) throw new UnauthorizedAccessException("Assign the release manager to the project first.");
-        if (manager.AgentInstallationId is { } managerInstallation)
-        {
-            var manifest = await db.AgentInstallations.Where(x => x.Id == managerInstallation && x.BusinessId == org.ToString() &&
-                x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active).Select(x => x.PackageVersion!.ManifestJson).SingleOrDefaultAsync(ct);
-            if (manifest is null || !ProvidesExecution(manifest)) throw new InvalidOperationException("An agent release manager needs an active canonical execution installation.");
-        }
-        var plan = request.PlanId.HasValue ? await Load().SingleAsync(x => x.Id == request.PlanId && x.OrganizationId == org, ct) : new WorkDeliveryPlan
-        { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = request.WorkstreamId, CreatedAt = clock.GetUtcNow() };
-        var configurator = await MemberAsync(org, actorId, ct);
-        var managerApproved = configurator.Id == project.AccountableManagerOrganizationUserId || configurator.Id == manager.Id;
-        if (!managerApproved)
-        {
-            // Architects may configure topology within their explicit grants, but
-            // cannot approve new scope or replace its accountable manager.
-            if (!request.PlanId.HasValue || plan.ManagerOrganizationUserId != manager.Id || plan.Name != request.Name ||
-                !Decode<Guid[]>(plan.EpicItemIdsJson).Order().SequenceEqual(request.EpicItemIds.Order()) ||
-                Scopes(plan).Any(s => !request.Assignments.Any(a => a.Scope == s.Scope && a.ItemId == s.ItemId &&
-                    a.BoardId == s.BoardId && Encode(a.Stages) == Encode(s.Stages))) ||
-                request.ReleasePlanning is not null && Encode(request.ReleasePlanning) != Encode(Scopes(plan).Single(s => s.Scope == WorkExecutionScopes.Release).Planning))
-                throw new UnauthorizedAccessException("Only the assigned project or release manager may approve scope, staffing or manager ownership. Architects may amend existing topology within their grants.");
-        }
-        if (plan.WorkstreamId != request.WorkstreamId || plan.Status is "Completed" or "Cancelled" ||
-            request.PlanId.HasValue && plan.Revision != request.ExpectedRevision) throw new DbUpdateConcurrencyException("The release changed or is terminal.");
-        if (plan.Status is "Active" or "Promoting") throw new InvalidOperationException("Pause the delivery plan before changing its approved scope.");
-        if (plan.Executions.Any(x => x.Scope == WorkExecutionScopes.Release && x.Promotions.Any(p => p.Status == "Completed")))
-            throw new InvalidOperationException("Scope with completed default-branch promotions is immutable; create a follow-up release for additional work.");
-        var items = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).Where(x => x.OrganizationId == org &&
-            x.Board != null && x.Board.WorkstreamId == project.Id && x.ArchivedAt == null).ToListAsync(ct);
-        var epics = request.EpicItemIds.Select(id => items.SingleOrDefault(x => x.Id == id && x.Kind == WorkItemKind.Epic && !x.IsExecutable)
-            ?? throw new ArgumentException("Every release member must be a container epic on this project.")).ToList();
-        var scopes = new List<WorkDeliveryScopeSnapshot>();
-        foreach (var epic in epics)
-        {
-            var stories = items.Where(x => x.ParentWorkTaskId == epic.Id).ToList();
-            if (stories.Count == 0 || stories.Any(x => x.Kind != WorkItemKind.Story || x.IsExecutable || x.BoardId != epic.BoardId))
-                throw new ArgumentException("Epics require board-local container stories.");
-            foreach (var story in stories)
-            {
-                var tasks = items.Where(x => x.ParentWorkTaskId == story.Id).ToList();
-                if (tasks.Count == 0 || tasks.Any(x => !x.IsExecutable || x.BoardId != story.BoardId || x.Kind is WorkItemKind.Epic or WorkItemKind.Story))
-                    throw new ArgumentException("Stories require board-local executable tasks.");
-                scopes.Add(Snapshot(story, WorkExecutionScopes.Story, tasks.Select(x => x.Id).ToArray()));
-            }
-            scopes.Add(Snapshot(epic, WorkExecutionScopes.Epic, stories.Select(x => x.Id).ToArray()));
-        }
-        var releaseAssignment = request.Assignments.SingleOrDefault(x => x.Scope == WorkExecutionScopes.Release && x.ItemId is null)
-            ?? throw new ArgumentException("Assign release QA and technical review.");
-        var releasePlanning = request.ReleasePlanning ?? new WorkItemPlanningSpecification(
-            scopes.Where(x => x.Scope == WorkExecutionScopes.Epic).SelectMany(x => x.Planning.Requirements).Distinct().ToArray(),
-            scopes.Where(x => x.Scope == WorkExecutionScopes.Epic).SelectMany(x => x.Planning.AcceptanceCriteria).Distinct().ToArray());
-        scopes.Add(new(WorkExecutionScopes.Release, null, releaseAssignment.BoardId, 1, epics.Select(x => x.Id).ToArray(), releasePlanning, releaseAssignment.Stages));
-        if (!managerApproved && (scopes.Count != Scopes(plan).Count || scopes.Any(scope =>
-            Scopes(plan).SingleOrDefault(old => old.Scope == scope.Scope && old.ItemId == scope.ItemId) is not { } previous ||
-            previous.PlanningRevision != scope.PlanningRevision || Encode(previous.Planning) != Encode(scope.Planning) ||
-            !previous.ChildIds.Order().SequenceEqual(scope.ChildIds.Order()) ||
-            !previous.ChildPlanningRevisions.OrderBy(x => x.Key).SequenceEqual(scope.ChildPlanningRevisions.OrderBy(x => x.Key)))))
-            throw new UnauthorizedAccessException("An architect cannot approve changed child membership or acceptance criteria; the assigned manager must amend scope.");
-        var taskIds = scopes.Where(x => x.Scope == WorkExecutionScopes.Story).SelectMany(x => x.ChildIds).ToHashSet();
-        if (request.TaskAssignments.Count > 500 || request.TaskAssignments.Select(x => x.ItemId).Distinct().Count() != request.TaskAssignments.Count ||
-            request.TaskAssignments.Any(x => !taskIds.Contains(x.ItemId) || x.Stages.Select(s => s.StageKey).Distinct().Count() != x.Stages.Count))
-            throw new ArgumentException("Proposed task assignments must uniquely identify tasks in the approved release scope.");
-        foreach (var scope in scopes)
-        {
-            await AuthorizeBoardAsync(org, actorId, scope.BoardId, WorkBoardActions.Configure, ct);
-            await ValidateAssignmentsAsync(org, scope, ct, request.TaskAssignments);
-        }
-        await ValidateBranchesAsync(org, scopes, request.Branches, ct);
-        if (request.PlanId.HasValue) await RevokeTaskArtifactGrantsAsync(plan, ct);
-        plan.Name = request.Name.Trim(); plan.ManagerOrganizationUserId = manager.Id;
-        plan.EpicItemIdsJson = Encode(request.EpicItemIds); plan.ScopesJson = Encode(scopes); plan.BranchesJson = Encode(request.Branches);
-        if (request.PlanId.HasValue)
-        {
-            plan.ScopeRevision++; plan.Revision++;
-            foreach (var execution in plan.Executions)
-            {
-                foreach (var stage in execution.Stages)
-                {
-                    foreach (var attempt in stage.Attempts.Where(x => x.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running))
-                    {
-                        if (attempt.AgentWorkItemId is { } workId && inbox is not null)
-                            await inbox.CancelAsync(workId, "Delivery scope superseded", ct);
-                        attempt.Status = WorkExecutionAttemptStatus.Cancelled;
-                    }
-                    if (stage.Status != WorkStageExecutionStatus.Completed) stage.Status = WorkStageExecutionStatus.Cancelled;
-                    await RevokeDeliveryGrantsAsync(execution, stage, ct);
-                }
-                execution.Status = "Superseded";
-            }
-        }
-        else db.WorkDeliveryPlans.Add(plan);
-        plan.Status = "Draft"; plan.UpdatedAt = clock.GetUtcNow();
-        Receipt(plan, actorId, request.IdempotencyKey, "configure", request); Queue(plan, "scope.changed");
-        await SaveDeliveryAsync(ct); if (tx is not null) await tx.CommitAsync(ct);
-        return Response(plan);
-
-        WorkDeliveryScopeSnapshot Snapshot(WorkTask item, string scope, Guid[] children)
-        {
-            var planning = Decode<WorkItemPlanningSpecification>(item.PlanningSpecificationJson ?? "null")
-                ?? throw new ArgumentException("Every story and epic needs accepted planning and acceptance criteria.");
-            if (planning.AcceptanceCriteria.Count == 0) throw new ArgumentException("Every aggregate requires acceptance criteria.");
-            var assignment = request.Assignments.SingleOrDefault(x => x.Scope == scope && x.ItemId == item.Id && x.BoardId == item.BoardId)
-                ?? throw new ArgumentException("Assign every aggregate's review stages.");
-            return new(scope, item.Id, item.BoardId!.Value, item.PlanningRevision, children, planning, assignment.Stages)
-                { ChildPlanningRevisions = children.ToDictionary(id => id, id => items.Single(x => x.Id == id).PlanningRevision) };
-        }
+        if (request.TicketWorkflows.Count == 0)
+            throw new ArgumentException("Declare workflow tickets, their dependencies and assigned steps before configuring delivery.");
+        return ConfigureTicketsAsync(org, actorId, request, ct);
     }
 
     public async Task<WorkDeliveryPlanResponse> ControlAsync(Guid org, Guid actorId, ControlWorkDeliveryPlanRequest request, CancellationToken ct = default)
@@ -170,7 +55,10 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         var plan = await GetAuthorizedAsync(org, actorId, request.PlanId, WorkDeliveryCapabilities.Control, ct);
         var actor = await MemberAsync(org, actorId, ct);
-        if (actor.Id != plan.ManagerOrganizationUserId) throw new UnauthorizedAccessException("Only the assigned release manager controls the plan.");
+        var ownerAmendmentControl = actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
+            request.Action is "pause" or "resume" or "retry-validation";
+        if (actor.Id != plan.ManagerOrganizationUserId && !ownerAmendmentControl)
+            throw new UnauthorizedAccessException("Only the assigned release manager controls the plan; an authorized organization owner may pause or resume it for scope amendment.");
         var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "control", request, ct);
         if (replay is not null) return Response(replay);
         if (plan.Revision != request.ExpectedRevision) throw new DbUpdateConcurrencyException("The plan changed.");
@@ -179,11 +67,11 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             case "activate" when plan.Status == "Draft":
                 await ValidateCurrentScopeAsync(plan, ct);
                 await PinTaskDeliveryAsync(plan, ct);
-                var epicIds = Decode<Guid[]>(plan.EpicItemIdsJson);
+                var ticketIds = Scopes(plan).Select(s => s.TicketWorkflow!.TicketId).ToArray();
                 var otherPlans = await db.WorkDeliveryPlans.AsNoTracking().Where(x => x.OrganizationId == org && x.Id != plan.Id &&
-                    (x.Status == "Active" || x.Status == "Paused")).Select(x => x.EpicItemIdsJson).ToListAsync(ct);
-                if (otherPlans.Any(x => Decode<Guid[]>(x).Intersect(epicIds).Any()))
-                    throw new InvalidOperationException("An epic already belongs to an activated delivery plan.");
+                    (x.Status == "Active" || x.Status == "Paused")).Select(x => x.ScopesJson).ToListAsync(ct);
+                if (otherPlans.Any(x => Decode<WorkDeliveryScopeSnapshot[]>(x).Any(s => s.TicketWorkflow is { } w && ticketIds.Contains(w.TicketId))))
+                    throw new InvalidOperationException("A workflow ticket already belongs to an activated plan.");
                 await ProvisionBranchesAsync(plan, ct);
                 foreach (var scope in Scopes(plan))
                 {
@@ -194,6 +82,24 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
                 plan.Status = "Active"; break;
             case "pause" when plan.Status is "Active" or "Promoting": plan.Status = "Paused"; break;
             case "resume" when plan.Status == "Paused": await ValidateCurrentScopeAsync(plan, ct); plan.Status = "Active"; break;
+            case "retry-validation" when plan.Status == "Active":
+                await ValidateCurrentScopeAsync(plan,ct);
+                var stopped=plan.Executions.Where(e=>e.ScopeRevision==plan.ScopeRevision&&e.Status=="Blocked"&&e.AcceptanceJson==null).ToArray();
+                if(stopped.Length==0)throw new InvalidOperationException("There is no failed validation to retry.");
+                foreach(var execution in stopped) {
+                    await RequireCandidateCurrentAsync(plan,execution,ct);
+                    foreach(var finding in plan.Findings.Where(f=>f.ExecutionId==execution.Id&&f.Status=="Open")) {
+                        finding.Status="Superseded";finding.ResolvedAt=clock.GetUtcNow();finding.ResolvedByOrganizationUserId=actor.Id;
+                        finding.ResolutionEvidence="Validation retried by the release manager or owner. The prior failure remains recorded; no criterion is accepted. "+request.Reason;
+                    }
+                    foreach(var stage in execution.Stages.Where(s=>s.Status!=WorkStageExecutionStatus.Completed)) {
+                        stage.Status=WorkStageExecutionStatus.Cancelled;await RevokeDeliveryGrantsAsync(execution,stage,ct);
+                    }
+                    var retryScope=Scopes(plan).Single(s=>s.Scope==execution.Scope&&s.ItemId==execution.WorkItemId);
+                    await CreateReviewAsync(plan,execution,retryScope,execution.CurrentStageKey,ct);
+                    execution.BlockedReason=null;execution.Revision++;
+                }
+                break;
             case "cancel" when plan.Status is not ("Completed" or "Cancelled"):
                 plan.Status = "Cancelled";
                 await RevokeTaskArtifactGrantsAsync(plan, ct);
@@ -215,6 +121,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             default: throw new InvalidOperationException("The delivery control is not valid in the current state.");
         }
         plan.Revision++; plan.UpdatedAt = clock.GetUtcNow();
+        foreach (var execution in plan.Executions.Where(e=>e.ScopeRevision==plan.ScopeRevision)) await SynchronizeTicketAsync(plan,execution,ct);
         Receipt(plan, actorId, request.IdempotencyKey, "control", request); Queue(plan, request.Action);
         await SaveDeliveryAsync(ct); if (tx is not null) await tx.CommitAsync(ct); return Response(plan);
     }
@@ -226,8 +133,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         var member = await MemberAsync(org, actorId, ct);
         var execution = plan.Executions.Single(x => x.Id == request.ExecutionId);
         var scope = Scopes(plan).Single(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId);
-        var boardManager = await db.WorkBoards.Where(x => x.Id == execution.BoardId).Select(x => x.ManagerOrganizationUserId).SingleAsync(ct);
-        if (member.Id != (execution.Scope == WorkExecutionScopes.Release ? plan.ManagerOrganizationUserId : boardManager))
+        if (member.Id != CurrentDeliveryStage(execution).OrganizationUserId)
             throw new UnauthorizedAccessException("Only the assigned aggregate manager can accept this delivery.");
         var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "accept", request, ct);
         if (replay is not null) return Response(replay);
@@ -238,13 +144,16 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         await ValidateCurrentScopeAsync(plan, ct); await RequireCandidateCurrentAsync(plan, execution, ct);
         execution.AcceptanceJson = Encode(request); execution.Status = request.Approved ? "Promoting" : "Blocked";
         execution.BlockedReason = request.Approved ? null : request.Summary;
-        var stage = execution.Stages.Last(x => x.StageKey == "manager-review");
+        var stage = CurrentDeliveryStage(execution);
+        if (Handler(scope,stage.StageKey) is not ("manager-review" or "acceptance")) throw new InvalidOperationException("The current step is not declared acceptance.");
         stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = request.Approved ? "approved" : "rejected";
         stage.LastSummary = request.Summary; stage.CompletedAt = clock.GetUtcNow();
         RecordHumanReview(stage, new(request.CandidateDigest, request.Approved, request.Summary, request.Criteria, request.Findings));
         await RevokeDeliveryGrantsAsync(execution, stage, ct);
         if (!request.Approved) await RecordFindingsAsync(plan, execution, request.Findings, ct);
+        else await AdvanceTicketAsync(plan, execution, scope, stage, ct);
         execution.Revision++; plan.Revision++; plan.UpdatedAt = clock.GetUtcNow();
+        await SynchronizeTicketAsync(plan,execution,ct);
         Receipt(plan, actorId, request.IdempotencyKey, "accept", request); Queue(plan, "acceptance.decided");
         await SaveDeliveryAsync(ct); if (tx is not null) await tx.CommitAsync(ct); return Response(plan);
     }
@@ -254,14 +163,37 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         var plan = await GetAuthorizedAsync(org, actorId, request.PlanId, WorkDeliveryCapabilities.Recover, ct);
         var member = await MemberAsync(org, actorId, ct);
-        if (member.Id != plan.ManagerOrganizationUserId) throw new UnauthorizedAccessException("Only the release manager may recover delivery.");
+        var execution = plan.Executions.Single(x => x.Id == request.ExecutionId);
+        if (member.Id != plan.ManagerOrganizationUserId && member.PermissionLevel != OrganizationPermissionLevel.Owner)
+            throw new UnauthorizedAccessException("Only the release manager or an authorized owner may request review-processing recovery.");
         var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "recover", request, ct);
         if (replay is not null) return Response(replay);
-        var execution = plan.Executions.Single(x => x.Id == request.ExecutionId);
+        var legacyComputeCorrection = member.PermissionLevel == OrganizationPermissionLevel.Owner && request.Resolutions.Count == 0 &&
+            (await IsLegacyComputeCursorFailureAsync(plan, execution, ct) || await IsLegacyMissingDependencyFailureAsync(plan, execution, ct) ||
+             await IsInterruptedManagedRestoreAsync(plan, execution, ct) || await IsTruncatedComputeValidationAsync(plan, execution, ct) ||
+             await IsFailedProvisionCleanupAsync(plan, execution, ct));
+        var ownerProcessingRecovery = member.PermissionLevel == OrganizationPermissionLevel.Owner && request.Resolutions.Count == 0 &&
+            execution.CurrentStageKey is "technical-review" or "manager-review" &&
+            (execution.BlockedReason?.StartsWith("agent-failure:v1;code=agent.invalid_operation;", StringComparison.Ordinal) == true ||
+             execution.BlockedReason == "The prior runtime lease expired.") &&
+            !plan.Findings.Any(x => x.Status == "Open");
+        if (member.Id != plan.ManagerOrganizationUserId && !ownerProcessingRecovery && !legacyComputeCorrection)
+            throw new UnauthorizedAccessException("Only the release manager may recover delivery; an authorized owner may restart a failed review processor without resolving findings or granting acceptance.");
         if (plan.Status != "Active" || execution.Revision != request.ExpectedRevision || execution.Status is not ("Blocked" or "PartiallyPromoted"))
             throw new DbUpdateConcurrencyException("Recovery requires the current stopped execution.");
         if (string.IsNullOrWhiteSpace(request.Reason)) throw new ArgumentException("Explain the recovery action.");
         await ValidateCurrentScopeAsync(plan, ct);
+        if (legacyComputeCorrection)
+        {
+            await RequireCandidateCurrentAsync(plan, execution, ct);
+            foreach (var finding in plan.Findings.Where(f => f.Status == "Open"))
+            {
+                finding.Status = "Superseded";
+                finding.ResolutionEvidence = "Owner-authorized C-Sweet compute setup or transport processing correction. The exact prior operation and failure remain recorded. " +
+                    "This historical processing failure does not establish a game defect or pass any criterion. Fresh build readiness, QA, technical review and manager acceptance remain mandatory. " + request.Reason;
+                finding.ResolvedByOrganizationUserId = member.Id; finding.ResolvedAt = clock.GetUtcNow();
+            }
+        }
         foreach (var resolution in request.Resolutions)
         {
             var finding = plan.Findings.SingleOrDefault(x => x.Id == resolution.FindingId && x.Status == "Open")
@@ -284,7 +216,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         try
         {
             await RequireCandidateCurrentAsync(plan, execution, ct);
-            var last = execution.Stages.LastOrDefault();
+            var last = execution.Stages.Count == 0 ? null : CurrentDeliveryStage(execution);
             if (last is null || last.LastOutcomeCode is "rejected" or "changes_requested" ||
                 last.Status is WorkStageExecutionStatus.Failed or WorkStageExecutionStatus.Blocked or WorkStageExecutionStatus.Cancelled)
                 ResetValidation();
@@ -322,7 +254,8 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
                 s.LastOutcomeCode, s.LastSummary, s.LastError, s.RetryAt, s.UpdatedAt)
                 { LatestOutcome = s.Attempts.Where(a => a.Status == WorkExecutionAttemptStatus.Completed && a.ResultJson != null)
                     .OrderByDescending(a => a.Attempt).Select(a => Decode<WorkExecutionOutcomeV1>(a.ResultJson!)).FirstOrDefault() }).ToArray(),
-            x.Promotions.Select(p => new WorkDeliveryPromotionReceipt(p.RepositoryId, p.SourceCommitSha, p.TargetCommitSha, p.Status, p.MergeCommitSha, p.Error)).ToArray())).ToArray(),
+            x.Promotions.Select(p => new WorkDeliveryPromotionReceipt(p.RepositoryId, p.SourceCommitSha, p.TargetCommitSha, p.Status, p.MergeCommitSha, p.Error)).ToArray())
+            { WorkflowTicketId = Scopes(plan).SingleOrDefault(s => s.Scope == x.Scope && s.ItemId == x.WorkItemId)?.TicketWorkflow?.TicketId }).ToArray(),
         plan.CreatedAt, plan.UpdatedAt)
         { Findings = plan.Findings.Select(x => new WorkDeliveryFindingResponse(x.Id, x.ExecutionId, x.CandidateDigest, x.Summary,
             x.Status, Decode<Guid[]>(x.RemediationTaskIdsJson), x.ResolutionEvidence)).ToArray() };

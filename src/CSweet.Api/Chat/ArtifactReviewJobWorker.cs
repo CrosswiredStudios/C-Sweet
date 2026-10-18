@@ -1,5 +1,6 @@
 using CSweet.Application.Core;
 using CSweet.Contracts.Communications;
+using CSweet.Contracts.Core;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
@@ -56,7 +57,8 @@ public sealed class ArtifactReviewJobWorker(
             await db.SaveChangesAsync(token);
             return true;
         }
-        if (revision.Status != ArtifactRevisionStatus.Submitted || artifact.ArchivedAt.HasValue ||
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType) ||
+            revision.Status != ArtifactRevisionStatus.Submitted || artifact.ArchivedAt.HasValue ||
             artifact.SubmittedRevisionId != revision.Id)
         {
             await CompleteAsync(db, job, now, token);

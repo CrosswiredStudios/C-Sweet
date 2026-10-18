@@ -127,11 +127,15 @@ public sealed class WorkspaceArtifactValidator(WorkspaceArtifactLimits? limits =
         var root = Path.GetFullPath(sourceDirectory);
         using var zip = new ZipArchive(destination, ZipArchiveMode.Create, leaveOpen: true);
         foreach (var path in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                     .OrderBy(path => Path.GetRelativePath(root, path), StringComparer.Ordinal))
+                     .OrderBy(path => NormalizeRelativePath(Path.GetRelativePath(root, path)), StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relative = NormalizeRelativePath(Path.GetRelativePath(root, path));
             var entry = zip.CreateEntry(relative, CompressionLevel.Fastest);
+            // Snapshot identity must not depend on when/where a download is created.
+            // CreateEntry otherwise stamps the current time into both ZIP headers.
+            entry.LastWriteTime = new DateTimeOffset(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            entry.ExternalAttributes = 0;
             await using var output = entry.Open();
             await using var input = new FileStream(
                 path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920,

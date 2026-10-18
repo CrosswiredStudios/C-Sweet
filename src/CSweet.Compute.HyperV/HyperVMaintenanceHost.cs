@@ -18,7 +18,7 @@ internal static class HyperVMaintenanceHost
             CSweet.Compute.Contracts.InfrastructureActions.Destroy, CSweet.Compute.Contracts.InfrastructureActions.Execute, CSweet.Compute.Contracts.InfrastructureActions.PublishPort };
         var verifier = new ComputeDispatchVerifier(configuration.Enrollment,
             new(configuration.Enrollment.ProviderId, templates.Keys.ToHashSet(), actions.ToHashSet(),
-                catalog is null ? [] : [CSweet.Domain.Compute.ComputeNetworkMode.None], false, catalog is not null),
+                catalog is null ? [] : [CSweet.Domain.Compute.ComputeNetworkMode.None, CSweet.Domain.Compute.ComputeNetworkMode.OutboundOnly], false, catalog is not null),
             configuration.Capacity.Resources, templates, clock);
         var executor = new HyperVComputeExecutor(verifier, journal, new(new HyperVCommandRunner()), configuration.WorkloadDirectory,
             catalog is null ? (_, _) => throw new InvalidOperationException("Provisioning is not configured.") : catalog.OpenAsync,
@@ -44,6 +44,11 @@ internal static class HyperVMaintenanceHost
         {
             using var permissionConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);
             return await permissionConnection.AuthorizePublicationAsync(operationId, cancellation);
+        };
+        executor.AuthorizeDependencies = async (operationId, cancellation) =>
+        {
+            using var permissionConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);
+            return await permissionConnection.AuthorizeDependenciesAsync(operationId, cancellation);
         };
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
         using var connection = new HyperVMaintenanceDeliveryConnection(configuration, clock, openCertificate);

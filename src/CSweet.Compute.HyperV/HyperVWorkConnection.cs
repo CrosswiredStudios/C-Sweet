@@ -17,6 +17,8 @@ internal sealed class HyperVWorkConnection(
 
     public Task<bool> AuthorizePublicationAsync(Guid operationId, CancellationToken token) =>
         UseAsync((client, cancellation) => client.AuthorizePublicationAsync(operationId, cancellation), token);
+    public Task<bool> AuthorizeDependenciesAsync(Guid operationId, CancellationToken token) =>
+        UseAsync((client, cancellation) => client.AuthorizeDependenciesAsync(operationId, cancellation), token);
     public Task<ComputeProviderWakeHint?> WaitForWakeAsync(CancellationToken token) =>
         UseAsync((client, cancellation) => client.WaitForWakeAsync(cancellation), token);
 

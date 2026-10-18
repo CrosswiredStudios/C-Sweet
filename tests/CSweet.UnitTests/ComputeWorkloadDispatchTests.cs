@@ -35,13 +35,27 @@ public sealed class ComputeWorkloadDispatchTests
         Assert.Throws<UnauthorizedAccessException>(() => verifier.Verify(recovery with { Workload = request.Workload }));
     }
 
-    [Fact]
-    public async Task Published_connections_recheck_current_grants_and_exact_node_ownership()
+    [Theory]
+    [InlineData(false,InfrastructureActions.Inbound)]
+    [InlineData(true,InfrastructureActions.Inbound)]
+    [InlineData(true,InfrastructureActions.Outbound)]
+    public async Task Published_connections_recheck_current_grants_and_exact_node_ownership(bool networked,string revokedAction)
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
         var environment = await ComputeWorkloadTests.ReadyAsync(f);
         await ComputeWorkloadTests.GrantAsync(f, InfrastructureActions.PublishPort);
         await ComputeWorkloadTests.GrantAsync(f, InfrastructureActions.Inbound);
+        if(networked) {
+            await ComputeWorkloadTests.GrantAsync(f,InfrastructureActions.Outbound);
+            var recorded=await f.Db.ComputeEnvironments.SingleAsync();
+            var spec=JsonSerializer.Deserialize<ComputeSpecification>(recorded.SpecificationJson,ComputeProtocol.Json)!;
+            recorded.SpecificationJson=JsonSerializer.Serialize(spec with {Network=new(ComputeNetworkMode.OutboundOnly,true)},ComputeProtocol.Json);
+            foreach(var grant in await f.Db.ScopedActionGrants.ToArrayAsync()) {
+                var constraints=JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson,ComputeProtocol.Json)!;
+                grant.ConstraintsJson=JsonSerializer.Serialize(constraints with {AllowOutbound=true},ComputeProtocol.Json);
+            }
+            await f.Db.SaveChangesAsync();
+        }
         var operation = await f.Broker.SubmitWorkloadAsync(f.Organization, f.Installation, new(environment.Id, 1, "publish", new(PublishPort: 8080)), default);
         (await f.Db.ComputeOperations.SingleAsync(x => x.Id == operation.Id)).Status = "Dispatching"; await f.Db.SaveChangesAsync();
         var placed = await f.Db.ComputeEnvironments.SingleAsync();
@@ -53,7 +67,7 @@ public sealed class ComputeWorkloadDispatchTests
         string json = JsonSerializer.Serialize(proof, ComputeProtocol.Json);
         var signed = new SignedComputeProviderWorkRequest("node", json, Convert.ToBase64String(key.SignData(ComputeProtocol.WorkRequestPayload(json), HashAlgorithmName.SHA256)));
         Assert.True((await access.AuthorizeAsync(signed, default)).Allowed);
-        (await f.Db.ScopedActionGrants.SingleAsync(x => x.Action == InfrastructureActions.Inbound)).RevokedAt = now;
+        (await f.Db.ScopedActionGrants.SingleAsync(x => x.Action == revokedAction)).RevokedAt = now;
         await f.Db.SaveChangesAsync();
         Assert.False((await access.AuthorizeAsync(signed, default)).Allowed);
     }

@@ -19,7 +19,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
                 !Guid.TryParse(session.BusinessId, out var organizationId) || organizationId == Guid.Empty ||
                 !Guid.TryParse(session.InstallationId, out var installationId) || installationId == Guid.Empty)
                 throw new UnauthorizedAccessException();
-            if (request.ContentType != "application/json" || request.Payload.Length is < 1 or > 32768)
+            if (request.ContentType != "application/json" || request.Payload.Length is < 1 or > 131072)
                 throw new ArgumentException();
             object response;
             if (request.Capability == InfrastructureActions.Provision)
@@ -42,6 +42,8 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             {
                 var input = Read<RequestComputeWorkload>(request);
                 if (input.Workload is null || (input.Workload.Command is not null) != (request.Capability == InfrastructureActions.Execute)) throw new ArgumentException();
+                if (input.Workload.NodeDependencies is not null && !session.Grant.RequiredCapabilities.Contains(InfrastructureActions.Outbound))
+                    throw new UnauthorizedAccessException();
                 response = await broker.SubmitWorkloadAsync(organizationId, installationId, input, token);
             }
             else if (request.Capability == InfrastructureActions.List)

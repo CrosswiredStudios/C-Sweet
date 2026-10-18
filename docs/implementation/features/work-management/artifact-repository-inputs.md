@@ -1,0 +1,13 @@
+# Repository inputs for artifact reports
+
+`WorkOrchestrator.DispatchAsync` supplies `WorkExecutionAssignment.Candidate` as a **read-only input** when an Artifact author has completed Code dependencies in the same approved Story. The output remains Artifact with no repository/base-branch binding. Ordinary document-only assignments retain their existing behavior.
+
+`WorkArtifactRepositoryInput.RequireAsync` checks accepted planning and staffing digests for the author and declared dependencies, completed integration receipts, Story membership and repository bindings. `PinAsync` inspects the approved Story and records its exact head in the assignment. The inbox protects this payload; dispatch persists it with the attempt, scoped grants and notification outbox in the existing transaction. The candidate digest also binds the exact dependency commits, assignment/planning revisions and integration receipt IDs. A reworked dependency invalidates the input even if it has already completed again. Reconnects reuse that saved assignment. A later attempt may select a newer Story head.
+
+`WorkDeliveryService.ReadTaskInputAsync` serves the existing delivery-evidence request using the task execution ID. It reads the server-protected inbox assignment, verifies the exact current author/stage/attempt and live lease, active plan/scope, current planning and assignment revisions, task read grant, team membership, repository grant and connected provider. Each call reauthorizes. Archive reads reauthorize again after the provider returns and reject a different commit. Agents cannot choose arbitrary refs or repositories. This path creates no publication, promotion or review approval.
+
+QA `GameQaInputWorkspace` consumes this evidence through SDK `DeliveryCandidateWorkspace`. It checks archive identity, captures original file hashes and checks original source (including symlink ancestors) after validation. It reauthorizes the input before accepting the report. Artifact reports do not invoke Git prepare/inspect/publish. The existing submitted-artifact quality stage remains independent of the report author. Missing browser/device evidence stays unverifiable; a source snapshot alone proves neither test success nor merge approval.
+
+Regression coverage: `ArtifactRepositoryInputTests`, QA `GameQaArtifactInputTests`, `HierarchicalQaContractTests`, and the existing hierarchical delivery/runtime suites.
+
+`WorkDeliveryService.ReadEvidenceAsync` and `ReadTaskInputAsync` compute `ArchiveSha256` from the returned ZIP bytes. GitHost `TrustedWorkspaceSnapshot.ArtifactSha256` identifies the normalized file manifest and must never be passed as the ZIP digest. The SDK checks the byte digest independently before extracting.

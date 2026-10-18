@@ -30,6 +30,25 @@ Current stage assignees take precedence over a ticket's accountable/direct owner
 Unlinked model calls are labelled background activity, never guessed onto an
 agent's most recently edited ticket. Parallel executors remain separate rows.
 
+`CurrentActivityService.ReadDeliveriesAsync` also resolves `WorkDeliveryStage`
+inbox deliveries through the exact `WorkExecutionAttempt.AgentWorkItemId` binding,
+stage source ID, and assigned employee/installation. Aggregate epic and release
+reviews show their canonical stage and plan scope (for example, **Technical review**
+and **Release: First playable**) even when no task is linked. These rows participate
+in the Projects filter and require the delivery board's read grant; feed reads
+recheck that grant, including release reviews with no task ID. Missing, foreign,
+archived, or mismatched delivery bindings never fall back to unrestricted background
+activity. An independently leased review does not inherit the source epic's wait.
+
+`DescribeActivity` supplies allowlisted labels for technical/acceptance reviews,
+build readiness, testing, project-health reviews, task discussions, and known
+delivery/compute/repository notifications. `CurrentActivityItem.ActivityLabel`
+keeps the assigned activity visible alongside the runtime status. Unknown events
+retain the generic fallback; no label is inferred from provider reasoning. Recorded
+workspace operations and agent activity/progress take priority over model status
+in the current-action summary. Queued, recovering, and unconfirmed activity retains
+its state and never displays an active reviewer or tester.
+
 The organization-scoped list is paged in groups of 50 after authorization and
 deduplication. Confirmed executing work sorts first, followed by project category,
 creation time and stable row key. `ReadExecutionAsync` resolves provider queues and

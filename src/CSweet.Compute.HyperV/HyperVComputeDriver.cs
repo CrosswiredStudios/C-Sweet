@@ -24,8 +24,8 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
     {
         Validate(identity);
         if (!specification.IsValid || specification.Architecture != "x64" || specification.OperatingSystem is not ("windows" or "linux") ||
-            specification.NetworkPolicy.Mode != ComputeNetworkMode.None || specification.Resources.GpuCount != 0)
-            throw new NotSupportedException("This initial Hyper-V driver supports x64 Windows/Linux without network devices or GPU assignment.");
+            specification.NetworkPolicy.Mode is not (ComputeNetworkMode.None or ComputeNetworkMode.OutboundOnly) || specification.Resources.GpuCount != 0)
+            throw new NotSupportedException("Hyper-V supports x64 Windows/Linux with no network or approved outbound networking, without GPU assignment.");
         foreach (var path in new[] { machinePath, privateDiskPath, imagePath })
             if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Hyper-V paths must be protected absolute paths.");
         var parameters = Parameters(identity);
@@ -36,6 +36,7 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         parameters["CSWEET_COMPUTE_MEMORY"] = checked(specification.Resources.MemoryMiB * 1024 * 1024).ToString(CultureInfo.InvariantCulture);
         parameters["CSWEET_COMPUTE_DISK_BYTES"] = checked(specification.Resources.DiskMiB * 1024 * 1024).ToString(CultureInfo.InvariantCulture);
         parameters["CSWEET_COMPUTE_FIRMWARE"] = specification.OperatingSystem == "windows" ? "MicrosoftWindows" : "MicrosoftUEFICertificateAuthority";
+        parameters["CSWEET_COMPUTE_NETWORK"] = specification.NetworkPolicy.Mode.ToString();
         var created = Parse(await runner.RunAsync(CreateScript, parameters, token));
         if (created.Id is null || created.State == "Missing") throw new InvalidDataException("Hyper-V did not return the created machine identity.");
         return created;
@@ -51,7 +52,7 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         if (action is InfrastructureActions.Start or InfrastructureActions.Restart)
         {
             if (specification is not { IsValid: true } || specification.Architecture != "x64" ||
-                specification.OperatingSystem is not ("windows" or "linux") || specification.NetworkPolicy.Mode != ComputeNetworkMode.None ||
+                specification.OperatingSystem is not ("windows" or "linux") || specification.NetworkPolicy.Mode is not (ComputeNetworkMode.None or ComputeNetworkMode.OutboundOnly) ||
                 specification.Resources.GpuCount != 0 || privateDiskPath is null || !Path.IsPathFullyQualified(privateDiskPath))
                 throw new NotSupportedException("Activation requires the approved isolated VM topology.");
             parameters["CSWEET_COMPUTE_DISK"] = privateDiskPath;
@@ -59,6 +60,7 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
             parameters["CSWEET_COMPUTE_MEMORY"] = checked(specification.Resources.MemoryMiB * 1024 * 1024).ToString(CultureInfo.InvariantCulture);
             parameters["CSWEET_COMPUTE_DISK_BYTES"] = checked(specification.Resources.DiskMiB * 1024 * 1024).ToString(CultureInfo.InvariantCulture);
             parameters["CSWEET_COMPUTE_FIRMWARE"] = specification.OperatingSystem == "windows" ? "MicrosoftWindows" : "MicrosoftUEFICertificateAuthority";
+            parameters["CSWEET_COMPUTE_NETWORK"] = specification.NetworkPolicy.Mode.ToString();
         }
         var observed = Parse(await runner.RunAsync(ControlScript, parameters, token));
         if (observed.Id != expectedVmId) throw new InvalidDataException("Hyper-V returned a different machine identity.");
@@ -80,6 +82,51 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         Validate(identity);
         return Parse(await runner.RunAsync(DiscoverScript, Parameters(identity), token));
     }
+
+    internal async Task ProtectRemovedWorkloadAsync(HyperVMachineIdentity identity, Guid expectedVmId, string workloadPath, CancellationToken token)
+    {
+        Validate(identity);
+        if (expectedVmId == Guid.Empty || !Path.IsPathFullyQualified(workloadPath) ||
+            Path.GetFileName(workloadPath) != identity.EnvironmentId.ToString("N"))
+            throw new ArgumentException("Use the exact protected environment directory and removed VM identity.");
+        var parameters = Parameters(identity);
+        parameters["CSWEET_COMPUTE_VM_ID"] = expectedVmId.ToString("D");
+        parameters["CSWEET_COMPUTE_WORKLOAD_PATH"] = workloadPath;
+        await runner.RunAsync(ProtectRemovedWorkloadScript, parameters, token);
+    }
+
+    internal const string ProtectRemovedWorkloadScript = """
+        Import-Module Hyper-V -ErrorAction Stop
+        $expected = [Guid]::Parse($env:CSWEET_COMPUTE_VM_ID)
+        if (@(Get-VM -ErrorAction Stop | Where-Object { $_.Id -eq $expected }).Count -ne 0) { throw 'Preserve existing VM before removing its files.' }
+        $path = $env:CSWEET_COMPUTE_WORKLOAD_PATH
+        if (!(Test-Path -LiteralPath $path)) { exit 0 }
+        $admins = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        $entries = [Collections.Generic.List[IO.FileSystemInfo]]::new()
+        $pending = [Collections.Generic.Stack[IO.FileSystemInfo]]::new()
+        $pending.Push((Get-Item -LiteralPath $path -Force -ErrorAction Stop))
+        while ($pending.Count -gt 0) {
+            $entry = $pending.Pop()
+            if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Preserve redirected workload path.' }
+            if ($entry -is [IO.FileInfo] -and (Get-Item -LiteralPath $entry.FullName -Force -ErrorAction Stop).LinkType -eq 'HardLink') { throw 'Preserve linked workload file.' }
+            $owner = (Get-Acl -LiteralPath $entry.FullName -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier])
+            if (!$owner.Equals($admins) -and !$owner.Equals($system)) { throw 'Preserve untrusted workload ownership.' }
+            $entries.Add($entry)
+            if ($entry -is [IO.DirectoryInfo]) { foreach ($child in @(Get-ChildItem -LiteralPath $entry.FullName -Force -ErrorAction Stop)) { $pending.Push($child) } }
+        }
+        # Partial New-VM failures can leave Hyper-V's automatic broad VM-group ACLs.
+        # A fresh authorized destroy may revoke those after exact VM absence, before
+        # the executor applies its unchanged link/ownership guards and removes files.
+        foreach ($entry in $entries) {
+            $acl = if ($entry -is [IO.DirectoryInfo]) { [Security.AccessControl.DirectorySecurity]::new() } else { [Security.AccessControl.FileSecurity]::new() }
+            $acl.SetAccessRuleProtection($true, $false)
+            $acl.SetOwner($admins)
+            $inherit = if ($entry -is [IO.DirectoryInfo]) { 'ContainerInherit,ObjectInherit' } else { 'None' }
+            foreach ($sid in @($admins, $system)) { $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', $inherit, 'None', 'Allow')) }
+            Set-Acl -LiteralPath $entry.FullName -AclObject $acl -ErrorAction Stop
+        }
+        """;
 
     internal const string DiscoverScript = """
         Import-Module Hyper-V -ErrorAction Stop
@@ -109,7 +156,54 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         return observation;
     }
 
-    internal const string CreateScript = """
+    private const string NetworkFunctions = """
+        function Assert-ComputeNetwork($vm) {
+            $cards = @(Get-VMNetworkAdapter -VM $vm -ErrorAction Stop)
+            if ($env:CSWEET_COMPUTE_NETWORK -ceq 'None') {
+                if ($cards.Count -ne 0) { throw 'Unexpected compute network adapter.' }
+            } elseif ($env:CSWEET_COMPUTE_NETWORK -ceq 'OutboundOnly') {
+                $switch = Get-VMSwitch -Name 'Default Switch' -ErrorAction Stop
+                if ($switch.SwitchType.ToString() -ne 'Internal' -or $cards.Count -ne 1 -or
+                    $cards[0].Name -cne 'CSweet Outbound' -or $cards[0].SwitchId -ne $switch.Id -or
+                    $cards[0].MacAddressSpoofing.ToString() -ne 'Off') { throw 'Unexpected compute outbound topology.' }
+            } else { throw 'Unsupported compute network policy.' }
+        }
+        function Add-ComputeOutboundNetwork($vm) {
+            if ($env:CSWEET_COMPUTE_NETWORK -ceq 'None') { return }
+            if ($env:CSWEET_COMPUTE_NETWORK -cne 'OutboundOnly') { throw 'Unsupported compute network policy.' }
+            $switch = Get-VMSwitch -Name 'Default Switch' -ErrorAction Stop
+            if ($switch.SwitchType.ToString() -ne 'Internal') { throw 'The development NAT switch is unavailable.' }
+            $gateway = @(Get-NetIPAddress -InterfaceAlias 'vEthernet (Default Switch)' -AddressFamily IPv4 -ErrorAction Stop |
+                Where-Object { $_.AddressState.ToString() -eq 'Preferred' })
+            if ($gateway.Count -ne 1) { throw 'The development NAT resolver is unavailable.' }
+            Add-VMNetworkAdapter -VM $vm -Name 'CSweet Outbound' -SwitchName $switch.Name -ErrorAction Stop
+            $card = Get-VMNetworkAdapter -VM $vm -Name 'CSweet Outbound' -ErrorAction Stop
+            Set-VMNetworkAdapter -VMNetworkAdapter $card -MacAddressSpoofing Off -DhcpGuard On -RouterGuard On -ErrorAction Stop
+            # NAT provides ordinary package-manager networking. Only replies to outbound
+            # connections enter the VM; host/private destinations remain inaccessible.
+            Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Deny -Direction Inbound -Weight 1 -ErrorAction Stop
+            Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Deny -Direction Outbound -Weight 2 -ErrorAction Stop
+            $weight = 100
+            foreach ($protocol in @('TCP','UDP')) {
+                Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Allow -Direction Outbound -Protocol $protocol -RemoteIPAddress '0.0.0.0/0' -Weight $weight -Stateful $true -ErrorAction Stop
+                $weight++
+            }
+            $weight = 200
+            foreach ($range in @('0.0.0.0/8','10.0.0.0/8','100.64.0.0/10','127.0.0.0/8','169.254.0.0/16','172.16.0.0/12','192.168.0.0/16','224.0.0.0/4','240.0.0.0/4')) {
+                Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Deny -Direction Outbound -RemoteIPAddress $range -Weight $weight -ErrorAction Stop
+                $weight++
+            }
+            $weight = 300
+            foreach ($protocol in @('TCP','UDP')) {
+                Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Allow -Direction Outbound -Protocol $protocol -RemoteIPAddress $gateway[0].IPAddress -RemotePort 53 -Weight $weight -Stateful $true -ErrorAction Stop
+                $weight++
+            }
+            Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Allow -Direction Outbound -Protocol UDP -LocalPort 68 -RemotePort 67 -Weight 302 -ErrorAction Stop
+            Add-VMNetworkAdapterExtendedAcl -VMNetworkAdapter $card -Action Allow -Direction Inbound -Protocol UDP -LocalPort 68 -RemotePort 67 -RemoteIPAddress $gateway[0].IPAddress -Weight 303 -ErrorAction Stop
+        }
+        """;
+
+    internal const string CreateScript = NetworkFunctions + "\n" + """
         Import-Module Hyper-V -ErrorAction Stop
         if (@(Get-VM -ErrorAction Stop | Where-Object { $_.Name -eq $env:CSWEET_COMPUTE_VM_NAME }).Count -ne 0) { throw 'Existing VM requires reconciliation.' }
         $image = Get-VHD -Path $env:CSWEET_COMPUTE_IMAGE -ErrorAction Stop
@@ -124,13 +218,15 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         $vm = New-VM -Name $env:CSWEET_COMPUTE_VM_NAME -Generation 2 -NoVHD -MemoryStartupBytes $memory -Path $env:CSWEET_COMPUTE_VM_PATH -ErrorAction Stop
         Set-VM -VM $vm -Notes $env:CSWEET_COMPUTE_OWNER -AutomaticStartAction Nothing -AutomaticStopAction TurnOff -CheckpointType Disabled -ErrorAction Stop
         Get-VMNetworkAdapter -VM $vm -ErrorAction Stop | Remove-VMNetworkAdapter -Confirm:$false -ErrorAction Stop
+        Add-ComputeOutboundNetwork $vm
         Get-VMDvdDrive -VM $vm -ErrorAction Stop | Remove-VMDvdDrive -Confirm:$false -ErrorAction Stop
         Add-VMHardDiskDrive -VM $vm -ControllerType SCSI -ControllerNumber 0 -ControllerLocation 0 -Path $env:CSWEET_COMPUTE_DISK -ErrorAction Stop
         Set-VMProcessor -VM $vm -Count $cpu -Maximum 100 -ErrorAction Stop
         Set-VMMemory -VM $vm -DynamicMemoryEnabled $false -StartupBytes $memory -ErrorAction Stop
         Set-VMFirmware -VM $vm -EnableSecureBoot On -SecureBootTemplate $env:CSWEET_COMPUTE_FIRMWARE -ErrorAction Stop
         $disk = @(Get-VMHardDiskDrive -VM $vm -ErrorAction Stop)
-        if (@(Get-VMNetworkAdapter -VM $vm -ErrorAction Stop).Count -ne 0 -or $disk.Count -ne 1 -or $disk[0].Path -ne $env:CSWEET_COMPUTE_DISK) { throw 'Compute VM topology is invalid.' }
+        Assert-ComputeNetwork $vm
+        if ($disk.Count -ne 1 -or $disk[0].Path -ne $env:CSWEET_COMPUTE_DISK) { throw 'Compute VM topology is invalid.' }
         Set-VMFirmware -VM $vm -FirstBootDevice $disk[0] -ErrorAction Stop
         # Hyper-V adds broad VM-group/capability ACLs to the workload directory.
         # Replace them with SYSTEM, Administrators and this VM's worker identity.
@@ -164,14 +260,15 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         if ($vm.Name -cne $env:CSWEET_COMPUTE_VM_NAME -or $vm.Notes -cne $env:CSWEET_COMPUTE_OWNER) { throw 'The VM ownership does not match protected compute history.' }
         """;
     internal const string ObserveScript = OwnedVm + "\n@{ id = $vm.Id.Guid; state = $vm.State.ToString() } | ConvertTo-Json -Compress";
-    internal const string ControlScript = OwnedVm + "\n" + """
+    internal const string ControlScript = NetworkFunctions + "\n" + OwnedVm + "\n" + """
         if ($env:CSWEET_COMPUTE_ACTION -in @('compute.start.v1', 'compute.restart.v1')) {
+            Assert-ComputeNetwork $vm
             $disks = @(Get-VMHardDiskDrive -VM $vm -ErrorAction Stop)
             $memory = Get-VMMemory -VM $vm -ErrorAction Stop
             $cpu = Get-VMProcessor -VM $vm -ErrorAction Stop
             $firmware = Get-VMFirmware -VM $vm -ErrorAction Stop
             if ($vm.Generation -ne 2 -or $disks.Count -ne 1 -or $disks[0].Path -ne $env:CSWEET_COMPUTE_DISK -or
-                @($vm | Get-VMNetworkAdapter -ErrorAction Stop).Count -ne 0 -or @($vm | Get-VMDvdDrive -ErrorAction Stop).Count -ne 0 -or
+                @($vm | Get-VMDvdDrive -ErrorAction Stop).Count -ne 0 -or
                 $memory.DynamicMemoryEnabled -or $memory.Startup -ne [Int64]::Parse($env:CSWEET_COMPUTE_MEMORY) -or
                 $cpu.Count -ne [Int32]::Parse($env:CSWEET_COMPUTE_CPU) -or @(Get-VMSnapshot -VM $vm -ErrorAction Stop).Count -ne 0 -or
                 $firmware.SecureBoot.ToString() -ne 'On' -or $firmware.SecureBootTemplate -ne $env:CSWEET_COMPUTE_FIRMWARE -or

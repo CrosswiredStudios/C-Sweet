@@ -67,7 +67,9 @@
                 case "decisions": <ProjectResourceSection Title="Decisions & governance" Description="Inspect decisions, milestones, and the gates governing delivery." Resources="_project.Governance" Groups='@(new[] { "All", "Decisions", "Milestones", "Gates", "Authority" })' EmptyText="Linked decisions, milestones, gates, and authority records will appear here. Missing records do not grant authority." Icon="@Icons.Material.Outlined.Flag" /> break;
                 case "delivery":
                     <ProjectReleases OrganizationId="OrganizationId" ProjectId="WorkstreamId!.Value" WorkResources="_project.Work" />
-                    <ProjectResourceSection Title="Delivery evidence" Description="Builds, previews, and checks supporting release readiness." Resources="_project.Evidence" Groups='@(new[] { "All", "Builds", "Previews", "Media", "Evaluations", "Release" })' ShowPreviews="true" EmptyText="Builds, previews, media, evaluations, and release evidence linked to this project will appear here." Icon="@Icons.Material.Outlined.Inventory2" />
+                    <details class="delivery-evidence"><summary>Builds, previews, and delivery evidence · @_project.Evidence.Count</summary>
+                        <ProjectResourceSection Title="Delivery evidence" Description="Builds, previews, and checks supporting release readiness." Resources="_project.Evidence" Groups='@(new[] { "All", "Builds", "Previews", "Media", "Evaluations", "Release" })' ShowPreviews="true" EmptyText="Builds, previews, media, evaluations, and release evidence linked to this project will appear here." Icon="@Icons.Material.Outlined.Inventory2" />
+                    </details>
                     break;
                 case "audit":
                     <div class="panel-heading"><div><h2>Audit timeline</h2><p class="section-description">A chronological record of project activity.</p></div><span>@FilteredAudit.Count() events</span></div><label class="audit-toggle"><input type="checkbox" @bind="_showRoutineReads" /> Show routine reads</label>

@@ -70,7 +70,8 @@ public static class ComputeNetworkGrantEndpoints
         // Local publishing is confined to guest port 8080 and this environment's lease. It
         // conveys neither an outbound path nor a public listener, and cannot provision another VM.
         var constraints = new ComputeGrantConstraints(1, spec.Resources, 1, spec.LifetimeSeconds,
-            [spec.OperatingSystem], [spec.Architecture], [spec.TemplateId], AllowedPublishedPorts: [8080], EnvironmentId: environment.Id);
+            [spec.OperatingSystem], [spec.Architecture], [spec.TemplateId], AllowOutbound: spec.NetworkPolicy.AllowOutbound,
+            AllowedPublishedPorts: [8080], EnvironmentId: environment.Id);
         foreach (var action in Actions)
         {
             var id = GrantId(environment.Id, action);

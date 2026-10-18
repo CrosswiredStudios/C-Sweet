@@ -521,6 +521,15 @@ public sealed partial class WorkBoardService(
         };
         board.NextItemSequence++;
         db.CoreWorkTasks.Add(item);
+        var declaredDependencies = request.Planning?.DependencyItemIds ?? [];
+        if (declaredDependencies.Count > 0)
+        {
+            var unique = declaredDependencies.Distinct().ToArray();
+            if (unique.Contains(item.Id) || await db.CoreWorkTasks.CountAsync(t => t.OrganizationId == organizationId &&
+                t.BoardId == boardId && t.ArchivedAt == null && unique.Contains(t.Id), cancellationToken) != unique.Length)
+                throw new ArgumentException("Planning predecessors must be existing work on this board.");
+            foreach (var dependency in unique) db.WorkItemDependencies.Add(new() { WorkItemId = item.Id, DependsOnWorkItemId = dependency });
+        }
         foreach (var policyKey in type.RequiredApprovalPolicyKeys)
         {
             item.Approvals.Add(new WorkItemApproval
@@ -1298,6 +1307,8 @@ public sealed partial class WorkBoardService(
         string? parentTypeKey,
         CancellationToken cancellationToken)
     {
+        if (typeKey == CSweet.WorkManagement.Contracts.WorkItemTypeKeys.WorkflowTicketV1 && parentTypeKey is null)
+            return PlatformWorkTypeCatalog.WorkflowTicketFor(board.ProfileKey);
         if (board.WorkstreamId.HasValue)
         {
             var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(

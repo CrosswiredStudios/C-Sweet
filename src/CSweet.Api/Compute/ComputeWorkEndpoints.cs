@@ -11,6 +11,8 @@ namespace CSweet.Api.Compute;
 
 public static class ComputeWorkEndpoints
 {
+    internal static Task<IResult> DependencyAccessAsync(HttpContext http, [FromServices] ComputeDependencyAccess access, CancellationToken token) =>
+        ReceiveAsync(http, async envelope => Results.Json(await access.AuthorizeAsync(envelope, token), ComputeProtocol.Json), token);
     internal static Task<IResult> PublicationAccessAsync(HttpContext http, [FromServices] ComputePublicationAccess access, CancellationToken token) =>
         ReceiveAsync(http, async envelope => Results.Json(await access.AuthorizeAsync(envelope, token), ComputeProtocol.Json), token);
     internal static Task<IResult> WakeAsync(HttpContext http, [FromServices] ComputeProviderWorkService service,

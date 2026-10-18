@@ -44,8 +44,8 @@ public sealed class Artifact
     public ICollection<ArtifactRevision> Revisions { get; set; } = [];
 }
 
-public enum ArtifactDocumentStatus { Draft, InReview, Approved, ChangesRequested, Archived }
-public enum ArtifactRevisionStatus { Draft, Submitted, Accepted, Rejected, Superseded }
+public enum ArtifactDocumentStatus { Draft, InReview, Approved, ChangesRequested, Archived, Retained }
+public enum ArtifactRevisionStatus { Draft, Submitted, Accepted, Rejected, Superseded, Retained }
 
 public sealed class ArtifactRevision
 {

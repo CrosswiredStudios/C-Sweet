@@ -11,6 +11,8 @@ public static class WorkDeliveryTaskAuthorization
 {
     public static async Task PreventManualCompletionAsync(CSweetDbContext db, WorkTask item, CancellationToken ct)
     {
+        if (item.TypeKey == WorkItemTypeKeys.WorkflowTicketV1)
+            throw new InvalidOperationException("Complete this workflow ticket through its declared steps.");
         var bound = item.DeliverySpecificationJson is { } json &&
             JsonSerializer.Deserialize<WorkItemDeliverySpecification>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))?.DeliveryPlanId.HasValue == true;
         var board = item.BoardId.HasValue ? await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x => x.Id == item.BoardId, ct) : null;
@@ -18,7 +20,7 @@ public static class WorkDeliveryTaskAuthorization
             board is not null && await db.WorkOrchestrationPolicyRevisions.AnyAsync(x => x.BoardId == board.Id && x.IsPublished &&
                 x.Stages.Any(s => s.PlatformAction == HierarchicalWorkflows.TaskIntegrationAction), ct);
         if (bound || revised || await db.WorkDeliveryExecutions.AnyAsync(x => x.WorkItemId == item.Id && x.Status != "Superseded" && x.Status != "Cancelled", ct))
-            throw new InvalidOperationException("Delivery work is completed by its required QA and aggregate acceptance gates. A direct move to Done cannot bypass orchestration.");
+            throw new InvalidOperationException("Complete this work through its declared workflow; a direct move to Done cannot replace the recorded execution.");
     }
     public static async Task<(WorkDeliveryPlan Plan, WorkDeliveryBranchBinding? Branch)> RequireAsync(
         CSweetDbContext db, WorkTask item, CancellationToken ct)
@@ -26,17 +28,16 @@ public static class WorkDeliveryTaskAuthorization
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(item.DeliverySpecificationJson ?? "null", json)
             ?? throw new InvalidOperationException("Finalize this task's delivery against its activated plan.");
-        if (delivery.DeliveryPlanId is not { } planId || item.ParentWorkTaskId is not { } storyId)
-            throw new InvalidOperationException("Delivery tasks require a story, epic and explicit delivery plan.");
+        if (delivery.DeliveryPlanId is not { } planId)
+            throw new InvalidOperationException("Bind this deliverable to its declared delivery plan.");
         var plan = await db.WorkDeliveryPlans.AsNoTracking().SingleOrDefaultAsync(x => x.Id == planId && x.OrganizationId == item.OrganizationId && x.Status == "Active", ct)
             ?? throw new InvalidOperationException("The task's delivery plan is not active.");
         var scopes = JsonSerializer.Deserialize<WorkDeliveryScopeSnapshot[]>(plan.ScopesJson, json)!;
-        var story = scopes.SingleOrDefault(x => x.Scope == WorkExecutionScopes.Story && x.ItemId == storyId && x.BoardId == item.BoardId && x.ChildIds.Contains(item.Id));
-        if (story is null || !story.ChildPlanningRevisions.TryGetValue(item.Id, out var revision) || revision != item.PlanningRevision ||
-            !scopes.Any(x => x.Scope == WorkExecutionScopes.Epic && x.BoardId == item.BoardId && x.ChildIds.Contains(storyId)))
-            throw new UnauthorizedAccessException("The task's hierarchy or planning is outside the activated scope.");
+        var inputs = scopes.Where(s => s.BoardId == item.BoardId && s.ChildIds.Contains(item.Id)).ToArray();
+        if (inputs.Length == 0 || inputs.Any(s => !s.ChildPlanningRevisions.TryGetValue(item.Id, out var revision) || revision != item.PlanningRevision))
+            throw new UnauthorizedAccessException("The task's planning is outside the declared evidence inputs.");
         var assignments = await db.WorkItemStageAssignments.AsNoTracking().Where(x => x.WorkItemId == item.Id).ToListAsync(ct);
-        if (!story.ChildDeliveryDigests.TryGetValue(item.Id, out var digest) || digest != WorkDeliveryService.TaskDeliveryDigest(item, assignments))
+        if (inputs.Any(s => !s.ChildDeliveryDigests.TryGetValue(item.Id, out var digest) || digest != WorkDeliveryService.TaskDeliveryDigest(item, assignments)))
             throw new InvalidOperationException("Task delivery or staffing changed; pause and amend the plan before executing this task.");
         if (delivery.DeliveryKind == "Artifact")
         {
@@ -45,9 +46,9 @@ public static class WorkDeliveryTaskAuthorization
             return (plan, null);
         }
         var branches = JsonSerializer.Deserialize<WorkDeliveryBranchBinding[]>(plan.BranchesJson, json)!;
-        var branch = branches.SingleOrDefault(x => x.Scope == WorkExecutionScopes.Story && x.ItemId == storyId && x.RepositoryId == delivery.RepositoryId);
+        var branch = branches.Where(b => inputs.Any(s => s.Scope == b.Scope && s.ItemId == b.ItemId) && b.RepositoryId == delivery.RepositoryId && b.SourceBranch == delivery.BaseBranch).DistinctBy(b => b.SourceBranch).SingleOrDefault();
         if (delivery.DeliveryKind != "Code" || branch is null || branch.SourceBranch != delivery.BaseBranch)
-            throw new UnauthorizedAccessException("The task must implement against its authorized story integration branch.");
+            throw new UnauthorizedAccessException("The task must implement against its explicitly authorized integration branch.");
         return (plan, branch);
     }
 }

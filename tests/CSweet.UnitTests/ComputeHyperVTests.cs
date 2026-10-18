@@ -46,9 +46,27 @@ public sealed class ComputeHyperVTests
     {
         var runner = new Runner(); var driver = new HyperVComputeDriver(runner);
         await Assert.ThrowsAsync<NotSupportedException>(() => driver.CreateAsync(Identity,
-            new("linux", "x64", "ubuntu-clean", new(2, 4096, 65536), 600, Network: new(ComputeNetworkMode.OutboundOnly, true)),
+            new("linux", "x64", "ubuntu-clean", new(2, 4096, 65536), 600, Network: new(ComputeNetworkMode.Private)),
             "unused", "unused", "unused", default));
         Assert.Null(runner.Script);
+    }
+
+    [Fact]
+    public async Task Approved_outbound_topology_uses_fixed_NAT_switch_and_private_destination_guards()
+    {
+        var runner = new Runner(); var driver = new HyperVComputeDriver(runner); var identity = Identity;
+        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "compute-outbound-contract"));
+        var spec = new ComputeSpecification("linux", "x64", "ubuntu-clean", new(2, 2048, 20480), 600,
+            Network: new(ComputeNetworkMode.OutboundOnly, true));
+        await driver.CreateAsync(identity, spec, Path.Combine(root, "vm"), Path.Combine(root, "os.vhdx"), Path.Combine(root, "image.vhdx"), default);
+        Assert.Equal("OutboundOnly", runner.Parameters!["CSWEET_COMPUTE_NETWORK"]);
+        Assert.Contains("Get-VMSwitch -Name 'Default Switch'", runner.Script);
+        Assert.Contains("-Stateful $true", runner.Script);
+        Assert.Contains("'169.254.0.0/16'", runner.Script);
+        Assert.Contains("-Direction Inbound -Weight 1", runner.Script);
+        await driver.ApplyAsync(identity, runner.VmId, InfrastructureActions.Start, default, spec, Path.Combine(root, "os.vhdx"));
+        Assert.Equal("OutboundOnly", runner.Parameters!["CSWEET_COMPUTE_NETWORK"]);
+        Assert.Contains("Assert-ComputeNetwork $vm", runner.Script);
     }
 
     [Fact]

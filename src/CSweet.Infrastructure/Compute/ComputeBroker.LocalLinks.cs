@@ -23,7 +23,8 @@ public sealed partial class ComputeBroker
             await RequireActorAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, action, token, environment.Id);
         var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)!;
         var constraints = new ComputeGrantConstraints(1, spec.Resources, 1, spec.LifetimeSeconds,
-            [spec.OperatingSystem], [spec.Architecture], [spec.TemplateId], AllowedPublishedPorts: [8080], EnvironmentId: environment.Id);
+            [spec.OperatingSystem], [spec.Architecture], [spec.TemplateId], AllowOutbound: spec.NetworkPolicy.AllowOutbound,
+            AllowedPublishedPorts: [8080], EnvironmentId: environment.Id);
         var changed = false;
         foreach (var action in ComputeLocalLinkGrants.Actions)
         {

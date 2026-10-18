@@ -34,6 +34,9 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             query = query.Where(x => (x.BoardId.HasValue && boards.Contains(x.BoardId.Value)) || x.PersonalWorkContextJson != null);
         var candidates = await query.ToListAsync(token);
         var tickets = candidates.Where(x => !CSweetDbContext.IsHealthWork(x.CorrelationId) && db.HealthProjectForTask(x) == project.Id).ToArray();
+        var linkedBoardIds = tickets.Where(t => t.BoardId.HasValue).Select(t => t.BoardId!.Value).Distinct().ToArray();
+        var personalBoards = await db.WorkBoards.AsNoTracking().Where(b => b.OrganizationId == project.OrganizationId &&
+            linkedBoardIds.Contains(b.Id) && b.Kind == WorkBoardKind.Personal && b.ArchivedAt == null).Select(b => b.Id).ToArrayAsync(token);
         var ticketIds = tickets.Select(x => x.Id).ToArray();
         var sessions = await db.AgentCoordinationSessions.AsNoTracking().Where(x => x.OrganizationId == project.OrganizationId &&
             x.WorkstreamId == project.Id).ToListAsync(token);
@@ -86,6 +89,13 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
         var failures = new List<HealthFailure>();
         var evidence = new List<ProjectDiagnosticEvidence>();
         var recovered = new HashSet<string>(StringComparer.Ordinal);
+        var personalFailures = await db.ProjectIncidents.AsNoTracking().Where(i => i.OrganizationId == project.OrganizationId &&
+            i.WorkstreamId == project.Id && i.Status == "Open" && i.Fingerprint.StartsWith("ticket:"))
+            .Select(i => new { i.Fingerprint, i.DetectedAt }).ToListAsync(token);
+        var assignedEmployees = tickets.Where(t => t.AssignedEmployeeId.HasValue).Select(t => t.AssignedEmployeeId!.Value).Distinct().ToArray();
+        var installations = await db.CoreOrganizationUsers.AsNoTracking().Where(e => e.OrganizationId == project.OrganizationId &&
+            assignedEmployees.Contains(e.Id) && e.IsActive && e.ArchivedAt == null && e.AgentInstallationId != null)
+            .ToDictionaryAsync(e => e.Id, e => e.AgentInstallationId!.Value, token);
         var completedStages = await db.WorkStageExecutions.AsNoTracking().Where(x => ticketIds.Contains(x.ItemExecution!.WorkItemId) &&
             (x.Status == WorkStageExecutionStatus.Completed || x.Status == WorkStageExecutionStatus.Cancelled))
             .Select(x => x.Id).ToListAsync(token);
@@ -111,6 +121,8 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             if (Coordination(work) is { Status: AgentCoordinationStatus.Active or AgentCoordinationStatus.Summarizing } current &&
                 current.CurrentAgentWorkItemId != work.Id) continue;
             var affectedTicket = AffectedTicket(work);
+            if (PersonalWakeProcessingRecovered(work, latest, affectedTicket))
+            { recovered.Add(key); continue; }
             if (Coordination(work) is null && work.SourceType != "chat-turn" && tickets.Any(x => x.Id == affectedTicket && x.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) ||
                 Coordination(work)?.Status is AgentCoordinationStatus.Completed or AgentCoordinationStatus.Cancelled ||
                 work.SourceType == "chat-turn" && turns.Any(x => x.Id.ToString() == work.SourceId &&
@@ -188,6 +200,7 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             }
             var key = $"ticket:{ticket.Id:N}";
             if (ticket.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) { recovered.Add(key); continue; }
+            if (PersonalTicketProcessingRecovered(ticket, key)) { recovered.Add(key); continue; }
             if (ticket.Status != WorkTaskStatus.Failed && !(ticket.Status == WorkTaskStatus.Blocked && !string.IsNullOrWhiteSpace(ticket.BlockReason) &&
                 ticket.NextReviewAt == null && ticket.WaitingOnOrganizationUserId == null && string.IsNullOrWhiteSpace(ticket.WaitingReason))) continue;
             // The failed ticket is a symptom of the same execution, not a second incident.
@@ -255,6 +268,40 @@ public sealed partial class ProjectHealthReader(CSweetDbContext db, TimeProvider
             .Select(x => (DateTimeOffset?)(initialize ? x.UpdatedAt : x.CreatedAt)).MaxAsync(token);
         if (artifactAt > progressAt) progressAt = artifactAt.Value;
         return new(active, waiting, progressAt, failures, recovered, evidence);
+
+        bool PersonalTicketProcessingRecovered(WorkTask task, string key)
+        {
+            // A recorded personal wait is not business completion. Close only the
+            // old processing failure, after this employee's authenticated callback
+            // wrote the current healthy state and finished successfully.
+            if (task.Status != WorkTaskStatus.Running || task.BlockReason != null || string.IsNullOrWhiteSpace(task.WaitingReason) ||
+                task.BoardId is { } board && !personalBoards.Contains(board) || task.AssignedEmployeeId is not { } employee ||
+                !installations.TryGetValue(employee, out var installation) ||
+                personalFailures.SingleOrDefault(i => i.Fingerprint == key) is not { } failure) return false;
+            return works.Any(work => work.AgentInstallationId == installation && work.Kind == CSweet.Domain.Setup.AgentWorkKind.Event &&
+                work.SourceType == "platform-event" && (work.Name is CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available or AgentAttentionEvents.ReviewDue) &&
+                work.Status == AgentWorkStatus.Completed && attempts.Any(a => a.AgentWorkItemId == work.Id && a.WorkSucceeded == true &&
+                    a.ClaimedAt > failure.DetectedAt && a.ClaimedAt <= task.UpdatedAt && a.FinishedAt >= task.UpdatedAt &&
+                    contexts.Any(c => c.Id == a.Id && c.AgentWorkItemId == work.Id && c.AgentInstallationId == installation &&
+                        c.RootWorkItemId == task.Id && (c.WorkItemId == null || c.WorkItemId == task.Id))));
+        }
+
+        bool PersonalWakeProcessingRecovered(AgentWorkItem failed, AgentWorkAttempt? failedAttempt, Guid? taskId)
+        {
+            // A discovery wake can fail before a personal callback finishes. A later
+            // authenticated callback for that exact personal root can establish that
+            // processing recovered, without completing the work or its delivery gates.
+            bool Wake(AgentWorkItem value) => value.Kind == CSweet.Domain.Setup.AgentWorkKind.Event && value.SourceType == "platform-event" &&
+                value.Name is CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available or AgentAttentionEvents.ReviewDue;
+            if (!Wake(failed) || failed.Status != AgentWorkStatus.DeadLetter || failedAttempt?.FinishedAt is not { } failedAt ||
+                taskId is not { } root || !tickets.Any(t => t.Id == root && (t.BoardId == null || personalBoards.Contains(t.BoardId.Value)) &&
+                    t.Status == WorkTaskStatus.Running && t.BlockReason == null && !string.IsNullOrWhiteSpace(t.WaitingReason))) return false;
+            return works.Any(later => later.Id != failed.Id && later.AgentInstallationId == failed.AgentInstallationId &&
+                Wake(later) && later.Status == AgentWorkStatus.Completed && attempts.Any(a => a.AgentWorkItemId == later.Id &&
+                    a.WorkSucceeded == true && a.ClaimedAt > failedAt && a.FinishedAt >= a.ClaimedAt &&
+                    contexts.Any(c => c.Id == a.Id && c.AgentWorkItemId == later.Id && c.AgentInstallationId == failed.AgentInstallationId &&
+                        c.RootWorkItemId == root && (c.WorkItemId == null || c.WorkItemId == root))));
+        }
     }
 
     internal static string Safe(string value) => AuditPayloadSanitizer.RedactText(value)[..Math.Min(AuditPayloadSanitizer.RedactText(value).Length, 8192)];

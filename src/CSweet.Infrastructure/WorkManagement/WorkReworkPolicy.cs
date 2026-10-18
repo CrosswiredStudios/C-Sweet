@@ -18,6 +18,23 @@ internal static class WorkReworkPolicy
         string outcomeCode, JsonElement output)
     {
         if (transition.MaximumTraversals is not { } limit) return new(true, false, 0, null);
+        if (stage.StageKey == "task-integration" && outcomeCode is "integration_conflicts" or "target_changed")
+        {
+            static string? Identity(JsonElement data) => data.ValueKind == JsonValueKind.Object &&
+                data.TryGetProperty("sourceCommitSha", out var source) && data.TryGetProperty("targetCommitSha", out var target)
+                    ? source.GetString() + ":" + target.GetString() : null;
+            var identity = Identity(output);
+            var repeats = 0;
+            foreach (var prior in stage.ItemExecution!.Stages.Where(x => x.Id != stage.Id &&
+                x.StageKey == stage.StageKey && x.Traversal < stage.Traversal).OrderByDescending(x => x.Traversal))
+            {
+                var accepted = CompletedOutcome(prior);
+                if (accepted?.OutcomeCode != outcomeCode || Identity(accepted.Output) != identity) break;
+                repeats++;
+            }
+            return new(repeats < limit, true, repeats, repeats < limit ? null :
+                "Integration rework repeated the same source and target without progress. A manager must review the retained conflicts before retrying.");
+        }
         if (stage.StageKey is not ("quality" or "technical-review") ||
             transition.ToStageKey is not ("development" or "specialist-execution") ||
             outcomeCode is not ("changes_requested" or "failed" or "rejected"))

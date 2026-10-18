@@ -31,8 +31,8 @@ public sealed partial class WorkDeliveryService
             throw new DbUpdateConcurrencyException("The review assignment or candidate changed.");
         var scope = Scopes(plan).Single(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId);
         ValidateCriteria(scope.Planning.AcceptanceCriteria, request.Result.Approved, request.Result.Summary, request.Result.Criteria, request.Result.Findings);
-        if (stage.StageKey == "quality") ValidateQualityEvidence(Candidate(execution)!, request.Result);
-        if (stage.StageKey == "build-readiness") await ValidateReadinessAsync(plan, execution, stage, request.Result, ct);
+        if (Handler(scope,stage.StageKey) == "quality") ValidateQualityEvidence(Candidate(execution)!, request.Result);
+        if (Handler(scope,stage.StageKey) is "build-readiness" or "compute-test") await ValidateReadinessAsync(plan, execution, stage, request.Result, ct);
         await ValidateCurrentScopeAsync(plan, ct); await RequireCandidateCurrentAsync(plan, execution, ct);
         stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = request.Result.Approved ? "approved" : "changes_requested";
         stage.LastSummary = Encode(request.Result); stage.CompletedAt = clock.GetUtcNow(); stage.UpdatedAt = clock.GetUtcNow();
@@ -41,6 +41,7 @@ public sealed partial class WorkDeliveryService
         if (request.Result.Approved) await AdvanceDeliveryAsync(plan, execution, scope, stage, ct);
         else { Stop(execution, request.Result.Summary); await RecordFindingsAsync(plan, execution, request.Result.Findings, ct); }
         execution.Revision++; plan.Revision++; plan.UpdatedAt = clock.GetUtcNow();
+        await SynchronizeTicketAsync(plan,execution,ct);
         Receipt(plan, actorId, request.IdempotencyKey, "review", request); Queue(plan, "review.completed");
         await SaveDeliveryAsync(ct); if (tx is not null) await tx.CommitAsync(ct);
         return Response(plan);
@@ -63,8 +64,9 @@ public sealed partial class WorkDeliveryService
         var plan = await Load().SingleOrDefaultAsync(x => x.Id == request.PlanId && x.OrganizationId == org, ct)
             ?? throw new KeyNotFoundException("Delivery plan not found.");
         var member = await MemberAsync(org, actorId, ct);
-        var execution = plan.Executions.Single(x => x.Id == request.ExecutionId);
-        var stage = execution.Stages.LastOrDefault();
+        var execution = plan.Executions.SingleOrDefault(x => x.Id == request.ExecutionId);
+        if (execution is null) return await ReadTaskInputAsync(org, actorId, request, ct);
+        var stage = execution.Stages.Count == 0 ? null : CurrentDeliveryStage(execution);
         var assigned = plan.Status == "Active" && execution.ScopeRevision == plan.ScopeRevision &&
             stage?.OrganizationUserId == member.Id && stage.Status is WorkStageExecutionStatus.Pending or
                 WorkStageExecutionStatus.Dispatching or WorkStageExecutionStatus.Running or WorkStageExecutionStatus.WaitingForHuman;
@@ -72,12 +74,14 @@ public sealed partial class WorkDeliveryService
         var candidate = Candidate(execution) ?? throw new InvalidOperationException("There is no current validation candidate.");
         var taskIds = new HashSet<Guid>();
         var boardIds = new HashSet<Guid>();
+        var collected = new HashSet<Guid>();
         void Collect(WorkDeliveryScopeSnapshot scope)
         {
             boardIds.Add(scope.BoardId);
             foreach (var id in scope.ChildIds)
             {
-                var child = Scopes(plan).SingleOrDefault(x => x.ItemId == id);
+                if (!collected.Add(id)) continue;
+                var child = Scopes(plan).SingleOrDefault(x => x.TicketWorkflow!.TicketId == id);
                 if (child is null) taskIds.Add(id); else Collect(child);
             }
         }
@@ -96,7 +100,7 @@ public sealed partial class WorkDeliveryService
                     .OrderByDescending(x => x.CreatedAt).FirstOrDefault()?.ResultJson;
                 return json is null ? null : Decode<WorkExecutionOutcomeV1>(json);
             }
-            children.Add(new(task.Id, task.PlanningRevision, Decode<WorkItemDeliverySpecification>(task.DeliverySpecificationJson!).DeliveryKind,
+            children.Add(new(task.Id, task.PlanningRevision, task.DeliverySpecificationJson is { } delivery ? Decode<WorkItemDeliverySpecification>(delivery).DeliveryKind : "WorkItem",
                 Result("technical-review"), Result("quality"), task.MergeCommitSha));
         }
         var documents = new List<WorkDeliveryDocumentContent>();
@@ -136,6 +140,7 @@ public sealed partial class WorkDeliveryService
                 repository.Owner, repository.Name, repositoryCandidate.TargetBranch, execution.Id, branch, repositoryCandidate.CandidateCommitSha,
                 $"delivery-evidence:{execution.Id:N}:{candidate.Digest}"), ct);
         if (snapshot.BaseCommitSha != repositoryCandidate.CandidateCommitSha) throw new InvalidOperationException("The provider returned a different candidate revision.");
-        return new(candidate, documents, snapshot.Archive, snapshot.ArtifactSha256, snapshot.BaseCommitSha) { Builds = buildEvidence, Children = children };
+        // ArchiveSha256 is the transport ZIP digest; ArtifactSha256 is a distinct file-manifest digest.
+        return new(candidate, documents, snapshot.Archive, Convert.ToHexStringLower(SHA256.HashData(snapshot.Archive)), snapshot.BaseCommitSha) { Builds = buildEvidence, Children = children };
     }
 }

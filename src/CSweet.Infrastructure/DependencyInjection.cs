@@ -126,6 +126,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeRegistry>();
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeGrantAdministration>();
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputePublicationAccess>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeDependencyAccess>();
         builder.Services.AddScoped<CSweet.Application.Compute.IComputeNodeTrust>(sp => sp.GetRequiredService<CSweet.Infrastructure.Compute.ComputeRegistry>());
         builder.Services.AddScoped<CSweet.Application.Compute.IComputeTemplateCatalog>(sp => sp.GetRequiredService<CSweet.Infrastructure.Compute.ComputeRegistry>());
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeBroker>();

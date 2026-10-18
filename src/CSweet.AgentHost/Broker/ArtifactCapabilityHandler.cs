@@ -125,6 +125,8 @@ public sealed partial class ArtifactCapabilityHandler(
             CreatorDisplayName = employee.DisplayName, CreatorAgentId = actor.AgentId, CreatorAgentVersion = actor.AgentVersion,
             DocumentType = request.DocumentType.Trim(), DocumentStatus = ArtifactDocumentStatus.Draft
         };
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            artifact.ApprovalStatus = ApprovalStatus.NotRequired;
         var revision = new ArtifactRevision
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, ArtifactId = artifact.Id, Number = 1,
@@ -246,6 +248,16 @@ public sealed partial class ArtifactCapabilityHandler(
         await RequireFileGrantAsync(organizationId, request.ArtifactId, actor, ArtifactActions.Submit, token);
         var artifact = await db.CoreArtifacts.Include(x => x.Revisions).SingleOrDefaultAsync(x => x.Id == request.ArtifactId && x.OrganizationId == organizationId, token) ?? throw new KeyNotFoundException();
         var revision = artifact.Revisions.SingleOrDefault(x => x.Id == request.RevisionId) ?? throw new KeyNotFoundException();
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+        {
+            if (revision.Status == ArtifactRevisionStatus.Retained && artifact.LatestRevisionId == revision.Id)
+                return await AgentDetailAsync(organizationId, artifact.Id, token);
+            await ArtifactEvidenceRetention.RetainAsync(db, artifact, revision, clock.GetUtcNow(), token);
+            await db.SaveChangesAsync(token);
+            await AuditAsync("artifact.evidence.retained", "Completed", organizationId, artifact.Id, actor,
+                new { revisionId = revision.Id, revision.ContentSha256 }, token);
+            return await AgentDetailAsync(organizationId, artifact.Id, token);
+        }
         if (revision.Status == ArtifactRevisionStatus.Submitted) return await AgentDetailAsync(organizationId, artifact.Id, token);
         if (artifact.LatestRevisionId != revision.Id || revision.Status != ArtifactRevisionStatus.Draft) throw new InvalidOperationException("Only the latest draft can be submitted.");
         var now = clock.GetUtcNow(); revision.Status = ArtifactRevisionStatus.Submitted; revision.SubmittedAt = now;
@@ -286,6 +298,8 @@ public sealed partial class ArtifactCapabilityHandler(
         var artifact = await db.CoreArtifacts.Include(x => x.Revisions).SingleOrDefaultAsync(x =>
             x.Id == request.ArtifactId && x.OrganizationId == organizationId, token) ?? throw new KeyNotFoundException();
         var revision = artifact.Revisions.SingleOrDefault(x => x.Id == request.RevisionId) ?? throw new KeyNotFoundException();
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            throw new InvalidOperationException("These logs are saved as evidence and do not need approval.");
         if (!string.Equals(revision.ContentSha256, request.RevisionDigest, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The submitted digest does not match the exact artifact revision.");
         if (revision.Status != ArtifactRevisionStatus.Submitted)
@@ -344,6 +358,8 @@ public sealed partial class ArtifactCapabilityHandler(
             await RequireFileGrantAsync(organizationId, request.ArtifactId, actor, ArtifactActions.Decide, token);
         var artifact = await db.CoreArtifacts.Include(x => x.Revisions).SingleOrDefaultAsync(x => x.Id == request.ArtifactId && x.OrganizationId == organizationId, token) ?? throw new KeyNotFoundException();
         var revision = artifact.Revisions.SingleOrDefault(x => x.Id == request.RevisionId) ?? throw new KeyNotFoundException();
+        if (ArtifactDocumentTypes.IsRetainedEvidence(artifact.DocumentType))
+            throw new InvalidOperationException("These logs are saved as evidence and do not need approval.");
         var normalizedDecision = request.Decision.Trim().ToLowerInvariant();
         var accepted = normalizedDecision is "accept" or "approve";
         if (!accepted && normalizedDecision is not ("reject" or "request-revision")) throw new ArgumentException("Decision is invalid.");

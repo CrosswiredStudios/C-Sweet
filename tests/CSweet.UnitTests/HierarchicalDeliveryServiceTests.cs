@@ -17,6 +17,85 @@ namespace CSweet.UnitTests;
 public sealed class HierarchicalDeliveryServiceTests
 {
     [Theory]
+    [InlineData(true, false, true)] [InlineData(false, false, false)] [InlineData(true, true, false)]
+    public async Task OwnerCanRestartFailedAggregateProcessorButCannotResolveProductRejection(bool processorFailure, bool openFinding, bool allowed)
+    {
+        await using var f = await Fixture.Create(false);
+        await f.Activate(await f.Configure()); await f.CompleteTasks(); await f.Service.PulseAsync();
+        await f.Approve((await f.Read()).Executions.Single(e => e.Scope == "Story")); await f.Service.PulseAsync();
+        var entity = await f.Db.WorkDeliveryExecutions.SingleAsync(e => e.Scope == "Epic");
+        entity.Status = "Blocked"; entity.BlockedReason = processorFailure ? "agent-failure:v1;code=agent.invalid_operation;diagnosticId=retained" : "Actual product defect";
+        f.Author.PermissionLevel = OrganizationPermissionLevel.Owner;
+        if (openFinding) f.Db.Add(new WorkDeliveryFinding { Id = Guid.NewGuid(), PlanId = f.PlanId, ExecutionId = entity.Id,
+            CandidateDigest = "retained", FindingDigest = "defect", Summary = "Actual unresolved defect", Status = "Open" });
+        await f.Db.SaveChangesAsync();
+        var request = new RecoverWorkDeliveryRequest(f.PlanId, entity.Id, entity.Revision, "owner-review-processor-recovery", "Install tested bounded JSON correction; rerun independent review without accepting the invalid response.");
+        if (!allowed) { await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.RecoverAsync(f.Org, f.Author.Id, request)); return; }
+        var recovered = await f.Service.RecoverAsync(f.Org, f.Author.Id, request);
+        Assert.Equal(recovered.Revision, (await f.Service.RecoverAsync(f.Org, f.Author.Id, request)).Revision);
+        Assert.DoesNotContain(recovered.Executions, e => e.Scope == "Epic" && e.Status == "Completed");
+        Assert.Null(entity.AcceptanceJson);
+        Assert.Equal(f.Author.Id, (await f.Db.WorkDeliveryMutationReceipts.SingleAsync(r => r.IdempotencyKey == request.IdempotencyKey)).ActorId);
+    }
+
+    [Fact]
+    public async Task OwnerCanRecoverExpiredReviewLeaseWithoutAcceptingTheCandidate()
+    {
+        await using var f = await Fixture.Create(false);
+        await f.Activate(await f.Configure()); await f.CompleteTasks(); await f.Service.PulseAsync();
+        await f.Approve((await f.Read()).Executions.Single(e => e.Scope == "Story")); await f.Service.PulseAsync();
+        var execution = await f.Db.WorkDeliveryExecutions.SingleAsync(e => e.Scope == "Epic");
+        execution.Status = "Blocked"; execution.BlockedReason = "The prior runtime lease expired.";
+        execution.Stages.Single(s => s.StageKey == "technical-review").Status = WorkStageExecutionStatus.Blocked;
+        f.Author.PermissionLevel = OrganizationPermissionLevel.Owner; await f.Db.SaveChangesAsync();
+        var candidate = execution.CandidateJson;
+        await f.Service.RecoverAsync(f.Org, f.Author.Id, new(f.PlanId, execution.Id, execution.Revision, "expired-review-runtime-ready", "Replacement runtime is ready; restart independent review after lease expiry."));
+        Assert.Equal("WaitingForChildren", execution.Status); Assert.Null(execution.AcceptanceJson);
+        Assert.Equal(candidate, execution.CandidateJson);
+    }
+
+
+
+
+
+
+
+    [Theory]
+    [InlineData(true)] [InlineData(false)]
+    public async Task ScopedOwnerCanPauseAndResumeManagerPlanButOtherContributorsCannot(bool owner)
+    {
+        await using var f=await Fixture.Create(false);
+        var plan=await f.Activate(await f.Configure(f.Request()));
+        f.Author.PermissionLevel=owner?OrganizationPermissionLevel.Owner:OrganizationPermissionLevel.Contributor;
+        await f.Db.SaveChangesAsync();
+        if(!owner) {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Service.ControlAsync(f.Org,f.Author.Id,
+                new(plan.Id,plan.Revision,"pause","owner-amendment-pause")));
+            Assert.Equal("Active",(await f.Read()).Status);return;
+        }
+        plan=await f.Service.ControlAsync(f.Org,f.Author.Id,new(plan.Id,plan.Revision,"pause","owner-amendment-pause"));
+        Assert.Equal("Paused",plan.Status);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Service.ControlAsync(f.Org,f.Author.Id,
+            new(plan.Id,plan.Revision,"cancel","owner-cannot-cancel")));
+        plan=await f.Service.ControlAsync(f.Org,f.Author.Id,new(plan.Id,plan.Revision,"resume","owner-amendment-resume"));
+        Assert.Equal("Active",plan.Status);Assert.Equal(f.Manager.Id,plan.ManagerOrganizationUserId);
+        Assert.All(await f.Db.WorkDeliveryMutationReceipts.Where(r=>r.IdempotencyKey.StartsWith("owner-amendment")).ToListAsync(),r=>Assert.Equal(f.Author.Id,r.ActorId));
+    }
+    [Fact]
+    public async Task AggregateEvidenceUsesZipByteDigestInsteadOfFileManifestDigest()
+    {
+        await using var f = await Fixture.Create(false);
+        await f.Activate(await f.Configure()); await f.CompleteTasks(); await f.Service.PulseAsync();
+        var execution=(await f.Read()).Executions.Single(x=>x.Scope=="Story");
+        var entry=execution.Candidate!.Repositories.Single();
+        var response=await f.Service.ReadEvidenceAsync(f.Org,f.Qa.Id,new(f.PlanId,execution.Id,entry.RepositoryId));
+        Assert.Equal(entry.CandidateCommitSha,response.CommitSha);
+        Assert.Equal(new byte[]{1,2},response.Archive);
+        Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(response.Archive!)),response.ArchiveSha256);
+        Assert.NotEqual("file-manifest-digest",response.ArchiveSha256);
+    }
+
+    [Theory]
     [InlineData("Artifact", true, true, true)]
     [InlineData("Code", true, true, false)]
     [InlineData("Artifact", false, true, false)]
@@ -60,7 +139,10 @@ public sealed class HierarchicalDeliveryServiceTests
     public async Task AcceptedComputeEvidenceMustStillDescribeTheCurrentLiveCandidate(string condition, bool valid)
     {
         await using var f = await Fixture.Create(false);
-        await f.Activate(await f.Configure()); await f.CompleteTasks(); await f.Service.PulseAsync();
+        var declared=f.Request();
+        declared=declared with {TicketWorkflows=declared.TicketWorkflows.Select(w=>w.Scope=="Story"?w with {
+            Steps=[new("build-readiness","build-readiness",new("build-readiness","Human",f.Technical.Id)),..w.Steps] }:w).ToArray()};
+        await f.Activate(await f.Configure(declared));await f.CompleteTasks();await f.Service.PulseAsync();
         var plan = await f.Db.WorkDeliveryPlans.Include(x => x.Executions).ThenInclude(x => x.Stages).ThenInclude(x => x.Attempts).SingleAsync();
         var execution = plan.Executions.First(x => x.CandidateJson != null);
         var candidate = JsonSerializer.Deserialize<WorkDeliveryCandidate>(execution.CandidateJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -96,8 +178,8 @@ public sealed class HierarchicalDeliveryServiceTests
         var request = f.Request();
         request = request with {
             Branches = request.Branches.Select(b => b.Scope == "Release" ? b with { ReadinessMode = "compute-test" } : b).ToArray(),
-            Assignments = request.Assignments.Select(a => a.Scope == "Release" ? a with {
-                Stages = a.Stages.Append(new WorkStageAssignment("build-readiness", "Human", f.Technical.Id)).ToArray() } : a).ToArray() };
+            TicketWorkflows = request.TicketWorkflows.Select(w=>w.Scope=="Release"?w with {
+                Steps=[new("build-readiness","build-readiness",new("build-readiness","Human",f.Technical.Id)),..w.Steps] }:w).ToArray() };
         var draft = await f.Configure(request); await f.Activate(draft); await f.CompleteTasks();
         WorkDeliveryExecutionResponse? release = null;
         for (var pass = 0; pass < 20; pass++) {
@@ -143,123 +225,67 @@ public sealed class HierarchicalDeliveryServiceTests
     }
 
     [Fact]
-    public async Task ReleaseRegressionRemediationCanAmendScopeAfterStoryIntegrationAndRequiresNewTaskQa()
+    public async Task FollowupTicketsWaitForRemediationWithoutMigratingCompletedSourceWork()
     {
-        await using var f = await Fixture.Create(false);
-        await f.Activate(await f.Configure()); await f.CompleteTasks();
-        for (var pass = 0; pass < 8; pass++)
-        {
-            await f.Service.PulseAsync(); var current = await f.Read();
-            var release = current.Executions.FirstOrDefault(x => x.Scope == "Release" && x.Status == "WaitingForHuman");
-            if (release is not null)
-            {
-                var request = f.Review(release);
-                await f.Service.CompleteReviewAsync(f.Org, f.Qa.Id, request with { Result = request.Result with
-                    { Approved = false, Criteria = [new("Requirement works", false, "Regression found a defect")], Findings = ["Repair release regression"] } });
-                break;
-            }
-            var review = current.Executions.FirstOrDefault(x => x.Status == "WaitingForHuman");
-            if (review is not null) { await f.Approve(review); continue; }
-            var acceptance = current.Executions.FirstOrDefault(x => x.Status == "WaitingForApproval");
-            if (acceptance is not null) await f.Accept(acceptance);
-        }
-        var plan = await f.Read(); var finding = Assert.Single(plan.Findings);
-        Assert.Contains(plan.Executions, x => x.Scope == "Story" && x.Promotions.Any(p => p.Status == "Completed"));
-        plan = await f.Service.ControlAsync(f.Org, f.Manager.Id, new(plan.Id, plan.Revision, "pause", "pause-for-remediation"));
-        var remediation = new WorkTask { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id, ParentWorkTaskId = f.Story.Id,
-            IsExecutable = true, Kind = WorkItemKind.Task, Title = "Repair regression", PlanningRevision = 1,
-            PlanningSpecificationJson = f.Task.PlanningSpecificationJson, DeliverySpecificationJson = f.Task.DeliverySpecificationJson };
-        f.Db.CoreWorkTasks.Add(remediation);
-        foreach (var assignment in await f.Db.WorkItemStageAssignments.Where(x => x.WorkItemId == f.Task.Id).ToListAsync())
-            f.Db.WorkItemStageAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id, WorkItemId = remediation.Id,
-                StageKey = assignment.StageKey, PrincipalKind = assignment.PrincipalKind, OrganizationUserId = assignment.OrganizationUserId, PlatformAction = assignment.PlatformAction });
-        await f.Db.SaveChangesAsync();
-        plan = await f.Service.ConfigureAsync(f.Org, f.Manager.Id, f.Request() with
-            { PlanId = plan.Id, ExpectedRevision = plan.Revision, IdempotencyKey = "approved-remediation-scope" });
-        await f.Service.ControlAsync(f.Org, f.Manager.Id, new(plan.Id, plan.Revision, "activate", "activate-remediation"));
-        var original = f.Task; f.Task = remediation; await f.CompleteTasks(); f.Task = original;
-        await f.Service.PulseAsync(); var stopped = (await f.Read()).Executions.Last(x => x.Scope == "Story" && x.Status == "Blocked");
-        var recover = new RecoverWorkDeliveryRequest(f.PlanId, stopped.Id, stopped.Revision, "resolve-regression", "Reviewed and QA-verified remediation")
-            { Resolutions = [new(finding.Id, [remediation.Id], "Fresh task QA addresses the linked finding")] };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.RecoverAsync(f.Org, f.Manager.Id, recover with
-            { Resolutions = [new(finding.Id, [original.Id], "Old task QA cannot resolve a new regression")] }));
-        plan = await f.Service.RecoverAsync(f.Org, f.Manager.Id, recover);
-        Assert.Equal("Resolved", Assert.Single(plan.Findings).Status);
-        await f.Service.PulseAsync();
-        Assert.Equal("WaitingForHuman", (await f.Read()).Executions.Single(x => x.Id == stopped.Id).Status);
+        await using var f=await Fixture.Create(false);
+        await f.Activate(await f.Configure());await f.CompleteTasks();await f.Service.PulseAsync();
+        await f.Approve((await f.Read()).Executions.Single(e=>e.Scope=="Story"));await f.Service.PulseAsync();
+        var original=await f.Read();var receipt=original.Executions.Single(e=>e.Scope=="Story").Promotions.Single();
+        await f.Service.ControlAsync(f.Org,f.Manager.Id,new(original.Id,original.Revision,"cancel","cancel-old"));
+        var remediation=new WorkTask {Id=Guid.NewGuid(),OrganizationId=f.Org,BoardId=f.Board.Id,Title="Fix finding",Status=WorkTaskStatus.Ready};
+        var workflow=new WorkDeliveryTicketWorkflow(Guid.NewGuid(),[new("assess-fix","review",new("assess-fix","Human",f.Technical.Id))]);
+        var ticket=new WorkTask {Id=workflow.TicketId,OrganizationId=f.Org,BoardId=f.Board.Id,Kind=WorkItemKind.Task,
+            TypeKey=WorkItemTypeKeys.WorkflowTicketV1,Title="Assess remediation",PlanningSpecificationJson=JsonSerializer.Serialize(
+                new WorkItemPlanningSpecification(["Deliver requirement"],["Requirement works"]) {DependencyItemIds=[remediation.Id],Workflow=workflow.Definition()},new JsonSerializerOptions(JsonSerializerDefaults.Web))};
+        f.Db.AddRange(remediation,ticket);await f.Db.SaveChangesAsync();
+        var plan=await f.Service.ConfigureAsync(f.Org,f.Manager.Id,new(f.Project,"Followup",f.Manager.Id,[],[],[],"followup") {TicketWorkflows=[workflow]});
+        f.PlanId=plan.Id;await f.Service.ControlAsync(f.Org,f.Manager.Id,new(plan.Id,plan.Revision,"activate","activate-followup"));await f.Service.PulseAsync();Assert.Empty((await f.Read()).Executions.Single().Stages);
+        remediation.Status=WorkTaskStatus.Completed;await f.Db.SaveChangesAsync();await f.Service.PulseAsync();
+        await f.Approve((await f.Read()).Executions.Single());await f.Service.PulseAsync();
+        Assert.Equal("Completed",(await f.Read()).Status);
+        Assert.Equal(original.Id,JsonSerializer.Deserialize<WorkItemDeliverySpecification>(f.Task.DeliverySpecificationJson!,new JsonSerializerOptions(JsonSerializerDefaults.Web))!.DeliveryPlanId);
+        Assert.Equal(receipt,(await f.Service.ReadAsync(f.Org,f.Manager.Id,new(f.Project,original.Id))).Single().Executions.Single(e=>e.Scope=="Story").Promotions.Single());
     }
     [Fact]
-    public async Task CrossBoardReleaseRequiresBothBoardAndRepositoryAccessAndOneReleaseAcceptance()
+    public async Task FlatCrossBoardWorkflowRequiresExplicitBoardAndRepositoryAccess()
     {
-        await using var f = await Fixture.Create(false, twoRepositories: true);
-        var team = new OrganizationTeam { Id = Guid.NewGuid(), OrganizationId = f.Org, Name = "Second team", NormalizedName = "SECOND", TeamKey = "second" };
-        var board = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project, TeamId = team.Id,
-            ManagerOrganizationUserId = f.Manager.Id, Name = "Second board", Key = "SECOND", ProfileKey = WorkBoardProfileKeys.SoftwareDeliveryV2 };
-        WorkTask Item(WorkItemKind kind, Guid? parent) => new() { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = board.Id,
-            Kind = kind, IsExecutable = kind == WorkItemKind.Task, ParentWorkTaskId = parent, Title = kind.ToString(), PlanningRevision = 1,
-            PlanningSpecificationJson = f.Task.PlanningSpecificationJson };
-        var epic = Item(WorkItemKind.Epic, null); var story = Item(WorkItemKind.Story, epic.Id); var task = Item(WorkItemKind.Task, story.Id);
-        f.Db.AddRange(team, board, epic, story, task);
-        foreach (var person in new[] { f.Manager, f.Author, f.Qa, f.Technical })
-            f.Db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, OrganizationUserId = person.Id, TeamId = team.Id });
-        foreach (var assignment in await f.Db.WorkItemStageAssignments.Where(x => x.WorkItemId == f.Task.Id).ToListAsync())
-            f.Db.WorkItemStageAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = board.Id, WorkItemId = task.Id,
-                StageKey = assignment.StageKey, PrincipalKind = assignment.PrincipalKind, OrganizationUserId = assignment.OrganizationUserId, PlatformAction = assignment.PlatformAction });
-        await f.Db.SaveChangesAsync();
-        var initial = f.Request();
-        var request = initial with
-        {
-            EpicItemIds = [f.Epic.Id, epic.Id], IdempotencyKey = "cross-board-plan",
-            Branches = [.. initial.Branches.Where(x => x.Scope != "Story" || x.RepositoryId == f.Repositories[0]),
-                new(f.Repositories[1], "Story", story.Id, "csweet/story/second", "csweet/release/initial")],
-            Assignments = [.. initial.Assignments, new("Story", story.Id, board.Id, [new("quality", "Human", f.Qa.Id)]),
-                new("Epic", epic.Id, board.Id, [new("technical-review", "Human", f.Technical.Id)])]
-        };
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.ConfigureAsync(f.Org, f.Manager.Id, request));
-        foreach (var person in new[] { f.Manager, f.Author, f.Qa, f.Technical })
-            foreach (var action in new[] { CSweet.Contracts.WorkManagement.WorkItemActions.Read, CSweet.Contracts.WorkManagement.WorkBoardActions.Configure })
-                f.Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, SubjectKind = GrantSubjectKind.OrganizationUser,
-                    SubjectId = person.Id, ScopeKind = GrantScopeKind.Board, ScopeId = board.Id, Action = action });
-        await f.Db.SaveChangesAsync();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.ConfigureAsync(f.Org, f.Manager.Id, request));
-        f.Db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, TeamId = team.Id, RepositoryId = f.Repositories[1] });
-        await f.Db.SaveChangesAsync();
-        var plan = await f.Service.ConfigureAsync(f.Org, f.Manager.Id, request); f.PlanId = plan.Id;
-        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
-        foreach (var binding in new[] { (Item: f.Task, Repo: f.Repositories[0], Branch: "csweet/story/one"), (Item: task, Repo: f.Repositories[1], Branch: "csweet/story/second") })
-            binding.Item.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(binding.Repo, ["Deliver requirement"], ["Requirement works"])
-                { DeliveryPlanId = plan.Id, BaseBranch = binding.Branch }, json);
-        await f.Db.SaveChangesAsync(); await f.Activate(plan);
-        await f.CompleteTasks(); var originalTask = f.Task; var originalBoard = f.Board;
-        f.Task = task; f.Board = board; await f.CompleteTasks(); f.Task = originalTask; f.Board = originalBoard;
-        var releaseAcceptances = 0;
-        for (var pass = 0; pass < 20; pass++)
-        {
-            await f.Service.PulseAsync(); plan = await f.Read(); if (plan.Status == "Completed") break;
-            var review = plan.Executions.FirstOrDefault(x => x.Status == "WaitingForHuman");
-            if (review is not null) { await f.Approve(review); continue; }
-            var acceptance = plan.Executions.FirstOrDefault(x => x.Status == "WaitingForApproval");
-            if (acceptance is not null) { if (acceptance.Scope == "Release") releaseAcceptances++; await f.Accept(acceptance); }
-        }
-        Assert.Equal("Completed", (await f.Read()).Status); Assert.Equal(1, releaseAcceptances);
-        Assert.Equal(2, (await f.Read()).Executions.Single(x => x.Scope == "Release").Promotions.Count(x => x.Status == "Completed"));
+        await using var f=await Fixture.Create(false,twoRepositories:true);
+        var board=new WorkBoard {Id=Guid.NewGuid(),OrganizationId=f.Org,WorkstreamId=f.Project,Name="Other team",Key="OTHER",ManagerOrganizationUserId=f.Manager.Id};
+        f.Db.Add(board);
+        var first=new WorkDeliveryTicketWorkflow(Guid.NewGuid(),[new("first","review",new("first","Human",f.Technical.Id))]);
+        var last=new WorkDeliveryTicketWorkflow(Guid.NewGuid(),[new("last","review",new("last","Human",f.Technical.Id))]);
+        foreach(var pair in new[]{(Workflow:first,Board:f.Board.Id,Dependencies:Array.Empty<Guid>()),(Workflow:last,Board:board.Id,Dependencies:new[]{first.TicketId})})
+            f.Db.Add(new WorkTask {Id=pair.Workflow.TicketId,OrganizationId=f.Org,BoardId=pair.Board,Kind=WorkItemKind.Task,TypeKey=WorkItemTypeKeys.WorkflowTicketV1,
+                Title="Declared assessment",PlanningSpecificationJson=JsonSerializer.Serialize(new WorkItemPlanningSpecification(["Deliver requirement"],["Requirement works"]) {
+                    DependencyItemIds=pair.Dependencies,Workflow=pair.Workflow.Definition()},new JsonSerializerOptions(JsonSerializerDefaults.Web))});
+        var repo=f.Repositories[1];var policies=await f.Db.TeamRepositoryPolicies.Where(p=>p.RepositoryId==repo).ToListAsync();
+        f.Db.RemoveRange(policies);await f.Db.SaveChangesAsync();
+        var request=new ConfigureWorkDeliveryPlanRequest(f.Project,"Flat workflow",f.Manager.Id,[],[new(repo,"Ticket",last.TicketId,"main","main")],[],"cross-board") {TicketWorkflows=[first,last]};
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Service.ConfigureAsync(f.Org,f.Manager.Id,request));
+        foreach(var person in new[]{f.Manager,f.Technical})foreach(var action in new[]{CSweet.Contracts.WorkManagement.WorkItemActions.Read,CSweet.Contracts.WorkManagement.WorkBoardActions.Configure})
+            f.Db.Add(new ScopedActionGrant {Id=Guid.NewGuid(),OrganizationId=f.Org,SubjectKind=GrantSubjectKind.OrganizationUser,SubjectId=person.Id,ScopeKind=GrantScopeKind.Board,ScopeId=board.Id,Action=action});
+        await f.Db.SaveChangesAsync();await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Service.ConfigureAsync(f.Org,f.Manager.Id,request));
+        foreach(var policy in policies)f.Db.Add(policy);await f.Db.SaveChangesAsync();
+        var plan=await f.Service.ConfigureAsync(f.Org,f.Manager.Id,request);f.PlanId=plan.Id;await f.Activate(plan);await f.Service.PulseAsync();
+        await f.Approve((await f.Read()).Executions.Single(e=>e.WorkflowTicketId==first.TicketId));await f.Service.PulseAsync();
+        await f.Approve((await f.Read()).Executions.Single(e=>e.WorkflowTicketId==last.TicketId));await f.Service.PulseAsync();
+        Assert.Equal("Completed",(await f.Read()).Status);Assert.Equal(2,(await f.Read()).Executions.Count);
     }
     [Fact]
-    public async Task ScopeAmendmentCancelsSupersededReviewsAndRevokesDocumentAccess()
+    public async Task ActivatedGraphRequiresFollowupAndCancellationRevokesDocumentAccess()
     {
-        await using var f = await Fixture.Create(true);
-        await f.Activate(await f.Configure()); await f.CompleteTasks(); await f.Service.PulseAsync();
-        var plan = await f.Read(); var story = plan.Executions.Single(x => x.Scope == "Story");
-        await f.Service.ReadEvidenceAsync(f.Org, f.Qa.Id, new(f.PlanId, story.Id));
-        Assert.NotEmpty(await f.Db.ScopedActionGrants.Where(x => x.GrantedBySubjectId == story.Id && x.RevokedAt == null).ToListAsync());
-        plan = await f.Service.ControlAsync(f.Org, f.Manager.Id, new(plan.Id, plan.Revision, "pause", "pause-amend"));
-        var amended = await f.Service.ConfigureAsync(f.Org, f.Manager.Id, f.Request() with
-            { PlanId = plan.Id, ExpectedRevision = plan.Revision, IdempotencyKey = "amend-scope" });
-        Assert.Equal(plan.ScopeRevision + 1, amended.ScopeRevision);
-        Assert.All(amended.Executions, x => Assert.Equal("Superseded", x.Status));
-        Assert.All(amended.Executions.SelectMany(x => x.Stages), x => Assert.Equal("Cancelled", x.Status));
-        Assert.Empty(await f.Db.ScopedActionGrants.Where(x => x.GrantedBySubjectId == story.Id && x.RevokedAt == null).ToListAsync());
-        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => f.Approve(story));
+        await using var f=await Fixture.Create(true);
+        await f.Activate(await f.Configure());await f.CompleteTasks();await f.Service.PulseAsync();
+        var plan=await f.Read();var story=plan.Executions.Single(e=>e.Scope=="Story");
+        Assert.NotEmpty(await f.Db.ScopedActionGrants.Where(g=>g.GrantedBySubjectId==story.Id&&g.RevokedAt==null).ToListAsync());
+        plan=await f.Service.ControlAsync(f.Org,f.Manager.Id,new(plan.Id,plan.Revision,"pause","pause"));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.ConfigureAsync(f.Org,f.Manager.Id,f.Request() with {
+            PlanId=plan.Id,ExpectedRevision=plan.Revision,IdempotencyKey="no-adoption" }));
+        plan=await f.Service.ControlAsync(f.Org,f.Manager.Id,new(plan.Id,plan.Revision,"cancel","cancel"));
+        Assert.All(plan.Executions,e=>Assert.Equal("Cancelled",e.Status));
+        Assert.Empty(await f.Db.ScopedActionGrants.Where(g=>g.GrantedBySubjectId==story.Id&&g.RevokedAt==null).ToListAsync());
+        Assert.Equal(WorkTaskStatus.Completed,f.Task.Status);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(()=>f.Approve(story));
     }
     [Fact]
     public async Task ActivatedTaskRejectsChangedStaffingUntilScopeIsAmended()
@@ -324,6 +350,7 @@ public sealed class HierarchicalDeliveryServiceTests
         await f.Approve(story);
         await f.Service.PulseAsync();
         var epic = (await f.Read()).Executions.Single(x => x.Scope == "Epic");
+        Assert.True(epic.Stages.Count>0,epic.Status+": "+epic.BlockedReason+"; story="+(await f.Read()).Executions.Single(e=>e.Scope=="Story").Status);
         await f.Approve(epic);
         epic = (await f.Read()).Executions.Single(x => x.Scope == "Epic");
         Assert.Equal("WaitingForApproval", epic.Status);
@@ -350,8 +377,9 @@ public sealed class HierarchicalDeliveryServiceTests
         await using var f = await Fixture.Create(false);
         var request = f.Request();
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.ConfigureAsync(f.Org, f.Manager.Id,
-            request with { Assignments = request.Assignments.Select(x => x.Scope == "Story" ? x with { Stages = [new("quality", "Human", f.Author.Id)] } : x).ToArray() }));
-        f.Db.ChangeTracker.Clear();
+            f.Declare(request with { TicketWorkflows=request.TicketWorkflows.Select(w=>w.Scope=="Story"?w with {
+                Steps=[new("quality","quality",new("quality","Human",f.Author.Id))] }:w).ToArray() })));
+        f.Declare(request);f.Db.ChangeTracker.Clear();
         var draft = await f.Configure(); await f.Activate(draft); await f.CompleteTasks(); await f.Service.PulseAsync();
         var story = (await f.Read()).Executions.Single(x => x.Scope == "Story");
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.CompleteReviewAsync(f.Org, f.Author.Id, f.Review(story)));
@@ -472,15 +500,47 @@ public sealed class HierarchicalDeliveryServiceTests
             }
             await Db.SaveChangesAsync();
         }
-        public ConfigureWorkDeliveryPlanRequest Request() => new(Project, "Initial release", Manager.Id, [Epic.Id],
-            Repositories.SelectMany(id => new[] { new WorkDeliveryBranchBinding(id, "Release", null, "csweet/release/initial", "main"),
-                new WorkDeliveryBranchBinding(id, "Story", Story.Id, "csweet/story/one", "csweet/release/initial") }).ToArray(),
-            [new("Story", Story.Id, Board.Id, [new("quality", "Human", Qa.Id)]),
-             new("Epic", Epic.Id, Board.Id, [new("technical-review", "Human", Technical.Id)]),
-             new("Release", null, Board.Id, [new("quality", "Human", Qa.Id), new("technical-review", "Human", Technical.Id)])], "configure");
+        // This fixture is one agent-authored plan. The platform must never synthesize these review steps.
+        private readonly Guid storyTicket = Guid.NewGuid(), epicTicket = Guid.NewGuid(), releaseTicket = Guid.NewGuid();
+        public ConfigureWorkDeliveryPlanRequest Request()
+        {
+            WorkDeliveryTicketStep Step(string key,string handler,Guid person) => new(key,handler,new(key,"Human",person));
+            var workflows = new WorkDeliveryTicketWorkflow[] {
+                new(storyTicket,[Step("quality","quality",Qa.Id)]) { Scope="Story",ScopeItemId=Story.Id,EvidenceItemIds=[Task.Id],
+                    PromoteOnCompletion=!Artifact,CompleteContainerItemIds=[Story.Id] },
+                new(epicTicket,[Step("technical-review","source-review",Technical.Id),Step("manager-review","acceptance",Manager.Id)]) {
+                    Scope="Epic",ScopeItemId=Epic.Id,EvidenceItemIds=[storyTicket],CompleteContainerItemIds=[Epic.Id] },
+                new(releaseTicket,[Step("quality","quality",Qa.Id),Step("technical-review","source-review",Technical.Id),Step("manager-review","acceptance",Manager.Id)]) {
+                    Scope="Release",EvidenceItemIds=[epicTicket],PromoteOnCompletion=!Artifact }
+            };
+            for(var i=0;i<workflows.Length;i++) {
+                var workflow=workflows[i];
+                if(Db.CoreWorkTasks.Any(t=>t.Id==workflow.TicketId))continue;
+                Db.CoreWorkTasks.Add(new() {Id=workflow.TicketId,OrganizationId=Org,BoardId=Board.Id,Kind=WorkItemKind.Task,
+                    TypeKey=WorkItemTypeKeys.WorkflowTicketV1,IsExecutable=false,Title="Declared "+workflow.Scope+" assessment",
+                    PlanningSpecificationJson=JsonSerializer.Serialize(new WorkItemPlanningSpecification(["Deliver requirement"],["Requirement works"]) {
+                        DependencyItemIds=i==0?[Task.Id]:[workflows[i-1].TicketId],Workflow=workflow.Definition() },Json)});
+            }
+            Db.SaveChanges();
+            return new(Project,"Initial release",Manager.Id,[Epic.Id],
+                Repositories.SelectMany(id=>new[] {new WorkDeliveryBranchBinding(id,"Release",null,"csweet/release/initial","main"),
+                    new WorkDeliveryBranchBinding(id,"Story",Story.Id,"csweet/story/one","csweet/release/initial"),
+                    new WorkDeliveryBranchBinding(id,"Epic",Epic.Id,"csweet/release/initial","csweet/release/initial")}).ToArray(),
+                workflows.Select(w=>new WorkDeliveryScopeAssignment(w.Scope,w.ScopeItemId,Board.Id,w.Steps.Select(s=>s.Assignment).ToArray())).ToArray(),"configure") {
+                    TicketWorkflows=workflows };
+        }
+        public ConfigureWorkDeliveryPlanRequest Declare(ConfigureWorkDeliveryPlanRequest request)
+        {
+            foreach(var workflow in request.TicketWorkflows) {
+                var ticket=Db.CoreWorkTasks.Single(t=>t.Id==workflow.TicketId);
+                var planning=JsonSerializer.Deserialize<WorkItemPlanningSpecification>(ticket.PlanningSpecificationJson!,Json)!;
+                ticket.PlanningSpecificationJson=JsonSerializer.Serialize(planning with {Workflow=workflow.Definition()},Json);
+            }
+            Db.SaveChanges();return request;
+        }
         public async Task<WorkDeliveryPlanResponse> Configure(ConfigureWorkDeliveryPlanRequest? request = null)
         {
-            var result = await Service.ConfigureAsync(Org, Manager.Id, request ?? Request()); PlanId = result.Id;
+            var result = await Service.ConfigureAsync(Org, Manager.Id, Declare(request ?? Request())); PlanId = result.Id;
             Task = await Db.CoreWorkTasks.SingleAsync(x => x.Id == Task.Id);
             Task.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(Artifact ? Guid.Empty : Repositories[0],
                 ["Deliver requirement"], ["Requirement works"]) { BaseBranch = Artifact ? "" : "csweet/story/one", DeliveryKind = Artifact ? "Artifact" : "Code", DeliveryPlanId = PlanId }, Json);
@@ -521,19 +581,37 @@ public sealed class HierarchicalDeliveryServiceTests
     public class HostProxy : DispatchProxy
     {
         public int BranchCalls; public Guid? FailRepository;
+        public bool IntegrationConflictOnce;
+        public byte[] SnapshotArchive = [1,2];
+        public int CommitHashLength = 64;
         public readonly Dictionary<Guid, int> SuccessfulPromotions = [];
         readonly Dictionary<(Guid, string), string> heads = [];
         readonly Dictionary<string, DeliveryBranchResult> receipts = [];
-        static string Sha(string value) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+        string Sha(string value) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..CommitHashLength];
         string Head(Guid repo, string branch) => heads.TryGetValue((repo, branch), out var sha) ? sha : heads[(repo, branch)] = Sha(repo + branch);
+        public void AdvanceStory(Guid repo, string branch) => heads[(repo, branch)] = Sha("advanced:" + Head(repo, branch));
         public void ChangeTarget(WorkDeliveryRepositoryCandidate entry) => heads[(entry.RepositoryId, entry.TargetBranch)] = Sha("changed");
         protected override object? Invoke(MethodInfo? method, object?[]? args)
         {
+            if(method!.Name==nameof(ITrustedSourceControlHostClient.PrepareInternalWorkspaceAsync))
+            {
+                var request=(InternalGitWorkspaceRequest)args![0]!;
+                return System.Threading.Tasks.Task.FromResult(new TrustedWorkspaceSnapshot("review",request.ExpectedSha!,false,SnapshotArchive,"file-manifest-digest",1,SnapshotArchive.Length));
+            }
             if (method!.Name != nameof(ITrustedSourceControlHostClient.DeliveryBranchAsync)) throw new NotSupportedException(method.Name);
             BranchCalls++; var r = (DeliveryBranchOperation)args![0]!;
             if (r.Operation is "promote" or "receipt" && receipts.TryGetValue(r.IdempotencyKey, out var replay)) return System.Threading.Tasks.Task.FromResult(replay);
             var source = Head(r.RepositoryId, r.SourceBranch); var target = Head(r.RepositoryId, r.TargetBranch);
             DeliveryBranchResult result = new(source, target, r.Operation == "candidate" ? Sha(source + target) : null);
+            if (r.Operation == "candidate" && IntegrationConflictOnce)
+                return System.Threading.Tasks.Task.FromResult(new DeliveryBranchResult(source, target, null,
+                    Error: "Resolve integration conflicts before validation.") { ErrorCode = "integration_conflicts", ConflictPaths = ["shared.txt"] });
+            if (r.Operation == "rework" && IntegrationConflictOnce)
+            {
+                IntegrationConflictOnce = false;
+                return System.Threading.Tasks.Task.FromResult(new DeliveryBranchResult(source, target, null)
+                    { ErrorCode = "integration_conflicts", ConflictPaths = ["shared.txt"], ReworkCommitSha = Sha("rework" + source + target)[..40] });
+            }
             if (r.Operation == "ensure") heads[(r.RepositoryId, r.SourceBranch)] = target;
             if (r.Operation == "promote")
             {

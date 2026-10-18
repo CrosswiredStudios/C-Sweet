@@ -1,5 +1,12 @@
 namespace CSweet.Contracts.Core;
 
+public static class ArtifactDocumentTypes
+{
+    public const string RecoveredQaEvidence = "video-game.qa-recovered-evidence.v1";
+
+    public static bool IsRetainedEvidence(string documentType) => documentType == RecoveredQaEvidence;
+}
+
 public static class ArtifactActions
 {
     public const string Create = "artifact.create";

@@ -31,6 +31,12 @@ public sealed class ComputeWorkHttpClient : IDisposable
         if (permission?.OperationId != operationId) throw new IOException("Publication authorization did not match.");
         return permission.Allowed;
     }
+    public async Task<bool> AuthorizeDependenciesAsync(Guid operationId, CancellationToken token)
+    {
+        var permission = await SendAsync<ComputePublicationPermission>(ComputeWorkTransport.DependencyAccessPath, signer.Sign(operationId), false, token);
+        if (permission?.OperationId != operationId) throw new IOException("Dependency authorization did not match.");
+        return permission.Allowed;
+    }
     public async Task<ComputeProviderWakeHint?> WaitForWakeAsync(CancellationToken token)
     {
         var hint = await SendAsync<ComputeProviderWakeHint>(ComputeProviderWakeTransport.Path, signer.Sign(), true, token);

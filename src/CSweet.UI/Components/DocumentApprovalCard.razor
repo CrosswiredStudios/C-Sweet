@@ -6,8 +6,8 @@
 
 <div class="document-approval-card">
     <AttentionRequestCard Kind="Approval" EmployeeId="Approval.RequesterOrganizationUserId"
-        Name="@Approval.RequestedBy" Context="@RequesterContext" Prompt="@Title"
-        Description="@(IsPending ? "Review the submitted document and give your team direction." : null)"
+        Name="@Approval.RequestedBy" Context="@RequesterContext" Prompt="@(IsPending ? $"Approve {Title}?" : Title)"
+        Description="@(IsPending ? $"Accept revision {Revision?.Number.ToString() ?? "shown here"} as the reviewed version your team can use. Request changes if it needs more work." : null)"
         Status="@(IsPending ? $"Requested {Approval.CreatedAt.ToLocalTime():g}" : $"{StatusLabel} · {Approval.DecidedAt?.ToLocalTime():g}")">
         <BodyContent>
             <MudButton Class="document-approval-open" Variant="Variant.Outlined" Color="Color.Primary"
@@ -63,6 +63,7 @@
     private string? RequesterContext => Portraits?.FindRole(Approval.RequesterOrganizationUserId) ?? Approval.RequestingTeam;
     private bool IsPending => Approval.Status == "Pending";
     private bool CanDecide => !_completed && Approval.CanDecide && IsPending &&
+        !ArtifactDocumentTypes.IsRetainedEvidence(_detail?.Document.DocumentType ?? "") &&
         _detail?.Document.SubmittedRevisionId == RevisionId && _detail.Document.Status == "InReview" && Revision?.Status == "Submitted";
     private string RevisionLabel => Revision is { } revision ? $"{(IsPending ? "Submitted" : "Reviewed")} revision {revision.Number}" : IsPending ? "Submitted revision" : "Reviewed revision";
     private string ApproveLabel => Revision is { } revision ? $"Approve revision {revision.Number}" : "Approve revision";

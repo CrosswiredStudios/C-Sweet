@@ -9,134 +9,125 @@
 @inject AppRealtimeState Realtime
 
 <section class="project-releases" aria-label="Project releases">
-    <div class="panel-heading"><div><h2>Releases</h2><p>Define scope, follow execution, and review release candidates.</p></div><button class="release-primary" type="button" disabled="@_busy" @onclick="@(() => OpenConfigurationAsync(null))">Define release scope</button></div>
+    <div class="panel-heading"><div><h2>Releases</h2><p>See what is ready, what is blocked, and who acts next.</p></div></div>
     @if (_error is not null) { <p role="alert" class="project-note">@_error <button type="button" disabled="@_busy" @onclick="LoadAsync">Retry</button></p> }
     @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
 
-    @if (!_loading && _plans.Count == 0) { <p>No delivery plan has been recorded. The project manager must define release scope, independent reviewers and repository branches before starting delivery.</p> }
+    @if (!_loading && _plans.Count == 0) { <p>No delivery plan has been recorded. The project manager defines workflow tickets on the project board, including dependencies, assigned steps and acceptance criteria.</p> }
     @foreach (var plan in _plans)
     {
+        var current = CurrentExecutions(plan).ToArray();
+        var blockers = CurrentBlockers(plan).ToArray();
+        var historicalFindings = plan.Findings.Where(x => x.Status != "Open" || plan.Status is "Completed" or "Cancelled").ToArray();
+        var historicalExecutions = plan.Executions.Where(x => IsHistorical(x) || plan.Status is "Completed" or "Cancelled").ToArray();
         <article class="release-plan" @key="plan.Id">
             <h3>@plan.Name <span class="project-status">@plan.Status</span></h3>
-            <p class="release-meta">Managed by @PersonName(plan.ManagerOrganizationUserId)</p>
-            <p>@plan.Scopes.Count(x => x.Scope == "Story") stories · @plan.EpicItemIds.Count epics · @plan.Branches.Select(x => x.RepositoryId).Distinct().Count() repositories</p>
+            <dl class="release-summary">
+                <div><dt>Readiness</dt><dd class="readiness" data-attention="@(blockers.Length > 0 || current.Any(NeedsRecovery) ? "true" : "false")">@Readiness(plan)</dd></div>
+                <div><dt>Delivery manager</dt><dd>@PersonName(plan.ManagerOrganizationUserId)</dd></div>
+                <div><dt>Workflow tickets</dt><dd>@plan.Executions.Count(x => x.Status == "Completed") of @plan.Scopes.Count completed</dd></div>
+            </dl>
+            <p class="release-next"><strong>Next action</strong> @PlanNextAction(plan)</p>
             @if (_currentUser == plan.ManagerOrganizationUserId)
             {
                 <div class="delivery-toolbar">
-                    @if (plan.Status is "Draft" or "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => OpenConfigurationAsync(plan))">Amend scope and topology</button> }
-                    @if (plan.Status == "Draft" && _people.SingleOrDefault(x => x.Id == _currentUser)?.EmployeeType == "Human") { <button type="button" disabled="@_busy" @onclick="@(() => OpenTaskAssignmentsAsync(plan))">Staff and bind tasks</button> }
                     @if (plan.Status == "Draft") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "activate"))">Activate approved scope</button> }
                     @if (plan.Status == "Active") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "pause"))">Pause delivery</button> }
+                    @if (plan.Status == "Active" && current.Any(x => x.Status == "Blocked")) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "retry-validation"))">Retry validation</button> }
                     @if (plan.Status == "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "resume"))">Resume delivery</button> }
-                    @if (plan.Status is not ("Completed" or "Cancelled"))
-                    {
-                        <details><summary>Cancel plan</summary><p>Existing Git history and evidence will be preserved.</p><button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "cancel"))">Cancel remaining delivery</button></details>
-                    }
                 </div>
             }
-            <details class="release-technical"><summary>Scope and branch topology</summary><p>scope revision @plan.ScopeRevision</p>
-                @foreach (var scope in plan.Scopes.Where(x => x.ItemId.HasValue))
-                {
-                    <p><a href="@ItemLink(scope.BoardId, scope.ItemId!.Value)">@ItemTitle(scope.ItemId, scope.Scope)</a> · @scope.ChildIds.Count required children · planning revision @scope.PlanningRevision</p>
-                }
-                <table><thead><tr><th>Repository</th><th>Scope</th><th>Source</th><th>Integration target</th></tr></thead><tbody>
-                @foreach (var branch in plan.Branches) { <tr><td>@branch.RepositoryId</td><td>@branch.Scope</td><td><code>@branch.SourceBranch</code></td><td><code>@branch.TargetBranch</code></td></tr> }
-                </tbody></table>
-            </details>
-            @foreach (var finding in plan.Findings)
+            @if (plan.Status is not ("Completed" or "Cancelled"))
             {
-                <p class="release-finding">Remediation · @finding.Status · @finding.Summary</p>
-                @foreach (var task in finding.RemediationTaskIds) { <span>QA-verified task @task </span> }
-            }
-            @foreach (var execution in plan.Executions.Where(x => x.Status != "Superseded"))
-            {
-                <details class="release-execution" open="@(execution.Status is "Blocked" or "PartiallyPromoted" or "WaitingForApproval" or "WaitingForHuman")">
-                    <summary>@execution.Scope · @ItemTitle(execution.ItemId, plan.Name) · @execution.Status · @execution.CurrentStageKey</summary>
-                    @if (execution.ItemId is { } itemId) { <a href="@ItemLink(execution.BoardId, itemId)">Open work item</a> }
-                    @if (execution.BlockedReason is not null) { <p role="alert">@execution.BlockedReason</p> }
-                    @if (execution.Candidate is { } candidate)
+                <section class="release-blockers" aria-label="Current blockers">
+                    <h4>Current blockers <span>@blockers.Length</span></h4>
+                    @if (blockers.Length == 0) { <p class="release-meta">No current blockers recorded. Remaining checks and acceptance still apply.</p> }
+                    @foreach (var blocker in blockers)
                     {
-                        <details class="candidate-evidence" open="@(execution.Status == "PartiallyPromoted")"><summary>Reviewed/tested candidate</summary><p><code>@candidate.Digest</code> · scope revision @candidate.ScopeRevision</p>
-                        <table><thead><tr><th>Repository</th><th>Candidate commit</th><th>Promotion</th><th>Recovery state</th></tr></thead><tbody>
-                        @foreach (var repository in candidate.Repositories)
-                        {
-                            var receipt = execution.Promotions.SingleOrDefault(x => x.RepositoryId == repository.RepositoryId);
-                            <tr><td>@repository.RepositoryId</td><td><code>@repository.CandidateCommitSha</code>@if(repository.BuildId is { } buildId){<span> · build @buildId</span>}</td><td>@(receipt?.Status ?? "Awaiting validation")</td><td>@receipt?.Error</td></tr>
-                        }
-                        </tbody></table>
-                        @foreach (var document in candidate.Documents) { <p>Document @document.ArtifactId · revision <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }</details>
-                    }
-                    @foreach (var stage in execution.Stages)
-                    {
-                        <p>@stage.StageKey · @stage.Status · @PersonName(stage.OrganizationUserId) · @stage.LastOutcomeCode</p>
-                        @if (stage.LatestOutcome is { } outcome)
-                        {
-                            <p>@outcome.Summary</p>
-                            @foreach (var test in ComputeLinks(outcome, execution.Candidate?.Digest))
+                        var findings = plan.Findings.Where(x => x.Status == "Open" && x.Summary.Trim().Equals(blocker, StringComparison.OrdinalIgnoreCase)).ToArray();
+                        <div class="release-blocker"><p>@BlockerSummary(blocker)</p>
+                            @if (BlockerSummary(blocker) != blocker || findings.Any(x => x.RemediationTaskIds.Count > 0 || !string.IsNullOrWhiteSpace(x.ResolutionEvidence)))
                             {
-                                @if (test.UrlExpiresAt > DateTimeOffset.UtcNow)
-                                { <p><a href="@test.Url" target="_blank" rel="noopener noreferrer">Open test application</a> � Available on the compute host � expires @test.UrlExpiresAt.ToLocalTime()</p> }
-                                else { <p>The test link has expired.</p> }
+                                <details><summary>Full blocker details</summary>
+                                    @if (BlockerSummary(blocker) != blocker) { <p>@blocker</p> }
+                                    @foreach (var finding in findings)
+                                    {
+                                        @foreach (var task in finding.RemediationTaskIds) { <p>Remediation task: @ItemTitle(task, task.ToString())</p> }
+                                        @if (!string.IsNullOrWhiteSpace(finding.ResolutionEvidence)) { <p>Resolution evidence: @finding.ResolutionEvidence</p> }
+                                    }
+                                </details>
                             }
-                        }
+                        </div>
                     }
+                    @if (blockers.Length > 0) { <p class="release-meta">Resolution owner: @PersonName(plan.ManagerOrganizationUserId)</p> }
+                </section>
+            }
+            @if (current.Length > 0 && plan.Status is not ("Completed" or "Cancelled")) { <h4 class="checks-heading">Delivery checks</h4> }
+            @foreach (var execution in current.Where(_ => plan.Status is not ("Completed" or "Cancelled")))
+            {
+                <section class="release-execution" @key="execution.Id" aria-label="@(execution.Scope + " delivery check")">
+                    <div class="check-heading"><h4>@ItemTitle(execution.WorkflowTicketId ?? execution.ItemId, plan.Name)</h4><span class="project-status">@ExecutionStatus(execution.Status)</span></div>
+                    <p class="release-meta">@StageName(execution.CurrentStageKey) · Owner: @ExecutionOwner(plan, execution)</p>
+                    <p class="check-next">@ExecutionNextAction(execution)</p>
+                    @if ((execution.WorkflowTicketId ?? execution.ItemId) is { } itemId) { <a href="@ItemLink(execution.BoardId, itemId)">Open work item</a> }
                     @if (execution.Status is "WaitingForHuman" or "WaitingForApproval" && execution.Stages.LastOrDefault()?.OrganizationUserId == _currentUser)
                     { <button type="button" disabled="@_busy" @onclick="@(() => OpenDecision(plan, execution))">Review exact candidate</button> }
                     @if (execution.Status is "Blocked" or "PartiallyPromoted" && _currentUser == plan.ManagerOrganizationUserId)
                     {
+                        <details class="release-recovery"><summary>Resolve blockers and recover</summary>
                         <label>Recovery reason <input @bind="_recoveryReason" /></label>
                         @foreach (var finding in plan.Findings.Where(x => x.Status == "Open"))
                         {
                             var resolution = Resolution(finding.Id);
-                            <label>QA-verified remediation task IDs for @finding.Summary <input @bind="resolution.Tasks" /></label>
+                            <label>QA-verified remediation task IDs for @BlockerSummary(finding.Summary) <input @bind="resolution.Tasks" /></label>
                             <label>Resolution evidence <textarea @bind="resolution.Evidence"></textarea></label>
                         }
                         <button type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_recoveryReason))" @onclick="@(() => RecoverAsync(plan, execution))">Recover unfinished operations</button>
+                        </details>
+                    }
+                    <details class="release-technical"><summary>Technical details and review evidence</summary>
+                        <p>Scope: @execution.Scope · Status: @execution.Status · Stage: @execution.CurrentStageKey</p>
+                        <ProjectReleaseEvidence Execution="execution" PersonName="PersonName" />
+                    </details>
+                </section>
+            }
+            @if (historicalFindings.Length + historicalExecutions.Length > 0)
+            {
+                <details class="release-history"><summary>History · @historicalFindings.Length past findings · @historicalExecutions.Length past checks</summary>
+                    <p class="release-meta">Past findings are retained for reference. Superseded findings do not establish that an issue was fixed.</p>
+                    @foreach (var finding in historicalFindings)
+                    {
+                        <details class="past-finding"><summary>@finding.Status · @BlockerSummary(finding.Summary)</summary>
+                            <p>@finding.Summary</p>
+                            @if (!string.IsNullOrWhiteSpace(finding.ResolutionEvidence)) { <p>Resolution evidence: @finding.ResolutionEvidence</p> }
+                            @foreach (var task in finding.RemediationTaskIds) { <p>Remediation task: @ItemTitle(task, task.ToString())</p> }
+                        </details>
+                    }
+                    @foreach (var execution in historicalExecutions)
+                    {
+                        <details class="past-execution"><summary>@execution.Scope · @ItemTitle(execution.ItemId, plan.Name) · @execution.Status</summary>
+                            @if (execution.BlockedReason is not null) { <p>@execution.BlockedReason</p> }
+                            <ProjectReleaseEvidence Execution="execution" PersonName="PersonName" />
+                        </details>
                     }
                 </details>
             }
+            <details class="release-technical release-settings"><summary>Release scope and settings</summary>
+                <p>@plan.Scopes.Count workflow tickets · @plan.Branches.Select(x => x.RepositoryId).Distinct().Count() repositories · scope revision @plan.ScopeRevision</p>
+                @if (_currentUser == plan.ManagerOrganizationUserId)
+                {
+                    @if (plan.Status is not ("Completed" or "Cancelled"))
+                    { <details><summary>Cancel plan</summary><p>Existing Git history and evidence will be preserved.</p><button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "cancel"))">Cancel remaining delivery</button></details> }
+                }
+                <details><summary>Scope and branch topology</summary>
+                    @foreach (var scope in plan.Scopes.Where(x => x.ItemId.HasValue))
+                    { <p><a href="@ItemLink(scope.BoardId, scope.ItemId!.Value)">@ItemTitle(scope.ItemId, scope.Scope)</a> · @scope.PredecessorItemIds.Count predecessor tickets · planning revision @scope.PlanningRevision</p> }
+                    <table><thead><tr><th>Repository</th><th>Scope</th><th>Source</th><th>Integration target</th></tr></thead><tbody>
+                        @foreach (var branch in plan.Branches) { <tr><td>@branch.RepositoryId</td><td>@branch.Scope</td><td><code>@branch.SourceBranch</code></td><td><code>@branch.TargetBranch</code></td></tr> }
+                    </tbody></table>
+                </details>
+            </details>
         </article>
-    }
-    @if (_editing)
-    {
-        <fieldset class="mt-4"><legend>Approved release scope</legend>
-            <label class="d-block">Release name <input @bind="_releaseName" /></label>
-            <label class="d-block">Responsible manager <select @bind="_managerId"><option value="">Select manager</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
-            <label class="d-block">Independent QA <select @bind="_qaId"><option value="">Select reviewer</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
-            <label class="d-block">Technical reviewer <select @bind="_technicalId"><option value="">Select reviewer</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
-            @foreach (var epic in _epicInputs)
-            {
-                <label class="d-block"><input type="checkbox" @bind="epic.Selected" /> @epic.Title · @epic.BoardName</label>
-                <label class="d-block"><input type="checkbox" @bind="epic.Isolated" /> Use a separate epic integration branch</label>
-            }
-            @foreach(var branch in _branchInputs)
-            {
-                <p>@branch.Scope · @branch.RepositoryId</p>
-                <label>Source branch <input @bind="branch.Source" /></label><label>Integration target <input @bind="branch.Target" /></label>
-            }
-            <label>Story <select @bind="_bindingStory"><option value="">Select story</option>@foreach(var story in _boards.SelectMany(x => x.Items).Where(x => x.Kind == "Story")){<option value="@story.Id">@story.Title</option>}</select></label>
-            <label>Repository <select @bind="_bindingRepository"><option value="">Select repository</option>@foreach(var repo in _repositories){<option value="@repo.Id">@repo.Name</option>}</select></label>
-            <button type="button" disabled="@(!_bindingStory.HasValue || !_bindingRepository.HasValue)" @onclick="AddBinding">Add story repository</button>
-            <p>Each task keeps its assigned author and independent QA. Activation checks their finalized story or artifact bindings and blocks incomplete staffing.</p>
-            <button type="button" disabled="@(_busy || string.IsNullOrWhiteSpace(_releaseName) || !_managerId.HasValue || !_qaId.HasValue || !_technicalId.HasValue || !_epicInputs.Any(x => x.Selected))" @onclick="SaveConfigurationAsync">Save approved scope</button>
-            <button type="button" @onclick="@(() => _editing = false)">Close scope editor</button>
-        </fieldset>
-    }
-    @if(_taskPlan is { } taskPlan)
-    {
-        <fieldset><legend>Task assignments for @taskPlan.Name</legend>
-            <label>Independent QA <select @bind="_qaId"><option value="">Select QA</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
-            <label>Technical reviewer <select @bind="_technicalId"><option value="">Select reviewer</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
-            @foreach(var input in _taskInputs)
-            {
-                <h4>@input.Item.Title</h4>
-                <label>Author <select @bind="input.AuthorId"><option value="">Select author</option>@foreach(var person in _people){<option value="@person.Id">@person.Name</option>}</select></label>
-                <label>Deliverable <select @bind="input.Kind"><option value="Code">Code</option><option value="Artifact">Document or artifact</option></select></label>
-                @if(input.Kind == "Code") { <label>Story repository <select @bind="input.RepositoryId"><option value="">Select repository</option>@foreach(var branch in taskPlan.Branches.Where(x => x.Scope == "Story" && x.ItemId == input.Item.ParentItemId)){<option value="@branch.RepositoryId">@branch.RepositoryId · @branch.SourceBranch</option>}</select></label> }
-                <button type="button" disabled="@(_busy || !input.AuthorId.HasValue || !_qaId.HasValue || input.Kind == "Code" && (!input.RepositoryId.HasValue || !_technicalId.HasValue))" @onclick="@(() => FinalizeTaskAsync(input))">Finalize accepted task planning</button>
-            }
-            <button type="button" @onclick="@(() => _taskPlan = null)">Close assignments</button>
-        </fieldset>
     }
     @if (_decisionPlan is { } decisionPlan && _decisionExecution is { Candidate: { } decisionCandidate } decisionExecution)
     {
@@ -174,17 +165,6 @@
 </section>
 
 @code {
-    private static IReadOnlyList<WorkDeliveryComputeEvidence> ComputeLinks(WorkExecutionOutcomeV1 outcome, string? digest)
-    {
-        if (outcome.OutcomeCode != "approved" || outcome.Output.ValueKind != System.Text.Json.JsonValueKind.Object) return [];
-        try {
-            var review = System.Text.Json.JsonSerializer.Deserialize<WorkDeliveryReviewResult>(outcome.Output,
-                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
-            return review is not null && review.CandidateDigest == digest ? review.ComputeTests.Where(x => Uri.TryCreate(x.Url, UriKind.Absolute, out var uri) &&
-                uri.Scheme == "http" && uri.Host == "127.0.0.1").ToArray() : [];
-        } catch (System.Text.Json.JsonException) { return []; }
-    }
-
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public Guid ProjectId { get; set; }
     private IReadOnlyList<WorkDeliveryPlanResponse> _plans = [];
@@ -203,7 +183,7 @@
     private string Api => $"api/organizations/{OrganizationId:D}/work/delivery";
     private string ItemLink(Guid board, Guid item) => $"/organizations/{OrganizationId:D}/work/boards/{board:D}?item={item:D}";
     [Parameter] public IReadOnlyList<ProjectInspectionResource> WorkResources { get; set; } = [];
-    private string ItemTitle(Guid? id, string fallback) => WorkResources.FirstOrDefault(x => x.Id == id)?.Title ?? _boards.SelectMany(x => x.Items).FirstOrDefault(x => x.Id == id)?.Title ?? fallback;
+    private string ItemTitle(Guid? id, string fallback) => WorkResources.FirstOrDefault(x => x.Id == id)?.Title ?? fallback;
     private string PersonName(Guid? id) => _people.FirstOrDefault(x => x.Id == id)?.Name ?? (id.HasValue ? "Assigned employee" : "Unassigned");
     protected override void OnInitialized() { Realtime.EventReceived += OnRealtime; Realtime.Reconnected += OnReconnect; }
     private void OnRealtime(AppRealtimeEventEnvelope e) { if(e.OrganizationId == OrganizationId && e.EventType == AppRealtimeEvents.WorkDeliveryChanged) _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }); }
@@ -265,7 +245,9 @@
         var criteria = _criteria.Select(x => new WorkDeliveryCriterionResult(x.Criterion, x.Satisfied, x.Evidence)).ToArray();
         var findings = _findings.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var key = OperationKey("decision:" + approved, execution.Id, execution.Revision);
-        return execution.CurrentStageKey == "manager-review"
+        var handler = plan.Scopes.Single(s=>s.Scope==execution.Scope&&s.ItemId==execution.ItemId)
+            .TicketWorkflow?.Steps.Single(s=>s.Key==execution.CurrentStageKey).Handler ?? execution.CurrentStageKey;
+        return handler is "manager-review" or "acceptance"
             ? MutateAsync("accept", new DecideWorkDeliveryAcceptanceRequest(plan.Id, execution.Id, execution.Revision,
                 execution.Candidate!.Digest, approved, _summary, criteria, findings, key))
             : MutateAsync("review", new CompleteWorkDeliveryReviewRequest(plan.Id, execution.Id, execution.Stages.Last().Id,
