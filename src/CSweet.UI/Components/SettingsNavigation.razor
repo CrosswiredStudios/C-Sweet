@@ -1,12 +1,13 @@
-<nav class="settings-navigation" aria-label="Settings sections">
+@inject IAppLocalizer L
+<nav class="settings-navigation" aria-label="@L["SettingsNavigation.AriaLabel"]">
     <MudNavMenu Bordered="false" Dense="true" Class="settings-nav-menu">
-        <MudNavLink Href="/settings" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard">Overview</MudNavLink>
-        @foreach (var group in SettingsSections.All.GroupBy(section => section.Group))
+        <MudNavLink Href="/settings" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Dashboard">@L["SettingsNavigation.Overview"]</MudNavLink>
+        @foreach (var group in SettingsSections.All.GroupBy(section => section.GroupKey))
         {
-            <MudText Typo="Typo.overline" Class="settings-nav-label">@group.Key</MudText>
+            <MudText Typo="Typo.overline" Class="settings-nav-label">@L[group.Key]</MudText>
             @foreach (var section in group)
             {
-                <MudNavLink Href="@section.Url" Match="@(section.Url == "/settings/agents" ? NavLinkMatch.All : NavLinkMatch.Prefix)" Icon="@section.Icon">@section.Title</MudNavLink>
+                <MudNavLink Href="@section.Url" Match="@(section.Url == "/settings/agents" ? NavLinkMatch.All : NavLinkMatch.Prefix)" Icon="@section.Icon">@L[section.TitleKey]</MudNavLink>
             }
         }
     </MudNavMenu>

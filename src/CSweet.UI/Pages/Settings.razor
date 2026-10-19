@@ -1,32 +1,33 @@
 @page "/settings"
 @layout SettingsLayout
+@inject IAppLocalizer L
 
-<PageTitle>Settings - C-Sweet</PageTitle>
+<PageTitle>@L["Settings.PageTitle"]</PageTitle>
 <section class="settings-overview">
     <div class="page-header">
-        <div><MudText Typo="Typo.overline">Your workspace</MudText><MudText Typo="Typo.h3">Make it yours</MudText><MudText Color="Color.Secondary">Preferences, connections, and the tools behind your team.</MudText></div>
-        <MudTextField T="string" @bind-Value="_search" Immediate="true" Label="Find a setting" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" />
+        <div><MudText Typo="Typo.overline">@L["Settings.Overline"]</MudText><MudText Typo="Typo.h3">@L["Settings.Heading"]</MudText><MudText Color="Color.Secondary">@L["Settings.Lead"]</MudText></div>
+        <MudTextField T="string" @bind-Value="_search" Immediate="true" Label="@L["Settings.SearchLabel"]" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" />
     </div>
-    @foreach (var group in MatchingSections.GroupBy(section => section.Group))
+    @foreach (var group in MatchingSections.GroupBy(section => section.GroupKey))
     {
-        <section class="settings-category" aria-label="@group.Key">
-            <h2>@group.Key</h2>
+        <section class="settings-category" aria-label="@L[group.Key]">
+            <h2>@L[group.Key]</h2>
             <div class="settings-category-grid">
                 @foreach (var section in group)
                 {
                     <a class="settings-category-card" href="@section.Url">
                         <span class="settings-category-icon"><MudIcon Icon="@section.Icon" /></span>
-                        <span><strong>@section.Title</strong><small>@section.Description</small></span>
+                        <span><strong>@L[section.TitleKey]</strong><small>@L[section.DescriptionKey]</small></span>
                         <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Class="settings-card-arrow" />
                     </a>
                 }
             </div>
         </section>
     }
-    @if (!MatchingSections.Any()) { <div class="settings-empty" role="status"><h2>No matching settings</h2><p>Try a provider, connection, or feature name.</p><MudButton OnClick="@(() => _search = string.Empty)">Clear search</MudButton></div> }
+    @if (!MatchingSections.Any()) { <div class="settings-empty" role="status"><h2>@L["Settings.NoMatches.Title"]</h2><p>@L["Settings.NoMatches.Hint"]</p><MudButton OnClick="@(() => _search = string.Empty)">@L["Common.ClearSearch"]</MudButton></div> }
 </section>
 @code {
     private string _search = string.Empty;
     private IEnumerable<SettingsSection> MatchingSections => SettingsSections.All.Where(section =>
-        $"{section.Group} {section.Title} {section.Description}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
+        $"{L[section.GroupKey]} {L[section.TitleKey]} {L[section.DescriptionKey]}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase));
 }

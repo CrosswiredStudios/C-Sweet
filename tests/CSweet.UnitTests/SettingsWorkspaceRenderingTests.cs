@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using CSweet.Contracts.Core;
 using CSweet.UI.Components;
+using CSweet.UI.Localization;
 using CSweet.UI.Layout;
 using CSweet.UI.Pages;
 using CSweet.UI.Services;
@@ -99,6 +100,7 @@ public sealed class SettingsWorkspaceRenderingTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices();
+        services.AddCSweetLocalization();
         var activator = new TrackingActivator();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddCSweetApiClients();
@@ -178,7 +180,7 @@ public sealed class SettingsWorkspaceRenderingTests
     }
     private sealed class TestNavigation : NavigationManager
     {
-        public TestNavigation(Type page) => Initialize("http://localhost/", "http://localhost" + (SettingsSections.All.FirstOrDefault(x => page.Name.Equals(x.Title.Replace(" ", ""), StringComparison.OrdinalIgnoreCase))?.Url ?? "/settings"));
+        public TestNavigation(Type page) => Initialize("http://localhost/", "http://localhost" + (SettingsSections.All.FirstOrDefault(x => page.Name.Equals(x.TitleKey.Split('.')[2], StringComparison.OrdinalIgnoreCase))?.Url ?? "/settings"));
         protected override void NavigateToCore(string uri, bool forceLoad) { }
     }
     private sealed class NoJavaScript : IJSRuntime

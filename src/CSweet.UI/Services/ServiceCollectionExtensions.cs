@@ -1,3 +1,4 @@
+using CSweet.UI.Localization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -21,6 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAgentApiClient, AgentApiClient>();
         services.AddScoped<IPluginApiClient, PluginApiClient>();
         services.AddScoped<AuthSessionStore>();
+        services.AddCSweetLocalization();
         services.AddScoped<IAuthenticationApiClient, AuthenticationApiClient>();
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<IAppRealtimeConnection>(sp => sp.GetRequiredService<AppRealtimeState>());

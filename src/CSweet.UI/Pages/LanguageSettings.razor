@@ -1,0 +1,109 @@
+@page "/settings/language"
+@layout SettingsLayout
+@inject AppCulture Culture
+@inject IAuthenticationApiClient AuthenticationApi
+@inject IAppLocalizer L
+@implements IDisposable
+
+<PageTitle>@L["LanguageSettings.PageTitle"]</PageTitle>
+<section class="language-settings">
+    <MudText Typo="Typo.overline">@L["Settings.Group.Preferences"]</MudText>
+    <MudText Typo="Typo.h4">@L["LanguageSettings.Title"]</MudText>
+    <p>@L["LanguageSettings.Intro"]</p>
+
+    <div class="language-field">
+        <label for="language-select">@L["LanguageSettings.LanguageLabel"]</label>
+        <select id="language-select" value="@(Culture.PreferredCode ?? DeviceOption)" @onchange="OnLanguageChanged" disabled="@_saving">
+            <option value="@DeviceOption">@L.Format("LanguageSettings.FollowDevice", new { language = Culture.Current.NativeName })</option>
+            @foreach (var culture in CSweet.Contracts.Localization.SupportedCultures.All)
+            {
+                <option value="@culture.Code" lang="@culture.Code">@culture.NativeName</option>
+            }
+        </select>
+        <small>@L["LanguageSettings.LanguageHelp"]</small>
+    </div>
+
+    <div class="language-field">
+        <label for="timezone-select">@L["LanguageSettings.TimeZoneLabel"]</label>
+        <select id="timezone-select" value="@(Culture.PreferredTimeZoneId ?? DeviceOption)" @onchange="OnTimeZoneChanged" disabled="@_saving">
+            <option value="@DeviceOption">@L.Format("LanguageSettings.FollowDeviceTimeZone", new { zone = Culture.TimeZone.Id })</option>
+            @foreach (var zone in _timeZones)
+            {
+                <option value="@zone.Id">@zone.DisplayName</option>
+            }
+        </select>
+        <small>@L.Format("LanguageSettings.TimeZonePreview", new { time = DateTimeOffset.UtcNow.ToOffset(Culture.TimeZone.GetUtcOffset(DateTimeOffset.UtcNow)).ToString("f", Culture.Culture) })</small>
+    </div>
+
+    <p role="status">
+        @if (_error is not null)
+        {
+            @_error
+        }
+        else if (Culture.PersistenceUnavailable)
+        {
+            @L["LanguageSettings.PersistenceUnavailable"]
+        }
+        else
+        {
+            @L["LanguageSettings.Saved"]
+        }
+    </p>
+</section>
+
+@code {
+    private const string DeviceOption = "__device";
+    private bool _saving;
+    private string? _error;
+    private IReadOnlyList<TimeZoneInfo> _timeZones = [];
+
+    protected override void OnInitialized()
+    {
+        Culture.Changed += OnChanged;
+        try
+        {
+            _timeZones = TimeZoneInfo.GetSystemTimeZones()
+                .Where(z => z.Id.Contains('/'))
+                .OrderBy(z => z.BaseUtcOffset)
+                .ThenBy(z => z.Id, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            _timeZones = [];
+        }
+    }
+
+    private async Task OnLanguageChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        await SaveAsync(() => Culture.SetLanguageAsync(value == DeviceOption ? null : value, AuthenticationApi));
+    }
+
+    private async Task OnTimeZoneChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        await SaveAsync(() => Culture.SetTimeZoneAsync(value == DeviceOption ? null : value, AuthenticationApi));
+    }
+
+    private async Task SaveAsync(Func<Task> save)
+    {
+        _saving = true;
+        _error = null;
+        try
+        {
+            await save();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException)
+        {
+            _error = L["LanguageSettings.SaveFailed"];
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Culture.Changed -= OnChanged;
+}

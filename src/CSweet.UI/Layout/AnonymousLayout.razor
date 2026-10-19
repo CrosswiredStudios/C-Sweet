@@ -1,10 +1,12 @@
 @inherits LayoutComponentBase
+@inject AppCulture Culture
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
+<MudRTLProvider RightToLeft="@Culture.IsRightToLeft">
 <main class="auth-shell">
     <section class="auth-brand-panel">
         <img class="auth-mark" src="images/icon_dark.svg" alt="C-Sweet" />
@@ -17,6 +19,7 @@
         @Body
     </section>
 </main>
+</MudRTLProvider>
 
 @code {
     private readonly MudTheme _theme = new()

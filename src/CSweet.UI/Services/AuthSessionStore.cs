@@ -10,8 +10,20 @@ public sealed class AuthSessionStore
     /// <summary>Raised when an API call reports that the session is no longer authenticated.</summary>
     public event Action? SessionEnded;
 
-    public void Set(AuthStatusResponse status) => Current = status;
-    public void Clear() => Current = null;
+    /// <summary>Raised whenever <see cref="Current"/> is replaced or cleared.</summary>
+    public event Action? Changed;
+
+    public void Set(AuthStatusResponse status)
+    {
+        Current = status;
+        Changed?.Invoke();
+    }
+
+    public void Clear()
+    {
+        Current = null;
+        Changed?.Invoke();
+    }
 
     /// <summary>
     /// Records a 401 from a protected API endpoint (expired cookie, server-side sign-out) and
@@ -20,6 +32,7 @@ public sealed class AuthSessionStore
     public void ReportUnauthenticated()
     {
         Current = null;
+        Changed?.Invoke();
         SessionEnded?.Invoke();
     }
 
