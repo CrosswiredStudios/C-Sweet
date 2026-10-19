@@ -93,7 +93,7 @@ on `CurrentCode`, so a language change re-renders everything without a reload. `
 - `node tools/localization/translate.mjs` — fills missing or stale translations through an
   OpenAI-compatible endpoint (`CSWEET_TRANSLATE_ENDPOINT`, `CSWEET_TRANSLATE_MODEL`,
   optional `CSWEET_TRANSLATE_API_KEY`), honoring `glossary.json` and the plural categories of each
-  language. Staleness is tracked in `<Area>/translations.lock` (sha1 of the English text per key).
+  language. Staleness is tracked in `<Area>/translations.<culture>.lock` (sha1 of the English text per key).
   `--culture`, `--area`, `--dry-run`, `--force`.
 - `glossary.json` — mandatory renderings for domain terms. Add a term before it drifts.
 

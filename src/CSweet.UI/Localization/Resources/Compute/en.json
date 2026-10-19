@@ -128,7 +128,6 @@
   "ExecutionFleet.WorkloadGroup": "Workload group",
   "ExecutionFleet.OfficeLabelsAndAccess": "Office labels and access",
   "ExecutionFleet.OfficeLabels": "Office labels",
-  "ExecutionFleet.All": "all",
   "ExecutionFleet.CouldNotCheckForOffice": "Could not check for Office updates. Try again shortly.",
   "ExecutionFleet.CouldNotRefreshThisOffice": "Could not refresh this Office's work status.",
   "ExecutionFleet.CouldNotRefreshOfficesFrom": "Could not refresh Offices from the server.",

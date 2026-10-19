@@ -2,7 +2,7 @@
 // Fills missing or stale translations by asking an OpenAI-compatible chat endpoint, one area and
 // culture at a time, with the glossary and ICU rules in the prompt. English is the source of truth;
 // a key is "stale" when its English text changed since it was last translated (tracked in
-// Localization/Resources/<Area>/translations.lock, which is not embedded).
+// Localization/Resources/<Area>/translations.<culture>.lock, which is not embedded).
 //
 // Usage:
 //   CSWEET_TRANSLATE_ENDPOINT=http://localhost:1234/v1 CSWEET_TRANSLATE_MODEL=... [CSWEET_TRANSLATE_API_KEY=...] \
@@ -69,13 +69,12 @@ for (const area of readdirSync(resourcesRoot).filter(a => statSync(join(resource
   const en = readJson(join(areaDir, 'en.json'));
   const notes = Object.fromEntries(Object.entries(en).filter(([k]) => k.startsWith('_') && k.length > 1).map(([k, v]) => [k.slice(1), v]));
   const source = Object.entries(en).filter(([k, v]) => !k.startsWith('_') && typeof v === 'string');
-  const lockPath = join(areaDir, 'translations.lock');
-  const lock = readJson(lockPath);
   for (const culture of cultures) {
     if (onlyCulture && culture !== onlyCulture) continue;
     const targetPath = join(areaDir, `${culture}.json`);
     const target = readJson(targetPath);
-    lock[culture] ??= {};
+    const lockPath = join(areaDir, `translations.${culture}.lock`);
+    const lock = { [culture]: readJson(lockPath) };
     const pending = source.filter(([k, v]) => force || !target[k] || lock[culture][k] !== hash(v)).map(([k, v]) => [k, v, notes[k]]);
     for (const k of Object.keys(target)) if (!k.startsWith('_') && !en[k]) delete target[k]; // drop orphans
     if (pending.length === 0) { if (dryRun) console.log(`${culture}/${area}: up to date`); continue; }
@@ -94,7 +93,7 @@ for (const area of readdirSync(resourcesRoot).filter(a => statSync(join(resource
       const ordered = { _: `Generated from en.json by tools/localization/translate.mjs; edit freely, re-runs only touch keys whose English changed.` };
       for (const [k] of source) if (target[k]) ordered[k] = target[k];
       writeJson(targetPath, ordered);
-      writeJson(lockPath, lock);
+      writeJson(lockPath, lock[culture]);
     }
   }
 }
