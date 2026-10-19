@@ -102,6 +102,8 @@ public class LlmProviderEndpointTests
     [InlineData(LlmProviderType.OpenRouter)]
     [InlineData(LlmProviderType.Groq)]
     [InlineData(LlmProviderType.TogetherAi)]
+    [InlineData(LlmProviderType.MetaMuse)]
+    [InlineData(LlmProviderType.DeepSeek)]
     [InlineData(LlmProviderType.Custom)]
     public async Task PreviewModelCatalog_ReturnsAvailableModelsForSupportedSetupProviders(LlmProviderType providerType)
     {

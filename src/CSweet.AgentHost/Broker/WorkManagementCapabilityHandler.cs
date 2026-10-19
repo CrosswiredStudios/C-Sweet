@@ -3809,7 +3809,16 @@ public sealed partial class WorkManagementCapabilityHandler(
                 report.ActiveForecast.RemainingPoints,
                 report.ActiveForecast.AverageVelocity,
                 report.ActiveForecast.ProjectedSprintsRequired,
-                report.ActiveForecast.IsOverCapacity));
+                report.ActiveForecast.IsOverCapacity)
+            {
+                GeneratedAt = report.ActiveForecast.GeneratedAt,
+                EarliestCompletionAt = report.ActiveForecast.EarliestCompletionAt,
+                LatestCompletionAt = report.ActiveForecast.LatestCompletionAt,
+                HistoricalSampleCount = report.ActiveForecast.HistoricalSampleCount,
+                UnestimatedItemCount = report.ActiveForecast.UnestimatedItemCount,
+                BlockingItemCount = report.ActiveForecast.BlockingItemCount,
+                Basis = report.ActiveForecast.Basis
+            });
 
     private async Task<Wire.WorkItemTypeDefinition> RequireWorkItemTypeAsync(
         WorkBoard board,

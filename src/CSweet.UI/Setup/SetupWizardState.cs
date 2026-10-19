@@ -155,6 +155,26 @@ public static class SetupWizardState
                 "https://api.together.ai/v1",
                 "Your Together API key",
                 IsHosted: true,
+                RequiresApiKey: true),
+            new(
+                LlmProviderType.MetaMuse,
+                "MM",
+                "Meta Muse",
+                "Connect Muse models through Meta's API",
+                "Meta Muse",
+                "https://api.meta.ai/v1",
+                "Your Meta API key",
+                IsHosted: true,
+                RequiresApiKey: true),
+            new(
+                LlmProviderType.DeepSeek,
+                "DS",
+                "DeepSeek",
+                "Connect DeepSeek models directly",
+                "DeepSeek",
+                "https://api.deepseek.com",
+                "Your DeepSeek API key",
+                IsHosted: true,
                 RequiresApiKey: true)
         ];
     }

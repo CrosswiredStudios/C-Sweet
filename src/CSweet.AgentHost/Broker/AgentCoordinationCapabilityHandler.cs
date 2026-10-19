@@ -53,7 +53,8 @@ public sealed class AgentCoordinationCapabilityHandler(
             {
                 CommunicationCapabilities.CoordinationStart => await coordination.StartAsync(
                     organizationId, actorId.Value, installationId,
-                    Read<StartAgentCoordinationRequest>(request), cancellationToken),
+                    Read<StartAgentCoordinationRequest>(request), cancellationToken,
+                    Guid.TryParse(session.RuntimeInstanceId, out var runtimeId) ? runtimeId : null),
                 CommunicationCapabilities.CoordinationStartWork => await coordination.StartWorkAsync(
                     organizationId, actorId.Value, installationId,
                     Read<StartWorkItemCoordinationRequest>(request), cancellationToken),

@@ -112,11 +112,25 @@ public class SetupWizardStateTests
             preset => Assert.Equal(LlmProviderType.GoogleGemini, preset.ProviderType),
             preset => Assert.Equal(LlmProviderType.OpenRouter, preset.ProviderType),
             preset => Assert.Equal(LlmProviderType.Groq, preset.ProviderType),
-            preset => Assert.Equal(LlmProviderType.TogetherAi, preset.ProviderType));
+            preset => Assert.Equal(LlmProviderType.TogetherAi, preset.ProviderType),
+            preset =>
+            {
+                Assert.Equal(LlmProviderType.MetaMuse, preset.ProviderType);
+                Assert.Equal("Meta Muse", preset.DisplayName);
+                Assert.Equal("https://api.meta.ai/v1", preset.BaseUrl);
+            },
+            preset =>
+            {
+                Assert.Equal(LlmProviderType.DeepSeek, preset.ProviderType);
+                Assert.Equal("DeepSeek", preset.DisplayName);
+                Assert.Equal("https://api.deepseek.com", preset.BaseUrl);
+            });
         Assert.All(presets, preset =>
         {
             Assert.True(preset.IsHosted);
             Assert.True(preset.RequiresApiKey);
+            Assert.True(preset.ProviderType.IsHostedProvider());
+            Assert.False(preset.ProviderType.IsLocalRuntime());
             Assert.StartsWith("https://", preset.BaseUrl);
         });
     }

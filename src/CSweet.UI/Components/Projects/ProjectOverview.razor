@@ -12,7 +12,7 @@
             <div class="overview-heading"><h2>Project brief</h2><span class="eyebrow">The objective</span></div>
             <p class="brief-excerpt">@Brief</p>
             <details class="full-brief"><summary>Read full brief</summary><p>@Brief</p></details>
-            <div class="brief-facts"><div><small>Current phase</small><strong>@ProjectPresentation.Metadata(Project.Project, "LifecycleStage")</strong></div><div><small>Target date</small><strong>@TargetDate</strong></div></div>
+            <div class="brief-facts"><div><small>Current phase</small><strong>@ProjectPresentation.Metadata(Project.Project, "LifecycleStage")</strong></div><div><small>External date constraint</small><strong>@TargetDate</strong></div></div>
             <details class="project-record"><summary>About this project</summary><dl><dt>Profile</dt><dd>@ProjectPresentation.Profile(Project.Project.TypeKey)</dd><dt>Revision</dt><dd>@Project.Project.Revision</dd><dt>Updated</dt><dd>@Project.Project.OccurredAt?.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</dd>@if (!string.IsNullOrWhiteSpace(Project.Project.Sha256)) { <dt>Record hash</dt><dd>@Project.Project.Sha256</dd> }</dl></details>
         </article>
         <article class="overview-panel">
@@ -50,7 +50,7 @@
     [Parameter, EditorRequired] public string ProjectHref { get; set; } = "";
     private string Link(string tab) => $"{ProjectHref}?tab={tab}";
     private string Brief => ProjectPresentation.Metadata(Project.Project, "Outcome", "No project brief has been provided.");
-    private string TargetDate => DateTimeOffset.TryParse(ProjectPresentation.Metadata(Project.Project, "TargetDate", ""), out var date) ? date.LocalDateTime.ToString("MMM d, yyyy") : "Not set";
+    private string TargetDate => DateTimeOffset.TryParse(ProjectPresentation.Metadata(Project.Project, "TargetDate", ""), out var date) ? date.LocalDateTime.ToString("MMM d, yyyy") : "None · Forecast-driven";
     private IEnumerable<ProjectAuditEntry> RecentActivity => Project.Audit.Where(x => !ProjectPresentation.IsRoutineRead(x)).OrderByDescending(x => x.OccurredAt).Take(4);
     private (string Label, int Count, string Tab, string Action)[] Metrics => [("Open work", Project.Health.OpenItems, "work", "Explore board"), ("Blocked work", Project.Health.BlockedItems, "work", "Inspect work"), ("Pending gates", Project.Health.PendingGates, "decisions", "Review gates"), ("Open decisions", Project.Health.OpenDecisions, "decisions", "View decisions")];
 }

@@ -6,7 +6,7 @@
 `ReasoningContentChatClient` with `ProviderResponseContractChatClient`. Every
 provider accepted by `LlmProviderTypeExtensions.UsesOpenAiCompatibleApi` uses the
 same wrapper: LM Studio, Unsloth Studio, Ollama, vLLM, OpenAI-compatible, OpenAI,
-Gemini's compatible endpoint, OpenRouter, Groq, Together AI and Custom.
+Gemini's compatible endpoint, OpenRouter, Groq, Together AI, Meta Muse, DeepSeek and Custom.
 Native APIs outside that supported set still require their own adapters; a
 uniform agent contract does not mean every provider or model has equal capability.
 
@@ -14,6 +14,20 @@ uniform agent contract does not mean every provider or model has equal capabilit
 boundary without changing tool-call/result pairs. `UserQueryChatClient` supplies
 a missing user message where the configured compatibility policy requires it.
 Provider output defaults retain explicit caller budgets.
+
+`SetupWizardState.HostedProviderPresets` supplies Meta Muse at
+`https://api.meta.ai/v1` and DeepSeek at `https://api.deepseek.com` for setup and
+provider settings. Both require an API key and use model discovery rather than
+fixed model names. The same compatible client handles connection/capability tests
+and agent requests. See the [Meta API reference](https://dev.meta.ai/docs/api-reference)
+and [DeepSeek API guide](https://api-docs.deepseek.com/).
+
+`LlmProviders.PreviewModelCatalogAsync` fills the Default Chat Model dropdown
+with the complete returned catalog. The user chooses a model; refresh preserves
+that choice while it remains available. Changing connection details clears the
+catalog and selection, and older in-flight responses cannot replace newer results.
+Saved profiles read their catalog with the stored credentials through
+`ILlmProviderApiClient.GetModelCatalogAsync`.
 
 ## Bounded recovery
 

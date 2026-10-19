@@ -16,6 +16,10 @@ public sealed partial class CSweetDbContext
     {
         var attempts = ChangeTracker.Entries<AgentWorkAttempt>()
             .Where(x => x.State is EntityState.Added or EntityState.Modified).Select(x => x.Entity).ToList();
+        var boundAttempts = ChangeTracker.Entries<WorkExecutionContext>().Where(x =>
+            x.State is EntityState.Added or EntityState.Modified).Select(x => x.Entity.Id).ToArray();
+        if (boundAttempts.Length > 0)
+            attempts.AddRange(await AgentWorkAttempts.Where(x => boundAttempts.Contains(x.Id)).ToListAsync(ct));
         var queuedWorkIds = ChangeTracker.Entries<AgentRunLog>().Where(x =>
             x.State is EntityState.Added or EntityState.Modified && x.Entity.MeasurementKind == "Queue" &&
             x.Entity.AgentWorkItemId.HasValue).Select(x => x.Entity.AgentWorkItemId!.Value).Distinct().ToArray();
@@ -40,7 +44,10 @@ public sealed partial class CSweetDbContext
             var work = attempt.AgentWorkItem ?? await AgentWorkItems.FindAsync([attempt.AgentWorkItemId], ct);
             if (work is null || !Guid.TryParse(work.OrganizationId, out var org)) continue;
             var context = await WorkExecutionContexts.FindAsync([attempt.Id], ct);
-            var root = await AgentTicketFeedback.ResolveAsync(this, work, ct);
+            var boundRoot = context?.RootWorkItemId is { } boundId ? await CoreWorkTasks.Include(x => x.Board)
+                .SingleOrDefaultAsync(x => x.Id == boundId && x.OrganizationId == org, ct) : null;
+            var root = boundRoot is not null && await Analytics.PersonalWorkAttribution.MatchesClaimAsync(this, boundRoot, work, attempt.Id, ct)
+                ? boundRoot : await AgentTicketFeedback.ResolveAsync(this, work, ct);
             if (context is null)
             {
                 context = new WorkExecutionContext { Id = attempt.Id, OrganizationId = org,
@@ -70,7 +77,7 @@ public sealed partial class CSweetDbContext
                 if (root.Board is { ArchivedAt: null } && root.Board.Kind != WorkBoardKind.Personal)
                 { focus = root; executionAllowed = true; }
                 else if (root.Board is { ArchivedAt: null } && root.Status == WorkTaskStatus.Running && root.AssignedAgentInstallationId == work.AgentInstallationId &&
-                    root.ClaimEventId?.ToString("D") == work.SourceId && root.ClaimExpiresAt > now &&
+                    await Analytics.PersonalWorkAttribution.MatchesClaimAsync(this, root, work, attempt.Id, ct) && root.ClaimExpiresAt > now &&
                     root.NextReviewAt is null && root.WaitingReason is null)
                 {
                     // Load all candidates, including currently tracked status transitions. A SQL

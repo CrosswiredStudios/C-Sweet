@@ -2,7 +2,11 @@ using CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Application.WorkManagement;
 
-public sealed record PersonalTodoActor(Guid OrganizationUserId, Guid? AgentInstallationId);
+public sealed record PersonalTodoActor(Guid OrganizationUserId, Guid? AgentInstallationId)
+{
+    // Set by the broker from the authenticated runtime, never from the tool payload.
+    public Guid? WorkAttemptId { get; init; }
+}
 
 public interface IPersonalTodoService
 {

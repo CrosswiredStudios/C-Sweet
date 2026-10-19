@@ -20,7 +20,7 @@
             <dl class="facts">
                 <div><dt>Project lead</dt><dd>@project.Lead</dd></div>
                 <div><dt>Proposed budget</dt><dd>@Budget(project)</dd></div>
-                @if (!Compact) { <div><dt>Target date</dt><dd>@(project.TargetDate?.ToLocalTime().ToString("MMM d, yyyy") ?? "Not specified")</dd></div> }
+                @if (!Compact) { <div><dt>External date constraint</dt><dd>@(project.TargetDate?.ToLocalTime().ToString("MMM d, yyyy") ?? "Not specified")</dd></div> }
             </dl>
             @if (!Compact)
             {

@@ -41,7 +41,18 @@ public sealed class PersonalTodoCapabilityHandler(
         if (!actorId.HasValue)
             return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied,
                 "The installation is not assigned to an active employee in this organization.");
-        var actor = new PersonalTodoActor(actorId.Value, installationId);
+        Guid? workAttemptId = null;
+        if (request.Capability == PersonalTodoActions.Claim && Guid.TryParse(session.RuntimeInstanceId, out var runtimeId))
+        {
+            var now = DateTimeOffset.UtcNow;
+            var attempts = await db.AgentWorkAttempts.AsNoTracking().Where(x => x.RuntimeInstanceId == runtimeId &&
+                x.FinishedAt == null && x.LeaseExpiresAt > now && x.AgentWorkItem!.Status == CSweet.Domain.Setup.AgentWorkStatus.Leased &&
+                x.AgentWorkItem.DeadlineAt > now &&
+                x.AgentWorkItem.AgentInstallationId == installationId && x.AgentWorkItem.OrganizationId == session.BusinessId)
+                .Select(x => x.Id).Take(2).ToListAsync(token);
+            if (attempts.Count == 1) workAttemptId = attempts[0];
+        }
+        var actor = new PersonalTodoActor(actorId.Value, installationId) { WorkAttemptId = workAttemptId };
         try
         {
             object result = request.Capability switch

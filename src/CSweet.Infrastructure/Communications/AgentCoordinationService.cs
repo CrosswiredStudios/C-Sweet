@@ -33,7 +33,8 @@ public sealed class AgentCoordinationService(
         Guid initiatorOrganizationUserId,
         Guid initiatorInstallationId,
         StartAgentCoordinationRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? initiatorRuntimeId = null)
     {
         ValidateStart(request);
         var canonicalSource = await db.CoreConversations.Where(x => x.OrganizationId == organizationId &&
@@ -154,6 +155,9 @@ public sealed class AgentCoordinationService(
             initiatorInstallationId, targetInstallationId, request.Artifact, cancellationToken);
         session.Turns.Add(initialTurn);
         db.AgentCoordinationSessions.Add(session);
+        if (initiatorRuntimeId is { } runtime)
+            await Analytics.PersonalWorkAttribution.BindCoordinationAsync(db, organizationId, initiatorInstallationId,
+                runtime, session.Id, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         session.CurrentAgentWorkItemId = await EnqueueTurnAsync(session, targetInstallationId,
             request.TargetOrganizationUserId, cancellationToken);

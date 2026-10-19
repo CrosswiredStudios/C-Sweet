@@ -61,16 +61,14 @@ public static class WorkSprintReportBuilder
         WorkSprintForecastResponse? forecast = null;
         if (active is not null)
         {
-            var latest = metrics.LastOrDefault(x => x.SprintId == active.Id);
-            var currentItems = latest is null
-                ? await db.CoreWorkTasks.AsNoTracking()
-                    .Where(x => x.SprintId == active.Id)
-                    .ToListAsync(cancellationToken)
-                : [];
-            var remaining = latest?.RemainingPoints ??
+            var currentItems = await db.CoreWorkTasks.AsNoTracking()
+                    .Where(x => x.OrganizationId == organizationId && x.BoardId == boardId &&
+                        x.SprintId == active.Id && x.IsExecutable && x.ArchivedAt == null && x.Status != WorkTaskStatus.Cancelled)
+                    .ToListAsync(cancellationToken);
+            var remaining =
                 currentItems.Where(x => x.Status != WorkTaskStatus.Completed)
                     .Sum(x => x.EstimatePoints ?? 0);
-            var scopePoints = latest?.ScopePoints ??
+            var scopePoints =
                 currentItems.Sum(x => x.EstimatePoints ?? 0);
             forecast = new WorkSprintForecastResponse(
                 active.Id,
@@ -82,7 +80,13 @@ public static class WorkSprintReportBuilder
                     : averageVelocity > 0
                         ? Math.Ceiling(remaining / averageVelocity)
                         : null,
-                active.CapacityPoints > 0 && scopePoints > active.CapacityPoints);
+                active.CapacityPoints > 0 && scopePoints > active.CapacityPoints)
+            {
+                BlockingItemCount = currentItems.Count(x => x.Status is WorkTaskStatus.Blocked or WorkTaskStatus.Failed or WorkTaskStatus.WaitingForApproval)
+            };
+            forecast = DeliveryForecast.WithCompletionRange(forecast, snapshots,
+                currentItems.Count(x => x.Status != WorkTaskStatus.Completed && x.EstimatePoints is null),
+                DateTimeOffset.UtcNow);
         }
 
         return new WorkSprintReportResponse(

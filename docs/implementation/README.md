@@ -49,6 +49,11 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 
 ## Feature plans
 
+- [Forecast-driven planning](features/forecast-driven-planning.md) - optional external date constraints, elapsed-history completion ranges, intake memory and manager-owned pause/escalation/relay.
+
+- [Business deletion](features/business-deletion.md) - durable deletion intent, automatic
+  completion after compute teardown, tile progress and failure recovery.
+
 - [Compute page and Linux preparation](compute-page.md) - Linux-only compute types, owner instancing, preparation milestones, process-health evidence, retry isolation and completion collapse.
 
 - [Chief hiring autonomy](features/chief-hiring-autonomy.md) - owner policy, conversational setup, approved-plan delegation, shared hire review, and marketplace attribution.

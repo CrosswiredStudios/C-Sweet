@@ -497,7 +497,27 @@ public sealed partial class AgentWorkInbox(
             .ToListAsync(cancellationToken);
         foreach (var claim in claims)
             claim.ClaimExpiresAt = now.AddMinutes(5);
+        // Inline claims can use their own event ID inside a chat/collaboration delivery.
+        // Renew only the exact server-bound root, never another task owned by the employee.
+        var contexts = await WorkContextsForRenewalAsync(work, now, cancellationToken);
+        foreach (var (attempt, root) in contexts)
+            if (await CSweet.Infrastructure.Analytics.PersonalWorkAttribution.MatchesClaimAsync(db, root, work, attempt.Id, cancellationToken))
+                root.ClaimExpiresAt = now.AddMinutes(5);
         // Lease bookkeeping does not change the task revision expected by the active callback.
+    }
+
+    private async Task<List<(AgentWorkAttempt Attempt, CSweet.Domain.Core.WorkTask Root)>> WorkContextsForRenewalAsync(
+        AgentWorkItem work, DateTimeOffset now, CancellationToken ct)
+    {
+        var rows = await (from attempt in db.AgentWorkAttempts
+            join context in db.WorkExecutionContexts on attempt.Id equals context.Id
+            join root in db.CoreWorkTasks on context.RootWorkItemId equals root.Id
+            where attempt.AgentWorkItemId == work.Id && attempt.FinishedAt == null && attempt.LeaseExpiresAt > now &&
+                root.OrganizationId.ToString() == work.OrganizationId && root.AssignedAgentInstallationId == work.AgentInstallationId &&
+                root.Status == CSweet.Domain.Core.WorkTaskStatus.Running && root.ArchivedAt == null && root.ClaimExpiresAt > now &&
+                root.Board != null && root.Board.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal
+            select new { Attempt = attempt, Root = root }).ToListAsync(ct);
+        return rows.Select(x => (x.Attempt, x.Root)).ToList();
     }
 
     public Task AppendProgressAsync(

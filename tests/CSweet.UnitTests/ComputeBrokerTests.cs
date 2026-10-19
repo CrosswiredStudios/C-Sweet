@@ -14,6 +14,26 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputeBrokerTests
 {
+    [Theory]
+    [InlineData(OrganizationStatus.Deleting)]
+    [InlineData(OrganizationStatus.DeletionFailed)]
+    public async Task Deleting_business_rejects_new_compute_but_allows_teardown(OrganizationStatus status)
+    {
+        await using var f = new Fixture();
+        await f.SeedAsync();
+        var environment = await f.Send();
+        var organization = await f.Db.CoreOrganizations.SingleAsync(x => x.Id == f.Organization);
+        organization.Status = status;
+        await f.Db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Broker.RequestAsync(f.Organization, f.Installation,
+            f.Request with { DesiredEnvironmentKey = "after-deletion", IdempotencyKey = "after-deletion" }, default));
+        Assert.Single(await f.Db.ComputeEnvironments.ToListAsync());
+        var destroyed = await f.Broker.ChangeLifecycleAsync(f.Organization, f.Installation,
+            new(environment.Id, environment.Generation, InfrastructureActions.Destroy, "business-delete"), default);
+        Assert.Equal(ComputeDesiredState.Destroyed, destroyed.DesiredState);
+    }
+
     [Fact]
     public async Task Until_release_admission_is_retained_and_explicit_destroy_still_works()
     {

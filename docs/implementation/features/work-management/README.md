@@ -1,5 +1,7 @@
 # Universal work management
 
+See [forecast-driven planning](../forecast-driven-planning.md) for optional external dates, completion ranges derived from elapsed delivery history, and manager-owned decision pauses.
+
 See [ticket-defined workflows](ticket-defined-workflows.md) for the current delivery model: agents declare visible workflow tickets, dependencies, criteria and assigned steps. Source-scope labels do not impose aggregate review gates. Clean-start plans replace the former implicit delivery sequence.
 
 See [grant-controlled compute dependency restore](compute-dependency-restore.md) for lockfile-pinned npm ingress, independent grants, provider isolation, exact-source build proof and recovery of the missing-Phaser compute setup failure.

@@ -17,13 +17,17 @@
         </div>
         @if (!string.IsNullOrWhiteSpace(_deleteMessage))
         {
-            <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : _deleteCleanupPending ? Severity.Info : Severity.Error)" Variant="Variant.Outlined" Class="mb-4" role="status">
+            <MudAlert Severity="@(_deleteSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mb-4" role="status">
                 @_deleteMessage
                 @if (_deleteComputeOrganizationId is { } computeOrganizationId)
                 {
                     <MudButton Href="@($"/organizations/{computeOrganizationId}/compute")" Color="Color.Primary">View compute cleanup</MudButton>
                 }
             </MudAlert>
+        }
+        @if (_deletionRefreshError is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4" role="status">@_deletionRefreshError</MudAlert>
         }
         @if (_loading)
         {
@@ -59,12 +63,24 @@
                                     @if (!string.IsNullOrWhiteSpace(org.Industry)) { <span>@org.Industry</span> }
                                     @if (!string.IsNullOrWhiteSpace(org.Stage)) { <span>@org.Stage</span> }
                                 </div>
-                                @if (IsChiefOnboarding(org.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.PersonAdd">Chief of Staff installing</MudChip> }
-                                else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">Hire a Chief of Staff</MudButton> }
+                                @if (!IsDeleting(org.Id) && org.Status != "DeletionFailed")
+                                {
+                                    @if (IsChiefOnboarding(org.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.PersonAdd">Chief of Staff installing</MudChip> }
+                                    else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">Hire a Chief of Staff</MudButton> }
+                                }
                             </div>
                         </div>
                         <footer class="business-tile-footer">
-                            @if (IsDeleting(org.Id)) { <div class="business-delete-progress" role="status"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Error" /><span>Deleting business…</span></div> }
+                            @if (IsDeleting(org.Id))
+                            {
+                                <div class="business-delete-progress" role="status" aria-live="polite"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /><div><strong>@(org.Status == "Deleting" ? "Cleaning up resources…" : "Deleting business…")</strong><p>The business will be deleted automatically when cleanup finishes. You can leave this page.</p></div></div>
+                            }
+                            else if (org.Status == "DeletionFailed")
+                            {
+                                <div role="alert">Business deletion needs attention. Check compute cleanup, then retry.</div>
+                                <MudButton Href="@($"/organizations/{org.Id}/compute")">View compute cleanup</MudButton>
+                                <MudButton Color="Color.Error" OnClick="() => RequestDelete(org)">Retry deletion</MudButton>
+                            }
                             else
                             {
                                 <div class="business-shortcuts"><MudButton Href="@($"/organizations/{org.Id}/projects")" StartIcon="@Icons.Material.Outlined.Layers">Projects</MudButton><MudButton Href="@($"/organizations/{org.Id}/employees")" StartIcon="@Icons.Material.Outlined.People">Employees</MudButton></div>
@@ -146,7 +162,7 @@
         <section class="business-dialog business-delete-dialog" aria-labelledby="business-delete-title">
             <header class="business-dialog-header"><div><span class="business-kicker">Business management</span><h2 id="business-delete-title">Delete business?</h2></div><MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CancelDelete" aria-label="Cancel deletion" /></header>
             <p>Delete <strong>@_deleteCandidate?.Name</strong> and all of its associated business data? This cannot be undone.</p>
-            <p>Its compute instances and VM-local files will also be released. If cleanup is still running, you will need to retry deletion after it finishes.</p>
+            <p>Its compute instances and VM-local files will also be released. The business will be deleted automatically when cleanup finishes.</p>
             <footer class="business-dialog-actions"><MudButton Variant="Variant.Outlined" OnClick="CancelDelete">Keep business</MudButton><MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBusinessAsync">Delete business</MudButton></footer>
         </section>
     </DialogContent>
@@ -167,7 +183,9 @@
     private bool _refreshingOnboardingOrganizations;
     private Guid? _deletingOrganizationId;
     private bool _deleteSucceeded;
-    private bool _deleteCleanupPending;
+    private readonly CancellationTokenSource _disposeCts = new();
+    private Task? _deletionRefreshTask;
+    private string? _deletionRefreshError;
     private Guid? _deleteComputeOrganizationId;
     private string _formName = string.Empty;
     private string _formIndustry = string.Empty;
@@ -200,6 +218,9 @@
         try
         {
             _organizations = await OrganizationApi.ListAsync();
+            foreach (var removed in BusinessContext.Businesses.Where(x => !_organizations.Any(y => y.Id == x.Id)).ToList())
+                await BusinessContext.RemoveDeletedBusinessAsync(removed.Id);
+            StartDeletionRefresh();
         }
         catch (Exception exception)
         {
@@ -226,6 +247,7 @@
         try
         {
             _organizations = await OrganizationApi.ListAsync();
+            StartDeletionRefresh();
             await InvokeAsync(StateHasChanged);
         }
         finally
@@ -325,7 +347,7 @@
 
     private void RequestDelete(OrganizationResponse organization)
     {
-        if (_deletingOrganizationId is not null) return;
+        if (_deletingOrganizationId is not null || IsDeleting(organization.Id)) return;
         _deleteCandidate = organization;
         _showDelete = true;
     }
@@ -340,7 +362,6 @@
         _deletingOrganizationId = organization.Id;
         _deleteMessage = null;
         _deleteSucceeded = false;
-        _deleteCleanupPending = false;
         _deleteComputeOrganizationId = null;
         try
         {
@@ -350,11 +371,18 @@
             _deleteSucceeded = true;
             _deleteMessage = $"'{organization.Name}' was deleted.";
         }
-        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "compute_cleanup_failed")
+        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending" or "compute_cleanup_failed")
         {
-            _deleteCleanupPending = exception.ErrorCode == "compute_cleanup_pending";
-            _deleteComputeOrganizationId = organization.Id;
-            _deleteMessage = $"'{organization.Name}': {exception.Message}";
+            if (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending")
+            {
+                _organizations = _organizations.Select(x => x.Id == organization.Id ? x with { Status = "Deleting" } : x).ToList();
+                StartDeletionRefresh();
+            }
+            else
+            {
+                _deleteComputeOrganizationId = organization.Id;
+                _deleteMessage = $"'{organization.Name}': {exception.Message}";
+            }
         }
         catch (Exception exception)
         {
@@ -366,7 +394,47 @@
         }
     }
 
-    private bool IsDeleting(Guid organizationId) => _deletingOrganizationId == organizationId;
+    private bool IsDeleting(Guid organizationId) => _deletingOrganizationId == organizationId || _organizations.Any(x => x.Id == organizationId && x.Status == "Deleting");
+
+    private void StartDeletionRefresh()
+    {
+        if (_deletionRefreshTask is { IsCompleted: false } || !_organizations.Any(x => x.Status == "Deleting")) return;
+        _deletionRefreshTask = RefreshDeletionsAsync(_disposeCts.Token);
+    }
+
+    private async Task RefreshDeletionsAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    try { await RefreshDeletionStatusAsync(token); }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                    catch { _deletionRefreshError = "Unable to refresh deletion progress. Deletion will continue in the background; reconnect to see the latest status."; }
+                    StateHasChanged();
+                });
+                if (!_organizations.Any(x => x.Status == "Deleting")) break;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshDeletionStatusAsync(CancellationToken token)
+    {
+        var current = await OrganizationApi.ListAsync(token);
+        var deleted = _organizations.Where(x => x.Status == "Deleting" && !current.Any(y => y.Id == x.Id)).ToList();
+        _organizations = current;
+        _deletionRefreshError = null;
+        foreach (var organization in deleted)
+        {
+            await BusinessContext.RemoveDeletedBusinessAsync(organization.Id, token);
+            _deleteSucceeded = true;
+            _deleteMessage = $"'{organization.Name}' was deleted.";
+        }
+    }
     private bool IsChiefOnboarding(Guid organizationId) => BusinessOnboardingOperations.Operations.Any(operation =>
         operation.OrganizationId == organizationId && BusinessOnboardingOperationStatuses.IsActive(operation.Status));
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -376,6 +444,8 @@
     private void OnBusinessContextChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose()
     {
+        _disposeCts.Cancel();
+        _disposeCts.Dispose();
         BusinessOnboardingOperations.Changed -= OnBusinessOnboardingChanged;
         BusinessContext.Changed -= OnBusinessContextChanged;
     }

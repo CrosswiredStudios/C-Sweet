@@ -17,6 +17,35 @@ and separate human/judge scores. Partial rubric scores are not presented as fina
 
 ## Metric semantics
 
+- `PersonalTodoCapabilityHandler` supplies `PersonalTodoActor.WorkAttemptId` from the
+  single live delivery on the authenticated runtime. `PersonalWorkAttribution.BindClaimAsync`
+  appends an `agent.ticket.execution.bound` activity and updates execution focus in the
+  claim's transaction. Reconnecting attempts keep earlier bindings intact and cannot
+  replace a still-live binding. Inline claims may use a different event ID from the outer chat or
+  collaboration delivery. Dispatch and lease renewal validate that exact binding;
+  release, completion, reassignment and expiry stop task ownership. The link is accounting
+  evidence and does not replace any execution authorization check. No schema or SDK change
+  is required; ambiguous runtime deliveries remain unbound.
+- `AgentCoordinationService.StartAsync` captures the initiating runtime's confirmed task
+  focus in a separate `agent.ticket.coordination.bound` activity, committed with the
+  session. Subsequent collaborator calls retain that source task even after the initiator
+  completes its own claim. This does not change the session's execution source or grants.
+- New chat calls may use the single nonterminal task explicitly linked to the addressed
+  source conversation, message and employee. Chat-origin collaboration uses the same
+  exact source task when it has no explicit ticket source. Calls before task creation,
+  unrelated conversation tasks and ambiguous matches are never assigned a share.
+  Historical repair does not reconstruct these new links from current task state.
+  Creative Director creates its GDD task before pitch generation, including failing
+  attempts, so the first pitch has an exact source task at provider dispatch.
+
+October 18 verification: 215 platform regression tests, three PostgreSQL execution
+tests and 182 Creative Director tests passed. The PostgreSQL suite used isolated,
+disposable databases and covered inline claim binding, idempotent retries, lease
+renewal, plan focus, rollback and competing execution writes. Creative Director
+2.1.5 passed its self-test and package version verification. Deploy the rebuilt
+platform and updated agent before relying on these new-call links. No historical
+token values or existing business receipts were changed by this fix.
+
 - `InferenceSourceAttribution.CaptureAsync` fills accounting ownership from the authenticated
   inbox source: exact collaboration deliveries (including retained turn links and server-owned
   correlation IDs), their source tickets/projects, and project-scoped chat turns. These are

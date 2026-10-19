@@ -63,7 +63,7 @@ public static class InferenceAttribution
                             x.OrganizationId == organizationId, ct);
                         var validClaim = root?.Board?.Kind != WorkBoardKind.Personal ||
                             root.Status == WorkTaskStatus.Running && root.ClaimExpiresAt > dispatchedAt &&
-                            root.ClaimEventId?.ToString("D") == work.SourceId && root.NextReviewAt is null &&
+                            await PersonalWorkAttribution.MatchesClaimAsync(db, root, work, attempt.Id, ct) && root.NextReviewAt is null &&
                             root.AssignedAgentInstallationId == work.AgentInstallationId;
                         if (item is not null && root is { ArchivedAt: null } && root.Board is { ArchivedAt: null } && interval is not null && validClaim)
                         {

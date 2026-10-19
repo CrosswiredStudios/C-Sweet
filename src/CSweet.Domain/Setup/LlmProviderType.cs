@@ -15,5 +15,8 @@ public enum LlmProviderType
     AzureOpenAi,
     Anthropic,
     MicrosoftFoundry,
-    Custom
+    Custom,
+    // Append new providers to preserve persisted numeric values.
+    MetaMuse,
+    DeepSeek
 }

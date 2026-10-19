@@ -269,7 +269,8 @@ public sealed partial class PlatformLlmCapabilityHandler
         messages = messages.Where(message => message.Role != ChatRole.System).ToList();
         var callerInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
-        var combinedInstructions = string.Join("\n\n", new[] { callerInstructions, caseInstructions?.Text }
+        var combinedInstructions = string.Join("\n\n", new[] { callerInstructions, caseInstructions?.Text,
+            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         var runLog = CreateRunLog(
             session,

@@ -426,6 +426,8 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         Assert.Contains("Follow the agent's creative-direction policy.", chatClient.ReceivedOptions?.Instructions,
             StringComparison.Ordinal);
         Assert.Contains("Be concise.", chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
+        Assert.Contains(CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions,
+            chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
         Assert.Equal(0.2f, chatClient.ReceivedOptions?.Temperature);
         var responseFormat = Assert.IsType<ChatResponseFormatJson>(chatClient.ReceivedOptions?.ResponseFormat);
         Assert.Equal("technical_review", responseFormat.SchemaName);

@@ -1,6 +1,6 @@
 namespace CSweet.Domain.Core;
 
-public enum OrganizationStatus { Draft, Active, Paused, Archived }
+public enum OrganizationStatus { Draft, Active, Paused, Archived, Deleting, DeletionFailed }
 public enum WorkstreamStatus { Proposed, Approved, Active, Blocked, Completed, Cancelled }
 public enum ProposalStatus { Pending, Approved, Rejected, Cancelled }
 public enum BudgetScopeType { Organization, Workstream, Employee, Task }

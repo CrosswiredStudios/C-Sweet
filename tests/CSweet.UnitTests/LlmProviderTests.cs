@@ -83,6 +83,8 @@ public class LlmProviderTests
     [InlineData(LlmProviderType.OpenRouter)]
     [InlineData(LlmProviderType.Groq)]
     [InlineData(LlmProviderType.TogetherAi)]
+    [InlineData(LlmProviderType.MetaMuse)]
+    [InlineData(LlmProviderType.DeepSeek)]
     [InlineData(LlmProviderType.Custom)]
     public void SupportedSetupProvider_UsesOpenAiCompatibleApi(LlmProviderType providerType)
     {

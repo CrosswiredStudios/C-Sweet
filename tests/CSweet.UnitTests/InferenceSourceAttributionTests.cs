@@ -94,6 +94,45 @@ public sealed class InferenceSourceAttributionTests
     }
 
     [Fact]
+    public async Task ChatTask_UsesExactAddressedMessage_PropagatesToCoordination_AndNeverGuesses()
+    {
+        await using var db = WorkEfficiencyTests.Database();
+        var org = Guid.NewGuid(); var installation = Guid.NewGuid(); var collaborator = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, AgentInstallationId = installation };
+        var chat = new Conversation { Id = Guid.NewGuid(), OrganizationId = org, CreatedAt = Now.AddHours(-1) };
+        var turn = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = org, Conversation = chat,
+            ConversationId = chat.Id, UserMessageId = Guid.NewGuid(), TargetAgentOrganizationUserId = owner.Id };
+        var task = new WorkTask { Id = Guid.NewGuid(), OrganizationId = org, AssignedEmployeeId = owner.Id,
+            AssignedAgentInstallationId = installation, SourceConversationId = chat.Id, SourceMessageId = turn.UserMessageId,
+            Status = WorkTaskStatus.Ready, CreatedAt = Now.AddMinutes(-1) };
+        var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = org.ToString(), AgentInstallationId = installation,
+            SourceType = "chat-turn", SourceId = turn.Id.ToString() };
+        var delivery = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = org.ToString(), AgentInstallationId = collaborator,
+            SourceType = "agent-coordination" };
+        var session = new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = org,
+            InitiatorInstallationId = installation, TargetInstallationId = collaborator, CurrentAgentWorkItemId = delivery.Id,
+            SourceChatTurnId = turn.Id, CreatedAt = Now.AddMinutes(-1) };
+        db.AddRange(owner, chat, turn, task, work, delivery, session); await db.SaveChangesAsync();
+        async Task<AgentRunLog> Capture(AgentWorkItem source, bool historical = false)
+        {
+            var log = WorkEfficiencyTests.Call(org); log.StartedAt = Now; log.ProviderStartedAt = Now;
+            log.AgentInstallationId = source.AgentInstallationId;
+            await InferenceSourceAttribution.CaptureAsync(db, log, source.Id, historical);
+            return log;
+        }
+        Assert.Equal(task.Id, (await Capture(work)).WorkItemId);
+        Assert.Equal(task.Id, (await Capture(delivery)).WorkItemId);
+        Assert.Null((await Capture(work, historical: true)).WorkItemId);
+        // A second task for the same source message makes ownership ambiguous.
+        var duplicate = new WorkTask { Id = Guid.NewGuid(), OrganizationId = org, AssignedEmployeeId = owner.Id,
+            SourceConversationId = chat.Id, SourceMessageId = turn.UserMessageId, CreatedAt = Now.AddMinutes(-1) };
+        db.Add(duplicate); await db.SaveChangesAsync();
+        Assert.Null((await Capture(work)).WorkItemId);
+        duplicate.SourceMessageId = Guid.NewGuid(); task.Status = WorkTaskStatus.Completed; await db.SaveChangesAsync();
+        Assert.Null((await Capture(work)).WorkItemId);
+    }
+
+    [Fact]
     public async Task ChatProject_UsesInboxTurn_NotCallerTelemetry_AndSkipsChangedHistoricalConversation()
     {
         await using var db = WorkEfficiencyTests.Database(); var org = Guid.NewGuid(); var installation = Guid.NewGuid();

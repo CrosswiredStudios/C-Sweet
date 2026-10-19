@@ -298,29 +298,39 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     public async Task QuiesceAsync(Guid organizationId, CancellationToken cancellationToken = default)
     {
         var businessId = organizationId.ToString("D");
-        var installations = await InstallationQuery()
-            .Where(x => x.BusinessId == businessId)
-            .ToListAsync(cancellationToken);
-        if (installations.Count == 0)
-            return;
-
-        var now = DateTimeOffset.UtcNow;
-        foreach (var installation in installations)
+        List<AgentInstallation> installations;
+        for (var attempt = 0; ; attempt++)
         {
-            installation.IsEnabled = false;
-            installation.UpdatedAt = now;
-            if (installation.Schedule is not null)
+            // Load only cleanup dependencies. Scheduler timestamps are concurrency
+            // tokens and may change between this read and the disabling commit.
+            installations = await _dbContext.AgentInstallations
+                .Include(x => x.Schedule).Include(x => x.RuntimeInstances)
+                .Where(x => x.BusinessId == businessId).ToListAsync(cancellationToken);
+            if (installations.Count == 0) return;
+            try
             {
-                installation.Schedule.IsEnabled = false;
-                installation.Schedule.NextTickAt = null;
+                var now = DateTimeOffset.UtcNow;
+                foreach (var installation in installations)
+                {
+                    installation.IsEnabled = false;
+                    installation.UpdatedAt = now;
+                    if (installation.Schedule is not null)
+                    {
+                        installation.Schedule.IsEnabled = false;
+                        installation.Schedule.NextTickAt = null;
+                    }
+                    await RevokeInstallationSessionsAsync(installation.Id, "The business is being deleted.", now, cancellationToken);
+                }
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                break;
             }
-            await RevokeInstallationSessionsAsync(
-                installation.Id,
-                "The business is being deleted.",
-                now,
-                cancellationToken);
+            catch (DbUpdateConcurrencyException) when (attempt < 2)
+            {
+                // Discard the failed mutation and its captured outboxes, then reapply
+                // deletion intent against fresh state. Do not overwrite scheduler data.
+                _dbContext.ChangeTracker.Clear();
+            }
         }
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
         foreach (var installation in installations)
             await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);

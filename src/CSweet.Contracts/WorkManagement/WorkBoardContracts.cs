@@ -459,7 +459,16 @@ public sealed record WorkSprintForecastResponse(
     decimal RemainingPoints,
     decimal AverageVelocity,
     decimal? ProjectedSprintsRequired,
-    bool IsOverCapacity);
+    bool IsOverCapacity)
+{
+    public DateTimeOffset GeneratedAt { get; init; }
+    public DateTimeOffset? EarliestCompletionAt { get; init; }
+    public DateTimeOffset? LatestCompletionAt { get; init; }
+    public int HistoricalSampleCount { get; init; }
+    public int UnestimatedItemCount { get; init; }
+    public int BlockingItemCount { get; init; }
+    public string Basis { get; init; } = "Completion timing is not yet forecastable.";
+}
 
 public sealed record WorkAutomationRuleResponse(
     Guid Id,

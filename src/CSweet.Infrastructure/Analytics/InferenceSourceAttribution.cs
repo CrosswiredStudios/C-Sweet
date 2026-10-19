@@ -47,6 +47,18 @@ public static class InferenceSourceAttribution
                 itemId = sessions[0].SourceWorkItemId;
                 projectId = sessions[0].WorkstreamId;
                 kind = "Coordination";
+                if (itemId is null)
+                {
+                    var session = sessions[0];
+                    var binding = PersonalWorkAttribution.CoordinationBinding(session.Id);
+                    var bindings = await db.WorkItemActivities.AsNoTracking().Where(x => x.OrganizationId == org &&
+                        x.ActorKind == Domain.Security.GrantSubjectKind.AgentInstallation &&
+                        x.ActorSubjectId == session.InitiatorInstallationId && x.EventType == "agent.ticket.coordination.bound" &&
+                        x.DataJson == binding && x.OccurredAt <= at).Select(x => x.WorkItemId).Distinct().Take(2).ToListAsync(ct);
+                    if (bindings.Count == 1) itemId = bindings[0];
+                }
+                if (!historical && itemId is null && sessions[0].SourceChatTurnId is { } sourceTurn)
+                    itemId = await ChatTaskAsync(db, org, sourceTurn, at, ct);
             }
         }
         else if (work?.SourceType == "chat-turn" && Guid.TryParse(work.SourceId, out var turnId))
@@ -58,6 +70,11 @@ public static class InferenceSourceAttribution
                 .Select(x => x.Conversation).SingleOrDefaultAsync(ct);
             if (conversation?.OrganizationId == org && (!historical || conversation.UpdatedAt <= at))
             { projectId = conversation.WorkstreamId; kind = "Conversation"; }
+            if (!historical && conversation is not null)
+            {
+                itemId = await ChatTaskAsync(db, org, turnId, at, ct);
+                if (itemId.HasValue) kind = "ChatTask";
+            }
         }
         if (itemId is null && work?.SourceType == "WorkStageExecution" && Guid.TryParse(work.SourceId, out var stageId))
         {
@@ -116,6 +133,21 @@ public static class InferenceSourceAttribution
             log.WorkstreamId = project;
         if (log.WorkItemId.HasValue || log.WorkstreamId.HasValue)
             log.AttributionKind = historical ? kind + "Historical" : kind;
+    }
+
+    // A task explicitly created for this addressed message is accounting evidence.
+    // Never select an arbitrary task from the conversation or reconstruct old ownership.
+    private static async Task<Guid?> ChatTaskAsync(CSweetDbContext db, Guid organization,
+        Guid turnId, DateTimeOffset at, CancellationToken ct)
+    {
+        var ids = await (from turn in db.ChatTurns.AsNoTracking()
+            join item in db.CoreWorkTasks.AsNoTracking() on turn.ConversationId equals item.SourceConversationId
+            where turn.Id == turnId && turn.OrganizationId == organization && item.OrganizationId == organization &&
+                item.SourceMessageId == turn.UserMessageId && item.AssignedEmployeeId == turn.TargetAgentOrganizationUserId &&
+                item.CreatedAt <= at && item.ArchivedAt == null &&
+                item.Status != Domain.Core.WorkTaskStatus.Completed && item.Status != Domain.Core.WorkTaskStatus.Cancelled
+            select item.Id).Take(2).ToListAsync(ct);
+        return ids.Count == 1 ? ids[0] : null;
     }
 
     /// <summary>Completed receipts only: never race an active stream's final receipt write.</summary>

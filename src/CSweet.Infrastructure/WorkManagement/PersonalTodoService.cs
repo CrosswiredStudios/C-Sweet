@@ -890,6 +890,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             x.Status == WorkTaskStatus.Running && x.ClaimEventId == request.EventId &&
             (!request.ItemId.HasValue || x.Id == request.ItemId.Value),
             cancellationToken);
+        var bound = false;
         while (item is null)
         {
             var candidate = await db.CoreWorkTasks.AsNoTracking()
@@ -927,6 +928,11 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 await db.Entry(item).ReloadAsync(cancellationToken);
                 db.AddLifecycle(organizationId, item.Id, "WorkItem", "Ready", "Running", item.Revision, now);
                 AgentTicketFeedback.RecordClaim(db, item, actor.AgentInstallationId!.Value, request.EventId, now);
+                if (actor.WorkAttemptId is { } attemptId)
+                {
+                    await Analytics.PersonalWorkAttribution.BindClaimAsync(db, item, actor.AgentInstallationId.Value, attemptId, now, cancellationToken);
+                    bound = true;
+                }
                 await QueuePersonalRealtimeAsync(item, cancellationToken);
                 await db.SaveChangesAsync(cancellationToken);
             }
@@ -934,6 +940,11 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         }
         if (item is null)
             return new Wire.PersonalTodoClaim(null);
+        if (!bound && actor.WorkAttemptId is { } currentAttempt)
+        {
+            await Analytics.PersonalWorkAttribution.BindClaimAsync(db, item, actor.AgentInstallationId.Value, currentAttempt, now, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+        }
         return new Wire.PersonalTodoClaim(await MapItemAsync(item, cancellationToken));
     }
 

@@ -62,6 +62,76 @@ public sealed class WorkExecutionTests
     }
 
     [Fact]
+    public async Task InlineClaim_CapturesExactTask_ThenStopsOnRelease_WithoutChangingEarlierCalls()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        f.Work.SourceType = "chat-turn"; f.Work.SourceId = Guid.NewGuid().ToString();
+        await f.Db.SaveChangesAsync();
+        var before = await f.Call(); Assert.Null(before.WorkItemId);
+        CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordClaim(f.Db, f.Epic, f.Installation, f.Event, f.Clock.Now);
+        await PersonalWorkAttribution.BindClaimAsync(f.Db, f.Epic, f.Installation, f.Attempt.Id, f.Clock.Now, default);
+        await f.Db.SaveChangesAsync();
+        // A fresh request scope must recover the binding from durable evidence.
+        f.Db.ChangeTracker.Clear();
+        var during = await f.Call();
+        Assert.Equal(f.Epic.Id, during.WorkItemId); Assert.Equal(f.Project, during.WorkstreamId);
+        Assert.Equal(f.Attempt.Id, during.AgentWorkAttemptId);
+        var root = await f.Db.CoreWorkTasks.SingleAsync(x => x.Id == f.Epic.Id);
+        root.ClaimEventId = null; root.ClaimExpiresAt = null; root.Status = WorkTaskStatus.Completed;
+        await f.Db.SaveChangesAsync();
+        Assert.Null((await f.Call()).WorkItemId);
+        Assert.Null((await f.Db.AgentRunLogs.SingleAsync(x => x.Id == before.Id)).WorkItemId);
+        Assert.Equal(f.Epic.Id, (await f.Db.AgentRunLogs.SingleAsync(x => x.Id == during.Id)).WorkItemId);
+        Assert.All(await f.Db.WorkExecutionIntervals.Where(x => x.WorkItemId == f.Epic.Id).ToListAsync(), x => Assert.NotNull(x.EndedAt));
+    }
+
+    [Fact]
+    public async Task InlineClaim_RejectsAnotherInstallationOrAttempt_AndCannotRebindReceipt()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordClaim(f.Db, f.Epic, f.Installation, f.Event, f.Clock.Now);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => PersonalWorkAttribution.BindClaimAsync(
+            f.Db, f.Epic, Guid.NewGuid(), f.Attempt.Id, f.Clock.Now, default));
+        await PersonalWorkAttribution.BindClaimAsync(f.Db, f.Epic, f.Installation, f.Attempt.Id, f.Clock.Now, default);
+        var other = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItem = f.Work, AgentWorkItemId = f.Work.Id,
+            ClaimedAt = f.Clock.Now, LeaseExpiresAt = f.Clock.Now.AddHours(1) };
+        f.Db.Add(other); await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => PersonalWorkAttribution.BindClaimAsync(
+            f.Db, f.Epic, f.Installation, other.Id, f.Clock.Now, default));
+        f.Attempt.FinishedAt = f.Clock.Now;
+        await f.Db.SaveChangesAsync();
+        await PersonalWorkAttribution.BindClaimAsync(f.Db, f.Epic, f.Installation, other.Id, f.Clock.Now, default);
+        await f.Db.SaveChangesAsync();
+        Assert.Equal(2, await f.Db.WorkItemActivities.CountAsync(x => x.EventType == "agent.ticket.execution.bound"));
+    }
+
+    [Fact]
+    public async Task CoordinationStartedInsideClaim_KeepsTaskOwnershipAfterInitiatorCompletes()
+    {
+        await using var f = new Fixture(); await f.Seed();
+        var runtime = Guid.NewGuid(); f.Attempt.RuntimeInstanceId = runtime; await f.Db.SaveChangesAsync();
+        var sessionId = Guid.NewGuid(); var target = Guid.NewGuid();
+        await PersonalWorkAttribution.BindCoordinationAsync(f.Db, f.Org, f.Installation, Guid.NewGuid(),
+            sessionId, f.Clock.Now, default);
+        Assert.DoesNotContain(f.Db.WorkItemActivities.Local, x => x.EventType == "agent.ticket.coordination.bound");
+        await PersonalWorkAttribution.BindCoordinationAsync(f.Db, f.Org, f.Installation, runtime,
+            sessionId, f.Clock.Now, default);
+        var delivery = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = f.Org.ToString(),
+            AgentInstallationId = target, SourceType = "agent-coordination" };
+        var session = new CSweet.Domain.Communications.AgentCoordinationSession { Id = sessionId, OrganizationId = f.Org,
+            InitiatorInstallationId = f.Installation, TargetInstallationId = target, CurrentAgentWorkItemId = delivery.Id,
+            SourceKind = "Chat", CreatedAt = f.Clock.Now };
+        f.Db.AddRange(session, delivery); await f.Db.SaveChangesAsync();
+        await f.Change(f.Epic, WorkTaskStatus.Completed, 1);
+        f.Db.ChangeTracker.Clear();
+        var call = WorkEfficiencyTests.Call(f.Org); call.StartedAt = f.Clock.Now; call.ProviderStartedAt = f.Clock.Now;
+        call.AgentInstallationId = target;
+        await InferenceSourceAttribution.CaptureAsync(f.Db, call, delivery.Id, historical: false);
+        Assert.Equal(f.Epic.Id, call.WorkItemId);
+        Assert.Null(session.SourceWorkItemId); Assert.Equal("Chat", session.SourceKind);
+    }
+
+    [Fact]
     public async Task PersonalCommitment_ProjectContextIsCapturedInIntervalsAndCalls()
     {
         await using var f = new Fixture(); await f.Seed();

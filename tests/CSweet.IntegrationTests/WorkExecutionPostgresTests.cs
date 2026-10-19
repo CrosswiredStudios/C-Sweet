@@ -18,7 +18,12 @@ namespace CSweet.IntegrationTests;
 public sealed class WorkExecutionPostgresTests
 {
     [BenchmarkPostgresFact]
-    public async Task SqlClaimPlanReportsConcurrencyAndRollbackCommitTimingAtomically()
+    public Task SqlClaimPlanReportsConcurrencyAndRollbackCommitTimingAtomically() => ValidateClaimAsync(inline: false);
+
+    [BenchmarkPostgresFact]
+    public Task InlineClaimPlanReportsConcurrencyAndRollbackCommitTimingAtomically() => ValidateClaimAsync(inline: true);
+
+    private async Task ValidateClaimAsync(bool inline)
     {
         var connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CSWEET_EFFICIENCY_TEST_POSTGRES"));
         Assert.StartsWith("efficiency_validation", connection.Database);
@@ -43,15 +48,23 @@ public sealed class WorkExecutionPostgresTests
             var ready = root;
             var eventId = Guid.NewGuid();
             var work = new AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = org.Id.ToString(), AgentInstallationId = install.Id,
-                Kind = AgentWorkKind.Event, SourceId = eventId.ToString(), Status = AgentWorkStatus.Leased, CreatedAt = clock.Now,
+                Kind = AgentWorkKind.Event, SourceId = (inline ? Guid.NewGuid() : eventId).ToString(), Status = AgentWorkStatus.Leased, CreatedAt = clock.Now,
                 DeadlineAt = clock.Now.AddHours(1), IdempotencyKey = "work" };
             var attempt = new AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id, RuntimeInstanceId = runtime.Id,
-                ClaimedAt = clock.Now, LastConfirmedAt = clock.Now, LeaseExpiresAt = clock.Now.AddHours(1), Attempt = 1, LeaseTokenHash = "test" };
+                ClaimedAt = clock.Now, LastConfirmedAt = clock.Now, LeaseExpiresAt = clock.Now.AddHours(1), Attempt = 1,
+                LeaseTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("test"))) };
             db.AddRange(work, attempt); await db.SaveChangesAsync();
+            if (inline) actor = actor with { WorkAttemptId = attempt.Id };
             var claim = await service.ClaimAsync(org.Id, actor, new(eventId, "claim") { ItemId = root.Id, ExpectedRevision = ready.Revision });
             Assert.NotNull(claim.Item);
             Assert.Single(await db.WorkLifecycleEvents.Where(x => x.ResourceId == root.Id && x.Status == "Running").ToListAsync());
             Assert.Equal(root.Id, (await db.WorkExecutionContexts.SingleAsync()).WorkItemId);
+            // Repeated claim delivery keeps its original durable accounting binding.
+            await service.ClaimAsync(org.Id, actor, new(eventId, "claim") { ItemId = root.Id, ExpectedRevision = ready.Revision });
+            var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+            await inbox.RenewAsync(new McpAgentSession { OrganizationId = org.Id.ToString(), AgentInstallationId = install.Id,
+                RuntimeInstanceId = runtime.Id }, work.Id, 1, "test", default);
+            Assert.Equal(clock.Now.AddMinutes(5), (await db.CoreWorkTasks.SingleAsync(x => x.Id == root.Id)).ClaimExpiresAt);
             var plan = await service.CreatePlanAsync(org.Id, actor, new(root.Id, "Build epic",
             [new("implementation", "Implementation", "Implement", ["Done"],
                 [new("first", "First", "Build", ["Pass"]), new("second", "Second", "Build more", ["Pass"])]),

@@ -81,26 +81,45 @@ public sealed class EnterpriseWorkspaceTests
         });
     }
 
-    [Fact]
-    public async Task DeleteShowsComputeCleanupProgressAndLinkThenCanBeRetried()
+    [Theory]
+    [InlineData("compute_cleanup_pending")]
+    [InlineData("agent_cleanup_pending")]
+    public async Task DeleteKeepsTileBusyAndRemovesItWhenBackgroundDeletionCompletes(string code)
     {
-        await Run(new Api { DeleteErrorCode = "compute_cleanup_pending" }, "aurora", async (page, api, render) =>
+        await Run(new Api { DeleteErrorCode = code }, "aurora", async (page, api, render) =>
         {
             Invoke(page, "RequestDelete", api.Business);
             await (Task)Invoke(page, "DeleteBusinessAsync")!;
-            Assert.True(Get<bool>(page, "_deleteCleanupPending"));
             Assert.Single(Get<IReadOnlyList<OrganizationResponse>>(page, "_organizations"));
             var html = await render("compute-cleanup");
-            Assert.Contains("Compute cleanup has been requested", html);
-            Assert.Contains($"/organizations/{api.Business.Id}/compute", html);
-            Assert.Contains("View compute cleanup", html);
+            Assert.Contains("Cleaning up resources", html);
+            Assert.Contains("aria-busy=\"true\"", html);
+            Assert.Contains("deleted automatically", html);
+            Assert.DoesNotContain("Open business", html);
             Assert.DoesNotContain("could not be deleted", html);
 
-            api.DeleteErrorCode = null;
-            Invoke(page, "RequestDelete", api.Business);
-            await (Task)Invoke(page, "DeleteBusinessAsync")!;
+            api.BusinessDeleted = true;
+            await (Task)Invoke(page, "RefreshDeletionStatusAsync", CancellationToken.None)!;
             Assert.True(Get<bool>(page, "_deleteSucceeded"));
-            Assert.DoesNotContain("View compute cleanup", await render("compute-cleanup-complete"));
+            Assert.Empty(Get<IReadOnlyList<OrganizationResponse>>(page, "_organizations"));
+            Assert.Equal(1, api.Deletes);
+            Assert.DoesNotContain("Cleaning up resources", await render("compute-cleanup-complete"));
+        });
+    }
+
+    [Theory]
+    [InlineData("Deleting")]
+    [InlineData("DeletionFailed")]
+    public async Task ReloadRestoresDeletionProgressOrRecoveryAction(string status)
+    {
+        var api = new Api();
+        api.Business = api.Business with { Status = status };
+        await Run(api, "aurora", async (page, client, render) =>
+        {
+            var html = await render("restored-deletion");
+            Assert.Contains(status == "Deleting" ? "Cleaning up resources" : "Retry deletion", html);
+            Assert.Contains(status == "Deleting" ? "aria-busy=\"true\"" : "needs attention", html);
+            Assert.Equal(0, client.Deletes);
         });
     }
 
@@ -125,7 +144,7 @@ public sealed class EnterpriseWorkspaceTests
     {
         await Run(new Api { FailCreate = fail }, "aurora", async (page, api, render) =>
         {
-            Invoke(page, "ShowCreateForm");
+            Invoke(page, "ShowBasicCreateForm");
             Set(page, "_formName", "   ");
             await (Task)Invoke(page, "CreateBusinessAsync")!;
             Assert.Equal(0, api.Creates);
@@ -213,7 +232,7 @@ public sealed class EnterpriseWorkspaceTests
     private sealed class Api : HttpMessageHandler
     {
         public OrganizationResponse Business = new(Guid.Parse("ab2184e9-9ac3-441d-9194-3cd65fe60052"), "Super Games", "Creative & Product", "We make amazing web games.", null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
-        public bool FailList, FailUpdate, FailDelete, FailCreate;
+        public bool FailList, FailUpdate, FailDelete, FailCreate, BusinessDeleted;
         public string? DeleteErrorCode;
         public int Deletes, Creates;
         public string? UpdatedName, CreatedName;
@@ -240,7 +259,7 @@ public sealed class EnterpriseWorkspaceTests
                         DeleteErrorCode, "Compute cleanup has been requested. Wait for teardown, then retry deletion.")) };
                 return new(FailDelete ? HttpStatusCode.BadRequest : HttpStatusCode.NoContent) { Content = JsonContent.Create(new { message = "Please try again." }) };
             }
-            return new(FailList ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK) { Content = JsonContent.Create(new[] { Business }) };
+            return new(FailList ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK) { Content = JsonContent.Create(BusinessDeleted ? Array.Empty<OrganizationResponse>() : new[] { Business }) };
         }
     }
     private sealed class TestNavigation : NavigationManager

@@ -14,6 +14,8 @@ public static class LlmProviderTypeExtensions
             or LlmProviderType.OpenRouter
             or LlmProviderType.Groq
             or LlmProviderType.TogetherAi
+            or LlmProviderType.MetaMuse
+            or LlmProviderType.DeepSeek
             or LlmProviderType.Custom;
     }
 
@@ -31,6 +33,8 @@ public static class LlmProviderTypeExtensions
             or LlmProviderType.GoogleGemini
             or LlmProviderType.OpenRouter
             or LlmProviderType.Groq
-            or LlmProviderType.TogetherAi;
+            or LlmProviderType.TogetherAi
+            or LlmProviderType.MetaMuse
+            or LlmProviderType.DeepSeek;
     }
 }

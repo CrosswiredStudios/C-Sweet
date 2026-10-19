@@ -549,11 +549,16 @@
                               Variant="Variant.Outlined" Class="mt-3">
                         <b>@forecast.SprintName:</b>
                         @forecast.RemainingPoints.ToString("0.##") points remaining.
+                        @if (forecast.EarliestCompletionAt is { } earliest && forecast.LatestCompletionAt is { } latest)
+                        {
+                            <span>Forecast completion: @earliest.ToLocalTime().ToString("MMM d, h:mm tt")–@latest.ToLocalTime().ToString("MMM d, h:mm tt").</span>
+                        }
+                        <span>@forecast.Basis (@forecast.HistoricalSampleCount elapsed-history samples.)</span>
                         @if (forecast.ProjectedSprintsRequired.HasValue)
                         {
                             <span>
                                 At the historical velocity of @forecast.AverageVelocity.ToString("0.##"),
-                                this is approximately @forecast.ProjectedSprintsRequired.Value.ToString("0.##") sprint(s) of work.
+                                this is approximately @forecast.ProjectedSprintsRequired.Value.ToString("0.##") delivery increment(s) of work.
                             </span>
                         }
                         else

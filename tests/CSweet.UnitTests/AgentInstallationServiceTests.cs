@@ -17,6 +17,54 @@ namespace CSweet.UnitTests;
 public sealed class AgentInstallationServiceTests
 {
     [Fact]
+    public async Task QuiesceAsync_ReloadsRacingSchedulesAndStillStopsOnlyTheDeletedBusiness()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new CSweetDbContext(options);
+        var package = await SeedAsync(db);
+        var workloads = new TestAgentContainerRunner(containerExists: true);
+        var service = CreateService(db, workloads);
+        var organizationId = Guid.NewGuid();
+        var installation = await service.InstallAsync(package.Id, ValidRequest() with { BusinessId = organizationId.ToString("D") });
+        var other = await service.InstallAsync(package.Id, ValidRequest() with { BusinessId = Guid.NewGuid().ToString("D") });
+        var runtime = new AgentRuntimeInstance
+        {
+            Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installation.Id,
+            IsolationProviderId = "test-vm", ProviderInstanceId = "business-workload", QueuedAt = DateTimeOffset.UtcNow
+        };
+        var session = new McpAgentSession
+        {
+            Id = Guid.NewGuid(), RuntimeInstanceId = runtime.Id, TickId = runtime.TickId,
+            AgentInstallationId = installation.Id, OrganizationId = organizationId.ToString("D"),
+            PackageVersionId = package.Id, ExpiresAt = DateTimeOffset.UtcNow.AddHours(1)
+        };
+        db.AddRange(runtime, session);
+        await db.SaveChangesAsync();
+        await using (var scheduler = new CSweetDbContext(options))
+        {
+            var schedule = await scheduler.AgentSchedules.SingleAsync(x => x.AgentInstallationId == installation.Id);
+            schedule.NextTickAt = DateTimeOffset.UtcNow.AddMinutes(30);
+            schedule.NextAttentionReviewAt = DateTimeOffset.UtcNow.AddMinutes(10);
+            await scheduler.SaveChangesAsync();
+        }
+
+        await service.QuiesceAsync(organizationId);
+        await service.QuiesceAsync(organizationId);
+        db.ChangeTracker.Clear();
+
+        Assert.False((await db.AgentInstallations.SingleAsync(x => x.Id == installation.Id)).IsEnabled);
+        var stoppedSchedule = await db.AgentSchedules.SingleAsync(x => x.AgentInstallationId == installation.Id);
+        Assert.False(stoppedSchedule.IsEnabled);
+        Assert.Null(stoppedSchedule.NextTickAt);
+        Assert.NotNull((await db.McpAgentSessions.SingleAsync(x => x.Id == session.Id)).RevokedAt);
+        Assert.True((await db.AgentInstallations.SingleAsync(x => x.Id == other.Id)).IsEnabled);
+        Assert.True((await db.AgentSchedules.SingleAsync(x => x.AgentInstallationId == other.Id)).IsEnabled);
+        Assert.All(workloads.Removed, id => Assert.Equal("business-workload", id));
+        Assert.Equal(2, workloads.Removed.Count);
+    }
+
+    [Fact]
     public async Task InternetReviewRequiresDeclaredPermissionAndCurrentReviewWithoutChangingOtherGrants()
     {
         await using var db = CreateDbContext();

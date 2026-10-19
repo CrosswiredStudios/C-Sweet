@@ -44,18 +44,25 @@ public sealed class OrganizationDataPurgeService(
         {
             await RequestComputeCleanupAsync(organizationId, cancellationToken);
             throw new OrganizationDeletionException(
-                "Compute cleanup has been requested. Wait for confirmed VM and disk teardown, then retry deleting the business. Check Compute for progress.",
+                "Compute cleanup is in progress. The business will be deleted automatically after VM and disk teardown is confirmed.",
                 errorCode: "compute_cleanup_pending");
         }
         try
         {
             await agentCleanup.QuiesceAsync(organizationId, cancellationToken);
         }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            logger.LogInformation(exception, "Agent schedules changed while stopping business {OrganizationId}; deletion will resume.", organizationId);
+            throw new OrganizationDeletionException(
+                "Agent workloads are being stopped. Business deletion will continue automatically.",
+                exception, errorCode: "agent_cleanup_pending");
+        }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogWarning(exception, "Could not quiesce agent workloads for organization {OrganizationId}.", organizationId);
             throw new OrganizationDeletionException(
-                "The business could not be deleted because its agent workloads could not be stopped. The workloads were disabled; retry the deletion.",
+                "The business could not be deleted because its agent workloads could not be stopped. Check agent runtime health, then retry the deletion.",
                 exception);
         }
 

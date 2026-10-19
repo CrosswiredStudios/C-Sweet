@@ -3,6 +3,7 @@ using CSweet.Application.Core;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
+using CSweet.Compute.Contracts;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -134,6 +135,28 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
 
     public async Task<CoreActionResponse> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await using var deletionLock = await OrganizationDeletionLock.AcquireAsync(_dbContext, cancellationToken);
+        return await DeleteCoreAsync(id, cancellationToken);
+    }
+
+    internal async Task ContinueDeletionAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using var deletionLock = await OrganizationDeletionLock.AcquireAsync(_dbContext, cancellationToken);
+        _dbContext.ChangeTracker.Clear();
+        if (!await _dbContext.CoreOrganizations.AnyAsync(x => x.Id == id && x.Status == OrganizationStatus.Deleting, cancellationToken)) return;
+        var failed = await _dbContext.ComputeEnvironments.AnyAsync(environment =>
+            environment.OrganizationId == id && environment.TeardownConfirmedAt == null &&
+            _dbContext.ComputeOperations.Any(operation => operation.EnvironmentId == environment.Id &&
+                operation.Generation == environment.Generation && operation.Action == InfrastructureActions.Destroy &&
+                (operation.Status == "Failed" || operation.Status == "Blocked")), cancellationToken);
+        if (failed)
+            await MarkDeletionFailedAsync(id, cancellationToken);
+        else
+            await DeleteCoreAsync(id, cancellationToken);
+    }
+
+    private async Task<CoreActionResponse> DeleteCoreAsync(Guid id, CancellationToken cancellationToken)
+    {
         var org = await _dbContext.CoreOrganizations
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 
@@ -143,6 +166,11 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         }
 
         var name = org.Name;
+        // Commit the owner's intent before requesting external teardown. Recovery does
+        // not depend on the original HTTP request or the Enterprise page staying open.
+        org.Status = OrganizationStatus.Deleting;
+        org.UpdatedAt = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
         try
         {
             if (_purgeService is not null)
@@ -155,11 +183,14 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         }
         catch (OrganizationDeletionException exception)
         {
+            if (exception.ErrorCode is not ("compute_cleanup_pending" or "agent_cleanup_pending"))
+                await MarkDeletionFailedAsync(id, cancellationToken);
             return Failure(exception.ErrorCode, exception.Message);
         }
         catch (DbUpdateException exception)
         {
             _logger?.LogError(exception, "Could not delete organization {OrganizationId}.", id);
+            await MarkDeletionFailedAsync(id, cancellationToken);
             return Failure("deletion_failed", "The business could not be deleted because its data cleanup did not complete. Retry the deletion.");
         }
 
@@ -183,6 +214,16 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         }
 
         return new CoreActionResponse(true, null, "Organization deleted successfully.");
+    }
+
+    private async Task MarkDeletionFailedAsync(Guid id, CancellationToken cancellationToken)
+    {
+        _dbContext.ChangeTracker.Clear();
+        var organization = await _dbContext.CoreOrganizations.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (organization is null) return;
+        organization.Status = OrganizationStatus.DeletionFailed;
+        organization.UpdatedAt = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

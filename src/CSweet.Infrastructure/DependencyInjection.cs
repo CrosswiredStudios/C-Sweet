@@ -375,7 +375,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<IBusinessOnboardingOperationService>(services =>
             (BusinessOnboardingService)services.GetRequiredService<IBusinessOnboardingService>());
         builder.Services.AddScoped<IOrganizationDataPurgeService, OrganizationDataPurgeService>();
-        builder.Services.AddScoped<ICoreOrganizationService, CoreOrganizationService>();
+        builder.Services.AddScoped<OrganizationDeletionRecovery>();
+        builder.Services.AddScoped<CoreOrganizationService>();
+        builder.Services.AddScoped<ICoreOrganizationService>(provider => provider.GetRequiredService<CoreOrganizationService>());
         builder.Services.AddScoped<IRoleService, RoleService>();
         builder.Services.AddScoped<IStrategicObjectiveService, StrategicObjectiveService>();
         builder.Services.AddScoped<IWorkerService, WorkerService>();

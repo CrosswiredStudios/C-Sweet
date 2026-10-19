@@ -323,12 +323,11 @@
     private static string SprintDates(WorkSprintResponse sprint)
     {
         var start = sprint.StartsAt ?? sprint.StartedAt;
-        var dates = start.HasValue && sprint.EndsAt.HasValue ? $"{start.Value.ToLocalTime():MMM d}–{sprint.EndsAt.Value.ToLocalTime():MMM d, yyyy}" : "Dates not set";
+        var dates = start.HasValue && sprint.EndsAt.HasValue ? $"Planning horizon: {start.Value.ToLocalTime():MMM d}–{sprint.EndsAt.Value.ToLocalTime():MMM d, yyyy}" : "Continuous delivery · No fixed timebox";
         if (sprint.Status == "Planned") return $"{dates} · Not started";
         if (sprint.Status == "Paused") return $"{dates} · Paused";
         if (sprint.Status != "Active" || !sprint.EndsAt.HasValue) return dates;
-        var days = (sprint.EndsAt.Value.ToLocalTime().Date - DateTimeOffset.Now.Date).Days;
-        return $"{dates} · {(days < 0 ? $"{Math.Abs(days)} days overdue" : days == 0 ? "Ends today" : $"{days} days remaining")}";
+        return dates;
     }
     private bool CanRetry(WorkBoardItemResponse item) => OnRetryItem.HasDelegate && !Detail.Board.IsArchived &&
         Present.CanRetry(item, Detail.Board.AllowedActions);

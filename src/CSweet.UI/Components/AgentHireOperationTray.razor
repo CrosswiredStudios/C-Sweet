@@ -5,7 +5,7 @@
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject NavigationManager Navigation
 
-@if (HireOperations.Operations.Count > 0 || BusinessOnboardingOperations.Operations.Count > 0)
+@if (HireOperations.Operations.Count > 0 || VisibleBusinessOperations.Any())
 {
     <aside class="agent-hire-tray" aria-live="polite" aria-label="Background operation progress">
         @foreach (var operation in HireOperations.Operations)
@@ -79,7 +79,7 @@
                 </div>
             </section>
         }
-        @foreach (var operation in BusinessOnboardingOperations.Operations)
+        @foreach (var operation in VisibleBusinessOperations)
         {
             <section class="@BusinessToastClass(operation)">
                 <div class="agent-hire-toast-icon" aria-hidden="true">
@@ -158,6 +158,14 @@
 }
 
 @code {
+    // Business creation already opens the marketplace; only background agent work and issues need a toast.
+    private IEnumerable<BusinessOnboardingOperationResponse> VisibleBusinessOperations =>
+        BusinessOnboardingOperations.Operations.Where(operation => operation.Status is
+            BusinessOnboardingOperationStatuses.InstallingAgent or
+            BusinessOnboardingOperationStatuses.BuildingAgent or
+            BusinessOnboardingOperationStatuses.NeedsSetup or
+            BusinessOnboardingOperationStatuses.Failed);
+
     protected override void OnInitialized()
     {
         HireOperations.Changed += OnChanged;

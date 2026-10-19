@@ -137,6 +137,19 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
 
     internal async Task RequireActorAsync(Guid organizationId, Guid installationId, Guid workstreamId, string action, CancellationToken token, Guid? environmentId = null)
     {
+        if (action is not (InfrastructureActions.Read or InfrastructureActions.List or InfrastructureActions.Stop or InfrastructureActions.Destroy))
+        {
+            // Admissions hold a shared business-row lock until their transaction
+            // commits. Persisting deletion intent waits for earlier admissions, and
+            // later requests cannot create more resources behind the cleanup pass.
+            var organization = db.Database.IsNpgsql()
+                ? await db.CoreOrganizations.FromSqlInterpolated(
+                    $"SELECT * FROM \"CoreOrganizations\" WHERE \"Id\" = {organizationId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(token)
+                : await db.CoreOrganizations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == organizationId, token);
+            if (organization?.Status is OrganizationStatus.Deleting or OrganizationStatus.DeletionFailed)
+                throw new InvalidOperationException("The business is being deleted; new compute activity is unavailable.");
+        }
         var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installationId &&
             x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready, token);
         if (installation is null || !Guid.TryParse(installation.BusinessId, out var business) || business != organizationId ||

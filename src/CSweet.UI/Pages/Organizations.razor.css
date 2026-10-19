@@ -25,6 +25,7 @@
 .business-empty h3 { font-size:1.35rem; }
 .business-empty p { color:var(--activity-muted); max-width:48ch; }
 .business-delete-progress { display:flex; align-items:center; gap:12px; }
+.business-delete-progress p { margin:4px 0 0; color:var(--activity-muted); font-size:.85rem; }
 .business-tile[aria-busy=true] { opacity:.65; }
 .business-dialog { display:grid; gap:22px; padding:8px; color:var(--activity-text); }
 .business-dialog-header,.business-dialog-brand,.business-dialog-actions { display:flex; align-items:center; gap:16px; }

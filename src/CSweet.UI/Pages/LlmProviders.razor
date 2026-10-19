@@ -191,8 +191,9 @@
                 <MudTextField Label="Provider Name" @bind-Value="_providerName" Variant="Variant.Outlined" Disabled="@_isBusy" />
             </div>
             <div class="agent-config-field agent-config-field-wide">
-                <MudTextField Label="Base URL"
-                              @bind-Value="_baseUrl"
+                <MudTextField T="string" Label="Base URL"
+                              Value="@_baseUrl"
+                              ValueChanged="OnBaseUrlChanged"
                               Immediate="true"
                               OnBlur="@(_ => PreviewModelCatalogAsync())"
                               Variant="Variant.Outlined"
@@ -203,19 +204,38 @@
                 }
             </div>
             <div class="agent-config-field agent-config-field-wide">
-                <MudTextField Label="@ApiKeyLabel"
-                              @bind-Value="_apiKey"
+                <MudTextField T="string" Label="@ApiKeyLabel"
+                              Value="@_apiKey"
+                              ValueChanged="OnApiKeyChanged"
+                              Immediate="true"
+                              OnBlur="@(_ => PreviewModelCatalogAsync())"
                               InputType="InputType.Password"
                               autocomplete="off"
                               Variant="Variant.Outlined"
                               Disabled="@_isBusy" />
                 @if (_selectedProfile is not null)
                 {
-                    <MudCheckBox T="bool" Label="Replace stored API key with this value" @bind-Value="_replaceApiKey" Disabled="@_isBusy" />
+                    <MudCheckBox T="bool" Label="Replace stored API key with this value" Value="_replaceApiKey" ValueChanged="OnReplaceApiKeyChanged" Disabled="@_isBusy" />
                 }
             </div>
             <div class="agent-config-field">
-                <MudTextField Label="Default Chat Model" @bind-Value="_defaultChatModel" Variant="Variant.Outlined" Disabled="@_isBusy" />
+                <MudSelect T="string" Label="Default Chat Model"
+                           @bind-Value="_defaultChatModel"
+                           OpenChanged="OnModelDropdownOpenChanged"
+                           Placeholder="Choose a model"
+                           Variant="Variant.Outlined"
+                           Disabled="@(_isBusy || _isCheckingModelCatalog)">
+                    @foreach (var model in _availableChatModels)
+                    {
+                        <MudSelectItem T="string" Value="@model.Id">@model.Id</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Text" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           Disabled="@(_isBusy || _isCheckingModelCatalog)"
+                           OnClick="PreviewModelCatalogAsync">
+                    @(_isCheckingModelCatalog ? "Loading models..." : "Refresh models")
+                </MudButton>
             </div>
             <div class="agent-config-field">
                 <MudTextField Label="Default Embedding Model" @bind-Value="_defaultEmbeddingModel" Variant="Variant.Outlined" Disabled="@_isBusy" />
@@ -313,6 +333,8 @@
     private bool _isLoading = true;
     private bool _isBusy;
     private bool _isCheckingModelCatalog;
+    private int _modelCatalogVersion;
+    private IReadOnlyList<ModelDescriptor> _availableChatModels = [];
     private string? _pageError;
     private string? _actionMessage;
     private bool? _actionSucceeded;
@@ -435,18 +457,23 @@
 
     private void CloseDialog()
     {
+        InvalidateModelCatalog();
         _dialogOpen = false;
         _pendingDeleteId = null;
     }
 
     private void HydrateForm(LlmProviderProfileResponse profile)
     {
+        InvalidateModelCatalog();
         _providerType = profile.ProviderType;
         _providerName = profile.Name;
         _baseUrl = profile.BaseUrl;
         _apiKey = string.Empty;
         _replaceApiKey = false;
         _defaultChatModel = profile.DefaultChatModel;
+        _availableChatModels = string.IsNullOrWhiteSpace(profile.DefaultChatModel)
+            ? []
+            : [new ModelDescriptor(profile.DefaultChatModel, null)];
         _defaultEmbeddingModel = profile.DefaultEmbeddingModel ?? string.Empty;
         _contextWindowTokens = profile.ContextWindowTokens;
         _maxOutputTokens = profile.MaxOutputTokens;
@@ -533,8 +560,47 @@
         }
     }
 
+    private void OnBaseUrlChanged(string value)
+    {
+        _baseUrl = value;
+        InvalidateModelCatalog();
+    }
+
+    private void OnApiKeyChanged(string value)
+    {
+        _apiKey = value;
+        InvalidateModelCatalog();
+    }
+
+    private void OnReplaceApiKeyChanged(bool value)
+    {
+        _replaceApiKey = value;
+        InvalidateModelCatalog();
+    }
+
+    private void InvalidateModelCatalog()
+    {
+        _modelCatalogVersion++;
+        _isCheckingModelCatalog = false;
+        _availableChatModels = [];
+        _defaultChatModel = string.Empty;
+        _modelCatalogMessage = null;
+        _modelCatalogSucceeded = null;
+    }
+
+    private Task EnsureModelCatalogAsync() => _modelCatalogSucceeded == true || _isCheckingModelCatalog
+        ? Task.CompletedTask
+        : PreviewModelCatalogAsync();
+
+    private Task OnModelDropdownOpenChanged(bool isOpen) => isOpen
+        ? EnsureModelCatalogAsync()
+        : Task.CompletedTask;
+
     private async Task PreviewModelCatalogAsync()
     {
+        var version = ++_modelCatalogVersion;
+        _isCheckingModelCatalog = false;
+        _availableChatModels = [];
         _modelCatalogMessage = null;
         _modelCatalogSucceeded = null;
 
@@ -550,29 +616,39 @@
 
         try
         {
-            var result = await LlmProviderApi.PreviewModelCatalogAsync(new PreviewModelCatalogRequest(
-                _providerType,
-                _baseUrl.Trim(),
-                string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey));
+            var useStoredConnection = _selectedProfile is not null && !_replaceApiKey &&
+                _providerType == _selectedProfile.ProviderType &&
+                string.Equals(_baseUrl.Trim(), _selectedProfile.BaseUrl.Trim(), StringComparison.Ordinal);
+            var result = useStoredConnection
+                ? await LlmProviderApi.GetModelCatalogAsync(_selectedProfile!.Id)
+                : await LlmProviderApi.PreviewModelCatalogAsync(new PreviewModelCatalogRequest(
+                    _providerType,
+                    _baseUrl.Trim(),
+                    string.IsNullOrWhiteSpace(_apiKey) ? null : _apiKey));
+
+            if (version != _modelCatalogVersion) return;
 
             _modelCatalogSucceeded = result.Succeeded;
+            _availableChatModels = result.Succeeded ? result.Models : [];
             _modelCatalogMessage = result.Message ?? (result.Succeeded
                 ? $"Found {result.Models.Count} model(s)."
                 : "Unable to load models from this provider.");
 
-            if (result.Models.Count > 0 && string.IsNullOrWhiteSpace(_defaultChatModel))
+            if (!_availableChatModels.Any(model => model.Id == _defaultChatModel))
             {
-                _defaultChatModel = result.Models[0].Id;
+                _defaultChatModel = string.Empty;
             }
         }
         catch
         {
+            if (version != _modelCatalogVersion) return;
+            _defaultChatModel = string.Empty;
             _modelCatalogSucceeded = false;
             _modelCatalogMessage = "Unable to check this provider. Confirm the API is running and the base URL is reachable.";
         }
         finally
         {
-            _isCheckingModelCatalog = false;
+            if (version == _modelCatalogVersion) _isCheckingModelCatalog = false;
         }
     }
 
@@ -685,6 +761,7 @@
 
     private void OnProviderTypeChanged(LlmProviderType providerType)
     {
+        InvalidateModelCatalog();
         _providerType = providerType;
 
         if (_selectedProfile is null)
@@ -698,9 +775,7 @@
 
     private void ApplyProviderPreset()
     {
-        _defaultChatModel = string.Empty;
-        _modelCatalogMessage = null;
-        _modelCatalogSucceeded = null;
+        InvalidateModelCatalog();
 
         var preset = SetupWizardState.LocalProviderPresets()
             .Concat(SetupWizardState.HostedProviderPresets())
@@ -788,6 +863,8 @@
             LlmProviderType.OpenRouter => "OpenRouter",
             LlmProviderType.Groq => "Groq",
             LlmProviderType.TogetherAi => "Together AI",
+            LlmProviderType.MetaMuse => "Meta Muse",
+            LlmProviderType.DeepSeek => "DeepSeek",
             LlmProviderType.AzureOpenAi => "Azure OpenAI",
             LlmProviderType.MicrosoftFoundry => "Microsoft Foundry",
             LlmProviderType.Custom => "Custom endpoint",

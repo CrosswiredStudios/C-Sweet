@@ -41,10 +41,10 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
             MeasurementKind = "ProviderAttempt",
             StartedAt = startedAt,
             Status = "Running",
-            PromptHash = ComputePromptHash(request.SystemPrompt + request.UserPrompt),
+            PromptHash = ComputePromptHash(EffectiveInstructions(request) + request.UserPrompt),
             InvocationKind = request.InvocationKind,
             InvocationSequence = 1,
-            PromptInstructionCharacters = request.SystemPrompt?.Length ?? 0,
+            PromptInstructionCharacters = EffectiveInstructions(request).Length,
             PromptMessageCharacters = request.UserPrompt.Length +
                 request.Context.Sum(item => item.Key.Length + item.Value.Length)
         };
@@ -121,17 +121,18 @@ public sealed class AgentFrameworkAgentRunner : IAgentRunner
     private static List<ChatMessage> BuildMessages(AgentRunRequest request)
     {
         var messages = new List<ChatMessage>();
-
-        if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
-        {
-            messages.Add(new ChatMessage(ChatRole.System, request.SystemPrompt));
-        }
+        messages.Add(new ChatMessage(ChatRole.System, EffectiveInstructions(request)));
 
         var userContent = BuildUserContent(request);
         messages.Add(new ChatMessage(ChatRole.User, userContent));
 
         return messages;
     }
+
+    private static string EffectiveInstructions(AgentRunRequest request) =>
+        string.Join("\n\n", new[] { request.SystemPrompt,
+            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions }
+            .Where(x => !string.IsNullOrWhiteSpace(x)));
 
     private static string BuildUserContent(AgentRunRequest request)
     {
