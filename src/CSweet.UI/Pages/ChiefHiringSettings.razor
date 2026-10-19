@@ -2,55 +2,56 @@
 @using System.Net.Http.Json
 @using CSweet.Agent.SDK
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<PageTitle>Chief hiring settings</PageTitle>
+<PageTitle>@L["ChiefHiringSettings.PageTitle"]</PageTitle>
 <div class="aurora-page business-workspace business-form-page">
-<MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" StartIcon="@Icons.Material.Outlined.ArrowBack" Class="mb-4">Back to hiring</MudButton>
+<MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" StartIcon="@Icons.Material.Outlined.ArrowBack" Class="mb-4">@L["ChiefHiringSettings.BackToHiring"]</MudButton>
 <MudPaper Class="pa-6" Outlined="true">
-    <MudText Typo="Typo.h4">Chief hiring settings</MudText>
-    <MudText Class="mb-4">These preferences apply to this Chief’s future approved plans. Only an owner can save changes.</MudText>
+    <MudText Typo="Typo.h4">@L["ChiefHiringSettings.Title"]</MudText>
+    <MudText Class="mb-4">@L["ChiefHiringSettings.Intro"]</MudText>
     @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
     @if (_policy is not null)
     {
-        <MudSelect T="HiringSelectionMode" Label="Hiring mode" @bind-Value="_mode">
-            <MudSelectItem Value="HiringSelectionMode.RecommendCandidates">Recommend candidates</MudSelectItem>
-            <MudSelectItem Value="HiringSelectionMode.ChooseCandidates">Choose candidates yourself</MudSelectItem>
-            <MudSelectItem Value="HiringSelectionMode.Automatic">Automatic hiring</MudSelectItem>
+        <MudSelect T="HiringSelectionMode" Label="@L["ChiefHiringSettings.HiringMode"]" @bind-Value="_mode">
+            <MudSelectItem Value="HiringSelectionMode.RecommendCandidates">@L["ChiefHiringSettings.Mode.RecommendCandidates"]</MudSelectItem>
+            <MudSelectItem Value="HiringSelectionMode.ChooseCandidates">@L["ChiefHiringSettings.Mode.ChooseCandidates"]</MudSelectItem>
+            <MudSelectItem Value="HiringSelectionMode.Automatic">@L["ChiefHiringSettings.Mode.Automatic"]</MudSelectItem>
         </MudSelect>
         @if (_mode == HiringSelectionMode.Automatic)
         {
-            <MudSelect T="AutomaticHiringLevel" Label="Automatic hiring authority" @bind-Value="_level">
-                <MudSelectItem Value="AutomaticHiringLevel.ApprovedPackages">Approved packages</MudSelectItem>
-                <MudSelectItem Value="AutomaticHiringLevel.WithinLimits">Within limits</MudSelectItem>
-                <MudSelectItem Value="AutomaticHiringLevel.BroadDelegation">Broad delegation</MudSelectItem>
+            <MudSelect T="AutomaticHiringLevel" Label="@L["ChiefHiringSettings.AutomaticAuthority"]" @bind-Value="_level">
+                <MudSelectItem Value="AutomaticHiringLevel.ApprovedPackages">@L["ChiefHiringSettings.Level.ApprovedPackages"]</MudSelectItem>
+                <MudSelectItem Value="AutomaticHiringLevel.WithinLimits">@L["ChiefHiringSettings.Level.WithinLimits"]</MudSelectItem>
+                <MudSelectItem Value="AutomaticHiringLevel.BroadDelegation">@L["ChiefHiringSettings.Level.BroadDelegation"]</MudSelectItem>
             </MudSelect>
             @if (_level == AutomaticHiringLevel.BroadDelegation)
             {
-                <MudAlert Severity="Severity.Warning">Broad delegation allows the Chief to install eligible packages and grant their requested capabilities and network access for approved roles. This carries the greatest risk.</MudAlert>
+                <MudAlert Severity="Severity.Warning">@L["ChiefHiringSettings.BroadDelegationWarning"]</MudAlert>
             }
             @if (_level == AutomaticHiringLevel.WithinLimits)
             {
-                <MudNumericField T="decimal?" Label="Maximum cost per hire" Min="0" @bind-Value="_hireCost" />
-                <MudNumericField T="decimal?" Label="Maximum total hiring cost" Min="0" @bind-Value="_totalCost" />
-                <MudTextField Label="Currency" @bind-Value="_currency" />
-                <MudTextField Label="Allowed capability keys (one per line; blank allows none)" Lines="4" @bind-Value="_capabilities" />
-                <MudTextField Label="Allowed network access entries (one per line; blank allows none)" Lines="4" @bind-Value="_network" />
+                <MudNumericField T="decimal?" Label="@L["ChiefHiringSettings.MaximumHireCost"]" Min="0" @bind-Value="_hireCost" />
+                <MudNumericField T="decimal?" Label="@L["ChiefHiringSettings.MaximumTotalCost"]" Min="0" @bind-Value="_totalCost" />
+                <MudTextField Label="@L["ChiefHiringSettings.Currency"]" @bind-Value="_currency" />
+                <MudTextField Label="@L["ChiefHiringSettings.AllowedCapabilities"]" Lines="4" @bind-Value="_capabilities" />
+                <MudTextField Label="@L["ChiefHiringSettings.AllowedNetwork"]" Lines="4" @bind-Value="_network" />
             }
         }
-        <MudSelect T="HiringPublisherPreference" Label="Publishers" @bind-Value="_publishers">
-            <MudSelectItem Value="HiringPublisherPreference.PreferFirstParty">Prefer first-party</MudSelectItem>
-            <MudSelectItem Value="HiringPublisherPreference.FirstPartyOnly">First-party only</MudSelectItem>
-            <MudSelectItem Value="HiringPublisherPreference.BestFit">Best fit regardless of publisher</MudSelectItem>
+        <MudSelect T="HiringPublisherPreference" Label="@L["ChiefHiringSettings.Publishers"]" @bind-Value="_publishers">
+            <MudSelectItem Value="HiringPublisherPreference.PreferFirstParty">@L["ChiefHiringSettings.Publishers.PreferFirstParty"]</MudSelectItem>
+            <MudSelectItem Value="HiringPublisherPreference.FirstPartyOnly">@L["ChiefHiringSettings.Publishers.FirstPartyOnly"]</MudSelectItem>
+            <MudSelectItem Value="HiringPublisherPreference.BestFit">@L["ChiefHiringSettings.Publishers.BestFit"]</MudSelectItem>
         </MudSelect>
-        <MudTextField Label="Reason for this preference" @bind-Value="_rationale" />
-        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving" OnClick="SaveAsync">Save hiring preferences</MudButton>
-        @if (_saved) { <MudAlert Class="mt-4" Severity="Severity.Success">Preferences saved. You can return to your conversation with the Chief.</MudAlert> }
+        <MudTextField Label="@L["ChiefHiringSettings.Rationale"]" @bind-Value="_rationale" />
+        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving" OnClick="SaveAsync">@L["ChiefHiringSettings.Save"]</MudButton>
+        @if (_saved) { <MudAlert Class="mt-4" Severity="Severity.Success">@L["ChiefHiringSettings.Saved"]</MudAlert> }
         <MudDivider Class="my-4" />
-        <MudText>To apply this delegation to an already-approved plan, select it explicitly:</MudText>
-        <MudSelect T="Guid?" Label="Existing approved hiring plan" @bind-Value="_planId">
+        <MudText>@L["ChiefHiringSettings.ApplyIntro"]</MudText>
+        <MudSelect T="Guid?" Label="@L["ChiefHiringSettings.ExistingPlan"]" @bind-Value="_planId">
             @foreach (var plan in _plans) { <MudSelectItem T="Guid?" Value="@((Guid?)plan.SourceResourceChangeRequestId)">@plan.Title</MudSelectItem> }
         </MudSelect>
-        <MudButton Disabled="@(!_planId.HasValue || _saving)" OnClick="ApplyAsync">Apply saved preferences to this plan</MudButton>
+        <MudButton Disabled="@(!_planId.HasValue || _saving)" OnClick="ApplyAsync">@L["ChiefHiringSettings.ApplyToPlan"]</MudButton>
     }
 </MudPaper>
 
@@ -64,11 +65,12 @@
     private AutomaticHiringLevel _level;
     private HiringPublisherPreference _publishers;
     private decimal? _hireCost, _totalCost;
-    private string _currency = "USD", _capabilities = "", _network = "", _rationale = "Owner-selected hiring preferences.";
+    private string _currency = "USD", _capabilities = "", _network = "", _rationale = "";
     private string? _error;
     private bool _saving, _saved;
     private Guid? _planId;
     private IReadOnlyList<CSweet.Contracts.Core.HiringRecommendationResponse> _plans = [];
+    protected override void OnInitialized() => _rationale = L["ChiefHiringSettings.DefaultRationale"];
     protected override async Task OnParametersSetAsync()
     {
         try
@@ -85,7 +87,7 @@
             _plans = dashboard?.Recommendations.Where(x => x.SourceResourceChangeRequestId.HasValue && x.RemainingHeadcount > 0)
                 .DistinctBy(x => x.SourceResourceChangeRequestId).ToArray() ?? [];
         }
-        catch (HttpRequestException) { _error = "Hiring preferences are unavailable for this Chief or your account."; }
+        catch (HttpRequestException) { _error = L["ChiefHiringSettings.Unavailable"]; }
     }
     private string PolicyUrl => $"api/core/organizations/{OrganizationId:D}/hiring/policies/{InstallationId:D}";
     private static string[] Entries(string value) => value.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
@@ -100,7 +102,7 @@
             if (!response.IsSuccessStatusCode) { _error = await response.Content.ReadAsStringAsync(); return; }
             _policy = await response.Content.ReadFromJsonAsync<HiringPolicyResponse>(); _saved = true;
         }
-        catch (HttpRequestException) { _error = "Preferences could not be saved. Refresh and try again."; }
+        catch (HttpRequestException) { _error = L["ChiefHiringSettings.SaveFailed"]; }
         finally { _saving = false; }
     }
     private async Task ApplyAsync()
@@ -113,7 +115,7 @@
             _error = response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync();
             _saved = response.IsSuccessStatusCode;
         }
-        catch (HttpRequestException) { _error = "Preferences could not be applied. Refresh and try again."; }
+        catch (HttpRequestException) { _error = L["ChiefHiringSettings.ApplyFailed"]; }
         finally { _saving = false; }
     }
 }

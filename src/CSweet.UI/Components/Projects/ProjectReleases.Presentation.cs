@@ -10,30 +10,30 @@ public partial class ProjectReleases
         plan.Executions.Where(x => !IsHistorical(x)).OrderByDescending(NeedsRecovery)
             .ThenByDescending(x => x.Status is "WaitingForApproval" or "WaitingForHuman");
 
-    private static IEnumerable<string> CurrentBlockers(WorkDeliveryPlanResponse plan) =>
+    private IEnumerable<string> CurrentBlockers(WorkDeliveryPlanResponse plan) =>
         plan.Status is "Completed" or "Cancelled" ? [] :
         plan.Findings.Where(x => x.Status == "Open").Select(x => x.Summary)
-            .Concat(CurrentExecutions(plan).Where(NeedsRecovery).Select(x => x.BlockedReason ?? "A delivery check is blocked; inspect its evidence before recovery."))
+            .Concat(CurrentExecutions(plan).Where(NeedsRecovery).Select(x => x.BlockedReason ?? L["ProjectReleases.Blocker.Default"]))
             .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase);
 
     private static int AcceptedEpics(WorkDeliveryPlanResponse plan) => plan.Executions
         .Where(x => x.Scope == "Epic" && x.Status == "Completed" && x.ItemId.HasValue && plan.EpicItemIds.Contains(x.ItemId.Value))
         .Select(x => x.ItemId).Distinct().Count();
 
-    private static string Readiness(WorkDeliveryPlanResponse plan)
+    private string Readiness(WorkDeliveryPlanResponse plan)
     {
-        if (plan.Status == "Completed") return "Delivered";
-        if (plan.Status == "Cancelled") return "Cancelled";
-        if (CurrentExecutions(plan).Any(x => x.Status == "PartiallyPromoted")) return "Partially integrated";
-        if (CurrentBlockers(plan).Any()) return "Blocked";
-        if (plan.Status == "Draft") return "Scope awaiting activation";
-        if (plan.Status == "Paused") return "Paused";
-        if (CurrentExecutions(plan).Any(x => x.Status == "WaitingForApproval")) return "Awaiting acceptance";
-        if (CurrentExecutions(plan).Any(x => x.Status == "WaitingForHuman")) return "Awaiting review";
-        if (CurrentExecutions(plan).Any(x => x.Status == "WaitingForEvidence")) return "Waiting for validation";
-        if (CurrentExecutions(plan).Any() && CurrentExecutions(plan).All(x => x.Status == "WaitingForChildren")) return "Waiting for scoped work";
-        if (!CurrentExecutions(plan).Any()) return "Not yet validated";
-        return "Checks in progress";
+        if (plan.Status == "Completed") return L["ProjectReleases.Readiness.Delivered"];
+        if (plan.Status == "Cancelled") return L["ProjectReleases.Readiness.Cancelled"];
+        if (CurrentExecutions(plan).Any(x => x.Status == "PartiallyPromoted")) return L["ProjectReleases.Readiness.PartiallyIntegrated"];
+        if (CurrentBlockers(plan).Any()) return L["ProjectReleases.Readiness.Blocked"];
+        if (plan.Status == "Draft") return L["ProjectReleases.Readiness.Draft"];
+        if (plan.Status == "Paused") return L["ProjectReleases.Readiness.Paused"];
+        if (CurrentExecutions(plan).Any(x => x.Status == "WaitingForApproval")) return L["ProjectReleases.Readiness.AwaitingAcceptance"];
+        if (CurrentExecutions(plan).Any(x => x.Status == "WaitingForHuman")) return L["ProjectReleases.Readiness.AwaitingReview"];
+        if (CurrentExecutions(plan).Any(x => x.Status == "WaitingForEvidence")) return L["ProjectReleases.Readiness.WaitingForValidation"];
+        if (CurrentExecutions(plan).Any() && CurrentExecutions(plan).All(x => x.Status == "WaitingForChildren")) return L["ProjectReleases.Readiness.WaitingForScopedWork"];
+        if (!CurrentExecutions(plan).Any()) return L["ProjectReleases.Readiness.NotYetValidated"];
+        return L["ProjectReleases.Readiness.ChecksInProgress"];
     }
 
     private string PlanNextAction(WorkDeliveryPlanResponse plan)
@@ -41,64 +41,53 @@ public partial class ProjectReleases
         var manager = PersonName(plan.ManagerOrganizationUserId);
         return plan.Status switch
         {
-            "Completed" => "Delivery is complete. Additional scope needs a follow-up release.",
-            "Cancelled" => "No further delivery is scheduled for this plan.",
-            "Draft" => $"{manager}: review scope and staffing, then activate the approved scope.",
-            "Paused" when CurrentBlockers(plan).Any() => $"{manager}: resolve the blockers and recover affected checks, then resume delivery.",
-            "Paused" => $"{manager}: review the remaining checks, then resume delivery when appropriate.",
-            _ when CurrentBlockers(plan).Any() => $"{manager}: resolve the blockers and recover affected checks.",
-            _ when CurrentExecutions(plan).Any(x => x.Status is "WaitingForApproval" or "WaitingForHuman") => "Assigned reviewers must complete the pending reviews below.",
-            _ => "Follow the remaining delivery checks below; acceptance is still required."
+            "Completed" => L["ProjectReleases.PlanNext.Completed"],
+            "Cancelled" => L["ProjectReleases.PlanNext.Cancelled"],
+            "Draft" => L.Format("ProjectReleases.PlanNext.Draft", new { manager }),
+            "Paused" when CurrentBlockers(plan).Any() => L.Format("ProjectReleases.PlanNext.PausedBlocked", new { manager }),
+            "Paused" => L.Format("ProjectReleases.PlanNext.Paused", new { manager }),
+            _ when CurrentBlockers(plan).Any() => L.Format("ProjectReleases.PlanNext.Blocked", new { manager }),
+            _ when CurrentExecutions(plan).Any(x => x.Status is "WaitingForApproval" or "WaitingForHuman") => L["ProjectReleases.PlanNext.Reviews"],
+            _ => L["ProjectReleases.PlanNext.Default"]
         };
     }
 
     private string ExecutionOwner(WorkDeliveryPlanResponse plan, WorkDeliveryExecutionResponse execution)
     {
         if (NeedsRecovery(execution) || execution.Status == "WaitingForChildren") return PersonName(plan.ManagerOrganizationUserId);
-        if (execution.Status == "Promoting") return "Platform";
+        if (execution.Status == "Promoting") return L["ProjectReleases.Owner.Platform"];
         var stage = execution.Stages.LastOrDefault(x => x.StageKey == execution.CurrentStageKey);
         var owner = stage?.OrganizationUserId ?? plan.Scopes.FirstOrDefault(x => x.Scope == execution.Scope && x.ItemId == execution.ItemId)?
             .Stages.FirstOrDefault(x => x.StageKey == execution.CurrentStageKey)?.OrganizationUserId;
-        return owner.HasValue ? PersonName(owner) : stage?.PrincipalKind == "Platform" ? "Platform" : "Unassigned";
+        return owner.HasValue ? PersonName(owner) : stage?.PrincipalKind == "Platform" ? L["ProjectReleases.Owner.Platform"] : L["ProjectReleases.Owner.Unassigned"];
     }
 
-    private static string ExecutionStatus(string status) => status switch
+    private string ExecutionStatus(string status) => status switch
     {
-        "PartiallyPromoted" => "Partially integrated",
-        "WaitingForApproval" => "Awaiting acceptance",
-        "WaitingForHuman" => "Awaiting review",
-        "WaitingForChildren" => "Waiting for scoped work",
-        "WaitingForEvidence" => "Waiting for validation",
-        "Promoting" => "Integrating",
+        "PartiallyPromoted" or "WaitingForApproval" or "WaitingForHuman" or "WaitingForChildren" or "WaitingForEvidence" or "Promoting" => L["ProjectReleases.Status." + status],
         _ => status
     };
 
-    private static string StageName(string key) => key switch
+    private string StageName(string key) => key switch
     {
-        "build-readiness" => "Build and validation",
-        "quality" => "QA and regression testing",
-        "technical-review" => "Technical review",
-        "manager-review" => "Manager acceptance",
-        "" => "Preparing delivery",
+        "build-readiness" => L["ProjectReleases.Stage.BuildReadiness"],
+        "quality" => L["ProjectReleases.Stage.Quality"],
+        "technical-review" => L["ProjectReleases.Stage.TechnicalReview"],
+        "manager-review" => L["ProjectReleases.Stage.ManagerReview"],
+        "" => L["ProjectReleases.Stage.Preparing"],
         _ => key.Replace('-', ' ')
     };
 
-    private static string ExecutionNextAction(WorkDeliveryExecutionResponse execution) => execution.Status switch
+    private string ExecutionNextAction(WorkDeliveryExecutionResponse execution) => execution.Status switch
     {
-        "Blocked" => "Review the blocker, arrange any required QA-verified remediation, and recover this check.",
-        "PartiallyPromoted" => "Inspect repository receipts and recover only the unfinished integrations.",
-        "WaitingForApproval" => "Accept the exact candidate or request remediation against the acceptance criteria.",
-        "WaitingForHuman" => "Review the exact candidate and record the required evidence and decision.",
-        "WaitingForChildren" => "Complete and accept the required work in this scope before aggregate checks can proceed.",
-        "WaitingForEvidence" => "Wait for build or test results; inspect validation evidence if progress stalls.",
-        "Promoting" => "The platform must finish the approved repository integrations.",
-        _ => $"The assigned owner must complete {StageName(execution.CurrentStageKey).ToLowerInvariant()}."
+        "Blocked" or "PartiallyPromoted" or "WaitingForApproval" or "WaitingForHuman" or "WaitingForChildren" or "WaitingForEvidence" or "Promoting" => L["ProjectReleases.Next." + execution.Status],
+        _ => L.Format("ProjectReleases.Next.Default", new { stage = StageName(execution.CurrentStageKey).ToLowerInvariant() })
     };
 
-    private static string BlockerSummary(string reason)
+    private string BlockerSummary(string reason)
     {
         if (reason.StartsWith("Compute validation failed or its result is unknown", StringComparison.OrdinalIgnoreCase))
-            return "Compute validation has failed or has no confirmed result.";
+            return L["ProjectReleases.Blocker.ComputeValidation"];
         return reason.Length <= 200 ? reason : reason[..197].TrimEnd() + "…";
     }
 }

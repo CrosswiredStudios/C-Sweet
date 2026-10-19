@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -153,7 +154,7 @@ public sealed class MarketplaceAgentBrandingTests
         null, "USD", null, 0, null, null, .8m, "Local source", RoleName: "Product Manager");
     private static async Task<string> Render(AvailableAgent agent)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddSingleton<IJSRuntime, NoJavaScript>();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IJSRuntime, NoJavaScript>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>

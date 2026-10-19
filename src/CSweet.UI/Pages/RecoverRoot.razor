@@ -3,25 +3,26 @@
 @using System.ComponentModel.DataAnnotations
 @using CSweet.Contracts.Auth
 @inject IAuthenticationApiClient AuthenticationApi
+@inject IAppLocalizer L
 
-<PageTitle>Recover root administrator - C-Sweet</PageTitle>
+<PageTitle>@L["RecoverRoot.PageTitle"]</PageTitle>
 
 <MudPaper Elevation="0" Class="auth-card">
-    <MudText Typo="Typo.h4">Recover the root account</MudText>
-    <MudText Color="Color.Secondary">Use one of the offline codes saved during initial registration. A successful recovery consumes that code and signs out existing sessions.</MudText>
+    <MudText Typo="Typo.h4">@L["RecoverRoot.Title"]</MudText>
+    <MudText Color="Color.Secondary">@L["RecoverRoot.Lead"]</MudText>
     <EditForm Model="_model" OnValidSubmit="RecoverAsync" Class="auth-form">
         <DataAnnotationsValidator />
         <ValidationSummary />
-        <MudTextField Label="Root email" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
-        <MudTextField Label="Recovery code" @bind-Value="_model.RecoveryCode" For="@(() => _model.RecoveryCode)" Variant="Variant.Outlined" Required="true" />
-        <MudTextField Label="New password" InputType="InputType.Password" @bind-Value="_model.Password" For="@(() => _model.Password)" Variant="Variant.Outlined" Required="true" />
-        <MudTextField Label="Confirm password" InputType="InputType.Password" @bind-Value="_model.ConfirmPassword" For="@(() => _model.ConfirmPassword)" Variant="Variant.Outlined" Required="true" />
+        <MudTextField Label="@L["RecoverRoot.RootEmail"]" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
+        <MudTextField Label="@L["RecoverRoot.RecoveryCode"]" @bind-Value="_model.RecoveryCode" For="@(() => _model.RecoveryCode)" Variant="Variant.Outlined" Required="true" />
+        <MudTextField Label="@L["ResetPassword.NewPassword"]" InputType="InputType.Password" @bind-Value="_model.Password" For="@(() => _model.Password)" Variant="Variant.Outlined" Required="true" />
+        <MudTextField Label="@L["Register.Form.ConfirmPassword"]" InputType="InputType.Password" @bind-Value="_model.ConfirmPassword" For="@(() => _model.ConfirmPassword)" Variant="Variant.Outlined" Required="true" />
         @if (!string.IsNullOrWhiteSpace(_message))
         {
             <MudAlert Severity="@(_success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">@_message</MudAlert>
         }
-        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_busy">@(_busy ? "Recovering..." : "Reset root password")</MudButton>
-        <MudButton Href="/login" Variant="Variant.Text" FullWidth="true">Back to sign in</MudButton>
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_busy">@(_busy ? L["RecoverRoot.Recovering"] : L["RecoverRoot.Submit"])</MudButton>
+        <MudButton Href="/login" Variant="Variant.Text" FullWidth="true">@L["Auth.BackToSignIn"]</MudButton>
     </EditForm>
 </MudPaper>
 

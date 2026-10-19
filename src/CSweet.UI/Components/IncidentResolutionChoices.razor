@@ -1,45 +1,46 @@
 @using CSweet.Contracts.Communications
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<div class="incident-resolution" aria-label="Blocker resolution choices">
+<div class="incident-resolution" aria-label="@L["IncidentResolutionChoices.AriaLabel"]">
 @if (_confirmed || Decision.Status == "Answered")
 {
-    <MudText Typo="Typo.body2">Fix requested. The manager will coordinate recovery; this blocker remains until recovery is confirmed.</MudText>
+    <MudText Typo="Typo.body2">@L["IncidentResolutionChoices.Answered"]</MudText>
 }
 else if (Decision.Status == "Cancelled")
 {
-    <MudText Typo="Typo.body2">This resolution request has closed. No response is needed.</MudText>
+    <MudText Typo="Typo.body2">@L["IncidentResolutionChoices.Cancelled"]</MudText>
 }
 else if (Decision.Status != "Pending")
 {
-    <MudText Typo="Typo.body2">The blocker changed. Review the current manager report before choosing a fix.</MudText>
+    <MudText Typo="Typo.body2">@L["IncidentResolutionChoices.Changed"]</MudText>
 }
 else if (ReadOnly)
 {
-    <MudText Typo="Typo.body2">Awaiting a response from the report recipient.</MudText>
+    <MudText Typo="Typo.body2">@L["IncidentResolutionChoices.ReadOnly"]</MudText>
 }
 else
 {
-    <MudMenu Label="@(_busy ? "Sending…" : "Choose a resolution")" Variant="Variant.Filled" Color="Color.Primary"
+    <MudMenu Label="@(_busy ? L["IncidentResolutionChoices.Sending"] : L["IncidentResolutionChoices.Choose"])" Variant="Variant.Filled" Color="Color.Primary"
         EndIcon="@Icons.Material.Outlined.ExpandMore" Disabled="_busy" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
         @foreach (var option in Decision.Options)
         {
             <MudMenuItem Disabled="_busy" OnClick="() => SubmitAsync(option.Id)">
-                <strong>@option.Label</strong>@if (option.Recommended) { <small>Recommended</small> }
+                <strong>@option.Label</strong>@if (option.Recommended) { <small>@L["IncidentResolutionChoices.Recommended"]</small> }
                 <div class="option-description">@option.Description</div>
             </MudMenuItem>
         }
         @if (Decision.AllowFreeText)
         {
             <MudDivider />
-            <MudMenuItem Disabled="_busy" OnClick="ShowCustom">Something Else</MudMenuItem>
+            <MudMenuItem Disabled="_busy" OnClick="ShowCustom">@L["IncidentResolutionChoices.SomethingElse"]</MudMenuItem>
         }
     </MudMenu>
     @if (_custom)
     {
-        <label>Your direction<textarea aria-label="Your blocker resolution" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+        <label>@L["IncidentResolutionChoices.YourDirection"]<textarea aria-label="@L["IncidentResolutionChoices.DirectionAriaLabel"]" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_direction))"
-            OnClick="() => SubmitAsync(null)">Send response</MudButton>
+            OnClick="() => SubmitAsync(null)">@L["IncidentResolutionChoices.SendResponse"]</MudButton>
     }
 }
 @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
@@ -69,10 +70,10 @@ else
                 _confirmed = true;
                 await Answered.InvokeAsync();
             }
-            else _error = result?.Message ?? "Could not send your selected fix. Refresh the current report and try again.";
+            else _error = result?.Message ?? L["IncidentResolutionChoices.Error.SendFailed"];
         }
         catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
-        { _error = "Could not confirm your response. You can safely try again."; }
+        { _error = L["IncidentResolutionChoices.Error.Unconfirmed"]; }
         finally { _busy = false; }
     }
 }

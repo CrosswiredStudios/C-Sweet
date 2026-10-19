@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -148,7 +149,7 @@ public sealed class WorkInstructionUiTests
             Organization = org ?? Organization; Chat = chat ?? Chat; Message = message ?? Message;
             Handler.Board = board ?? Handler.Board; Handler.Item = item ?? Handler.Item;
             _source = source ?? "Private: Make it blue. My personal account.";
-            var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+            var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
             services.AddSingleton<IJSRuntime>(JavaScript); services.AddSingleton<IComponentActivator>(_capture);
             services.AddSingleton(http ?? new HttpClient(Handler) { BaseAddress = new Uri("http://localhost/") });
             services.AddSingleton<AppRealtimeState>();

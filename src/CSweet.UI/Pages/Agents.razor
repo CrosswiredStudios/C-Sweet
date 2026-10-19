@@ -14,22 +14,24 @@
 @inject IBusinessOnboardingApiClient BusinessOnboardingApi
 @inject ISetupApiClient SetupApi
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
+@inject UserTime Time
 
-<PageTitle>Agents - C-Sweet</PageTitle>
+<PageTitle>@L["Agents.PageTitle"]</PageTitle>
 
 <div class="setup-shell agents-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Agent management</MudText>
-            <MudText Typo="Typo.h3">Installed agents</MudText>
-            <MudText Color="Color.Secondary">Agent definitions and the defaults inherited by every new hire.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["Agents.Overline"]</MudText>
+            <MudText Typo="Typo.h3">@L["Agents.Title"]</MudText>
+            <MudText Color="Color.Secondary">@L["Agents.Lead"]</MudText>
         </div>
         <MudStack Row="true" Spacing="2">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="OpenImportDialog" StartIcon="@Icons.Material.Filled.Add">
-                Import Agent
+                @L["Agents.ImportAgent"]
             </MudButton>
-            <MudTooltip Text="Fetch agent updates">
-                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Secondary" aria-label="Fetch agent updates" Disabled="@(_isBusy || _isLoading || _isCheckingUpdates)" OnClick="FetchUpdatesAsync" />
+            <MudTooltip Text="@L["Agents.FetchUpdates"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Color="Color.Secondary" aria-label="@L["Agents.FetchUpdates"]" Disabled="@(_isBusy || _isLoading || _isCheckingUpdates)" OnClick="FetchUpdatesAsync" />
             </MudTooltip>
         </MudStack>
     </MudPaper>
@@ -38,7 +40,7 @@
     {
         <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow agents-loading-panel">
             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-            <MudText Color="Color.Secondary">Loading agents...</MudText>
+            <MudText Color="Color.Secondary">@L["Agents.Loading"]</MudText>
         </MudPaper>
     }
     else if (!string.IsNullOrWhiteSpace(_pageError))
@@ -46,13 +48,13 @@
         <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow">
             <MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_pageError</MudAlert>
             <MudStack Row="true" Class="setup-actions">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">Retry</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">@L["Common.Retry"]</MudButton>
             </MudStack>
         </MudPaper>
     }
     else
     {
-        <section class="agent-installations-section" aria-label="Installed agent plugins">
+        <section class="agent-installations-section" aria-label="@L["Agents.InstallationsAria"]">
             @if (!string.IsNullOrWhiteSpace(_installationActionMessage))
             {
                 <MudAlert Severity="@(_installationActionSucceeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
@@ -63,14 +65,14 @@
             @if (_isCheckingUpdates)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Sync">
-                    Checking for agent updates in the background. You can continue using this page.
+                    @L["Agents.CheckingUpdates"]
                 </MudAlert>
             }
 
             @if (AvailableUpdates.Count > 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.SystemUpdateAlt">
-                    @AvailableUpdates.Count agent @(AvailableUpdates.Count == 1 ? "update is" : "updates are") available.
+                    @L.Format("Agents.UpdatesAvailable", new { count = AvailableUpdates.Count })
                 </MudAlert>
             }
             else if (!string.IsNullOrWhiteSpace(_updateCheckError))
@@ -80,7 +82,7 @@
 
             @if (_installations.Count == 0)
             {
-                <MudText Color="Color.Secondary">No agent definitions have been installed.</MudText>
+                <MudText Color="Color.Secondary">@L["Agents.NoInstallations"]</MudText>
             }
             else
             {
@@ -107,15 +109,15 @@
 
         <MudDialog @bind-Visible="_configurationDialogOpen" Options="_configurationDialogOptions">
             <TitleContent>
-                <MudText Typo="Typo.h6">Configure agent</MudText>
+                <MudText Typo="Typo.h6">@L["Agents.Configure.Title"]</MudText>
             </TitleContent>
             <DialogContent>
                 @if (_selectedAgent is null)
                 {
                     <div class="agents-empty-editor">
                         <MudIcon Icon="@Icons.Material.Filled.SmartToy" Size="Size.Large" Color="Color.Primary" />
-                        <MudText Typo="Typo.h6">Select an agent</MudText>
-                        <MudText Color="Color.Secondary">Configuration fields come from the signed package manifest and can be edited while all agent runtimes are stopped.</MudText>
+                        <MudText Typo="Typo.h6">@L["Agents.Configure.SelectAgent"]</MudText>
+                        <MudText Color="Color.Secondary">@L["Agents.Configure.SelectAgentHint"]</MudText>
                     </div>
                 }
                 else
@@ -123,38 +125,38 @@
                     <div class="configuration-section-header">
                         <div>
                             <MudText Typo="Typo.h6">@_selectedAgent.AgentName</MudText>
-                            <MudText Color="Color.Secondary">@_selectedAgent.AgentId · global defaults</MudText>
+                            <MudText Color="Color.Secondary">@L.Format("Agents.Configure.GlobalDefaults", new { id = _selectedAgent.AgentId })</MudText>
                         </div>
                         <MudChip T="string" Color="@SchemaChipColor" Variant="Variant.Filled">@SchemaChipLabel</MudChip>
                     </div>
 
                     <dl class="configuration-details agents-details">
                         <div>
-                            <dt>Publisher</dt>
+                            <dt>@L["Agents.Configure.Publisher"]</dt>
                             <dd>@_selectedAgent.PublisherName</dd>
                         </div>
                         <div>
-                            <dt>Version</dt>
+                            <dt>@L["Agents.Configure.Version"]</dt>
                             <dd>@_selectedAgent.AgentVersion</dd>
                         </div>
                         <div>
-                            <dt>Capabilities</dt>
+                            <dt>@L["Agents.Configure.Capabilities"]</dt>
                             <dd>@_selectedAgent.GrantedCapabilities.Count</dd>
                         </div>
                         <div>
-                            <dt>Permissions</dt>
+                            <dt>@L["Agents.Configure.Permissions"]</dt>
                             <dd>@_selectedAgent.GrantedPermissions.Count</dd>
                         </div>
                         <div>
-                            <dt>30d input</dt>
+                            <dt>@L["Agents.Configure.Input30d"]</dt>
                             <dd>@FormatTokens(SelectedAgentUsage?.Usage.InputTokens ?? 0)</dd>
                         </div>
                         <div>
-                            <dt>30d output</dt>
+                            <dt>@L["Agents.Configure.Output30d"]</dt>
                             <dd>@FormatTokens(SelectedAgentUsage?.Usage.OutputTokens ?? 0)</dd>
                         </div>
                         <div>
-                            <dt>30d requests</dt>
+                            <dt>@L["Agents.Configure.Requests30d"]</dt>
                             <dd>@((SelectedAgentUsage?.Usage.RequestCount ?? 0).ToString("N0"))</dd>
                         </div>
                     </dl>
@@ -163,7 +165,7 @@
                     {
                         <div class="agents-loading-panel mt-4">
                             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                            <MudText Color="Color.Secondary">Loading the signed configuration schema...</MudText>
+                            <MudText Color="Color.Secondary">@L["Agents.Configure.LoadingSchema"]</MudText>
                         </div>
                     }
                     else if (!string.IsNullOrWhiteSpace(_configurationError))
@@ -171,13 +173,13 @@
                         <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mt-4">@_configurationError</MudAlert>
                         <MudStack Row="true" Class="setup-actions">
                             <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@_isBusy" OnClick="@(() => LoadConfigurationAsync(_selectedAgent))">
-                                Try again
+                                @L["Agents.TryAgain"]
                             </MudButton>
                         </MudStack>
                     }
                     else if (_schema is not null)
                     {
-                        <MudText Color="Color.Secondary" Class="mt-4">Schema @_schema.SchemaVersion from the signed package manifest.</MudText>
+                        <MudText Color="Color.Secondary" Class="mt-4">@L.Format("Agents.Configure.SchemaVersion", new { version = _schema.SchemaVersion })</MudText>
 
                         <div class="agent-config-form">
                             @foreach (var field in _schema.Fields.Where(IsConfigurationFieldVisible))
@@ -222,7 +224,7 @@
                                                        Value="@GetStringValue(field.Key)"
                                                        ValueChanged="@((string value) => SetProviderValueAsync(field.Key, value))"
                                                        Variant="Variant.Outlined">
-                                                <MudSelectItem T="string" Value="@string.Empty">Select a provider</MudSelectItem>
+                                                <MudSelectItem T="string" Value="@string.Empty">@L["Agents.Configure.SelectProvider"]</MudSelectItem>
                                                 @foreach (var profile in _providerProfiles.Where(profile => profile.IsEnabled))
                                                 {
                                                     <MudSelectItem T="string" Value="@profile.Id.ToString()">@profile.Name</MudSelectItem>
@@ -299,14 +301,14 @@
                                        Color="Color.Primary"
                                        Disabled="@_isBusy"
                                        OnClick="SaveConfigurationAsync">
-                                @(_isBusy ? "Saving..." : "Save Settings")
+                                @L[_isBusy ? "Agents.Configure.Saving" : "Agents.Configure.Save"]
                             </MudButton>
                         </MudStack>
                     }
                 }
             </DialogContent>
             <DialogActions>
-                <MudButton Variant="Variant.Text" Disabled="@_isBusy" OnClick="CloseConfigurationDialog">Close</MudButton>
+                <MudButton Variant="Variant.Text" Disabled="@_isBusy" OnClick="CloseConfigurationDialog">@L["Common.Close"]</MudButton>
             </DialogActions>
         </MudDialog>
     }
@@ -317,9 +319,9 @@
         <div class="agent-import-title">
             <MudIcon Icon="@Icons.Material.Filled.AddToQueue" Color="Color.Primary" />
             <div>
-                <MudText Typo="Typo.h6">Import agent</MudText>
+                <MudText Typo="Typo.h6">@L["Agents.Import.Title"]</MudText>
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
-                    @(_importPreview is null ? "Connect a public GitHub repository" : "Review identity, access, and deployment")
+                    @L[_importPreview is null ? "Agents.Import.Subtitle.Connect" : "Agents.Import.Subtitle.Review"]
                 </MudText>
             </div>
         </div>
@@ -335,11 +337,11 @@
             {
                 <div class="agent-import-source-card">
                     <MudIcon Icon="@Icons.Material.Filled.Code" Color="Color.Primary" Class="agent-import-source-icon" />
-                    <MudText Typo="Typo.h6">Connect a repository</MudText>
+                    <MudText Typo="Typo.h6">@L["Agents.Import.ConnectRepository"]</MudText>
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        C-Sweet reads the root manifest first. Repository code is not executed during preview.
+                        @L["Agents.Import.ConnectHint"]
                     </MudText>
-                    <MudTextField Label="Public GitHub repository URL"
+                    <MudTextField Label="@L["Agents.Import.RepositoryUrl"]"
                                   @bind-Value="_importRepositoryUrl"
                                   Placeholder="https://github.com/owner/repository"
                                   Variant="Variant.Outlined"
@@ -347,9 +349,9 @@
                                   Immediate="true"
                                   Adornment="Adornment.Start"
                                   AdornmentIcon="@Icons.Material.Filled.Link" />
-                    <MudTextField Label="Branch, tag, or commit"
+                    <MudTextField Label="@L["Agents.Import.Ref"]"
                                   @bind-Value="_importRef"
-                                  Placeholder="Optional — uses the default branch"
+                                  Placeholder="@L["Agents.Import.RefPlaceholder"]"
                                   Variant="Variant.Outlined"
                                   Disabled="@_isPreviewingImport" />
                 </div>
@@ -368,7 +370,7 @@
                         @if (ImportConfigurationFieldCount > 0)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">
-                                @ImportConfigurationFieldCount agent setting@(ImportConfigurationFieldCount == 1 ? string.Empty : "s")
+                                @L.Format("Agents.Import.SettingCount", new { count = ImportConfigurationFieldCount })
                             </MudChip>
                         }
                     </div>
@@ -379,7 +381,7 @@
                     <div class="agent-import-prerequisite">
                         <MudIcon Icon="@Icons.Material.Filled.AdminPanelSettings" Color="Color.Warning" />
                         <div>
-                            <MudText Typo="Typo.subtitle2">Runtime approval required</MudText>
+                            <MudText Typo="Typo.subtitle2">@L["Agents.Import.ApprovalRequired"]</MudText>
                             <MudText Typo="Typo.body2" Color="Color.Secondary">@ImportBlockerMessage</MudText>
                         </div>
                         <MudButton Variant="Variant.Filled"
@@ -387,19 +389,19 @@
                                    Size="Size.Small"
                                    Disabled="@_isEnablingImport"
                                    OnClick="EnableImportPrerequisitesAsync">
-                            @(_isEnablingImport ? "Enabling…" : "Enable required settings")
+                            @L[_isEnablingImport ? "Agents.Import.Enabling" : "Agents.Import.EnableSettings"]
                         </MudButton>
                     </div>
                 }
 
                 <MudTabs @bind-ActivePanelIndex="_importTabIndex" Rounded="true" ApplyEffectsToContainer="true" Class="agent-import-tabs">
-                    <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Badge">
+                    <MudTabPanel Text="@L["Agents.Import.Tab.Overview"]" Icon="@Icons.Material.Filled.Badge">
                         <div class="agent-import-tab-content">
                             <div class="agent-import-facts">
-                                <div><span>Publisher</span><strong>@_importPreview.PublisherName</strong><small>@_importPreview.PublisherId</small></div>
-                                <div><span>Framework</span><strong>@DisplayImportValue(_importPreview.TargetFramework)</strong><small>@_importPreview.RuntimeType</small></div>
-                                <div><span>Capabilities</span><strong>@_importPreview.Capabilities.Count</strong><small>declared services</small></div>
-                                <div><span>Access requests</span><strong>@ImportAccessRequestCount</strong><small>review before install</small></div>
+                                <div><span>@L["Agents.Import.Publisher"]</span><strong>@_importPreview.PublisherName</strong><small>@_importPreview.PublisherId</small></div>
+                                <div><span>@L["Agents.Import.Framework"]</span><strong>@DisplayImportValue(_importPreview.TargetFramework)</strong><small>@_importPreview.RuntimeType</small></div>
+                                <div><span>@L["Agents.Import.Capabilities"]</span><strong>@_importPreview.Capabilities.Count</strong><small>@L["Agents.Import.DeclaredServices"]</small></div>
+                                <div><span>@L["Agents.Import.AccessRequests"]</span><strong>@ImportAccessRequestCount</strong><small>@L["Agents.Import.ReviewBeforeInstall"]</small></div>
                             </div>
 
                             @if (_importPreview.Warnings.Count > 0)
@@ -411,34 +413,34 @@
                             }
 
                             <MudExpansionPanels>
-                                <MudExpansionPanel Text="Technical details">
+                                <MudExpansionPanel Text="@L["Agents.Import.TechnicalDetails"]">
                                     <dl class="agent-import-technical-details">
-                                        <div><dt>Project</dt><dd>@DisplayImportValue(_importPreview.ProjectPath)</dd></div>
-                                        <div><dt>Commit</dt><dd class="agent-import-hash">@_importPreview.CommitSha</dd></div>
-                                        <div><dt>Manifest digest</dt><dd class="agent-import-hash">@_importPreview.ManifestDigest</dd></div>
+                                        <div><dt>@L["Agents.Import.Project"]</dt><dd>@DisplayImportValue(_importPreview.ProjectPath)</dd></div>
+                                        <div><dt>@L["Agents.Import.Commit"]</dt><dd class="agent-import-hash">@_importPreview.CommitSha</dd></div>
+                                        <div><dt>@L["Agents.Import.ManifestDigest"]</dt><dd class="agent-import-hash">@_importPreview.ManifestDigest</dd></div>
                                     </dl>
                                 </MudExpansionPanel>
                             </MudExpansionPanels>
                         </div>
                     </MudTabPanel>
-                    <MudTabPanel Text="Access review" Icon="@Icons.Material.Filled.Security">
+                    <MudTabPanel Text="@L["Agents.Import.Tab.AccessReview"]" Icon="@Icons.Material.Filled.Security">
                         <div class="agent-import-tab-content agent-import-access-grid">
-                            @ApprovalSection("Capabilities", _importPreview.Capabilities, _approvedCapabilities)
-                            @ApprovalSection("Platform access", _importPreview.RequestedCapabilities, _approvedRequestedCapabilities)
-                            @ApprovalSection("Subscriptions", _importPreview.RequestedSubscriptions, _approvedSubscriptions)
-                            @ApprovalSection("Publications", _importPreview.RequestedPublications, _approvedPublications)
-                            @ApprovalSection("Permissions", _importPreview.RequestedPermissions, _approvedPermissions)
-                            @ApprovalSection("Network access", _importPreview.RequestedNetworkAccess, _approvedNetworkAccess)
+                            @ApprovalSection(L["Agents.Import.Capabilities"], _importPreview.Capabilities, _approvedCapabilities)
+                            @ApprovalSection(L["Agents.Import.PlatformAccess"], _importPreview.RequestedCapabilities, _approvedRequestedCapabilities)
+                            @ApprovalSection(L["Agents.Import.Subscriptions"], _importPreview.RequestedSubscriptions, _approvedSubscriptions)
+                            @ApprovalSection(L["Agents.Import.Publications"], _importPreview.RequestedPublications, _approvedPublications)
+                            @ApprovalSection(L["Agents.Import.Permissions"], _importPreview.RequestedPermissions, _approvedPermissions)
+                            @ApprovalSection(L["Agents.Import.NetworkAccess"], _importPreview.RequestedNetworkAccess, _approvedNetworkAccess)
                         </div>
                     </MudTabPanel>
                     @if (ImportConfigurationFieldCount > 0)
                     {
-                        <MudTabPanel Text="Agent settings" Icon="@Icons.Material.Filled.Settings">
+                        <MudTabPanel Text="@L["Agents.Import.Tab.AgentSettings"]" Icon="@Icons.Material.Filled.Settings">
                             <div class="agent-import-tab-content">
                                 <div>
-                                    <MudText Typo="Typo.subtitle2">Configure @_importPreview.AgentName</MudText>
+                                    <MudText Typo="Typo.subtitle2">@L.Format("Agents.Import.ConfigureAgent", new { name = _importPreview.AgentName })</MudText>
                                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                                        Choose the model provider and other settings declared by this agent before installation.
+                                        @L["Agents.Import.ConfigureHint"]
                                     </MudText>
                                 </div>
                                 <div class="agent-import-form-grid">
@@ -507,34 +509,34 @@
                                 @if (HasMissingRequiredImportConfiguration)
                                 {
                                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
-                                        Complete all required agent settings before installation.
+                                        @L["Agents.Import.CompleteRequired"]
                                     </MudAlert>
                                 }
                             </div>
                         </MudTabPanel>
                     }
-                    <MudTabPanel Text="Deployment" Icon="@Icons.Material.Filled.Tune">
+                    <MudTabPanel Text="@L["Agents.Import.Tab.Deployment"]" Icon="@Icons.Material.Filled.Tune">
                         <div class="agent-import-tab-content">
-                            <MudText Typo="Typo.subtitle2">Defaults for new hires</MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">These values do not create or start a runtime. Each business receives them when the agent is hired.</MudText>
+                            <MudText Typo="Typo.subtitle2">@L["Agents.Import.DefaultsForNewHires"]</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L["Agents.Import.DefaultsHint"]</MudText>
                             <div class="agent-import-form-grid">
-                                <MudSelect T="string" Label="Activation mode" @bind-Value="_installActivationMode" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
-                                    <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
+                                <MudSelect T="string" Label="@L["Agents.ActivationMode"]" @bind-Value="_installActivationMode" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                    <MudSelectItem T="string" Value="@("AlwaysOn")">@L["Agents.Activation.AlwaysOn"]</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("OnDemand")">@L["Agents.Activation.OnDemand"]</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Scheduled")">@L["Agents.Activation.Scheduled"]</MudSelectItem>
                                 </MudSelect>
-                                <MudNumericField T="int" Label="Think every (seconds)" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Max="86400" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudSelect T="string" Label="Overlap policy" @bind-Value="_installOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
-                                    <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("CancelPrevious")">Cancel previous</MudSelectItem>
+                                <MudNumericField T="int" Label="@L["Agents.TickFrequency"]" @bind-Value="_installTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Max="86400" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudSelect T="string" Label="@L["Agents.OverlapPolicy"]" @bind-Value="_installOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isInstallingImport">
+                                    <MudSelectItem T="string" Value="@("Skip")">@L["Agents.Overlap.Skip"]</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Queue")">@L["Agents.Overlap.Queue"]</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("CancelPrevious")">@L["Agents.Overlap.CancelPrevious"]</MudSelectItem>
                                 </MudSelect>
                             </div>
-                            <MudText Typo="Typo.subtitle2" Class="mt-3">Resource limits</MudText>
+                            <MudText Typo="Typo.subtitle2" Class="mt-3">@L["Agents.Import.ResourceLimits"]</MudText>
                             <div class="agent-import-form-grid agent-import-form-grid-three">
-                                <MudNumericField T="int" Label="Max runtime (seconds)" @bind-Value="_installMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudNumericField T="int" Label="Memory (MB)" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
-                                <MudNumericField T="int" Label="CPU (%)" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="@L["Agents.MaxRuntime"]" @bind-Value="_installMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="@L["Agents.MemoryMb"]" @bind-Value="_installMemoryMb" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadMemoryMb ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
+                                <MudNumericField T="int" Label="@L["Agents.CpuPercent"]" @bind-Value="_installCpuPercent" Min="1" Max="@(_runtimeSettings?.MaximumWorkloadCpuPercent ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isInstallingImport" />
                             </div>
                         </div>
                     </MudTabPanel>
@@ -544,7 +546,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@(_isPreviewingImport || _isInstallingImport)" OnClick="CloseImportDialog">
-            Close
+            @L["Common.Close"]
         </MudButton>
         @if (_importPreview is null)
         {
@@ -552,16 +554,16 @@
                        Color="Color.Primary"
                        Disabled="@(_isPreviewingImport || string.IsNullOrWhiteSpace(_importRepositoryUrl))"
                        OnClick="PreviewImportAsync">
-                @(_isPreviewingImport ? "Previewing..." : "Preview Manifest")
+                @L[_isPreviewingImport ? "Agents.Import.Previewing" : "Agents.Import.PreviewManifest"]
             </MudButton>
         }
         else
         {
             <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isInstallingImport" OnClick="ResetImportPreview">
-                Back
+                @L["Common.Back"]
             </MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isInstallingImport || IsImportInstallBlocked)" OnClick="InstallImportAsync" StartIcon="@Icons.Material.Filled.VerifiedUser">
-                @(_isInstallingImport ? "Installing..." : "Approve and Install")
+                @L[_isInstallingImport ? "Agents.Import.Installing" : "Agents.Import.ApproveInstall"]
             </MudButton>
         }
     </DialogActions>
@@ -569,24 +571,24 @@
 
 <MudDialog @bind-Visible="_scheduleDialogOpen" Options="_scheduleDialogOptions">
     <TitleContent>
-        <MudText Typo="Typo.h6">Edit Schedule</MudText>
+        <MudText Typo="Typo.h6">@L["Agents.Schedule.Title"]</MudText>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="3">
             <MudText Color="Color.Secondary">@_scheduleInstallation?.AgentName</MudText>
-            <MudSelect T="string" Label="Activation mode" @bind-Value="_scheduleActivationMode" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
-                <MudSelectItem T="string" Value="@("AlwaysOn")">Always On</MudSelectItem>
-                <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
+            <MudSelect T="string" Label="@L["Agents.ActivationMode"]" @bind-Value="_scheduleActivationMode" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
+                <MudSelectItem T="string" Value="@("AlwaysOn")">@L["Agents.Activation.AlwaysOn"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("OnDemand")">@L["Agents.Activation.OnDemand"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Scheduled")">@L["Agents.Activation.Scheduled"]</MudSelectItem>
             </MudSelect>
-            <MudNumericField T="int" Label="Think every (seconds)" @bind-Value="_scheduleTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Max="86400" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
-            <MudSelect T="string" Label="Overlap policy" @bind-Value="_scheduleOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
-                <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
-                <MudSelectItem T="string" Value="@("CancelPrevious")">Cancel Previous</MudSelectItem>
+            <MudNumericField T="int" Label="@L["Agents.TickFrequency"]" @bind-Value="_scheduleTickFrequencySeconds" Min="@(_runtimeSettings?.MinimumTickFrequencySeconds ?? 60)" Max="86400" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
+            <MudSelect T="string" Label="@L["Agents.OverlapPolicy"]" @bind-Value="_scheduleOverlapPolicy" Variant="Variant.Outlined" Disabled="@_isManagingInstallation">
+                <MudSelectItem T="string" Value="@("Skip")">@L["Agents.Overlap.Skip"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Queue")">@L["Agents.Overlap.Queue"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("CancelPrevious")">@L["Agents.Schedule.Overlap.CancelPrevious"]</MudSelectItem>
             </MudSelect>
-            <MudNumericField T="int" Label="Max runtime (seconds)" @bind-Value="_scheduleMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
-            <MudCheckBox T="bool" Label="Schedule enabled" @bind-Value="_scheduleEnabled" Disabled="@_isManagingInstallation" />
+            <MudNumericField T="int" Label="@L["Agents.MaxRuntime"]" @bind-Value="_scheduleMaxRuntimeSeconds" Min="1" Max="@(_runtimeSettings?.DefaultMaxRuntimeSeconds ?? int.MaxValue)" Variant="Variant.Outlined" Disabled="@_isManagingInstallation" />
+            <MudCheckBox T="bool" Label="@L["Agents.Schedule.Enabled"]" @bind-Value="_scheduleEnabled" Disabled="@_isManagingInstallation" />
             @if (!string.IsNullOrWhiteSpace(_scheduleError))
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_scheduleError</MudAlert>
@@ -594,15 +596,15 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" Disabled="@_isManagingInstallation" OnClick="CloseScheduleDialog">Cancel</MudButton>
+        <MudButton Variant="Variant.Text" Disabled="@_isManagingInstallation" OnClick="CloseScheduleDialog">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isManagingInstallation" OnClick="SaveScheduleAsync">
-            @(_isManagingInstallation ? "Saving..." : "Save Schedule")
+            @L[_isManagingInstallation ? "Agents.Schedule.Saving" : "Agents.Schedule.Save"]
         </MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_runsDialogOpen" Options="_managementDialogOptions">
-    <TitleContent><MudText Typo="Typo.h6">Runtime History · @_runsInstallation?.AgentName</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L.Format("Agents.Runs.Title", new { name = _runsInstallation?.AgentName })</MudText></TitleContent>
     <DialogContent>
         @if (_isLoadingManagementDetail)
         {
@@ -614,27 +616,27 @@
         }
         else if (_runtimeRuns.Count == 0)
         {
-            <MudText Color="Color.Secondary">No runtime instances have been recorded.</MudText>
+            <MudText Color="Color.Secondary">@L["Agents.Runs.Empty"]</MudText>
         }
         else
         {
             <MudExpansionPanels>
                 @foreach (var run in _runtimeRuns)
                 {
-                    <MudExpansionPanel Text="@($"{run.Status} · {run.QueuedAt.ToLocalTime():g}")">
+                    <MudExpansionPanel Text="@($"{run.Status} · {Time.Format(run.QueuedAt, "g")}")">
                         <dl class="configuration-details agents-details">
-                            <div><dt>Tick</dt><dd>@run.TickId</dd></div>
-                            <div><dt>Started</dt><dd>@FormatTimestamp(run.StartedAt)</dd></div>
-                            <div><dt>Completed</dt><dd>@FormatTimestamp(run.CompletedAt)</dd></div>
-                            <div><dt>Result</dt><dd>@(run.Reason ?? run.Status)</dd></div>
+                            <div><dt>@L["Agents.Runs.Tick"]</dt><dd>@run.TickId</dd></div>
+                            <div><dt>@L["Agents.Runs.Started"]</dt><dd>@FormatTimestamp(run.StartedAt)</dd></div>
+                            <div><dt>@L["Agents.Runs.Completed"]</dt><dd>@FormatTimestamp(run.CompletedAt)</dd></div>
+                            <div><dt>@L["Agents.Runs.Result"]</dt><dd>@(run.Reason ?? run.Status)</dd></div>
                         </dl>
                         @foreach (var runtimeEvent in run.Events)
                         {
-                            <MudText Typo="Typo.caption"><strong>@runtimeEvent.Status</strong> · @runtimeEvent.OccurredAt.ToLocalTime().ToString("g") · @(runtimeEvent.Reason ?? "No detail")</MudText>
+                            <MudText Typo="Typo.caption"><strong>@runtimeEvent.Status</strong> · @Time.Format(runtimeEvent.OccurredAt, "g") · @(runtimeEvent.Reason ?? L["Agents.Runs.NoDetail"])</MudText>
                         }
                         @if (!string.IsNullOrWhiteSpace(run.LogExcerpt))
                         {
-                            <MudText Typo="Typo.subtitle2" Class="mt-3">Container log excerpt</MudText>
+                            <MudText Typo="Typo.subtitle2" Class="mt-3">@L["Agents.Runs.LogExcerpt"]</MudText>
                             <pre class="agent-build-log">@run.LogExcerpt</pre>
                         }
                     </MudExpansionPanel>
@@ -642,11 +644,11 @@
             </MudExpansionPanels>
         }
     </DialogContent>
-    <DialogActions><MudButton Variant="Variant.Text" OnClick="CloseRunsDialog">Close</MudButton></DialogActions>
+    <DialogActions><MudButton Variant="Variant.Text" OnClick="CloseRunsDialog">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_buildLogDialogOpen" Options="_managementDialogOptions">
-    <TitleContent><MudText Typo="Typo.h6">Build Log · @_buildLogInstallation?.AgentName</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L.Format("Agents.BuildLog.Title", new { name = _buildLogInstallation?.AgentName })</MudText></TitleContent>
     <DialogContent>
         @if (_isLoadingManagementDetail)
         {
@@ -658,27 +660,27 @@
         }
         else
         {
-            <MudText Typo="Typo.caption" Color="Color.Secondary">Status: @_buildLog?.Status @(_buildLog?.IsTruncated == true ? "· truncated" : string.Empty)</MudText>
-            <pre class="agent-build-log">@(_buildLog?.Content ?? "No build output was retained.")</pre>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@L.Format(_buildLog?.IsTruncated == true ? "Agents.BuildLog.StatusTruncated" : "Agents.BuildLog.Status", new { status = _buildLog?.Status })</MudText>
+            <pre class="agent-build-log">@(_buildLog?.Content ?? L["Agents.BuildLog.Empty"])</pre>
         }
     </DialogContent>
-    <DialogActions><MudButton Variant="Variant.Text" OnClick="CloseBuildLogDialog">Close</MudButton></DialogActions>
+    <DialogActions><MudButton Variant="Variant.Text" OnClick="CloseBuildLogDialog">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_removeDialogOpen" Options="_removeDialogOptions">
     <TitleContent>
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
             <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Color="Color.Error" />
-            <MudText Typo="Typo.h6">Remove agent definition?</MudText>
+            <MudText Typo="Typo.h6">@L["Agents.Remove.Title"]</MudText>
         </MudStack>
     </TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
             <MudText>
-                This permanently removes the global <strong>@_removeInstallation?.AgentName</strong> definition.
+                @L["Agents.Remove.Body.Before"] <strong>@_removeInstallation?.AgentName</strong> @L["Agents.Remove.Body.After"]
             </MudText>
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                The definition can only be removed when no employees use it. Unused business installations, global defaults, and unshared cached package records will be deleted. You will need to import and approve the agent again.
+                @L["Agents.Remove.Warning"]
             </MudAlert>
             @if (!string.IsNullOrWhiteSpace(_removeError))
             {
@@ -687,9 +689,9 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" Disabled="@_isManagingInstallation" OnClick="CloseRemoveDialog">Cancel</MudButton>
+        <MudButton Variant="Variant.Text" Disabled="@_isManagingInstallation" OnClick="CloseRemoveDialog">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteForever" Disabled="@_isManagingInstallation" OnClick="RemoveInstallationAsync">
-            @(_isManagingInstallation ? "Removing…" : "Remove agent")
+            @L[_isManagingInstallation ? "Agents.Remove.Removing" : "Agents.Remove.Confirm"]
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -801,7 +803,7 @@
     private readonly Dictionary<Guid, AgentBuildProgress> _buildProgress = [];
     private readonly HashSet<Guid> _trackedDefinitionBuilds = [];
 
-    private string SchemaChipLabel => _schema is null ? "Unavailable" : "Control plane";
+    private string SchemaChipLabel => L[_schema is null ? "Agents.Configure.Schema.Unavailable" : "Agents.Configure.Schema.ControlPlane"];
     private Color SchemaChipColor => _schema is null ? Color.Warning : Color.Success;
     private Severity ActionMessageSeverity => _actionSucceeded == false ? Severity.Error : Severity.Success;
     private bool IsImportInstallBlocked =>
@@ -814,11 +816,11 @@
             .Any(configField => !HasImportConfigurationValue(configField)) == true;
     private int ImportConfigurationFieldCount =>
         _importPreview?.ConfigurationFields.Count(configField => !configField.Secret && IsImportConfigurationFieldVisible(configField)) ?? 0;
-    private string ImportBlockerMessage => HasMissingRequiredImportConfiguration
-        ? "Complete the required values on the Agent settings tab before installing."
+    private string ImportBlockerMessage => L[HasMissingRequiredImportConfiguration
+        ? "Agents.Import.Blocker.MissingValues"
         : _runtimeSettings is null
-            ? "Runtime settings are unavailable. Refresh the page before installing."
-            : "Imported agents are disabled in global runtime settings.";
+            ? "Agents.Import.Blocker.SettingsUnavailable"
+            : "Agents.Import.Blocker.Disabled"];
     private int ImportAccessRequestCount => _importPreview is null
         ? 0
         : _importPreview.RequestedCapabilities.Count +
@@ -857,8 +859,8 @@
                 ChiefSetupBusinessId.Value, new CompleteChiefSetupRequest(installation.Id));
             _installationActionSucceeded = true;
             _installationActionMessage = result.ReadinessWarnings.Count == 0
-                ? "Chief of Staff assigned. Opening the command center..."
-                : $"Chief assigned with {result.ReadinessWarnings.Count} readiness warning(s). Opening the command center...";
+                ? L["Agents.ChiefAssigned"]
+                : L.Format("Agents.ChiefAssignedWithWarnings", new { count = result.ReadinessWarnings.Count });
             Navigation.NavigateTo(result.NextRoute);
         }
         catch (Exception exception)
@@ -903,7 +905,7 @@
         }
         catch
         {
-            _pageError = "Unable to load agents from the API.";
+            _pageError = L["Agents.LoadFailed"];
         }
         finally
         {
@@ -944,7 +946,7 @@
                 ? _updates.Where(update => update.DefinitionId != id).Concat(results).ToList()
                 : results;
             if (definitionId.HasValue && results.Count > 0 && results.All(update => !update.UpdateAvailable && string.IsNullOrWhiteSpace(update.Error)))
-                Snackbar.Add("This agent is up to date.", Severity.Success);
+                Snackbar.Add(L["Agents.UpToDate"], Severity.Success);
             _updateCheckError = _updates.FirstOrDefault(update => !string.IsNullOrWhiteSpace(update.Error))?.Error;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -953,7 +955,7 @@
         }
         catch
         {
-            _updateCheckError = "Agent update checks are temporarily unavailable.";
+            _updateCheckError = L["Agents.UpdateCheckUnavailable"];
         }
         finally
         {
@@ -1136,7 +1138,7 @@
                     AllowAlwaysOnCommunityAgents: null));
             if (!result.Succeeded)
             {
-                throw new InvalidOperationException(result.Message ?? "Unable to enable imported agents.");
+                throw new InvalidOperationException(result.Message ?? L["Agents.Import.EnableFailed"]);
             }
 
             _runtimeSettings = result.Settings ?? await AgentRuntimeSettingsApi.GetAsync();
@@ -1188,8 +1190,8 @@
         field.Type.Equals("model", StringComparison.OrdinalIgnoreCase) ||
         field.Type.Equals(AgentConfigurationFieldTypes.LlmModel, StringComparison.OrdinalIgnoreCase);
 
-    private static string ImportFieldLabel(PluginConfigurationField field) =>
-        field.Required ? $"{field.Label} (required)" : field.Label;
+    private string ImportFieldLabel(PluginConfigurationField field) =>
+        field.Required ? L.Format("Agents.Import.RequiredField", new { label = field.Label }) : field.Label;
 
     private string ImportConfigurationString(string key) =>
         _importConfigurationValues.GetValueOrDefault(key)?.ToString() ?? string.Empty;
@@ -1279,22 +1281,22 @@
         _isManagingInstallation = true;
         _pendingBuildRequests.Add(installation.Id);
         var progressKey = InstallationProgressKey(installation);
-        SetBuildProgress(progressKey, "Preparing update", update.UpdateApproach == "PrebuiltRelease"
-            ? "Downloading, verifying, and installing the prebuilt release package."
-            : "Queuing the new definition package.");
+        SetBuildProgress(progressKey, L["Agents.Build.PreparingUpdate"], L[update.UpdateApproach == "PrebuiltRelease"
+            ? "Agents.Build.PreparingPrebuilt"
+            : "Agents.Build.QueuingPackage"]);
         try
         {
             var updated = await AgentApi.UpdateDefinitionAsync(
                 installation.Id, new UpdateAgentDefinitionRequest(packageVersionId), _disposeCts.Token);
             ReplaceInstallation(updated);
             _updates = _updates.Where(item => item.DefinitionId != installation.Id).ToList();
-            SetInstallationMessage($"Update to {updated.AgentVersion} queued.", true);
+            SetInstallationMessage(L.Format("Agents.Build.UpdateQueued", new { version = updated.AgentVersion }), true);
             StartBuildTracking(updated);
         }
         catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            SetBuildProgress(progressKey, "Update failed", exception.Message, true, Severity.Error);
+            SetBuildProgress(progressKey, L["Agents.Build.UpdateFailed"], exception.Message, true, Severity.Error);
             SetInstallationMessage(exception.Message, false);
         }
         finally
@@ -1320,17 +1322,17 @@
             {
                 if (installation.SetupState == "NeedsConfiguration")
                 {
-                    var configurationDetail = $"{installation.AgentName} {installation.AgentVersion} is installed. Review its settings to complete configuration.";
-                    SetBuildProgress(InstallationProgressKey(installation), "Needs configuration", configurationDetail, true, Severity.Warning);
+                    var configurationDetail = L.Format("Agents.Build.NeedsConfigurationDetail", new { name = installation.AgentName, version = installation.AgentVersion });
+                    SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.NeedsConfiguration"], configurationDetail, true, Severity.Warning);
                     SetInstallationMessage(configurationDetail, true);
                     return;
                 }
-                var completionTitle = isUpdate ? "Update complete" : "Agent ready";
-                SetBuildProgress(InstallationProgressKey(installation), completionTitle, $"{installation.AgentName} {installation.AgentVersion} is installed and ready.", true, Severity.Success);
+                var completionTitle = L[isUpdate ? "Agents.Build.UpdateComplete" : "Agents.Build.AgentReady"];
+                SetBuildProgress(InstallationProgressKey(installation), completionTitle, L.Format("Agents.Build.ReadyDetail", new { name = installation.AgentName, version = installation.AgentVersion }), true, Severity.Success);
                 SetInstallationMessage(
                     isUpdate
-                        ? $"{installation.AgentName} updated to {installation.AgentVersion} and is ready."
-                        : $"{installation.AgentName} installed and ready.",
+                        ? L.Format("Agents.Build.UpdatedMessage", new { name = installation.AgentName, version = installation.AgentVersion })
+                        : L.Format("Agents.Build.InstalledMessage", new { name = installation.AgentName }),
                     true);
                 return;
             }
@@ -1339,24 +1341,24 @@
             {
                 var failedStep = build.Steps?.FirstOrDefault(step => !string.IsNullOrWhiteSpace(step.Error));
                 var failureDetail = failedStep is null
-                    ? build.FailureMessage ?? $"The build ended with status {build.Status}."
-                    : $"{failedStep.Label} failed: {failedStep.Error}";
-                SetBuildProgress(InstallationProgressKey(installation), "Agent package failed", failureDetail, true, Severity.Error);
+                    ? build.FailureMessage ?? L.Format("Agents.Build.EndedWithStatus", new { status = build.Status })
+                    : L.Format("Agents.Build.StepFailed", new { step = failedStep.Label, error = failedStep.Error });
+                SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.PackageFailed"], failureDetail, true, Severity.Error);
                 SetInstallationMessage(
-                    isUpdate
-                        ? $"{installation.AgentName} was updated, but its new package could not be installed."
-                        : $"{installation.AgentName} was installed, but its package could not be installed.",
+                    L.Format(isUpdate
+                        ? "Agents.Build.UpdatePackageFailedMessage"
+                        : "Agents.Build.InstallPackageFailedMessage", new { name = installation.AgentName }),
                     false);
                 return;
             }
 
-            var (title, detail) = InstalledAgentPresentation.BuildProgress(build);
-            SetBuildProgress(InstallationProgressKey(installation), title, detail);
+            var (titleKey, detailKey) = InstalledAgentPresentation.BuildProgressKeys(build);
+            SetBuildProgress(InstallationProgressKey(installation), L[titleKey], L.Format(detailKey, new { status = build.Status }));
             await InvokeAsync(StateHasChanged);
 
             if (DateTimeOffset.UtcNow >= deadline)
             {
-                SetBuildProgress(InstallationProgressKey(installation), "Build is still running", "Progress tracking stopped after 15 minutes. Refresh the page to see the latest status.", true, Severity.Warning);
+                SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.StillRunning"], L["Agents.Build.TrackingStopped"], true, Severity.Warning);
                 return;
             }
 
@@ -1364,7 +1366,7 @@
             try
             {
                 installation = await RefreshBuildOwnerAsync(installation, cancellationToken)
-                    ?? throw new InvalidOperationException("The updated installation could not be found.");
+                    ?? throw new InvalidOperationException(L["Agents.Build.InstallationNotFound"]);
                 consecutiveRefreshFailures = 0;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1376,10 +1378,10 @@
                 consecutiveRefreshFailures++;
                 if (consecutiveRefreshFailures >= 3)
                 {
-                    SetBuildProgress(InstallationProgressKey(installation), "Could not refresh build progress", exception.Message, true, Severity.Warning);
+                    SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.RefreshFailed"], exception.Message, true, Severity.Warning);
                     return;
                 }
-                SetBuildProgress(InstallationProgressKey(installation), "Reconnecting", "The build is continuing; retrying the progress check.");
+                SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.Reconnecting"], L["Agents.Build.ReconnectingDetail"]);
             }
         }
     }
@@ -1409,7 +1411,7 @@
         }
         catch (Exception exception)
         {
-            SetBuildProgress(progressKey, "Could not refresh build progress", exception.Message, true, Severity.Warning);
+            SetBuildProgress(progressKey, L["Agents.Build.RefreshFailed"], exception.Message, true, Severity.Warning);
             await InvokeAsync(StateHasChanged);
         }
         finally
@@ -1476,7 +1478,7 @@
                     _scheduleEnabled));
             ReplaceInstallation(updated);
             _scheduleDialogOpen = false;
-            SetInstallationMessage("Schedule updated.", true);
+            SetInstallationMessage(L["Agents.Schedule.Updated"], true);
         }
         catch (Exception exception)
         {
@@ -1492,7 +1494,7 @@
     {
         await ExecuteInstallationActionAsync(
             () => AgentApi.RunNowAsync(installation.Id),
-            "Run requested. The scheduler will claim it when runtime execution is available.");
+            L["Agents.RunRequested"]);
     }
 
     private async Task RetryBuildAsync(AgentInstallationResponse installation)
@@ -1503,20 +1505,20 @@
 
         _isManagingInstallation = true;
         _pendingBuildRequests.Add(installation.Id);
-        SetBuildProgress(InstallationProgressKey(installation), "Retrying package", installation.Build?.SourceMode == "PrebuiltRelease"
-            ? "Downloading, verifying, and installing the prebuilt release package."
-            : "Requesting another build of this agent package.");
+        SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.RetryingPackage"], L[installation.Build?.SourceMode == "PrebuiltRelease"
+            ? "Agents.Build.PreparingPrebuilt"
+            : "Agents.Build.RequestingRebuild"]);
         try
         {
             var updated = await AgentApi.RetryDefinitionBuildAsync(installation.Id, _disposeCts.Token);
             ReplaceInstallation(updated);
-            SetInstallationMessage("Build retry queued.", true);
+            SetInstallationMessage(L["Agents.Build.RetryQueued"], true);
             StartBuildTracking(updated);
         }
         catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            SetBuildProgress(InstallationProgressKey(installation), "Build retry failed", exception.Message, true, Severity.Error);
+            SetBuildProgress(InstallationProgressKey(installation), L["Agents.Build.RetryFailed"], exception.Message, true, Severity.Error);
             SetInstallationMessage(exception.Message, false);
         }
         finally
@@ -1537,21 +1539,21 @@
     {
         await ExecuteInstallationActionAsync(
             () => AgentApi.RetryStartupAsync(installation.Id),
-            "Startup retry queued. C-Sweet will start the agent again now.");
+            L["Agents.StartupRetryQueued"]);
     }
 
     private async Task DisableInstallationAsync(AgentInstallationResponse installation)
     {
         await ExecuteInstallationActionAsync(
             () => AgentApi.DisableAsync(installation.Id),
-            "Agent installation disabled.");
+            L["Agents.InstallationDisabled"]);
     }
 
     private async Task EnableInstallationAsync(AgentInstallationResponse installation)
     {
         await ExecuteInstallationActionAsync(
             () => AgentApi.EnableAsync(installation.Id),
-            "Agent installation enabled.");
+            L["Agents.InstallationEnabled"]);
     }
 
     private void OpenRemoveDialog(AgentInstallationResponse installation)
@@ -1583,8 +1585,8 @@
             _removeInstallation = null;
             SetInstallationMessage(
                 result.CleanupWarnings == 0
-                    ? "Agent definition removed. You can now import it again from scratch."
-                    : $"Agent definition removed, but {result.CleanupWarnings} cached artifact(s) could not be deleted. See application logs for details.",
+                    ? L["Agents.Remove.Removed"]
+                    : L.Format("Agents.Remove.RemovedWithWarnings", new { count = result.CleanupWarnings }),
                 true);
         }
         catch (Exception exception)
@@ -1696,7 +1698,7 @@
         {
             if (_configurationDialogOpen && !_disposeCts.IsCancellationRequested)
             {
-                _configurationError = "The configuration request timed out. Try again.";
+                _configurationError = L["Agents.Configure.TimedOut"];
             }
             _schema = null;
         }
@@ -1733,7 +1735,7 @@
             if (missingRequired.Count > 0)
             {
                 _actionSucceeded = false;
-                _actionMessage = $"Complete the required settings: {string.Join(", ", missingRequired)}.";
+                _actionMessage = L.Format("Agents.Configure.MissingRequired", new { fields = string.Join(", ", missingRequired) });
                 return;
             }
 
@@ -1750,7 +1752,7 @@
                     _configurationView.ExpectedRevision));
 
             _actionSucceeded = true;
-            _actionMessage = "Global agent defaults saved. Stopped agents remain stopped.";
+            _actionMessage = L["Agents.Configure.Saved"];
             _schema = ToSchema(_configurationView);
             HydrateFormValues(_schema);
         }

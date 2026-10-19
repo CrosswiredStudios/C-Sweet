@@ -13,6 +13,7 @@ using Microsoft.JSInterop;
 using MudBlazor.Services;
 using ActionResponse = CSweet.Contracts.Communications.SuggestedUserActionResponse;
 using Recommendation = CSweet.Contracts.Core.HiringRecommendationResponse;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -39,7 +40,7 @@ public sealed class HiringSuggestionRenderingTests
             null, $"/marketplace?recommendationId={id:D}", status, DateTimeOffset.UtcNow)
             { HiringRecommendationId = id, HiringRole = "Creative Director" };
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         var activator = new CapturingActivator();

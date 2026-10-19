@@ -1,15 +1,16 @@
+@inject IAppLocalizer L
 <div class="file-preview">
     <div class="file-preview-header">
         <strong class="file-preview-name">@FileName</strong>
         <div class="file-preview-actions">
             @if (Viewer.SupportsPreview)
             {
-                <div class="file-preview-toggle" role="group" aria-label="File display mode">
-                    <MudButton Size="Size.Small" Variant="@(_showRaw ? Variant.Text : Variant.Filled)" Color="Color.Primary" OnClick="() => _showRaw = false">@Viewer.PreviewLabel</MudButton>
-                    <MudButton Size="Size.Small" Variant="@(_showRaw ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick="() => _showRaw = true">@Viewer.RawLabel</MudButton>
+                <div class="file-preview-toggle" role="group" aria-label="@L["FileContentViewer.DisplayMode"]">
+                    <MudButton Size="Size.Small" Variant="@(_showRaw ? Variant.Text : Variant.Filled)" Color="Color.Primary" OnClick="() => _showRaw = false">@L[Viewer.PreviewLabel]</MudButton>
+                    <MudButton Size="Size.Small" Variant="@(_showRaw ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick="() => _showRaw = true">@L[Viewer.RawLabel]</MudButton>
                 </div>
             }
-            <MudButton Size="Size.Small" OnClick="OnClose">Close file</MudButton>
+            <MudButton Size="Size.Small" OnClick="OnClose">@L["FileContentViewer.CloseFile"]</MudButton>
         </div>
     </div>
     <div class="file-preview-body">
@@ -23,7 +24,7 @@
         }
         @if (Loading)
         {
-            <div class="file-preview-loading-overlay" aria-label="Loading file"><MudProgressCircular Indeterminate="true" /></div>
+            <div class="file-preview-loading-overlay" aria-label="@L["FileContentViewer.LoadingFile"]"><MudProgressCircular Indeterminate="true" /></div>
         }
     </div>
 </div>

@@ -63,7 +63,6 @@
         try
         {
             _timeZones = TimeZoneInfo.GetSystemTimeZones()
-                .Where(z => z.Id.Contains('/'))
                 .OrderBy(z => z.BaseUtcOffset)
                 .ThenBy(z => z.Id, StringComparer.Ordinal)
                 .ToArray();

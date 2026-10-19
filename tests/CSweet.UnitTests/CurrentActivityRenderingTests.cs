@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -284,7 +285,7 @@ public sealed class CurrentActivityRenderingTests
         public Handler Handler { get; } = new();
         public Fixture()
         {
-            var registrations = new ServiceCollection().AddLogging(); registrations.AddMudServices();
+            var registrations = new ServiceCollection().AddLogging(); registrations.AddMudServices(); registrations.AddCSweetLocalization();
             registrations.AddSingleton<IJSRuntime, NoJavaScript>(); registrations.AddSingleton<NavigationManager, Navigation>();
             registrations.AddSingleton(new HttpClient(Handler) { BaseAddress = new Uri("http://localhost") });
             registrations.AddScoped<AppRealtimeState>(); services = registrations.BuildServiceProvider();

@@ -1,41 +1,42 @@
 @using CSweet.Contracts.Llm
 @inject ILlmProviderApiClient ProviderApi
+@inject IAppLocalizer L
 
 <MudDialog Visible="Visible" VisibleChanged="VisibleChanged" Options="_options">
-    <TitleContent><MudText Typo="Typo.h6">Migrate agents</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["AgentProviderMigrationDialog.Title"]</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="3">
-            <MudText>Choose agents and their new default provider and model.</MudText>
+            <MudText>@L["AgentProviderMigrationDialog.Intro"]</MudText>
             @if (_loading)
             {
                 <MudProgressLinear Indeterminate="true" />
             }
             else
             {
-                <MudCheckBox T="bool" Label="@($"Select all ({_agents.Count})")"
+                <MudCheckBox T="bool" Label="@L.Format("AgentProviderMigrationDialog.SelectAll", new { count = _agents.Count })"
                              Value="@(_agents.Count > 0 && _selected.Count == _agents.Count)"
                              ValueChanged="SelectAll" Disabled="@_busy" />
                 <div style="max-height: 280px; overflow-y: auto;">
                     @foreach (var agent in _agents)
                     {
                         <MudCheckBox T="bool" @key="agent.DefinitionId"
-                                     Label="@($"{agent.Name} ({agent.InstanceCount} instances)")"
+                                     Label="@L.Format("AgentProviderMigrationDialog.AgentOption", new { name = agent.Name, count = agent.InstanceCount })"
                                      Value="@_selected.Contains(agent.DefinitionId)"
                                      ValueChanged="@((bool value) => Select(agent.DefinitionId, value))" Disabled="@_busy" />
                     }
                 </div>
                 @if (_agents.Count == 0)
                 {
-                    <MudText>No installed agents have configurable providers and models.</MudText>
+                    <MudText>@L["AgentProviderMigrationDialog.NoAgents"]</MudText>
                 }
-                <MudSelect T="Guid?" Label="Provider" Value="_providerId" ValueChanged="ChangeProviderAsync"
+                <MudSelect T="Guid?" Label="@L["AgentProviderMigrationDialog.Provider"]" Value="_providerId" ValueChanged="ChangeProviderAsync"
                            Variant="Variant.Outlined" Disabled="@(_busy || _modelsLoading)">
                     @foreach (var provider in Providers.Where(x => x.IsEnabled))
                     {
                         <MudSelectItem T="Guid?" Value="@((Guid?)provider.Id)">@provider.Name</MudSelectItem>
                     }
                 </MudSelect>
-                <MudSelect T="string" Label="Model" @bind-Value="_model" Variant="Variant.Outlined"
+                <MudSelect T="string" Label="@L["AgentProviderMigrationDialog.Model"]" @bind-Value="_model" Variant="Variant.Outlined"
                            Disabled="@(_busy || _modelsLoading || _providerId is null)">
                     @foreach (var model in _models)
                     {
@@ -44,25 +45,23 @@
                 </MudSelect>
                 @if (_modelsLoading) { <MudProgressLinear Indeterminate="true" /> }
                 @if (_catalogWarning is not null) { <MudAlert Severity="Severity.Warning">@_catalogWarning</MudAlert> }
-                <MudCheckBox T="bool" Label="Also apply to all instances across businesses"
+                <MudCheckBox T="bool" Label="@L["AgentProviderMigrationDialog.IncludeInstances"]"
                              @bind-Value="_includeInstances" Disabled="@_busy" />
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    @(_includeInstances
-                        ? "Selected agents' instances will use the new provider and model, replacing their provider and model overrides."
-                        : "Existing instances will keep their current provider and model as overrides. New hires will use the new defaults.")
-                    Other settings are preserved.
+                    @L[_includeInstances ? "AgentProviderMigrationDialog.IncludeInstancesHint" : "AgentProviderMigrationDialog.KeepInstancesHint"]
+                    @L["AgentProviderMigrationDialog.OtherSettingsPreserved"]
                 </MudText>
-                <MudText Typo="Typo.body2">@_selected.Count agents selected · @(_includeInstances ? _agents.Where(x => _selected.Contains(x.DefinitionId)).Sum(x => x.InstanceCount) : 0) instances to update</MudText>
+                <MudText Typo="Typo.body2">@L.Format("AgentProviderMigrationDialog.SelectionSummary", new { agents = _selected.Count, instances = _includeInstances ? _agents.Where(x => _selected.Contains(x.DefinitionId)).Sum(x => x.InstanceCount) : 0 })</MudText>
             }
             @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
             @if (_success is not null) { <MudAlert Severity="Severity.Success">@_success</MudAlert> }
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="CloseAsync" Disabled="@_busy">Close</MudButton>
+        <MudButton OnClick="CloseAsync" Disabled="@_busy">@L["Common.Close"]</MudButton>
         <MudButton OnClick="UpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
                    Disabled="@(_busy || _loading || _modelsLoading || _selected.Count == 0 || _providerId is null || string.IsNullOrWhiteSpace(_model))">
-            @(_busy ? "Updating..." : "Update")
+            @L[_busy ? "AgentProviderMigrationDialog.Updating" : "AgentProviderMigrationDialog.Update"]
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -120,9 +119,9 @@
         {
             var catalog = await ProviderApi.GetModelCatalogAsync(id.Value);
             if (catalog.Succeeded) models.AddRange(catalog.Models.Select(x => x.Id));
-            else _catalogWarning = catalog.Message ?? "Could not load models. The saved default model is available.";
+            else _catalogWarning = catalog.Message ?? L["AgentProviderMigrationDialog.ModelsUnavailable"];
         }
-        catch (Exception) { _catalogWarning = "Could not load models. The saved default model is available."; }
+        catch (Exception) { _catalogWarning = L["AgentProviderMigrationDialog.ModelsUnavailable"]; }
         finally { _modelsLoading = false; }
         _models = models.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         _model = models.FirstOrDefault();
@@ -137,7 +136,7 @@
             var result = await ProviderApi.MigrateAgentsAsync(new(_providerId!.Value, _model!,
                 _agents.Where(x => _selected.Contains(x.DefinitionId))
                     .Select(x => new AgentProviderMigrationSelection(x.DefinitionId, x.Revision)).ToArray(), _includeInstances));
-            _success = $"Updated {result.AgentCount} agent defaults and {result.InstanceCount} instances.";
+            _success = L.Format("AgentProviderMigrationDialog.Success", new { agents = result.AgentCount, instances = result.InstanceCount });
             _selected.Clear();
             await LoadAsync();
         }

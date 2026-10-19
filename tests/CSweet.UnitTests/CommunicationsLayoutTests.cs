@@ -155,8 +155,8 @@ public sealed class CommunicationsLayoutTests
         Assert.DoesNotContain("<MudDialog", chat);
         Assert.Contains("<MudDialog", shared);
         Assert.Contains("RecommendationId", shared);
-        Assert.Contains("Plan proposed by", marketplace);
-        Assert.Contains("Browse outside this plan", marketplace);
+        LocalizedSource.AssertContains("Plan proposed by", marketplace);
+        LocalizedSource.AssertContains("Browse outside this plan", marketplace);
     }
 
     private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "") =>

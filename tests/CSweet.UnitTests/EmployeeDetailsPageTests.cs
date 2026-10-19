@@ -18,6 +18,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -115,7 +116,7 @@ public sealed class EmployeeDetailsPageTests
     private static async Task<string> RenderAsync(string? tab, EmployeeApi? api = null, string? directoryView = null)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(api ?? new EmployeeApi()) { BaseAddress = new Uri("http://localhost/") });

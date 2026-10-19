@@ -1,16 +1,18 @@
 @using CSweet.Contracts.Core
+@inject IAppLocalizer L
+@inject UserTime Time
 
 <MudTable Items="Resources" Dense="true" Hover="true">
-    <HeaderContent><MudTh>Resource</MudTh><MudTh>Type</MudTh><MudTh>Status</MudTh><MudTh>Revision / hash</MudTh><MudTh>Provider</MudTh><MudTh>Updated</MudTh></HeaderContent>
+    <HeaderContent><MudTh>@L["ProjectResourceTable.Column.Resource"]</MudTh><MudTh>@L["ProjectResourceTable.Column.Type"]</MudTh><MudTh>@L["ProjectResourceTable.Column.Status"]</MudTh><MudTh>@L["ProjectResourceTable.Column.RevisionHash"]</MudTh><MudTh>@L["ProjectResourceTable.Column.Provider"]</MudTh><MudTh>@L["ProjectResourceTable.Column.Updated"]</MudTh></HeaderContent>
     <RowTemplate>
-        <MudTd DataLabel="Resource"><MudLink Href="@context.DeepLink">@context.Title</MudLink></MudTd>
-        <MudTd DataLabel="Type">@context.ResourceType · @context.TypeKey</MudTd>
-        <MudTd DataLabel="Status">@context.Status</MudTd>
-        <MudTd DataLabel="Revision / hash">r@(context.Revision?.ToString() ?? "—") · @Short(context.Sha256)</MudTd>
-        <MudTd DataLabel="Provider">@(context.ProviderPackageId is null ? "—" : $"{context.ProviderPackageId}@{context.ProviderPackageVersion}")</MudTd>
-        <MudTd DataLabel="Updated">@(context.OccurredAt?.LocalDateTime.ToString() ?? "—")</MudTd>
+        <MudTd DataLabel="@L["ProjectResourceTable.Column.Resource"]"><MudLink Href="@context.DeepLink">@context.Title</MudLink></MudTd>
+        <MudTd DataLabel="@L["ProjectResourceTable.Column.Type"]">@context.ResourceType · @context.TypeKey</MudTd>
+        <MudTd DataLabel="@L["ProjectResourceTable.Column.Status"]">@context.Status</MudTd>
+        <MudTd DataLabel="@L["ProjectResourceTable.Column.RevisionHash"]">r@(context.Revision?.ToString() ?? "—") · @Short(context.Sha256)</MudTd>
+        <MudTd DataLabel="@L["ProjectResourceTable.Column.Provider"]">@(context.ProviderPackageId is null ? "—" : $"{context.ProviderPackageId}@{context.ProviderPackageVersion}")</MudTd>
+        <MudTd DataLabel="@L["ProjectResourceTable.Column.Updated"]">@Time.Format(context.OccurredAt, "G", "—")</MudTd>
     </RowTemplate>
-    <NoRecordsContent><MudText Class="pa-4">No resources in this section yet.</MudText></NoRecordsContent>
+    <NoRecordsContent><MudText Class="pa-4">@L["ProjectResourceTable.Empty"]</MudText></NoRecordsContent>
 </MudTable>
 
 @code {

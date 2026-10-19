@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -168,7 +169,7 @@ public sealed class PluginProviderAdministrationTests
     private static async Task<string> RenderAsync<T>(FakeApi api, Dictionary<string, object?>? parameters = null) where T : IComponent
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices(); services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<IPluginApiClient>(api);
         services.AddSingleton<NavigationManager, TestNavigation>();
         await using var provider = services.BuildServiceProvider();

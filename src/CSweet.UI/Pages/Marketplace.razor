@@ -13,22 +13,23 @@
 @inject ILlmProviderApiClient LlmProviderApi
 @inject AgentHireOperationState HireOperations
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<PageTitle>Agent Marketplace - C-Sweet</PageTitle>
+<PageTitle>@L["Marketplace.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace marketplace-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline">Grow your team</MudText>
-            <MudText Typo="Typo.h3">Agent marketplace</MudText>
+            <MudText Typo="Typo.overline">@L["Marketplace.Overline"]</MudText>
+            <MudText Typo="Typo.h3">@L["Marketplace.Title"]</MudText>
             <MudText Color="Color.Secondary">
-                Find the right expertise. Review capabilities, then hire for your team.
+                @L["Marketplace.Lead"]
             </MudText>
         </div>
         <MudButton Href="@($"/organizations/{OrganizationId}/employees?tab=hiring")"
                    Variant="Variant.Outlined" Color="Color.Primary"
                    StartIcon="@Icons.Material.Outlined.Groups">
-            Hiring recommendations
+            @L["Marketplace.HiringRecommendations"]
         </MudButton>
     </MudPaper>
 
@@ -37,36 +38,36 @@
         <MudPaper Class="pa-4 mb-4" Outlined="true">
             @if (_hiringContext is { Status: "Pending", RemainingHeadcount: > 0 } hiring)
             {
-                <MudText Typo="Typo.h6">Hiring for @hiring.Title · Plan proposed by @(hiring.RequestingEmployee ?? hiring.SuggestedBy ?? "Unknown employee")</MudText>
-                <MudText>@hiring.RequestingTeam · @hiring.RemainingHeadcount remaining · Approved by @hiring.ActualDecisionMaker</MudText>
-                <MudLink Href="@($"/organizations/{OrganizationId:D}/employees?tab=hiring&recommendation={RecommendationId:D}")">Review hiring plan</MudLink>
+                <MudText Typo="Typo.h6">@L.Format("Marketplace.HiringContext.Title", new { title = hiring.Title, proposer = hiring.RequestingEmployee ?? hiring.SuggestedBy ?? L["Marketplace.HiringContext.UnknownEmployee"] })</MudText>
+                <MudText>@L.Format("Marketplace.HiringContext.Detail", new { team = hiring.RequestingTeam, count = hiring.RemainingHeadcount, approver = hiring.ActualDecisionMaker })</MudText>
+                <MudLink Href="@($"/organizations/{OrganizationId:D}/employees?tab=hiring&recommendation={RecommendationId:D}")">@L["Marketplace.HiringContext.ReviewPlan"]</MudLink>
             }
-            else { <MudAlert Severity="Severity.Warning">This hiring recommendation is unavailable, withdrawn, or fulfilled.</MudAlert> }
-            <MudButton Variant="Variant.Text" Href="@($"/organizations/{OrganizationId:D}/marketplace")">Browse outside this plan</MudButton>
+            else { <MudAlert Severity="Severity.Warning">@L["Marketplace.HiringContext.Unavailable"]</MudAlert> }
+            <MudButton Variant="Variant.Text" Href="@($"/organizations/{OrganizationId:D}/marketplace")">@L["Marketplace.HiringContext.BrowseOutside"]</MudButton>
         </MudPaper>
     }
 
     @if (_needsChiefSetup)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
-            <strong>Finish setting up this business.</strong> Hire your Chief of Staff to unlock conversations, planning, and management check-ins. The catalog is pre-filtered to Chief of Staff roles.
+            <strong>@L["Marketplace.ChiefSetup.Title"]</strong> @L["Marketplace.ChiefSetup.Body"]
         </MudAlert>
     }
 
     <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
         <MudGrid>
             <MudItem xs="12" md="4">
-                <MudTextField T="string" Label="Search agents or capabilities"
+                <MudTextField T="string" Label="@L["Marketplace.SearchLabel"]"
                               @bind-Value="_search" Immediate="true" OnKeyDown="SearchKeyDown" Variant="Variant.Outlined"
                               Adornment="Adornment.Start"
                               AdornmentIcon="@Icons.Material.Outlined.Search" />
             </MudItem>
             <MudItem xs="12" md="3">
-                <MudTextField T="string" Label="Role" @bind-Value="_role"
-                              Variant="Variant.Outlined" Placeholder="Product Manager" />
+                <MudTextField T="string" Label="@L["Marketplace.RoleLabel"]" @bind-Value="_role"
+                              Variant="Variant.Outlined" Placeholder="@L["Marketplace.RolePlaceholder"]" />
             </MudItem>
             <MudItem xs="12" md="3">
-                <MudSelect T="string" Label="Category" @bind-Value="_category"
+                <MudSelect T="string" Label="@L["Marketplace.CategoryLabel"]" @bind-Value="_category"
                            Variant="Variant.Outlined" Clearable="true">
                     @foreach (var category in Categories)
                     {
@@ -75,21 +76,21 @@
                 </MudSelect>
             </MudItem>
             <MudItem xs="12" md="2">
-                <MudSelect T="string" Label="Sort" @bind-Value="_sort" Variant="Variant.Outlined">
-                    <MudSelectItem T="string" Value="@("relevance")">Most relevant</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("rating")">Highest rated</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("price-low")">Lowest price</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("name")">Name</MudSelectItem>
+                <MudSelect T="string" Label="@L["Marketplace.SortLabel"]" @bind-Value="_sort" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@("relevance")">@L["Marketplace.Sort.Relevance"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("rating")">@L["Marketplace.Sort.Rating"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("price-low")">@L["Marketplace.Sort.PriceLow"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("name")">@L["Marketplace.Sort.Name"]</MudSelectItem>
                 </MudSelect>
             </MudItem>
             <MudItem xs="12">
                 <MudStack Row="true" Spacing="2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                Disabled="_loading" OnClick="SearchAsync">
-                        Search catalog
+                        @L["Marketplace.SearchCatalog"]
                     </MudButton>
                     <MudButton Variant="Variant.Text" Disabled="_loading" OnClick="ClearAsync">
-                        Clear filters
+                        @L["Marketplace.ClearFilters"]
                     </MudButton>
                 </MudStack>
             </MudItem>
@@ -98,10 +99,10 @@
 
     @if (_loading)
     {
-        <MudPaper Class="pa-5 mb-4" Elevation="0" Outlined="true" role="status" aria-label="Loading agent catalog">
+        <MudPaper Class="pa-5 mb-4" Elevation="0" Outlined="true" role="status" aria-label="@L["Marketplace.LoadingAria"]">
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
-                <MudText>Finding available agents…</MudText>
+                <MudText>@L["Marketplace.Finding"]</MudText>
             </MudStack>
         </MudPaper>
     }
@@ -110,18 +111,18 @@
         @foreach (var source in _result?.Sources.Where(x => !x.Available && !string.IsNullOrWhiteSpace(x.Message)) ?? [])
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
-                @source.Source: @source.Message
+                @L.Format("Marketplace.SourceUnavailable", new { source = source.Source, message = source.Message })
             </MudAlert>
         }
 
         <MudText Typo="Typo.subtitle1" Class="mb-3">
-            @(_result?.Agents.Count ?? 0) matching @((_result?.Agents.Count ?? 0) == 1 ? "agent" : "agents")
+            @L.Format("Marketplace.MatchingCount", new { count = _result?.Agents.Count ?? 0 })
         </MudText>
         @if (_result?.Agents.Count is null or 0)
         {
             <MudPaper Class="pa-6" Elevation="0" Outlined="true">
-                <MudText Typo="Typo.h6">No matching agents</MudText>
-                <MudText Color="Color.Secondary">Try a broader role or search term.</MudText>
+                <MudText Typo="Typo.h6">@L["Marketplace.NoMatches.Title"]</MudText>
+                <MudText Color="Color.Secondary">@L["Marketplace.NoMatches.Hint"]</MudText>
             </MudPaper>
         }
         else
@@ -208,7 +209,7 @@
                 query.Add($"recommendationId={RecommendationId.Value:D}");
             _result = await Http.GetFromJsonAsync<AvailableAgentSearchResult>(
                 $"api/core/organizations/{OrganizationId:D}/agents/available?{string.Join('&', query)}")
-                ?? Offline("The agent catalog returned an empty response.");
+                ?? Offline(L["Marketplace.EmptyResponse"]);
 
             void Add(string key, string? value)
             {
@@ -218,9 +219,9 @@
         }
         catch (HttpRequestException)
         {
-            _result = Offline(RecommendationId.HasValue
-                ? "The hiring recommendation or its candidates could not be loaded. Refresh or return to Hiring to select a current recommendation."
-                : "C-Sweet could not reach the agent catalog.");
+            _result = Offline(L[RecommendationId.HasValue
+                ? "Marketplace.RecommendationLoadFailed"
+                : "Marketplace.Unreachable"]);
         }
         finally
         {

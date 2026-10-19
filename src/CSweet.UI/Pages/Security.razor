@@ -3,51 +3,53 @@
 @using System.Net.Http.Json
 @using CSweet.Contracts.Security
 @inject HttpClient Http
+@inject IAppLocalizer L
+@inject UserTime Time
 
-<PageTitle>Security - C-Sweet</PageTitle>
+<PageTitle>@L["Security.PageTitle"]</PageTitle>
 
 <EmployeePortraitScope OrganizationId="OrganizationId">
 <div class="aurora-page business-workspace security-audit-page">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="security-audit-heading">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Company controls</MudText>
-            <MudText Typo="Typo.h4">Security</MudText>
-            <MudText Color="Color.Secondary">Inspect business activity, access decisions, and verified event history.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["Security.Overline"]</MudText>
+            <MudText Typo="Typo.h4">@L["Security.Title"]</MudText>
+            <MudText Color="Color.Secondary">@L["Security.Lead"]</MudText>
         </div>
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
-                   Disabled="_loading" OnClick="ReloadAsync">Refresh</MudButton>
+                   Disabled="_loading" OnClick="ReloadAsync">@L["Common.Refresh"]</MudButton>
     </MudStack>
 
     <div class="security-audit-filters">
-        <MudSelect T="string" Label="Time range" Value="_range" ValueChanged="OnRangeChanged" Variant="Variant.Outlined" Dense="true">
-            <MudSelectItem T="string" Value="@("24h")">Last 24 hours</MudSelectItem>
-            <MudSelectItem T="string" Value="@("7d")">Last 7 days</MudSelectItem>
-            <MudSelectItem T="string" Value="@("30d")">Last 30 days</MudSelectItem>
-            <MudSelectItem T="string" Value="@("all")">All time</MudSelectItem>
+        <MudSelect T="string" Label="@L["Security.TimeRange"]" Value="_range" ValueChanged="OnRangeChanged" Variant="Variant.Outlined" Dense="true">
+            <MudSelectItem T="string" Value="@("24h")">@L["Security.Range.24h"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("7d")">@L["Security.Range.7d"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("30d")">@L["Security.Range.30d"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("all")">@L["Security.Range.All"]</MudSelectItem>
         </MudSelect>
-        <MudSelect T="string" Label="Category" Value="_category" ValueChanged="OnCategoryChanged" Variant="Variant.Outlined" Dense="true">
-            <MudSelectItem T="string" Value="@string.Empty">All categories</MudSelectItem>
-            @foreach (var value in Categories) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+        <MudSelect T="string" Label="@L["Security.Category"]" Value="_category" ValueChanged="OnCategoryChanged" Variant="Variant.Outlined" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">@L["Security.AllCategories"]</MudSelectItem>
+            @foreach (var value in Categories) { <MudSelectItem T="string" Value="@value">@Label("SecurityCategory", value)</MudSelectItem> }
         </MudSelect>
-        <MudSelect T="string" Label="Outcome" Value="_outcome" ValueChanged="OnOutcomeChanged" Variant="Variant.Outlined" Dense="true">
-            <MudSelectItem T="string" Value="@string.Empty">All outcomes</MudSelectItem>
-            @foreach (var value in Outcomes) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+        <MudSelect T="string" Label="@L["Security.Outcome"]" Value="_outcome" ValueChanged="OnOutcomeChanged" Variant="Variant.Outlined" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">@L["Security.AllOutcomes"]</MudSelectItem>
+            @foreach (var value in Outcomes) { <MudSelectItem T="string" Value="@value">@Label("SecurityOutcome", value)</MudSelectItem> }
         </MudSelect>
-        <MudSelect T="string" Label="Actor" Value="_actorKind" ValueChanged="OnActorChanged" Variant="Variant.Outlined" Dense="true">
-            <MudSelectItem T="string" Value="@string.Empty">All actors</MudSelectItem>
-            @foreach (var value in ActorKinds) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
+        <MudSelect T="string" Label="@L["Security.Actor"]" Value="_actorKind" ValueChanged="OnActorChanged" Variant="Variant.Outlined" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">@L["Security.AllActors"]</MudSelectItem>
+            @foreach (var value in ActorKinds) { <MudSelectItem T="string" Value="@value">@Label("SecurityActorKind", value)</MudSelectItem> }
         </MudSelect>
-        <MudTextField Label="Search" @bind-Value="_search" Variant="Variant.Outlined"
-                      Placeholder="Event, actor, correlation…" Adornment="Adornment.End"
+        <MudTextField Label="@L["Common.Search"]" @bind-Value="_search" Variant="Variant.Outlined"
+                      Placeholder="@L["Security.SearchPlaceholder"]" Adornment="Adornment.End"
                       AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" Clearable="true" />
         <MudSwitch T="bool" Value="_groupModelResponses" ValueChanged="OnGroupModelResponsesChanged" Color="Color.Primary"
-                   Label="Group model response chunks" />
+                   Label="@L["Security.GroupModelResponses"]" />
     </div>
 
     @if (_forbidden)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
-            Security history is restricted to signed-in human Owners and Managers for this company.
+            @L["Security.Forbidden"]
         </MudAlert>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
@@ -59,18 +61,18 @@
         @if (_items.Any(x => x.IntegrityStatus != "Verified"))
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mt-4">
-                This result contains legacy unsealed history or a record that failed integrity verification. Open the record for details.
+                @L["Security.IntegrityWarning"]
             </MudAlert>
         }
 
         <MudTable T="SecurityEventSummaryResponse" Items="_items" Dense="true" Hover="true" Breakpoint="Breakpoint.Md"
-                  Loading="_loading" Class="security-audit-table mt-4" AriaLabel="Security events">
+                  Loading="_loading" Class="security-audit-table mt-4" AriaLabel="@L["Security.TableAriaLabel"]">
             <HeaderContent>
-                <MudTh>Time</MudTh><MudTh>Activity</MudTh><MudTh>Actor</MudTh><MudTh>Target</MudTh><MudTh>Direction</MudTh><MudTh>Outcome</MudTh><MudTh>Integrity</MudTh>
+                <MudTh>@L["Security.Column.Time"]</MudTh><MudTh>@L["Security.Column.Activity"]</MudTh><MudTh>@L["Security.Actor"]</MudTh><MudTh>@L["Security.Column.Target"]</MudTh><MudTh>@L["Security.Column.Direction"]</MudTh><MudTh>@L["Security.Outcome"]</MudTh><MudTh>@L["Security.Column.Integrity"]</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Time"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id, _groupModelResponses))">@FormatTime(context.OccurredAt)</button></MudTd>
-                <MudTd DataLabel="Activity">
+                <MudTd DataLabel="@L["Security.Column.Time"]"><button class="security-event-link" @onclick="@(() => OpenDetailAsync(context.Id, _groupModelResponses))">@FormatTime(context.OccurredAt)</button></MudTd>
+                <MudTd DataLabel="@L["Security.Column.Activity"]">
                     <MudText Typo="Typo.body2">
                         @if (context.ActivityHref is { } href)
                         { <MudLink Href="@href"><strong>@ActivityLabel(context)</strong></MudLink> }
@@ -79,46 +81,46 @@
                     </MudText>
                     @if (context.ModelResponseChunkCount is int chunks)
                     {
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">@chunks.ToString("N0") part@(chunks == 1 ? "" : "s") combined</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.Format("Security.PartsCombined", new { count = chunks })</MudText>
                     }
                     @if (context.Category == "DocumentAccess" && context.EntityId.HasValue)
                     {
                         @if (context.EventType.Contains(".package.", StringComparison.Ordinal))
-                        { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?packageId={context.EntityId:D}")">Open package</MudLink> }
+                        { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?packageId={context.EntityId:D}")">@L["Security.OpenPackage"]</MudLink> }
                         else if (!context.EventType.Contains(".folder.", StringComparison.Ordinal))
-                        { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?artifact={context.EntityId:D}")">Open document</MudLink> }
+                        { <MudLink Href="@($"/organizations/{OrganizationId:D}/documents?artifact={context.EntityId:D}")">@L["Security.OpenDocument"]</MudLink> }
                     }
                 </MudTd>
-                <MudTd DataLabel="Actor">
+                <MudTd DataLabel="@L["Security.Actor"]">
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                         @if (context.ActorKind == "Agent")
                         {
                             <span class="security-actor-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="context.ActorEmployeeId" IsAgent="true" /></span>
                         }
-                        <div><MudText Typo="Typo.body2">@context.ActorDisplayName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@context.ActorKind</MudText></div>
+                        <div><MudText Typo="Typo.body2">@context.ActorDisplayName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@Label("SecurityActorKind", context.ActorKind)</MudText></div>
                     </MudStack>
                 </MudTd>
-                <MudTd DataLabel="Target">@Value(context.TargetDisplayName)</MudTd>
-                <MudTd DataLabel="Direction">@context.Direction</MudTd>
-                <MudTd DataLabel="Outcome"><MudChip T="string" Size="Size.Small" Color="@OutcomeColor(context.Outcome)">@context.Outcome</MudChip></MudTd>
-                <MudTd DataLabel="Integrity"><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@IntegrityColor(context.IntegrityStatus)">@context.IntegrityStatus</MudChip></MudTd>
+                <MudTd DataLabel="@L["Security.Column.Target"]">@Value(context.TargetDisplayName)</MudTd>
+                <MudTd DataLabel="@L["Security.Column.Direction"]">@Label("SecurityDirection", context.Direction)</MudTd>
+                <MudTd DataLabel="@L["Security.Outcome"]"><MudChip T="string" Size="Size.Small" Color="@OutcomeColor(context.Outcome)">@Label("SecurityOutcome", context.Outcome)</MudChip></MudTd>
+                <MudTd DataLabel="@L["Security.Column.Integrity"]"><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@IntegrityColor(context.IntegrityStatus)">@Label("SecurityIntegrity", context.IntegrityStatus)</MudChip></MudTd>
             </RowTemplate>
             <NoRecordsContent>
-                <MudText Color="Color.Secondary" Class="pa-4">No security events match these filters.</MudText>
+                <MudText Color="Color.Secondary" Class="pa-4">@L["Security.NoEvents"]</MudText>
             </NoRecordsContent>
         </MudTable>
 
         @if (_nextCursor is not null)
         {
             <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="_loadingMore" OnClick="LoadMoreAsync" Class="mt-3">
-                @(_loadingMore ? "Loading…" : "Load more")
+                @(_loadingMore ? L["Common.Loading"] : L["Security.LoadMore"])
             </MudButton>
         }
     }
 </div>
 
 <MudDialog @bind-Visible="_detailOpen" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Security event</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["Security.EventDialogTitle"]</MudText></TitleContent>
     <DialogContent>
         @if (_detailLoading) { <MudProgressLinear Indeterminate="true" /> }
         else if (_detail is not null)
@@ -126,7 +128,7 @@
             <AuditEventInspector Event="_detail" OrganizationId="OrganizationId" />
         }
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _detailOpen = false)">Close</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _detailOpen = false)">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 </EmployeePortraitScope>
@@ -182,7 +184,8 @@
     private Task OnActorChanged(string value) { _actorKind = value; return ReloadAsync(); }
     private Task OnGroupModelResponsesChanged(bool value) { _groupModelResponses = value; return ReloadAsync(); }
 
-    private static string FormatTime(DateTimeOffset value) => value.ToLocalTime().ToString("g");
+    private string FormatTime(DateTimeOffset value) => Time.Format(value, "g");
+    private string Label(string family, string? value) => string.IsNullOrEmpty(value) ? string.Empty : L.Has(family + "." + value) ? L[family + "." + value] : value;
     private static string ActivityLabel(SecurityEventSummaryResponse value) =>
         value.ActivityDescription ?? value.Summary ?? AuditActionDescriptions.Humanize(value.EventType);
     private static string ActorLabel(SecurityEventDetailResponse value) => value.ActorDisplayName ?? value.ActorAgentId ?? value.ActorApplicationUserId?.ToString("D") ?? value.ActorKind;

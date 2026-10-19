@@ -1,46 +1,48 @@
 @using CSweet.Contracts.Agents
+@inject IAppLocalizer L
+@inject UserTime Time
 
 <article class="installed-agent-card" aria-label="@Installation.AgentName" @onmouseleave="CloseUnpinnedProgress">
-    <button type="button" class="installed-agent-details-target" aria-label="View details for @Installation.AgentName" @onclick="OpenDetails"></button>
+    <button type="button" class="installed-agent-details-target" aria-label="@L.Format("InstalledAgentCard.ViewDetailsFor", new { name = Installation.AgentName })" @onclick="OpenDetails"></button>
     <div class="installed-agent-controls">
     <div class="installed-agent-version">
-        <button type="button" class="installed-agent-version-check" title="Check for updates" aria-label="Check for updates for @Installation.AgentName"
+        <button type="button" class="installed-agent-version-check" title="@L["InstalledAgentCard.CheckForUpdates"]" aria-label="@L.Format("InstalledAgentCard.CheckForUpdatesFor", new { name = Installation.AgentName })"
                 disabled="@(Busy || Building || CheckingUpdates)" @onclick="OnCheckUpdates">@($"v{Installation.AgentVersion}")</button>
         @if (Update is not null)
         {
-            <div class="agent-card-popover-host update-preview @(_updatePreviewOpen ? "is-open" : "")" tabindex="0" aria-label="Update to version @Update.AvailableVersion"
+            <div class="agent-card-popover-host update-preview @(_updatePreviewOpen ? "is-open" : "")" tabindex="0" aria-label="@L.Format("InstalledAgentCard.UpdateToVersionAria", new { version = Update.AvailableVersion })"
                  @onmouseenter="@(() => _updatePreviewOpen = true)" @onmouseleave="@(() => _updatePreviewOpen = false)"
                  @onfocusin="@(() => _updatePreviewOpen = true)" @onfocusout="@(() => _updatePreviewOpen = false)" @onkeydown="ClosePopupOnEscape">
                 <MudIconButton Icon="@Icons.Material.Filled.SystemUpdateAlt" Color="Color.Info" Size="Size.Small"
-                               aria-label="@($"Update {Installation.AgentName} to {Update.AvailableVersion}")"
+                               aria-label="@L.Format("InstalledAgentCard.UpdateAgentTo", new { name = Installation.AgentName, version = Update.AvailableVersion })"
                                Disabled="@(Busy || Building)" OnClick="OnUpdate" />
                 <div class="agent-card-popover" role="tooltip">
                     <div class="agent-update-heading">
-                        <MudText Typo="Typo.subtitle2">@($"Update to v{Update.AvailableVersion}")</MudText>
+                        <MudText Typo="Typo.subtitle2">@L.Format("InstalledAgentCard.UpdateToVersion", new { version = Update.AvailableVersion })</MudText>
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Custom.Brands.GitHub"
                                   title="@UpdateApproachTitle">@UpdateApproachLabel</MudChip>
                     </div>
-                    <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? "No release notes were published for this version." : Update.ReleaseNotes)</div>
+                    <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? L["InstalledAgentCard.NoReleaseNotes"] : Update.ReleaseNotes)</div>
                 </div>
             </div>
         }
     </div>
         <MudIconButton Icon="@Icons.Material.Outlined.Settings" Color="Color.Default" Size="Size.Small"
-                       aria-label="@($"Configure global defaults for {Installation.AgentName}")" title="Configure global defaults"
+                       aria-label="@L.Format("InstalledAgentCard.ConfigureDefaultsFor", new { name = Installation.AgentName })" title="@L["InstalledAgentCard.ConfigureDefaults"]"
                        Disabled="@Busy" OnClick="ConfigureAsync" />
     </div>
     <div class="installed-agent-identity">
         <img src="@PortraitUrl" alt="" class="installed-agent-portrait" loading="eager" fetchpriority="high" decoding="async" referrerpolicy="no-referrer" @onerror="UseFallbackPortrait" />
         <div class="installed-agent-name">
             <MudText Typo="Typo.subtitle1">@Installation.AgentName</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">@(Installation.RoleName ?? "Agent definition")</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@(Installation.RoleName ?? L["InstalledAgentCard.AgentDefinition"])</MudText>
             @if (Building)
             {
                 <div class="agent-card-popover-host installed-agent-progress @(_progressOpen ? "is-open" : "")" @onkeydown="ClosePopupOnEscape">
-                    <button type="button" class="installed-agent-updating" aria-label="Show update progress for @Installation.AgentName"
+                    <button type="button" class="installed-agent-updating" aria-label="@L.Format("InstalledAgentCard.ShowProgressFor", new { name = Installation.AgentName })"
                             aria-expanded="@_progressOpen" @onclick="ToggleProgress"
                             @onmouseenter="@(() => _progressOpen = true)" @onfocus="@(() => _progressOpen = true)" @onblur="CloseUnpinnedProgress">
-                        <MudProgressCircular Indeterminate="true" Size="Size.Small" /> Updating
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small" /> @L["InstalledAgentCard.Updating"]
                     </button>
                     <div class="agent-card-popover">
                         <AgentBuildProgressContent Build="@(BuildPending ? null : Installation.Build)" SourceMode="@(BuildPending ? Update?.UpdateApproach ?? Installation.Build?.SourceMode : null)" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
@@ -56,7 +58,7 @@
     @if (!Building && (Installation.Build?.Status is "Failed" or "Cancelled" || Installation.SetupState == "BuildFailed"))
     {
         <div class="installed-agent-actions">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@Busy" OnClick="OnBuild">Rebuild</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@Busy" OnClick="OnBuild">@L["InstalledAgentCard.Rebuild"]</MudButton>
         </div>
     }
 
@@ -68,60 +70,60 @@
     </TitleContent>
     <DialogContent>
         <MudText Color="Color.Secondary" Class="mb-3">@Installation.Summary</MudText>
-        <MudText Typo="Typo.overline">Definition</MudText>
+        <MudText Typo="Typo.overline">@L["InstalledAgentCard.Definition"]</MudText>
         <dl class="configuration-details agents-details">
-            <div><dt>Agent ID</dt><dd>@Installation.AgentId</dd></div>
-            <div><dt>Role</dt><dd>@(Installation.RoleName ?? "Not specified")</dd></div>
-            <div><dt>Publisher</dt><dd>@Installation.PublisherName</dd></div>
-            <div><dt>Status</dt><dd>@StatusLabel</dd></div>
-            <div><dt>Installed</dt><dd>@Installation.CreatedAt.ToLocalTime().ToString("g")</dd></div>
-            <div><dt>Updated</dt><dd>@Installation.UpdatedAt.ToLocalTime().ToString("g")</dd></div>
-            <div><dt>Source commit</dt><dd class="agent-import-hash">@Installation.CommitSha</dd></div>
+            <div><dt>@L["InstalledAgentCard.AgentId"]</dt><dd>@Installation.AgentId</dd></div>
+            <div><dt>@L["InstalledAgentCard.Role"]</dt><dd>@(Installation.RoleName ?? L["InstalledAgentCard.NotSpecified"])</dd></div>
+            <div><dt>@L["InstalledAgentCard.Publisher"]</dt><dd>@Installation.PublisherName</dd></div>
+            <div><dt>@L["InstalledAgentCard.Status"]</dt><dd>@StatusLabel</dd></div>
+            <div><dt>@L["InstalledAgentCard.Installed"]</dt><dd>@Time.Format(Installation.CreatedAt, "g")</dd></div>
+            <div><dt>@L["InstalledAgentCard.Updated"]</dt><dd>@Time.Format(Installation.UpdatedAt, "g")</dd></div>
+            <div><dt>@L["InstalledAgentCard.SourceCommit"]</dt><dd class="agent-import-hash">@Installation.CommitSha</dd></div>
         </dl>
         <MudDivider Class="my-4" />
-        <MudText Typo="Typo.overline">Defaults for new hires</MudText>
+        <MudText Typo="Typo.overline">@L["InstalledAgentCard.DefaultsForNewHires"]</MudText>
         <dl class="configuration-details agents-details">
-            <div><dt>Activation</dt><dd>@Installation.Schedule.ActivationMode</dd></div>
-            <div><dt>Frequency</dt><dd>@TimeSpan.FromSeconds(Installation.Schedule.TickFrequencySeconds)</dd></div>
-            <div><dt>Overlap policy</dt><dd>@Installation.Schedule.OverlapPolicy</dd></div>
-            <div><dt>Runtime limit</dt><dd>@Installation.Schedule.MaxRuntimeSeconds s</dd></div>
-            <div><dt>Memory</dt><dd>@Installation.MemoryMb MB</dd></div>
-            <div><dt>CPU</dt><dd>@Installation.CpuPercent%</dd></div>
+            <div><dt>@L["InstalledAgentCard.Activation"]</dt><dd>@Installation.Schedule.ActivationMode</dd></div>
+            <div><dt>@L["InstalledAgentCard.Frequency"]</dt><dd>@TimeSpan.FromSeconds(Installation.Schedule.TickFrequencySeconds)</dd></div>
+            <div><dt>@L["InstalledAgentCard.OverlapPolicy"]</dt><dd>@Installation.Schedule.OverlapPolicy</dd></div>
+            <div><dt>@L["InstalledAgentCard.RuntimeLimit"]</dt><dd>@L.Format("InstalledAgentCard.Seconds", new { seconds = Installation.Schedule.MaxRuntimeSeconds })</dd></div>
+            <div><dt>@L["InstalledAgentCard.Memory"]</dt><dd>@L.Format("InstalledAgentCard.Megabytes", new { mb = Installation.MemoryMb })</dd></div>
+            <div><dt>@L["InstalledAgentCard.Cpu"]</dt><dd>@L.Format("InstalledAgentCard.Percent", new { percent = Installation.CpuPercent })</dd></div>
         </dl>
         <MudDivider Class="my-4" />
-        <MudText Typo="Typo.overline">Default access</MudText>
+        <MudText Typo="Typo.overline">@L["InstalledAgentCard.DefaultAccess"]</MudText>
         <dl class="configuration-details agents-details agent-access-details">
-            <div><dt>Provided capabilities</dt><dd>@List(Installation.GrantedCapabilities)</dd></div>
-            <div><dt>Required capabilities</dt><dd>@List(Installation.RequiredCapabilities)</dd></div>
-            <div><dt>Event subscriptions</dt><dd>@List(Installation.GrantedSubscriptions)</dd></div>
-            <div><dt>Public internet</dt><dd>@(Installation.PublicInternetGranted ? "Allowed" : "Restricted")</dd></div>
-            <div><dt>Runtime network</dt><dd>@(Installation.LatestRuntime?.NetworkMode ?? "not-running")</dd></div>
-            <div><dt>Runtime image tools</dt><dd>@List(Installation.LatestRuntime?.ImageTools ?? [])</dd></div>
-            <div><dt>Runtime memory</dt><dd>@(Installation.LatestRuntime?.AllocatedMemoryMb is > 0 and var memory ? $"{memory} MiB" : "Not allocated")</dd></div>
-            <div><dt>Network access</dt><dd>@List(Installation.GrantedNetworkAccess)</dd></div>
+            <div><dt>@L["InstalledAgentCard.ProvidedCapabilities"]</dt><dd>@List(Installation.GrantedCapabilities)</dd></div>
+            <div><dt>@L["InstalledAgentCard.RequiredCapabilities"]</dt><dd>@List(Installation.RequiredCapabilities)</dd></div>
+            <div><dt>@L["InstalledAgentCard.EventSubscriptions"]</dt><dd>@List(Installation.GrantedSubscriptions)</dd></div>
+            <div><dt>@L["InstalledAgentCard.PublicInternet"]</dt><dd>@(Installation.PublicInternetGranted ? L["InstalledAgentCard.Allowed"] : L["InstalledAgentCard.Restricted"])</dd></div>
+            <div><dt>@L["InstalledAgentCard.RuntimeNetwork"]</dt><dd>@(Installation.LatestRuntime?.NetworkMode ?? "not-running")</dd></div>
+            <div><dt>@L["InstalledAgentCard.RuntimeImageTools"]</dt><dd>@List(Installation.LatestRuntime?.ImageTools ?? [])</dd></div>
+            <div><dt>@L["InstalledAgentCard.RuntimeMemory"]</dt><dd>@(Installation.LatestRuntime?.AllocatedMemoryMb is > 0 and var memory ? L.Format("InstalledAgentCard.Mebibytes", new { mb = memory }) : L["InstalledAgentCard.NotAllocated"])</dd></div>
+            <div><dt>@L["InstalledAgentCard.NetworkAccess"]</dt><dd>@List(Installation.GrantedNetworkAccess)</dd></div>
         </dl>
         <MudDivider Class="my-4" />
         <AgentBuildProgressContent Build="@(BuildPending ? null : Installation.Build)" SourceMode="@(BuildPending ? Update?.UpdateApproach ?? Installation.Build?.SourceMode : null)" ProgressTitle="@ProgressTitle" ProgressDetail="@ProgressDetail" />
         @if (Installation.Build?.HasLog == true)
         {
-            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description" OnClick="OnBuildLog">View full build log</MudButton>
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description" OnClick="OnBuildLog">@L["InstalledAgentCard.ViewBuildLog"]</MudButton>
         }
         @if (Update is not null)
         {
             <MudDivider Class="my-4" />
             <div class="agent-update-heading">
-                <MudText Typo="Typo.overline">Available update · @($"v{Update.AvailableVersion}")</MudText>
+                <MudText Typo="Typo.overline">@L.Format("InstalledAgentCard.AvailableUpdate", new { version = Update.AvailableVersion })</MudText>
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Icon="@Icons.Custom.Brands.GitHub"
                           title="@UpdateApproachTitle">@UpdateApproachLabel</MudChip>
             </div>
-            <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? "No release notes were published for this version." : Update.ReleaseNotes)</div>
-            <MudButton Color="Color.Primary" Disabled="@(Busy || Building)" OnClick="OnUpdate">@($"Update to v{Update.AvailableVersion}")</MudButton>
+            <div class="agent-release-notes">@(string.IsNullOrWhiteSpace(Update.ReleaseNotes) ? Update.ReleaseNotesError ?? L["InstalledAgentCard.NoReleaseNotes"] : Update.ReleaseNotes)</div>
+            <MudButton Color="Color.Primary" Disabled="@(Busy || Building)" OnClick="OnUpdate">@L.Format("InstalledAgentCard.UpdateToVersion", new { version = Update.AvailableVersion })</MudButton>
         }
     </DialogContent>
     <DialogActions>
-        <MudButton Color="Color.Error" Disabled="@(Busy || Building)" OnClick="RemoveAsync">Remove</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Outlined" Disabled="@Busy" OnClick="ConfigureAsync">Configure global defaults</MudButton>
-        <MudButton Color="Color.Primary" OnClick="@(() => _detailsOpen = false)">Close</MudButton>
+        <MudButton Color="Color.Error" Disabled="@(Busy || Building)" OnClick="RemoveAsync">@L["Common.Remove"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Outlined" Disabled="@Busy" OnClick="ConfigureAsync">@L["InstalledAgentCard.ConfigureDefaults"]</MudButton>
+        <MudButton Color="Color.Primary" OnClick="@(() => _detailsOpen = false)">@L["Common.Close"]</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -147,16 +149,16 @@
     private bool _portraitFailed;
     private bool Building => InstalledAgentPresentation.IsBuilding(Installation, BuildPending);
     private bool UpdateIsPrebuilt => string.Equals(Update?.UpdateApproach, "PrebuiltRelease", StringComparison.Ordinal);
-    private string UpdateApproachLabel => UpdateIsPrebuilt ? "CSAB" : "Code";
-    private string UpdateApproachTitle => UpdateIsPrebuilt
-        ? "Updates from a prebuilt release bundle"
-        : "Updates by building from source";
-    private string StatusLabel => Building ? "Build in progress" : Installation.Build?.Status switch
+    private string UpdateApproachLabel => L[UpdateIsPrebuilt ? "InstalledAgentCard.UpdateApproach.Prebuilt" : "InstalledAgentCard.UpdateApproach.Source"];
+    private string UpdateApproachTitle => L[UpdateIsPrebuilt
+        ? "InstalledAgentCard.UpdateApproach.PrebuiltTitle"
+        : "InstalledAgentCard.UpdateApproach.SourceTitle"];
+    private string StatusLabel => L[Building ? "InstalledAgentCard.Status.BuildInProgress" : Installation.Build?.Status switch
     {
-        "Failed" => "Build failed",
-        "Cancelled" => "Build cancelled",
-        _ => Installation.SetupState switch { "Available" => "Available for hire", "BuildFailed" => "Package unavailable", "NeedsConfiguration" => "Needs configuration", "Disabled" => "Disabled", _ => "Installed" }
-    };
+        "Failed" => "InstalledAgentCard.Status.BuildFailed",
+        "Cancelled" => "InstalledAgentCard.Status.BuildCancelled",
+        _ => Installation.SetupState switch { "Available" => "InstalledAgentCard.Status.Available", "BuildFailed" => "InstalledAgentCard.Status.PackageUnavailable", "NeedsConfiguration" => "InstalledAgentCard.Status.NeedsConfiguration", "Disabled" => "InstalledAgentCard.Status.Disabled", _ => "InstalledAgentCard.Status.Installed" }
+    }];
     private Color StatusColor => Installation.Build?.Status is "Failed" or "Cancelled" && !Building ? Color.Error : Color.Secondary;
     private string PortraitUrl => !_portraitFailed && MarketplaceAgentPresentation.IsAgentImageUrl(Installation.ImageUrl)
         ? Installation.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
@@ -170,5 +172,5 @@
     }
     private async Task ConfigureAsync() { _detailsOpen = false; await OnConfigure.InvokeAsync(); }
     private async Task RemoveAsync() { _detailsOpen = false; await OnRemove.InvokeAsync(); }
-    private static string List(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values.Select(CapabilityDisplayNames.For));
+    private string List(IReadOnlyList<string> values) => values.Count == 0 ? L["Common.None"] : string.Join(", ", values.Select(value => CapabilityDisplayNames.For(L, value)));
 }

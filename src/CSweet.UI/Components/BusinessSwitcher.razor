@@ -1,27 +1,28 @@
 @implements IDisposable
 @inject IBusinessContext BusinessContext
+@inject IAppLocalizer L
 
 <div class="business-switcher">
     @if (BusinessContext.IsLoading)
     {
         <MudProgressLinear Indeterminate="true" Color="Color.Tertiary" Class="business-switcher-progress" />
-        <MudText Typo="Typo.caption">Loading businesses...</MudText>
+        <MudText Typo="Typo.caption">@L["BusinessSwitcher.Loading"]</MudText>
     }
     else if (!string.IsNullOrWhiteSpace(BusinessContext.ErrorMessage))
     {
-        <MudText Typo="Typo.caption" Class="business-switcher-error">@BusinessContext.ErrorMessage</MudText>
-        <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="RefreshAsync">Retry</MudButton>
+        <MudText Typo="Typo.caption" Class="business-switcher-error">@L[BusinessContext.ErrorMessage!]</MudText>
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="RefreshAsync">@L["Common.Retry"]</MudButton>
     }
     else if (BusinessContext.Businesses.Count == 0)
     {
         <MudButton Href="/?create=true" Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.AddBusiness" FullWidth="true">
-            Create a business
+            @L["BusinessSwitcher.CreateBusiness"]
         </MudButton>
     }
     else
     {
         <MudSelect T="Guid?"
-                   Label="Focused business"
+                   Label="@L["BusinessSwitcher.FocusedBusiness"]"
                    Value="BusinessContext.SelectedBusiness?.Id"
                    ValueChanged="SwitchBusinessAsync"
                    Dense="true"

@@ -8,5 +8,5 @@ public sealed record FileViewerDescriptor(
     IReadOnlyCollection<string> SupportedExtensions,
     Type ComponentType,
     bool SupportsPreview,
-    string PreviewLabel = "Preview",
-    string RawLabel = "Raw") : IFileContentViewer;
+    string PreviewLabel = "FileContentViewer.Preview",
+    string RawLabel = "FileContentViewer.Raw") : IFileContentViewer;

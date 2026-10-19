@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -170,7 +171,7 @@ public sealed class CompanyDashboardRealtimeTests
         public Fixture(Handler handler)
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddMudServices();
+            services.AddMudServices(); services.AddCSweetLocalization();
             services.AddCSweetApiClients();
             services.AddSingleton<IJSRuntime, NoJavaScript>();
             services.AddSingleton<NavigationManager, TestNavigation>();

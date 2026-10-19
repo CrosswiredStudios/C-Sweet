@@ -14,6 +14,7 @@ using Microsoft.JSInterop;
 using MudBlazor.Services;
 using MudBlazor;
 using SetupPage = CSweet.UI.Pages.Setup;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -132,7 +133,7 @@ public sealed class OnboardingWorkspaceRenderingTests
     private static async Task<string> Render(SetupApi api, string theme, bool finish = false, string? officeScenario = null, string? providerScenario = null)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();

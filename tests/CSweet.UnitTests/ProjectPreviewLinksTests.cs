@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CSweet.Contracts.Core;
 using CSweet.UI.Components;
+using CSweet.UI.Localization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +24,7 @@ public sealed class ProjectPreviewLinksTests
         var resource = new ProjectInspectionResource(Guid.NewGuid(), "Preview", "web-static", "web-static", status,
             null, null, null, null, null, null, DateTimeOffset.UtcNow, "/project",
             JsonSerializer.SerializeToElement(new { BuildId = build, ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(minutes), AccessReference = url }));
-        await using var provider = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var provider = new ServiceCollection().AddLogging().AddCSweetLocalization().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
         {

@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -26,7 +27,7 @@ public sealed class PendingAgentQuestionsTests
                 [new("a", "Proceed", null, true), new("b", "Wait", null, false)], "a", null, null,
                 DateTimeOffset.UtcNow, null))).ToList();
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new QuestionsHandler(questions)) { BaseAddress = new Uri("http://localhost/") });
@@ -63,7 +64,7 @@ public sealed class PendingAgentQuestionsTests
         var org = Guid.NewGuid();
         var incident = new CSweet.Contracts.Core.ProjectIncidentAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Prismatic Break",
             "Gabriel Reyes", "Delivery scope changed", "Stale pins", "Reconcile the draft", $"/organizations/{org}/communications/{Guid.NewGuid()}", DateTimeOffset.UtcNow);
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new QuestionsHandler([])) { BaseAddress = new Uri("http://localhost/") });
         services.AddSingleton<AppRealtimeState>();

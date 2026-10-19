@@ -1,16 +1,17 @@
 @layout MainLayout
 @inherits LayoutComponentBase
 @inject IBusinessContext BusinessContext
+@inject IAppLocalizer L
 
 <div class="aurora-page settings-workspace">
     <header class="settings-workspace-header">
-        <a class="settings-home-link" href="/settings"><MudIcon Icon="@Icons.Material.Outlined.Settings" /><span>Settings</span></a>
-        <MudButton Href="@WorkspaceUrl" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ArrowBack">Back to workspace</MudButton>
+        <a class="settings-home-link" href="/settings"><MudIcon Icon="@Icons.Material.Outlined.Settings" /><span>@L["SettingsLayout.Settings"]</span></a>
+        <MudButton Href="@WorkspaceUrl" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ArrowBack">@L["SettingsLayout.BackToWorkspace"]</MudButton>
     </header>
     <div class="settings-workspace-grid">
         <aside class="settings-workspace-sidebar"><SettingsNavigation /></aside>
         <details class="settings-mobile-navigation">
-            <summary>Browse settings</summary>
+            <summary>@L["SettingsLayout.BrowseSettings"]</summary>
             <SettingsNavigation />
         </details>
         <div class="settings-workspace-content" id="settings-content">

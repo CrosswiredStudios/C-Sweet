@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 public sealed class ProjectResourceTableTests
@@ -17,7 +18,7 @@ public sealed class ProjectResourceTableTests
         var resource = new ProjectInspectionResource(Guid.NewGuid(), "Decision", "direction", "Choose browser targets", "Pending",
             null, null, null, null, null, null, DateTimeOffset.UtcNow, "/project", JsonSerializer.SerializeToElement(new {}));
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

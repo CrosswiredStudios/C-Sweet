@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -225,7 +226,7 @@ public sealed class WorkBoardWorkspaceTests
             Item("Another sprint", Guid.NewGuid()), Item("Finished backlog") with { Status = "Completed" },
             Item("Cancelled backlog") with { Status = "Cancelled" }];
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
@@ -257,7 +258,7 @@ public sealed class WorkBoardWorkspaceTests
         HttpStatusCode response = HttpStatusCode.NotFound, Wire.WorkSprintExecutionResponse? execution = null, Guid? initialSprintId = null)
     {
         var requests = new List<string>();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton(new HttpClient(new Handler(requests, response, execution)) { BaseAddress = new Uri("http://localhost") });
         await using var provider = services.BuildServiceProvider();

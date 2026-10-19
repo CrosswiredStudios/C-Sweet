@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -93,7 +94,7 @@ public sealed class IncidentResolutionChoicesTests
         public int Answers;
         public Fixture()
         {
-            var collection = new ServiceCollection().AddLogging(); collection.AddMudServices();
+            var collection = new ServiceCollection().AddLogging(); collection.AddMudServices(); collection.AddCSweetLocalization();
             collection.AddSingleton<IComponentActivator>(Capture); collection.AddSingleton<IJSRuntime, NoJs>(); collection.AddSingleton<NavigationManager, Navigation>();
             collection.AddSingleton(new HttpClient(Handler) { BaseAddress = new("http://localhost/") });
             services = collection.BuildServiceProvider(); Renderer = new(services, services.GetRequiredService<ILoggerFactory>());

@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -90,7 +91,7 @@ public sealed class NotificationSnackbarTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<NavigationManager>(new TestNavigation());
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         return services.BuildServiceProvider();
     }
 

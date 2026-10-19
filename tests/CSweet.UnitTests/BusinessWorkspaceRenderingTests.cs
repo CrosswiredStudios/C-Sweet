@@ -16,6 +16,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Extensions;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -179,7 +180,7 @@ public sealed class BusinessWorkspaceRenderingTests
     private static async Task<string> Render(Type page, string name, string? field = null, string? value = null, Func<ComponentBase, Task>? exercise = null, int? tab = null)
     {
         var api = new BusinessApi();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         var activator = new TrackingActivator(); services.AddSingleton<IComponentActivator>(activator);
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });

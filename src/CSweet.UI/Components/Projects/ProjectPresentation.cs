@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CSweet.Contracts.Core;
+using CSweet.UI.Localization;
 
 namespace CSweet.UI.Components.Projects;
 
@@ -29,10 +30,10 @@ public static class ProjectPresentation
         _ => "overview"
     };
 
-    public static string Profile(string? key) => key switch
+    public static string Profile(string? key, IAppLocalizer localizer) => key switch
     {
-        "software-prototype.v1" => "Software prototype",
-        null or "" => "No profile", _ => key
+        "software-prototype.v1" => localizer["Projects.Profile.SoftwarePrototype"],
+        null or "" => localizer["Projects.Profile.None"], _ => key
     };
 
     public static bool Matches(ProjectPortfolioItem item, string search) => string.IsNullOrWhiteSpace(search) ||

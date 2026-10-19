@@ -32,6 +32,8 @@ public sealed class UserTime(AppCulture culture)
     public string Format(DateTime? value, string format = "g", string fallback = "") =>
         value.HasValue ? Format(value.Value, format) : fallback;
 
+    public string FormatNumber(long value, string format = "N0") => value.ToString(format, culture.Culture);
+
     public string FormatNumber(double value, string format = "N0") => value.ToString(format, culture.Culture);
 
     public string FormatNumber(decimal value, string format = "N2") => value.ToString(format, culture.Culture);

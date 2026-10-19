@@ -6,20 +6,21 @@
 @inject CommunicationUnreadState CommunicationUnread
 @inject ApprovalState Approvals
 @inject OverviewAttentionState Attention
+@inject IAppLocalizer L
 
 <div class="nav-shell">
-    <a class="nav-brand" href="/" aria-label="C-Sweet Enterprise home">
+    <a class="nav-brand" href="/" aria-label="@L["NavMenu.BrandAriaLabel"]">
         <img src="images/icon_dark.svg" alt="" />
         <div>
             <MudText Typo="Typo.subtitle1">C-Sweet</MudText>
-            <MudText Typo="Typo.caption">Run the company</MudText>
+            <MudText Typo="Typo.caption">@L["NavMenu.Tagline"]</MudText>
         </div>
     </a>
 
     <div class="app-nav-shell">
         <MudNavMenu Bordered="false" Dense="true" Class="app-nav">
-            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Apartment">Enterprise</MudNavLink>
-            <MudNavLink Href="personal-assistant" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AutoAwesome">Personal Assistant</MudNavLink>
+            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Apartment">@L["NavMenu.Enterprise"]</MudNavLink>
+            <MudNavLink Href="personal-assistant" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AutoAwesome">@L["NavMenu.PersonalAssistant"]</MudNavLink>
 
             <div class="business-nav-group">
                 <BusinessSwitcher />
@@ -27,7 +28,7 @@
                 {
                     <MudNavLink Href="@OverviewHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dashboard" Class="business-nav-link">
                         <span class="communications-nav-content">
-                            <span class="communications-nav-label">Overview</span>
+                            <span class="communications-nav-label">@L["NavMenu.Overview"]</span>
                             @if (Attention.PendingCount > 0)
                             {
                                 <span class="communications-nav-badge" aria-label="@AttentionAriaLabel">@AttentionLabel</span>
@@ -35,39 +36,39 @@
                         </span>
                     </MudNavLink>
                     <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="@ProjectsClass">
-                        Projects
+                        @L["NavMenu.Projects"]
                     </MudNavLink>
                     <MudNavLink Href="@SourceControlHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
-                        Source Control
+                        @L["NavMenu.SourceControl"]
                     </MudNavLink>
-                    <MudNavLink Href="@ComputeHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dns" Class="business-nav-link">Compute</MudNavLink>
+                    <MudNavLink Href="@ComputeHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dns" Class="business-nav-link">@L["NavMenu.Compute"]</MudNavLink>
                     <MudNavLink Href="@ApprovalsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Approval" Class="business-nav-link">
                         <span class="communications-nav-content">
-                            <span class="communications-nav-label">Approvals</span>
+                            <span class="communications-nav-label">@L["NavMenu.Approvals"]</span>
                             @if (Approvals.PendingCount > 0)
                             {
-                                <span class="communications-nav-badge" aria-label="@($"{Approvals.PendingCount} pending approvals")">@Approvals.PendingCount</span>
+                                <span class="communications-nav-badge" aria-label="@L.Format("NavMenu.PendingApprovals", new { count = Approvals.PendingCount })">@Approvals.PendingCount</span>
                             }
                         </span>
                     </MudNavLink>
-                    <MudNavLink Href="@CalendarHref" Icon="@Icons.Material.Outlined.CalendarMonth" Class="business-nav-link"><span class="communications-nav-content"><span>Calendar</span><CalendarReminderIndicator /></span></MudNavLink>
+                    <MudNavLink Href="@CalendarHref" Icon="@Icons.Material.Outlined.CalendarMonth" Class="business-nav-link"><span class="communications-nav-content"><span>@L["NavMenu.Calendar"]</span><CalendarReminderIndicator /></span></MudNavLink>
                     <MudNavLink Href="@DocumentsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Description" Class="business-nav-link">
-                        Documents
+                        @L["NavMenu.Documents"]
                     </MudNavLink>
                     <MudNavLink Href="@EmployeesHref" Icon="@Icons.Material.Outlined.Groups" Class="@EmployeesClass">
-                        Employees
+                        @L["NavMenu.Employees"]
                     </MudNavLink>
                     <MudNavLink Href="@AnalyticsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Insights" Class="business-nav-link">
-                        Analytics
+                        @L["NavMenu.Analytics"]
                     </MudNavLink>
                     <MudNavLink Href="@MarketplaceHref" Match="NavLinkMatch.Prefix"
                                 Icon="@Icons.Material.Outlined.Storefront" Class="business-nav-link">
-                        Agent marketplace
+                        @L["NavMenu.AgentMarketplace"]
                     </MudNavLink>
                     <MudNavLink Href="@CommunicationsHref" Match="NavLinkMatch.Prefix"
                                 Icon="@Icons.Material.Outlined.Forum" Class="business-nav-link communications-nav-link">
                         <span class="communications-nav-content">
-                            <span class="communications-nav-label">Communications</span>
+                            <span class="communications-nav-label">@L["NavMenu.Communications"]</span>
                             @if (CommunicationUnread.TotalUnreadCount > 0)
                             {
                                 <span class="communications-nav-badge" aria-label="@UnreadAriaLabel">@UnreadLabel</span>
@@ -75,21 +76,21 @@
                         </span>
                     </MudNavLink>
                     <MudNavLink Href="@SecurityHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Security" Class="business-nav-link">
-                        Security
+                        @L["NavMenu.Security"]
                     </MudNavLink>
                 }
                 else
                 {
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dashboard" /> Overview</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Projects</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> Source Control</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dns" /> Compute</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Approval" /> Approvals</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Description" /> Documents</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> Employees</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Insights" /> Analytics</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Storefront" /> Agent marketplace</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Security" /> Security</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dashboard" /> @L["NavMenu.Overview"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> @L["NavMenu.Projects"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.AccountTree" /> @L["NavMenu.SourceControl"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Dns" /> @L["NavMenu.Compute"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Approval" /> @L["NavMenu.Approvals"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Description" /> @L["NavMenu.Documents"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> @L["NavMenu.Employees"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Insights" /> @L["NavMenu.Analytics"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Storefront" /> @L["NavMenu.AgentMarketplace"]</div>
+                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Security" /> @L["NavMenu.Security"]</div>
                 }
             </div>
         </MudNavMenu>
@@ -97,7 +98,7 @@
 
     <div class="nav-footer">
         <MudNavMenu Bordered="false" Dense="true" Class="app-nav">
-            <MudNavLink Href="settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Settings">Settings</MudNavLink>
+            <MudNavLink Href="settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Settings">@L["NavMenu.Settings"]</MudNavLink>
         </MudNavMenu>
 
         <MudMenu FullWidth="true" AnchorOrigin="Origin.TopCenter" TransformOrigin="Origin.BottomCenter" Class="user-menu">
@@ -108,7 +109,7 @@
             </ActivatorContent>
             <ChildContent>
                 <MudText Typo="Typo.caption" Class="user-menu-email">@AuthSession.Current?.Email</MudText>
-                <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="LogoutAsync">Sign out</MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="LogoutAsync">@L["NavMenu.SignOut"]</MudMenuItem>
             </ChildContent>
         </MudMenu>
     </div>
@@ -168,14 +169,12 @@
 
     private string AttentionLabel => Attention.PendingCount > 99 ? "99+" :
         $"{Attention.PendingCount}{(Attention.HasMore ? "+" : "")}";
-    private string AttentionAriaLabel => $"{(Attention.HasMore ? "At least " : "")}{Attention.PendingCount} {(Attention.PendingCount == 1 ? "item needs" : "items need")} your attention";
+    private string AttentionAriaLabel => L.Format(Attention.HasMore ? "NavMenu.AttentionAriaLabelAtLeast" : "NavMenu.AttentionAriaLabel", new { count = Attention.PendingCount });
 
-    private string UnreadAriaLabel => CommunicationUnread.TotalUnreadCount == 1
-        ? "1 unread notification"
-        : $"{CommunicationUnread.TotalUnreadCount} unread notifications";
+    private string UnreadAriaLabel => L.Format("NavMenu.UnreadNotifications", new { count = CommunicationUnread.TotalUnreadCount });
 
     private string UserLabel => string.IsNullOrWhiteSpace(AuthSession.Current?.Email)
-        ? "User"
+        ? L["NavMenu.User"]
         : AuthSession.Current.Email;
 
     protected override void OnInitialized()

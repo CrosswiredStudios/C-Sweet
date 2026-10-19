@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject AppearanceState Appearance
+@inject IAppLocalizer L
 
 <MudThemeProvider />
 <MudPopoverProvider />
@@ -11,7 +12,7 @@
     <div class="registration-shell aurora-page">
         <header class="registration-header">
             <div class="registration-brand"><img src="images/icon_dark.svg" alt="" /><span>C-Sweet</span></div>
-            <span class="registration-context">Your workspace starts here</span>
+            <span class="registration-context">@L["RegistrationLayout.Context"]</span>
         </header>
         <main class="registration-content">@Body</main>
     </div>

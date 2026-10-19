@@ -4,6 +4,7 @@
 @inject IAuthenticationApiClient AuthenticationApi
 @inject AuthSessionStore AuthSession
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
@@ -13,10 +14,10 @@
 <div class="setup-appearance" data-appearance="@Appearance.Theme">
 <div class="setup-layout-shell aurora-page onboarding-workspace">
     <header class="setup-layout-header">
-        <div class="setup-layout-brand" aria-label="C-Sweet setup">
+        <div class="setup-layout-brand" aria-label="@L["SetupLayout.BrandAriaLabel"]">
             <img src="images/icon_dark.svg" alt="" />
             <span class="setup-layout-brand-name">C-Sweet</span>
-            <span class="setup-layout-brand-context">Workspace setup</span>
+            <span class="setup-layout-brand-context">@L["SetupLayout.Context"]</span>
         </div>
         <div class="setup-layout-account">
             @if (!string.IsNullOrWhiteSpace(AuthSession.Current?.Email))
@@ -27,7 +28,7 @@
                        Class="setup-sign-out"
                        StartIcon="@Icons.Material.Filled.Logout"
                        OnClick="LogoutAsync">
-                Sign out
+                @L["SetupLayout.SignOut"]
             </MudButton>
         </div>
     </header>

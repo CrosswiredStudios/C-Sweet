@@ -1,17 +1,19 @@
 @using CSweet.WorkManagement.Contracts
+@inject IAppLocalizer L
+@inject UserTime Time
 
 @if (Execution.Candidate is { } candidate)
 {
-    <details class="candidate-evidence"><summary>Reviewed/tested candidate</summary>
-        <p><code>@candidate.Digest</code> · scope revision @candidate.ScopeRevision</p>
-        <table><thead><tr><th>Repository</th><th>Candidate commit</th><th>Promotion</th><th>Integrated commit</th><th>Recovery state</th></tr></thead><tbody>
+    <details class="candidate-evidence"><summary>@L["ProjectReleaseEvidence.Candidate"]</summary>
+        <p><code>@candidate.Digest</code> · @L.Format("ProjectReleaseEvidence.ScopeRevision", new { revision = candidate.ScopeRevision })</p>
+        <table><thead><tr><th>@L["ProjectReleases.Column.Repository"]</th><th>@L["ProjectReleaseEvidence.Column.CandidateCommit"]</th><th>@L["ProjectReleaseEvidence.Column.Promotion"]</th><th>@L["ProjectReleaseEvidence.Column.IntegratedCommit"]</th><th>@L["ProjectReleaseEvidence.Column.RecoveryState"]</th></tr></thead><tbody>
         @foreach (var repository in candidate.Repositories)
         {
             var receipt = Execution.Promotions.SingleOrDefault(x => x.RepositoryId == repository.RepositoryId);
-            <tr><td>@repository.RepositoryId</td><td><code>@repository.CandidateCommitSha</code>@if (repository.BuildId is { } buildId) { <span> · build @buildId</span> }</td><td>@(receipt?.Status ?? "Awaiting validation")</td><td><code>@receipt?.MergeCommitSha</code></td><td>@receipt?.Error</td></tr>
+            <tr><td>@repository.RepositoryId</td><td><code>@repository.CandidateCommitSha</code>@if (repository.BuildId is { } buildId) { <span> · @L.Format("ProjectReleaseEvidence.Build", new { build = buildId })</span> }</td><td>@(receipt?.Status ?? L["ProjectReleaseEvidence.AwaitingValidation"])</td><td><code>@receipt?.MergeCommitSha</code></td><td>@receipt?.Error</td></tr>
         }
         </tbody></table>
-        @foreach (var document in candidate.Documents) { <p>Document @document.ArtifactId · revision <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }
+        @foreach (var document in candidate.Documents) { <p>@L.Format("ProjectReleaseEvidence.Document", new { artifact = document.ArtifactId }) <code>@document.RevisionId</code> · <code>@document.Sha256</code></p> }
     </details>
 }
 @foreach (var stage in Execution.Stages)
@@ -23,8 +25,8 @@
         @foreach (var test in ComputeLinks(outcome, Execution.Candidate?.Digest))
         {
             @if (test.UrlExpiresAt > DateTimeOffset.UtcNow)
-            { <p><a href="@test.Url" target="_blank" rel="noopener noreferrer">Open test application</a> · Available on the compute host · expires @test.UrlExpiresAt.ToLocalTime()</p> }
-            else { <p>The test link has expired.</p> }
+            { <p><a href="@test.Url" target="_blank" rel="noopener noreferrer">@L["ProjectReleaseEvidence.OpenTest"]</a> · @L.Format("ProjectReleaseEvidence.TestAvailability", new { expires = Time.Format(test.UrlExpiresAt, "g") })</p> }
+            else { <p>@L["ProjectReleaseEvidence.TestExpired"]</p> }
         }
     }
 }

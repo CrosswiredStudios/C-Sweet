@@ -19,6 +19,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -132,7 +133,7 @@ public sealed class AssistantSetupTests
     private static Task Invoke(object o, string method) => (Task)o.GetType().GetMethod(method, Private)!.Invoke(o, null)!;
     private static async Task<string> Render(Api api, Func<HtmlRenderer, Capture, Task> action)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJs>(); services.AddSingleton<NavigationManager, Navigation>();
         services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
         var capture = new Capture(); services.AddSingleton<IComponentActivator>(capture);
