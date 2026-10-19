@@ -2,8 +2,9 @@
 @using System.Text.Json
 @using System.Text.RegularExpressions
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<MudPaper Class="pa-4 my-3" Outlined="true" aria-label="Review proposed account change">
+<MudPaper Class="pa-4 my-3" Outlined="true" aria-label="@L["ConnectorActionApprovalCard.ReviewProposedAccountChange"]">
     <MudText Typo="Typo.h6">Review change to @(Card.Action.AccountName ?? "connected account")</MudText>
     <MudText Class="my-2">@Card.Summary</MudText>
     @foreach (var field in Fields())
@@ -15,19 +16,19 @@
         <MudText Typo="Typo.caption">Review valid until @expiry.ToLocalTime().ToString("g").</MudText>
     }
     <details class="my-2">
-        <summary>Exact request details</summary>
+        <summary>@L["ConnectorActionApprovalCard.ExactRequestDetails"]</summary>
         <div>Account: @Card.Action.ChannelId</div>
         <pre style="white-space: pre-wrap; overflow-wrap: anywhere">@Card.Action.ReviewPayloadJson</pre>
     </details>
     @if (CanDecide && Card.CanDecide && Card.Status == "Pending")
     {
-        <MudText Typo="Typo.body2">Approve only if these are the changes you want. Approval is recorded before the change is applied.</MudText>
-        <MudTextField @bind-Value="_feedback" Label="Feedback" HelperText="Required when requesting a revision."
+        <MudText Typo="Typo.body2">@L["ConnectorActionApprovalCard.ApproveOnlyIfTheseAre"]</MudText>
+        <MudTextField @bind-Value="_feedback" Label="@L["ConnectorActionApprovalCard.Feedback"]" HelperText="@L["ConnectorActionApprovalCard.RequiredWhenRequestingARevision"]"
                       Lines="2" MaxLength="4000" Variant="Variant.Outlined" Class="my-2" />
         <MudStack Row="true" Spacing="1">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.Approve))">Approve</MudButton>
-            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
-            <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.Approve))">@L["Common.Approve"]</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.RequestRevision))">@L["ConnectorActionApprovalCard.RequestRevision"]</MudButton>
+            <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => Decide(ResourceChangeDecisionKinds.Reject))">@L["Common.Reject"]</MudButton>
         </MudStack>
     }
     else
@@ -43,9 +44,9 @@
     {
         <MudButton Variant="Variant.Text" Class="mt-3"
                    Href="@($"/organizations/{OrganizationId:D}/connector-actions/{Card.Action.ProposalId:D}/standing-policy")">
-            Manage automatic approval rules
+            @L["ConnectorActionApprovalCard.ManageAutomaticApprovalRules"]
         </MudButton>
-        <MudText Typo="Typo.caption">Owner-only rules for future eligible requests. This does not approve the change above.</MudText>
+        <MudText Typo="Typo.caption">@L["ConnectorActionApprovalCard.OwnerOnlyRulesForFuture"]</MudText>
     }
 </MudPaper>
 
@@ -95,7 +96,7 @@
     {
         if (_busy || !CanDecide || !Card.CanDecide) return;
         if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_feedback))
-        { _error = "Please explain what should change."; return; }
+        { _error = L["ConnectorActionApprovalCard.PleaseExplainWhatShouldChange"]; return; }
         _busy = true; _error = null;
         try
         {
@@ -103,10 +104,10 @@
             using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/approvals/agent-actions/{action.ProposalId:D}/decide",
                 new DecideManagedAgentActionRequest(action.ProposalId, decision, _feedback, action.PayloadHash,
                     action.ExpectedRevision, action.IdempotencyKey, $"connector-review:{action.ProposalId:N}:{decision}", action.ResourceId));
-            if (!response.IsSuccessStatusCode) _error = "The decision could not be recorded. Refresh the conversation to check the current action and your authority.";
+            if (!response.IsSuccessStatusCode) _error = L["ConnectorActionApprovalCard.TheDecisionCouldNotBe"];
             await DecisionCompleted.InvokeAsync();
         }
-        catch (HttpRequestException) { _error = "The result could not be confirmed. Refresh before trying again."; }
+        catch (HttpRequestException) { _error = L["ConnectorActionApprovalCard.TheResultCouldNotBe"]; }
         finally { _busy = false; }
     }
 }

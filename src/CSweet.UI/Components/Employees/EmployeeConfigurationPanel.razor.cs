@@ -64,11 +64,11 @@ public partial class EmployeeConfigurationPanel : IDisposable
                     await LoadConfiguredProviderModelsAsync(_configurationSchema!, timeout.Token);
                 }
                 catch (OperationCanceledException) { throw; }
-                catch { _providerError = "Provider choices could not be loaded. Your saved settings are unchanged. Reload to try again."; }
+                catch { _providerError = L["EmployeeConfigurationPanel.ProviderChoicesCouldNotBe"]; }
             }
         }
-        catch (OperationCanceledException) { if (!_disposed) _configurationError = "Loading took too long. Please try again."; }
-        catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.Forbidden) { _configurationError = "You don't have permission to configure this employee."; }
+        catch (OperationCanceledException) { if (!_disposed) _configurationError = L["EmployeeConfigurationPanel.LoadingTookTooLongPlease"]; }
+        catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.Forbidden) { _configurationError = L["EmployeeConfigurationPanel.YouDonTHavePermission"]; }
         catch (Exception e) { _configurationError = e.Message; }
         finally { _loadingConfiguration = false; }
     }
@@ -116,8 +116,8 @@ public partial class EmployeeConfigurationPanel : IDisposable
             await ConfigurationChanged.InvokeAsync(view);
         }
         catch (ApiClientException e) when (e.StatusCode == HttpStatusCode.Conflict)
-        { _configurationError = "These settings changed elsewhere. Your edits are still here. Reload saved values before making another change."; }
-        catch (OperationCanceledException) { if (!_disposed) _configurationError = "The request was interrupted. Reload saved values to check its status."; }
+        { _configurationError = L["EmployeeConfigurationPanel.TheseSettingsChangedElsewhereYour"]; }
+        catch (OperationCanceledException) { if (!_disposed) _configurationError = L["EmployeeConfigurationPanel.TheRequestWasInterruptedReload"]; }
         catch (Exception e) { _configurationError = e.Message; }
         finally { _savingConfiguration = false; }
     }

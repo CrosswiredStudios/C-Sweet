@@ -89,7 +89,7 @@ public sealed class MemoryHoldPanelTests
     private static MemoryHoldPreview Preview() => new(Guid.NewGuid(), 2, new string('a', 64), "Steps", false, true);
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
     private static MemoryHoldPanel Panel(HttpClient http)
-    { var panel = new MemoryHoldPanel(); Property(panel, "Http", http); return panel; }
+    { var panel = TestLocalization.Inject(new MemoryHoldPanel()); Property(panel, "Http", http); return panel; }
     private static void Property(object panel, string name, object value) => typeof(MemoryHoldPanel).GetProperty(name, Members)!.SetValue(panel, value);
     private static void Set(object panel, string field, object value) => typeof(MemoryHoldPanel).GetField(field, Members)!.SetValue(panel, value);
     private static object? Get(object panel, string field) => typeof(MemoryHoldPanel).GetField(field, Members)!.GetValue(panel);

@@ -11,7 +11,7 @@ public sealed class ExecutionFleetPageTests
             FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "ExecutionFleet.razor"));
 
         Assert.Contains("Status(node) == \"Offline\"", source, StringComparison.Ordinal);
-        Assert.Contains("Open Office care to get it working again", source, StringComparison.Ordinal);
+        LocalizedSource.AssertContains("Open Office care to get it working again", source);
         Assert.Contains("<MudProgressLinear Indeterminate=\"true\"", source, StringComparison.Ordinal);
         Assert.Contains("else if (node.Status == \"draining\")", source, StringComparison.Ordinal);
         Assert.DoesNotContain("node.Status == \"draining\" || node.Status == \"offline\"", source, StringComparison.Ordinal);

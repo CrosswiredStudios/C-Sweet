@@ -1,26 +1,27 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <MudPaper Outlined="true" Class="pa-4">
     <MudStack Spacing="2">
-        <MudText Typo="Typo.h6">Default source control for new repositories</MudText>
-        <MudText>Agents use this choice when requesting a repository without a specific template. New businesses use internal Git. Existing repositories and queued requests keep their provider.</MudText>
+        <MudText Typo="Typo.h6">@L["BusinessSourceControlDefaultsEditor.DefaultSourceControlForNew"]</MudText>
+        <MudText>@L["BusinessSourceControlDefaultsEditor.AgentsUseThisChoiceWhen"]</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
-        @if (_saved) { <MudAlert Severity="Severity.Success">Default source control saved.</MudAlert> }
+        @if (_saved) { <MudAlert Severity="Severity.Success">@L["BusinessSourceControlDefaultsEditor.DefaultSourceControlSaved"]</MudAlert> }
         @if (_settings is not null)
         {
-            <MudSelect T="Guid" @bind-Value="_selected" Label="Provider and template" Disabled="_busy">
+            <MudSelect T="Guid" @bind-Value="_selected" Label="@L["BusinessSourceControlDefaultsEditor.ProviderAndTemplate"]" Disabled="_busy">
                 @foreach (var option in _settings.Options)
                 { <MudSelectItem T="Guid" Value="@(option.TemplateId ?? Guid.Empty)" Disabled="@(!option.Available)">@option.ConnectionName · @option.TemplateName</MudSelectItem> }
             </MudSelect>
             @if (!_settings.Options.Any(o => o.TemplateId == _settings.DefaultTemplateId && o.Available))
-            { <MudAlert Severity="Severity.Warning">The saved default is unavailable. New requests will be blocked until it is available or you select another provider.</MudAlert> }
+            { <MudAlert Severity="Severity.Warning">@L["BusinessSourceControlDefaultsEditor.TheSavedDefaultIsUnavailable"]</MudAlert> }
             @foreach (var option in _settings.Options.Where(o => !o.Available))
             { <MudText Color="Color.Secondary">@option.ConnectionName · @option.TemplateName: @option.UnavailableReason</MudText> }
             <MudText Color="Color.Secondary">GitHub choices require an approved template and a connected Managed GitHub account with repository creation configured. Personal accounts and organizations are supported; creating an empty GitHub repository without a template is not available yet.</MudText>
-            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !_settings.Options.Any(o => (o.TemplateId ?? Guid.Empty) == _selected && o.Available))">Save default</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="@(_busy || !_settings.Options.Any(o => (o.TemplateId ?? Guid.Empty) == _selected && o.Available))">@L["BusinessSourceControlDefaultsEditor.SaveDefault"]</MudButton>
         }
-        <MudButton OnClick="LoadAsync" Disabled="_busy">Refresh</MudButton>
+        <MudButton OnClick="LoadAsync" Disabled="_busy">@L["Common.Refresh"]</MudButton>
     </MudStack>
 </MudPaper>
 

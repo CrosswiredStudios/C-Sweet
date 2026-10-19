@@ -1,52 +1,53 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<section aria-label="Source-control activity">
-    <MudText Typo="Typo.h6" Class="mb-3">Activity</MudText>
+<section aria-label="@L["SourceControlActivity.SourceControlActivity"]">
+    <MudText Typo="Typo.h6" Class="mb-3">@L["SourceControlActivity.Activity"]</MudText>
         <MudStack Spacing="3">
             <MudText Color="Color.Secondary">Inspect repository changes, access, locks, backups, and provisioning settings. Started records show attempts; completed records show that the recorded operation finished.</MudText>
             <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
-                <MudSelect T="Guid?" Label="Repository" @bind-Value="_repository" Disabled="_busy" Clearable="true">
+                <MudSelect T="Guid?" Label="@L["SourceControlActivity.Repository"]" @bind-Value="_repository" Disabled="_busy" Clearable="true">
                     @foreach (var repository in Repositories)
                     {
                         <MudSelectItem T="Guid?" Value="@((Guid?)repository.Id)">@repository.Name</MudSelectItem>
                     }
                 </MudSelect>
-                <MudSelect T="string" Label="Outcome" @bind-Value="_outcome" Disabled="_busy" Clearable="true">
-                    <MudSelectItem T="string" Value='@("Started")'>Started</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("Completed")'>Completed</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("Failed")'>Failed</MudSelectItem>
+                <MudSelect T="string" Label="@L["SourceControlActivity.Outcome"]" @bind-Value="_outcome" Disabled="_busy" Clearable="true">
+                    <MudSelectItem T="string" Value='@("Started")'>@L["SourceControlActivity.Started"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Completed")'>@L["SourceControlActivity.Completed"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Failed")'>@L["SourceControlActivity.Failed"]</MudSelectItem>
                 </MudSelect>
-                <MudButton OnClick="RefreshAsync" Disabled="_busy" Variant="Variant.Outlined">Apply filters / refresh</MudButton>
+                <MudButton OnClick="RefreshAsync" Disabled="_busy" Variant="Variant.Outlined">@L["SourceControlActivity.ApplyFiltersRefresh"]</MudButton>
             </MudStack>
             @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
-            @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="Loading source-control activity" /> }
+            @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="@L["SourceControlActivity.LoadingSourceControlActivity"]" /> }
             <MudTable Items="_items" Dense="true" Hover="true">
-                <HeaderContent><MudTh>Time (UTC)</MudTh><MudTh>Activity</MudTh><MudTh>Outcome</MudTh><MudTh>Target</MudTh><MudTh>Actor</MudTh><MudTh>Inspect</MudTh></HeaderContent>
+                <HeaderContent><MudTh>Time (UTC)</MudTh><MudTh>@L["SourceControlActivity.Activity"]</MudTh><MudTh>@L["SourceControlActivity.Outcome"]</MudTh><MudTh>@L["SourceControlActivity.Target"]</MudTh><MudTh>@L["SourceControlActivity.Actor"]</MudTh><MudTh>@L["SourceControlActivity.Inspect"]</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Time (UTC)">@context.OccurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
                     <MudTd DataLabel="Activity">@ActivityLabel(context.EventType)</MudTd>
                     <MudTd DataLabel="Outcome">@context.Outcome</MudTd>
                     <MudTd DataLabel="Target">@TargetLabel(context)</MudTd>
                     <MudTd DataLabel="Actor">@(context.ActorDisplayName ?? context.ActorKind)</MudTd>
-                    <MudTd DataLabel="Inspect"><MudButton OnClick="@(() => _selected = context)" Size="Size.Small">Details</MudButton></MudTd>
+                    <MudTd DataLabel="Inspect"><MudButton OnClick="@(() => _selected = context)" Size="Size.Small">@L["SourceControlActivity.Details"]</MudButton></MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>No recorded activity matches these filters.</MudText></NoRecordsContent>
+                <NoRecordsContent><MudText>@L["SourceControlActivity.NoRecordedActivityMatchesThese"]</MudText></NoRecordsContent>
             </MudTable>
             <MudStack Row="true" Justify="Justify.SpaceBetween">
-                <MudButton OnClick="PreviousAsync" Disabled="@(_busy || _previous.Count == 0)">Newer</MudButton>
-                <MudButton OnClick="NextAsync" Disabled="@(_busy || _next is null)">Older</MudButton>
+                <MudButton OnClick="PreviousAsync" Disabled="@(_busy || _previous.Count == 0)">@L["SourceControlActivity.Newer"]</MudButton>
+                <MudButton OnClick="NextAsync" Disabled="@(_busy || _next is null)">@L["SourceControlActivity.Older"]</MudButton>
             </MudStack>
             @if (_selected is { } entry)
             {
                 <MudPaper Outlined="true" Class="pa-3">
-                    <MudText Typo="Typo.h6">Activity details</MudText>
+                    <MudText Typo="Typo.h6">@L["SourceControlActivity.ActivityDetails"]</MudText>
                     <MudText>Event: @entry.EventType</MudText>
                     <MudText>Event ID: @entry.Id Â· sequence: @entry.Sequence</MudText>
                     <MudText>Target: @entry.EntityType Â· @entry.EntityId</MudText>
                     <MudText>Actor: @(entry.ActorDisplayName ?? entry.ActorKind) Â· user: @entry.ActorApplicationUserId Â· installation: @entry.ActorInstallationId</MudText>
                     <MudText>Trace: @entry.TraceId</MudText>
-                    <MudButton OnClick="@(() => _selected = null)">Close details</MudButton>
+                    <MudButton OnClick="@(() => _selected = null)">@L["SourceControlActivity.CloseDetails"]</MudButton>
                 </MudPaper>
             }
         </MudStack>
@@ -101,7 +102,7 @@
             if (business != OrganizationId) return false;
             _items = page.Items; _next = page.NextBeforeSequence; return true;
         }
-        catch (HttpRequestException) { if (business == OrganizationId) { _items = []; _next = null; _error = "Activity could not be loaded. Check your business permissions and try again."; } return false; }
+        catch (HttpRequestException) { if (business == OrganizationId) { _items = []; _next = null; _error = L["SourceControlActivity.ActivityCouldNotBeLoaded"]; } return false; }
         finally { _busy = false; }
     }
     private static string ActivityLabel(string type) => type.StartsWith("SourceControl.", StringComparison.Ordinal) ? type[14..].Replace('.', ' ') : type;

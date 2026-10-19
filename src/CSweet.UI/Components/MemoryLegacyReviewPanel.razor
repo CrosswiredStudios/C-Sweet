@@ -1,12 +1,13 @@
 @using CSweet.Contracts.Memory
 @using System.Net
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <MudDivider Class="my-3" />
-<MudText Typo="Typo.subtitle2">Review legacy conversation evidence</MudText>
+<MudText Typo="Typo.subtitle2">@L["MemoryLegacyReviewPanel.ReviewLegacyConversationEvidence"]</MudText>
 @if (_review is null)
 {
-    <MudButton OnClick="LoadAsync" Disabled="Locked">Check legacy evidence</MudButton>
+    <MudButton OnClick="LoadAsync" Disabled="Locked">@L["MemoryLegacyReviewPanel.CheckLegacyEvidence"]</MudButton>
 }
 else
 {
@@ -14,21 +15,21 @@ else
     <MudText Typo="Typo.caption">Source: @_review.Source · Classification: @_review.Sensitivity</MudText>
     @if (_review.CanEstablishEvidence)
     {
-        <MudAlert Severity="Severity.Info">This record matches its original conversation message. Establishing evidence may make it and eligible linked memories available for recall in the same audience. This does not confirm their claims.</MudAlert>
-        <MudSelect T="string" Label="Reviewed sensitivity" @bind-Value="_sensitivity" Disabled="Locked">
+        <MudAlert Severity="Severity.Info">@L["MemoryLegacyReviewPanel.ThisRecordMatchesItsOriginal"]</MudAlert>
+        <MudSelect T="string" Label="@L["MemoryLegacyReviewPanel.ReviewedSensitivity"]" @bind-Value="_sensitivity" Disabled="Locked">
             @foreach (var level in new[] { "Internal", "Personal", "Confidential", "Restricted" }.SkipWhile(x => x != _review.MinimumSensitivity))
             { <MudSelectItem T="string" Value="@level">@level</MudSelectItem> }
         </MudSelect>
-        <MudButton OnClick="SubmitAsync" Disabled="Locked" Color="Color.Primary">Establish source evidence</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="Locked" Color="Color.Primary">@L["MemoryLegacyReviewPanel.EstablishSourceEvidence"]</MudButton>
     }
     else
     {
-        <MudAlert Severity="Severity.Warning">This record is already verified or cannot be matched safely to an eligible original conversation. Evidence cannot be established through this review.</MudAlert>
+        <MudAlert Severity="Severity.Warning">@L["MemoryLegacyReviewPanel.ThisRecordIsAlreadyVerified"]</MudAlert>
     }
-    <MudButton OnClick="LoadAsync" Disabled="Locked">Refresh review</MudButton>
+    <MudButton OnClick="LoadAsync" Disabled="Locked">@L["MemoryLegacyReviewPanel.RefreshReview"]</MudButton>
 }
 @if (_pending is not null)
-{ <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same review</MudButton> }
+{ <MudButton OnClick="RetryAsync" Disabled="_busy">@L["MemoryLegacyReviewPanel.RetryTheSameReview"]</MudButton> }
 @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
 
 @code {
@@ -52,11 +53,11 @@ else
         try
         {
             using var response = await Http.GetAsync(Url);
-            if (!response.IsSuccessStatusCode) { _message = "This episode is unavailable for review or your permission changed."; return; }
+            if (!response.IsSuccessStatusCode) { _message = L["MemoryLegacyReviewPanel.ThisEpisodeIsUnavailableFor"]; return; }
             _review = await response.Content.ReadFromJsonAsync<MemoryLegacyReviewResponse>();
             if (_review is not null) _sensitivity = "Restricted";
         }
-        catch (Exception error) when (NetworkError(error)) { _message = "Review details could not be loaded. Try again."; }
+        catch (Exception error) when (NetworkError(error)) { _message = L["MemoryLegacyReviewPanel.ReviewDetailsCouldNotBe"]; }
         finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
     }
     private async Task SubmitAsync()
@@ -76,7 +77,7 @@ else
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
             {
                 _pending = null; _review = null;
-                _message = "The review was not accepted. Reload the current episode and check your authority and source evidence before deciding again.";
+                _message = L["MemoryLegacyReviewPanel.TheReviewWasNotAccepted"];
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -85,12 +86,12 @@ else
             _message = result.WasReplay ? "This review was already recorded." : "Your review was recorded.";
         }
         catch (Exception error) when (NetworkError(error))
-        { _message = "The result could not be confirmed. Retry the same review to check it without creating another review."; }
+        { _message = L["MemoryLegacyReviewPanel.TheResultCouldNotBe"]; }
         finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
         if (updated.HasValue)
         {
             try { await Reviewed.InvokeAsync(updated.Value); }
-            catch (Exception error) when (NetworkError(error)) { _message = "The review was recorded. Reload the inspector to see its current state."; }
+            catch (Exception error) when (NetworkError(error)) { _message = L["MemoryLegacyReviewPanel.TheReviewWasRecordedReload"]; }
         }
     }
     private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;

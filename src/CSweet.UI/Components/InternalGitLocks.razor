@@ -1,30 +1,31 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<MudExpansionPanels><MudExpansionPanel Text="LFS file locks">
+<MudExpansionPanels><MudExpansionPanel Text="@L["InternalGitLocks.LFSFileLocks"]">
     <MudStack Spacing="2">
-        <MudText>Locks protect files across this repository. GitHost rejects changes by other users, including clients that skip verification. Agent publications and merges wait for conflicting locks to be released.</MudText>
+        <MudText>@L["InternalGitLocks.LocksProtectFilesAcrossThis"]</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
-        <MudButton OnClick="RefreshAsync" Disabled="_busy">Refresh locks</MudButton>
+        <MudButton OnClick="RefreshAsync" Disabled="_busy">@L["InternalGitLocks.RefreshLocks"]</MudButton>
         @if (CanManage)
         {
-            <MudTextField @bind-Value="_path" Label="Repository-relative file path" Placeholder="art/texture.bin" Disabled="_busy" />
-            <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_path))">Lock file</MudButton>
+            <MudTextField @bind-Value="_path" Label="@L["InternalGitLocks.RepositoryRelativeFilePath"]" Placeholder="@L["InternalGitLocks.ArtTextureBin"]" Disabled="_busy" />
+            <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_path))">@L["InternalGitLocks.LockFile"]</MudButton>
         }
-        @if (_locks.Count == 0) { <MudText>No active file locks.</MudText> }
+        @if (_locks.Count == 0) { <MudText>@L["InternalGitLocks.NoActiveFileLocks"]</MudText> }
         @foreach (var item in _locks)
         {
             <MudStack Row="true" AlignItems="AlignItems.Center">
                 <MudText>@item.Path · @item.OwnerName · @item.LockedAt.ToLocalTime().ToString("g")</MudText>
-                @if (CanManage) { <MudButton Color="Color.Warning" OnClick="@(() => _unlock = item)" Disabled="_busy">Release lock</MudButton> }
+                @if (CanManage) { <MudButton Color="Color.Warning" OnClick="@(() => _unlock = item)" Disabled="_busy">@L["InternalGitLocks.ReleaseLock"]</MudButton> }
             </MudStack>
         }
-        @if (_cursor is not null) { <MudButton OnClick="MoreAsync" Disabled="_busy">Load more locks</MudButton> }
+        @if (_cursor is not null) { <MudButton OnClick="MoreAsync" Disabled="_busy">@L["InternalGitLocks.LoadMoreLocks"]</MudButton> }
         @if (_unlock is not null)
         {
             <MudAlert Severity="Severity.Warning">Release @_unlock.OwnerName's lock on @_unlock.Path? Coordinate with the owner before releasing a lock on work in progress.</MudAlert>
-            <MudButton Color="Color.Warning" OnClick="UnlockAsync" Disabled="_busy">Confirm release</MudButton>
-            <MudButton OnClick="@(() => _unlock = null)" Disabled="_busy">Cancel</MudButton>
+            <MudButton Color="Color.Warning" OnClick="UnlockAsync" Disabled="_busy">@L["InternalGitLocks.ConfirmRelease"]</MudButton>
+            <MudButton OnClick="@(() => _unlock = null)" Disabled="_busy">@L["Common.Cancel"]</MudButton>
         }
     </MudStack>
 </MudExpansionPanel></MudExpansionPanels>

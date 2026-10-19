@@ -31,7 +31,7 @@ public sealed class CompanyDashboardOrderingTests
     {
         var handler = new SaveHandler(succeeds);
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
-        var component = new CommandCenter();
+        var component = TestLocalization.Inject(new CommandCenter());
         typeof(CommandCenter).GetProperty("Http", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(component, http);
         Field("_layoutLoaded").SetValue(component, true);
         await (Task)typeof(CommandCenter).GetMethod("MoveAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, ["projects", 0])!;

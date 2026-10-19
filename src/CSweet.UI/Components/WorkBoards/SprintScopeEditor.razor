@@ -1,26 +1,27 @@
 @using CSweet.Contracts.WorkManagement
+@inject IAppLocalizer L
 
-<p class="mb-3">Add backlog tickets to <strong>@Sprint.Name</strong>, or return tickets to the backlog. Starting the sprint is a separate action.</p>
-<MudTextField T="string" @bind-Value="_search" Label="Search tickets" Immediate="true" Variant="Variant.Outlined" />
+<p class="mb-3">@L["SprintScopeEditor.AddBacklogTicketsTo"] <strong>@Sprint.Name</strong>@L["SprintScopeEditor.OrReturnTicketsToThe"]</p>
+<MudTextField T="string" @bind-Value="_search" Label="@L["SprintScopeEditor.SearchTickets"]" Immediate="true" Variant="Variant.Outlined" />
 @if (!string.IsNullOrWhiteSpace(Error)) { <MudAlert Severity="Severity.Error" Class="my-3">@Error</MudAlert> }
-<h3 class="mt-4">In this sprint</h3>
+<h3 class="mt-4">@L["SprintScopeEditor.InThisSprint"]</h3>
 @foreach (var item in VisibleItems.Where(x => x.SprintId == Sprint.Id))
 {
     <div class="scope-ticket" @key="item.Id">
         <span><strong>@item.Identifier</strong> @item.Title</span>
-        <MudButton Disabled="Busy" OnClick="@(() => OnAssign.InvokeAsync(new(item, null)))">Return to backlog</MudButton>
+        <MudButton Disabled="Busy" OnClick="@(() => OnAssign.InvokeAsync(new(item, null)))">@L["SprintScopeEditor.ReturnToBacklog"]</MudButton>
     </div>
 }
-@if (!VisibleItems.Any(x => x.SprintId == Sprint.Id)) { <p class="pa-3">No matching tickets in this sprint.</p> }
-<h3 class="mt-4">Backlog</h3>
+@if (!VisibleItems.Any(x => x.SprintId == Sprint.Id)) { <p class="pa-3">@L["SprintScopeEditor.NoMatchingTicketsInThis"]</p> }
+<h3 class="mt-4">@L["SprintScopeEditor.Backlog"]</h3>
 @foreach (var item in VisibleItems.Where(x => x.SprintId is null && x.Status is not ("Completed" or "Cancelled")))
 {
     <div class="scope-ticket" @key="item.Id">
         <span><strong>@item.Identifier</strong> @item.Title</span>
-        <MudButton Disabled="Busy" Color="Color.Primary" OnClick="@(() => OnAssign.InvokeAsync(new(item, Sprint.Id)))">Add to sprint</MudButton>
+        <MudButton Disabled="Busy" Color="Color.Primary" OnClick="@(() => OnAssign.InvokeAsync(new(item, Sprint.Id)))">@L["SprintScopeEditor.AddToSprint"]</MudButton>
     </div>
 }
-@if (!VisibleItems.Any(x => x.SprintId is null && x.Status is not ("Completed" or "Cancelled"))) { <p class="pa-3">No matching backlog tickets. Create a work item or assign a ticket from its details.</p> }
+@if (!VisibleItems.Any(x => x.SprintId is null && x.Status is not ("Completed" or "Cancelled"))) { <p class="pa-3">@L["SprintScopeEditor.NoMatchingBacklogTicketsCreate"]</p> }
 
 @code {
     [Parameter, EditorRequired] public WorkSprintResponse Sprint { get; set; } = default!;

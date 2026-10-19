@@ -2,41 +2,42 @@
 @using CSweet.Contracts.Llm
 @inject PersonalAssistantApiClient Assistant
 @inject ILlmProviderApiClient Providers
+@inject IAppLocalizer L
 
-<section id="assistant-model-settings" class="assistant-settings" aria-label="AI Assistant settings" aria-busy="@_busy">
+<section id="assistant-model-settings" class="assistant-settings" aria-label="@L["PersonalAssistantSettingsForm.AIAssistantSettings"]" aria-busy="@_busy">
     @if (ShowHeading)
     {
-        <h3>Your AI Assistant</h3>
-        <p>Choose its name and the model it will use.</p>
+        <h3>@L["PersonalAssistantSettingsForm.YourAIAssistant"]</h3>
+        <p>@L["PersonalAssistantSettingsForm.ChooseItsNameAndThe"]</p>
     }
     @if (_loading)
     {
-        <MudProgressLinear Indeterminate="true" Color="Color.Primary" aria-label="Loading assistant settings" />
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" aria-label="@L["PersonalAssistantSettingsForm.LoadingAssistantSettings"]" />
     }
-    <MudTextField T="string" Label="Assistant name" @bind-Value="_name" @bind-Value:after="DirtyAsync" Immediate="true" MaxLength="100" Variant="Variant.Outlined" Disabled="@Locked" />
-    <MudSelect T="Guid?" Label="AI provider" Value="_provider" ValueChanged="ProviderChanged" Variant="Variant.Outlined" Disabled="@Locked">
+    <MudTextField T="string" Label="@L["PersonalAssistantSettingsForm.AssistantName"]" @bind-Value="_name" @bind-Value:after="DirtyAsync" Immediate="true" MaxLength="100" Variant="Variant.Outlined" Disabled="@Locked" />
+    <MudSelect T="Guid?" Label="@L["PersonalAssistantSettingsForm.AIProvider"]" Value="_provider" ValueChanged="ProviderChanged" Variant="Variant.Outlined" Disabled="@Locked">
         @foreach (var provider in _providers.Where(x => x.IsEnabled))
         { <MudSelectItem T="Guid?" Value="@((Guid?)provider.Id)">@provider.Name</MudSelectItem> }
     </MudSelect>
     @if (_loaded && !_providers.Any(x => x.IsEnabled))
-    { <MudAlert Severity="Severity.Info">Connect a provider in the AI models step before configuring your assistant.</MudAlert> }
+    { <MudAlert Severity="Severity.Info">@L["PersonalAssistantSettingsForm.ConnectAProviderInThe"]</MudAlert> }
     else if (_loaded && _provider.HasValue && !_providers.Any(x => x.Id == _provider && x.IsEnabled))
-    { <MudAlert Severity="Severity.Warning">The saved provider is unavailable. Choose an enabled provider to continue.</MudAlert> }
-    <MudAutocomplete T="string" Label="Model" @bind-Value="_model" @bind-Value:after="DirtyAsync" SearchFunc="SearchModels" CoerceValue="true" CoerceText="false" Immediate="true" ResetValueOnEmptyText="true" Variant="Variant.Outlined" Disabled="@(Locked || !_provider.HasValue)" HelperText="Choose a model or enter its exact model ID." />
+    { <MudAlert Severity="Severity.Warning">@L["PersonalAssistantSettingsForm.TheSavedProviderIsUnavailable"]</MudAlert> }
+    <MudAutocomplete T="string" Label="@L["PersonalAssistantSettingsForm.Model"]" @bind-Value="_model" @bind-Value:after="DirtyAsync" SearchFunc="SearchModels" CoerceValue="true" CoerceText="false" Immediate="true" ResetValueOnEmptyText="true" Variant="Variant.Outlined" Disabled="@(Locked || !_provider.HasValue)" HelperText="@L["PersonalAssistantSettingsForm.ChooseAModelOrEnter"]" />
     @if (_modelNotice is not null) { <p class="assistant-field-note" role="status">@_modelNotice</p> }
     <div class="assistant-budget-fields">
         <MudNumericField T="int" Label="Context window (tokens)" @bind-Value="_context" @bind-Value:after="DirtyAsync" Immediate="true" Min="4097" HideSpinButtons="true" Variant="Variant.Outlined" Disabled="@Locked" />
         <MudNumericField T="int" Label="Maximum output (tokens)" @bind-Value="_output" @bind-Value:after="DirtyAsync" Immediate="true" Min="2048" HideSpinButtons="true" Variant="Variant.Outlined" Disabled="@Locked" />
     </div>
-    <p class="assistant-field-note">Use limits supported by your model. Maximum output must be smaller than the context window.</p>
-    @if (_output >= _context) { <MudAlert Severity="Severity.Warning">Maximum output must be smaller than the context window.</MudAlert> }
+    <p class="assistant-field-note">@L["PersonalAssistantSettingsForm.UseLimitsSupportedByYour"]</p>
+    @if (_output >= _context) { <MudAlert Severity="Severity.Warning">@L["PersonalAssistantSettingsForm.MaximumOutputMustBeSmaller"]</MudAlert> }
     @if (_error is not null)
     {
         <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert>
-        <MudButton OnClick="ReloadAsync" Disabled="@Locked">Reload saved settings</MudButton>
+        <MudButton OnClick="ReloadAsync" Disabled="@Locked">@L["PersonalAssistantSettingsForm.ReloadSavedSettings"]</MudButton>
     }
     @if (_detail is not null) { <MudAlert Severity="Severity.Info" role="status">@_detail</MudAlert> }
-    @if (_saved) { <MudAlert Severity="Severity.Success" role="status">Your assistant settings are saved.</MudAlert> }
+    @if (_saved) { <MudAlert Severity="Severity.Success" role="status">@L["PersonalAssistantSettingsForm.YourAssistantSettingsAreSaved"]</MudAlert> }
     @if (ShowSaveButton)
     {
         <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanSave || Locked)" OnClick="@(async () => { await SaveAsync(); })">@(_busy ? "Saving…" : "Save assistant settings")</MudButton>
@@ -109,7 +110,7 @@
     private async Task LoadModelsAsync(Guid id)
     {
         try { var result = await Providers.GetModelCatalogAsync(id); if (_provider == id) { _models = result.Models; _modelNotice = _models.Count == 0 ? "No models were discovered. You can enter a model ID manually." : null; } }
-        catch { if (_provider == id) { _models = []; _modelNotice = "Model discovery is unavailable. Enter a model ID manually or check your provider connection."; } }
+        catch { if (_provider == id) { _models = []; _modelNotice = L["PersonalAssistantSettingsForm.ModelDiscoveryIsUnavailableEnter"]; } }
     }
     private Task<IEnumerable<string>> SearchModels(string? query, CancellationToken token) => Task.FromResult(
         _models.Select(x => x.Id).Append(_model).Where(x => !string.IsNullOrWhiteSpace(x) && (string.IsNullOrWhiteSpace(query) || x.Contains(query, StringComparison.OrdinalIgnoreCase))).Distinct());

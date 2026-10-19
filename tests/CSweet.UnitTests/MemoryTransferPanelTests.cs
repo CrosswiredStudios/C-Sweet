@@ -17,7 +17,7 @@ public sealed class MemoryTransferPanelTests
         var package = Guid.NewGuid(); var target = Guid.NewGuid();
         using var handler = new TransferHttp(package, target);
         using var http = new HttpClient(handler) { BaseAddress = new("http://test/") };
-        var panel = new MemoryTransferPanel();
+        var panel = TestLocalization.Inject(new MemoryTransferPanel());
         typeof(MemoryTransferPanel).GetProperty("Http", Members)!.SetValue(panel, http);
         Set(panel, "_target", target); Set(panel, "_debrief", "original reviewed notes");
         Set(panel, "_transfer", new MemoryTransferResponse(package, target, "Approved", new string('a', 64), "content", "Personal", false, true, true, null));
@@ -36,7 +36,7 @@ public sealed class MemoryTransferPanelTests
     public async Task RevokedReadClearsPreviouslyVisibleTransferContent()
     {
         using var http = new HttpClient(new DeniedHttp()) { BaseAddress = new("http://test/") };
-        var panel = new MemoryTransferPanel();
+        var panel = TestLocalization.Inject(new MemoryTransferPanel());
         typeof(MemoryTransferPanel).GetProperty("Http", Members)!.SetValue(panel, http);
         Set(panel, "_transfer", new MemoryTransferResponse(Guid.NewGuid(), Guid.NewGuid(), "Approved", new string('a', 64), "private", "Personal", false, true, true, null));
         await Call(panel, "LoadTransferAsync", Guid.NewGuid());
@@ -47,7 +47,7 @@ public sealed class MemoryTransferPanelTests
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
     private static MemoryTransferPanel Panel(HttpClient http)
     {
-        var panel = new MemoryTransferPanel();
+        var panel = TestLocalization.Inject(new MemoryTransferPanel());
         typeof(MemoryTransferPanel).GetProperty("OrganizationId", Members)!.SetValue(panel, Guid.NewGuid());
         typeof(MemoryTransferPanel).GetProperty("EmployeeId", Members)!.SetValue(panel, Guid.NewGuid());
         typeof(MemoryTransferPanel).GetProperty("Http", Members)!.SetValue(panel, http);
@@ -163,7 +163,7 @@ public sealed class MemoryTransferPanelTests
         var id = Guid.NewGuid();
         using var handler = new TransferHttp(Guid.NewGuid(), Guid.NewGuid());
         using var http = new HttpClient(handler) { BaseAddress = new("http://test/") };
-        var panel = new MemoryTransferPanel();
+        var panel = TestLocalization.Inject(new MemoryTransferPanel());
         Set(panel, "_target", Guid.NewGuid());
         typeof(MemoryTransferPanel).GetProperty("Http", Members)!.SetValue(panel, http);
         typeof(MemoryTransferPanel).GetProperty(nameof(MemoryTransferPanel.Selected))!.SetValue(panel,

@@ -45,7 +45,7 @@ public sealed class MemoryClaimEntityReviewTests
     private static MemoryClaimCorrectionTarget Choice() => new(Guid.NewGuid(), "Carol", "person", "Confidential", new string('b', 64), []);
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static AgentMemory Page(HttpClient http)
-    { var page = new AgentMemory(); typeof(AgentMemory).GetProperty("Http", Members)!.SetValue(page, http); return page; }
+    { var page = TestLocalization.Inject(new AgentMemory()); typeof(AgentMemory).GetProperty("Http", Members)!.SetValue(page, http); return page; }
     private static void Set(AgentMemory page, string field, object value) => typeof(AgentMemory).GetField(field, Members)!.SetValue(page, value);
     private static object? Get(AgentMemory page, string field) => typeof(AgentMemory).GetField(field, Members)!.GetValue(page);
     private static Task Call(AgentMemory page, string method, params object[] args) => (Task)typeof(AgentMemory).GetMethod(method, Members)!.Invoke(page, args)!;

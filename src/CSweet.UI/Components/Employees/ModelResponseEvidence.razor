@@ -1,17 +1,18 @@
 @using CSweet.Contracts.Security
 @using System.Text.Json
+@inject IAppLocalizer L
 <div class="model-response-evidence">
     <p>@Response.ChunkCount.ToString("N0") chunks combined · @Response.EmptyChunkCount.ToString("N0") metadata-only or empty</p>
     @if (Response.Incomplete)
     {
-        <MudAlert Severity="Severity.Warning" Dense="true">This response is incomplete. Some evidence is unavailable or exceeds the inspection limit. Original records remain in the audit ledger.</MudAlert>
+        <MudAlert Severity="Severity.Warning" Dense="true">@L["ModelResponseEvidence.ThisResponseIsIncompleteSome"]</MudAlert>
     }
     @if (Response.ChunkCount > 0) { <p class="mud-typography-caption">Chunk integrity: @Response.IntegrityStatus</p> }
-    @if (!string.IsNullOrEmpty(Response.Text)) { <h4>Response</h4><pre>@Response.Text</pre> }
-    else { <p>No readable response text was recorded in these chunks.</p> }
+    @if (!string.IsNullOrEmpty(Response.Text)) { <h4>@L["ModelResponseEvidence.Response"]</h4><pre>@Response.Text</pre> }
+    else { <p>@L["ModelResponseEvidence.NoReadableResponseTextWas"]</p> }
     @if (Response.Contents.Count > 0)
     {
-        <h4>Tool and reasoning content</h4>
+        <h4>@L["ModelResponseEvidence.ToolAndReasoningContent"]</h4>
         <pre>@JsonSerializer.Serialize(Response.Contents, new JsonSerializerOptions { WriteIndented = true })</pre>
     }
     @if (Response.InputTokens.HasValue || Response.OutputTokens.HasValue)
@@ -20,7 +21,7 @@
     {
         <details>
             <summary>Inspect individual chunks (@Response.Sources.Count of @Response.ChunkCount)</summary>
-            <p>Original audit records, in capture order.</p>
+            <p>@L["ModelResponseEvidence.OriginalAuditRecordsInCapture"]</p>
             <ul>
                 @foreach (var source in Response.Sources)
                 {

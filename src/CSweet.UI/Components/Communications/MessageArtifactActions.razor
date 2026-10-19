@@ -1,10 +1,11 @@
 @using CSweet.Contracts.Communications
 @using CSweet.Contracts.Core
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <div class="hub-artifact-action @(IsApproved ? "is-approved" : null)">
     <button type="button" class="hub-artifact-open" @onclick="OpenAsync"
-            aria-label="Open linked document revision">
+            aria-label="@L["MessageArtifactActions.OpenAria"]">
         <span class="hub-artifact-icon">
             <MudIcon Icon="@(IsApproved ? Icons.Material.Outlined.TaskAlt : Icons.Material.Outlined.Description)" Size="Size.Small" />
         </span>
@@ -25,11 +26,11 @@
             <MudMenuItem Icon="@Icons.Material.Outlined.CheckCircle"
                          Disabled="@_busy"
                          OnClick="ApproveAsync">
-                Approve linked revision
+                @L["MessageArtifactActions.ApproveLinked"]
             </MudMenuItem>
             <MudMenuItem Icon="@Icons.Material.Outlined.RateReview"
                          OnClick="OpenAsync">
-                Review or request changes
+                @L["MessageArtifactActions.ReviewOrRequest"]
             </MudMenuItem>
         </MudMenu>
     }
@@ -85,7 +86,7 @@
         }
         catch (Exception exception) when (exception is HttpRequestException or NotSupportedException)
         {
-            _error = "C-Sweet could not reach the document service. Try again or open the document for details.";
+            _error = L["MessageArtifactActions.Error.Unreachable"];
         }
         finally
         {

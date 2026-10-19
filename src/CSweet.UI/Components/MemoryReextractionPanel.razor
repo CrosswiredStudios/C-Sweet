@@ -1,22 +1,23 @@
 @using CSweet.Contracts.Memory
 @using System.Net
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Review a new memory extraction">
-    <MudText Typo="Typo.h6">Review a new extraction</MudText>
+<MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="@L["MemoryReextractionPanel.ReviewANewMemoryExtraction"]">
+    <MudText Typo="Typo.h6">@L["MemoryReextractionPanel.ReviewANewExtraction"]</MudText>
     <MudText Class="mb-2">Review another extraction of an existing proposal or applied transfer. The previous job and saved results remain preserved. Existing stored records stay unchanged; new inferred claims still need review.</MudText>
-    <MudButton OnClick="RefreshAsync" Disabled="Locked">Find existing extractions</MudButton>
+    <MudButton OnClick="RefreshAsync" Disabled="Locked">@L["MemoryReextractionPanel.FindExistingExtractions"]</MudButton>
     @if (_candidates is not null)
     {
         @foreach (var candidate in _candidates.Items)
         {
             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2" @key="candidate.JobId">
                 <MudText>@candidate.Status · @candidate.Audience · @candidate.CreatedAt.ToLocalTime().ToString("g")</MudText>
-                <MudButton OnClick="@(() => PreviewAsync(candidate.JobId))" Disabled="Locked">Review new extraction</MudButton>
+                <MudButton OnClick="@(() => PreviewAsync(candidate.JobId))" Disabled="Locked">@L["MemoryReextractionPanel.ReviewNewExtraction"]</MudButton>
             </MudStack>
         }
-        @if (_candidates.Items.Count == 0) { <MudText>No existing extractions found in your supported audiences.</MudText> }
-        @if (_candidates.NextCursor is not null) { <MudButton OnClick="LoadMoreAsync" Disabled="Locked">Load more</MudButton> }
+        @if (_candidates.Items.Count == 0) { <MudText>@L["MemoryReextractionPanel.NoExistingExtractionsFoundIn"]</MudText> }
+        @if (_candidates.NextCursor is not null) { <MudButton OnClick="LoadMoreAsync" Disabled="Locked">@L["MemoryReextractionPanel.LoadMore"]</MudButton> }
     }
     @if (_preview is not null)
     {
@@ -26,15 +27,15 @@
         <MudAlert Severity="Severity.Info">A new extraction will be requested. @_preview.ExistingRecords existing records will be preserved. Previous saved output will remain with its original job.</MudAlert>
         @if (_preview.CanQueue)
         {
-            <MudCheckBox T="bool" @bind-Value="_acknowledged" Disabled="Locked" Label="Run a new extraction and preserve existing records" />
-            <MudButton OnClick="QueueAsync" Disabled="@(Locked || !_acknowledged)" Color="Color.Primary">Queue new extraction</MudButton>
+            <MudCheckBox T="bool" @bind-Value="_acknowledged" Disabled="Locked" Label="@L["MemoryReextractionPanel.RunANewExtractionAnd"]" />
+            <MudButton OnClick="QueueAsync" Disabled="@(Locked || !_acknowledged)" Color="Color.Primary">@L["MemoryReextractionPanel.QueueNewExtraction"]</MudButton>
         }
-        else { <MudAlert Severity="Severity.Warning">This job is unavailable for replacement. Refresh its current state before deciding again.</MudAlert> }
+        else { <MudAlert Severity="Severity.Warning">@L["MemoryReextractionPanel.ThisJobIsUnavailableFor"]</MudAlert> }
     }
     @if (_pending is not null)
-    { <MudButton OnClick="RetryAsync" Disabled="_busy" Color="Color.Warning">Check the same review request</MudButton> }
+    { <MudButton OnClick="RetryAsync" Disabled="_busy" Color="Color.Warning">@L["MemoryReextractionPanel.CheckTheSameReviewRequest"]</MudButton> }
     @if (_pendingUrl is not null && !_pendingUrl.StartsWith(BaseUrl + "/", StringComparison.Ordinal))
-    { <MudAlert Severity="Severity.Warning">A review for another employee awaits confirmation. Checking it uses the original employee and job.</MudAlert> }
+    { <MudAlert Severity="Severity.Warning">@L["MemoryReextractionPanel.AReviewForAnotherEmployee"]</MudAlert> }
     @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
 </MudPaper>
 
@@ -74,13 +75,13 @@
             var suffix = cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor);
             using var response = await Http.GetAsync(route + "/ingestion/reextraction?limit=20" + suffix);
             if (route != BaseUrl || epoch != _readEpoch) return;
-            if (!response.IsSuccessStatusCode) { _candidates = null; _message = "Existing extractions could not be read. Check your access and refresh."; return; }
+            if (!response.IsSuccessStatusCode) { _candidates = null; _message = L["MemoryReextractionPanel.ExistingExtractionsCouldNotBe"]; return; }
             var page = await response.Content.ReadFromJsonAsync<MemoryReextractionCandidatePage>();
             if (route != BaseUrl || epoch != _readEpoch) return;
             if (page is not null) _candidates = cursor is null || _candidates is null ? page :
                 new(_candidates.Items.Concat(page.Items).DistinctBy(x => x.JobId).ToArray(), page.NextCursor);
         }
-        catch (Exception error) when (NetworkError(error)) { if (route == BaseUrl && epoch == _readEpoch) _message = "Existing extractions could not be loaded. Try again."; }
+        catch (Exception error) when (NetworkError(error)) { if (route == BaseUrl && epoch == _readEpoch) _message = L["MemoryReextractionPanel.ExistingExtractionsCouldNotBe2"]; }
         finally { _busy = false; }
     }
     private async Task PreviewAsync(Guid job)
@@ -91,11 +92,11 @@
         {
             using var response = await Http.GetAsync(route + $"/jobs/{job}/reextraction-review");
             if (route != BaseUrl || epoch != _readEpoch) return;
-            if (!response.IsSuccessStatusCode) { _message = "This extraction or its retained evidence is unavailable, or your access changed."; return; }
+            if (!response.IsSuccessStatusCode) { _message = L["MemoryReextractionPanel.ThisExtractionOrItsRetained"]; return; }
             var preview = await response.Content.ReadFromJsonAsync<MemoryReextractionPreview>();
             if (route == BaseUrl && epoch == _readEpoch && preview?.JobId == job) _preview = preview;
         }
-        catch (Exception error) when (NetworkError(error)) { if (route == BaseUrl && epoch == _readEpoch) _message = "Review details could not be loaded. Try again."; }
+        catch (Exception error) when (NetworkError(error)) { if (route == BaseUrl && epoch == _readEpoch) _message = L["MemoryReextractionPanel.ReviewDetailsCouldNotBe"]; }
         finally { _busy = false; }
     }
     private async Task QueueAsync()
@@ -114,7 +115,7 @@
         {
             using var response = await Http.PostAsJsonAsync(_pendingUrl, _pending);
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
-            { Clear(); _message = "The review was not accepted. Reload current evidence and access before deciding again."; return; }
+            { Clear(); _message = L["MemoryReextractionPanel.TheReviewWasNotAccepted"]; return; }
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<ReviewMemoryReextractionResponse>() ?? throw new System.Text.Json.JsonException();
             if (result.PreviousJobId != _pendingJob || result.EpisodeId != _pendingEpisode || result.InputGeneration != _pending.ExpectedInputGeneration + 1 ||
@@ -124,10 +125,10 @@
             _message = result.Replayed ? "This review was already recorded. Check processing for its current state." :
                 "The new extraction was queued. Existing records and the previous job remain preserved.";
             if (current) await Recovered.InvokeAsync();
-            else _message = "The review for the previous employee was recorded. Return to that employee to inspect its current state.";
+            else _message = L["MemoryReextractionPanel.TheReviewForThePrevious"];
         }
         catch (Exception error) when (NetworkError(error))
-        { _message = "The review could not be confirmed. Check the same request without queuing another extraction."; }
+        { _message = L["MemoryReextractionPanel.TheReviewCouldNotBe"]; }
         finally { _busy = false; }
     }
     private void Clear()

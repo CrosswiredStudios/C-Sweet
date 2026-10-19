@@ -2,14 +2,16 @@
 @inject ISetupApiClient SetupApi
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IAppLocalizer L
+@inject UserTime Time
 
 <section class="execution-step" aria-labelledby="execution-title">
     <header class="execution-step-header">
         <MudIcon Icon="@Icons.Material.Filled.Dns" Color="Color.Primary" />
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Secondary">Certified execution capacity</MudText>
-            <MudText Typo="Typo.h4" id="execution-title">Agent Execution</MudText>
-            <MudText Color="Color.Secondary">Install and enroll C-Sweet Office on the machine that will host isolated agent builds and runtimes.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Secondary">@L["AgentExecutionSetupStep.CertifiedExecutionCapacity"]</MudText>
+            <MudText Typo="Typo.h4" id="execution-title">@L["AgentExecutionSetupStep.AgentExecution"]</MudText>
+            <MudText Color="Color.Secondary">@L["AgentExecutionSetupStep.InstallAndEnrollCSweet"]</MudText>
         </div>
     </header>
 
@@ -17,13 +19,13 @@
     {
         <div class="execution-loading" aria-live="polite">
             <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-            <MudText>Checking execution capacity...</MudText>
+            <MudText>@L["AgentExecutionSetupStep.CheckingExecutionCapacity"]</MudText>
         </div>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
-        <MudButton Variant="Variant.Outlined" OnClick="RefreshAsync">Retry</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="RefreshAsync">@L["Common.Retry"]</MudButton>
     }
     else if (_status is not null)
     {
@@ -31,14 +33,14 @@
             <button type="button" class="execution-mode-card @ModeClass("local")"
                     disabled="@_busy" @onclick='@(() => SelectModeAsync("remote"))'>
                 <MudIcon Icon="@Icons.Material.Filled.Computer" />
-                <strong>This machine</strong>
-                <span>Use the same signed Office package and enrollment workflow on this host.</span>
+                <strong>@L["AgentExecutionSetupStep.ThisMachine"]</strong>
+                <span>@L["AgentExecutionSetupStep.UseTheSameSignedOffice"]</span>
             </button>
             <button type="button" class="execution-mode-card @ModeClass("remote")"
                     disabled="@_busy" @onclick='@(() => SelectModeAsync("remote"))'>
                 <MudIcon Icon="@Icons.Material.Filled.Hub" />
-                <strong>Another machine</strong>
-                <span>Use the same signed Office package on another Windows, Linux, or macOS host.</span>
+                <strong>@L["AgentExecutionSetupStep.AnotherMachine"]</strong>
+                <span>@L["AgentExecutionSetupStep.UseTheSameSignedOffice2"]</span>
             </button>
         </div>
 
@@ -49,7 +51,7 @@
             </MudAlert>
             @if (_status.LocalPrerequisites is { Count: > 0 })
             {
-                <ol class="execution-checks" aria-label="Local platform prerequisites">
+                <ol class="execution-checks" aria-label="@L["AgentExecutionSetupStep.LocalPlatformPrerequisites"]">
                     @foreach (var check in _status.LocalPrerequisites)
                     {
                         <li class="execution-check-@check.Status">
@@ -70,7 +72,7 @@
                                        Color="@(provisioning.State == "failed" ? Color.Error : provisioning.State == "completed" ? Color.Success : Color.Primary)" />
                     @if (provisioning.RequiresRestart)
                     {
-                        <MudAlert Severity="Severity.Warning" Dense="true">Restart this machine, then reopen setup. Progress will resume automatically.</MudAlert>
+                        <MudAlert Severity="Severity.Warning" Dense="true">@L["AgentExecutionSetupStep.RestartThisMachineThenReopen"]</MudAlert>
                     }
                     @if (!string.IsNullOrWhiteSpace(provisioning.ErrorMessage))
                     {
@@ -82,13 +84,13 @@
         }
         else if (_status.SelectedMode == "remote")
         {
-            <MudText Typo="Typo.h6">Connect a C-Sweet Office</MudText>
+            <MudText Typo="Typo.h6">@L["AgentExecutionSetupStep.ConnectACSweetOffice"]</MudText>
             <MudText Color="Color.Secondary">
-                Choose the target platform, install the signed package, and review the machine identity before approving it.
+                @L["AgentExecutionSetupStep.ChooseTheTargetPlatformInstall"]
             </MudText>
             @if (_status.Packages is { } packages)
             {
-                <div class="execution-platform-picker" role="group" aria-label="Execution-node operating system">
+                <div class="execution-platform-picker" role="group" aria-label="@L["AgentExecutionSetupStep.ExecutionNodeOperatingSystem"]">
                     @foreach (var platform in RemotePlatforms)
                     {
                         <button type="button" class="execution-platform-button @PlatformClass(platform.Key)"
@@ -102,12 +104,12 @@
                 <div class="execution-install-card">
                     <div>
                         <MudText Typo="Typo.subtitle1"><strong>@SelectedPlatform.Label installation</strong></MudText>
-                        <MudText Color="Color.Secondary">Install the signed package first, then run the command below to enroll RuntimeHost and Office with separate least-privilege service identities.</MudText>
+                        <MudText Color="Color.Secondary">@L["AgentExecutionSetupStep.InstallTheSignedPackageFirst"]</MudText>
                     </div>
                     @if (SelectedPackageUrl(packages) is { Length: > 0 } packageUrl)
                     {
                         <MudButton Href="@packageUrl" Target="_blank" Variant="Variant.Filled" Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.Download">Download signed package</MudButton>
+                                   StartIcon="@Icons.Material.Filled.Download">@L["AgentExecutionSetupStep.DownloadSignedPackage"]</MudButton>
                     }
                     else
                     {
@@ -119,25 +121,25 @@
                     @if (!string.IsNullOrWhiteSpace(packages.ControlPlaneUrl))
                     {
                         <div class="execution-copy-field">
-                            <span>Execution Gateway</span>
+                            <span>@L["AgentExecutionSetupStep.ExecutionGateway"]</span>
                             <code>@packages.ControlPlaneUrl</code>
-                            <MudButton Variant="Variant.Text" OnClick="() => CopyGatewayAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
+                            <MudButton Variant="Variant.Text" OnClick="() => CopyGatewayAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
                         </div>
-                        <MudText Typo="Typo.subtitle2">Run on the other machine</MudText>
+                        <MudText Typo="Typo.subtitle2">@L["AgentExecutionSetupStep.RunOnTheOtherMachine"]</MudText>
                         <div class="execution-copy-field execution-command">
                             <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
-                            <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
+                            <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
                         </div>
                         <MudText Typo="Typo.caption" Color="Color.Secondary">
-                            The token is intentionally omitted. The installer requests it through a hidden prompt and, for a private certificate, asks you to verify and trust its SHA-256 fingerprint only for Office.
+                            @L["AgentExecutionSetupStep.TheTokenIsIntentionallyOmitted"]
                         </MudText>
                         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description"
-                                   OnClick="() => DownloadInstructionsAsync(packages)">Download non-secret instructions</MudButton>
+                                   OnClick="() => DownloadInstructionsAsync(packages)">@L["AgentExecutionSetupStep.DownloadNonSecretInstructions"]</MudButton>
                     }
                     else
                     {
                         <MudAlert Severity="Severity.Error" Dense="true">
-                            The public Execution Gateway HTTPS address is not configured. An administrator must configure it before another device can connect.
+                            @L["AgentExecutionSetupStep.ThePublicExecutionGatewayHTTPS"]
                         </MudAlert>
                     }
                 </div>
@@ -148,7 +150,7 @@
 
         @if (_status.Nodes.Count > 0)
         {
-            <MudText Typo="Typo.h6" Class="mt-4">Enrolled Offices</MudText>
+            <MudText Typo="Typo.h6" Class="mt-4">@L["AgentExecutionSetupStep.EnrolledOffices"]</MudText>
             <div class="execution-node-list">
                 @foreach (var node in _status.Nodes)
                 {
@@ -159,9 +161,9 @@
                             <span>@node.AllocatableCpuCount CPU | @node.AllocatableMemoryMb MB memory | @node.AllocatableDiskMb MB disk | @node.MaximumConcurrentWorkloads concurrent workloads</span>
                             <span>Last heartbeat: @Heartbeat(node.LastHeartbeatAt) | certificate expires: @Heartbeat(node.CertificateExpiresAt)</span>
                             <div class="execution-copy-field execution-fingerprint">
-                                <span>Certificate fingerprint</span>
+                                <span>@L["AgentExecutionSetupStep.CertificateFingerprint"]</span>
                                 <code>@node.CertificateThumbprint</code>
-                                <MudButton Variant="Variant.Text" OnClick="() => CopyFingerprintAsync(node.CertificateThumbprint)">Copy</MudButton>
+                                <MudButton Variant="Variant.Text" OnClick="() => CopyFingerprintAsync(node.CertificateThumbprint)">@L["Common.Copy"]</MudButton>
                             </div>
                             @foreach (var provider in node.Providers)
                             {
@@ -186,9 +188,9 @@
                             @if (node.Status == "pendingapproval")
                             {
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy"
-                                           OnClick="() => ApproveAsync(node.Id)">Approve Office</MudButton>
+                                           OnClick="() => ApproveAsync(node.Id)">@L["AgentExecutionSetupStep.ApproveOffice"]</MudButton>
                                 <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@_busy"
-                                           OnClick="() => RejectAsync(node.Id)">Reject</MudButton>
+                                           OnClick="() => RejectAsync(node.Id)">@L["Common.Reject"]</MudButton>
                             }
                         </div>
                     </article>
@@ -196,7 +198,7 @@
             </div>
         }
 
-        <ol class="execution-checks" aria-label="Execution readiness checks">
+        <ol class="execution-checks" aria-label="@L["AgentExecutionSetupStep.ExecutionReadinessChecks"]">
             @foreach (var check in _status.Checks)
             {
                 <li class="execution-check-@check.Status">
@@ -228,9 +230,9 @@
     @if (ShowNavigation)
     {
         <footer class="execution-step-actions">
-            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">Back</MudButton>
+            <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="OnBack">@L["Common.Back"]</MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                       Disabled="@(_busy || _loading || _status?.IsReady != true)" OnClick="OnContinue">Continue</MudButton>
+                       Disabled="@(_busy || _loading || _status?.IsReady != true)" OnClick="OnContinue">@L["Common.Continue"]</MudButton>
         </footer>
     }
 </section>
@@ -268,7 +270,7 @@
         }
         catch
         {
-            _error = "C-Sweet could not inspect Office readiness.";
+            _error = L["AgentExecutionSetupStep.CSweetCouldNotInspect"];
         }
         finally { _loading = false; }
     }
@@ -321,7 +323,7 @@
         {
             <MudAlert Severity="Severity.Warning" Dense="true">This enrollment token is shown once. Treat it as a secret.</MudAlert>
             <code class="execution-token">@token</code>
-            <div><span>Expires @_issuedEnrollment.ExpiresAt.ToLocalTime().ToString("g")</span></div>
+            <div><span>Expires @Time.Format(_issuedEnrollment.ExpiresAt, "g")</span></div>
             <MudStack Row="true" Spacing="2">
                 <MudButton Variant="Variant.Outlined" Disabled="@_busy"
                            OnClick="() => CopyTokenAsync(token)">Copy token</MudButton>
@@ -331,7 +333,7 @@
         }
         else if (_status?.ActiveEnrollment is { } active)
         {
-            <MudText>An enrollment is active until @active.ExpiresAt.ToLocalTime().ToString("g"). Its token is no longer displayed.</MudText>
+            <MudText>An enrollment is active until @Time.Format(active.ExpiresAt, "g"). Its token is no longer displayed.</MudText>
             <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy"
                        OnClick="() => RevokeEnrollmentAsync(active.Id)">Revoke and replace</MudButton>
         }

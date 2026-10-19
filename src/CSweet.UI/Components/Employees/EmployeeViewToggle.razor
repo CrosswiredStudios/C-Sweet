@@ -1,5 +1,6 @@
-<div class="employee-view-toggle" role="group" aria-label="Employee view">
-    <button type="button" aria-pressed="@((Value == EmployeeViewKind.Graph).ToString().ToLowerInvariant())" class="@(Value == EmployeeViewKind.Graph ? "active" : null)" @onclick="SelectGraphAsync">Graph</button>
-    <button type="button" aria-pressed="@((Value == EmployeeViewKind.Teams).ToString().ToLowerInvariant())" class="@(Value == EmployeeViewKind.Teams ? "active" : null)" @onclick="SelectTeamsAsync">Teams</button>
-    <button type="button" aria-pressed="@((Value == EmployeeViewKind.Directory).ToString().ToLowerInvariant())" class="@(Value == EmployeeViewKind.Directory ? "active" : null)" @onclick="SelectDirectoryAsync">Directory</button>
+@inject IAppLocalizer L
+<div class="employee-view-toggle" role="group" aria-label="@L["EmployeeViewToggle.EmployeeView"]">
+    <button type="button" aria-pressed="@((Value == EmployeeViewKind.Graph).ToString().ToLowerInvariant())" class="@(Value == EmployeeViewKind.Graph ? "active" : null)" @onclick="SelectGraphAsync">@L["EmployeeViewToggle.Graph"]</button>
+    <button type="button" aria-pressed="@((Value == EmployeeViewKind.Teams).ToString().ToLowerInvariant())" class="@(Value == EmployeeViewKind.Teams ? "active" : null)" @onclick="SelectTeamsAsync">@L["EmployeeViewToggle.Teams"]</button>
+    <button type="button" aria-pressed="@((Value == EmployeeViewKind.Directory).ToString().ToLowerInvariant())" class="@(Value == EmployeeViewKind.Directory ? "active" : null)" @onclick="SelectDirectoryAsync">@L["EmployeeViewToggle.Directory"]</button>
 </div>

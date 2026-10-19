@@ -71,7 +71,7 @@ public sealed class MemorySuppressionPanelTests
     private static MemorySuppressionPreview Preview() => new(Guid.NewGuid(), 2, new string('a', 64), "Steps", false, true);
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
     private static MemorySuppressionPanel Panel(HttpClient http)
-    { var panel = new MemorySuppressionPanel(); Property(panel, "Http", http); return panel; }
+    { var panel = TestLocalization.Inject(new MemorySuppressionPanel()); Property(panel, "Http", http); return panel; }
     private static void Property(object panel, string name, object value) => typeof(MemorySuppressionPanel).GetProperty(name, Members)!.SetValue(panel, value);
     private static void Set(object panel, string field, object value) => typeof(MemorySuppressionPanel).GetField(field, Members)!.SetValue(panel, value);
     private static object? Get(object panel, string field) => typeof(MemorySuppressionPanel).GetField(field, Members)!.GetValue(panel);

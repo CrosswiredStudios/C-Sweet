@@ -1,8 +1,9 @@
+@inject IAppLocalizer L
 <div class="employee-actions" @onclick:stopPropagation="true">
     @if (ShowDirectChat && Employee.Actions.Contains(EmployeeAction.OpenChat))
     {
-        <MudTooltip Text="Open chat">
-            <MudIconButton Icon="@Icons.Material.Outlined.ChatBubbleOutline" Color="Color.Primary" aria-label="Open chat" OnClick="@(() => RequestAsync(EmployeeAction.OpenChat))" />
+        <MudTooltip Text="@L["EmployeeActionMenu.OpenChat"]">
+            <MudIconButton Icon="@Icons.Material.Outlined.ChatBubbleOutline" Color="Color.Primary" aria-label="@L["EmployeeActionMenu.OpenChat"]" OnClick="@(() => RequestAsync(EmployeeAction.OpenChat))" />
         </MudTooltip>
     }
     @if (MenuActions.Count > 0)

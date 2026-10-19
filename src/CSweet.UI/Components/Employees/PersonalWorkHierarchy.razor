@@ -1,8 +1,9 @@
 @using Wire = CSweet.WorkManagement.Contracts
+@inject IAppLocalizer L
 
 @if (Items.FirstOrDefault(x => x.Id == Item.ParentItemId) is { } parent)
 {
-    <section class="task-result"><h3>Parent ticket</h3><button type="button" class="text-action" @onclick="@(() => OnOpen.InvokeAsync(parent))"><CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@parent.Kind" /> @parent.Title</button></section>
+    <section class="task-result"><h3>@L["PersonalWorkHierarchy.ParentTicket"]</h3><button type="button" class="text-action" @onclick="@(() => OnOpen.InvokeAsync(parent))"><CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@parent.Kind" /> @parent.Title</button></section>
 }
 @{ var children = Items.Where(x => x.ParentItemId == Item.Id).OrderBy(x => x.Rank).ToList(); }
 @if (children.Count > 0)

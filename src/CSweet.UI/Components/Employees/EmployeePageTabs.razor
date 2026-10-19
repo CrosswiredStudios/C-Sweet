@@ -1,12 +1,13 @@
-<nav class="employee-page-tabs" aria-label="Employees sections">
+@inject IAppLocalizer L
+<nav class="employee-page-tabs" aria-label="@L["EmployeePageTabs.EmployeesSections"]">
     <a href="@TeamUrl"
        aria-current="@(!HiringSelected ? "page" : null)"
        class="@(!HiringSelected ? "active" : null)">
-        Team
+        @L["EmployeePageTabs.Team"]
     </a>
     <a href="@HiringUrl"
        aria-current="@(HiringSelected ? "page" : null)"
        class="@(HiringSelected ? "active" : null)">
-        Hiring
+        @L["EmployeePageTabs.Hiring"]
     </a>
 </nav>

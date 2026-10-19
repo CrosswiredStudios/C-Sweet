@@ -1,12 +1,13 @@
 @using CSweet.UI.Components.Employees.Models
+@inject IAppLocalizer L
 
 @if (Teams.Count == 0)
 {
-    <span class="team-chip unassigned">Unassigned</span>
+    <span class="team-chip unassigned">@L["EmployeeTeamChips.Unassigned"]</span>
 }
 else
 {
-    <span class="team-chips" aria-label="Team memberships">
+    <span class="team-chips" aria-label="@L["EmployeeTeamChips.TeamMemberships"]">
         @foreach (var team in VisibleTeams)
         {
             <span class="team-chip" style="@($"--team-color:{team.Color}")" title="@team.TeamName">
@@ -18,7 +19,7 @@ else
                 }
                 @if (team.IsLead)
                 {
-                    <span class="sr-only">, team lead</span>
+                    <span class="sr-only">@L["EmployeeTeamChips.TeamLead"]</span>
                 }
             </span>
         }

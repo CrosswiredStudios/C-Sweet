@@ -4,64 +4,65 @@
 @inject PersonalAssistantApiClient Api
 @inject IAppRealtimeConnection Realtime
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
 @if (_draft is null)
 {
-    <MudProgressCircular Indeterminate="true" Color="Color.Primary" /><p role="status">Preparing your draft…</p>
+    <MudProgressCircular Indeterminate="true" Color="Color.Primary" /><p role="status">@L["RepositoryBusinessOnboarding.PreparingYourDraft"]</p>
 }
 else
 {
-    <nav class="onboarding-progress" aria-label="Business setup progress"><span class="@(Stage == 0 ? "active" : "")">1 · Sources</span><span class="@(Stage == 1 ? "active" : "")">2 · Understand</span><span class="@(Stage == 2 ? "active" : "")">3 · Review & create</span></nav>
+    <nav class="onboarding-progress" aria-label="@L["RepositoryBusinessOnboarding.BusinessSetupProgress"]"><span class="@(Stage == 0 ? "active" : "")">@L["RepositoryBusinessOnboarding.1Sources"]</span><span class="@(Stage == 1 ? "active" : "")">@L["RepositoryBusinessOnboarding.2Understand"]</span><span class="@(Stage == 2 ? "active" : "")">@L["RepositoryBusinessOnboarding.3ReviewCreate"]</span></nav>
     @if (_draft.Status == "Created")
     {
-        <div class="onboarding-success"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Large" /><h3>Your business is ready.</h3><p>Your reviewed brief is in Documents. Next, hire a Chief of Staff to help plan the work.</p><MudButton Href="@_draft.ActionUri" Variant="Variant.Filled" Color="Color.Primary">Choose a Chief of Staff</MudButton></div>
+        <div class="onboarding-success"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Large" /><h3>@L["RepositoryBusinessOnboarding.YourBusinessIsReady"]</h3><p>@L["RepositoryBusinessOnboarding.YourReviewedBriefIsIn"]</p><MudButton Href="@_draft.ActionUri" Variant="Variant.Filled" Color="Color.Primary">@L["RepositoryBusinessOnboarding.ChooseAChiefOfStaff"]</MudButton></div>
     }
     else if (_draft.Status is "Creating" or "Preparing" or "Analyzing")
     {
-        <div class="onboarding-working" role="status"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><h3>@(_draft.Status == "Creating" ? "Bringing your business together…" : "Getting to know your project…")</h3><p>@(_draft.Status == "Creating" ? "Associating repositories and saving your reviewed brief." : "Reading documentation, manifests, and a bounded selection of source files.")</p><p>You can close this dialog and resume your saved draft.</p></div>
-        <MudButton OnClick="RefreshAsync">Refresh status</MudButton>
-        @if (_draft.Status == "Analyzing") { <MudButton OnClick="BeginManualReview">Enter details manually</MudButton> }
+        <div class="onboarding-working" role="status"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><h3>@(_draft.Status == "Creating" ? "Bringing your business together…" : "Getting to know your project…")</h3><p>@(_draft.Status == "Creating" ? "Associating repositories and saving your reviewed brief." : "Reading documentation, manifests, and a bounded selection of source files.")</p><p>@L["RepositoryBusinessOnboarding.YouCanCloseThisDialog"]</p></div>
+        <MudButton OnClick="RefreshAsync">@L["RepositoryBusinessOnboarding.RefreshStatus"]</MudButton>
+        @if (_draft.Status == "Analyzing") { <MudButton OnClick="BeginManualReview">@L["RepositoryBusinessOnboarding.EnterDetailsManually"]</MudButton> }
     }
     else if (_review is not null)
     {
         <section class="onboarding-review">
-            <h3>Make it yours.</h3><p>Review what your assistant found, fill the gaps, and set your next goal.</p>
-            <MudTextField T="string" Label="Business name" @bind-Value="_name" MaxLength="256" Immediate="true" Variant="Variant.Outlined" Required="true" />
-            <MudTextField T="string" Label="Industry" @bind-Value="_industry" MaxLength="160" Variant="Variant.Outlined" />
-            <MudTextField T="string" Label="Mission" @bind-Value="_mission" MaxLength="4096" Lines="2" Variant="Variant.Outlined" />
-            <MudTextField T="string" Label="Company overview" @bind-Value="_summary" MaxLength="16000" Lines="3" Variant="Variant.Outlined" />
-            <MudTextField T="string" Label="What would you like to achieve next?" @bind-Value="_goal" MaxLength="4096" Lines="2" Variant="Variant.Outlined" />
+            <h3>@L["RepositoryBusinessOnboarding.MakeItYours"]</h3><p>@L["RepositoryBusinessOnboarding.ReviewWhatYourAssistantFound"]</p>
+            <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.BusinessName"]" @bind-Value="_name" MaxLength="256" Immediate="true" Variant="Variant.Outlined" Required="true" />
+            <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.Industry"]" @bind-Value="_industry" MaxLength="160" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.Mission"]" @bind-Value="_mission" MaxLength="4096" Lines="2" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.CompanyOverview"]" @bind-Value="_summary" MaxLength="16000" Lines="3" Variant="Variant.Outlined" />
+            <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.WhatWouldYouLikeTo"]" @bind-Value="_goal" MaxLength="4096" Lines="2" Variant="Variant.Outlined" />
             @foreach (var project in _review.Projects)
             {
                 <article @key="project.SourceId" class="onboarding-project-review">
-                    <MudTextField T="string" Label="Project name" Value="project.Name" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Name = value }))" MaxLength="256" Variant="Variant.Outlined" />
-                    <MudTextField T="string" Label="Project brief" Value="project.Summary" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Summary = value }))" MaxLength="6000" Lines="3" Variant="Variant.Outlined" />
-                    <MudTextField T="string" Label="Technology" Value="project.Technology" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Technology = value }))" MaxLength="512" Variant="Variant.Outlined" />
-                    <MudTextField T="string" Label="Current state" Value="project.CurrentState" ValueChanged="@(value => EditProject(project.SourceId, p => p with { CurrentState = value }))" MaxLength="2048" Lines="2" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.ProjectName"]" Value="project.Name" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Name = value }))" MaxLength="256" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.ProjectBrief"]" Value="project.Summary" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Summary = value }))" MaxLength="6000" Lines="3" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.Technology"]" Value="project.Technology" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Technology = value }))" MaxLength="512" Variant="Variant.Outlined" />
+                    <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.CurrentState"]" Value="project.CurrentState" ValueChanged="@(value => EditProject(project.SourceId, p => p with { CurrentState = value }))" MaxLength="2048" Lines="2" Variant="Variant.Outlined" />
                     @if (project.Evidence.Count > 0) { <details><summary>Source evidence · @project.Evidence.Count files</summary>@foreach (var evidence in project.Evidence) { <p><code>@evidence.Path</code> · <code>@ShortSnapshot(evidence.Snapshot)</code></p> }</details> }
                 </article>
             }
-            @if (_review.OpenQuestions.Count > 0) { <aside class="onboarding-open-questions"><h4>Still to clarify</h4>@foreach (var question in _review.OpenQuestions) { <p>@question</p> }</aside> }
+            @if (_review.OpenQuestions.Count > 0) { <aside class="onboarding-open-questions"><h4>@L["RepositoryBusinessOnboarding.StillToClarify"]</h4>@foreach (var question in _review.OpenQuestions) { <p>@question</p> }</aside> }
             <MudCheckBox T="bool" @bind-Value="_managementApproved" Label="Associate these repositories with this business and save this reviewed brief. GitHub repositories stay in place; ZIPs become internal Git repositories." />
-            <footer class="business-dialog-actions"><MudButton Disabled="_busy" OnClick="BackToSources">Back to sources</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || !_managementApproved)" OnClick="CreateAsync">@(_busy ? "Saving…" : "Create business")</MudButton></footer>
+            <footer class="business-dialog-actions"><MudButton Disabled="_busy" OnClick="BackToSources">@L["RepositoryBusinessOnboarding.BackToSources"]</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || !_managementApproved)" OnClick="CreateAsync">@(_busy ? "Saving…" : "Create business")</MudButton></footer>
         </section>
     }
     else
     {
-        <h3>Bring what you’ve built.</h3><p>Connect one or more GitHub repositories, or upload a repository ZIP.</p>
-        <div class="onboarding-source-actions"><MudButton StartIcon="@Icons.Material.Outlined.Code" Variant="Variant.Outlined" Disabled="_busy" OnClick="ConnectGitHubAsync">Connect GitHub</MudButton><label class="onboarding-upload-button">Upload repository ZIP<InputFile OnChange="UploadAsync" accept=".zip" disabled="@_busy" /></label></div>
+        <h3>@L["RepositoryBusinessOnboarding.BringWhatYouVeBuilt"]</h3><p>@L["RepositoryBusinessOnboarding.ConnectOneOrMoreGitHub"]</p>
+        <div class="onboarding-source-actions"><MudButton StartIcon="@Icons.Material.Outlined.Code" Variant="Variant.Outlined" Disabled="_busy" OnClick="ConnectGitHubAsync">@L["RepositoryBusinessOnboarding.ConnectGitHub"]</MudButton><label class="onboarding-upload-button">@L["RepositoryBusinessOnboarding.UploadRepositoryZIP"]<InputFile OnChange="UploadAsync" accept=".zip" disabled="@_busy" /></label></div>
         <p class="onboarding-hint">ZIPs can include one outer folder. Git history is excluded. Maximum 512 MiB; builds and repository scripts are never run during analysis.</p>
-        <MudButton Href="@($"/settings/source-control?draft={_draft.Id:D}")">Set up GitHub for this installation</MudButton>
-        <MudButton Href="personal-assistant">Configure your Personal Assistant</MudButton>
+        <MudButton Href="@($"/settings/source-control?draft={_draft.Id:D}")">@L["RepositoryBusinessOnboarding.SetUpGitHubForThis"]</MudButton>
+        <MudButton Href="personal-assistant">@L["RepositoryBusinessOnboarding.ConfigureYourPersonalAssistant"]</MudButton>
         @if (_accounts.Count > 0)
         {
-            <MudSelect T="long" Label="GitHub account" Value="_installation" ValueChanged="LoadRepositoriesAsync" Variant="Variant.Outlined">@foreach (var account in _accounts) { <MudSelectItem T="long" Value="account.InstallationId">@account.Login</MudSelectItem> }</MudSelect>
-            <MudTextField T="string" @bind-Value="_search" Immediate="true" Label="Find a repository" Variant="Variant.Outlined" />
+            <MudSelect T="long" Label="@L["RepositoryBusinessOnboarding.GitHubAccount"]" Value="_installation" ValueChanged="LoadRepositoriesAsync" Variant="Variant.Outlined">@foreach (var account in _accounts) { <MudSelectItem T="long" Value="account.InstallationId">@account.Login</MudSelectItem> }</MudSelect>
+            <MudTextField T="string" @bind-Value="_search" Immediate="true" Label="@L["RepositoryBusinessOnboarding.FindARepository"]" Variant="Variant.Outlined" />
             <div class="onboarding-repository-picker">@foreach (var repo in _repositories.Where(x => x.FullName.Contains(_search, StringComparison.OrdinalIgnoreCase)))
             {
                 <div><MudCheckBox T="bool" Value="_selected.Contains(repo.RepositoryId)" ValueChanged="@(value => Select(repo.RepositoryId, value))" Disabled="@(!repo.Available || _busy)" Label="@($"{repo.FullName} · {(repo.IsPrivate ? "Private" : "Public")}")" />@if (!repo.Available) { <small>@repo.UnavailableReason</small> }</div>
             }</div>
-            <MudButton Disabled="@(_busy || _selected.Count == 0)" OnClick="AddSelectedAsync">Add selected repositories</MudButton>
+            <MudButton Disabled="@(_busy || _selected.Count == 0)" OnClick="AddSelectedAsync">@L["RepositoryBusinessOnboarding.AddSelectedRepositories"]</MudButton>
         }
         <div class="onboarding-source-list">
         @foreach (var source in _draft.Sources)
@@ -69,14 +70,14 @@ else
             <article @key="source.Id"><MudIcon Icon="@(source.Kind == "GitHub" ? Icons.Material.Outlined.Code : Icons.Material.Outlined.FolderZip)" /><div><strong>@source.Name</strong><span>@source.Kind · @source.Status @ShortSnapshot(source.Snapshot)</span>@if (source.Error is not null) { <p>@source.Error</p> }</div><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="@($"Remove {source.Name}")" Disabled="@(_busy || source.Attached)" OnClick="() => RemoveAsync(source.Id)" /></article>
         }
         </div>
-        <MudCheckBox T="bool" @bind-Value="_readApproved" Label="Allow my Personal Assistant to read a bounded selection of documentation and code from these sources." />
-        <footer class="business-dialog-actions"><MudButton Disabled="@(_busy || _draft.Sources.Count == 0 || !_draft.Sources.All(x => x.Status == "Ready"))" OnClick="BeginManualReview">Enter details manually</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_readApproved || _draft.Sources.Count == 0)" OnClick="AnalyzeAsync">Understand my project</MudButton></footer>
+        <MudCheckBox T="bool" @bind-Value="_readApproved" Label="@L["RepositoryBusinessOnboarding.AllowMyPersonalAssistantTo"]" />
+        <footer class="business-dialog-actions"><MudButton Disabled="@(_busy || _draft.Sources.Count == 0 || !_draft.Sources.All(x => x.Status == "Ready"))" OnClick="BeginManualReview">@L["RepositoryBusinessOnboarding.EnterDetailsManually"]</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_readApproved || _draft.Sources.Count == 0)" OnClick="AnalyzeAsync">@L["RepositoryBusinessOnboarding.UnderstandMyProject"]</MudButton></footer>
     }
     @if (_draft.Error is not null) { <MudAlert Severity="Severity.Warning">@_draft.Error</MudAlert> }
-    @if (_draft.Status is "AnalysisFailed" or "CreationFailed") { <MudButton OnClick="RetryAsync" Disabled="_busy">Retry saved step</MudButton> }
-    @if (_draft.Status is not ("Creating" or "Created" or "Preparing") && _draft.OrganizationId is null) { <MudButton OnClick="DiscardAsync" Disabled="_busy">Discard this draft</MudButton> }
+    @if (_draft.Status is "AnalysisFailed" or "CreationFailed") { <MudButton OnClick="RetryAsync" Disabled="_busy">@L["RepositoryBusinessOnboarding.RetrySavedStep"]</MudButton> }
+    @if (_draft.Status is not ("Creating" or "Created" or "Preparing") && _draft.OrganizationId is null) { <MudButton OnClick="DiscardAsync" Disabled="_busy">@L["RepositoryBusinessOnboarding.DiscardThisDraft"]</MudButton> }
 }
-@if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error <MudButton OnClick="RefreshAsync">Reload draft</MudButton></MudAlert> }
+@if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error <MudButton OnClick="RefreshAsync">@L["RepositoryBusinessOnboarding.ReloadDraft"]</MudButton></MudAlert> }
 
 @code {
     [Parameter] public Guid? DraftId { get; set; }

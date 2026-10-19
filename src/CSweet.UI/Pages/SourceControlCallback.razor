@@ -2,8 +2,9 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<PageTitle>Finishing GitHub setup</PageTitle>
+<PageTitle>@L["SourceControlCallback.PageTitle"]</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="py-12">
     <MudPaper Outlined="true" Class="pa-6">
@@ -11,16 +12,15 @@
             @if (_working)
             {
                 <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                <MudText Typo="Typo.h6">Connecting your GitHub account</MudText>
+                <MudText Typo="Typo.h6">@L["SourceControlCallback.ConnectingYourGitHubAccount"]</MudText>
                 <MudText Typo="Typo.body2" Align="Align.Center" Color="Color.Secondary">
-                    C-Sweet is confirming your identity and installation directly with GitHub. No
-                    GitHub token is given to an agent.
+                    @L["SourceControlCallback.CSweetIsConfirmingYour"]
                 </MudText>
             }
             else
             {
                 <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Color="Color.Error" Size="Size.Large" />
-                <MudText Typo="Typo.h6">GitHub setup could not be completed</MudText>
+                <MudText Typo="Typo.h6">@L["SourceControlCallback.GitHubSetupCouldNotBe"]</MudText>
                 <MudText Typo="Typo.body2">@_error</MudText>
             }
         </MudStack>

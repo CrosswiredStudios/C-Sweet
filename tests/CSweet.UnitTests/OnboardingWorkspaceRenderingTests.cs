@@ -269,7 +269,7 @@ public sealed class OnboardingWorkspaceRenderingTests
     [Fact]
     public async Task StartAgainIgnoresRediscoveryOfDismissedFailureButAcceptsNewSession()
     {
-        var component = new AgentHostOnboardingStep();
+        var component = TestLocalization.Inject(new AgentHostOnboardingStep());
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var field = typeof(AgentHostOnboardingStep).GetField("_localSession", flags)!;
         var adopt = typeof(AgentHostOnboardingStep).GetMethod("AdoptLocalSession", flags)!;

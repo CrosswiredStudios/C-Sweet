@@ -1,24 +1,25 @@
 @using System.Net.Http.Json
 @using CSweet.WorkManagement.Contracts
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 @if (_snapshot is { } tracking)
 {
-    <section class="work-tracking" aria-label="Work tracking">
+    <section class="work-tracking" aria-label="@L["WorkTracking.WorkTracking"]">
         @if (!tracking.Limited || tracking.Following)
         {
             <button type="button" disabled="@_busy" aria-pressed="@tracking.Following" @onclick="ToggleAsync">@(tracking.Following ? "Following" : "Follow")</button>
-            @if (!tracking.Limited && ShowUpdates && tracking.WorkItemUrl is { } url) { <a href="@url">Open work item</a> }
+            @if (!tracking.Limited && ShowUpdates && tracking.WorkItemUrl is { } url) { <a href="@url">@L["WorkTracking.OpenWorkItem"]</a> }
         }
         @if (ShowUpdates)
         {
-            <h3>Progress and results</h3>
-            @if (tracking.Limited) { <p>Updates shared with you</p> }
+            <h3>@L["WorkTracking.ProgressAndResults"]</h3>
+            @if (tracking.Limited) { <p>@L["WorkTracking.UpdatesSharedWithYou"]</p> }
             @foreach (var update in tracking.Updates)
             {
                 <article><strong>@UpdateLabel(update.Kind)</strong><p>@update.Summary</p><time datetime="@update.OccurredAt.ToString("O")">@update.OccurredAt.ToLocalTime().ToString("g")</time></article>
             }
-            @if (tracking.Updates.Count == 0) { <p>No progress updates yet.</p> }
+            @if (tracking.Updates.Count == 0) { <p>@L["WorkTracking.NoProgressUpdatesYet"]</p> }
         }
     </section>
 }
@@ -46,7 +47,7 @@
         _loadedItem = ItemId; _loadedOrg = OrganizationId; _snapshot = null; _error = null;
         using var response = await Http.GetAsync(Endpoint);
         if (response.IsSuccessStatusCode) _snapshot = await response.Content.ReadFromJsonAsync<WorkTrackingSnapshot>();
-        else if (ShowUpdates) _error = "These work updates are unavailable or your access has changed.";
+        else if (ShowUpdates) _error = L["WorkTracking.TheseWorkUpdatesAreUnavailable"];
     }
     private async Task ToggleAsync()
     {
@@ -57,7 +58,7 @@
             using var response = await Http.PostAsJsonAsync(Endpoint + (_snapshot.Following ? "/unfollow" : "/follow"),
                 new FollowWorkRequest(ItemId, Guid.NewGuid().ToString("N")));
             if (response.IsSuccessStatusCode) _snapshot = await response.Content.ReadFromJsonAsync<WorkTrackingSnapshot>();
-            else _error = "Unable to update following. Refresh and try again.";
+            else _error = L["WorkTracking.UnableToUpdateFollowingRefresh"];
         }
         finally { _busy = false; }
     }

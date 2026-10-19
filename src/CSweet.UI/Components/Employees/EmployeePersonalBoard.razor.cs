@@ -255,7 +255,7 @@ public partial class EmployeePersonalBoard
                 }
                 if (HasStatusChanges) _selectedItem = await MoveItemAsync(item, _editStatus, _blockReason);
             }
-            _notice = "Ticket saved";
+            _notice = L["EmployeePersonalBoard.TicketSaved"];
         });
         if (success) _dialogOpen = false;
     }
@@ -299,7 +299,7 @@ public partial class EmployeePersonalBoard
             _selectedItem = await ReadItemAsync(await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId}/work/personal-todos/items/reorder",
                 new Wire.ReorderPersonalTodoItemRequest(item.Id, before, item.Revision, $"personal-board:reorder:{Guid.NewGuid():N}")));
-            _notice = "Queue order updated";
+            _notice = L["EmployeePersonalBoard.QueueOrderUpdated"];
         });
     }
     private async Task ArchiveAsync()
@@ -310,7 +310,7 @@ public partial class EmployeePersonalBoard
             _selectedItem = await ReadItemAsync(await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId}/work/personal-todos/items/archive",
                 new Wire.ArchivePersonalTodoItemRequest(item.Id, item.Revision, $"personal-board:archive:{Guid.NewGuid():N}")));
-            _notice = "Ticket archived";
+            _notice = L["EmployeePersonalBoard.TicketArchived"];
         })) _dialogOpen = false;
     }
     private async Task RestoreAsync()
@@ -321,7 +321,7 @@ public partial class EmployeePersonalBoard
             _selectedItem = await ReadItemAsync(await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId}/work/personal-todos/items/restore",
                 new Wire.RestorePersonalTodoItemRequest(item.Id, item.Revision, $"personal-board:restore:{Guid.NewGuid():N}")));
-            _notice = "Ticket restored";
+            _notice = L["EmployeePersonalBoard.TicketRestored"];
         })) _dialogOpen = false;
     }
     private async Task CancelAsync()
@@ -330,7 +330,7 @@ public partial class EmployeePersonalBoard
         if (await MutateAsync(async () =>
         {
             _selectedItem = await MoveItemAsync(item, Wire.PersonalTodoStatuses.Cancelled);
-            _notice = "Ticket cancelled";
+            _notice = L["EmployeePersonalBoard.TicketCancelled"];
         })) _dialogOpen = false;
     }
     private async Task ReopenAsync()
@@ -339,7 +339,7 @@ public partial class EmployeePersonalBoard
         if (await MutateAsync(async () =>
         {
             _selectedItem = await MoveItemAsync(item, Wire.PersonalTodoStatuses.Ready);
-            _notice = "Ticket reopened";
+            _notice = L["EmployeePersonalBoard.TicketReopened"];
         })) _dialogOpen = false;
     }
     private async Task BeginTransferAsync()
@@ -367,7 +367,7 @@ public partial class EmployeePersonalBoard
                 $"api/organizations/{OrganizationId}/work/boards/{item.BoardId}/items/{item.Id}/transfer",
                 new TransferWorkItemRequest(_transferBoardId.Value, null, item.Revision, $"personal-board:transfer:{Guid.NewGuid():N}"));
             await EnsureSuccessAsync(response);
-            _notice = "Ticket transferred";
+            _notice = L["EmployeePersonalBoard.TicketTransferred"];
         })) { _transferring = false; _dialogOpen = false; }
     }
 

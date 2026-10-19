@@ -1,14 +1,15 @@
 @page "/not-found"
 @layout MainLayout
+@inject IAppLocalizer L
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="page-stack">
     <MudPaper Elevation="1" Class="surface-panel">
         <MudStack Spacing="2">
             <MudIcon Icon="@Icons.Material.Filled.TravelExplore" Color="Color.Primary" Size="Size.Large" />
-            <MudText Typo="Typo.h4">Not Found</MudText>
-            <MudText Color="Color.Secondary">Sorry, the content you are looking for does not exist.</MudText>
+            <MudText Typo="Typo.h4">@L["NotFound.NotFound"]</MudText>
+            <MudText Color="Color.Secondary">@L["NotFound.SorryTheContentYouAre"]</MudText>
             <MudButton Href="/" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Home">
-                Home
+                @L["NotFound.Home"]
             </MudButton>
         </MudStack>
     </MudPaper>

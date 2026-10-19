@@ -79,7 +79,7 @@ public sealed class SettingsWorkspaceRenderingTests
         foreach (var section in SettingsSections.All) Assert.Contains($"href=\"{section.Url}\"", html);
         Assert.DoesNotContain("Marketplace", html);
         Assert.DoesNotContain("/settings/agents/marketplace", html);
-        var page = new Settings();
+        var page = TestLocalization.Inject(new Settings());
         typeof(Settings).GetProperty("L", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page,
             new AppLocalizer(new LocalizationResources(), new AppCulture(null, new AuthSessionStore())));
         typeof(Settings).GetField("_search", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, "image");

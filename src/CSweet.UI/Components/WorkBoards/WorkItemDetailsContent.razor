@@ -3,11 +3,12 @@
 @using Wire = CSweet.WorkManagement.Contracts
 @inject HttpClient Http
 @implements IDisposable
+@inject IAppLocalizer L
 
 <div class="editorial-ticket" aria-label="@Item.Title">
     <header class="ticket-editorial-header">
         <div class="ticket-breadcrumb"><span>@Board.Board.Name</span><span aria-hidden="true">/</span><strong>@(Item.Identifier ?? "Work item")</strong></div>
-        <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="@(() => Closed.InvokeAsync())" aria-label="Close work item details" />
+        <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="@(() => Closed.InvokeAsync())" aria-label="@L["WorkItemDetailsContent.CloseWorkItemDetails"]" />
     </header>
     <div class="ticket-editorial-hero">
         <div class="ticket-eyebrow"><MudIcon Icon="@Icons.Material.Outlined.Assignment" Size="Size.Small" />@WorkBoardWorkspacePresentation.TypeLabel(Item)</div>
@@ -24,52 +25,52 @@
         </div>
     </div>
     <MudTabs Class="ticket-editorial-tabs" KeepPanelsAlive="true" LazyLoadPanels="true" ActivePanelIndex="_tab" ActivePanelIndexChanged="SelectTabAsync" MinimumTabWidth="0" Elevation="0">
-        <MudTabPanel Text="Overview">
+        <MudTabPanel Text="@L["WorkItemDetailsContent.Overview"]">
             <div class="ticket-editorial-body">
                 @AttentionContent
                 <div class="ticket-editorial-grid">
                     <main class="ticket-reading-column">
                         <section class="ticket-reading-section">
-                            <h3><MudIcon Icon="@Icons.Material.Outlined.Explore" Size="Size.Small" />Outcome</h3>
+                            <h3><MudIcon Icon="@Icons.Material.Outlined.Explore" Size="Size.Small" />@L["WorkItemDetailsContent.Outcome"]</h3>
                             <p class="ticket-outcome">@(string.IsNullOrWhiteSpace(Item.Description) ? "No description has been added." : Item.Description)</p>
                         </section>
                         @if (Item.Planning is { } planning)
                         {
                             <section class="ticket-reading-section">
-                                <h3><MudIcon Icon="@Icons.Material.Outlined.FactCheck" Size="Size.Small" />Acceptance criteria <span class="ticket-section-count">@planning.AcceptanceCriteria.Count</span></h3>
+                                <h3><MudIcon Icon="@Icons.Material.Outlined.FactCheck" Size="Size.Small" />@L["WorkItemDetailsContent.AcceptanceCriteria"] <span class="ticket-section-count">@planning.AcceptanceCriteria.Count</span></h3>
                                 @if (planning.AcceptanceCriteria.Count > 0)
                                 {
                                     <ol class="ticket-criteria">@foreach (var criterion in planning.AcceptanceCriteria) { <li>@criterion</li> }</ol>
                                 }
-                                else { <p class="ticket-secondary">No acceptance criteria have been added.</p> }
+                                else { <p class="ticket-secondary">@L["WorkItemDetailsContent.NoAcceptanceCriteriaHaveBeen"]</p> }
                             </section>
                             <section class="ticket-reading-section">
                                 <details class="ticket-disclosure">
-                                    <summary><MudIcon Icon="@Icons.Material.Outlined.FormatListBulleted" Size="Size.Small" />Requirements <span class="ticket-section-count">@planning.Requirements.Count</span></summary>
+                                    <summary><MudIcon Icon="@Icons.Material.Outlined.FormatListBulleted" Size="Size.Small" />@L["WorkItemDetailsContent.Requirements"] <span class="ticket-section-count">@planning.Requirements.Count</span></summary>
                                     <div class="ticket-disclosure-content">
                                         @if (planning.Requirements.Count > 0) { <ul>@foreach (var value in planning.Requirements) { <li>@value</li> }</ul> }
-                                        else { <p>No requirements have been added.</p> }
+                                        else { <p>@L["WorkItemDetailsContent.NoRequirementsHaveBeenAdded"]</p> }
                                     </div>
                                 </details>
                                 @if (planning.Constraints is { Count: > 0 } constraints)
                                 {
-                                    <details class="ticket-disclosure"><summary><MudIcon Icon="@Icons.Material.Outlined.Tune" Size="Size.Small" />Constraints <span class="ticket-section-count">@constraints.Count</span></summary><div class="ticket-disclosure-content"><ul>@foreach (var value in constraints) { <li>@value</li> }</ul></div></details>
+                                    <details class="ticket-disclosure"><summary><MudIcon Icon="@Icons.Material.Outlined.Tune" Size="Size.Small" />@L["WorkItemDetailsContent.Constraints"] <span class="ticket-section-count">@constraints.Count</span></summary><div class="ticket-disclosure-content"><ul>@foreach (var value in constraints) { <li>@value</li> }</ul></div></details>
                                 }
                                 @if (!string.IsNullOrWhiteSpace(planning.ArchitectureArtifactDigest))
                                 {
-                                    <details class="ticket-disclosure"><summary><MudIcon Icon="@Icons.Material.Outlined.Fingerprint" Size="Size.Small" />Architecture reference</summary><div class="ticket-disclosure-content"><code>@planning.ArchitectureArtifactDigest</code></div></details>
+                                    <details class="ticket-disclosure"><summary><MudIcon Icon="@Icons.Material.Outlined.Fingerprint" Size="Size.Small" />@L["WorkItemDetailsContent.ArchitectureReference"]</summary><div class="ticket-disclosure-content"><code>@planning.ArchitectureArtifactDigest</code></div></details>
                                 }
                             </section>
                         }
                         <section class="ticket-reading-section">
-                            <h3><MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Small" />Related work</h3>
+                            <h3><MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Small" />@L["WorkItemDetailsContent.RelatedWork"]</h3>
                             @if (Board.Items.FirstOrDefault(x => x.Id == Item.ParentItemId) is { } parent)
                             {
                                 <button type="button" class="ticket-related-link" @onclick="@(() => OnSelectItem.InvokeAsync(parent))"><MudIcon Icon="@Icons.Material.Outlined.SubdirectoryArrowLeft" Size="Size.Small" /><span>@parent.Title<small>Parent @parent.Kind.ToLowerInvariant() · @parent.Identifier</small></span></button>
                             }
                             @{ var children = Board.Items.Where(x => x.ParentItemId == Item.Id).OrderBy(x => x.Rank).ToList(); }
-                            <details class="ticket-disclosure"><summary>Child tickets <span class="ticket-section-count">@children.Count(x => x.Status == "Completed") / @children.Count complete</span></summary><div class="ticket-disclosure-content">
-                                @if (children.Count == 0) { <p>No child tickets.</p> }
+                            <details class="ticket-disclosure"><summary>@L["WorkItemDetailsContent.ChildTickets"] <span class="ticket-section-count">@children.Count(x => x.Status == "Completed") / @children.Count complete</span></summary><div class="ticket-disclosure-content">
+                                @if (children.Count == 0) { <p>@L["WorkItemDetailsContent.NoChildTickets"]</p> }
                                 @foreach (var child in children)
                                 {
                                     <button type="button" class="ticket-related-link" @onclick="@(() => OnSelectItem.InvokeAsync(child))"><MudIcon Icon="@Icons.Material.Outlined.SubdirectoryArrowRight" Size="Size.Small" /><span>@child.Title<small>@child.Identifier · @child.Status</small></span></button>
@@ -81,19 +82,19 @@
                             }
                         </section>
                     </main>
-                    <aside class="ticket-delivery-sidebar" aria-label="Ticket delivery">
-                        <section><h3>Delivery</h3>@DeliveryContent
-                            @if (_execution is not null) { <div class="ticket-stage-label">Current stage</div><p class="ticket-stage-name">@WorkEvidencePresentation.ReadableName(_execution.CurrentStageKey)</p> }
+                    <aside class="ticket-delivery-sidebar" aria-label="@L["WorkItemDetailsContent.TicketDelivery"]">
+                        <section><h3>@L["WorkItemDetailsContent.Delivery"]</h3>@DeliveryContent
+                            @if (_execution is not null) { <div class="ticket-stage-label">@L["WorkItemDetailsContent.CurrentStage"]</div><p class="ticket-stage-name">@WorkEvidencePresentation.ReadableName(_execution.CurrentStageKey)</p> }
                         </section>
                         <section>
                             <h3><MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Small" />Documents &amp; evidence @if (EvidenceCount > 0) { <span class="ticket-section-count">@EvidenceCount</span> }</h3>
-                            @if (_executionLoading) { <p class="ticket-secondary" role="status">Loading references…</p> }
-                            else if (_executionError is not null) { <p class="ticket-secondary" role="alert">@_executionError</p><MudButton Size="Size.Small" OnClick="LoadExecutionAsync">Retry references</MudButton> }
+                            @if (_executionLoading) { <p class="ticket-secondary" role="status">@L["WorkItemDetailsContent.LoadingReferences"]</p> }
+                            else if (_executionError is not null) { <p class="ticket-secondary" role="alert">@_executionError</p><MudButton Size="Size.Small" OnClick="LoadExecutionAsync">@L["WorkItemDetailsContent.RetryReferences"]</MudButton> }
                             else if (EvidenceCount > 0) { <WorkEvidenceLinks OrganizationId="Board.Board.OrganizationId" Evidence="Evidence" Collapsed="false" /> }
-                            else { <p class="ticket-secondary">No references available in this view.</p> }
+                            else { <p class="ticket-secondary">@L["WorkItemDetailsContent.NoReferencesAvailableInThis"]</p> }
                         </section>
-                        <section><h3><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" Size="Size.Small" />Approvals</h3>
-                            @if (Item.Approvals.Count == 0) { <p class="ticket-approval-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircleOutline" Size="Size.Small" />No specialist approval required.</p> }
+                        <section><h3><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" Size="Size.Small" />@L["WorkItemDetailsContent.Approvals"]</h3>
+                            @if (Item.Approvals.Count == 0) { <p class="ticket-approval-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircleOutline" Size="Size.Small" />@L["WorkItemDetailsContent.NoSpecialistApprovalRequired"]</p> }
                             @foreach (var approval in Item.Approvals)
                             {
                                 <MudAlert Severity="@ApprovalSeverity(approval.Status)" Variant="Variant.Outlined" Dense="true" Class="mt-2">@approval.PolicyKey · @approval.Status · revision @approval.PlanningRevision @if (!string.IsNullOrWhiteSpace(approval.Rationale)) { <div>@approval.Rationale</div> }</MudAlert>
@@ -103,15 +104,15 @@
                 </div>
             </div>
         </MudTabPanel>
-        <MudTabPanel Text="Discussion">
+        <MudTabPanel Text="@L["WorkItemDetailsContent.Discussion"]">
             <div class="ticket-editorial-body ticket-discussion"><WorkItemComments @ref="_comments" @key="(Board.Board.OrganizationId, Item.Id)" OrganizationId="Board.Board.OrganizationId" BoardId="Board.Board.Id" ItemId="Item.Id" /></div>
         </MudTabPanel>
-        <MudTabPanel Text="Activity">
+        <MudTabPanel Text="@L["WorkItemDetailsContent.Activity"]">
             <div class="ticket-editorial-body">
-                <div class="ticket-activity-heading"><h3>Activity</h3><MudButton Size="Size.Small" Disabled="_activityLoading" OnClick="LoadActivityAsync">Refresh activity</MudButton></div>
+                <div class="ticket-activity-heading"><h3>@L["WorkItemDetailsContent.Activity"]</h3><MudButton Size="Size.Small" Disabled="_activityLoading" OnClick="LoadActivityAsync">@L["WorkItemDetailsContent.RefreshActivity"]</MudButton></div>
                 @if (_activityLoading) { <MudProgressLinear Indeterminate="true" /> }
                 else if (_activityError is not null) { <MudAlert Severity="Severity.Warning" role="alert">@_activityError</MudAlert> }
-                else if (_activity.Count == 0) { <p class="ticket-secondary">No recorded activity yet.</p> }
+                else if (_activity.Count == 0) { <p class="ticket-secondary">@L["WorkItemDetailsContent.NoRecordedActivityYet"]</p> }
                 else
                 {
                     <ol class="ticket-activity-list">@foreach (var activity in _activity)
@@ -201,7 +202,7 @@
             if (!_disposed && request == _executionRequest) _execution = execution?.Items.FirstOrDefault(x => x.WorkItemId == itemId);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (!_disposed && request == _executionRequest) { _execution = null; _executionError = "References are unavailable or your access has changed."; } }
+        { if (!_disposed && request == _executionRequest) { _execution = null; _executionError = L["WorkItemDetailsContent.ReferencesAreUnavailableOrYour"]; } }
         finally { if (!_disposed && request == _executionRequest) _executionLoading = false; }
     }
 
@@ -217,7 +218,7 @@
             if (!_disposed && request == _activityRequest) { _activity = collaboration?.Activity.OrderByDescending(x => x.OccurredAt).ToList() ?? []; _activityLoaded = true; }
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (!_disposed && request == _activityRequest) { _activity = []; _activityError = "Activity is unavailable or your access has changed."; } }
+        { if (!_disposed && request == _activityRequest) { _activity = []; _activityError = L["WorkItemDetailsContent.ActivityIsUnavailableOrYour"]; } }
         finally { if (!_disposed && request == _activityRequest) _activityLoading = false; }
     }
 

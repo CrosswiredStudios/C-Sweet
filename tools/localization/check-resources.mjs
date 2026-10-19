@@ -68,6 +68,7 @@ for (const file of walk(uiRoot).filter(f => (f.endsWith('.razor') || f.endsWith(
   }
 }
 for (const [key, files] of used) {
+  if (key.endsWith('.') && Object.keys(en).some(k => k.startsWith(key))) continue; // dynamic family, e.g. L["X.Status." + value]
   if (!en[key] && !key.startsWith('Mud.')) error(`'${key}' is used in ${files[0]} but not defined in English resources`);
 }
 // Keys built dynamically (e.g. prefix + enum) cannot be matched here; those areas keep an explicit "_dynamic" note.

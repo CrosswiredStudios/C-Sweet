@@ -1,12 +1,13 @@
 @using CSweet.Contracts.Memory
 @using System.Net
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <MudDivider Class="my-3" />
-<MudText Typo="Typo.subtitle2">Review this core memory</MudText>
+<MudText Typo="Typo.subtitle2">@L["MemoryCoreReviewPanel.ReviewThisCoreMemory"]</MudText>
 @if (_review is null)
 {
-    <MudButton OnClick="LoadAsync" Disabled="_busy">Check review access</MudButton>
+    <MudButton OnClick="LoadAsync" Disabled="_busy">@L["MemoryCoreReviewPanel.CheckReviewAccess"]</MudButton>
 }
 else
 {
@@ -20,21 +21,21 @@ else
     @if (_review.SourceEpisodeIds.Count > 20)
     { <MudText Typo="Typo.caption">Showing the first 20 source links. The review checks all @_review.SourceEpisodeIds.Count sources.</MudText> }
     @if (!_review.CanConfirm)
-    { <MudAlert Severity="Severity.Warning">This core memory or its evidence is no longer current. Confirmation and correction are unavailable.</MudAlert> }
+    { <MudAlert Severity="Severity.Warning">@L["MemoryCoreReviewPanel.ThisCoreMemoryOrIts"]</MudAlert> }
     <MudStack Row="true" Class="my-2">
-        <MudButton OnClick='@(() => SubmitAsync("confirm"))' Disabled='@(Locked || !_review.CanConfirm || _review.Confirmation == "Confirmed")' Color="Color.Primary">Confirm core memory</MudButton>
-        <MudButton OnClick='@(() => SubmitAsync("reject"))' Disabled='@(Locked || !_review.CanReject || _review.Confirmation == "Rejected")' Color="Color.Error">Reject core memory</MudButton>
-        <MudButton OnClick="LoadAsync" Disabled="Locked">Refresh review</MudButton>
+        <MudButton OnClick='@(() => SubmitAsync("confirm"))' Disabled='@(Locked || !_review.CanConfirm || _review.Confirmation == "Confirmed")' Color="Color.Primary">@L["MemoryCoreReviewPanel.ConfirmCoreMemory"]</MudButton>
+        <MudButton OnClick='@(() => SubmitAsync("reject"))' Disabled='@(Locked || !_review.CanReject || _review.Confirmation == "Rejected")' Color="Color.Error">@L["MemoryCoreReviewPanel.RejectCoreMemory"]</MudButton>
+        <MudButton OnClick="LoadAsync" Disabled="Locked">@L["MemoryCoreReviewPanel.RefreshReview"]</MudButton>
     </MudStack>
     @if (_review.CanCorrect)
     {
-        <MudTextField T="string" Label="Corrected core content" @bind-Value="_content" MaxLength="16000" Lines="4" Disabled="Locked" />
-        <MudCheckBox T="bool" Label="Pin this core memory" @bind-Value="_pinned" Disabled="Locked" />
-        <MudButton OnClick='@(() => SubmitAsync("correct"))' Disabled="@(Locked || string.IsNullOrWhiteSpace(_content))">Save new version</MudButton>
+        <MudTextField T="string" Label="@L["MemoryCoreReviewPanel.CorrectedCoreContent"]" @bind-Value="_content" MaxLength="16000" Lines="4" Disabled="Locked" />
+        <MudCheckBox T="bool" Label="@L["MemoryCoreReviewPanel.PinThisCoreMemory"]" @bind-Value="_pinned" Disabled="Locked" />
+        <MudButton OnClick='@(() => SubmitAsync("correct"))' Disabled="@(Locked || string.IsNullOrWhiteSpace(_content))">@L["MemoryCoreReviewPanel.SaveNewVersion"]</MudButton>
     }
 }
 @if (_pending is not null)
-{ <MudButton OnClick="RetryAsync" Disabled="_busy">Retry the same review</MudButton> }
+{ <MudButton OnClick="RetryAsync" Disabled="_busy">@L["MemoryCoreReviewPanel.RetryTheSameReview"]</MudButton> }
 @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
 
 @code {
@@ -60,11 +61,11 @@ else
         try
         {
             using var response = await Http.GetAsync(Url);
-            if (!response.IsSuccessStatusCode) { _message = "This core memory is unavailable for review or your permission changed."; return; }
+            if (!response.IsSuccessStatusCode) { _message = L["MemoryCoreReviewPanel.ThisCoreMemoryIsUnavailable"]; return; }
             _review = await response.Content.ReadFromJsonAsync<MemoryCoreReviewResponse>();
             if (_review is not null) { _content = _review.Content; _pinned = _review.IsPinned; }
         }
-        catch (Exception error) when (NetworkError(error)) { _message = "Review details could not be loaded. Try again."; }
+        catch (Exception error) when (NetworkError(error)) { _message = L["MemoryCoreReviewPanel.ReviewDetailsCouldNotBe"]; }
         finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
     }
     private async Task SubmitAsync(string action)
@@ -85,7 +86,7 @@ else
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
             {
                 _pending = null; _review = null;
-                _message = "The review was not accepted. Reload the current core memory and check your authority and source evidence before deciding again.";
+                _message = L["MemoryCoreReviewPanel.TheReviewWasNotAccepted"];
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -94,12 +95,12 @@ else
             _message = result.WasReplay ? "This review was already recorded." : "Your review was recorded.";
         }
         catch (Exception error) when (NetworkError(error))
-        { _message = "The result could not be confirmed. Retry the same review to check it without creating another version."; }
+        { _message = L["MemoryCoreReviewPanel.TheResultCouldNotBe"]; }
         finally { _busy = false; await LockedChanged.InvokeAsync(Locked); }
         if (updated.HasValue)
         {
             try { await Reviewed.InvokeAsync(updated.Value); }
-            catch (Exception error) when (NetworkError(error)) { _message = "The review was recorded. Reload the inspector to see its current state."; }
+            catch (Exception error) when (NetworkError(error)) { _message = L["MemoryCoreReviewPanel.TheReviewWasRecordedReload"]; }
         }
     }
     private static bool NetworkError(Exception error) => error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;

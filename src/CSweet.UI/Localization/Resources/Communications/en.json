@@ -1,6 +1,5 @@
 {
   "_": "Communications area: the Communications workspace page (conversations, composer, decisions, agent turns), Communication settings and the Discord provider setup, and the Communications components (media uploader, mentions, document actions, work instruction sharing).",
-
   "Communications.PageTitle": "Communications - C-Sweet",
   "Communications.Mobile.BackToConversation": "Back to conversation",
   "Communications.Conversations": "Conversations",
@@ -153,7 +152,6 @@
   "_Communications.Presence.Title": "Tooltip on the presence dot. {name} is a person's display name.",
   "Communications.Presence.Title": "{name} {status, select, Unhealthy {has a problem} Starting {is starting} PendingActivation {is waiting for activation} ReadyOnDemand {is ready on demand} Scheduled {is scheduled} Offline {is offline} other {is available}}.",
   "Communications.Presence.TitleWithDetail": "{title} {detail}",
-
   "CommunicationSettings.PageTitle": "Communications - C-Sweet Settings",
   "CommunicationSettings.Title": "Communications",
   "CommunicationSettings.Lead": "Connect apps for your company. Your conversations stay available in C-Sweet.",
@@ -175,7 +173,6 @@
   "CommunicationSettings.DisconnectDialog.Acknowledge": "I understand that Discord communication will stop",
   "CommunicationSettings.DisconnectDialog.Confirm": "Confirm disconnect",
   "CommunicationSettings.DisconnectQueued": "Discord disconnection was queued. History remains available in C-Sweet.",
-
   "CommunicationProviderSetup.PageTitle": "Discord connection - C-Sweet",
   "CommunicationProviderSetup.ConnectedApps": "Connected apps",
   "CommunicationProviderSetup.Title": "Discord connection",
@@ -206,7 +203,6 @@
   "CommunicationProviderSetup.Error.MissingServerOrPlugin": "A server ID and installed communication plugin are required.",
   "CommunicationProviderSetup.Saved": "Discord connection saved.",
   "CommunicationProviderSetup.ProvisioningQueued": "Provisioning queued.",
-
   "ConversationMediaUploader.AttachTitle": "Attach a video, image, document or captions",
   "ConversationMediaUploader.AttachFile": "Attach file",
   "ConversationMediaUploader.SelectOriginal": "Select original file to resume",
@@ -239,10 +235,8 @@
   "ConversationMediaUploader.Upload.Rejected": "The file did not pass validation or exceeds the deployment's upload or storage limit.",
   "ConversationMediaUploader.Upload.Conflict": "Stored upload progress changed. Resume to check its current position.",
   "ConversationMediaUploader.Upload.Interrupted": "The upload was interrupted. Resume after the connection is available.",
-
   "_MentionedMessageContent.MentionTitle": "Tooltip on an @mention; {employeeType} is the raw employee type.",
   "MentionedMessageContent.MentionTitle": "{displayName} · {employeeType}",
-
   "MessageArtifactActions.OpenAria": "Open linked document revision",
   "MessageArtifactActions.RevisionApproved": "Revision approved",
   "MessageArtifactActions.OpenDocument": "Open document",
@@ -256,7 +250,6 @@
   "MessageArtifactActions.Error.NoLongerAwaiting": "This linked revision is no longer awaiting approval. Open the document to review its current status.",
   "MessageArtifactActions.Error.ApproveFailed": "This revision could not be approved. Open the document to review its status or access.",
   "MessageArtifactActions.Error.Unreachable": "C-Sweet could not reach the document service. Try again or open the document for details.",
-
   "ShareWorkInstruction.Open": "Share instruction with a work item",
   "ShareWorkInstruction.Title": "Share a work instruction",
   "ShareWorkInstruction.Intro": "Choose the relevant text from your message and its work item. People and agents with access to that work item's comments can read the published instruction.",
@@ -292,7 +285,6 @@
   "ShareWorkInstruction.Error.Forbidden": "You no longer have access to this instruction or work item.",
   "ShareWorkInstruction.Error.Conflict": "The instruction or audience changed. Review the current selection again.",
   "ShareWorkInstruction.Error.BadRequest": "This selection cannot be published. Choose relevant text from your own message.",
-
   "_dynamic": "CommunicationConnectionStatus.*, CommunicationWorkspaceMode.*, CommunicationChangeKind.*, CommunicationResourceKind.*, AgentCoordinationStatus.* and ChatTurnStatus.* are resolved from enum names.",
   "CommunicationConnectionStatus.Pending": "Pending",
   "CommunicationConnectionStatus.Connected": "Connected",
@@ -327,5 +319,7 @@
   "ChatTurnStatus.Completed": "Completed",
   "ChatTurnStatus.CompletedWithWarnings": "CompletedWithWarnings",
   "ChatTurnStatus.Failed": "Failed",
-  "ChatTurnStatus.Cancelled": "Cancelled"
+  "ChatTurnStatus.Cancelled": "Cancelled",
+  "Communications.SendingAndConversationActionsAre": ". Sending and conversation actions are disabled.",
+  "CommunicationSettings.Discord": "Discord"
 }

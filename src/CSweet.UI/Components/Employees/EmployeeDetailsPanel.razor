@@ -1,4 +1,5 @@
-<aside class="employee-details" aria-label="Selected employee details">
+@inject IAppLocalizer L
+<aside class="employee-details" aria-label="@L["EmployeeDetailsPanel.SelectedEmployeeDetails"]">
     @if (Employee is not null)
     {
         <header>
@@ -16,11 +17,11 @@
             </div>
         </header>
         <section>
-            <MudText Typo="Typo.overline">Overview</MudText>
+            <MudText Typo="Typo.overline">@L["EmployeeDetailsPanel.Overview"]</MudText>
             <dl>
-                <div><dt>Reports to</dt><dd>@(Employee.ManagerName ?? "Nobody")</dd></div>
-                <div><dt>Direct reports</dt><dd>@Employee.DirectReportCount</dd></div>
-                <div><dt>Type</dt><dd>@(Employee.IsAgent ? "Agent" : "Human")</dd></div>
+                <div><dt>@L["EmployeeDetailsPanel.ReportsTo"]</dt><dd>@(Employee.ManagerName ?? "Nobody")</dd></div>
+                <div><dt>@L["EmployeeDetailsPanel.DirectReports"]</dt><dd>@Employee.DirectReportCount</dd></div>
+                <div><dt>@L["EmployeeDetailsPanel.Type"]</dt><dd>@(Employee.IsAgent ? "Agent" : "Human")</dd></div>
             </dl>
         </section>
         <section>
@@ -39,7 +40,7 @@
             <MudText Typo="Typo.overline">Direct reports (@Employee.DirectReportCount)</MudText>
             @if (DirectReports.Count == 0)
             {
-                <MudText Typo="Typo.body2" Color="Color.Secondary">No direct reports.</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@L["EmployeeDetailsPanel.NoDirectReports"]</MudText>
             }
             else
             {
@@ -55,7 +56,7 @@
             }
         </section>
         <section>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{Employee.Source.OrganizationId}/employees/{Employee.Id}")">View profile</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{Employee.Source.OrganizationId}/employees/{Employee.Id}")">@L["EmployeeDetailsPanel.ViewProfile"]</MudButton>
             <EmployeeActionMenu Employee="Employee" ShowDirectChat="false" ActionRequested="ActionRequested" />
         </section>
     }

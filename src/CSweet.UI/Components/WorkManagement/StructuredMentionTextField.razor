@@ -4,6 +4,7 @@
 @using Wire = CSweet.WorkManagement.Contracts
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
 <div class="work-mention-editor">
     <MudTextField T="string" InputId="@_inputId" Value="_currentValue"
@@ -12,7 +13,7 @@
                   Disabled="@Disabled" OnKeyDown="OnKeyDownAsync" />
     @if (_menuOpen)
     {
-        <div class="work-mention-menu" role="listbox" aria-label="Mention a person or agent">
+        <div class="work-mention-menu" role="listbox" aria-label="@L["StructuredMentionTextField.MentionAPersonOrAgent"]">
             @foreach (var match in _matches.Select((person, index) => (person, index)))
             {
                 <button type="button" class="@(match.index == _selection ? "selected" : null)"

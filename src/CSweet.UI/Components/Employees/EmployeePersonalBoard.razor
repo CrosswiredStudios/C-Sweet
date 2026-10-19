@@ -1,32 +1,33 @@
 @using Wire = CSweet.WorkManagement.Contracts
 @using Present = CSweet.UI.Components.Employees.PersonalBoardPresentation
 @implements IDisposable
+@inject IAppLocalizer L
 
-<section class="personal-board" aria-label="Personal board" aria-busy="@_busy">
+<section class="personal-board" aria-label="@L["EmployeePersonalBoard.PersonalBoard"]" aria-busy="@_busy">
     <div class="board-toolbar">
-        <div class="toolbar-group"><strong class="board-view"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" Size="Size.Small" />Board <span class="board-count">@FilteredItems.Count</span></strong>
+        <div class="toolbar-group"><strong class="board-view"><MudIcon Icon="@Icons.Material.Outlined.ViewKanban" Size="Size.Small" />@L["EmployeePersonalBoard.Board"] <span class="board-count">@FilteredItems.Count</span></strong>
             @if (FilterCount > 0) { <button type="button" class="filter-chip" disabled="@_busy" @onclick="ClearFiltersAsync">@FilterCount active @(FilterCount == 1 ? "filter" : "filters") <MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" /></button> }
         </div>
         <div class="toolbar-group">
             <MudMenu @ref="_filterMenu" Label="@(FilterCount > 0 ? $"Filter · {FilterCount}" : "Filter")" StartIcon="@Icons.Material.Outlined.Tune" Variant="Variant.Outlined" Class="board-filter-menu" Disabled="_busy" OpenChanged="@(open => { if (open) PrepareFilters(); })" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" PopoverClass="personal-board-filter-popover">
                 <ChildContent>
-                    <div class="board-filters" role="group" aria-label="Board filters" @onclick:stopPropagation="true">
-                        <div class="filter-heading"><strong>Board filters</strong><button type="button" class="icon-action" aria-label="Close filters" @onclick="CloseFiltersAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" /></button></div>
-                        <span class="field-label">Status</span><div class="filter-options"><button type="button" aria-pressed="@((_draftStatuses.Count == 0).ToString().ToLowerInvariant())" @onclick="@(() => _draftStatuses.Clear())">Any status</button>
+                    <div class="board-filters" role="group" aria-label="@L["EmployeePersonalBoard.BoardFilters"]" @onclick:stopPropagation="true">
+                        <div class="filter-heading"><strong>@L["EmployeePersonalBoard.BoardFilters"]</strong><button type="button" class="icon-action" aria-label="@L["EmployeePersonalBoard.CloseFilters"]" @onclick="CloseFiltersAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" /></button></div>
+                        <span class="field-label">@L["EmployeePersonalBoard.Status"]</span><div class="filter-options"><button type="button" aria-pressed="@((_draftStatuses.Count == 0).ToString().ToLowerInvariant())" @onclick="@(() => _draftStatuses.Clear())">@L["EmployeePersonalBoard.AnyStatus"]</button>
                             @foreach (var column in Present.Columns) { <button type="button" aria-pressed="@(_draftStatuses.Contains(column.Status).ToString().ToLowerInvariant())" @onclick="@(() => ToggleStatusFilter(column.Status))">@column.Label</button> }
                         </div>
-                        <p class="filter-hint">Select Cancelled or include archived tickets to see cancelled work.</p>
-                        <label class="property"><span class="field-label">Priority</span><select aria-label="Priority" @bind="_draftPriority"><option value="">Any priority</option>@foreach (var priority in Priorities) { <option value="@priority">@priority</option> }</select></label>
-                        @if (IncludeArchivedChanged.HasDelegate || IncludeArchived) { <label class="property"><span class="field-label">Archive</span><select aria-label="Archive" @bind="_draftArchive"><option value="current">Current tickets</option><option value="all">Include archived</option><option value="archived">Archived only</option></select></label> }
-                        <div class="filter-footer"><button type="button" class="text-action" @onclick="ResetDraftFilters">Clear filters</button><button type="button" class="board-button primary-button" @onclick="ApplyFiltersAsync">Apply filters</button></div>
+                        <p class="filter-hint">@L["EmployeePersonalBoard.SelectCancelledOrIncludeArchived"]</p>
+                        <label class="property"><span class="field-label">@L["EmployeePersonalBoard.Priority"]</span><select aria-label="@L["EmployeePersonalBoard.Priority"]" @bind="_draftPriority"><option value="">@L["EmployeePersonalBoard.AnyPriority"]</option>@foreach (var priority in Priorities) { <option value="@priority">@priority</option> }</select></label>
+                        @if (IncludeArchivedChanged.HasDelegate || IncludeArchived) { <label class="property"><span class="field-label">@L["EmployeePersonalBoard.Archive"]</span><select aria-label="@L["EmployeePersonalBoard.Archive"]" @bind="_draftArchive"><option value="current">@L["EmployeePersonalBoard.CurrentTickets"]</option><option value="all">@L["EmployeePersonalBoard.IncludeArchived"]</option><option value="archived">@L["EmployeePersonalBoard.ArchivedOnly"]</option></select></label> }
+                        <div class="filter-footer"><button type="button" class="text-action" @onclick="ResetDraftFilters">@L["EmployeePersonalBoard.ClearFilters"]</button><button type="button" class="board-button primary-button" @onclick="ApplyFiltersAsync">@L["EmployeePersonalBoard.ApplyFilters"]</button></div>
                     </div>
                 </ChildContent>
             </MudMenu>
-            @if (CanAdd) { <button type="button" class="board-button primary-button" disabled="@_busy" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" />New task</button> }
+            @if (CanAdd) { <button type="button" class="board-button primary-button" disabled="@_busy" @onclick="OpenCreate"><MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" />@L["EmployeePersonalBoard.NewTask"]</button> }
         </div>
     </div>
     @if (!string.IsNullOrWhiteSpace(_error) && !_dialogOpen) { <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert> }
-    <div class="employee-personal-kanban" tabindex="0" role="region" aria-label="Personal board columns, scroll horizontally">
+    <div class="employee-personal-kanban" tabindex="0" role="region" aria-label="@L["EmployeePersonalBoard.PersonalBoardColumnsScrollHorizontally"]">
         @foreach (var column in VisibleColumns)
         {
             var items = ItemsFor(column.Status);
@@ -41,11 +42,11 @@
                         @if (!string.IsNullOrWhiteSpace(item.Description)) { <span class="ticket-description">@Present.Excerpt(Present.Description(item.Description))</span> }
                         @if (item.Wait is { } cardWait)
                         {
-                            <span class="ticket-wait"><strong>Waiting</strong> · @cardWait.Reason<span>Next review @cardWait.NextReviewAt.ToLocalTime().ToString("g")</span></span>
+                            <span class="ticket-wait"><strong>@L["EmployeePersonalBoard.Waiting"]</strong> · @cardWait.Reason<span>Next review @cardWait.NextReviewAt.ToLocalTime().ToString("g")</span></span>
                         }
                         <span class="ticket-footer"><span class="ticket-priority">@Present.Priority(item.Priority)</span><span class="ticket-owner">@Present.Initials(Board.OwnerDisplayName)</span></span>
-                        @if (item.ArchivedAt.HasValue) { <span class="ticket-attention archived"><MudIcon Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" />Archived</span> }
-                        else if (item.Status == Wire.PersonalTodoStatuses.Blocked) { <span class="ticket-attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />Needs attention</span> }
+                        @if (item.ArchivedAt.HasValue) { <span class="ticket-attention archived"><MudIcon Icon="@Icons.Material.Outlined.Archive" Size="Size.Small" />@L["EmployeePersonalBoard.Archived"]</span> }
+                        else if (item.Status == Wire.PersonalTodoStatuses.Blocked) { <span class="ticket-attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@L["EmployeePersonalBoard.NeedsAttention"]</span> }
                         @if (item.DueDate.HasValue) { <span class="ticket-due">Due @item.DueDate.Value.ToLocalTime().ToString("MMM d")</span> }
                     </button>
                 }
@@ -54,14 +55,14 @@
             </section>
         }
     </div>
-    <footer class="board-footer"><span role="status" aria-live="polite">@_notice</span><span>Open a ticket for details and available moves</span></footer>
+    <footer class="board-footer"><span role="status" aria-live="polite">@_notice</span><span>@L["EmployeePersonalBoard.OpenATicketForDetails"]</span></footer>
 </section>
 
 <MudDialog @bind-Visible="_dialogOpen" Options="TaskDialogOptions" Class="personal-task-dialog" ContentClass="personal-task-dialog-content" Gutters="false">
     <DialogContent>
         <div class="personal-task-content" aria-busy="@_busy">
             <header class="task-header">
-                <div class="task-breadcrumb"><span><MudIcon Icon="@Icons.Material.Outlined.Layers" Size="Size.Small" />Personal work / <strong>@(_creating ? "New task" : Short(_selectedItem?.Id))</strong></span><button type="button" class="icon-action" disabled="@_busy" aria-label="Close ticket" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></div>
+                <div class="task-breadcrumb"><span><MudIcon Icon="@Icons.Material.Outlined.Layers" Size="Size.Small" />@L["EmployeePersonalBoard.PersonalWork"] <strong>@(_creating ? "New task" : Short(_selectedItem?.Id))</strong></span><button type="button" class="icon-action" disabled="@_busy" aria-label="@L["EmployeePersonalBoard.CloseTicket"]" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></div>
                 <h2>@(_creating ? "Create personal task" : _selectedItem?.Title)</h2>
                 @if (_selectedItem is { } typedItem) { <CSweet.UI.Components.WorkBoards.WorkItemTypeBadge Kind="@typedItem.Kind" /> }
                 <span class="task-status @(_selectedItem?.Status == Wire.PersonalTodoStatuses.Blocked ? "warning" : "")">@(_creating ? "Ready" : _selectedItem?.ArchivedAt.HasValue == true ? "Archived" : Present.StatusLabel(_selectedItem?.Status ?? ""))</span>
@@ -70,9 +71,9 @@
             @if (_creating)
             {
                 <div class="task-create-form">
-                    <StructuredMentionTextField Label="Title" Value="@_editTitle" ValueChanged="@(value => _editTitle = value)" Mentions="_editTitleMentions" MentionsChanged="@(value => _editTitleMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Title" Disabled="_busy" />
-                    <StructuredMentionTextField Label="Description" Value="@_editDescription" ValueChanged="@(value => _editDescription = value)" Mentions="_editDescriptionMentions" MentionsChanged="@(value => _editDescriptionMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Description" Lines="5" Disabled="_busy" />
-                    <label class="property"><span class="field-label">Priority</span><select aria-label="Priority" @bind="_editPriority" disabled="@_busy">@foreach (var priority in Priorities) { <option>@priority</option> }</select></label>
+                    <StructuredMentionTextField Label="@L["EmployeePersonalBoard.Title"]" Value="@_editTitle" ValueChanged="@(value => _editTitle = value)" Mentions="_editTitleMentions" MentionsChanged="@(value => _editTitleMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Title" Disabled="_busy" />
+                    <StructuredMentionTextField Label="@L["EmployeePersonalBoard.Description"]" Value="@_editDescription" ValueChanged="@(value => _editDescription = value)" Mentions="_editDescriptionMentions" MentionsChanged="@(value => _editDescriptionMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Description" Lines="5" Disabled="_busy" />
+                    <label class="property"><span class="field-label">@L["EmployeePersonalBoard.Priority"]</span><select aria-label="@L["EmployeePersonalBoard.Priority"]" @bind="_editPriority" disabled="@_busy">@foreach (var priority in Priorities) { <option>@priority</option> }</select></label>
                 </div>
             }
             else if (_selectedItem is { } item)
@@ -81,62 +82,62 @@
                     <div class="task-description">
                         <CSweet.UI.Components.WorkBoards.WorkTracking OrganizationId="OrganizationId" ItemId="item.Id" />
                         @if (_dialogOpen) { <PersonalTodoActivity @key="item.Id" OrganizationId="OrganizationId" ItemId="item.Id" /> }
-                        <div class="section-heading"><h3><MudIcon Icon="@Icons.Material.Outlined.Subject" Size="Size.Small" />Description</h3>
-                            @if (CanExecute && item.ArchivedAt is null && !_editingDetails) { <button type="button" class="text-action" disabled="@_busy" @onclick="@(() => _editingDetails = true)">Edit details</button> }
+                        <div class="section-heading"><h3><MudIcon Icon="@Icons.Material.Outlined.Subject" Size="Size.Small" />@L["EmployeePersonalBoard.Description"]</h3>
+                            @if (CanExecute && item.ArchivedAt is null && !_editingDetails) { <button type="button" class="text-action" disabled="@_busy" @onclick="@(() => _editingDetails = true)">@L["EmployeePersonalBoard.EditDetails"]</button> }
                         </div>
                         @if (_editingDetails)
                         {
                             <div class="detail-edit-fields">
-                                <StructuredMentionTextField Label="Title" Value="@_editTitle" ValueChanged="@(value => _editTitle = value)" Mentions="_editTitleMentions" MentionsChanged="@(value => _editTitleMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Title" Disabled="_busy" />
-                                <StructuredMentionTextField Label="Description" Value="@_editDescription" ValueChanged="@(value => _editDescription = value)" Mentions="_editDescriptionMentions" MentionsChanged="@(value => _editDescriptionMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Description" Lines="6" Disabled="_busy" />
+                                <StructuredMentionTextField Label="@L["EmployeePersonalBoard.Title"]" Value="@_editTitle" ValueChanged="@(value => _editTitle = value)" Mentions="_editTitleMentions" MentionsChanged="@(value => _editTitleMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Title" Disabled="_busy" />
+                                <StructuredMentionTextField Label="@L["EmployeePersonalBoard.Description"]" Value="@_editDescription" ValueChanged="@(value => _editDescription = value)" Mentions="_editDescriptionMentions" MentionsChanged="@(value => _editDescriptionMentions = value)" People="_people" Field="@Wire.WorkItemMentionFields.Description" Lines="6" Disabled="_busy" />
                             </div>
                         }
                         else { <div class="full-description"><StructuredMentionText Text="@(string.IsNullOrWhiteSpace(item.Description) ? "No description provided." : Present.Description(item.Description))" Mentions="@(Present.Description(item.Description) == item.Description ? item.MentionSpans : [])" Field="@Wire.WorkItemMentionFields.Description" /></div> }
-                        @if (_editStatus == Wire.PersonalTodoStatuses.Blocked && CanExecute && item.ArchivedAt is null) { <MudTextField T="string" @bind-Value="_blockReason" Label="Block reason" Variant="Variant.Outlined" Lines="3" Required="true" Immediate="true" Disabled="_busy" Class="mt-4" /> }
-                        else if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <section class="task-blocker"><h3><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />Needs attention</h3><ChatMarkdown Content="@item.BlockReason" /></section> }
-                        @if (!string.IsNullOrWhiteSpace(item.ResultSummary)) { <section class="task-result"><h3>Result</h3><ChatMarkdown Content="@item.ResultSummary" /></section> }
+                        @if (_editStatus == Wire.PersonalTodoStatuses.Blocked && CanExecute && item.ArchivedAt is null) { <MudTextField T="string" @bind-Value="_blockReason" Label="@L["EmployeePersonalBoard.BlockReason"]" Variant="Variant.Outlined" Lines="3" Required="true" Immediate="true" Disabled="_busy" Class="mt-4" /> }
+                        else if (!string.IsNullOrWhiteSpace(item.BlockReason)) { <section class="task-blocker"><h3><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@L["EmployeePersonalBoard.NeedsAttention"]</h3><ChatMarkdown Content="@item.BlockReason" /></section> }
+                        @if (!string.IsNullOrWhiteSpace(item.ResultSummary)) { <section class="task-result"><h3>@L["EmployeePersonalBoard.Result"]</h3><ChatMarkdown Content="@item.ResultSummary" /></section> }
                         @if (item.AcceptanceCriteria.Count > 0)
                         {
-                            <section class="task-result"><h3>Acceptance criteria</h3><ul>@foreach (var criterion in item.AcceptanceCriteria) { <li>@criterion</li> }</ul></section>
+                            <section class="task-result"><h3>@L["EmployeePersonalBoard.AcceptanceCriteria"]</h3><ul>@foreach (var criterion in item.AcceptanceCriteria) { <li>@criterion</li> }</ul></section>
                         }
                         <PersonalWorkHierarchy Item="item" Items="Board.Items" OnOpen="OpenDetails" />
                         <div class="task-comments">
                             <CSweet.UI.Components.WorkBoards.WorkItemComments @ref="_commentsPanel"
                                 OrganizationId="OrganizationId" BoardId="item.BoardId" ItemId="item.Id" Compact="true" />
                         </div>
-                        @if (item.Wait is { } wait) { <section class="task-result"><h3>Waiting</h3><p>@wait.Reason</p><small>Next review @wait.NextReviewAt.ToLocalTime().ToString("g")</small></section> }
-                        @if (item.WorkContext?.BoardId.HasValue == true) { <a class="board-button context-link" href="@BoardHref(item)"><MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />Open team board</a> }
+                        @if (item.Wait is { } wait) { <section class="task-result"><h3>@L["EmployeePersonalBoard.Waiting"]</h3><p>@wait.Reason</p><small>Next review @wait.NextReviewAt.ToLocalTime().ToString("g")</small></section> }
+                        @if (item.WorkContext?.BoardId.HasValue == true) { <a class="board-button context-link" href="@BoardHref(item)"><MudIcon Icon="@Icons.Material.Outlined.OpenInNew" Size="Size.Small" />@L["EmployeePersonalBoard.OpenTeamBoard"]</a> }
                         <details class="technical-details"><summary>Technical details &amp; source data</summary><pre>@TechnicalDetails(item)</pre></details>
                         @if (_transferring)
-                        { <section class="transfer-form"><h3>Transfer ticket</h3><p>The ticket keeps its ID, comments, and history.</p><label class="property"><span class="field-label">Destination board</span><select aria-label="Destination board" @bind="_transferBoardId" disabled="@_busy"><option value="">Choose a board</option>@foreach (var target in _transferTargets) { <option value="@target.Id">@target.Name</option> }</select></label><button type="button" class="board-button" disabled="@(_busy || !_transferBoardId.HasValue)" @onclick="TransferAsync">Transfer</button></section> }
+                        { <section class="transfer-form"><h3>@L["EmployeePersonalBoard.TransferTicket"]</h3><p>@L["EmployeePersonalBoard.TheTicketKeepsItsID"]</p><label class="property"><span class="field-label">@L["EmployeePersonalBoard.DestinationBoard"]</span><select aria-label="@L["EmployeePersonalBoard.DestinationBoard"]" @bind="_transferBoardId" disabled="@_busy"><option value="">@L["EmployeePersonalBoard.ChooseABoard"]</option>@foreach (var target in _transferTargets) { <option value="@target.Id">@target.Name</option> }</select></label><button type="button" class="board-button" disabled="@(_busy || !_transferBoardId.HasValue)" @onclick="TransferAsync">@L["EmployeePersonalBoard.Transfer"]</button></section> }
                     </div>
                     <aside class="task-properties">
-                        <label class="property"><span class="field-label">Status</span><select aria-label="Status" @bind="_editStatus" disabled="@(_busy || !CanMoveAny(item))">@foreach (var column in Present.Columns.Where(x => x.Status == item.Status || Present.CanMove(item, x.Status, CanExecute, CanAdd))) { <option value="@column.Status">@column.Label</option> }</select></label>
-                        <label class="property"><span class="field-label">Priority</span><select aria-label="Priority" @bind="_editPriority" disabled="@(_busy || !CanExecute || item.ArchivedAt.HasValue)">@foreach (var priority in Priorities) { <option>@priority</option> }</select></label>
-                        <div class="property"><span class="field-label">Owner</span><div class="property-owner"><span class="owner-avatar">@Present.Initials(Board.OwnerDisplayName)</span>@Board.OwnerDisplayName</div></div>
-                        <dl class="task-dates"><dt>Created by</dt><dd>@item.CreatedByDisplayName</dd><dt>Created</dt><dd>@item.CreatedAt.ToLocalTime().ToString("g")</dd><dt>Updated</dt><dd>@item.UpdatedAt.ToLocalTime().ToString("g")</dd>
-                            @if (item.DueDate.HasValue) { <dt>Due</dt><dd>@item.DueDate.Value.ToLocalTime().ToString("g")</dd> }
-                            @if (item.ArchivedAt.HasValue) { <dt>Archived</dt><dd>@item.ArchivedAt.Value.ToLocalTime().ToString("g")</dd> }
+                        <label class="property"><span class="field-label">@L["EmployeePersonalBoard.Status"]</span><select aria-label="@L["EmployeePersonalBoard.Status"]" @bind="_editStatus" disabled="@(_busy || !CanMoveAny(item))">@foreach (var column in Present.Columns.Where(x => x.Status == item.Status || Present.CanMove(item, x.Status, CanExecute, CanAdd))) { <option value="@column.Status">@column.Label</option> }</select></label>
+                        <label class="property"><span class="field-label">@L["EmployeePersonalBoard.Priority"]</span><select aria-label="@L["EmployeePersonalBoard.Priority"]" @bind="_editPriority" disabled="@(_busy || !CanExecute || item.ArchivedAt.HasValue)">@foreach (var priority in Priorities) { <option>@priority</option> }</select></label>
+                        <div class="property"><span class="field-label">@L["EmployeePersonalBoard.Owner"]</span><div class="property-owner"><span class="owner-avatar">@Present.Initials(Board.OwnerDisplayName)</span>@Board.OwnerDisplayName</div></div>
+                        <dl class="task-dates"><dt>@L["EmployeePersonalBoard.CreatedBy"]</dt><dd>@item.CreatedByDisplayName</dd><dt>@L["EmployeePersonalBoard.Created"]</dt><dd>@item.CreatedAt.ToLocalTime().ToString("g")</dd><dt>@L["EmployeePersonalBoard.Updated"]</dt><dd>@item.UpdatedAt.ToLocalTime().ToString("g")</dd>
+                            @if (item.DueDate.HasValue) { <dt>@L["EmployeePersonalBoard.Due"]</dt><dd>@item.DueDate.Value.ToLocalTime().ToString("g")</dd> }
+                            @if (item.ArchivedAt.HasValue) { <dt>@L["EmployeePersonalBoard.Archived"]</dt><dd>@item.ArchivedAt.Value.ToLocalTime().ToString("g")</dd> }
                         </dl>
-                        @if (CanAdd && item.ArchivedAt is null && item.Status == Wire.PersonalTodoStatuses.Ready) { <div class="queue-actions"><span class="field-label">Queue order</span><button type="button" class="board-button" disabled="@(_busy || !CanReorder(item, -1))" @onclick="@(() => ReorderAsync(item, -1))">Move up</button><button type="button" class="board-button" disabled="@(_busy || !CanReorder(item, 1))" @onclick="@(() => ReorderAsync(item, 1))">Move down</button></div> }
+                        @if (CanAdd && item.ArchivedAt is null && item.Status == Wire.PersonalTodoStatuses.Ready) { <div class="queue-actions"><span class="field-label">@L["EmployeePersonalBoard.QueueOrder"]</span><button type="button" class="board-button" disabled="@(_busy || !CanReorder(item, -1))" @onclick="@(() => ReorderAsync(item, -1))">@L["EmployeePersonalBoard.MoveUp"]</button><button type="button" class="board-button" disabled="@(_busy || !CanReorder(item, 1))" @onclick="@(() => ReorderAsync(item, 1))">@L["EmployeePersonalBoard.MoveDown"]</button></div> }
                         @if (CanExecute)
                         {
                             <div class="secondary-actions">
-                                @if (item.ArchivedAt.HasValue) { <button type="button" class="board-button" disabled="@_busy" @onclick="RestoreAsync">Restore ticket</button> }
+                                @if (item.ArchivedAt.HasValue) { <button type="button" class="board-button" disabled="@_busy" @onclick="RestoreAsync">@L["EmployeePersonalBoard.RestoreTicket"]</button> }
                                 else
                                 {
-                                    <button type="button" class="text-action" disabled="@_busy" @onclick="BeginTransferAsync">Transfer to board</button><button type="button" class="text-action" disabled="@_busy" @onclick="ArchiveAsync">Archive ticket</button>
+                                    <button type="button" class="text-action" disabled="@_busy" @onclick="BeginTransferAsync">@L["EmployeePersonalBoard.TransferToBoard"]</button><button type="button" class="text-action" disabled="@_busy" @onclick="ArchiveAsync">@L["EmployeePersonalBoard.ArchiveTicket"]</button>
                                     @if (item.Status == Wire.PersonalTodoStatuses.Cancelled)
-                                    { <button type="button" class="board-button" disabled="@_busy" @onclick="ReopenAsync">Reopen ticket</button> }
+                                    { <button type="button" class="board-button" disabled="@_busy" @onclick="ReopenAsync">@L["EmployeePersonalBoard.ReopenTicket"]</button> }
                                     else
-                                    { <button type="button" class="board-button" disabled="@_busy" @onclick="CancelAsync">Cancel ticket</button> }
+                                    { <button type="button" class="board-button" disabled="@_busy" @onclick="CancelAsync">@L["EmployeePersonalBoard.CancelTicket"]</button> }
                                 }
                             </div>
                         }
                     </aside>
                 </div>
             }
-            <footer class="task-footer"><span class="privacy-note"><MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" />Visible to the owner and their management chain</span><div class="toolbar-group"><button type="button" class="board-button" disabled="@_busy" @onclick="CloseDetails">@(HasEditableFields ? "Cancel" : "Close")</button>
+            <footer class="task-footer"><span class="privacy-note"><MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" />@L["EmployeePersonalBoard.VisibleToTheOwnerAnd"]</span><div class="toolbar-group"><button type="button" class="board-button" disabled="@_busy" @onclick="CloseDetails">@(HasEditableFields ? "Cancel" : "Close")</button>
                 @if (HasEditableFields) { <button type="button" class="board-button primary-button" disabled="@(_busy || !CanSave)" @onclick="SaveAsync">@(_busy ? "Saving…" : _creating ? "Create task" : "Save changes")</button> }
             </div></footer>
         </div>

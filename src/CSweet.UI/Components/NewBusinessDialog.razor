@@ -1,19 +1,20 @@
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
 <MudDialog Visible="Visible" VisibleChanged="VisibleChanged" Options="Options" DefaultFocus="DefaultFocus.FirstChild" aria-labelledby="new-business-title">
     <DialogContent>
         <section class="business-dialog onboarding-dialog" aria-labelledby="new-business-title">
-            <header class="business-dialog-header"><div class="business-dialog-brand"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Business" /></span><div><span class="business-kicker">Enterprise · New business</span><h2 id="new-business-title">@(_codebase ? "Your project, its next chapter." : "Where would you like to start?")</h2><p>@(_codebase ? "Bring your work into C-Sweet, with a brief you review." : "Start with an idea, or build on what you already have.")</p></div></div><button class="business-dialog-close" aria-label="Close new business dialog" @onclick="CloseAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
+            <header class="business-dialog-header"><div class="business-dialog-brand"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Business" /></span><div><span class="business-kicker">@L["NewBusinessDialog.EnterpriseNewBusiness"]</span><h2 id="new-business-title">@(_codebase ? "Your project, its next chapter." : "Where would you like to start?")</h2><p>@(_codebase ? "Bring your work into C-Sweet, with a brief you review." : "Start with an idea, or build on what you already have.")</p></div></div><button class="business-dialog-close" aria-label="@L["NewBusinessDialog.CloseNewBusinessDialog"]" @onclick="CloseAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
             @if (_codebase)
             { <RepositoryBusinessOnboarding DraftId="DraftId" DraftCreated="RememberDraft" Discarded="CloseAsync" /> }
             else
             {
                 <div class="onboarding-story-grid">
-                    <button class="onboarding-story" @onclick="() => NewBusiness.InvokeAsync()"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><strong>New business</strong><p>Begin with a name, a mission, and an idea.</p><span>Start fresh <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
-                    <button class="onboarding-story" @onclick="() => _codebase = true"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Code" /></span><strong>Business from codebases</strong><p>Bring an app, game, or website you’ve already been building.</p><span>Connect GitHub or upload ZIPs <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
+                    <button class="onboarding-story" @onclick="() => NewBusiness.InvokeAsync()"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><strong>@L["NewBusinessDialog.NewBusiness"]</strong><p>@L["NewBusinessDialog.BeginWithANameA"]</p><span>@L["NewBusinessDialog.StartFresh"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
+                    <button class="onboarding-story" @onclick="() => _codebase = true"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Code" /></span><strong>@L["NewBusinessDialog.BusinessFromCodebases"]</strong><p>@L["NewBusinessDialog.BringAnAppGameOr"]</p><span>@L["NewBusinessDialog.ConnectGitHubOrUploadZIPs"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
                 </div>
-                <p class="business-next-step">Your assistant helps prepare the context. You review it, then choose a Chief of Staff.</p>
-                <MudButton Href="personal-assistant" StartIcon="@Icons.Material.Outlined.ChatBubbleOutline">Talk through your idea with your Personal Assistant</MudButton>
+                <p class="business-next-step">@L["NewBusinessDialog.YourAssistantHelpsPrepareThe"]</p>
+                <MudButton Href="personal-assistant" StartIcon="@Icons.Material.Outlined.ChatBubbleOutline">@L["NewBusinessDialog.TalkThroughYourIdeaWith"]</MudButton>
             }
         </section>
     </DialogContent>

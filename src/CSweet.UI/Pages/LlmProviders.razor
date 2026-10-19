@@ -5,29 +5,31 @@
 @using CSweet.Domain.Setup
 @inject ISetupApiClient SetupApi
 @inject ILlmProviderApiClient LlmProviderApi
+@inject IAppLocalizer L
+@inject UserTime Time
 
-<PageTitle>LLM Providers - C-Sweet</PageTitle>
+<PageTitle>@L["LlmProviders.PageTitle"]</PageTitle>
 
 <div class="setup-shell agents-page llm-providers-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Provider management</MudText>
-            <MudText Typo="Typo.h3">LLM Providers</MudText>
-            <MudText Color="Color.Secondary">Connect language models, check capabilities, and track usage.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["LlmProviders.ProviderManagement"]</MudText>
+            <MudText Typo="Typo.h3">@L["LlmProviders.LLMProviders"]</MudText>
+            <MudText Color="Color.Secondary">@L["LlmProviders.ConnectLanguageModelsCheckCapabilities"]</MudText>
         </div>
         <MudStack Row="true" Class="setup-actions llm-provider-header-actions">
             <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isBusy" OnClick="LoadAsync" StartIcon="@Icons.Material.Filled.Refresh">
-                Refresh
+                @L["Common.Refresh"]
             </MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isBusy" OnClick="StartNewProvider" StartIcon="@Icons.Material.Filled.Add">
-                Add provider
+                @L["LlmProviders.AddProvider"]
             </MudButton>
         </MudStack>
     </MudPaper>
 
     @if (_usageSummary is not null)
     {
-        <section class="usage-summary-grid" aria-label="LLM token usage">
+        <section class="usage-summary-grid" aria-label="@L["LlmProviders.LLMTokenUsage"]">
             @UsageCard("Last 24 Hours", _usageSummary.Last24Hours)
             @UsageCard("Last 7 Days", _usageSummary.Last7Days)
             @UsageCard("Last 30 Days", _usageSummary.Last30Days)
@@ -38,7 +40,7 @@
     {
         <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow agents-loading-panel">
             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-            <MudText Color="Color.Secondary">Loading provider profiles...</MudText>
+            <MudText Color="Color.Secondary">@L["LlmProviders.LoadingProviderProfiles"]</MudText>
         </MudPaper>
     }
     else if (!string.IsNullOrWhiteSpace(_pageError))
@@ -46,7 +48,7 @@
         <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow">
             <MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_pageError</MudAlert>
             <MudStack Row="true" Class="setup-actions">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">Retry</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">@L["Common.Retry"]</MudButton>
             </MudStack>
         </MudPaper>
     }
@@ -55,20 +57,20 @@
         <MudPaper Elevation="1" Class="surface-panel agents-list-panel">
             <div class="configuration-section-header">
                 <div>
-                    <MudText Typo="Typo.h6">Saved providers</MudText>
-                    <MudText Color="Color.Secondary">Configured model endpoints.</MudText>
+                    <MudText Typo="Typo.h6">@L["LlmProviders.SavedProviders"]</MudText>
+                    <MudText Color="Color.Secondary">@L["LlmProviders.ConfiguredModelEndpoints"]</MudText>
                 </div>
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_profiles.Count</MudChip>
-                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" aria-label="Saved providers actions" Disabled="@_isBusy">
-                        <MudMenuItem OnClick="@(() => _migrationOpen = true)" Disabled="@(!_profiles.Any(x => x.IsEnabled))">Migrate agents</MudMenuItem>
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" aria-label="@L["LlmProviders.SavedProvidersActions"]" Disabled="@_isBusy">
+                        <MudMenuItem OnClick="@(() => _migrationOpen = true)" Disabled="@(!_profiles.Any(x => x.IsEnabled))">@L["LlmProviders.MigrateAgents"]</MudMenuItem>
                     </MudMenu>
                 </MudStack>
             </div>
 
             @if (_profiles.Count == 0)
             {
-                <MudText Color="Color.Secondary">No provider profiles have been created yet.</MudText>
+                <MudText Color="Color.Secondary">@L["LlmProviders.NoProviderProfilesHaveBeen"]</MudText>
             }
             else
             {
@@ -99,18 +101,18 @@
     @if (_usageSummary is not null && _usageSummary.RecentChatTurns.Count > 0)
     {
         <MudPaper Elevation="1" Class="surface-panel mt-4">
-            <MudText Typo="Typo.h6">Recent model usage</MudText>
+            <MudText Typo="Typo.h6">@L["LlmProviders.RecentModelUsage"]</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
-                Each row groups every billable model call caused by one user message, including tool follow-ups and memory enrichment.
+                @L["LlmProviders.EachRowGroupsEveryBillable"]
             </MudText>
             <MudTable T="LlmChatTurnUsageResponse" Items="@_usageSummary.RecentChatTurns.Take(10)" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
                 <HeaderContent>
-                    <MudTh>Started</MudTh>
-                    <MudTh>Model calls</MudTh>
-                    <MudTh>Purposes</MudTh>
-                    <MudTh>Input</MudTh>
-                    <MudTh>Output</MudTh>
-                    <MudTh>Prompt characters processed</MudTh>
+                    <MudTh>@L["LlmProviders.Started"]</MudTh>
+                    <MudTh>@L["LlmProviders.ModelCalls"]</MudTh>
+                    <MudTh>@L["LlmProviders.Purposes"]</MudTh>
+                    <MudTh>@L["LlmProviders.Input"]</MudTh>
+                    <MudTh>@L["LlmProviders.Output"]</MudTh>
+                    <MudTh>@L["LlmProviders.PromptCharactersProcessed"]</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Started">@context.StartedAt.ToLocalTime().ToString("g")</MudTd>
@@ -143,31 +145,31 @@
         {
             <dl class="configuration-details agents-details">
                 <div>
-                    <dt>Base URL</dt>
+                    <dt>@L["LlmProviders.BaseURL"]</dt>
                     <dd>@_selectedProfile.BaseUrl</dd>
                 </div>
                 <div>
-                    <dt>Last connected</dt>
+                    <dt>@L["LlmProviders.LastConnected"]</dt>
                     <dd>@Display(_selectedProfile.LastSuccessfulConnectionAt)</dd>
                 </div>
                 <div>
-                    <dt>API key secret</dt>
+                    <dt>@L["LlmProviders.APIKeySecret"]</dt>
                     <dd>@Display(_selectedProfile.ApiKeySecretName)</dd>
                 </div>
                 <div>
-                    <dt>Updated</dt>
+                    <dt>@L["LlmProviders.Updated"]</dt>
                     <dd>@Display(_selectedProfile.UpdatedAt)</dd>
                 </div>
                 <div>
-                    <dt>30d input</dt>
+                    <dt>@L["LlmProviders.30dInput"]</dt>
                     <dd>@FormatTokens(SelectedProviderUsage?.Usage.InputTokens ?? 0)</dd>
                 </div>
                 <div>
-                    <dt>30d output</dt>
+                    <dt>@L["LlmProviders.30dOutput"]</dt>
                     <dd>@FormatTokens(SelectedProviderUsage?.Usage.OutputTokens ?? 0)</dd>
                 </div>
                 <div>
-                    <dt>30d model calls</dt>
+                    <dt>@L["LlmProviders.30dModelCalls"]</dt>
                     <dd>@((SelectedProviderUsage?.Usage.RequestCount ?? 0).ToString("N0"))</dd>
                 </div>
             </dl>
@@ -176,7 +178,7 @@
         <div class="agent-config-form">
             <div class="agent-config-field">
                 <MudSelect T="LlmProviderType"
-                           Label="Provider Type"
+                           Label="@L["LlmProviders.ProviderType"]"
                            Value="_providerType"
                            ValueChanged="OnProviderTypeChanged"
                            Variant="Variant.Outlined"
@@ -188,10 +190,10 @@
                 </MudSelect>
             </div>
             <div class="agent-config-field">
-                <MudTextField Label="Provider Name" @bind-Value="_providerName" Variant="Variant.Outlined" Disabled="@_isBusy" />
+                <MudTextField Label="@L["LlmProviders.ProviderName"]" @bind-Value="_providerName" Variant="Variant.Outlined" Disabled="@_isBusy" />
             </div>
             <div class="agent-config-field agent-config-field-wide">
-                <MudTextField T="string" Label="Base URL"
+                <MudTextField T="string" Label="@L["LlmProviders.BaseURL"]"
                               Value="@_baseUrl"
                               ValueChanged="OnBaseUrlChanged"
                               Immediate="true"
@@ -215,14 +217,14 @@
                               Disabled="@_isBusy" />
                 @if (_selectedProfile is not null)
                 {
-                    <MudCheckBox T="bool" Label="Replace stored API key with this value" Value="_replaceApiKey" ValueChanged="OnReplaceApiKeyChanged" Disabled="@_isBusy" />
+                    <MudCheckBox T="bool" Label="@L["LlmProviders.ReplaceStoredAPIKeyWith"]" Value="_replaceApiKey" ValueChanged="OnReplaceApiKeyChanged" Disabled="@_isBusy" />
                 }
             </div>
             <div class="agent-config-field">
-                <MudSelect T="string" Label="Default Chat Model"
+                <MudSelect T="string" Label="@L["LlmProviders.DefaultChatModel"]"
                            @bind-Value="_defaultChatModel"
                            OpenChanged="OnModelDropdownOpenChanged"
-                           Placeholder="Choose a model"
+                           Placeholder="@L["LlmProviders.ChooseAModel"]"
                            Variant="Variant.Outlined"
                            Disabled="@(_isBusy || _isCheckingModelCatalog)">
                     @foreach (var model in _availableChatModels)
@@ -238,27 +240,27 @@
                 </MudButton>
             </div>
             <div class="agent-config-field">
-                <MudTextField Label="Default Embedding Model" @bind-Value="_defaultEmbeddingModel" Variant="Variant.Outlined" Disabled="@_isBusy" />
+                <MudTextField Label="@L["LlmProviders.DefaultEmbeddingModel"]" @bind-Value="_defaultEmbeddingModel" Variant="Variant.Outlined" Disabled="@_isBusy" />
             </div>
             <div class="agent-config-field">
-                <MudNumericField T="int?" Label="Context Window Tokens" @bind-Value="_contextWindowTokens" Variant="Variant.Outlined" Disabled="@_isBusy" />
+                <MudNumericField T="int?" Label="@L["LlmProviders.ContextWindowTokens"]" @bind-Value="_contextWindowTokens" Variant="Variant.Outlined" Disabled="@_isBusy" />
             </div>
             <div class="agent-config-field">
-                <MudNumericField T="int?" Label="Max Output Tokens" @bind-Value="_maxOutputTokens" Variant="Variant.Outlined" Disabled="@_isBusy" />
+                <MudNumericField T="int?" Label="@L["LlmProviders.MaxOutputTokens"]" @bind-Value="_maxOutputTokens" Variant="Variant.Outlined" Disabled="@_isBusy" />
             </div>
             <div class="agent-config-field agent-config-field-wide">
-                <MudNumericField T="int" Label="Maximum concurrent requests" @bind-Value="_maximumConcurrentRequests"
+                <MudNumericField T="int" Label="@L["LlmProviders.MaximumConcurrentRequests"]" @bind-Value="_maximumConcurrentRequests"
                                  Min="1" Variant="Variant.Outlined" Disabled="@_isBusy"
                                  HelperText="Shared by all agents using this provider. Default: 4. Match your server's capacity. Changes apply within a few seconds; running requests finish normally." />
             </div>
         </div>
 
         <MudStack Row="true" Class="setup-toggle-row">
-            <MudCheckBox T="bool" Label="Enabled" @bind-Value="_isEnabled" Disabled="@_isBusy" />
-            <MudCheckBox T="bool" Label="Streaming" @bind-Value="_supportsStreaming" Disabled="@_isBusy" />
-            <MudCheckBox T="bool" Label="Structured output" @bind-Value="_supportsStructuredOutput" Disabled="@_isBusy" />
-            <MudCheckBox T="bool" Label="Tool calling" @bind-Value="_supportsToolCalling" Disabled="@_isBusy" />
-            <MudCheckBox T="bool" Label="Vision" @bind-Value="_supportsVision" Disabled="@_isBusy" />
+            <MudCheckBox T="bool" Label="@L["Common.Enabled"]" @bind-Value="_isEnabled" Disabled="@_isBusy" />
+            <MudCheckBox T="bool" Label="@L["LlmProviders.Streaming"]" @bind-Value="_supportsStreaming" Disabled="@_isBusy" />
+            <MudCheckBox T="bool" Label="@L["LlmProviders.StructuredOutput"]" @bind-Value="_supportsStructuredOutput" Disabled="@_isBusy" />
+            <MudCheckBox T="bool" Label="@L["LlmProviders.ToolCalling"]" @bind-Value="_supportsToolCalling" Disabled="@_isBusy" />
+            <MudCheckBox T="bool" Label="@L["LlmProviders.Vision"]" @bind-Value="_supportsVision" Disabled="@_isBusy" />
         </MudStack>
 
         @if (_selectedProfile is not null && _testResults.TryGetValue(_selectedProfile.Id, out var testResult))
@@ -285,10 +287,10 @@
         @if (_selectedProfile is not null && _pendingDeleteId == _selectedProfile.Id)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mt-4">
-                Deleting this provider removes saved capability tests and clears it as the default provider.
+                @L["LlmProviders.DeletingThisProviderRemovesSaved"]
             </MudAlert>
             <MudStack Row="true" Class="setup-actions">
-                <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isBusy" OnClick="@(() => _pendingDeleteId = null)">Cancel</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isBusy" OnClick="@(() => _pendingDeleteId = null)">@L["Common.Cancel"]</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@_isBusy" OnClick="DeleteSelectedProviderAsync">
                     @(_isBusy ? "Deleting..." : "Confirm Delete")
                 </MudButton>
@@ -299,7 +301,7 @@
         @if (_selectedProfile is not null && _pendingDeleteId != _selectedProfile.Id)
         {
             <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@(_isBusy || _selectedProfile is null)" OnClick="RequestDeleteSelectedProvider">
-                Delete
+                @L["Common.Delete"]
             </MudButton>
         }
         <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseDialog">
@@ -308,7 +310,7 @@
         @if (_selectedProfile is not null && _pendingDeleteId != _selectedProfile.Id)
         {
             <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@(_isBusy || _selectedProfile is null || _selectedProfile.Id == _status?.DefaultChatProviderId || !_isEnabled)" OnClick="SetSelectedDefaultAsync">
-                Set Default Chat
+                @L["LlmProviders.SetDefaultChat"]
             </MudButton>
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_isBusy || _selectedProfile is null)" OnClick="TestSelectedProviderAsync">
                 @(_isBusy ? "Testing..." : "Validate Connection")
@@ -416,7 +418,7 @@
         }
         catch
         {
-            _pageError = "Unable to load LLM provider profiles from the API.";
+            _pageError = L["LlmProviders.UnableToLoadLLMProvider"];
         }
         finally
         {
@@ -608,7 +610,7 @@
             (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps))
         {
             _modelCatalogSucceeded = false;
-            _modelCatalogMessage = "Enter a valid HTTP or HTTPS base URL.";
+            _modelCatalogMessage = L["LlmProviders.EnterAValidHTTPOr"];
             return;
         }
 
@@ -644,7 +646,7 @@
             if (version != _modelCatalogVersion) return;
             _defaultChatModel = string.Empty;
             _modelCatalogSucceeded = false;
-            _modelCatalogMessage = "Unable to check this provider. Confirm the API is running and the base URL is reachable.";
+            _modelCatalogMessage = L["LlmProviders.UnableToCheckThisProvider"];
         }
         finally
         {

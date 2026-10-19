@@ -2,9 +2,10 @@
 @using CSweet.Contracts.WorkManagement
 @implements IAsyncDisposable
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<section class="pa-4 my-4" style="border:1px solid var(--mud-palette-lines-default);border-radius:12px" aria-label="Live task activity">
-    <h3>Live activity</h3>
+<section class="pa-4 my-4" style="border:1px solid var(--mud-palette-lines-default);border-radius:12px" aria-label="@L["PersonalTodoActivity.LiveTaskActivity"]">
+    <h3>@L["PersonalTodoActivity.LiveActivity"]</h3>
     @if (_error is not null)
     {
         <MudAlert Severity="Severity.Warning">@_error</MudAlert>
@@ -13,7 +14,7 @@
     {
         <p><strong>@activity.State</strong> · Ticket: @activity.TaskStatus</p>
         <p>@activity.Message</p>
-        @if (activity.Phase is not null) { <p><strong>Last reported step:</strong> @activity.Phase</p> }
+        @if (activity.Phase is not null) { <p><strong>@L["PersonalTodoActivity.LastReportedStep"]</strong> @activity.Phase</p> }
         <p>Task progress: @At(activity.LastProgressAt)</p>
         @if (activity.LeaseExpiresAt is { } lease) { <p>Worker lease valid until @At(lease)</p> }
         @if (activity.MaximumAttempts > 0) { <p>Execution attempt @activity.Attempt of @activity.MaximumAttempts</p> }
@@ -23,11 +24,11 @@
             <p>Agent model activity: @activity.AgentInferenceStatus · started @At(activity.AgentInferenceStartedAt)
                 @if (activity.AgentInferenceCompletedAt is { } completed) { <span> · finished @At(completed)</span> }
             </p>
-            <small>Model activity is for this agent and may include other work. It does not prove this ticket advanced.</small>
+            <small>@L["PersonalTodoActivity.ModelActivityIsForThis"]</small>
         }
         <p><small>Checked @At(activity.CheckedAt). Refreshes every 15 seconds. Completion time is not yet known.</small></p>
     }
-    else if (_error is null) { <p>Checking the current worker and task state…</p> }
+    else if (_error is null) { <p>@L["PersonalTodoActivity.CheckingTheCurrentWorkerAnd"]</p> }
 </section>
 
 @code {
@@ -52,9 +53,9 @@
                     _error = null;
                 }
                 catch (Exception error) when (error is HttpRequestException or System.Text.Json.JsonException)
-                { _error = "Activity could not be refreshed. Any values below are from the last successful check; current progress is unknown."; }
+                { _error = L["PersonalTodoActivity.ActivityCouldNotBeRefreshed"]; }
                 catch (OperationCanceledException) when (!_stop.IsCancellationRequested)
-                { _error = "The activity check timed out. Any values below are from the last successful check; retrying automatically."; }
+                { _error = L["PersonalTodoActivity.TheActivityCheckTimedOut"]; }
                 await InvokeAsync(StateHasChanged);
             } while (await timer.WaitForNextTickAsync(_stop.Token));
         }

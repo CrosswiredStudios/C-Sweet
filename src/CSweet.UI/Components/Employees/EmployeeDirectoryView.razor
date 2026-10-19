@@ -1,43 +1,44 @@
-<section class="employee-directory-view" role="tabpanel" aria-label="Employee directory">
-    <MudTextField T="string" Value="Filter.Search" ValueChanged="ChangeSearchAsync" Immediate="true" Label="Search employees" Placeholder="Name, role, or agent" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Class="employee-directory-search" />
-    <details class="directory-filter-disclosure"><summary>Filters</summary>
+@inject IAppLocalizer L
+<section class="employee-directory-view" role="tabpanel" aria-label="@L["EmployeeDirectoryView.EmployeeDirectory"]">
+    <MudTextField T="string" Value="Filter.Search" ValueChanged="ChangeSearchAsync" Immediate="true" Label="@L["EmployeeDirectoryView.SearchEmployees"]" Placeholder="@L["EmployeeDirectoryView.NameRoleOrAgent"]" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Class="employee-directory-search" />
+    <details class="directory-filter-disclosure"><summary>@L["EmployeeDirectoryView.Filters"]</summary>
     <div class="employee-directory-filters">
-        <MudSelect T="string" Label="Role" Value="Filter.Role" ValueChanged="ChangeRoleAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
-            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
-            <MudSelectItem T="string" Value="@("unassigned")">Unassigned</MudSelectItem>
+        <MudSelect T="string" Label="@L["EmployeeDirectoryView.Role"]" Value="Filter.Role" ValueChanged="ChangeRoleAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@("all")">@L["EmployeeDirectoryView.All"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("unassigned")">@L["EmployeeDirectoryView.Unassigned"]</MudSelectItem>
             @foreach (var role in Roles.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
             {
                 <MudSelectItem T="string" Value="@role.Id.ToString()">@role.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="string" Label="Team" Value="Filter.Team" ValueChanged="ChangeTeamAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
-            <MudSelectItem T="string" Value="@("all")">All teams</MudSelectItem>
-            <MudSelectItem T="string" Value="@("unassigned")">Unassigned</MudSelectItem>
+        <MudSelect T="string" Label="@L["EmployeeDirectoryView.Team"]" Value="Filter.Team" ValueChanged="ChangeTeamAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@("all")">@L["EmployeeDirectoryView.AllTeams"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("unassigned")">@L["EmployeeDirectoryView.Unassigned"]</MudSelectItem>
             @foreach (var team in Teams.Where(x => !x.IsArchived).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
             {
                 <MudSelectItem T="string" Value="@team.Id.ToString()">@team.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="EmployeeTypeFilter" Label="Type" Value="Filter.Type" ValueChanged="ChangeTypeAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
-            <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.All">All</MudSelectItem>
-            <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.Human">Human</MudSelectItem>
-            <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.Agent">Agent</MudSelectItem>
+        <MudSelect T="EmployeeTypeFilter" Label="@L["EmployeeDirectoryView.Type"]" Value="Filter.Type" ValueChanged="ChangeTypeAsync" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.All">@L["EmployeeDirectoryView.All"]</MudSelectItem>
+            <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.Human">@L["EmployeeDirectoryView.Human"]</MudSelectItem>
+            <MudSelectItem T="EmployeeTypeFilter" Value="EmployeeTypeFilter.Agent">@L["EmployeeDirectoryView.Agent"]</MudSelectItem>
         </MudSelect>
-        <MudSelect T="EmployeeRuntimeStatus?" Label="Status" Value="Filter.Status" ValueChanged="ChangeStatusAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
-            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Online)">Online</MudSelectItem>
-            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Transitional)">Transitioning</MudSelectItem>
-            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Offline)">Offline</MudSelectItem>
-            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Failed)">Failed</MudSelectItem>
+        <MudSelect T="EmployeeRuntimeStatus?" Label="@L["EmployeeDirectoryView.Status"]" Value="Filter.Status" ValueChanged="ChangeStatusAsync" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Online)">@L["EmployeeDirectoryView.Online"]</MudSelectItem>
+            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Transitional)">@L["EmployeeDirectoryView.Transitioning"]</MudSelectItem>
+            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Offline)">@L["EmployeeDirectoryView.Offline"]</MudSelectItem>
+            <MudSelectItem T="EmployeeRuntimeStatus?" Value="@((EmployeeRuntimeStatus?)EmployeeRuntimeStatus.Failed)">@L["EmployeeDirectoryView.Failed"]</MudSelectItem>
         </MudSelect>
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.RestartAlt" Disabled="@Filter.IsClear" OnClick="ClearAsync">Clear filters</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.RestartAlt" Disabled="@Filter.IsClear" OnClick="ClearAsync">@L["EmployeeDirectoryView.ClearFilters"]</MudButton>
     </div>
     </details>
     <div class="employee-directory-count">@ResultLabel</div>
     @if (FilteredEmployees.Count == 0)
     {
         <MudPaper Elevation="0" Class="employee-directory-no-results">
-            <MudText Typo="Typo.h6">No matching employees</MudText>
-            <MudText Color="Color.Secondary">Try changing or clearing the directory filters.</MudText>
+            <MudText Typo="Typo.h6">@L["EmployeeDirectoryView.NoMatchingEmployees"]</MudText>
+            <MudText Color="Color.Secondary">@L["EmployeeDirectoryView.TryChangingOrClearingThe"]</MudText>
         </MudPaper>
     }
     else

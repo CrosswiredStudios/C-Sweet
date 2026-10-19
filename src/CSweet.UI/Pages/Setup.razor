@@ -7,27 +7,28 @@
 @inject ISetupApiClient SetupApi
 @inject ILlmProviderApiClient LlmProviderApi
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<PageTitle>C-Sweet Setup</PageTitle>
+<PageTitle>@L["Setup.PageTitle"]</PageTitle>
 
 <div class="setup-shell setup-assistant">
     @if (_isLoading)
     {
         <MudPaper Elevation="1" Class="setup-card setup-loading-card" aria-live="polite">
             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-            <MudText Color="Color.Secondary">Preparing your setup...</MudText>
+            <MudText Color="Color.Secondary">@L["Setup.PreparingYourSetup"]</MudText>
         </MudPaper>
     }
     else if (!string.IsNullOrWhiteSpace(_pageError))
     {
         <MudPaper Elevation="1" Class="setup-card setup-error-card">
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_pageError</MudAlert>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">Retry</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">@L["Common.Retry"]</MudButton>
         </MudPaper>
     }
     else
     {
-            <nav class="setup-progress" aria-label="Setup progress">
+            <nav class="setup-progress" aria-label="@L["Setup.SetupProgress"]">
                 <ol>
                     @foreach (var step in SetupSteps)
                     {
@@ -57,8 +58,8 @@
                 </ol>
             </nav>
         <MudPaper Elevation="0" Class="setup-card">
-            <aside class="setup-story" aria-label="Setup assistant">
-                <span class="setup-story-eyebrow">A little setup. A lot of possibility.</span>
+            <aside class="setup-story" aria-label="@L["Setup.SetupAssistant"]">
+                <span class="setup-story-eyebrow">@L["Setup.ALittleSetupALot"]</span>
                 <h2>@StoryTitle</h2>
                 <p>@StoryDescription</p>
                 <div class="setup-story-art" aria-hidden="true">
@@ -69,12 +70,12 @@
                         <div class="setup-art-line"></div><div class="setup-art-line short"></div>
                     </div>
                 </div>
-                <div class="setup-story-note"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><span>You choose where your agents run.</span></div>
+                <div class="setup-story-note"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><span>@L["Setup.YouChooseWhereYourAgents"]</span></div>
             </aside>
             <div class="setup-stage" @key="_activeStepKey" aria-busy="@_isBusy">
                 @if (_status?.IsFirstRunComplete == true)
                 {
-                    <MudAlert Severity="Severity.Success" Variant="Variant.Filled">Your workspace is ready. Opening your businesses…</MudAlert>
+                    <MudAlert Severity="Severity.Success" Variant="Variant.Filled">@L["Setup.YourWorkspaceIsReadyOpening"]</MudAlert>
                 }
                 else
                 {
@@ -86,7 +87,7 @@
                 }
             </div>
         </MudPaper>
-        <p class="setup-progress-note"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /> Your completed steps are saved. Connections can be managed later in Settings.</p>
+        <p class="setup-progress-note"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /> @L["Setup.YourCompletedStepsAreSaved"]</p>
     }
 </div>
 
@@ -161,7 +162,7 @@
         }
         catch
         {
-            _pageError = "Unable to load setup status from the API.";
+            _pageError = L["Setup.UnableToLoadSetupStatus"];
         }
         finally
         {
@@ -275,7 +276,7 @@
         }
         catch
         {
-            _stepMessage = "We couldn't finish setup. Check your connection and try again.";
+            _stepMessage = L["Setup.WeCouldnTFinishSetup"];
         }
         finally
         {
@@ -303,7 +304,7 @@
         }
         catch
         {
-            _stepMessage = "C-Sweet could not save this setup step. Check the connection and try again.";
+            _stepMessage = L["Setup.CSweetCouldNotSave"];
         }
         finally
         {

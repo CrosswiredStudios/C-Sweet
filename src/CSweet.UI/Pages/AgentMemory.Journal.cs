@@ -78,7 +78,7 @@ public partial class AgentMemory : IDisposable
             var item = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{id}", _lifetime.Token);
             if (item is not null && !SelectionLocked) await SelectItemAsync(item);
         }
-        catch (Exception) { _error = "This memory is unavailable or your access changed."; }
+        catch (Exception) { _error = L["AgentMemory.ThisMemoryIsUnavailableOr"]; }
     }
 
     private async Task LoadPinnedAsync()
@@ -90,7 +90,7 @@ public partial class AgentMemory : IDisposable
                 x.Metadata?.GetValueOrDefault("pinned") == "true").ToList();
             _pinnedError = page?.NextCursor is not null ? "Pinned context is shown from the newest 100 core memories. Explore core memory for older records." : null;
         }
-        catch (Exception) { _pinned = []; _pinnedError = "Pinned context could not be loaded. Explore core memory to try again."; }
+        catch (Exception) { _pinned = []; _pinnedError = L["AgentMemory.PinnedContextCouldNotBe"]; }
     }
 
     // Bounded reads reuse the server's existing per-record history and recall authorization.
@@ -107,7 +107,7 @@ public partial class AgentMemory : IDisposable
                 foreach (var result in results)
                 {
                     if (result.Complete) _activityLoaded.Add(result.Id);
-                    else _journalNotice = "Some review or recall activity is unavailable. Recorded memories are still shown.";
+                    else _journalNotice = L["AgentMemory.SomeReviewOrRecallActivity"];
                     _events.RemoveAll(x => x.Item.Id == result.Id);
                     _events.AddRange(result.Entries);
                 }

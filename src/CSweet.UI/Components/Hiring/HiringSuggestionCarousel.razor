@@ -8,6 +8,7 @@
 @inject HttpClient Http
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject IAppLocalizer L
 
 <section class="hiring-suggestion-carousel @(AllResolved ? "completed" : null)"
          aria-labelledby="@_titleId">
@@ -17,19 +18,19 @@
                 <MudIcon Icon="@Icons.Material.Outlined.Groups" />
             </span>
             <span>
-                <small>HIRING PLAN</small>
-                <strong id="@_titleId">Hiring suggestions</strong>
+                <small>@L["HiringSuggestionCarousel.HIRINGPLAN"]</small>
+                <strong id="@_titleId">@L["HiringSuggestionCarousel.HiringSuggestions"]</strong>
             </span>
         </div>
         <div class="hiring-suggestion-carousel-tools">
             <span class="hiring-suggestion-count">@Actions.Count @(Actions.Count == 1 ? "role" : "roles")</span>
             @if (Actions.Count > 1)
             {
-                <div class="hiring-suggestion-navigation" aria-label="Hiring suggestion navigation">
-                    <button type="button" aria-label="Previous hiring suggestion" @onclick="@(() => ScrollAsync(-1))">
+                <div class="hiring-suggestion-navigation" aria-label="@L["HiringSuggestionCarousel.HiringSuggestionNavigation"]">
+                    <button type="button" aria-label="@L["HiringSuggestionCarousel.PreviousHiringSuggestion"]" @onclick="@(() => ScrollAsync(-1))">
                         <MudIcon Icon="@Icons.Material.Outlined.ChevronLeft" />
                     </button>
-                    <button type="button" aria-label="Next hiring suggestion" @onclick="@(() => ScrollAsync(1))">
+                    <button type="button" aria-label="@L["HiringSuggestionCarousel.NextHiringSuggestion"]" @onclick="@(() => ScrollAsync(1))">
                         <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" />
                     </button>
                 </div>
@@ -58,11 +59,11 @@
                 {
                     @if (SelectedAgent(recommendation) is { } candidate)
                     {
-                        <div class="hiring-candidate" aria-label="Recommended candidate">
+                        <div class="hiring-candidate" aria-label="@L["HiringSuggestionCarousel.RecommendedCandidate"]">
                             <img src="@CandidateImage(candidate)" alt="@candidate.Name" loading="lazy" referrerpolicy="no-referrer"
                                  @onerror="@(() => _failedImages.Add(candidate.AgentReference))" />
                             <div>
-                                <small>RECOMMENDED AGENT</small>
+                                <small>@L["HiringSuggestionCarousel.RECOMMENDEDAGENT"]</small>
                                 <strong>@candidate.Name</strong>
                                 <span>@candidate.Publisher</span>
                                 <span>@(candidate.Price is { } price ? $"{price} {candidate.Currency}" : "Cost unavailable")</span>
@@ -84,7 +85,7 @@
                         }
                         else
                         {
-                            <span>Hiring action completed</span>
+                            <span>@L["HiringSuggestionCarousel.HiringActionCompleted"]</span>
                         }
                     }
                     else if (superseded)
@@ -93,25 +94,25 @@
                     }
                     else if (cancelled)
                     {
-                        <span>This suggestion was cancelled</span>
+                        <span>@L["HiringSuggestionCarousel.ThisSuggestionWasCancelled"]</span>
                     }
                     else if (!ReadOnly)
                     {
                         @if (action.HiringRecommendationId is Guid selectedId && _recommendations.GetValueOrDefault(selectedId) is { } selectedRecommendation && SelectedAgent(selectedRecommendation) is { } selectedAgent)
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                       OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">Hire</MudButton>
+                                       OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">@L["HiringSuggestionCarousel.Hire"]</MudButton>
                         }
                         <MudButton Href="@action.NavigationUri"
                                    Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    EndIcon="@Icons.Material.Outlined.ArrowForward">
-                            Browse Candidates
+                            @L["HiringSuggestionCarousel.BrowseCandidates"]
                         </MudButton>
                     }
                     else
                     {
-                        <span>Awaiting review</span>
+                        <span>@L["HiringSuggestionCarousel.AwaitingReview"]</span>
                     }
                 </div>
             </article>

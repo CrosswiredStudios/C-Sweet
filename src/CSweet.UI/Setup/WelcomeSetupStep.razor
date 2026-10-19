@@ -1,36 +1,37 @@
+@inject IAppLocalizer L
 <section class="setup-welcome" aria-labelledby="setup-welcome-title">
     <div class="setup-welcome-copy">
-        <MudText Typo="Typo.overline">Welcome to C-Sweet</MudText>
-        <h1 id="setup-welcome-title">Build your AI workplace.</h1>
+        <MudText Typo="Typo.overline">@L["WelcomeSetupStep.WelcomeToCSweet"]</MudText>
+        <h1 id="setup-welcome-title">@L["WelcomeSetupStep.BuildYourAIWorkplace"]</h1>
         <p>
-            Connect a place to work, add a model provider, and make your AI Assistant yours.
+            @L["WelcomeSetupStep.ConnectAPlaceToWork"]
         </p>
 
     </div>
 
-    <ol class="setup-promise-list" aria-label="What setup includes">
+    <ol class="setup-promise-list" aria-label="@L["WelcomeSetupStep.WhatSetupIncludes"]">
         <li>
             <span class="setup-promise-number"><MudIcon Icon="@Icons.Material.Outlined.Computer" /></span>
             <div>
-                <strong>A place to work</strong>
-                <small>Choose this computer or connect an office, then verify the available capacity.</small>
+                <strong>@L["WelcomeSetupStep.APlaceToWork"]</strong>
+                <small>@L["WelcomeSetupStep.ChooseThisComputerOrConnect"]</small>
             </div>
         </li>
         <li>
             <span class="setup-promise-number"><MudIcon Icon="@Icons.Material.Outlined.Hub" /></span>
             <div>
-                <strong>The models behind your team</strong>
-                <small>Connect a local runtime or a hosted AI provider.</small>
+                <strong>@L["WelcomeSetupStep.TheModelsBehindYourTeam"]</strong>
+                <small>@L["WelcomeSetupStep.ConnectALocalRuntimeOr"]</small>
             </div>
         </li>
         <li>
             <span class="setup-promise-number"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span>
-            <div><strong>Your own AI Assistant</strong><small>Choose its name, model, and context limits.</small></div>
+            <div><strong>@L["WelcomeSetupStep.YourOwnAIAssistant"]</strong><small>@L["WelcomeSetupStep.ChooseItsNameModelAnd"]</small></div>
         </li>
     </ol>
 
     <footer class="setup-welcome-actions">
-        <span>Creative tools are optional.</span>
+        <span>@L["WelcomeSetupStep.CreativeToolsAreOptional"]</span>
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
                    EndIcon="@Icons.Material.Filled.ArrowForward"

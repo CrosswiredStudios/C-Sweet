@@ -1,6 +1,5 @@
 {
   "_": "EmployeeDetails area: the employee profile page (overview, personal board, assigned work, agent operations, memory tab shell, usage) and the current-activity cards and provider stream shown on the dashboard.",
-
   "_EmployeeDetails.PageTitle": "{name} is the employee's display name.",
   "EmployeeDetails.PageTitle": "{name} - C-Sweet",
   "EmployeeDetails.DefaultName": "Employee",
@@ -103,7 +102,6 @@
   "_EmployeeDetails.Usage.Calls": "Shown under the large token total; {count} is the number of model requests.",
   "EmployeeDetails.Usage.Calls": "tokens · {count, plural, one {# model call} other {# model calls}}",
   "EmployeeDetails.Usage.Retry": "Retry usage",
-
   "_CurrentActivity.ActivityWord": "Rendered after the bold total; the number itself is in the markup.",
   "CurrentActivity.ActivityWord": "{count, plural, one {activity} other {activities}}",
   "CurrentActivity.Live": "Live",
@@ -146,7 +144,6 @@
   "CurrentActivity.Age.Minutes": "{count}m",
   "CurrentActivity.Age.Hours": "{count}h",
   "CurrentActivity.Age.Days": "{count}d",
-
   "ActivityCard.State.Working": "Working",
   "ActivityCard.State.Queued": "Queued",
   "ActivityCard.State.Waiting": "Waiting",
@@ -179,7 +176,6 @@
   "ActivityCard.Heading.WaitingOnDependencies": "Waiting on dependencies",
   "ActivityCard.Heading.WorkingOnTask": "Working on a task",
   "ActivityCard.Heading.Background": "Background activity",
-
   "_ActivityAgent.ViewDetailsAriaLabel": "{name} is the employee's display name.",
   "ActivityAgent.ViewDetailsAriaLabel": "View {name}'s employee details"
 }

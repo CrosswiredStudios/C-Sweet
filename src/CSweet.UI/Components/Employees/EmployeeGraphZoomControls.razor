@@ -1,13 +1,14 @@
-<div class="employee-graph-zoom-controls" role="group" aria-label="Graph zoom controls">
-    <button type="button" title="Zoom out" aria-label="Zoom out" @onclick="ZoomOutAsync">
+@inject IAppLocalizer L
+<div class="employee-graph-zoom-controls" role="group" aria-label="@L["EmployeeGraphZoomControls.GraphZoomControls"]">
+    <button type="button" title="@L["EmployeeGraphZoomControls.ZoomOut"]" aria-label="@L["EmployeeGraphZoomControls.ZoomOut"]" @onclick="ZoomOutAsync">
         <MudIcon Icon="@Icons.Material.Outlined.Remove" />
     </button>
-    <output aria-live="polite" aria-label="Current zoom">@ZoomLabel</output>
-    <button type="button" title="Zoom in" aria-label="Zoom in" @onclick="ZoomInAsync">
+    <output aria-live="polite" aria-label="@L["EmployeeGraphZoomControls.CurrentZoom"]">@ZoomLabel</output>
+    <button type="button" title="@L["EmployeeGraphZoomControls.ZoomIn"]" aria-label="@L["EmployeeGraphZoomControls.ZoomIn"]" @onclick="ZoomInAsync">
         <MudIcon Icon="@Icons.Material.Outlined.Add" />
     </button>
     <span aria-hidden="true"></span>
-    <button type="button" class="fit-button" title="Fit graph to view" aria-label="Fit graph to view" @onclick="FitAsync">
+    <button type="button" class="fit-button" title="@L["EmployeeGraphZoomControls.FitGraphToView"]" aria-label="@L["EmployeeGraphZoomControls.FitGraphToView"]" @onclick="FitAsync">
         <MudIcon Icon="@Icons.Material.Outlined.FitScreen" />
     </button>
 </div>

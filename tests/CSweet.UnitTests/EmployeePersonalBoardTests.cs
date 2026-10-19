@@ -228,7 +228,7 @@ public sealed partial class EmployeePersonalBoardTests
 
     private static EmployeePersonalBoard Component(Wire.PersonalTodoItem item, HttpClient http)
     {
-        var component = new EmployeePersonalBoard { Http = http };
+        var component = TestLocalization.Inject(new EmployeePersonalBoard { Http = http });
         ParameterView.FromDictionary(new Dictionary<string, object?>
         {
             [nameof(EmployeePersonalBoard.Board)] = Board(item),

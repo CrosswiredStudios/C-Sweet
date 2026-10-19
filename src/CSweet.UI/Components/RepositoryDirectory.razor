@@ -1,10 +1,11 @@
 @using CSweet.Contracts.SourceControl
+@inject IAppLocalizer L
 
 <div class="repository-directory">
-    <div class="repository-directory-heading"><span>@Repositories.Count @(Repositories.Count == 1 ? "repository" : "repositories")</span><span>Most recent activity first</span></div>
+    <div class="repository-directory-heading"><span>@Repositories.Count @(Repositories.Count == 1 ? "repository" : "repositories")</span><span>@L["RepositoryDirectory.MostRecentActivityFirst"]</span></div>
     <div class="repository-directory-surface">
-        <table aria-label="Repositories">
-            <thead><tr><th scope="col">Repository</th><th scope="col">Project</th><th scope="col">Created</th><th scope="col">Agents</th></tr></thead>
+        <table aria-label="@L["RepositoryDirectory.Repositories"]">
+            <thead><tr><th scope="col">@L["RepositoryDirectory.Repository"]</th><th scope="col">@L["RepositoryDirectory.Project"]</th><th scope="col">@L["RepositoryDirectory.Created"]</th><th scope="col">@L["RepositoryDirectory.Agents"]</th></tr></thead>
             <tbody>
                 @foreach (var repository in OrderedRepositories)
                 {
@@ -27,11 +28,11 @@
                                 }
                                 else
                                 {
-                                    <span class="repository-activity-caption">No activity yet</span>
+                                    <span class="repository-activity-caption">@L["RepositoryDirectory.NoActivityYet"]</span>
                                 }
                             </div>
                         </td>
-                        <td class="repository-projects"><span class="repository-mobile-label">Project</span>
+                        <td class="repository-projects"><span class="repository-mobile-label">@L["RepositoryDirectory.Project"]</span>
                             @if (repository.Projects is { Count: > 0 })
                             {
                                 @foreach (var project in repository.Projects)
@@ -39,14 +40,14 @@
                                     <MudLink Href="@($"/organizations/{OrganizationId:D}/projects/{project.Id:D}")">@project.Name</MudLink>
                                 }
                             }
-                            else { <span class="repository-directory-muted">Not assigned</span> }
+                            else { <span class="repository-directory-muted">@L["RepositoryDirectory.NotAssigned"]</span> }
                         </td>
-                        <td class="repository-created"><span class="repository-mobile-label">Created</span>
+                        <td class="repository-created"><span class="repository-mobile-label">@L["RepositoryDirectory.Created"]</span>
                             @if (repository.CreatedAt is { } created)
                             {
                                 <time datetime="@created.ToString("O")" title="@created.ToLocalTime().ToString("f")">@created.ToLocalTime().ToString("MMM d, yyyy")</time>
                             }
-                            else { <span class="repository-directory-muted">Not available</span> }
+                            else { <span class="repository-directory-muted">@L["Common.NotAvailable"]</span> }
                         </td>
                         <td class="repository-agents"><RepositoryAccessPopover @key="(OrganizationId, repository.Id)" Repository="repository" /></td>
                     </tr>
@@ -54,7 +55,7 @@
             </tbody>
         </table>
     </div>
-    <p class="repository-directory-caption"><MudIcon Icon="@Icons.Material.Outlined.PeopleOutline" Size="Size.Small" />Counts show agents. Click to see everyone with C-Sweet access.</p>
+    <p class="repository-directory-caption"><MudIcon Icon="@Icons.Material.Outlined.PeopleOutline" Size="Size.Small" />@L["RepositoryDirectory.CountsShowAgentsClickTo"]</p>
 </div>
 
 @code {

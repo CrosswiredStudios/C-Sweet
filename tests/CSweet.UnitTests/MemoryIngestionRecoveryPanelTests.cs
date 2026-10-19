@@ -15,7 +15,7 @@ public sealed class MemoryIngestionRecoveryPanelTests
     private static void Parameter(object panel,string name,object value) => panel.GetType().GetProperty(name,Members)!.SetValue(panel,value);
     private static MemoryIngestionRecoveryPanel Panel(HttpClient http)
     {
-        var panel=new MemoryIngestionRecoveryPanel(); Parameter(panel,"OrganizationId",Guid.NewGuid()); Parameter(panel,"EmployeeId",Guid.NewGuid()); return panel;
+        var panel=TestLocalization.Inject(new MemoryIngestionRecoveryPanel()); Parameter(panel,"OrganizationId",Guid.NewGuid()); Parameter(panel,"EmployeeId",Guid.NewGuid()); return panel;
     }
     private static void Http(MemoryIngestionRecoveryPanel panel, HttpClient http) => panel.GetType().GetProperty("Http",Members)!.SetValue(panel,http);
     private static MemoryIngestionRecoveryPreview Preview(bool allowed=true) => new(Guid.NewGuid(),2,new string('b',64),"Retained private source","agent-proposal","Personal",allowed,allowed?null:"memory_ingestion_source_unavailable");

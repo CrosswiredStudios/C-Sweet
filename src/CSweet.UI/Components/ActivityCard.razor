@@ -1,4 +1,5 @@
 @using CSweet.Contracts.Core
+@inject IAppLocalizer L
 
 <article class="activity-card" data-activity-kind="@Item.ActivityKind">
     <header class="activity-card-header">
@@ -40,7 +41,7 @@
     </div>
     @if (Item.CanInspect && Item.PreviousSteps.Any(x => x.Kind == "Workspace"))
     {
-        <ul class="activity-workspace-progress" aria-label="Recent workspace operations">
+        <ul class="activity-workspace-progress" aria-label="@L["ActivityCard.WorkspaceAriaLabel"]">
             @foreach (var step in Item.PreviousSteps.Where(x => x.Kind == "Workspace"))
             {
                 <li><time datetime="@step.OccurredAt.ToString("O")">@step.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time> @step.Text</li>

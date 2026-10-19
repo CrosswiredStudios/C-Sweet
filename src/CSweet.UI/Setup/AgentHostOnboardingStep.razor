@@ -2,38 +2,39 @@
 @inject ISetupApiClient SetupApi
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
 <section class="host-onboarding" aria-labelledby="host-onboarding-title">
     <header class="host-onboarding-header">
-        <MudText Typo="Typo.overline">Step 2 of 5</MudText>
-        <h1 id="host-onboarding-title">Where should your agents work?</h1>
-        <p>Choose the first machine that will securely build and run your agents.</p>
+        <MudText Typo="Typo.overline">@L["AgentHostOnboardingStep.Step2Of5"]</MudText>
+        <h1 id="host-onboarding-title">@L["AgentHostOnboardingStep.WhereShouldYourAgentsWork"]</h1>
+        <p>@L["AgentHostOnboardingStep.ChooseTheFirstMachineThat"]</p>
     </header>
 
     @if (_loading)
     {
         <div class="host-feedback checking" role="status" aria-live="polite">
             <MudProgressCircular Indeterminate="true" Size="Size.Small" Color="Color.Primary" />
-            <span>Checking for an Office...</span>
+            <span>@L["AgentHostOnboardingStep.CheckingForAnOffice"]</span>
         </div>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
         <div class="host-feedback error" role="alert">
             <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" />
-            <div><strong>We couldn't check your Offices.</strong><span>@_error</span></div>
-            <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RefreshAsync">Try again</MudButton>
+            <div><strong>@L["AgentHostOnboardingStep.WeCouldnTCheckYour"]</strong><span>@_error</span></div>
+            <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RefreshAsync">@L["AgentHostOnboardingStep.TryAgain"]</MudButton>
         </div>
     }
     else if (_status is not null)
     {
         @if (_localSession is not null)
         {
-            <div class="host-target-summary"><MudIcon Icon="@Icons.Material.Outlined.Computer" /><span>This machine · C-Sweet Office</span></div>
+            <div class="host-target-summary"><MudIcon Icon="@Icons.Material.Outlined.Computer" /><span>@L["AgentHostOnboardingStep.ThisMachineCSweetOffice"]</span></div>
         }
         else
         {
-        <div class="host-location-grid" role="group" aria-label="Office location">
+        <div class="host-location-grid" role="group" aria-label="@L["AgentHostOnboardingStep.OfficeLocation"]">
             <button type="button"
                     class="host-location-card @TargetClass("local")"
                     aria-pressed="@(_installationTarget == "local")"
@@ -41,8 +42,8 @@
                     @onclick='@(() => SelectInstallationTargetAsync("local"))'>
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Computer" /></span>
                 <span class="host-location-copy">
-                    <strong>This machine</strong>
-                    <small>Install C-Sweet Office here. You can add additional machines later.</small>
+                    <strong>@L["AgentHostOnboardingStep.ThisMachine"]</strong>
+                    <small>@L["AgentHostOnboardingStep.InstallCSweetOfficeHere"]</small>
                     @if (_status?.LocalCapacity is { } machineCapacity)
                     {
                         <small class="host-machine-stats">
@@ -59,8 +60,8 @@
                     @onclick='@(() => SelectInstallationTargetAsync("remote"))'>
                 <span class="host-location-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
                 <span class="host-location-copy">
-                    <strong>Another machine</strong>
-                    <small>Install C-Sweet Office on another Windows, Linux, or macOS machine.</small>
+                    <strong>@L["AgentHostOnboardingStep.AnotherMachine"]</strong>
+                    <small>@L["AgentHostOnboardingStep.InstallCSweetOfficeOn"]</small>
                 </span>
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Class="host-location-check" />
             </button>
@@ -98,24 +99,24 @@
     @if (_installationTarget == "remote" || ManualLocalSetup)
     {
         <footer class="host-onboarding-actions">
-            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
+            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">@L["Common.Back"]</MudButton>
             <div>
                 @if (_status?.IsReady != true)
                 {
-                    <span>Connect one healthy Office to continue</span>
+                    <span>@L["AgentHostOnboardingStep.ConnectOneHealthyOfficeTo"]</span>
                 }
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            EndIcon="@Icons.Material.Filled.ArrowForward"
                            Disabled="@(_busy || IsCompleting || _loading || _status?.IsReady != true)"
-                           OnClick="OnContinue">Continue</MudButton>
+                           OnClick="OnContinue">@L["Common.Continue"]</MudButton>
             </div>
         </footer>
     }
     else if (_loading || !string.IsNullOrWhiteSpace(_error))
     {
         <footer class="host-onboarding-actions">
-            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
+            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">@L["Common.Back"]</MudButton>
         </footer>
     }
 </section>
@@ -174,7 +175,7 @@
         }
         catch
         {
-            _error = "Check the connection and try again.";
+            _error = L["AgentHostOnboardingStep.CheckTheConnectionAndTry"];
         }
         finally
         {

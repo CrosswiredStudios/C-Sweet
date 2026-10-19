@@ -109,7 +109,7 @@ public sealed class AgentMemoryJournalTests
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static AgentMemory Create(HttpClient http)
     {
-        var page = new AgentMemory();
+        var page = TestLocalization.Inject(new AgentMemory());
         typeof(AgentMemory).GetProperty("Http", Members)!.SetValue(page, http);
         return page;
     }

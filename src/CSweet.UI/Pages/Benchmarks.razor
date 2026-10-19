@@ -2,18 +2,19 @@
 @using CSweet.Contracts.Analytics
 @using System.Text.Json
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<PageTitle>Benchmarks - C-Sweet</PageTitle>
+<PageTitle>@L["Benchmarks.PageTitle"]</PageTitle>
 <div class="benchmark-page">
     <div class="benchmark-heading">
-        <div><MudText Typo="Typo.overline">Enterprise · host administration</MudText><MudText Typo="Typo.h3">Benchmarks</MudText>
-            <MudText Color="Color.Secondary">Measure complete businesses from the same goal and initial hiring plan.</MudText></div>
-        <div><MudButton Href="/" Variant="Variant.Text">Enterprise</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy" Variant="Variant.Outlined">Refresh</MudButton>
-        <MudButton OnClick="NewDefinition" Disabled="@(_busy || _forbidden)" Variant="Variant.Filled" Color="Color.Primary">New benchmark</MudButton></div>
+        <div><MudText Typo="Typo.overline">@L["Benchmarks.EnterpriseHostAdministration"]</MudText><MudText Typo="Typo.h3">@L["Benchmarks.Benchmarks"]</MudText>
+            <MudText Color="Color.Secondary">@L["Benchmarks.MeasureCompleteBusinessesFromThe"]</MudText></div>
+        <div><MudButton Href="/" Variant="Variant.Text">@L["Benchmarks.Enterprise"]</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy" Variant="Variant.Outlined">@L["Common.Refresh"]</MudButton>
+        <MudButton OnClick="NewDefinition" Disabled="@(_busy || _forbidden)" Variant="Variant.Filled" Color="Color.Primary">@L["Benchmarks.NewBenchmark"]</MudButton></div>
     </div>
     @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
-    @if (_forbidden) { <MudAlert Severity="Severity.Info">Benchmark administration is available to host administrators.</MudAlert> }
+    @if (_forbidden) { <MudAlert Severity="Severity.Info">@L["Benchmarks.BenchmarkAdministrationIsAvailableTo"]</MudAlert> }
     else if (_creating)
     {
         <MudPaper Outlined="true" Class="pa-5">
@@ -21,31 +22,31 @@
             <MudText Typo="Typo.caption">@(_step == 1 ? "Business and initial workforce" : _step == 2 ? "Model variants and evaluations" : "Review and launch")</MudText>
             @if (_step == 1)
             {
-                <MudTextField Label="Name" @bind-Value="_name" MaxLength="256" Class="mt-3" />
-                <MudTextField Label="Shared goal" @bind-Value="_goal" Lines="4" MaxLength="16000" />
-                <MudText Typo="Typo.subtitle1" Class="mt-4">Initial hiring plan</MudText>
-                <MudText Typo="Typo.caption">The first agent leads delivery. All subsequent agents report to it. Adaptive hiring remains allowed.</MudText>
+                <MudTextField Label="@L["Benchmarks.Name"]" @bind-Value="_name" MaxLength="256" Class="mt-3" />
+                <MudTextField Label="@L["Benchmarks.SharedGoal"]" @bind-Value="_goal" Lines="4" MaxLength="16000" />
+                <MudText Typo="Typo.subtitle1" Class="mt-4">@L["Benchmarks.InitialHiringPlan"]</MudText>
+                <MudText Typo="Typo.caption">@L["Benchmarks.TheFirstAgentLeadsDelivery"]</MudText>
                 <div class="benchmark-toolbar">
-                    <MudSelect T="Guid" Label="Available agent" @bind-Value="_agentToAdd">
+                    <MudSelect T="Guid" Label="@L["Benchmarks.AvailableAgent"]" @bind-Value="_agentToAdd">
                         @foreach (var agent in _options.Agents) { <MudSelectItem Value="agent.Id">@agent.Name · @agent.Version</MudSelectItem> }
                     </MudSelect>
-                    <MudButton OnClick="AddHire" Disabled="@(_agentToAdd == Guid.Empty)">Add to hiring plan</MudButton>
+                    <MudButton OnClick="AddHire" Disabled="@(_agentToAdd == Guid.Empty)">@L["Benchmarks.AddToHiringPlan"]</MudButton>
                 </div>
                 @foreach (var hire in _hires)
                 {
                     <div class="benchmark-toolbar" @key="hire">
-                        <MudTextField Label="Role key" @bind-Value="hire.Role" />
-                        <MudTextField Label="Employee name" @bind-Value="hire.Name" />
+                        <MudTextField Label="@L["Benchmarks.RoleKey"]" @bind-Value="hire.Role" />
+                        <MudTextField Label="@L["Benchmarks.EmployeeName"]" @bind-Value="hire.Name" />
                         <MudText Typo="Typo.caption">@hire.Agent.Name · @hire.Agent.Version</MudText>
-                        <MudButton OnClick="() => _hires.Remove(hire)">Remove</MudButton>
+                        <MudButton OnClick="() => _hires.Remove(hire)">@L["Common.Remove"]</MudButton>
                     </div>
                 }
-                <MudSelect T="string" Label="Human assistance" @bind-Value="_assistance" Class="mt-3">
-                    <MudSelectItem Value="@("Assisted")">Assisted</MudSelectItem><MudSelectItem Value="@("Unattended")">Unattended</MudSelectItem>
+                <MudSelect T="string" Label="@L["Benchmarks.HumanAssistance"]" @bind-Value="_assistance" Class="mt-3">
+                    <MudSelectItem Value="@("Assisted")">@L["Benchmarks.Assisted"]</MudSelectItem><MudSelectItem Value="@("Unattended")">@L["Benchmarks.Unattended"]</MudSelectItem>
                 </MudSelect>
-                @if (_assistance == "Assisted") { <MudCheckBox @bind-Value="_approvalsOnly" Label="Approvals only" /> }
+                @if (_assistance == "Assisted") { <MudCheckBox @bind-Value="_approvalsOnly" Label="@L["Benchmarks.ApprovalsOnly"]" /> }
                 <MudTextField Label="Shared starting brief (optional)" @bind-Value="_seed" Lines="3" />
-                <MudText Typo="Typo.caption">Each trial gets a separate business, workforce, document copy and empty memory. No benchmark-imposed time or usage limits.</MudText>
+                <MudText Typo="Typo.caption">@L["Benchmarks.EachTrialGetsASeparate"]</MudText>
             }
             else if (_step == 2)
             {
@@ -53,12 +54,12 @@
                 @foreach (var v in _variants)
                 {
                     <MudPaper Outlined="true" Class="pa-4" @key="v">
-                        <MudTextField Label="Variant name" @bind-Value="v.Name" />
-                        <MudSelect T="Guid" Label="Provider" @bind-Value="v.Provider">
+                        <MudTextField Label="@L["Benchmarks.VariantName"]" @bind-Value="v.Name" />
+                        <MudSelect T="Guid" Label="@L["Benchmarks.Provider"]" @bind-Value="v.Provider">
                             @foreach (var p in _options.Providers) { <MudSelectItem Value="p.Id">@p.Name</MudSelectItem> }
                         </MudSelect>
-                        <MudTextField Label="Default model identifier" @bind-Value="v.Model" />
-                        <MudCheckBox @bind-Value="v.OverrideRoles" Label="Override model by role" />
+                        <MudTextField Label="@L["Benchmarks.DefaultModelIdentifier"]" @bind-Value="v.Model" />
+                        <MudCheckBox @bind-Value="v.OverrideRoles" Label="@L["Benchmarks.OverrideModelByRole"]" />
                         @if (v.OverrideRoles)
                         {
                             @foreach (var h in _hires)
@@ -70,23 +71,23 @@
                     </MudPaper>
                 }
                 </div>
-                <MudText Typo="Typo.subtitle1" Class="mt-4">Acceptance evidence</MudText>
+                <MudText Typo="Typo.subtitle1" Class="mt-4">@L["Benchmarks.AcceptanceEvidence"]</MudText>
                 <MudTextField Label="Required deliverable title (blank accepts any output document)" @bind-Value="_artifactTitle" />
                 <MudTextField Label="Required literal content (optional)" @bind-Value="_requiredContent" />
-                <MudText Typo="Typo.caption">These deterministic checks inspect frozen output documents. They are not executable software tests.</MudText>
-                <MudCheckBox @bind-Value="_sourceValidation" Label="Require recorded source-control validations to pass" />
-                <MudCheckBox @bind-Value="_useJudge" Label="Add an independent LLM judge" />
+                <MudText Typo="Typo.caption">@L["Benchmarks.TheseDeterministicChecksInspectFrozen"]</MudText>
+                <MudCheckBox @bind-Value="_sourceValidation" Label="@L["Benchmarks.RequireRecordedSourceControlValidations"]" />
+                <MudCheckBox @bind-Value="_useJudge" Label="@L["Benchmarks.AddAnIndependentLLMJudge"]" />
                 @if (_useJudge)
                 {
-                    <MudSelect T="Guid" Label="Judge provider" @bind-Value="_judgeProvider">
+                    <MudSelect T="Guid" Label="@L["Benchmarks.JudgeProvider"]" @bind-Value="_judgeProvider">
                         @foreach (var p in _options.Providers) { <MudSelectItem Value="p.Id">@p.Name</MudSelectItem> }
                     </MudSelect>
-                    <MudTextField Label="Judge model identifier" @bind-Value="_judgeModel" />
+                    <MudTextField Label="@L["Benchmarks.JudgeModelIdentifier"]" @bind-Value="_judgeModel" />
                 }
                 <MudText Typo="Typo.body2">Human review rubric: usability, completeness, and product polish; each scored 0–5 with equal weight. Judge results remain separate.</MudText>
                 <div class="benchmark-toolbar">
-                    <MudNumericField T="int" Label="Trials per variant" @bind-Value="_repetitions" Min="1" Max="100" />
-                    <MudSelect T="string" Label="Scheduling" @bind-Value="_scheduling"><MudSelectItem Value="@("Sequential")">Sequential</MudSelectItem><MudSelectItem Value="@("Parallel")">Parallel</MudSelectItem></MudSelect>
+                    <MudNumericField T="int" Label="@L["Benchmarks.TrialsPerVariant"]" @bind-Value="_repetitions" Min="1" Max="100" />
+                    <MudSelect T="string" Label="@L["Benchmarks.Scheduling"]" @bind-Value="_scheduling"><MudSelectItem Value="@("Sequential")">@L["Benchmarks.Sequential"]</MudSelectItem><MudSelectItem Value="@("Parallel")">@L["Benchmarks.Parallel"]</MudSelectItem></MudSelect>
                 </div>
             }
             else
@@ -94,39 +95,39 @@
                 <MudText Typo="Typo.h6" Class="mt-4">@_name</MudText><MudText>@_goal</MudText>
                 <MudText Class="mt-3">@_hires.Count initial agents · @_variants.Count variants · @_repetitions trials per variant · @_scheduling</MudText>
                 <MudText>@_assistance @(_approvalsOnly && _assistance == "Assisted" ? "· approvals only" : "") · no benchmark limits</MudText>
-                <MudAlert Severity="Severity.Info" Class="mt-4">Launching creates real businesses and runs agents using the selected providers. Delivery timing stops when the business declares its project complete. Quality is assessed afterward.</MudAlert>
-                @if (_definitionId.HasValue) { <MudText Typo="Typo.caption">Definition saved. Retry launch safely using the same launch key.</MudText> }
+                <MudAlert Severity="Severity.Info" Class="mt-4">@L["Benchmarks.LaunchingCreatesRealBusinessesAnd"]</MudAlert>
+                @if (_definitionId.HasValue) { <MudText Typo="Typo.caption">@L["Benchmarks.DefinitionSavedRetryLaunchSafely"]</MudText> }
             }
             <div class="benchmark-toolbar mt-5">
-                <MudButton OnClick="() => _creating = false" Disabled="_busy">Cancel</MudButton>
-                @if (_step > 1) { <MudButton OnClick="() => _step--" Disabled="@(_busy || _definitionId.HasValue)">Back</MudButton> }
-                @if (_step < 3) { <MudButton OnClick="NextStep" Variant="Variant.Filled" Color="Color.Primary">Continue</MudButton> }
-                else { <MudButton OnClick="LaunchAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Launch benchmark</MudButton> }
+                <MudButton OnClick="() => _creating = false" Disabled="_busy">@L["Common.Cancel"]</MudButton>
+                @if (_step > 1) { <MudButton OnClick="() => _step--" Disabled="@(_busy || _definitionId.HasValue)">@L["Common.Back"]</MudButton> }
+                @if (_step < 3) { <MudButton OnClick="NextStep" Variant="Variant.Filled" Color="Color.Primary">@L["Common.Continue"]</MudButton> }
+                else { <MudButton OnClick="LaunchAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">@L["Benchmarks.LaunchBenchmark"]</MudButton> }
             </div>
         </MudPaper>
     }
     else if (_catalog is not null)
     {
         @if (_catalog.Campaigns.Count == 0)
-        { <MudPaper Outlined="true" Class="pa-6"><MudText Typo="Typo.h6">No benchmark campaigns yet</MudText><MudText>Define one goal and hiring plan, then select the models to compare.</MudText></MudPaper> }
+        { <MudPaper Outlined="true" Class="pa-6"><MudText Typo="Typo.h6">@L["Benchmarks.NoBenchmarkCampaignsYet"]</MudText><MudText>@L["Benchmarks.DefineOneGoalAndHiring"]</MudText></MudPaper> }
         else
         {
-            <MudSelect T="Guid" Label="Campaign" Value="_campaignId" ValueChanged="SelectCampaign">
+            <MudSelect T="Guid" Label="@L["Benchmarks.Campaign"]" Value="_campaignId" ValueChanged="SelectCampaign">
                 @foreach (var c in _catalog.Campaigns) { <MudSelectItem Value="c.Id">@c.Name · @c.CreatedAt.ToLocalTime().ToString("g")</MudSelectItem> }
             </MudSelect>
             @if (Campaign is { } campaign)
             {
                 <MudTabs Rounded="true" Class="mt-3">
-                    <MudTabPanel Text="Comparison">
+                    <MudTabPanel Text="@L["Benchmarks.Comparison"]">
                         <MudText Typo="Typo.h6">@campaign.Name</MudText>
                         <MudText Typo="Typo.caption">@campaign.Status · @campaign.Scheduling · @campaign.Repetitions trials per variant</MudText>
-                        <div class="benchmark-table"><table><thead><tr><th>Variant / trial</th><th>Delivery / evaluation</th><th>Reported tokens</th><th>Model calls</th><th>Delivery time</th><th>Checks</th><th>Quality</th><th></th></tr></thead><tbody>
+                        <div class="benchmark-table"><table><thead><tr><th>@L["Benchmarks.VariantTrial"]</th><th>@L["Benchmarks.DeliveryEvaluation"]</th><th>@L["Benchmarks.ReportedTokens"]</th><th>@L["Benchmarks.ModelCalls"]</th><th>@L["Benchmarks.DeliveryTime"]</th><th>@L["Benchmarks.Checks"]</th><th>@L["Benchmarks.Quality"]</th><th></th></tr></thead><tbody>
                         @foreach (var t in campaign.Trials)
                         {
                             <tr><td><button class="benchmark-link" @onclick="() => _trialId = t.Id">@t.VariantName · @t.Repetition</button></td>
                                 <td>@t.Status<br /><small>@t.EvaluationStatus</small></td><td>@t.DeliveryUsage.TotalTokens.ToString("N0")</td><td>@t.DeliveryUsage.ModelCalls.ToString("N0")</td>
                                 <td>@Duration(t.DeliveryTimeMs)</td><td>@Checks(t)</td><td>Human @Score(t, "Human")<br />Judge @Score(t, "Judge")</td>
-                                <td>@if (t.Status is "Pending" or "Running" or "Blocked") { <MudButton Size="Size.Small" OnClick="() => CancelAsync(t.Id)" Disabled="_busy">Cancel run</MudButton> }</td>
+                                <td>@if (t.Status is "Pending" or "Running" or "Blocked") { <MudButton Size="Size.Small" OnClick="() => CancelAsync(t.Id)" Disabled="_busy">@L["Benchmarks.CancelRun"]</MudButton> }</td>
                             </tr>
                         }
                         </tbody></table></div>
@@ -139,46 +140,46 @@
                         {
                             <MudPaper Outlined="true" Class="pa-4 mt-4"><MudText Typo="Typo.h6">@trial.VariantName · trial @trial.Repetition</MudText><MudText>@trial.Detail</MudText>
                                 <MudText Typo="Typo.caption">Usage coverage: @trial.DeliveryUsage.FullyReportedCalls / @trial.DeliveryUsage.ModelCalls calls. Setup usage: @trial.SetupUsage.TotalTokens.ToString("N0") tokens. Judge usage: @trial.EvaluationUsage.TotalTokens.ToString("N0") tokens. After-declaration usage: @trial.TrailingUsage.TotalTokens.ToString("N0") tokens.</MudText>
-                                <MudText Class="mt-2">Current workforce: @trial.FinalWorkforce · Human messages: @trial.HumanInterventions � Agent requests: @trial.AgentHandoffs � Tool attempts: @trial.ToolOperations</MudText>
+                                <MudText Class="mt-2">Current workforce: @trial.FinalWorkforce · Human messages: @trial.HumanInterventions · Agent requests: @trial.AgentHandoffs · Tool attempts: @trial.ToolOperations</MudText>
                                 <MudText Typo="Typo.caption">@trial.InteractionCoverage</MudText>
                                 @foreach (var d in trial.Deviations) { <MudAlert Severity="Severity.Info" Class="mt-2">@d</MudAlert> }
                                 @if (trial.OrganizationId.HasValue && trial.WorkstreamId.HasValue)
-                                { <MudButton Href="@($"organizations/{trial.OrganizationId}/projects/{trial.WorkstreamId}")" Class="mt-2">Inspect project</MudButton> }
+                                { <MudButton Href="@($"organizations/{trial.OrganizationId}/projects/{trial.WorkstreamId}")" Class="mt-2">@L["Benchmarks.InspectProject"]</MudButton> }
                             </MudPaper>
                         }
                         <MudAlert Severity="Severity.Info" Class="mt-4">Adaptive staffing and human assistance affect results. Compare outcomes alongside consumption; a completed declaration is not a quality pass.</MudAlert>
                     </MudTabPanel>
-                    <MudTabPanel Text="Quality review">
-                        <MudSelect T="Guid" Label="Submission" @bind-Value="_trialId">
+                    <MudTabPanel Text="@L["Benchmarks.QualityReview"]">
+                        <MudSelect T="Guid" Label="@L["Benchmarks.Submission"]" @bind-Value="_trialId">
                             @foreach (var t in campaign.Trials.Where(x => x.DeclaredCompletedAt.HasValue)) { <MudSelectItem Value="t.Id">Submission @t.Id.ToString("N")[..8]</MudSelectItem> }
                         </MudSelect>
                         @if (Trial is { DeclaredCompletedAt: not null } selected)
                         {
                             <MudText Typo="Typo.caption">Frozen at @selected.DeclaredCompletedAt.Value.ToLocalTime().ToString("g"). Model identity is omitted in this review view.</MudText>
-                            <MudExpansionPanels Class="my-3"><MudExpansionPanel Text="Inspect frozen submission"><pre class="benchmark-evidence">@Pretty(selected.SubmissionJson)</pre></MudExpansionPanel></MudExpansionPanels>
+                            <MudExpansionPanels Class="my-3"><MudExpansionPanel Text="@L["Benchmarks.InspectFrozenSubmission"]"><pre class="benchmark-evidence">@Pretty(selected.SubmissionJson)</pre></MudExpansionPanel></MudExpansionPanels>
                             @foreach (var a in selected.Assessments)
                             { <MudPaper Outlined="true" Class="pa-3 my-2"><MudText>@a.Kind · @a.CriterionKey: @(a.Score.HasValue ? $"{a.Score:N1} / 5" : a.Passed == true ? "Passed" : "Failed")</MudText><MudText Typo="Typo.body2">@a.Rationale</MudText><MudText Typo="Typo.caption">@string.Join(", ", a.EvidenceReferences)</MudText></MudPaper> }
-                            <MudText Typo="Typo.h6" Class="mt-4">Add human assessment</MudText>
-                            <MudSelect T="string" Label="Criterion" @bind-Value="_reviewCriterion">
+                            <MudText Typo="Typo.h6" Class="mt-4">@L["Benchmarks.AddHumanAssessment"]</MudText>
+                            <MudSelect T="string" Label="@L["Benchmarks.Criterion"]" @bind-Value="_reviewCriterion">
                                 @foreach (var criterion in Definition?.Blueprint.Criteria.Where(x => x.Kind == "Rubric") ?? []) { <MudSelectItem Value="criterion.Key">@criterion.Title</MudSelectItem> }
                             </MudSelect>
                             <MudNumericField T="decimal" Label="Score (0–5)" @bind-Value="_reviewScore" Min="0" Max="5" Step="0.5M" />
-                            <MudTextField Label="Evidence-grounded rationale" @bind-Value="_rationale" Lines="3" />
+                            <MudTextField Label="@L["Benchmarks.EvidenceGroundedRationale"]" @bind-Value="_rationale" Lines="3" />
                             <MudTextField Label="Evidence references (one per line)" @bind-Value="_evidence" Lines="2" />
-                            <MudButton OnClick="SaveReviewAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary" Class="mt-3">Save assessment</MudButton>
+                            <MudButton OnClick="SaveReviewAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary" Class="mt-3">@L["Benchmarks.SaveAssessment"]</MudButton>
                         }
-                        else { <MudText Class="pa-4">Quality review becomes available after a business declares completion.</MudText> }
+                        else { <MudText Class="pa-4">@L["Benchmarks.QualityReviewBecomesAvailableAfter"]</MudText> }
                     </MudTabPanel>
-                    <MudTabPanel Text="Starting definition">
+                    <MudTabPanel Text="@L["Benchmarks.StartingDefinition"]">
                         @if (Definition is { } definition)
                         {
                             <MudText Typo="Typo.h6">@definition.Blueprint.Name · version @definition.Version</MudText><MudText>@definition.Blueprint.Goal</MudText>
                             <MudText Typo="Typo.caption">Digest: @definition.Digest</MudText>
-                            <MudExpansionPanels Class="mt-3"><MudExpansionPanel Text="Hiring, models, criteria, and shared inputs"><pre class="benchmark-evidence">@JsonSerializer.Serialize(definition.Blueprint, new JsonSerializerOptions { WriteIndented = true })</pre></MudExpansionPanel></MudExpansionPanels>
+                            <MudExpansionPanels Class="mt-3"><MudExpansionPanel Text="@L["Benchmarks.HiringModelsCriteriaAndShared"]"><pre class="benchmark-evidence">@JsonSerializer.Serialize(definition.Blueprint, new JsonSerializerOptions { WriteIndented = true })</pre></MudExpansionPanel></MudExpansionPanels>
                         }
                     </MudTabPanel>
                 </MudTabs>
-                <div class="benchmark-toolbar mt-4"><MudLink Href="@($"api/benchmarks/campaigns/{campaign.Id}/export?format=csv")" Target="_blank">Export metrics CSV</MudLink><MudLink Href="@($"api/benchmarks/campaigns/{campaign.Id}/export")" Target="_blank">Export manifest and results JSON</MudLink></div>
+                <div class="benchmark-toolbar mt-4"><MudLink Href="@($"api/benchmarks/campaigns/{campaign.Id}/export?format=csv")" Target="_blank">@L["Benchmarks.ExportMetricsCSV"]</MudLink><MudLink Href="@($"api/benchmarks/campaigns/{campaign.Id}/export")" Target="_blank">@L["Benchmarks.ExportManifestAndResultsJSON"]</MudLink></div>
             }
         }
     }
@@ -215,7 +216,7 @@
             if (Campaign is null) _campaignId = _catalog?.Campaigns.FirstOrDefault()?.Id ?? Guid.Empty;
             if (Trial is null) _trialId = Campaign?.Trials.FirstOrDefault()?.Id ?? Guid.Empty;
         }
-        catch { _error = "Benchmarks could not be loaded. Try refreshing."; }
+        catch { _error = L["Benchmarks.BenchmarksCouldNotBeLoaded"]; }
         finally { _busy = false; }
     }
     private void NewDefinition() { _creating = true; _step = 1; _definitionId = null; _launchKey = Guid.NewGuid().ToString("N"); }
@@ -228,8 +229,8 @@
     private void NextStep()
     {
         _error = null;
-        if (_step == 1 && (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_goal) || _hires.Count == 0)) { _error = "Enter the business goal and choose at least one initial agent."; return; }
-        if (_step == 2 && _variants.Any(x => x.Provider == Guid.Empty || string.IsNullOrWhiteSpace(x.Model))) { _error = "Select a provider and model for each variant."; return; }
+        if (_step == 1 && (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_goal) || _hires.Count == 0)) { _error = L["Benchmarks.EnterTheBusinessGoalAnd"]; return; }
+        if (_step == 2 && _variants.Any(x => x.Provider == Guid.Empty || string.IsNullOrWhiteSpace(x.Model))) { _error = L["Benchmarks.SelectAProviderAndModel"]; return; }
         _step++;
     }
     private BenchmarkBlueprint BuildBlueprint()

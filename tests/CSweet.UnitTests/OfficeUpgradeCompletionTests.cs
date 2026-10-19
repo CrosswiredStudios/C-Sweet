@@ -61,7 +61,7 @@ public sealed class OfficeUpgradeCompletionTests
         var office = new ExecutionNodeSummaryResponse(Guid.NewGuid(), Guid.NewGuid(), "Office", "PC",
             "windows", "x64", "0.6.3", "1.0", "draining", "thumbprint", now.AddDays(1),
             4, 8192, 10240, 2, freshHeartbeat ? now : now.AddMinutes(-5), [], new Dictionary<string, string>());
-        var component = new LocalOfficeUpgrade();
+        var component = TestLocalization.Inject(new LocalOfficeUpgrade());
         typeof(LocalOfficeUpgrade).GetProperty(nameof(LocalOfficeUpgrade.Office))!.SetValue(component, office);
         return component;
     }

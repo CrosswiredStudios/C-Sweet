@@ -2,41 +2,42 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<section class="repository-workspace" aria-label="Repositories">
+<section class="repository-workspace" aria-label="@L["InternalRepositoryManager.Repositories"]">
     <MudStack Spacing="3">
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
         @if (CanManage && Creating)
         {
             <div class="repository-create">
                 <div class="repository-create-heading">
-                    <div><MudText Typo="Typo.h6">New private repository</MudText><MudText Typo="Typo.body2" Class="repository-muted">C-Sweet storage · No account setup required</MudText></div>
-                    <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseCreateAsync" Disabled="_busy" aria-label="Close new repository form" />
+                    <div><MudText Typo="Typo.h6">@L["InternalRepositoryManager.NewPrivateRepository"]</MudText><MudText Typo="Typo.body2" Class="repository-muted">@L["InternalRepositoryManager.CSweetStorageNoAccount"]</MudText></div>
+                    <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseCreateAsync" Disabled="_busy" aria-label="@L["InternalRepositoryManager.CloseNewRepositoryForm"]" />
                 </div>
                 <div class="repository-create-fields">
-                    <MudTextField @bind-Value="_name" Label="Repository name" Placeholder="e.g. orbit-game" Variant="Variant.Outlined" Immediate="true" Disabled="_busy" />
-                    <MudTextField @bind-Value="_branch" Label="Initial branch" Variant="Variant.Outlined" Disabled="_busy" />
+                    <MudTextField @bind-Value="_name" Label="@L["InternalRepositoryManager.RepositoryName"]" Placeholder="@L["InternalRepositoryManager.EGOrbitGame"]" Variant="Variant.Outlined" Immediate="true" Disabled="_busy" />
+                    <MudTextField @bind-Value="_branch" Label="@L["InternalRepositoryManager.InitialBranch"]" Variant="Variant.Outlined" Disabled="_busy" />
                 </div>
                 <div class="repository-create-actions">
-                    <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_branch))" Variant="Variant.Filled" Color="Color.Primary">Create repository</MudButton>
-                    <MudButton OnClick="CloseCreateAsync" Disabled="_busy">Cancel</MudButton>
+                    <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_branch))" Variant="Variant.Filled" Color="Color.Primary">@L["InternalRepositoryManager.CreateRepository"]</MudButton>
+                    <MudButton OnClick="CloseCreateAsync" Disabled="_busy">@L["Common.Cancel"]</MudButton>
                 </div>
             </div>
         }
-        @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="Loading repositories" /> }
+        @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="@L["InternalRepositoryManager.LoadingRepositories"]" /> }
         @if (!_busy && _error is null && AllRepositories.Count == 0)
         {
             @if (!Creating || !CanManage)
             {
                 <div class="repository-empty">
                     <MudIcon Icon="@Icons.Material.Outlined.AccountTree" Size="Size.Large" />
-                    <MudText Typo="Typo.h5">A home for your team’s code</MudText>
+                    <MudText Typo="Typo.h5">@L["InternalRepositoryManager.AHomeForYourTeam"]</MudText>
                     <MudText Class="repository-muted">@(CanManage ? "Create a private repository in C-Sweet. GitHub is optional and can be connected later." : "No repositories yet. A business owner or manager can create one for your team.")</MudText>
                     @if (CanManage)
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => CreatingChanged.InvokeAsync(true)">Create your first repository</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => CreatingChanged.InvokeAsync(true)">@L["InternalRepositoryManager.CreateYourFirstRepository"]</MudButton>
                     }
-                    <MudText Typo="Typo.caption" Class="repository-muted">Private · Built-in storage</MudText>
+                    <MudText Typo="Typo.caption" Class="repository-muted">@L["InternalRepositoryManager.PrivateBuiltInStorage"]</MudText>
                 </div>
             }
         }
@@ -47,13 +48,13 @@
         @if (_externalRepository is { } external)
         {
             <MudPaper Outlined="true" Class="pa-4">
-                <div class="repository-create-heading"><MudText Typo="Typo.h6">@external.Name</MudText><MudButton OnClick="CloseRepository">Close</MudButton></div>
+                <div class="repository-create-heading"><MudText Typo="Typo.h6">@external.Name</MudText><MudButton OnClick="CloseRepository">@L["Common.Close"]</MudButton></div>
                 <MudText>@external.CanonicalPath</MudText>
                 <MudText Typo="Typo.body2">@ProviderLabel(external) · @external.DefaultBranch · @RepositoryStatusLabel(external.Status)</MudText>
                 @if (!string.IsNullOrWhiteSpace(external.HealthMessage)) { <MudAlert Severity="Severity.Warning" Class="mt-3">@external.HealthMessage</MudAlert> }
                 @if (Connections.Any(c => c.Id == external.ConnectionId && c.Provider == "GitHub"))
                 {
-                    <MudButton Href="@GitHubUrl(external)" Target="_blank" Rel="noopener noreferrer" EndIcon="@Icons.Material.Outlined.OpenInNew" Class="mt-3">Open in GitHub</MudButton>
+                    <MudButton Href="@GitHubUrl(external)" Target="_blank" Rel="noopener noreferrer" EndIcon="@Icons.Material.Outlined.OpenInNew" Class="mt-3">@L["InternalRepositoryManager.OpenInGitHub"]</MudButton>
                 }
             </MudPaper>
         }
@@ -69,20 +70,20 @@
                     <MudIcon Icon="@Icons.Material.Outlined.AccountTree" />
                     <div><MudText Typo="Typo.h5">@_details.Repository.Name</MudText><MudText Typo="Typo.caption" Class="repository-muted">@_details.Repository.CanonicalPath · @(_details.Repository.IsPrivate ? "Private" : "Public")</MudText></div>
                 </div>
-                <MudButton OnClick="CloseRepository" Disabled="_busy" StartIcon="@Icons.Material.Outlined.ArrowBack">All repositories</MudButton>
+                <MudButton OnClick="CloseRepository" Disabled="_busy" StartIcon="@Icons.Material.Outlined.ArrowBack">@L["InternalRepositoryManager.AllRepositories"]</MudButton>
             </div>
             @if (_details.Inspection.Refs.Count == 0)
             {
                 <div class="repository-empty repository-empty-compact">
                     <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
-                    <MudText Typo="Typo.h6">This repository is empty</MudText>
+                    <MudText Typo="Typo.h6">@L["InternalRepositoryManager.ThisRepositoryIsEmpty"]</MudText>
                     <MudText Class="repository-muted">Push a commit to @_details.Repository.DefaultBranch to start browsing files.</MudText>
                 </div>
             }
             else
             {
                 <div class="code-toolbar">
-                    <MudSelect T="string" Value="@CurrentReference" ValueChanged="ChangeReferenceAsync" Variant="Variant.Outlined" Dense="true" Class="branch-select" aria-label="Branch or tag">
+                    <MudSelect T="string" Value="@CurrentReference" ValueChanged="ChangeReferenceAsync" Variant="Variant.Outlined" Dense="true" Class="branch-select" aria-label="@L["InternalRepositoryManager.BranchOrTag"]">
                         @foreach (var reference in _details.Inspection.Refs)
                         {
                             <MudSelectItem T="string" Value="@reference.Name">@ShortReference(reference.Name)</MudSelectItem>
@@ -109,79 +110,79 @@
                 </div>
                 @if (_details.Inspection.Content is not null)
                 {
-                    <div class="file-preview"><div class="file-preview-header"><strong>@_selectedFile</strong><MudButton Size="Size.Small" OnClick="CloseFile">Close file</MudButton></div><pre><code>@_details.Inspection.Content</code></pre></div>
+                    <div class="file-preview"><div class="file-preview-header"><strong>@_selectedFile</strong><MudButton Size="Size.Small" OnClick="CloseFile">@L["InternalRepositoryManager.CloseFile"]</MudButton></div><pre><code>@_details.Inspection.Content</code></pre></div>
                 }
             }
             @if (CanManage)
             {
-                <MudTextField @bind-Value="_editName" Label="Name" Disabled="_busy" />
-                <MudTextField @bind-Value="_editBranch" Label="Default branch" Disabled="_busy" />
+                <MudTextField @bind-Value="_editName" Label="@L["InternalRepositoryManager.Name"]" Disabled="_busy" />
+                <MudTextField @bind-Value="_editBranch" Label="@L["InternalRepositoryManager.DefaultBranch"]" Disabled="_busy" />
                 <MudCheckBox @bind-Value="_archived" Label="Archived (blocks new work; keeps history)" Disabled="_busy" />
-                <MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Outlined">Save repository</MudButton>
+                <MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Outlined">@L["InternalRepositoryManager.SaveRepository"]</MudButton>
                 @if (_details.Repository.Status == "Archived")
                 {
-                    <MudAlert Severity="Severity.Warning">Deletion permanently removes Git history. Repositories with team assignments or work history must remain archived.</MudAlert>
-                    <MudTextField @bind-Value="_deleteName" Label="Type the repository name to confirm deletion" />
-                    <MudButton OnClick="DeleteAsync" Color="Color.Error" Disabled="@(_busy || _deleteName != _details.Repository.Name)">Delete repository permanently</MudButton>
+                    <MudAlert Severity="Severity.Warning">@L["InternalRepositoryManager.DeletionPermanentlyRemovesGitHistory"]</MudAlert>
+                    <MudTextField @bind-Value="_deleteName" Label="@L["InternalRepositoryManager.TypeTheRepositoryNameTo"]" />
+                    <MudButton OnClick="DeleteAsync" Color="Color.Error" Disabled="@(_busy || _deleteName != _details.Repository.Name)">@L["InternalRepositoryManager.DeleteRepositoryPermanently"]</MudButton>
                 }
                 else if (_details.Repository.Status == "Ready")
                 {
-                    <MudSelect T="Guid" @bind-Value="_team" Label="Assign to team">
+                    <MudSelect T="Guid" @bind-Value="_team" Label="@L["InternalRepositoryManager.AssignToTeam"]">
                         @foreach (var team in _teams) { <MudSelectItem T="Guid" Value="team.Id">@team.Name</MudSelectItem> }
                     </MudSelect>
-                    <MudCheckBox @bind-Value="_primary" Label="Use as the team's primary repository" />
-                    <MudSelect T="string" @bind-Value="_mergePolicy" Label="Merge approval">
-                        <MudSelectItem T="string" Value="@("LeadAuthorizedAutoMerge")">QA and team lead</MudSelectItem>
-                        <MudSelectItem T="string" Value="@("LeadAndAdministratorApproval")">QA, team lead and administrator</MudSelectItem>
+                    <MudCheckBox @bind-Value="_primary" Label="@L["InternalRepositoryManager.UseAsTheTeamS"]" />
+                    <MudSelect T="string" @bind-Value="_mergePolicy" Label="@L["InternalRepositoryManager.MergeApproval"]">
+                        <MudSelectItem T="string" Value="@("LeadAuthorizedAutoMerge")">@L["InternalRepositoryManager.QAAndTeamLead"]</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("LeadAndAdministratorApproval")">@L["InternalRepositoryManager.QATeamLeadAndAdministrator"]</MudSelectItem>
                     </MudSelect>
-                    <MudButton OnClick="AssignTeamAsync" Disabled="@(_busy || _team == Guid.Empty)">Save team access</MudButton>
+                    <MudButton OnClick="AssignTeamAsync" Disabled="@(_busy || _team == Guid.Empty)">@L["InternalRepositoryManager.SaveTeamAccess"]</MudButton>
                 }
             }
             <InternalGitClientAccess @key="_details.Repository.Id" OrganizationId="OrganizationId" RepositoryId="_details.Repository.Id" CanManage="CanManage" />
             <InternalGitLocks OrganizationId="OrganizationId" RepositoryId="_details.Repository.Id" CanManage="@(CanManage && _details.Repository.Status == "Ready")" />
-            <MudText Typo="Typo.subtitle1">Team access</MudText>
+            <MudText Typo="Typo.subtitle1">@L["InternalRepositoryManager.TeamAccess"]</MudText>
             @foreach (var access in _teamAccess)
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudText>@access.TeamName · @(access.Disabled ? "revoked" : access.IsPrimary ? "primary" : "available") · @(access.MergeApprovalMode == "LeadAndAdministratorApproval" ? "QA, lead and administrator" : "QA and lead")</MudText>
                     @if (CanManage)
                     {
-                        <MudButton Disabled="_busy" OnClick="@(() => EditTeam(access))">Edit access</MudButton>
-                        @if (!access.Disabled) { <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => RevokeTeamAsync(access))">Revoke access</MudButton> }
+                        <MudButton Disabled="_busy" OnClick="@(() => EditTeam(access))">@L["InternalRepositoryManager.EditAccess"]</MudButton>
+                        @if (!access.Disabled) { <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => RevokeTeamAsync(access))">@L["InternalRepositoryManager.RevokeAccess"]</MudButton> }
                     }
                 </MudStack>
             }
-            <MudText Typo="Typo.subtitle1">Proposed changes</MudText>
+            <MudText Typo="Typo.subtitle1">@L["InternalRepositoryManager.ProposedChanges"]</MudText>
             @foreach (var proposal in _proposals)
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudText>@proposal.Branch to @proposal.TargetBranch · @proposal.CommitSha[..8] · @proposal.Status · QA: @(proposal.QaPassed ? "passed" : "pending")</MudText>
-                    <MudButton OnClick="@(() => InspectProposalAsync(proposal.Id))" Disabled="_busy">Review diff</MudButton>
+                    <MudButton OnClick="@(() => InspectProposalAsync(proposal.Id))" Disabled="_busy">@L["InternalRepositoryManager.ReviewDiff"]</MudButton>
                 </MudStack>
             }
             @if (_proposalDiff is not null) { <pre style="white-space:pre-wrap;max-height:32rem;overflow:auto">@_proposalDiff</pre> }
-            <MudText Typo="Typo.subtitle1">Branches and tags</MudText>
+            <MudText Typo="Typo.subtitle1">@L["InternalRepositoryManager.BranchesAndTags"]</MudText>
             @if (CanManage && _details.Repository.Status == "Ready")
             {
                 <MudTextField @bind-Value="_newRef" Label="New ref (refs/heads/name or refs/tags/name)" Disabled="_busy" />
-                <MudTextField @bind-Value="_refTarget" Label="Target commit SHA" Disabled="_busy" />
-                <MudButton OnClick="CreateRefAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_newRef) || string.IsNullOrWhiteSpace(_refTarget))">Create branch or tag</MudButton>
+                <MudTextField @bind-Value="_refTarget" Label="@L["InternalRepositoryManager.TargetCommitSHA"]" Disabled="_busy" />
+                <MudButton OnClick="CreateRefAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_newRef) || string.IsNullOrWhiteSpace(_refTarget))">@L["InternalRepositoryManager.CreateBranchOrTag"]</MudButton>
             }
             @foreach (var reference in _details.Inspection.Refs)
             {
                 <MudButton OnClick="@(() => InspectAsync(_details.Repository.Id, reference.Name))" Disabled="_busy">@reference.Name · @reference.Sha[..8]</MudButton>
                 @if (CanManage && _details.Repository.Status == "Ready" && reference.Name != "refs/heads/" + _details.Repository.DefaultBranch)
                 {
-                    <MudButton Color="Color.Error" OnClick="@(() => _deleteRef = reference)" Disabled="_busy">Delete ref</MudButton>
+                    <MudButton Color="Color.Error" OnClick="@(() => _deleteRef = reference)" Disabled="_busy">@L["InternalRepositoryManager.DeleteRef"]</MudButton>
                 }
             }
             @if (_deleteRef is not null)
             {
                 <MudAlert Severity="Severity.Warning">Delete @_deleteRef.Name at @_deleteRef.Sha[..8]?</MudAlert>
-                <MudButton Color="Color.Error" OnClick="DeleteRefAsync" Disabled="_busy">Confirm ref deletion</MudButton>
-                <MudButton OnClick="@(() => _deleteRef = null)">Cancel</MudButton>
+                <MudButton Color="Color.Error" OnClick="DeleteRefAsync" Disabled="_busy">@L["InternalRepositoryManager.ConfirmRefDeletion"]</MudButton>
+                <MudButton OnClick="@(() => _deleteRef = null)">@L["Common.Cancel"]</MudButton>
             }
-            <MudText Typo="Typo.subtitle1">Recent commits</MudText>
+            <MudText Typo="Typo.subtitle1">@L["InternalRepositoryManager.RecentCommits"]</MudText>
             @foreach (var commit in _details.Inspection.Commits) { <MudText Typo="Typo.body2">@commit.Sha[..8] · @commit.Subject · @commit.Author</MudText> }
 
         }

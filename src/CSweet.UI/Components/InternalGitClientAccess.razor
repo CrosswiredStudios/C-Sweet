@@ -1,33 +1,34 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<MudExpansionPanels><MudExpansionPanel Text="Git client access">
+<MudExpansionPanels><MudExpansionPanel Text="@L["InternalGitClientAccess.GitClientAccess"]">
     <MudStack Spacing="2">
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
         @if (_access is not null)
         {
-            <MudText>Clone URL</MudText><MudTextField Value="_access.CloneUrl" ReadOnly="true" />
-            <MudText>Use username <code>csweet</code> and an access token as the password in your Git client's credential manager. Tokens are shown once and expire automatically.</MudText>
-            <MudTextField @bind-Value="_name" Label="Credential name" Disabled="_busy" />
-            <MudNumericField T="int" @bind-Value="_days" Min="1" Max="90" Label="Lifetime in days" Disabled="_busy" />
+            <MudText>@L["InternalGitClientAccess.CloneURL"]</MudText><MudTextField Value="_access.CloneUrl" ReadOnly="true" />
+            <MudText>@L["InternalGitClientAccess.UseUsername"] <code>csweet</code> and an access token as the password in your Git client's credential manager. Tokens are shown once and expire automatically.</MudText>
+            <MudTextField @bind-Value="_name" Label="@L["InternalGitClientAccess.CredentialName"]" Disabled="_busy" />
+            <MudNumericField T="int" @bind-Value="_days" Min="1" Max="90" Label="@L["InternalGitClientAccess.LifetimeInDays"]" Disabled="_busy" />
             @if (CanManage)
             {
-                <MudCheckBox @bind-Value="_push" Label="Allow pushes" Disabled="_busy" />
-                @if (_push) { <MudCheckBox @bind-Value="_defaultBranch" Label="Allow direct writes to the default branch" Disabled="_busy" /> }
-                <MudText Color="Color.Secondary">Active agent branches stay protected. Force updates to existing branches are rejected.</MudText>
+                <MudCheckBox @bind-Value="_push" Label="@L["InternalGitClientAccess.AllowPushes"]" Disabled="_busy" />
+                @if (_push) { <MudCheckBox @bind-Value="_defaultBranch" Label="@L["InternalGitClientAccess.AllowDirectWritesToThe"]" Disabled="_busy" /> }
+                <MudText Color="Color.Secondary">@L["InternalGitClientAccess.ActiveAgentBranchesStayProtected"]</MudText>
             }
-            <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">Create access token</MudButton>
+            <MudButton OnClick="CreateAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))">@L["InternalGitClientAccess.CreateAccessToken"]</MudButton>
             @if (_token is not null)
             {
-                <MudAlert Severity="Severity.Info">Save this token now. It cannot be displayed again.</MudAlert>
-                <MudTextField Value="_token" ReadOnly="true" Label="New access token" />
-                <MudButton OnClick="@(() => _token = null)">Hide token</MudButton>
+                <MudAlert Severity="Severity.Info">@L["InternalGitClientAccess.SaveThisTokenNowIt"]</MudAlert>
+                <MudTextField Value="_token" ReadOnly="true" Label="@L["InternalGitClientAccess.NewAccessToken"]" />
+                <MudButton OnClick="@(() => _token = null)">@L["InternalGitClientAccess.HideToken"]</MudButton>
             }
             @foreach (var credential in _access.Credentials)
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudText>@credential.Name · @(credential.CanPush ? "read and push" : "read only") · expires @credential.ExpiresAt.ToLocalTime().ToString("g") @(credential.Revoked ? "· revoked" : "")</MudText>
-                    @if (!credential.Revoked) { <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => RevokeAsync(credential.Id))">Revoke</MudButton> }
+                    @if (!credential.Revoked) { <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => RevokeAsync(credential.Id))">@L["InternalGitClientAccess.Revoke"]</MudButton> }
                 </MudStack>
             }
         }

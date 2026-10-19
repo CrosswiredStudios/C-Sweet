@@ -5,14 +5,15 @@
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject NavigationManager Navigation
 @inject IBusinessContext BusinessContext
+@inject IAppLocalizer L
 
 <div class="enterprise-businesses">
     <header class="enterprise-heading">
-        <div><span class="business-kicker">Enterprise</span><h1>Your enterprise.</h1><p>Choose a business. Pick up where you left off.</p></div>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="ShowCreateForm">New business</MudButton>
+        <div><span class="business-kicker">@L["Organizations.Enterprise"]</span><h1>@L["Organizations.YourEnterprise"]</h1><p>@L["Organizations.ChooseABusinessPickUp"]</p></div>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="ShowCreateForm">@L["Organizations.NewBusiness"]</MudButton>
     </header>
     <section aria-labelledby="enterprise-businesses-title">
-        <div class="business-collection-heading"><h2 id="enterprise-businesses-title">Your businesses</h2>
+        <div class="business-collection-heading"><h2 id="enterprise-businesses-title">@L["Organizations.YourBusinesses"]</h2>
             @if (!_loading && _loadError is null) { <span>@_organizations.Count @(_organizations.Count == 1 ? "business" : "businesses")</span> }
         </div>
         @if (!string.IsNullOrWhiteSpace(_deleteMessage))
@@ -21,7 +22,7 @@
                 @_deleteMessage
                 @if (_deleteComputeOrganizationId is { } computeOrganizationId)
                 {
-                    <MudButton Href="@($"/organizations/{computeOrganizationId}/compute")" Color="Color.Primary">View compute cleanup</MudButton>
+                    <MudButton Href="@($"/organizations/{computeOrganizationId}/compute")" Color="Color.Primary">@L["Organizations.ViewComputeCleanup"]</MudButton>
                 }
             </MudAlert>
         }
@@ -31,15 +32,15 @@
         }
         @if (_loading)
         {
-            <div class="business-empty" role="status"><MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" /><p>Loading businesses…</p></div>
+            <div class="business-empty" role="status"><MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" /><p>@L["Organizations.LoadingBusinesses"]</p></div>
         }
         else if (_loadError is not null)
         {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_loadError <MudButton OnClick="LoadAsync">Retry</MudButton></MudAlert>
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_loadError <MudButton OnClick="LoadAsync">@L["Common.Retry"]</MudButton></MudAlert>
         }
         else if (_organizations.Count == 0)
         {
-            <div class="business-empty"><MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Large" /><h3>Your next venture starts here.</h3><p>Create a business, then hire a Chief of Staff to help you get started.</p><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ShowCreateForm" StartIcon="@Icons.Material.Filled.Add">Create your first business</MudButton></div>
+            <div class="business-empty"><MudIcon Icon="@Icons.Material.Outlined.Business" Size="Size.Large" /><h3>@L["Organizations.YourNextVentureStartsHere"]</h3><p>@L["Organizations.CreateABusinessThenHire"]</p><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ShowCreateForm" StartIcon="@Icons.Material.Filled.Add">@L["Organizations.CreateYourFirstBusiness"]</MudButton></div>
         }
         else
         {
@@ -49,14 +50,14 @@
                     <article @key="org.Id" class="business-tile @(org.Id == BusinessContext.SelectedBusiness?.Id ? "business-tile-focused" : string.Empty)" aria-label="@org.Name" aria-busy="@(IsDeleting(org.Id) ? "true" : "false")">
                         <div class="business-tile-menu">
                             <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" aria-label="@($"Manage {org.Name}")" Disabled="@IsDeleting(org.Id)">
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => ShowEditForm(org)">Edit business</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" Disabled="@(_deletingOrganizationId is not null)" OnClick="() => RequestDelete(org)">Delete business…</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Edit" OnClick="() => ShowEditForm(org)">@L["Organizations.EditBusiness"]</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Outlined.Delete" IconColor="Color.Error" Disabled="@(_deletingOrganizationId is not null)" OnClick="() => RequestDelete(org)">@L["Organizations.DeleteBusiness"]</MudMenuItem>
                             </MudMenu>
                         </div>
                         <div class="business-tile-main">
                             <span class="business-monogram" aria-hidden="true">@BusinessInitials(org.Name)</span>
                             <div class="business-tile-copy">
-                                @if (org.Id == BusinessContext.SelectedBusiness?.Id) { <span class="business-focus-label"><MudIcon Icon="@Icons.Material.Outlined.CenterFocusStrong" Size="Size.Small" />Focused business</span> }
+                                @if (org.Id == BusinessContext.SelectedBusiness?.Id) { <span class="business-focus-label"><MudIcon Icon="@Icons.Material.Outlined.CenterFocusStrong" Size="Size.Small" />@L["Organizations.FocusedBusiness"]</span> }
                                 <h3>@org.Name</h3>
                                 @if (!string.IsNullOrWhiteSpace(org.Mission)) { <p>@Truncate(org.Mission, 180)</p> }
                                 <div class="business-metadata">
@@ -65,26 +66,26 @@
                                 </div>
                                 @if (!IsDeleting(org.Id) && org.Status != "DeletionFailed")
                                 {
-                                    @if (IsChiefOnboarding(org.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.PersonAdd">Chief of Staff installing</MudChip> }
-                                    else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">Hire a Chief of Staff</MudButton> }
+                                    @if (IsChiefOnboarding(org.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.PersonAdd">@L["Organizations.ChiefOfStaffInstalling"]</MudChip> }
+                                    else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">@L["Organizations.HireAChiefOfStaff"]</MudButton> }
                                 }
                             </div>
                         </div>
                         <footer class="business-tile-footer">
                             @if (IsDeleting(org.Id))
                             {
-                                <div class="business-delete-progress" role="status" aria-live="polite"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /><div><strong>@(org.Status == "Deleting" ? "Cleaning up resources…" : "Deleting business…")</strong><p>The business will be deleted automatically when cleanup finishes. You can leave this page.</p></div></div>
+                                <div class="business-delete-progress" role="status" aria-live="polite"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /><div><strong>@(org.Status == "Deleting" ? "Cleaning up resources…" : "Deleting business…")</strong><p>@L["Organizations.TheBusinessWillBeDeleted"]</p></div></div>
                             }
                             else if (org.Status == "DeletionFailed")
                             {
-                                <div role="alert">Business deletion needs attention. Check compute cleanup, then retry.</div>
-                                <MudButton Href="@($"/organizations/{org.Id}/compute")">View compute cleanup</MudButton>
-                                <MudButton Color="Color.Error" OnClick="() => RequestDelete(org)">Retry deletion</MudButton>
+                                <div role="alert">@L["Organizations.BusinessDeletionNeedsAttentionCheck"]</div>
+                                <MudButton Href="@($"/organizations/{org.Id}/compute")">@L["Organizations.ViewComputeCleanup"]</MudButton>
+                                <MudButton Color="Color.Error" OnClick="() => RequestDelete(org)">@L["Organizations.RetryDeletion"]</MudButton>
                             }
                             else
                             {
-                                <div class="business-shortcuts"><MudButton Href="@($"/organizations/{org.Id}/projects")" StartIcon="@Icons.Material.Outlined.Layers">Projects</MudButton><MudButton Href="@($"/organizations/{org.Id}/employees")" StartIcon="@Icons.Material.Outlined.People">Employees</MudButton></div>
-                                <MudButton Href="@($"/organizations/{org.Id}/command-center")" Color="Color.Primary" Variant="Variant.Filled" EndIcon="@Icons.Material.Outlined.NorthEast">Open business</MudButton>
+                                <div class="business-shortcuts"><MudButton Href="@($"/organizations/{org.Id}/projects")" StartIcon="@Icons.Material.Outlined.Layers">@L["Organizations.Projects"]</MudButton><MudButton Href="@($"/organizations/{org.Id}/employees")" StartIcon="@Icons.Material.Outlined.People">@L["Organizations.Employees"]</MudButton></div>
+                                <MudButton Href="@($"/organizations/{org.Id}/command-center")" Color="Color.Primary" Variant="Variant.Filled" EndIcon="@Icons.Material.Outlined.NorthEast">@L["Organizations.OpenBusiness"]</MudButton>
                             }
                         </footer>
                     </article>
@@ -110,7 +111,7 @@
                             : "Keep the business context your team and agents use up to date.")</p>
                     </div>
                 </div>
-                <button type="button" class="business-dialog-close" aria-label="Close business dialog" disabled="@_saving" @onclick="HideForm">
+                <button type="button" class="business-dialog-close" aria-label="@L["Organizations.CloseBusinessDialog"]" disabled="@_saving" @onclick="HideForm">
                     <MudIcon Icon="@Icons.Material.Filled.Close" />
                 </button>
             </header>
@@ -118,13 +119,13 @@
             <div class="business-dialog-stage">
                 <section class="business-profile-step">
                     <div class="business-form-grid">
-                        <MudTextField Label="Business name" @bind-Value="_formName" Required="true" Placeholder="Name your business" Immediate="true" MaxLength="256" AutoFocus="true"
+                        <MudTextField Label="@L["Organizations.BusinessName"]" @bind-Value="_formName" Required="true" Placeholder="@L["Organizations.NameYourBusiness"]" Immediate="true" MaxLength="256" AutoFocus="true"
                                       Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
-                        <MudTextField Label="Industry" @bind-Value="_formIndustry" Placeholder="e.g. Creative & Product" MaxLength="160" Class="business-form-wide"
+                        <MudTextField Label="@L["Organizations.Industry"]" @bind-Value="_formIndustry" Placeholder="@L["Organizations.EGCreativeProduct"]" MaxLength="160" Class="business-form-wide"
                                       Variant="Variant.Outlined" Disabled="@_saving" />
-                        <MudTextField Label="Mission" @bind-Value="_formMission" Lines="3" MaxLength="4096"
-                                      Placeholder="Describe who you serve, what you help them achieve, and why it matters."
-                                      HelperText="Aim for one or two clear sentences."
+                        <MudTextField Label="@L["Organizations.Mission"]" @bind-Value="_formMission" Lines="3" MaxLength="4096"
+                                      Placeholder="@L["Organizations.DescribeWhoYouServeWhat"]"
+                                      HelperText="@L["Organizations.AimForOneOrTwo"]"
                                       Variant="Variant.Outlined" Disabled="@_saving" Class="business-form-wide" />
                     </div>
                 </section>
@@ -135,18 +136,18 @@
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_formError</MudAlert>
             }
 
-            @if (_editingOrg is null) { <p class="business-next-step"><MudIcon Icon="@Icons.Material.Outlined.PersonAdd" Size="Size.Small" />Next, choose a Chief of Staff from the marketplace.</p> }
+            @if (_editingOrg is null) { <p class="business-next-step"><MudIcon Icon="@Icons.Material.Outlined.PersonAdd" Size="Size.Small" />@L["Organizations.NextChooseAChiefOf"]</p> }
             <footer class="business-dialog-actions">
                 @if (_editingOrg is not null)
                 {
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">@L["Common.Cancel"]</MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_saving || !IsBasicInfoComplete)" OnClick="SaveEditAsync">
                         @(_saving ? "Saving…" : "Save changes")
                     </MudButton>
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">Cancel</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_saving" OnClick="HideForm">@L["Common.Cancel"]</MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                Disabled="@(_saving || !IsBasicInfoComplete)" OnClick="CreateBusinessAsync">
                         @(_saving ? "Creating business…" : "Create business")
@@ -160,10 +161,10 @@
 <MudDialog Visible="_showDelete" VisibleChanged="@(visible => { if (!visible) CancelDelete(); })" Options="_dialogOptions" DefaultFocus="DefaultFocus.FirstChild">
     <DialogContent>
         <section class="business-dialog business-delete-dialog" aria-labelledby="business-delete-title">
-            <header class="business-dialog-header"><div><span class="business-kicker">Business management</span><h2 id="business-delete-title">Delete business?</h2></div><MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CancelDelete" aria-label="Cancel deletion" /></header>
-            <p>Delete <strong>@_deleteCandidate?.Name</strong> and all of its associated business data? This cannot be undone.</p>
-            <p>Its compute instances and VM-local files will also be released. The business will be deleted automatically when cleanup finishes.</p>
-            <footer class="business-dialog-actions"><MudButton Variant="Variant.Outlined" OnClick="CancelDelete">Keep business</MudButton><MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBusinessAsync">Delete business</MudButton></footer>
+            <header class="business-dialog-header"><div><span class="business-kicker">@L["Organizations.BusinessManagement"]</span><h2 id="business-delete-title">@L["Organizations.DeleteBusiness2"]</h2></div><MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CancelDelete" aria-label="@L["Organizations.CancelDeletion"]" /></header>
+            <p>@L["Common.Delete"] <strong>@_deleteCandidate?.Name</strong> @L["Organizations.AndAllOfItsAssociated"]</p>
+            <p>@L["Organizations.ItsComputeInstancesAndVM"]</p>
+            <footer class="business-dialog-actions"><MudButton Variant="Variant.Outlined" OnClick="CancelDelete">@L["Organizations.KeepBusiness"]</MudButton><MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBusinessAsync">@L["Organizations.DeleteBusiness3"]</MudButton></footer>
         </section>
     </DialogContent>
 </MudDialog>
@@ -413,7 +414,7 @@
                 {
                     try { await RefreshDeletionStatusAsync(token); }
                     catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-                    catch { _deletionRefreshError = "Unable to refresh deletion progress. Deletion will continue in the background; reconnect to see the latest status."; }
+                    catch { _deletionRefreshError = L["Organizations.UnableToRefreshDeletionProgress"]; }
                     StateHasChanged();
                 });
                 if (!_organizations.Any(x => x.Status == "Deleting")) break;

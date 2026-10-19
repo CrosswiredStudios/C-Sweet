@@ -1,33 +1,34 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<MudExpansionPanels><MudExpansionPanel Expanded="Expanded" Text="Repository backups">
+<MudExpansionPanels><MudExpansionPanel Expanded="Expanded" Text="@L["InternalGitBackups.RepositoryBackups"]">
     <MudStack Spacing="2">
         <MudText>Back up Git history and all referenced LFS files to the configured backup storage. Restore creates a separate private repository; assign its team access after inspection.</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
         @if (_message is not null) { <MudAlert Severity="Severity.Success">@_message</MudAlert> }
-        <MudButton OnClick="RefreshAsync" Disabled="_busy">Refresh backups and repositories</MudButton>
-        <MudSelect T="Guid" @bind-Value="_repository" Label="Repository to back up" Disabled="@(_busy || _pendingBackup is not null)">
+        <MudButton OnClick="RefreshAsync" Disabled="_busy">@L["InternalGitBackups.RefreshBackupsAndRepositories"]</MudButton>
+        <MudSelect T="Guid" @bind-Value="_repository" Label="@L["InternalGitBackups.RepositoryToBackUp"]" Disabled="@(_busy || _pendingBackup is not null)">
             @foreach (var repository in _repositories.Where(r => r.Status is "Ready" or "Archived"))
             { <MudSelectItem Value="repository.Id">@repository.Name</MudSelectItem> }
         </MudSelect>
         <MudButton OnClick="CreateAsync" Disabled="@(_busy || _repository == Guid.Empty)">@(_pendingBackup is null ? "Create backup" : "Retry backup")</MudButton>
-        <MudButton OnClick="LoadScheduleAsync" Disabled="@(_busy || _repository == Guid.Empty)">Manage automatic backups</MudButton>
+        <MudButton OnClick="LoadScheduleAsync" Disabled="@(_busy || _repository == Guid.Empty)">@L["InternalGitBackups.ManageAutomaticBackups"]</MudButton>
         @if (_schedule is { } schedule && schedule.RepositoryId == _repository)
         {
             <MudPaper Outlined="true" Class="pa-3">
                 <MudText>Automatic backups for @RepositoryName(schedule.RepositoryId)</MudText>
-                <MudCheckBox T="bool" @bind-Value="_scheduleEnabled" Disabled="_busy" Label="Enable automatic backups" />
-                <MudNumericField T="int" @bind-Value="_intervalHours" Min="1" Max="8760" Label="Interval in hours" Disabled="_busy" />
-                <MudText>A backup is queued when enabled, then once per UTC interval. Missed intervals do not create a backlog.</MudText>
-                <MudCheckBox T="bool" @bind-Value="_retainAll" Disabled="_busy" Label="Keep all completed backups" />
+                <MudCheckBox T="bool" @bind-Value="_scheduleEnabled" Disabled="_busy" Label="@L["InternalGitBackups.EnableAutomaticBackups"]" />
+                <MudNumericField T="int" @bind-Value="_intervalHours" Min="1" Max="8760" Label="@L["InternalGitBackups.IntervalInHours"]" Disabled="_busy" />
+                <MudText>@L["InternalGitBackups.ABackupIsQueuedWhen"]</MudText>
+                <MudCheckBox T="bool" @bind-Value="_retainAll" Disabled="_busy" Label="@L["InternalGitBackups.KeepAllCompletedBackups"]" />
                 @if (!_retainAll)
                 {
-                    <MudNumericField T="int" @bind-Value="_keepLatest" Min="1" Max="100" Label="Number of backups to retain" Disabled="_busy" />
-                    <MudAlert Severity="Severity.Warning">After a scheduled backup succeeds, older backups for this repository, including manual backups, will be permanently deleted beyond this count.</MudAlert>
-                    <MudCheckBox T="bool" @bind-Value="_confirmRetention" Disabled="_busy" Label="I approve automatic deletion under this retention policy" />
+                    <MudNumericField T="int" @bind-Value="_keepLatest" Min="1" Max="100" Label="@L["InternalGitBackups.NumberOfBackupsToRetain"]" Disabled="_busy" />
+                    <MudAlert Severity="Severity.Warning">@L["InternalGitBackups.AfterAScheduledBackupSucceeds"]</MudAlert>
+                    <MudCheckBox T="bool" @bind-Value="_confirmRetention" Disabled="_busy" Label="@L["InternalGitBackups.IApproveAutomaticDeletionUnder"]" />
                 }
-                <MudButton OnClick="SaveScheduleAsync" Disabled="@(_busy || _scheduleEnabled && !_retainAll && !_confirmRetention)">Save automatic backup settings</MudButton>
+                <MudButton OnClick="SaveScheduleAsync" Disabled="@(_busy || _scheduleEnabled && !_retainAll && !_confirmRetention)">@L["InternalGitBackups.SaveAutomaticBackupSettings"]</MudButton>
             </MudPaper>
         }
         @foreach (var job in _jobs.Where(j => j.Status is "Queued" or "Running" or "Failed").Concat(_jobs.Where(j => j.Status == "Completed").Take(5)))
@@ -35,17 +36,17 @@
             <MudPaper Outlined="true" Class="pa-3">
                 <MudText>@RepositoryName(job.RepositoryId) · backup job @job.Id · @job.Status</MudText>
                 @if (job.FailureMessage is not null) { <MudText>@job.FailureMessage</MudText> }
-                @if (job.Status == "Failed") { <MudButton OnClick="@(() => RetryJobAsync(job))" Disabled="_busy">Retry backup job</MudButton> }
+                @if (job.Status == "Failed") { <MudButton OnClick="@(() => RetryJobAsync(job))" Disabled="_busy">@L["InternalGitBackups.RetryBackupJob"]</MudButton> }
                 @if (job.Status is "Completed" or "Failed") { <MudButton OnClick="@(() => DismissJobAsync(job))" Disabled="_busy">Dismiss job (keep backup)</MudButton> }
             </MudPaper>
         }
-        @if (_backups.Count == 0) { <MudText>No completed backups in the configured storage.</MudText> }
+        @if (_backups.Count == 0) { <MudText>@L["InternalGitBackups.NoCompletedBackupsInThe"]</MudText> }
         @if (_backups.Count > 0)
         {
             <MudStack Row="true" AlignItems="AlignItems.Center">
-                <MudButton OnClick="@(() => _page--)" Disabled="@(_busy || _page == 0)">Newer backups</MudButton>
+                <MudButton OnClick="@(() => _page--)" Disabled="@(_busy || _page == 0)">@L["InternalGitBackups.NewerBackups"]</MudButton>
                 <MudText>Page @(_page + 1) of @PageCount · @_backups.Count backups</MudText>
-                <MudButton OnClick="@(() => _page++)" Disabled="@(_busy || _page + 1 >= PageCount)">Older backups</MudButton>
+                <MudButton OnClick="@(() => _page++)" Disabled="@(_busy || _page + 1 >= PageCount)">@L["InternalGitBackups.OlderBackups"]</MudButton>
             </MudStack>
         }
         @foreach (var backup in _backups.Skip(_page * PageSize).Take(PageSize))
@@ -55,27 +56,27 @@
                 <MudText Typo="Typo.body2">@backup.RefCount refs · @backup.LfsObjectCount LFS files · @backup.ArchiveBytes.ToString("N0") bytes · default branch @backup.DefaultBranch</MudText>
                 <MudText Typo="Typo.caption">Backup @backup.Id</MudText>
                 <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">SHA-256: @backup.ArchiveSha256</MudText>
-                <MudButton OnClick="@(() => SelectRestore(backup))" Disabled="@(_busy || _restoreAttempted)">Restore into new repository</MudButton>
-                <MudButton Color="Color.Error" OnClick="@(() => _delete = backup)" Disabled="_busy">Delete backup</MudButton>
+                <MudButton OnClick="@(() => SelectRestore(backup))" Disabled="@(_busy || _restoreAttempted)">@L["InternalGitBackups.RestoreIntoNewRepository"]</MudButton>
+                <MudButton Color="Color.Error" OnClick="@(() => _delete = backup)" Disabled="_busy">@L["InternalGitBackups.DeleteBackup"]</MudButton>
             </MudPaper>
         }
         @if (_restore is not null)
         {
             <MudText>Restore backup @_restore.Id. Existing repositories will remain intact.</MudText>
-            <MudTextField @bind-Value="_restoreName" Label="New repository name" Disabled="@(_busy || _restoreAttempted)" />
+            <MudTextField @bind-Value="_restoreName" Label="@L["InternalGitBackups.NewRepositoryName"]" Disabled="@(_busy || _restoreAttempted)" />
             <MudButton OnClick="RestoreAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_restoreName))">@(_restoreAttempted ? "Retry restore" : "Restore backup")</MudButton>
             @if (_restoreAttempted)
             {
-                <MudText>A failed or interrupted restore may leave a pending repository. Retry to finish it, or dismiss this form to start another restore.</MudText>
-                <MudButton OnClick="@(() => { _restore = null; _restoreAttempted = false; })" Disabled="_busy">Dismiss restore</MudButton>
+                <MudText>@L["InternalGitBackups.AFailedOrInterruptedRestore"]</MudText>
+                <MudButton OnClick="@(() => { _restore = null; _restoreAttempted = false; })" Disabled="_busy">@L["InternalGitBackups.DismissRestore"]</MudButton>
             }
-            @if (!_restoreAttempted) { <MudButton OnClick="@(() => _restore = null)" Disabled="_busy">Cancel</MudButton> }
+            @if (!_restoreAttempted) { <MudButton OnClick="@(() => _restore = null)" Disabled="_busy">@L["Common.Cancel"]</MudButton> }
         }
         @if (_delete is not null)
         {
             <MudAlert Severity="Severity.Warning">Permanently delete backup @_delete.Id? This removes its archived history and LFS files from backup storage.</MudAlert>
-            <MudButton Color="Color.Error" OnClick="DeleteAsync" Disabled="_busy">Confirm backup deletion</MudButton>
-            <MudButton OnClick="@(() => _delete = null)" Disabled="_busy">Cancel</MudButton>
+            <MudButton Color="Color.Error" OnClick="DeleteAsync" Disabled="_busy">@L["InternalGitBackups.ConfirmBackupDeletion"]</MudButton>
+            <MudButton OnClick="@(() => _delete = null)" Disabled="_busy">@L["Common.Cancel"]</MudButton>
         }
     </MudStack>
 </MudExpansionPanel></MudExpansionPanels>
@@ -112,7 +113,7 @@
         using var response = await Http.PutAsJsonAsync($"{Endpoint}/repositories/{_schedule.RepositoryId:D}/backup-schedule",
             new SaveInternalGitBackupSchedule(_scheduleEnabled, _intervalHours, _retainAll ? null : _keepLatest, _schedule.Revision, _confirmRetention));
         await CheckAsync(response); _schedule = await response.Content.ReadFromJsonAsync<InternalGitBackupSchedule>();
-        _confirmRetention = false; _message = "Automatic backup settings saved.";
+        _confirmRetention = false; _message = L["InternalGitBackups.AutomaticBackupSettingsSaved"];
     });
     private async Task LoadAsync()
     {
@@ -126,7 +127,7 @@
     {
         _pendingBackup ??= Guid.NewGuid();
         using var response = await Http.PostAsJsonAsync($"{Endpoint}/repositories/{_repository:D}/backup-jobs", new CreateInternalGitBackupRequest(_pendingBackup.Value));
-        await CheckAsync(response); _pendingBackup = null; _message = "Backup queued. Refresh to check progress; you can leave this page while it runs."; await LoadAsync();
+        await CheckAsync(response); _pendingBackup = null; _message = L["InternalGitBackups.BackupQueuedRefreshToCheck"]; await LoadAsync();
     });
     private Task RetryJobAsync(InternalGitBackupJob job) => RunAsync(async () => {
         using var response = await Http.PostAsJsonAsync($"{Endpoint}/repositories/{job.RepositoryId:D}/backup-jobs", new CreateInternalGitBackupRequest(job.Id));
@@ -151,7 +152,7 @@
     {
         if (_delete is null) return;
         using var response = await Http.DeleteAsync($"{Endpoint}/backups/{_delete.RepositoryId:D}/{_delete.Id:D}");
-        await CheckAsync(response); _delete = null; _message = "Backup deleted."; await LoadAsync();
+        await CheckAsync(response); _delete = null; _message = L["InternalGitBackups.BackupDeleted"]; await LoadAsync();
     });
     private static async Task CheckAsync(HttpResponseMessage response)
     {

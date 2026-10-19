@@ -1,10 +1,11 @@
+@inject IAppLocalizer L
 <MudTabs @bind-ActivePanelIndex="_activeTab"
          Rounded="true"
          ApplyEffectsToContainer="true"
          Class="source-control-configuration-tabs">
-    <MudTabPanel Text="Local AppHost">
+    <MudTabPanel Text="@L["SourceControlConfigurationInstructions.LocalAppHost"]">
         <MudText Typo="Typo.body2" Class="mb-2">
-            Run these PowerShell commands from the repository root after replacing the example values.
+            @L["SourceControlConfigurationInstructions.RunThesePowerShellCommandsFrom"]
         </MudText>
         @if (AppKind == "source")
         {
@@ -29,10 +30,9 @@ dotnet user-secrets set 'CSweet:SourceControl:ProvisionerClientId' 'Iv1.YOUR_CLI
 dotnet user-secrets set 'CSweet:SourceControl:ProvisionerClientSecret' 'YOUR_CLIENT_SECRET' --project src/CSweet.AppHost</code></pre>
         }
     </MudTabPanel>
-    <MudTabPanel Text="Deployed installation">
+    <MudTabPanel Text="@L["SourceControlConfigurationInstructions.DeployedInstallation"]">
         <MudText Typo="Typo.body2" Class="mb-2">
-            Store the values below in your deployment's secret manager and expose them to the
-            C-Sweet AppHost process. Do not place secret values in source-controlled files.
+            @L["SourceControlConfigurationInstructions.StoreTheValuesBelowIn"]
         </MudText>
         @if (AppKind == "source")
         {

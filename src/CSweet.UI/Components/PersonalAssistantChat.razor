@@ -3,22 +3,23 @@
 @implements IDisposable
 @inject PersonalAssistantApiClient Assistant
 @inject IAppRealtimeConnection Realtime
+@inject IAppLocalizer L
 
-<section class="assistant-chat" aria-label="Chat with your Personal Assistant">
-    <header><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><div><h2>@Name</h2><p>A place to think through your next step.</p></div><MudIconButton Icon="@Icons.Material.Outlined.Refresh" OnClick="ReloadAsync" Disabled="_busy" aria-label="Refresh assistant messages" /></header>
+<section class="assistant-chat" aria-label="@L["PersonalAssistantChat.ChatWithYourPersonalAssistant"]">
+    <header><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><div><h2>@Name</h2><p>@L["PersonalAssistantChat.APlaceToThinkThrough"]</p></div><MudIconButton Icon="@Icons.Material.Outlined.Refresh" OnClick="ReloadAsync" Disabled="_busy" aria-label="@L["PersonalAssistantChat.RefreshAssistantMessages"]" /></header>
     <div class="assistant-transcript" role="log" aria-live="polite" aria-relevant="additions text">
-        @if (_messages.Count == 0) { <p class="assistant-chat-welcome">Tell me what you’re working on. I can help you clarify your goals, understand C-Sweet, or prepare a business from an existing codebase.</p> }
+        @if (_messages.Count == 0) { <p class="assistant-chat-welcome">@L["PersonalAssistantChat.TellMeWhatYouRe"]</p> }
         @foreach (var message in _messages)
         {
             <article @key="message.Id" class="assistant-message assistant-message-@message.Role"><strong>@(message.Role == "user" ? "You" : Name)</strong><p>@(message.Status == "Pending" ? "Thinking…" : message.Content)</p></article>
         }
     </div>
-    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">Refresh</MudButton></MudAlert> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">@L["Common.Refresh"]</MudButton></MudAlert> }
     <div class="assistant-composer">
-        <MudTextField T="string" @bind-Value="_content" Label="Message your assistant" Lines="3" MaxLength="16000" Immediate="true" Variant="Variant.Outlined" Disabled="@(!Ready || _busy)" />
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" EndIcon="@Icons.Material.Outlined.Send" OnClick="SendAsync" Disabled="@(!Ready || _busy || string.IsNullOrWhiteSpace(_content) || _messages.Any(x => x.Status == "Pending"))">Send</MudButton>
+        <MudTextField T="string" @bind-Value="_content" Label="@L["PersonalAssistantChat.MessageYourAssistant"]" Lines="3" MaxLength="16000" Immediate="true" Variant="Variant.Outlined" Disabled="@(!Ready || _busy)" />
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" EndIcon="@Icons.Material.Outlined.Send" OnClick="SendAsync" Disabled="@(!Ready || _busy || string.IsNullOrWhiteSpace(_content) || _messages.Any(x => x.Status == "Pending"))">@L["PersonalAssistantChat.Send"]</MudButton>
     </div>
-    @if (!Ready) { <p><a href="#assistant-model-settings">Save your model settings</a> to start chatting.</p> }
+    @if (!Ready) { <p><a href="#assistant-model-settings">@L["PersonalAssistantChat.SaveYourModelSettings"]</a> @L["PersonalAssistantChat.ToStartChatting"]</p> }
 </section>
 
 @code {

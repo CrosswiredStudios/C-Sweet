@@ -17,7 +17,7 @@ public sealed class NotificationSnackbarTests
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = new AppRealtimeCoordinator();
+        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
@@ -38,7 +38,7 @@ public sealed class NotificationSnackbarTests
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = new AppRealtimeCoordinator();
+        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
@@ -65,7 +65,7 @@ public sealed class NotificationSnackbarTests
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = new AppRealtimeCoordinator();
+        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
