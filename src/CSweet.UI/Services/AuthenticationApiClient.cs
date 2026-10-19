@@ -53,6 +53,23 @@ public sealed class AuthenticationApiClient : IAuthenticationApiClient
         _session.Clear();
     }
 
+    public async Task<UserPreferencesResponse> GetPreferencesAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<UserPreferencesResponse>("api/auth/preferences", cancellationToken)
+            ?? throw new InvalidOperationException("User preferences response was empty.");
+
+    public async Task<UserPreferencesResponse> UpdatePreferencesAsync(UpdateUserPreferencesRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync("api/auth/preferences", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var preferences = await response.Content.ReadFromJsonAsync<UserPreferencesResponse>(cancellationToken: cancellationToken)
+            ?? throw new InvalidOperationException("User preferences response was empty.");
+        if (_session.Current is { } current)
+        {
+            _session.Set(current with { PreferredLanguage = preferences.PreferredLanguage, TimeZoneId = preferences.TimeZoneId });
+        }
+        return preferences;
+    }
+
     private async Task<AuthActionResponse> PostAsync<T>(string uri, T request, CancellationToken cancellationToken)
     {
         var response = await _httpClient.PostAsJsonAsync(uri, request, cancellationToken);

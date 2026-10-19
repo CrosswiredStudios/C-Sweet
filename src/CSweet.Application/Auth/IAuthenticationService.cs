@@ -14,4 +14,7 @@ public interface IAuthenticationService
     Task<AuthActionResponse> RecoverRootAsync(RecoverRootRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> RegenerateRecoveryCodesAsync(Guid userId, CancellationToken cancellationToken = default);
     Task LogoutAsync();
+    Task<UserPreferencesResponse?> GetPreferencesAsync(Guid userId, CancellationToken cancellationToken = default);
+    /// <summary>Persists already-validated preference values; null clears a preference.</summary>
+    Task<UserPreferencesResponse?> UpdatePreferencesAsync(Guid userId, UpdateUserPreferencesRequest request, CancellationToken cancellationToken = default);
 }

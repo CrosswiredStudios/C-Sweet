@@ -14,4 +14,7 @@ public interface IAuthenticationApiClient
     Task<AuthActionResponse> RecoverRootAsync(RecoverRootRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> RegenerateRecoveryCodesAsync(CancellationToken cancellationToken = default);
     Task LogoutAsync(CancellationToken cancellationToken = default);
+    Task<UserPreferencesResponse> GetPreferencesAsync(CancellationToken cancellationToken = default);
+    /// <summary>Saves presentation preferences and mirrors them into the cached session.</summary>
+    Task<UserPreferencesResponse> UpdatePreferencesAsync(UpdateUserPreferencesRequest request, CancellationToken cancellationToken = default);
 }

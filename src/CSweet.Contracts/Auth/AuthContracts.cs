@@ -8,7 +8,16 @@ public sealed record AuthStatusResponse(
     string? Email,
     bool IsEmailConfirmed,
     bool EmailRecoveryAvailable,
-    string? AntiforgeryToken = null);
+    string? AntiforgeryToken = null,
+    string? PreferredLanguage = null,
+    string? TimeZoneId = null);
+
+/// <summary>Per-user presentation preferences. Null values mean "follow the device".</summary>
+public sealed record UserPreferencesResponse(string? PreferredLanguage, string? TimeZoneId);
+
+public sealed record UpdateUserPreferencesRequest(
+    [property: MaxLength(16)] string? PreferredLanguage,
+    [property: MaxLength(64)] string? TimeZoneId);
 
 public sealed record RegisterAdminRequest(
     [property: Required, MaxLength(160)] string DisplayName,
