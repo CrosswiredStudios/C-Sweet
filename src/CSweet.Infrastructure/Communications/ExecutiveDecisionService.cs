@@ -24,6 +24,9 @@ public sealed partial class ExecutiveDecisionService(
         CreateExecutiveDecisionCommand command,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await CSweet.Infrastructure.Core.HiringOrganizationLock.AcquireAsync(db, command.OrganizationId, cancellationToken);
         var idempotencyKey = Required(command.IdempotencyKey, 160, nameof(command.IdempotencyKey));
         var existing = await db.ExecutiveDecisions.AsNoTracking()
             .SingleOrDefaultAsync(x => x.RequestingInstallationId == command.RequestingInstallationId &&
@@ -159,6 +162,7 @@ public sealed partial class ExecutiveDecisionService(
                 Target: new AuditTarget("User", "Conversation participants")),
                 cancellationToken);
         }
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return ToCard(decision);
     }
 
@@ -240,6 +244,15 @@ public sealed partial class ExecutiveDecisionService(
         }
         if (decision.Status != ExecutiveDecisionStatus.Pending)
             return Failure("decision_not_pending", "This decision is no longer pending.", ToCard(decision));
+
+        if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
+                x.AgentInstallationId == decision.RequestingInstallationId && x.IsActive && x.ArchivedAt == null, cancellationToken))
+        {
+            decision.Status = ExecutiveDecisionStatus.Cancelled;
+            decision.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            return Failure("decision_not_pending", "The requesting employee is no longer active.", ToCard(decision));
+        }
 
         var storedOptions = ReadDecisionOptions(decision.OptionsJson);
         var options = storedOptions.Options;

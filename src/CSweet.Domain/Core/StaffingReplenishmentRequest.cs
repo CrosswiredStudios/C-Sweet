@@ -5,7 +5,8 @@ public enum StaffingReplenishmentRequestStatus
     Pending,
     Approved,
     RevisionRequested,
-    Rejected
+    Rejected,
+    Cancelled
 }
 
 public sealed class StaffingReplenishmentRequestRecord

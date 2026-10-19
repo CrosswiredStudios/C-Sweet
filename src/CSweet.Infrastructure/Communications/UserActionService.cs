@@ -19,10 +19,9 @@ public sealed class UserActionService(
         SuggestUserActionRequest request,
         CancellationToken cancellationToken = default)
     {
-        var isHiring = request.WorkflowType?.Trim() == SuggestedUserActionWorkflows.BrowseHiringMarketplace;
-        await using var transaction = isHiring && db.Database.IsRelational() && db.Database.CurrentTransaction is null
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
-        if (isHiring) await HiringOrganizationLock.AcquireAsync(db, organizationId, cancellationToken);
+        await HiringOrganizationLock.AcquireAsync(db, organizationId, cancellationToken);
         var result = await SuggestCoreAsync(organizationId, originatingInstallationId, request, cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return result;

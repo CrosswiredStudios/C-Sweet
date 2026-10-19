@@ -26,6 +26,7 @@ public sealed class SourceControlApprovalService(
             "The current user is not an active member of this business.");
         if (actor.PermissionLevel < OrganizationPermissionLevel.Manager)
             throw new UnauthorizedAccessException("Only business owners and managers may decide this approval.");
+        await CSweet.Infrastructure.Core.EmployeeActionExpiration.ReconcileAsync(db, organizationId, cancellationToken);
         if (!request.Approved && string.IsNullOrWhiteSpace(request.Feedback))
             throw new ArgumentException("Explain why the request was rejected so the requester can act on it.");
         if (request.Feedback?.Length > 2048)

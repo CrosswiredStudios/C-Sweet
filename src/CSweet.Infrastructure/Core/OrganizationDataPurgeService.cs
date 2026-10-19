@@ -17,8 +17,13 @@ public sealed class OrganizationDataPurgeService(
     CSweetDbContext dbContext,
     IBusinessAgentInstallationCleanup agentCleanup,
     ILogger<OrganizationDataPurgeService> logger,
-    IComputeBroker? computeBroker = null) : IOrganizationDataPurgeService
+    IComputeBroker? computeBroker = null,
+    TimeProvider? timeProvider = null) : IOrganizationDataPurgeService
 {
+    // A missed provider result must not leave deletion permanently busy. This is
+    // an attention threshold, never evidence that VM or disk teardown succeeded.
+    internal static readonly TimeSpan ComputeCleanupStallTimeout = TimeSpan.FromMinutes(10);
+
     private static readonly HashSet<Type> PreservedEntityTypes =
     [
         typeof(AuditEvent),
@@ -34,7 +39,7 @@ public sealed class OrganizationDataPurgeService(
         typeof(Worker)
     ];
 
-    public async Task PurgeAsync(Guid organizationId, CancellationToken cancellationToken = default)
+    public async Task PurgeAsync(Guid organizationId, CancellationToken cancellationToken = default, bool retryStalledComputeCleanup = false)
     {
         // The provider owns VM and private-disk teardown. Keep its durable records
         // until it has confirmed physical cleanup. Stopped VMs may still have disks.
@@ -42,7 +47,7 @@ public sealed class OrganizationDataPurgeService(
                 environment => environment.OrganizationId == organizationId &&
                     environment.TeardownConfirmedAt == null, cancellationToken))
         {
-            await RequestComputeCleanupAsync(organizationId, cancellationToken);
+            await RequestComputeCleanupAsync(organizationId, retryStalledComputeCleanup, cancellationToken);
             throw new OrganizationDeletionException(
                 "Compute cleanup is in progress. The business will be deleted automatically after VM and disk teardown is confirmed.",
                 errorCode: "compute_cleanup_pending");
@@ -111,7 +116,7 @@ public sealed class OrganizationDataPurgeService(
         }
     }
 
-    private async Task RequestComputeCleanupAsync(Guid organizationId, CancellationToken cancellationToken)
+    private async Task RequestComputeCleanupAsync(Guid organizationId, bool retryStalledComputeCleanup, CancellationToken cancellationToken)
     {
         if (computeBroker is null)
             throw new OrganizationDeletionException(
@@ -120,11 +125,14 @@ public sealed class OrganizationDataPurgeService(
 
         // Bound each request and skip work already durably queued for this generation.
         // Failed/blocked destroy operations can be retried with fresh current authority.
+        var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
+        var stalledBefore = now - ComputeCleanupStallTimeout;
         var environments = await dbContext.ComputeEnvironments.AsNoTracking()
             .Where(environment => environment.OrganizationId == organizationId && environment.TeardownConfirmedAt == null &&
                 !dbContext.ComputeOperations.Any(operation => operation.EnvironmentId == environment.Id &&
                     operation.Generation == environment.Generation && operation.Action == InfrastructureActions.Destroy &&
-                    (operation.Status == "Pending" || operation.Status == "Dispatching" || operation.Status == "Reconciling")))
+                    (operation.Status == "Pending" || operation.Status == "Dispatching" || operation.Status == "Reconciling") &&
+                    (!retryStalledComputeCleanup || operation.CreatedAt > stalledBefore || operation.DispatchLeaseExpiresAt > now)))
             .OrderBy(environment => environment.Id).Take(100).ToListAsync(cancellationToken);
         var failed = false;
         foreach (var environment in environments)

@@ -4,6 +4,30 @@ This is the authoritative reference for the "HIRING PLAN / Hiring suggestions" w
 Communications when an agent attaches a Marketplace action to a message or chat turn, and for the
 company overview's hiring row.
 
+## Employee dismissal
+
+`OrganizationUserService.DeleteAsync` calls `EmployeeActionExpiration.ExpireAsync` before
+detaching the installation. Dismissal and expiration share the organization's hiring lock
+and one transaction, including the durable realtime outbox records. Pending recommendations,
+linked owner previews and delegated hiring workflows, unfinished hire operations, suggested
+actions, executive questions, managed actions, resource-change and replenishment requests,
+document-access requests, source-control approvals and their waiting operations, and prepared
+connector actions become **Cancelled**. Passive Chief audit cards also settle as cancelled.
+Completed hires, answers, artifacts and historical records remain available.
+
+`EmployeeActionExpiration.ReconcileAsync` repairs requests left behind by older dismissals
+when hiring recommendations, the approvals dashboard or source-control decisions are read.
+It selects disabled business installations with no active employee. Marketplace preview and
+confirmation also perform reconciliation and check the requester's current availability.
+The background hire worker shares the dismissal lock before committing a hire and preserves
+cancellation if dismissal occurs while it checks a build. Cancelled hires cannot be retried.
+Executive answers and managed approvals reject inactive requesters independently of the UI.
+
+`EmployeeActionExpirationTests` covers cancellation, old-card rejection, historical-record
+preservation, repeat dismissal, legacy cleanup, rehire, and dismissal during background work.
+`UserActionServiceTests.EmployeeDismissalAndActionExpiration_RollBackTogether` verifies the
+transaction and cancellation-event boundary against the opt-in PostgreSQL fixture.
+
 ## Hiring autonomy and candidate review
 
 [Chief hiring autonomy](chief-hiring-autonomy.md) documents the authoritative owner policy,

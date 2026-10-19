@@ -177,9 +177,10 @@ public static class AgentHireOperationStatuses
     public const string NeedsSetup = "NeedsSetup";
     public const string Failed = "Failed";
     public const string AwaitingConfirmation = "AwaitingConfirmation";
+    public const string Cancelled = "Cancelled";
 
     public static bool IsActive(string status) => status is Starting or Queued or Building or CompletingHire;
-    public static bool IsTerminal(string status) => status is Succeeded or NeedsSetup or Failed;
+    public static bool IsTerminal(string status) => status is Succeeded or NeedsSetup or Failed or Cancelled;
 }
 
 public sealed record AgentHireOperationResponse(

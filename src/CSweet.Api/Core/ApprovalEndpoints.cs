@@ -128,7 +128,7 @@ public static class ApprovalEndpoints
                 var authorized = proposal.ActionType == ProjectApprovalReader.ActionType
                     ? await new ProjectApprovalGovernance(db).CanDecideAsync(proposal, actor, cancellationToken)
                     : ManagedActionApprovalAuthority.CanDecide(actor, agent?.ReportsToOrganizationUserId, configurationJson);
-                if (!authorized) return Results.Forbid();
+                if (agent is null || !authorized) return Results.Forbid();
                 if (proposal.Status != ProposalStatus.Pending)
                     return Results.Conflict(new { error = "stale_decision", message = "The action is no longer pending." });
                 if (request.Decision is not (ResourceChangeDecisionKinds.Approve or ResourceChangeDecisionKinds.RequestRevision or ResourceChangeDecisionKinds.Reject) ||

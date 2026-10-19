@@ -457,6 +457,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
         var user = await _dbContext.CoreOrganizationUsers
             .Include(x => x.AgentInstallation!)
                 .ThenInclude(x => x.Grant)
+            .Include(x => x.AgentInstallation!)
+                .ThenInclude(x => x.Schedule)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 
         if (user is null)
@@ -468,6 +470,12 @@ public sealed class OrganizationUserService : IOrganizationUserService
         {
             return Failure("cannot_delete_self", "The administrator membership cannot be removed.");
         }
+
+        await using var transaction = _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        await HiringOrganizationLock.AcquireAsync(_dbContext, user.OrganizationId, cancellationToken);
+        if (_dbContext.Database.IsRelational()) await _dbContext.Entry(user).ReloadAsync(cancellationToken);
+        if (!user.IsActive) return new CoreActionResponse(true, null, "User is already archived.");
 
         var name = user.DisplayName;
         var installationId = user.AgentInstallationId;
@@ -497,6 +505,8 @@ public sealed class OrganizationUserService : IOrganizationUserService
         }
 
         var now = DateTimeOffset.UtcNow;
+        await EmployeeActionExpiration.ExpireAsync(_dbContext, user.OrganizationId, user.Id,
+            installationId, now, cancellationToken);
         var memberships = await _dbContext.TeamMemberships
             .Where(x => x.OrganizationId == user.OrganizationId &&
                         x.OrganizationUserId == user.Id &&
@@ -530,29 +540,6 @@ public sealed class OrganizationUserService : IOrganizationUserService
                   x.SubjectId == installationId.Value)))
             .ToListAsync(cancellationToken);
         foreach (var grant in subjectGrants) { grant.RevokedAt = now; grant.Revision++; }
-        if (installationId.HasValue)
-        {
-            var pendingDocumentRequests = await _dbContext.ArtifactAccessRequests.Where(x =>
-                x.OrganizationId == user.OrganizationId &&
-                x.RequestingInstallationId == installationId &&
-                x.Status == ArtifactAccessRequestStatus.Pending).ToListAsync(cancellationToken);
-            foreach (var request in pendingDocumentRequests)
-            {
-                request.Status = ArtifactAccessRequestStatus.Cancelled;
-                request.DecidedAt = now;
-                var actions = JsonSerializer.Deserialize<string[]>(request.ActionsJson) ?? [];
-                _dbContext.AgentPlatformEventOutbox.Add(new AgentPlatformEventOutboxItem
-                {
-                    Id = Guid.NewGuid(), OrganizationId = user.OrganizationId,
-                    EventType = ArtifactPlatformCapabilities.AccessDecisionEvent,
-                    DataJson = JsonSerializer.Serialize(new ArtifactAccessDecisionEvent(
-                        request.Id, request.ArtifactId, "Cancelled", actions, [], [], now)),
-                    IdempotencyKey = $"artifact-access:{request.Id:D}:Cancelled",
-                    TargetInstallationId = installationId.Value,
-                    Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
-                });
-            }
-        }
         if (user.AgentInstallation is { } installation)
         {
             installation.IsEnabled = false;
@@ -597,6 +584,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
                 CreateEmployeeDelivery(user, connectionId, CommunicationDeliveryKind.ArchiveEmployee, now)));
         }
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         foreach (var grant in subjectGrants.Where(x => x.ScopeKind == GrantScopeKind.Artifact))
             await _auditEventWriter.AppendAsync(new AuditEventWriteRequest(
                 "artifact.access.revoked", "DocumentAccess", "Internal", "Completed",

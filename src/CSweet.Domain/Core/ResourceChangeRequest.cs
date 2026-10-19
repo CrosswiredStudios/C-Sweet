@@ -6,7 +6,8 @@ public enum ResourceChangeRequestStatus
     Approved,
     RevisionRequested,
     Rejected,
-    Superseded
+    Superseded,
+    Cancelled
 }
 
 public sealed class ResourceChangeRequestRecord

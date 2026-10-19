@@ -121,6 +121,29 @@ public sealed class EnterpriseWorkspaceTests
             Assert.Contains(status == "Deleting" ? "Cleaning up resources" : "Retry deletion", html);
             Assert.Contains(status == "Deleting" ? "aria-busy=\"true\"" : "needs attention", html);
             Assert.Equal(0, client.Deletes);
+            Assert.Contains($"/organizations/{client.Business.Id}/compute", html);
+            Assert.Contains("Retry deletion", html);
+            Invoke(page, "RequestDelete", client.Business);
+            Assert.True(Get<bool>(page, "_showDelete"));
+            Assert.Equal(0, client.Deletes);
+            await (Task)Invoke(page, "DeleteBusinessAsync")!;
+            Assert.Equal(1, client.Deletes);
+        });
+    }
+
+    [Fact]
+    public async Task RetryOfPendingDeletionShowsCleanupFailureImmediately()
+    {
+        var api = new Api { DeleteErrorCode = "compute_cleanup_failed" };
+        api.Business = api.Business with { Status = "Deleting" };
+        await Run(api, "aurora", async (page, client, render) =>
+        {
+            Invoke(page, "RequestDelete", client.Business);
+            await (Task)Invoke(page, "DeleteBusinessAsync")!;
+            var html = await render("retry-cleanup-failed");
+            Assert.Contains("needs attention", html);
+            Assert.Contains("Retry deletion", html);
+            Assert.DoesNotContain("Cleaning up resources", html);
         });
     }
 

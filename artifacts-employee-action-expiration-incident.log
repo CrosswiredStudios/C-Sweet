@@ -1,0 +1,36 @@
+Build started 10/19/2026 1:32:38 PM.
+Test run for C:\Users\PC\Documents\GitHub\csweet\artifacts\employee-action-expiration\bin\CSweet.UnitTests\release\CSweet.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.18]   Discovering: CSweet.UnitTests
+[xUnit.net 00:00:00.55]   Discovered:  CSweet.UnitTests
+[xUnit.net 00:00:00.57]   Starting:    CSweet.UnitTests
+[xUnit.net 00:00:02.29]     CSweet.UnitTests.ApprovalDashboardServiceTests.DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery [FAIL]
+[xUnit.net 00:00:02.29]       Assert.Single() Failure: The collection was empty
+[xUnit.net 00:00:02.29]       Stack Trace:
+[xUnit.net 00:00:02.30]         C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\ApprovalDashboardServiceTests.cs(73,0): at CSweet.UnitTests.ApprovalDashboardServiceTests.DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery()
+[xUnit.net 00:00:02.30]         C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\ApprovalDashboardServiceTests.cs(81,0): at CSweet.UnitTests.ApprovalDashboardServiceTests.DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery()
+[xUnit.net 00:00:02.30]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:02.30]   Finished:    CSweet.UnitTests
+  Failed CSweet.UnitTests.ApprovalDashboardServiceTests.DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery [1 s]
+  Error Message:
+   Assert.Single() Failure: The collection was empty
+  Stack Trace:
+     at CSweet.UnitTests.ApprovalDashboardServiceTests.DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery() in C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\ApprovalDashboardServiceTests.cs:line 73
+   at CSweet.UnitTests.ApprovalDashboardServiceTests.DeliveredOpenIncidentIsSeparateAttentionAndDisappearsOnlyAfterRecovery() in C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\ApprovalDashboardServiceTests.cs:line 81
+--- End of stack trace from previous location ---
+
+Test Run Failed.
+Total tests: 1
+     Failed: 1
+ Total time: 2.6365 Seconds
+     1>Project "C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\CSweet.UnitTests.csproj" on node 1 (VSTest target(s)).
+     1>_VSTestConsole:
+         MSB4181: The "VSTestTask" task returned false but did not log an error.
+     1>Done Building Project "C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\CSweet.UnitTests.csproj" (VSTest target(s)) -- FAILED.
+
+Build FAILED.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.07

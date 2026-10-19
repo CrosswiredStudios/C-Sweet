@@ -18,6 +18,14 @@ and disk teardown. Discovery advances batches of cleanup requests without duplic
 queued destroy operations. Current failed or blocked destroy operations stop recovery
 with `DeletionFailed`; only an explicit owner retry requests another generation.
 Other structured purge failures also retain a visible failure state.
+An active destroy operation still unconfirmed ten minutes after `CreatedAt`
+and no live dispatch lease also surfaces `DeletionFailed`. This retains all business
+data and compute reservations; elapsed time never counts as teardown evidence.
+An explicit owner retry supersedes that stalled operation through the compute broker
+and requests a new generation. Fresh pending operations and live dispatch leases are
+left alone. Repeated observations of `Destroying` do not reset this deadline.
+`CoreOrganizationService` also records unexpected non-cancellation purge
+exceptions as deletion failures so they cannot leave an indefinitely busy tile.
 `ComputeBroker.RequireActorAsync` blocks new compute activity for deleting or failed
 deletions while allowing reads, stops and destroys. PostgreSQL admissions hold a shared
 organization-row lock until commit, so saving deletion intent waits for earlier
@@ -37,6 +45,22 @@ Reopening Enterprise restores persisted progress or the recovery action. Complet
 removes the tile and calls `BusinessContext.RemoveDeletedBusinessAsync` to update focus
 and local storage. Refresh failures retain progress and explain that server cleanup
 continues. The confirmation dialog explains automatic completion.
+Pending tiles keep **View compute cleanup** and **Retry deletion** available. Retry
+still requires confirmation and never duplicates a fresh in-flight destroy request.
+
+If the Windows provider has stopped discovering work, restart only the affected
+business's `CSweet.Compute.HyperV.<business-id-without-hyphens>` service from an
+administrator PowerShell, then inspect Compute and retry deletion if needed. Provider
+recovery must confirm VM and disk removal before the data purge can finish.
+
+`HyperVComputeDriver.ProtectRemovedWorkloadScript` also handles Hyper-V crash dumps
+owned by the removed VM worker account. It derives only that VM's exact SID from
+the recorded VM GUID, first verifies VM absence and rejects linked entries or other
+owners, then restores Administrators/SYSTEM ownership and access before normal
+workload removal. A retained `Memory.dmp` under the VM's metadata directory can
+otherwise stop intake after VM removal and leave the private VHDX behind. This
+exception applies only to teardown; runtime, journal and payload ownership rules
+remain enforced by `WindowsComputeProtectedPaths` and `HyperVWorkloadProtection`.
 
 Regression coverage lives in `OrganizationDeletionTests`, `EnterpriseWorkspaceTests`,
 `BusinessDeletionUiStateTests`, `AgentInstallationServiceTests` and `ComputeBrokerTests`,

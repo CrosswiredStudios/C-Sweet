@@ -10,6 +10,37 @@ namespace CSweet.UnitTests;
 
 public sealed partial class UserActionServiceTests
 {
+    [HiringSuggestionPostgresFact]
+    public async Task EmployeeDismissalAndActionExpiration_RollBackTogether()
+    {
+        var connection = TestConnection();
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(connection.ConnectionString).Options;
+        await using var db = new CSweetDbContext(options);
+        try
+        {
+            await db.Database.EnsureCreatedAsync();
+            var f = await HiringFixtureAsync(db);
+            var target = await AddRecommendationAsync(db, f.Organization, f.Installation);
+            await Actions(db).SuggestAsync(f.Organization, f.Installation, Request(f.Message, target, "card"));
+            await using (var transaction = await db.Database.BeginTransactionAsync())
+            {
+                var result = await new CSweet.Infrastructure.Core.OrganizationUserService(db, new TestAuditEventWriter()).DeleteAsync(f.Agent);
+                Assert.True(result.Succeeded);
+                Assert.Equal(ProposalStatus.Cancelled, (await db.WorkforcePlans.AsNoTracking().SingleAsync()).Status);
+                Assert.Equal("Cancelled", (await db.SuggestedUserActions.AsNoTracking().SingleAsync()).Status);
+                Assert.Single(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == SuggestedUserActionEvents.Cancelled).ToListAsync());
+                await transaction.RollbackAsync();
+            }
+            db.ChangeTracker.Clear();
+            Assert.True((await db.CoreOrganizationUsers.SingleAsync(x => x.Id == f.Agent)).IsActive);
+            Assert.Equal(f.Installation, (await db.CoreOrganizationUsers.SingleAsync(x => x.Id == f.Agent)).AgentInstallationId);
+            Assert.Equal(ProposalStatus.Pending, (await db.WorkforcePlans.SingleAsync()).Status);
+            Assert.Equal("Pending", (await db.SuggestedUserActions.SingleAsync()).Status);
+            Assert.Empty(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == SuggestedUserActionEvents.Cancelled).ToListAsync());
+        }
+        finally { await db.Database.EnsureDeletedAsync(); }
+    }
+
     [HiringSuggestionPostgresTheory]
     [InlineData(false)]
     [InlineData(true)]
