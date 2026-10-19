@@ -25,8 +25,8 @@ public static class AuthenticationEndpoints
             return Results.Ok(await service.GetStatusAsync(userId, token, cancellationToken));
         }).AllowAnonymous();
 
-        group.MapPost("/register", async (RegisterAdminRequest request, IAuthenticationService service, CancellationToken cancellationToken) =>
-            ToResult(await service.RegisterAsync(request, cancellationToken), StatusCodes.Status201Created))
+        group.MapPost("/register", async (RegisterAdminRequest request, HttpContext context, IAuthenticationService service, CancellationToken cancellationToken) =>
+            ToResult(await service.RegisterAsync(WithInitialLocale(request, context.Request.Headers.AcceptLanguage.ToString()), cancellationToken), StatusCodes.Status201Created))
             .AllowAnonymous()
             .RequireRateLimiting(AgentRateLimiting.AuthPolicy);
 
@@ -138,6 +138,31 @@ public static class AuthenticationEndpoints
         });
 
         return endpoints;
+    }
+
+    /// <summary>
+    /// Normalizes the locale captured at account creation. The client sends what the person is looking at
+    /// (device language or their pick on the signed-out page); the browser's Accept-Language is the fallback.
+    /// Unsupported values are dropped so the account simply follows the device.
+    /// </summary>
+    internal static RegisterAdminRequest WithInitialLocale(RegisterAdminRequest request, string? acceptLanguage)
+    {
+        var language = SupportedCultures.Normalize(request.PreferredLanguage);
+        if (language is null && !string.IsNullOrWhiteSpace(acceptLanguage))
+        {
+            language = acceptLanguage.Split(',')
+                .Select(part => part.Split(';')[0].Trim())
+                .Select(SupportedCultures.Normalize)
+                .FirstOrDefault(code => code is not null);
+        }
+
+        var timeZoneId = request.TimeZoneId?.Trim();
+        if (string.IsNullOrEmpty(timeZoneId) || !TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out _))
+        {
+            timeZoneId = null;
+        }
+
+        return request with { PreferredLanguage = language, TimeZoneId = timeZoneId };
     }
 
     private static IResult ToResult(AuthActionResponse response, int successStatus = StatusCodes.Status200OK)

@@ -17,6 +17,37 @@ namespace CSweet.IntegrationTests;
 public sealed class AuthenticationEndpointTests
 {
     [Fact]
+    public async Task Register_SavesLanguageAndTimeZoneDetectedByTheClient()
+    {
+        await using var factory = CreateFactory(out _);
+        var client = CreateHttpsClient(factory);
+
+        var request = ValidRegistration() with { PreferredLanguage = "ja-JP", TimeZoneId = "Asia/Tokyo" };
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", request)).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var user = await scope.ServiceProvider.GetRequiredService<CSweetDbContext>().Users.SingleAsync();
+        Assert.Equal("ja", user.PreferredLanguage);
+        Assert.Equal("Asia/Tokyo", user.TimeZoneId);
+    }
+
+    [Fact]
+    public async Task Register_WithoutClientLocale_FallsBackToAcceptLanguage()
+    {
+        await using var factory = CreateFactory(out _);
+        var client = CreateHttpsClient(factory);
+        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("xx-YY, de-DE;q=0.8, en;q=0.5");
+
+        var request = ValidRegistration() with { TimeZoneId = "Not/AZone" };
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", request)).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var user = await scope.ServiceProvider.GetRequiredService<CSweetDbContext>().Users.SingleAsync();
+        Assert.Equal("de", user.PreferredLanguage);
+        Assert.Null(user.TimeZoneId);
+    }
+
+    [Fact]
     public async Task FreshInstall_RegistersWithoutMail_SignsInAndReturnsRecoveryCodes()
     {
         await using var factory = CreateFactory(out var emailSender);

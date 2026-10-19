@@ -22,6 +22,14 @@ adding it there, creating `<culture>.json` in every resource area, and (for RTL)
 - Resolution order in `AppCulture.InitializeAsync`: account preference → stored choice → device
   language (`navigator.language` mapped by `SupportedCultures.Normalize`) → `en`. After sign-in the
   account preference wins and is written back to local storage.
+- **Detected once, at account creation.** `Register.razor` sends `AppCulture.CurrentCode` (the
+  device language, or whatever the person picked in the signed-out language menu) and the browser's
+  IANA time zone on `RegisterAdminRequest.PreferredLanguage/TimeZoneId`. The `/register` endpoint
+  (`AuthenticationEndpoints.WithInitialLocale`) falls back to the first supported `Accept-Language`
+  tag when the client sent none, drops unsupported languages and unknown time zones, and the values
+  are stored on the new `ApplicationUser`. Nothing re-detects afterwards: only Settings → Language &
+  region changes them, so a person's override is never reverted. Accounts created before this
+  (null preference) keep following the device until they pick a language.
 
 ## Runtime pieces (`src/CSweet.UI/Localization`)
 

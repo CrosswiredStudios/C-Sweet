@@ -49,6 +49,9 @@ public sealed class AppCulture : IAsyncDisposable
     /// <summary>The zone used when presenting times.</summary>
     public TimeZoneInfo TimeZone { get; private set; } = TimeZoneInfo.Local;
 
+    /// <summary>The device's IANA time zone as reported by the browser, or null when unavailable.</summary>
+    public string? DeviceTimeZoneId => NormalizeTimeZone(_deviceTimeZoneId);
+
     /// <summary>The device language as reported by the browser, after mapping to a supported culture.</summary>
     public string DeviceCode => SupportedCultures.Normalize(_deviceLanguage) ?? DefaultCode;
 
