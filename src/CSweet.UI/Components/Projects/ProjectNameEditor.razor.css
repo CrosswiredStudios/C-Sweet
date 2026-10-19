@@ -1,0 +1,6 @@
+.project-name-editor { display:flex; flex-direction:column; gap:8px; min-width:min(340px,65vw); }
+.project-name-editor label { font-size:.85rem; }
+.project-name-editor input { padding:10px 12px; border:1px solid var(--mud-palette-divider); border-radius:8px; background:var(--mud-palette-surface); color:var(--mud-palette-text-primary); }
+.project-name-editor input:focus-visible { outline:2px solid var(--mud-palette-primary); }
+.project-name-actions { display:flex; gap:8px; }
+.project-name-editor p { color:var(--mud-palette-error); font-size:.85rem; }

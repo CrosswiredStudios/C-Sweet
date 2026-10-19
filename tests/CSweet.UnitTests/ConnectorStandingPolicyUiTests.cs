@@ -24,6 +24,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -144,9 +145,9 @@ public sealed partial class ConnectorStandingPolicyTests
         var review = await f.Service.ReviewAsync(f.Org, f.Requester, f.UserId, f.Plan.Id, f.Plan.PlanHash, default);
         var editor = new ConnectorStandingPolicyEditor(new(review, null), DateTimeOffset.Parse("2026-01-01T00:00:00Z"))
         { TimeZoneId = "America/Los_Angeles", ExpiryDate = new(2026, 3, 8), ExpiryTime = new(2, 30, 0) };
-        Assert.Throws<ArgumentException>(() => editor.Build());
+        Assert.ThrowsAny<ArgumentException>(() => editor.Build());
         editor.ExpiryDate = new(2026, 11, 1); editor.ExpiryTime = new(1, 30, 0);
-        Assert.Throws<ArgumentException>(() => editor.Build());
+        Assert.ThrowsAny<ArgumentException>(() => editor.Build());
         editor.ExpiryTime = new(3, 0, 0);
         Assert.Equal(DateTimeOffset.Parse("2026-11-01T11:00:00Z"), editor.Build().Definition.ExpiresAt);
     }
@@ -180,7 +181,7 @@ public sealed partial class ConnectorStandingPolicyTests
         await using var f = await Fixture.Create();
         var review = await f.Service.ReviewAsync(f.Org, f.Requester, f.UserId, f.Plan.Id, f.Plan.PlanHash, default);
         review = review with { AccountName = "<script>account()</script>", OperationDescription = "<img src=x onerror=attack()>" };
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoPolicyJavaScript>(); services.AddSingleton<NavigationManager, PolicyNavigation>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

@@ -963,6 +963,8 @@ public static class McpGatewayEndpoints
     private static async Task<(Guid? AttemptId, Guid? WorkItemId)> CurrentCapabilityAuditContextAsync(CSweetDbContext db, AgentSession session, CancellationToken token)
     {
         if (!Guid.TryParse(session.RuntimeInstanceId, out var runtime) || !Guid.TryParse(session.InstallationId, out var installation)) return (null, null);
+        if (Guid.TryParse(session.BusinessId, out var chiefOrganization))
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.RequireActiveAsync(db, chiefOrganization, installation, runtime, token);
         var now = DateTimeOffset.UtcNow;
         var active = await db.AgentWorkAttempts.AsNoTracking().Where(x => x.RuntimeInstanceId == runtime &&
             x.FinishedAt == null && x.LeaseExpiresAt > now && x.AgentWorkItem!.AgentInstallationId == installation &&

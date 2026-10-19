@@ -4,17 +4,18 @@
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.Plugins
 @inject IPluginApiClient PluginApi
+@inject IAppLocalizer L
 
-<PageTitle>Plugins - C-Sweet</PageTitle>
+<PageTitle>@L["Plugins.PageTitle"]</PageTitle>
 
 <div class="setup-shell">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Enterprise extensions</MudText>
-            <MudText Typo="Typo.h3">Plugins</MudText>
-            <MudText Color="Color.Secondary">Connect new capabilities. Review each package and its access grants before installation.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["Plugins.Overline"]</MudText>
+            <MudText Typo="Typo.h3">@L["Plugins.Title"]</MudText>
+            <MudText Color="Color.Secondary">@L["Plugins.Lead"]</MudText>
         </div>
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Refresh</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">@L["Common.Refresh"]</MudButton>
     </MudPaper>
 
     @if (!string.IsNullOrWhiteSpace(_message))
@@ -25,26 +26,26 @@
     @if (RequiredProviderIds.Count > 0)
     {
     <MudPaper Elevation="1" Class="surface-panel">
-        <MudText Typo="Typo.h6">OAuth provider profiles</MudText>
-        <MudText Color="Color.Secondary">Deployment administrator setup for providers declared by installed or pending connectors. Ordinary users connect their accounts through the connector's setup flow. Client secrets are encrypted and never returned to this page or to an agent.</MudText>
-        <MudText Color="Color.Secondary">Configuring credentials does not approve a package or grant an agent access. Every connector still requires explicit approval for its exact package and credential profile.</MudText>
+        <MudText Typo="Typo.h6">@L["Plugins.Providers.Title"]</MudText>
+        <MudText Color="Color.Secondary">@L["Plugins.Providers.Intro"]</MudText>
+        <MudText Color="Color.Secondary">@L["Plugins.Providers.Note"]</MudText>
         <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureDeclaredProvider" />
         @if (!string.IsNullOrEmpty(_providerId))
         {
         <MudGrid Class="mt-2">
-            <MudItem xs="12" md="4"><MudTextField Value="@_providerId" Label="Profile ID" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
-            <MudItem xs="12" md="4"><MudTextField Value="@_providerDisplayName" Label="Display name" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
-            <MudItem xs="12" md="4"><MudTextField @bind-Value="_providerClientId" Label="OAuth client ID" Variant="Variant.Outlined" Disabled="@(_busy || _editingManagedProfile)" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField Value="@_providerAuthorizationEndpoint" Label="Authorization endpoint" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField Value="@_providerTokenEndpoint" Label="Token endpoint" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField Value="@_providerRevocationEndpoint" Label="Revocation endpoint" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField @bind-Value="_providerClientSecret" Label="OAuth client secret" InputType="InputType.Password" Variant="Variant.Outlined" Disabled="@(_busy || _editingManagedProfile)" HelperText="Leave blank when editing to preserve the encrypted value." /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField Value="@_providerId" Label="@L["Plugins.Providers.ProfileId"]" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField Value="@_providerDisplayName" Label="@L["Plugins.Providers.DisplayName"]" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField @bind-Value="_providerClientId" Label="@L["Plugins.Providers.ClientId"]" Variant="Variant.Outlined" Disabled="@(_busy || _editingManagedProfile)" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField Value="@_providerAuthorizationEndpoint" Label="@L["Plugins.Providers.AuthorizationEndpoint"]" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField Value="@_providerTokenEndpoint" Label="@L["Plugins.Providers.TokenEndpoint"]" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField Value="@_providerRevocationEndpoint" Label="@L["Plugins.Providers.RevocationEndpoint"]" Variant="Variant.Outlined" ReadOnly="true" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_providerClientSecret" Label="@L["Plugins.Providers.ClientSecret"]" InputType="InputType.Password" Variant="Variant.Outlined" Disabled="@(_busy || _editingManagedProfile)" HelperText="@L["Plugins.Providers.ClientSecretHelp"]" /></MudItem>
         </MudGrid>
-        <MudCheckBox @bind-Value="_providerEnabled" Label="Enabled" Color="Color.Primary" Disabled="@(_busy || _editingManagedProfile)" />
+        <MudCheckBox @bind-Value="_providerEnabled" Label="@L["Common.Enabled"]" Color="Color.Primary" Disabled="@(_busy || _editingManagedProfile)" />
         <MudStack Row="true" Spacing="1">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProviderAsync"
-                       Disabled="@(_busy || _editingManagedProfile || !CanEditProvider(_providerId) || string.IsNullOrWhiteSpace(_providerClientId))">Save provider profile</MudButton>
-            <MudButton Variant="Variant.Text" OnClick="ResetProviderForm" Disabled="_busy">Clear</MudButton>
+                       Disabled="@(_busy || _editingManagedProfile || !CanEditProvider(_providerId) || string.IsNullOrWhiteSpace(_providerClientId))">@L["Plugins.Providers.Save"]</MudButton>
+            <MudButton Variant="Variant.Text" OnClick="ResetProviderForm" Disabled="_busy">@L["Plugins.Providers.Clear"]</MudButton>
         </MudStack>
         }
         @foreach (var profile in _providerProfiles.Where(x => RequiredProviderIds.Contains(x.Id)))
@@ -53,19 +54,19 @@
                 <div class="configuration-section-header">
                     <div>
                         <MudText Typo="Typo.subtitle1">@profile.DisplayName</MudText>
-                        <MudText Typo="Typo.caption">@profile.Id · @(profile.ManagedByDeployment ? "Managed deployment profile" : "Vault-backed self-hosted profile")</MudText>
+                        <MudText Typo="Typo.caption">@L.Format("Plugins.Providers.ProfileMeta", new { id = profile.Id, kind = profile.ManagedByDeployment ? L["Plugins.Providers.ManagedProfile"] : L["Plugins.Providers.SelfHostedProfile"] })</MudText>
                     </div>
                     <MudChip T="string" Color="@(CanEditProvider(profile.Id) && profile.IsEnabled && profile.HasClientSecret ? Color.Success : Color.Warning)">
-                        @(CanEditProvider(profile.Id) && profile.IsEnabled && profile.HasClientSecret ? "Credentials configured" : "Needs attention")
+                        @(CanEditProvider(profile.Id) && profile.IsEnabled && profile.HasClientSecret ? L["Plugins.Providers.CredentialsConfigured"] : L["Plugins.Providers.NeedsAttention"])
                     </MudChip>
                 </div>
-                <MudText Typo="Typo.body2">Client ID: @profile.ClientId</MudText>
-                <MudText Typo="Typo.body2">Authorization: @profile.AuthorizationEndpoint</MudText>
+                <MudText Typo="Typo.body2">@L.Format("Plugins.Providers.ClientIdValue", new { value = profile.ClientId })</MudText>
+                <MudText Typo="Typo.body2">@L.Format("Plugins.Providers.AuthorizationValue", new { value = profile.AuthorizationEndpoint })</MudText>
                 <MudStack Row="true" Class="mt-2">
-                        <MudButton Variant="Variant.Outlined" OnClick="@(() => EditProvider(profile))" Disabled="@(_busy || !CanEditProvider(profile.Id))">View or edit</MudButton>
+                        <MudButton Variant="Variant.Outlined" OnClick="@(() => EditProvider(profile))" Disabled="@(_busy || !CanEditProvider(profile.Id))">@L["Plugins.Providers.ViewOrEdit"]</MudButton>
                     @if (!profile.ManagedByDeployment)
                     {
-                        <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => DeleteProviderAsync(profile))" Disabled="_busy">Delete</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => DeleteProviderAsync(profile))" Disabled="_busy">@L["Common.Delete"]</MudButton>
                     }
                 </MudStack>
             </MudPaper>
@@ -74,24 +75,24 @@
 
     }
     <MudPaper Elevation="1" Class="surface-panel">
-        <MudText Typo="Typo.h6">Import from GitHub</MudText>
-        <MudText Color="Color.Secondary">Use an exact 40-character commit SHA for reproducible imports. The manifest digest is shown before approval.</MudText>
-        <MudTextField @bind-Value="_repositoryUrl" Label="Public GitHub repository URL" Variant="Variant.Outlined" Disabled="@_busy" />
-        <MudTextField @bind-Value="_commitSha" Label="Exact commit SHA" Variant="Variant.Outlined" Disabled="@_busy" />
+        <MudText Typo="Typo.h6">@L["Plugins.Import.Title"]</MudText>
+        <MudText Color="Color.Secondary">@L["Plugins.Import.Intro"]</MudText>
+        <MudTextField @bind-Value="_repositoryUrl" Label="@L["Plugins.Import.RepositoryUrl"]" Variant="Variant.Outlined" Disabled="@_busy" />
+        <MudTextField @bind-Value="_commitSha" Label="@L["Plugins.Import.CommitSha"]" Variant="Variant.Outlined" Disabled="@_busy" />
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PreviewAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_repositoryUrl) || string.IsNullOrWhiteSpace(_commitSha))">
-            Preview manifest
+            @L["Plugins.Import.PreviewManifest"]
         </MudButton>
 
         @if (_preview is not null)
         {
             <MudDivider Class="my-4" />
-            <MudText Typo="Typo.subtitle1">@_preview.AgentName (@_preview.PluginKind)</MudText>
-            <MudText Typo="Typo.body2">@_preview.AgentId · @_preview.AgentVersion</MudText>
-            <MudText Typo="Typo.caption">Commit: @_preview.CommitSha</MudText><br />
-            <MudText Typo="Typo.caption">Manifest: @_preview.ManifestFileName · SHA-256 @_preview.ManifestDigest</MudText>
-            <MudText Typo="Typo.body2" Class="mt-3">Provided capabilities: @Format(_preview.Capabilities)</MudText>
-            <MudText Typo="Typo.body2">Requested platform capabilities: @Format(_preview.RequestedCapabilities)</MudText>
-            <MudText Typo="Typo.body2">Network access: @Format(_preview.RequestedNetworkAccess)</MudText>
+            <MudText Typo="Typo.subtitle1">@L.Format("Plugins.Import.PreviewHeading", new { name = _preview.AgentName, kind = _preview.PluginKind })</MudText>
+            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.PreviewMeta", new { id = _preview.AgentId, version = _preview.AgentVersion })</MudText>
+            <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Commit", new { sha = _preview.CommitSha })</MudText><br />
+            <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Manifest", new { file = _preview.ManifestFileName, digest = _preview.ManifestDigest })</MudText>
+            <MudText Typo="Typo.body2" Class="mt-3">@L.Format("Plugins.Import.ProvidedCapabilities", new { values = Format(_preview.Capabilities) })</MudText>
+            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.RequestedCapabilities", new { values = Format(_preview.RequestedCapabilities) })</MudText>
+            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.NetworkAccess", new { values = Format(_preview.RequestedNetworkAccess) })</MudText>
             @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret && IsConfigurationFieldVisible(configField)))
             {
                 <MudTextField T="string" Label="@FieldLabel(configField)"
@@ -99,9 +100,9 @@
                               ValueChanged="@(value => SetConfigurationValue(configField.Key, value))"
                               Variant="Variant.Outlined" Disabled="@_busy" />
             }
-            <MudCheckBox @bind-Value="_approve" Label="I approve the displayed capabilities, permissions, publications, subscriptions, and network grants." Color="Color.Primary" />
+            <MudCheckBox @bind-Value="_approve" Label="@L["Plugins.Import.Approve"]" Color="Color.Primary" />
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(_busy || !_approve || HasMissingConfiguration)">
-                Build and install
+                @L["Plugins.Import.BuildAndInstall"]
             </MudButton>
         }
     </MudPaper>
@@ -109,8 +110,8 @@
     <MudPaper Elevation="1" Class="surface-panel">
         <div class="configuration-section-header">
             <div>
-                <MudText Typo="Typo.h6">Installed plugins</MudText>
-                <MudText Color="Color.Secondary">Manage installed extensions and their runtime status.</MudText>
+                <MudText Typo="Typo.h6">@L["Plugins.Installed.Title"]</MudText>
+                <MudText Color="Color.Secondary">@L["Plugins.Installed.Intro"]</MudText>
             </div>
             <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_installations.Count</MudChip>
         </div>
@@ -120,7 +121,7 @@
         }
         else if (_installations.Count == 0)
         {
-            <MudText Color="Color.Secondary">No plugins installed yet. Preview a package to get started.</MudText>
+            <MudText Color="Color.Secondary">@L["Plugins.Installed.Empty"]</MudText>
         }
         else
         {
@@ -130,16 +131,16 @@
                     <div class="configuration-section-header">
                         <div>
                             <MudText Typo="Typo.subtitle1">@installation.AgentName</MudText>
-                            <MudText Typo="Typo.caption">@installation.PluginKind · @installation.InstallationScope · @installation.CommitSha</MudText>
+                            <MudText Typo="Typo.caption">@L.Format("Plugins.Installed.Meta", new { kind = installation.PluginKind, scope = installation.InstallationScope, sha = installation.CommitSha })</MudText>
                         </div>
-                        <MudChip T="string" Color="@(installation.IsEnabled ? Color.Success : Color.Default)">@(installation.IsEnabled ? "Enabled" : "Disabled")</MudChip>
+                        <MudChip T="string" Color="@(installation.IsEnabled ? Color.Success : Color.Default)">@(installation.IsEnabled ? L["Common.Enabled"] : L["Common.Disabled"])</MudChip>
                     </div>
-                    <MudText Typo="Typo.body2">Build: @(installation.Build?.Status ?? "Queued") · Runtime: @(installation.LatestRuntime?.Status ?? "Not started")</MudText>
+                    <MudText Typo="Typo.body2">@L.Format("Plugins.Installed.Status", new { build = installation.Build?.Status ?? L["Plugins.Installed.BuildQueued"], runtime = installation.LatestRuntime?.Status ?? L["Plugins.Installed.RuntimeNotStarted"] })</MudText>
                     <MudStack Row="true" Class="mt-3">
                         <MudButton Variant="Variant.Outlined" OnClick="@(() => ToggleAsync(installation))" Disabled="@_busy">
-                            @(installation.IsEnabled ? "Disable" : "Enable")
+                            @(installation.IsEnabled ? L["Plugins.Installed.Disable"] : L["Plugins.Installed.Enable"])
                         </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => RemoveAsync(installation))" Disabled="@_busy">Remove installation</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => RemoveAsync(installation))" Disabled="@_busy">@L["Plugins.Installed.Remove"]</MudButton>
                     </MudStack>
                 </MudPaper>
             }
@@ -205,18 +206,18 @@
         try
         {
             if (_editingManagedProfile || !CanEditProvider(_providerId))
-                throw new InvalidOperationException("Select a non-conflicting declared provider before saving credentials.");
+                throw new InvalidOperationException(L["Plugins.Providers.Error.SelectDeclared"]);
             var declared = PluginProviderDeclarations.Collect(RequiredConnections).Single(x => x.Id == _providerId).Provider!;
             if (_providerAuthorizationEndpoint != declared.AuthorizationEndpoint || _providerTokenEndpoint != declared.TokenEndpoint ||
                 _providerRevocationEndpoint != declared.RevocationEndpoint)
-                throw new InvalidOperationException("The provider declaration changed. Select it again before saving credentials.");
+                throw new InvalidOperationException(L["Plugins.Providers.Error.DeclarationChanged"]);
             await PluginApi.SaveProviderProfileAsync(_providerId.Trim(), new(
                 _providerDisplayName.Trim(), _providerAuthorizationEndpoint.Trim(), _providerTokenEndpoint.Trim(),
                 string.IsNullOrWhiteSpace(_providerRevocationEndpoint) ? null : _providerRevocationEndpoint.Trim(),
                 _providerClientId.Trim(), string.IsNullOrWhiteSpace(_providerClientSecret) ? null : _providerClientSecret,
                 _providerEnabled));
             _providerClientSecret = string.Empty;
-            ShowSuccess("OAuth provider profile saved. The client secret is encrypted and will not be displayed again.");
+            ShowSuccess(L["Plugins.Providers.Saved"]);
             await LoadAsync();
         }
         catch (Exception exception) { ShowError(exception); }
@@ -257,7 +258,7 @@
     private async Task DeleteProviderAsync(PluginProviderProfileResponse profile)
     {
         _busy = true;
-        try { await PluginApi.DeleteProviderProfileAsync(profile.Id); ResetProviderForm(); ShowSuccess("Provider profile and encrypted secret deleted."); await LoadAsync(); }
+        try { await PluginApi.DeleteProviderProfileAsync(profile.Id); ResetProviderForm(); ShowSuccess(L["Plugins.Providers.Deleted"]); await LoadAsync(); }
         catch (Exception exception) { ShowError(exception); }
         finally { _busy = false; }
     }
@@ -320,7 +321,7 @@
             };
             await PluginApi.InstallAsync(_preview.ImportId, request);
             _preview = null; _approve = false; _repositoryUrl = string.Empty; _commitSha = string.Empty;
-            ShowSuccess("Plugin approved and queued for an isolated build.");
+            ShowSuccess(L["Plugins.Import.Installed"]);
             await LoadAsync();
         }
         catch (Exception exception) { ShowError(exception); }
@@ -330,7 +331,7 @@
     private async Task ToggleAsync(AgentInstallationResponse installation)
     {
         _busy = true;
-        try { await PluginApi.SetEnabledAsync(installation.Id, !installation.IsEnabled); ShowSuccess("Plugin state updated."); await LoadAsync(); }
+        try { await PluginApi.SetEnabledAsync(installation.Id, !installation.IsEnabled); ShowSuccess(L["Plugins.Installed.StateUpdated"]); await LoadAsync(); }
         catch (Exception exception) { ShowError(exception); }
         finally { _busy = false; }
     }
@@ -338,14 +339,14 @@
     private async Task RemoveAsync(AgentInstallationResponse installation)
     {
         _busy = true;
-        try { await PluginApi.RemoveAsync(installation.Id); ShowSuccess("Plugin installation removed. Persistent provider data remains preserved for controlled cleanup."); await LoadAsync(); }
+        try { await PluginApi.RemoveAsync(installation.Id); ShowSuccess(L["Plugins.Installed.Removed"]); await LoadAsync(); }
         catch (Exception exception) { ShowError(exception); }
         finally { _busy = false; }
     }
 
-    private static string Format(IReadOnlyList<string> values) => values.Count == 0 ? "None" : string.Join(", ", values.Select(CapabilityDisplayNames.For));
-    private static string FieldLabel(PluginConfigurationField configField) =>
-        configField.Required ? $"{configField.Label} (required)" : configField.Label;
+    private string Format(IReadOnlyList<string> values) => values.Count == 0 ? L["Common.None"] : string.Join(", ", values.Select(value => CapabilityDisplayNames.For(L, value)));
+    private string FieldLabel(PluginConfigurationField configField) =>
+        configField.Required ? L.Format("Plugins.Import.RequiredField", new { label = configField.Label }) : configField.Label;
     private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key) ?? string.Empty;
     private void SetConfigurationValue(string key, string value) => _configurationValues[key] = value;
     private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>

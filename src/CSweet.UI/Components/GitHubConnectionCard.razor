@@ -1,5 +1,6 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <MudPaper Outlined="true" Class="pa-4" Style="height:100%">
     <MudStack Spacing="2">
@@ -9,7 +10,7 @@
         </MudStack>
         <MudText Typo="Typo.body2">GitHub @(Installation.AccountType == "Organization" ? "organization" : "personal account")</MudText>
         <MudText Color="@(Installation.Suspended ? Color.Warning : Color.Success)">@(Installation.Suspended ? "Suspended on GitHub" : "Connected to GitHub")</MudText>
-        @if (Installation.Businesses.Count == 0) { <MudText Typo="Typo.body2">Not yet assigned to a C-Sweet business.</MudText> }
+        @if (Installation.Businesses.Count == 0) { <MudText Typo="Typo.body2">@L["GitHubConnectionCard.NotYetAssignedToA"]</MudText> }
         @foreach (var business in Installation.Businesses)
         {
             <MudButton Href="@($"/organizations/{business.BusinessId:D}/source-control")">@business.BusinessName · Manage connection</MudButton>
@@ -22,8 +23,8 @@
         @if (_repositories is not null)
         {
             <MudText Typo="Typo.body2">@_repositories.Count repositories allowed by GitHub</MudText>
-            @if (_repositories.Count == 0) { <MudText>No repositories are currently exposed to this connection.</MudText> }
-            <div style="max-height:320px;overflow:auto" aria-label="GitHub repository access">
+            @if (_repositories.Count == 0) { <MudText>@L["GitHubConnectionCard.NoRepositoriesAreCurrentlyExposed"]</MudText> }
+            <div style="max-height:320px;overflow:auto" aria-label="@L["GitHubConnectionCard.GitHubRepositoryAccess"]">
                 @foreach (var repository in _repositories)
                 {
                     <div class="py-2">
@@ -32,7 +33,7 @@
                     </div>
                 }
             </div>
-            @if (_repositories.Count == 1000) { <MudText Typo="Typo.caption">Showing up to 1,000 repositories.</MudText> }
+            @if (_repositories.Count == 1000) { <MudText Typo="Typo.caption">@L["GitHubConnectionCard.ShowingUpTo1000"]</MudText> }
         }
     </MudStack>
 </MudPaper>
@@ -52,7 +53,7 @@
             await GitHubPlatformWizardFlow.EnsureSuccessAsync(response);
             _repositories = await response.Content.ReadFromJsonAsync<IReadOnlyList<PlatformGitHubRepositoryAccess>>() ?? [];
         }
-        catch (Exception) { _error = "Repository access could not be checked. Refresh to try again."; }
+        catch (Exception) { _error = L["GitHubConnectionCard.RepositoryAccessCouldNotBe"]; }
         finally { _loading = false; }
     }
 }

@@ -4,20 +4,39 @@
 @inject IAuthenticationApiClient AuthenticationApi
 @inject NavigationManager Navigation
 @inject AuthSessionStore Session
+@inject AppCulture Culture
 @implements IDisposable
 
-<Router AppAssembly="@SharedUiAssembly.Value" NotFoundPage="typeof(Pages.NotFound)" OnNavigateAsync="GuardNavigationAsync">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-    @* Keep the current route mounted while the navigation guard runs. A Navigating fragment disposes the layout and conversation state. *@
-</Router>
+@if (Culture.IsReady)
+{
+    @* Re-keying on the culture code rebuilds the component tree, so every localized string re-resolves without a page reload. *@
+    <CascadingValue Value="Culture" IsFixed="false" @key="@Culture.CurrentCode">
+        <Router AppAssembly="@SharedUiAssembly.Value" NotFoundPage="typeof(Pages.NotFound)" OnNavigateAsync="GuardNavigationAsync">
+            <Found Context="routeData">
+                <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
+                <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+            </Found>
+            @* Keep the current route mounted while the navigation guard runs. A Navigating fragment disposes the layout and conversation state. *@
+        </Router>
+    </CascadingValue>
+}
 
 @code {
-    protected override void OnInitialized() => Session.SessionEnded += OnSessionEnded;
+    protected override void OnInitialized()
+    {
+        Session.SessionEnded += OnSessionEnded;
+        Culture.Changed += OnCultureChanged;
+    }
 
-    public void Dispose() => Session.SessionEnded -= OnSessionEnded;
+    protected override Task OnInitializedAsync() => Culture.InitializeAsync();
+
+    public void Dispose()
+    {
+        Session.SessionEnded -= OnSessionEnded;
+        Culture.Changed -= OnCultureChanged;
+    }
+
+    private void OnCultureChanged() => _ = InvokeAsync(StateHasChanged);
 
     // An API call returned 401 mid-session (cookie expired or signed out elsewhere).
     private void OnSessionEnded() => _ = InvokeAsync(() =>

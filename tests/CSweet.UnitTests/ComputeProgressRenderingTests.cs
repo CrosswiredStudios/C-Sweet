@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -113,7 +114,7 @@ public sealed class ComputeProgressRenderingTests
     [Fact]
     public async Task CompletionCollapsesAfterTwoSecondsAndNewAttemptExpandsAgain()
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, Navigation>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
@@ -150,7 +151,7 @@ public sealed class ComputeProgressRenderingTests
 
     private static async Task<string> Render(ComputeSetupStatus? status, bool canManage = false)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, Navigation>();
         services.AddSingleton(new HttpClient(new Handler(status, canManage)) { BaseAddress = new("http://localhost/") });
         await using var provider = services.BuildServiceProvider();

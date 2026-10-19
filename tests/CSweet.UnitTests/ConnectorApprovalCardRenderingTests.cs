@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -18,7 +19,7 @@ public sealed class ConnectorApprovalCardRenderingTests
     public async Task NativeReviewEscapesExternalTextAndHidesUnauthorizedDecisions(bool authorized)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices(); services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton(new HttpClient(new NoRequests()));
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

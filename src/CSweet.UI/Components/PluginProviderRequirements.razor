@@ -1,5 +1,6 @@
 @using CSweet.Contracts.Plugins
 @using CSweet.UI.Services
+@inject IAppLocalizer L
 
 @foreach (var requirement in PluginProviderDeclarations.Collect(Declarations))
 {
@@ -9,22 +10,22 @@
         <MudText Typo="Typo.caption">@requirement.Id</MudText>
         @if (requirement.Conflicting)
         {
-            <MudAlert Severity="Severity.Error">Packages declare conflicting provider details. Review their exact package versions before configuring this profile.</MudAlert>
+            <MudAlert Severity="Severity.Error">@L["PluginProviderRequirements.Conflicting"]</MudAlert>
         }
         else if (!requirement.CanConfigure)
         {
-            <MudAlert Severity="Severity.Warning">This package does not declare public OAuth metadata. Ask its publisher for a connector update.</MudAlert>
+            <MudAlert Severity="Severity.Warning">@L["PluginProviderRequirements.NoMetadata"]</MudAlert>
         }
         else if (profile is not null && !requirement.Matches(profile))
         {
-            <MudAlert Severity="Severity.Error">The existing credential profile does not match the package's declared destinations. It will not be overwritten here. Review the package and deployment configuration.</MudAlert>
+            <MudAlert Severity="Severity.Error">@L["PluginProviderRequirements.ProfileMismatch"]</MudAlert>
         }
         else if (profile is null)
         {
-            <MudText Typo="Typo.body2">Not configured. A deployment administrator must register credentials before users can connect.</MudText>
-            <MudText Typo="Typo.body2">Authorization: @requirement.Provider!.AuthorizationEndpoint</MudText>
-            <MudText Typo="Typo.body2">Token exchange: @(requirement.Provider!.TokenEndpoint)</MudText>
-            <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => Configure.InvokeAsync(requirement))">Configure declared provider</MudButton>
+            <MudText Typo="Typo.body2">@L["PluginProviderRequirements.NotConfigured"]</MudText>
+            <MudText Typo="Typo.body2">@L.Format("PluginProviderRequirements.Authorization", new { endpoint = requirement.Provider!.AuthorizationEndpoint })</MudText>
+            <MudText Typo="Typo.body2">@L.Format("PluginProviderRequirements.TokenExchange", new { endpoint = requirement.Provider!.TokenEndpoint })</MudText>
+            <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => Configure.InvokeAsync(requirement))">@L["PluginProviderRequirements.Configure"]</MudButton>
         }
     </MudPaper>
 }

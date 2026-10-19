@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -23,7 +24,7 @@ public sealed class WorkBoardPageTests
         var api = new BoardApi(false, projectBoard: true);
         var navigation = new TestNavigation();
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager>(navigation);
         services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
@@ -60,7 +61,7 @@ public sealed class WorkBoardPageTests
     public async Task BoardDirectoryShowsPersonalBoardLoadFailure()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new PersonalBoardFailureApi()) { BaseAddress = new Uri("http://localhost/") });
@@ -87,7 +88,7 @@ public sealed class WorkBoardPageTests
     public async Task BoardPagePassesActualErrorsToWorkspace(bool sprintRequestFails)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new BoardApi(sprintRequestFails)) { BaseAddress = new Uri("http://localhost/") });
@@ -125,7 +126,7 @@ public sealed class WorkBoardPageTests
     public async Task BoardDirectoryLinksPersonalBoardsToTheEmployeePersonalBoardTab()
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(new PersonalBoardApi()) { BaseAddress = new Uri("http://localhost/") });

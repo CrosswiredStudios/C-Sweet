@@ -4,13 +4,14 @@
 @using CSweet.Contracts.Communications
 @using CSweet.Contracts.Agents
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<PageTitle>Discord connection - C-Sweet</PageTitle>
+<PageTitle>@L["CommunicationProviderSetup.PageTitle"]</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.False" Class="settings-page-container">
-    <MudButton Href="/settings/communications" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Class="mb-3">Connected apps</MudButton>
-    <MudText Typo="Typo.h4">Discord connection</MudText>
-    <MudText Color="Color.Secondary" Class="mb-6">Connect a server, link your identity, and review the channels C-Sweet will manage.</MudText>
+    <MudButton Href="/settings/communications" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Class="mb-3">@L["CommunicationProviderSetup.ConnectedApps"]</MudButton>
+    <MudText Typo="Typo.h4">@L["CommunicationProviderSetup.Title"]</MudText>
+    <MudText Color="Color.Secondary" Class="mb-6">@L["CommunicationProviderSetup.Lead"]</MudText>
 
     @if (!string.IsNullOrWhiteSpace(_message)) { <MudAlert Severity="@_severity" Variant="Variant.Outlined" Class="mb-4">@_message</MudAlert> }
     @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
@@ -19,37 +20,37 @@
         <MudGrid>
             <MudItem xs="12" md="5">
                 <MudPaper Outlined="true" Class="pa-5">
-                    <MudText Typo="Typo.h6">Workspace</MudText>
+                    <MudText Typo="Typo.h6">@L["CommunicationProviderSetup.Workspace"]</MudText>
                     @if (_connection is not null)
                     {
                         <MudChip T="string" Color="@(_connection.Status == "Connected" ? Color.Success : Color.Warning)" Size="Size.Small" Class="my-3">@_connection.Status</MudChip>
                     }
                     <MudTextField Label="Discord server (guild) ID" @bind-Value="_guildId" Variant="Variant.Outlined" Class="mt-3" />
-                    <MudSelect T="string" Label="Workspace mode" @bind-Value="_mode" Variant="Variant.Outlined" Class="mt-3">
-                        <MudSelectItem Value="@("Dedicated")">Dedicated server</MudSelectItem><MudSelectItem Value="@("Contained")">Existing server</MudSelectItem>
+                    <MudSelect T="string" Label="@L["CommunicationProviderSetup.ModeLabel"]" @bind-Value="_mode" Variant="Variant.Outlined" Class="mt-3">
+                        <MudSelectItem Value="@("Dedicated")">@L["CommunicationProviderSetup.Mode.Dedicated"]</MudSelectItem><MudSelectItem Value="@("Contained")">@L["CommunicationProviderSetup.Mode.Contained"]</MudSelectItem>
                     </MudSelect>
-                    <MudSelect T="Guid?" Label="Communication plugin" @bind-Value="_pluginId" Variant="Variant.Outlined" Class="mt-3">
+                    <MudSelect T="Guid?" Label="@L["CommunicationProviderSetup.PluginLabel"]" @bind-Value="_pluginId" Variant="Variant.Outlined" Class="mt-3">
                         @foreach (var plugin in _plugins) { <MudSelectItem T="Guid?" Value="@((Guid?)plugin.Id)">@plugin.AgentName (@plugin.AgentVersion)</MudSelectItem> }
                     </MudSelect>
                     <MudTextField Label="Managed category ID (optional)" @bind-Value="_managedRoot" Variant="Variant.Outlined" Class="mt-3" />
-                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy" OnClick="ConnectAsync" Class="mt-4">Save connection</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy" OnClick="ConnectAsync" Class="mt-4">@L["CommunicationProviderSetup.SaveConnection"]</MudButton>
                 </MudPaper>
                 @if (_connection is not null)
                 {
                     <MudPaper Outlined="true" Class="pa-5 mt-4">
-                        <MudText Typo="Typo.h6">Link your identity</MudText><MudText Typo="Typo.body2" Class="my-2">Generate a code, then send <code>/link CODE</code> to the C-Sweet bot.</MudText>
-                        <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="CreateLinkCodeAsync">Generate code</MudButton>
+                        <MudText Typo="Typo.h6">@L["CommunicationProviderSetup.LinkIdentity.Title"]</MudText><MudText Typo="Typo.body2" Class="my-2">@L["CommunicationProviderSetup.LinkIdentity.Before"] <code>/link CODE</code> @L["CommunicationProviderSetup.LinkIdentity.After"]</MudText>
+                        <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="CreateLinkCodeAsync">@L["CommunicationProviderSetup.GenerateCode"]</MudButton>
                         @if (_linkCode is not null) { <MudAlert Severity="Severity.Info" Class="mt-3"><strong>@_linkCode.Code</strong> · expires @_linkCode.ExpiresAt.ToLocalTime().ToString("t")</MudAlert> }
                     </MudPaper>
                 }
             </MudItem>
             <MudItem xs="12" md="7">
                 <MudPaper Outlined="true" Class="pa-5">
-                    <div class="d-flex justify-space-between align-center mb-3"><div><MudText Typo="Typo.h6">Provisioning preview</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Review managed changes before applying them.</MudText></div><MudButton Variant="Variant.Text" Disabled="@(_connection is null || _busy)" OnClick="LoadPreviewAsync">Refresh</MudButton></div>
+                    <div class="d-flex justify-space-between align-center mb-3"><div><MudText Typo="Typo.h6">@L["CommunicationProviderSetup.Preview.Title"]</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">@L["CommunicationProviderSetup.Preview.Lead"]</MudText></div><MudButton Variant="Variant.Text" Disabled="@(_connection is null || _busy)" OnClick="LoadPreviewAsync">@L["Common.Refresh"]</MudButton></div>
                     @if (_preview?.Changes.Count > 0)
                     {
-                        <MudTable Items="_preview.Changes" Dense="true" Hover="true"><HeaderContent><MudTh>Change</MudTh><MudTh>Resource</MudTh><MudTh>Name</MudTh></HeaderContent><RowTemplate><MudTd>@context.Change</MudTd><MudTd>@context.Kind</MudTd><MudTd>@context.DesiredName</MudTd></RowTemplate></MudTable>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ReconcileAsync" Class="mt-4">Apply approved changes</MudButton>
+                        <MudTable Items="_preview.Changes" Dense="true" Hover="true"><HeaderContent><MudTh>@L["CommunicationProviderSetup.Preview.Change"]</MudTh><MudTh>@L["CommunicationProviderSetup.Preview.Resource"]</MudTh><MudTh>@L["CommunicationProviderSetup.Preview.Name"]</MudTh></HeaderContent><RowTemplate><MudTd>@context.Change</MudTd><MudTd>@context.Kind</MudTd><MudTd>@context.DesiredName</MudTd></RowTemplate></MudTable>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ReconcileAsync" Class="mt-4">@L["CommunicationProviderSetup.ApplyChanges"]</MudButton>
                     }
                     else { <MudText Typo="Typo.body2">@(_connection is null ? "Save a connection to preview its resources." : "No managed changes are required.")</MudText> }
                 </MudPaper>

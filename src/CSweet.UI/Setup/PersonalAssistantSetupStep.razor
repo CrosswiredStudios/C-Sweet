@@ -1,14 +1,15 @@
+@inject IAppLocalizer L
 <section class="provider-setup-step assistant-setup-step">
     <header class="provider-step-heading">
-        <MudText Typo="Typo.overline">Step 4 of 5</MudText>
-        <h1>Make your assistant yours.</h1>
-        <p>Choose a name and model for the assistant that helps you plan and manage your work.</p>
+        <MudText Typo="Typo.overline">@L["PersonalAssistantSetupStep.Step4Of5"]</MudText>
+        <h1>@L["PersonalAssistantSetupStep.MakeYourAssistantYours"]</h1>
+        <p>@L["PersonalAssistantSetupStep.ChooseANameAndModel"]</p>
     </header>
     <PersonalAssistantSettingsForm @ref="_settings" SetInstallationDefault="true" ShowHeading="false" ShowSaveButton="false"
         PreferredProviderId="PreferredProviderId" Disabled="@(_saving || IsCompleting)" CanSaveChanged="@(value => _canSave = value)" />
     <footer class="provider-step-actions">
         <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack"
-            Disabled="@(_saving || IsCompleting)" OnClick="OnBack">Back</MudButton>
+            Disabled="@(_saving || IsCompleting)" OnClick="OnBack">@L["Common.Back"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
             Disabled="@(!_canSave || _saving || IsCompleting)" OnClick="ContinueAsync">@(_saving || IsCompleting ? "Saving…" : "Save and continue")</MudButton>
     </footer>

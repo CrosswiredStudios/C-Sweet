@@ -3,6 +3,7 @@
 @using System.Text.Json
 @implements IDisposable
 @inject AgentHireOperationState HireOperations
+@inject IAppLocalizer L
 
 <AttentionRequestCard Kind="Hiring" EmployeeId="RecommenderId" Name="@Recommender" Context="@Context"
     Prompt="@Recommendation.Title" PromptMeta="@($"{Recommendation.RemainingHeadcount} of {Recommendation.Headcount} positions remaining")" RightAlignedActions="true">
@@ -13,14 +14,14 @@
         }
         @if (_candidate is not null)
         {
-            <div class="overview-candidate" aria-label="Recommended candidate">
+            <div class="overview-candidate" aria-label="@L["OverviewHiringCandidateCard.RecommendedCandidate"]">
                 <div class="candidate-identity">
                     <img src="@CandidateImage" alt="@_candidate.Name" loading="lazy" referrerpolicy="no-referrer" @onerror="() => _imageFailed = true" />
-                    <div><span class="candidate-kicker">Recommended agent</span><strong>@_candidate.Name</strong><span>@_candidate.Publisher</span><span>@(_candidate.Price is { } price ? $"{price:0.##} {_candidate.Currency}" : "Cost unavailable")</span></div>
+                    <div><span class="candidate-kicker">@L["OverviewHiringCandidateCard.RecommendedAgent"]</span><strong>@_candidate.Name</strong><span>@_candidate.Publisher</span><span>@(_candidate.Price is { } price ? $"{price:0.##} {_candidate.Currency}" : "Cost unavailable")</span></div>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(Recommendation.SelectionRationale))
                 {
-                    <div class="candidate-rationale"><span class="candidate-kicker">Why this agent</span><p>@Recommendation.SelectionRationale</p></div>
+                    <div class="candidate-rationale"><span class="candidate-kicker">@L["OverviewHiringCandidateCard.WhyThisAgent"]</span><p>@Recommendation.SelectionRationale</p></div>
                 }
             </div>
         }
@@ -38,14 +39,14 @@
                             <MudIcon Icon="@Icons.Material.Outlined.PersonSearch" Size="Size.Large" Color="Color.Primary" />
                         }
                     </span>
-                    <div><span class="candidate-kicker">Candidate selection</span><strong>@PreparationTitle</strong></div>
+                    <div><span class="candidate-kicker">@L["OverviewHiringCandidateCard.CandidateSelection"]</span><strong>@PreparationTitle</strong></div>
                 </div>
                 <div class="candidate-rationale"><p>@PreparationDescription</p></div>
             </div>
         }
         @if (!string.IsNullOrWhiteSpace(Recommendation.Objective))
         {
-            <details class="candidate-scope"><summary>Role scope</summary><p>@Recommendation.Objective</p></details>
+            <details class="candidate-scope"><summary>@L["OverviewHiringCandidateCard.RoleScope"]</summary><p>@Recommendation.Objective</p></details>
         }
     </BodyContent>
     <ChildContent>
@@ -64,7 +65,7 @@
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="IsHireDisabled" OnClick="OpenHireAsync">@(PendingOperation is not null ? "Hiring in progress…" : _openingReview ? "Preparing review…" : $"Hire {_candidate.Name}")</MudButton>
             }
-            <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">Browse Candidates</MudButton>
+            <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L["OverviewHiringCandidateCard.BrowseCandidates"]</MudButton>
         </div>
     </ChildContent>
 </AttentionRequestCard>

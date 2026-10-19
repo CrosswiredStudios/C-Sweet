@@ -30,6 +30,8 @@
 
 ## Agent release notes
 
+- Deploy agent changes through published releases and the Installed Agents update flow. Local builds and tests are verification only unless the user explicitly requests a development deployment. Do not patch approved package records, stored manifests, artifact digests, or installed runtime payloads to apply source changes.
+
 - When changing an agent repository, bump and synchronize its version BEFORE writing release notes.
 - Then read the final version from that repository's `csweet-plugin.json` and write `releases/<version>.md` with the same version in its heading. Never put new changes under the previous version.
 - If the version changes again, retarget unpublished notes and re-check the final manifest, implementation/package version, filename, and heading before handoff. Preserve published historical notes.

@@ -1,0 +1,60 @@
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+@if (_editing)
+{
+    <form class="project-name-editor" @onsubmit="SaveAsync" @onsubmit:preventDefault aria-label="@L["ProjectNameEditor.AriaLabel"]">
+        <label for="project-name">@L["ProjectNameEditor.NameLabel"]</label>
+        <input id="project-name" @bind="_name" maxlength="512" required disabled="@_saving" />
+        <div class="project-name-actions">
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_saving || string.IsNullOrWhiteSpace(_name))">@(_saving ? L["Common.Saving"] : L["ProjectNameEditor.SaveName"])</MudButton>
+            <MudButton OnClick="Cancel" Disabled="@_saving">@L["Common.Cancel"]</MudButton>
+        </div>
+        @if (_error is not null) { <p role="alert">@_error</p> }
+    </form>
+}
+else
+{
+    <MudButton OnClick="Edit" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Edit">@L["ProjectNameEditor.EditName"]</MudButton>
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public ProjectInspectionResource Project { get; set; } = default!;
+    [Parameter] public EventCallback<RenameProjectResponse> Renamed { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+    private bool _editing, _saving;
+    private string _name = "";
+    private string? _error;
+    private long _revision;
+
+    private void Edit() { _name = Project.Title; _revision = Project.Revision ?? 0; _error = null; _editing = true; }
+    private void Cancel() { _editing = false; _error = null; }
+    private async Task SaveAsync()
+    {
+        if (_saving || string.IsNullOrWhiteSpace(_name)) return;
+        _saving = true; _error = null;
+        try
+        {
+            using var response = await Http.PutAsJsonAsync($"api/core/organizations/{OrganizationId:D}/project-setup/projects/{Project.Id:D}/name", new RenameProjectRequest(_name, _revision));
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = response.StatusCode switch
+                {
+                    System.Net.HttpStatusCode.Conflict => L["ProjectNameEditor.Error.Conflict"],
+                    System.Net.HttpStatusCode.Forbidden => L["ProjectNameEditor.Error.Forbidden"],
+                    System.Net.HttpStatusCode.BadRequest => L["ProjectNameEditor.Error.BadRequest"],
+                    _ => L["ProjectNameEditor.Error.SaveFailed"]
+                };
+                if (response.StatusCode == System.Net.HttpStatusCode.Conflict) await RefreshRequested.InvokeAsync();
+                return;
+            }
+            var result = await response.Content.ReadFromJsonAsync<RenameProjectResponse>() ?? throw new HttpRequestException();
+            _editing = false;
+            await Renamed.InvokeAsync(result);
+        }
+        catch (HttpRequestException) { _error = L["ProjectNameEditor.Error.SaveFailed"]; }
+        finally { _saving = false; }
+    }
+}

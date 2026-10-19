@@ -2,11 +2,12 @@
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject IAppLocalizer L
 
 <div class="conversation-media-upload @(Compact ? "compact" : null)">
-    <label class="hub-attachment-button" title="Attach a video, image, document or captions">
+    <label class="hub-attachment-button" title="@L["ConversationMediaUploader.AttachTitle"]">
         <MudIcon Icon="@(Compact ? Icons.Material.Outlined.Add : Icons.Material.Outlined.AttachFile)" />
-        @if (!Compact) { <span>Attach file</span> }
+        @if (!Compact) { <span>@L["ConversationMediaUploader.AttachFile"]</span> }
         <input @ref="_input" type="file" accept="@MediaAttachmentPolicy.Accept" @onchange="SelectAsync"
                disabled="@(Disabled || _busy || !_initialized)" aria-label="@(_ticket is null ? "Attach file" : "Select original file to resume")" />
     </label>
@@ -20,14 +21,14 @@
             }
             @if (_busy)
             {
-                <button type="button" @onclick="Pause">Pause</button>
+                <button type="button" @onclick="Pause">@L["ConversationMediaUploader.Pause"]</button>
             }
             else
             {
-                @if (_file is null) { <small>Select the original file above to resume. Completed bytes are retained.</small> }
-                else { <button type="button" disabled="@Disabled" @onclick="UploadAsync">Resume</button> }
+                @if (_file is null) { <small>@L["ConversationMediaUploader.ResumeHint"]</small> }
+                else { <button type="button" disabled="@Disabled" @onclick="UploadAsync">@L["ConversationMediaUploader.Resume"]</button> }
                 <button type="button" disabled="@Disabled" @onclick="RemoveAsync"
-                        title="Stop this attachment. A file already stored in the organization is not deleted.">Remove upload</button>
+                        title="@L["ConversationMediaUploader.RemoveTitle"]">@L["ConversationMediaUploader.RemoveUpload"]</button>
             }
         </div>
     }
@@ -74,7 +75,7 @@
             _initialized = true;
             await NotifyAsync();
         }
-        catch (Exception) { _error = "File attachments could not be initialized. Reload this conversation to try again."; }
+        catch (Exception) { _error = L["ConversationMediaUploader.Error.Init"]; }
         if (!_disposed) StateHasChanged();
     }
 
@@ -90,7 +91,7 @@
             _file = selected[0];
             await UploadAsync();
         }
-        catch (Exception) { _error = "The selected file could not be opened. Please select it again."; }
+        catch (Exception) { _error = L["ConversationMediaUploader.Error.Open"]; }
     }
 
     private async Task UploadAsync()
@@ -127,9 +128,9 @@
             await Uploaded.InvokeAsync(new(_organization, _conversation, asset));
             await ClearAsync();
         }
-        catch (OperationCanceledException) { _error = "Upload paused. Resume when you are ready."; }
+        catch (OperationCanceledException) { _error = L["ConversationMediaUploader.Error.Paused"]; }
         catch (InvalidOperationException exception) { _error = exception.Message; }
-        catch (Exception) { _error = "The upload was interrupted. Resume to check the stored progress."; }
+        catch (Exception) { _error = L["ConversationMediaUploader.Error.Interrupted"]; }
         finally
         {
             _attempt = null; _busy = false;
@@ -149,7 +150,7 @@
             await new ResumableAttachmentUpload(Http).CancelAsync(_ticket, attempt.Token);
             await ClearAsync();
         }
-        catch (Exception) { _error = "The upload could not be stopped. Try removing it again when connected."; }
+        catch (Exception) { _error = L["ConversationMediaUploader.Error.StopFailed"]; }
         finally { _attempt = null; _busy = false; if (!_disposed) await NotifyAsync(); }
     }
     private async Task ClearAsync()

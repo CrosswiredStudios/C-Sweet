@@ -2,6 +2,7 @@ using System.Security.Claims;
 using CSweet.Api.Agents;
 using CSweet.Application.Auth;
 using CSweet.Contracts.Auth;
+using CSweet.Contracts.Localization;
 using Microsoft.AspNetCore.Antiforgery;
 
 namespace CSweet.Api.Auth;
@@ -74,6 +75,66 @@ public static class AuthenticationEndpoints
         {
             await service.LogoutAsync();
             return Results.NoContent();
+        });
+
+        group.MapGet("/preferences", async (
+            ClaimsPrincipal principal,
+            IAuthenticationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = principal.GetApplicationUserId();
+            if (!userId.HasValue)
+            {
+                return Results.Unauthorized();
+            }
+
+            var preferences = await service.GetPreferencesAsync(userId.Value, cancellationToken);
+            return preferences is null ? Results.Unauthorized() : Results.Ok(preferences);
+        });
+
+        group.MapPut("/preferences", async (
+            UpdateUserPreferencesRequest request,
+            ClaimsPrincipal principal,
+            IAuthenticationService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = principal.GetApplicationUserId();
+            if (!userId.HasValue)
+            {
+                return Results.Unauthorized();
+            }
+
+            var errors = new Dictionary<string, string[]>();
+            string? language = null;
+            if (!string.IsNullOrWhiteSpace(request.PreferredLanguage))
+            {
+                language = SupportedCultures.Normalize(request.PreferredLanguage);
+                if (language is null)
+                {
+                    errors["preferredLanguage"] = ["The language is not supported."];
+                }
+            }
+
+            string? timeZoneId = null;
+            if (!string.IsNullOrWhiteSpace(request.TimeZoneId))
+            {
+                timeZoneId = request.TimeZoneId.Trim();
+                if (!TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out _))
+                {
+                    errors["timeZoneId"] = ["The time zone is not recognized."];
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                return Results.ValidationProblem(errors);
+            }
+
+            var preferences = await service.UpdatePreferencesAsync(
+                userId.Value,
+                new UpdateUserPreferencesRequest(language, timeZoneId),
+                cancellationToken);
+            return preferences is null ? Results.Unauthorized() : Results.Ok(preferences);
         });
 
         return endpoints;

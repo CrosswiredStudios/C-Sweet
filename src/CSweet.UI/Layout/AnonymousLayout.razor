@@ -1,24 +1,38 @@
 @inherits LayoutComponentBase
+@inject AppCulture Culture
+@inject IAppLocalizer L
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
+<MudRTLProvider RightToLeft="@Culture.IsRightToLeft">
 <main class="auth-shell">
     <section class="auth-brand-panel">
         <img class="auth-mark" src="images/icon_dark.svg" alt="C-Sweet" />
         <div>
             <MudText Typo="Typo.h3">C-Sweet</MudText>
-            <MudText>Build and operate your company with an agent-first workforce.</MudText>
+            <MudText>@L["AnonymousLayout.Tagline"]</MudText>
+        </div>
+        <div class="auth-language">
+            <select class="auth-language-select" aria-label="@L["Layout.LanguagePicker"]" value="@Culture.CurrentCode" @onchange="OnLanguageChanged">
+                @foreach (var culture in CSweet.Contracts.Localization.SupportedCultures.All)
+                {
+                    <option value="@culture.Code" lang="@culture.Code">@culture.NativeName</option>
+                }
+            </select>
         </div>
     </section>
     <section class="auth-content">
         @Body
     </section>
 </main>
+</MudRTLProvider>
 
 @code {
+    private Task OnLanguageChanged(ChangeEventArgs e) => Culture.SetLanguageAsync(e.Value?.ToString());
+
     private readonly MudTheme _theme = new()
     {
         PaletteLight = new PaletteLight

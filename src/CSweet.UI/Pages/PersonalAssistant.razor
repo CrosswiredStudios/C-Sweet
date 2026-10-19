@@ -4,18 +4,19 @@
 @implements IDisposable
 @inject PersonalAssistantApiClient Api
 @inject IAppRealtimeConnection Realtime
+@inject IAppLocalizer L
 
-<PageTitle>Personal Assistant - C-Sweet</PageTitle>
+<PageTitle>@L["PersonalAssistant.PageTitle"]</PageTitle>
 <div class="aurora-page business-workspace personal-assistant-workspace">
-    <header class="enterprise-heading"><div><span class="business-kicker">Your space</span><h1>A little clarity. Your next step.</h1><p>Plan your next venture and find your way around C-Sweet with your Personal Assistant.</p></div><MudButton Href="/?create=true" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">New business</MudButton></header>
-    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">Refresh</MudButton></MudAlert> }
+    <header class="enterprise-heading"><div><span class="business-kicker">@L["PersonalAssistant.YourSpace"]</span><h1>@L["PersonalAssistant.ALittleClarityYourNext"]</h1><p>@L["PersonalAssistant.PlanYourNextVentureAnd"]</p></div><MudButton Href="/?create=true" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">@L["PersonalAssistant.NewBusiness"]</MudButton></header>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">@L["Common.Refresh"]</MudButton></MudAlert> }
     <div class="personal-assistant-grid">
         <div class="personal-assistant-guidance">
-            <section class="assistant-panel"><span class="business-kicker">Make a start</span><h2>Bring your work along.</h2><p>Already building an app, game, or website? Connect your repositories, review a project brief, and give your business a clear starting point.</p><MudButton Href="/?create=true" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">Prepare a business</MudButton></section>
-            <section class="assistant-panel"><h2>Helpful starting points</h2><ul><li>Describe what you’re building and the next outcome you want.</li><li>Keep a README or project overview with your code so your assistant can understand the context.</li><li>Review the brief before you create the business. Your Chief of Staff can then help shape the plan.</li></ul></section>
+            <section class="assistant-panel"><span class="business-kicker">@L["PersonalAssistant.MakeAStart"]</span><h2>@L["PersonalAssistant.BringYourWorkAlong"]</h2><p>@L["PersonalAssistant.AlreadyBuildingAnAppGame"]</p><MudButton Href="/?create=true" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L["PersonalAssistant.PrepareABusiness"]</MudButton></section>
+            <section class="assistant-panel"><h2>@L["PersonalAssistant.HelpfulStartingPoints"]</h2><ul><li>@L["PersonalAssistant.DescribeWhatYouReBuilding"]</li><li>@L["PersonalAssistant.KeepAREADMEOrProject"]</li><li>@L["PersonalAssistant.ReviewTheBriefBeforeYou"]</li></ul></section>
             @if (_drafts.Count > 0)
             {
-                <section class="assistant-panel"><h2>Pick up where you left off</h2>@foreach (var draft in _drafts) { <a class="assistant-draft-link" href="@($"/?create=true&draft={draft.Id:D}")"><strong>@(draft.Review?.BusinessName is { Length: > 0 } name ? name : "Business from codebases")</strong><span>@draft.Sources.Count sources · @draft.Status</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></a> }</section>
+                <section class="assistant-panel"><h2>@L["PersonalAssistant.PickUpWhereYouLeft"]</h2>@foreach (var draft in _drafts) { <a class="assistant-draft-link" href="@($"/?create=true&draft={draft.Id:D}")"><strong>@(draft.Review?.BusinessName is { Length: > 0 } name ? name : "Business from codebases")</strong><span>@draft.Sources.Count sources · @draft.Status</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></a> }</section>
             }
             <section class="assistant-panel"><PersonalAssistantSettingsForm NameChanged="@(name => _assistantName = name)" ReadyChanged="@(ready => _ready = ready)" /></section>
         </div>

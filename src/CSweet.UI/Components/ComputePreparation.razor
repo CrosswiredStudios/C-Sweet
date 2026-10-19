@@ -1,17 +1,19 @@
 @using CSweet.Contracts.Compute
 @implements IDisposable
+@inject IAppLocalizer L
+@inject UserTime Time
 
 <section class="compute-type" aria-labelledby="linux-compute-title">
     <div class="type-heading">
         <div class="type-icon"><MudIcon Icon="@Icons.Material.Outlined.Terminal" /></div>
         <div class="type-identity">
-            <h3 id="linux-compute-title">Linux</h3>
-            <p>Ubuntu · Local compute · Hyper-V</p>
+            <h3 id="linux-compute-title">@L["ComputePreparation.Linux"]</h3>
+            <p>@L["ComputePreparation.UbuntuLocalComputeHyperV"]</p>
         </div>
         <span class="setup-badge @BadgeClass" role="status">@StatusLabel</span>
         @if (Setup?.State == "Ready" && CanManage)
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OnCreate">Create instance</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OnCreate">@L["ComputePreparation.CreateInstance"]</MudButton>
         }
         <button type="button" class="preparation-toggle" aria-expanded="@(!_collapsed ? "true" : "false")"
                 aria-controls="linux-preparation-details" @onclick="ToggleDetails">
@@ -21,7 +23,7 @@
     </div>
     <div id="linux-preparation-details" hidden="@_collapsed">
         <div class="preparation-layout">
-            <ol class="preparation-steps" aria-label="Linux preparation milestones">
+            <ol class="preparation-steps" aria-label="@L["ComputePreparation.LinuxPreparationMilestones"]">
                 @for (var index = 0; index < Milestones.Length; index++)
                 {
                     var step = index + 1;
@@ -44,7 +46,7 @@
                     @if (download.TotalDownloadBytes is > 0)
                     {
                         var percent = Math.Clamp(100d * bytes / download.TotalDownloadBytes.Value, 0, 100);
-                        <MudProgressLinear Value="percent" Color="Color.Primary" Size="Size.Medium" Class="my-3" aria-label="Linux image download progress" />
+                        <MudProgressLinear Value="percent" Color="Color.Primary" Size="Size.Medium" Class="my-3" aria-label="@L["ComputePreparation.LinuxImageDownloadProgress"]" />
                         <p><strong>@percent.ToString("0")%</strong> · @Downloaded(bytes) of @Downloaded(download.TotalDownloadBytes.Value)</p>
                     }
                     else
@@ -56,13 +58,13 @@
                     {
                         <p class="preparation-secondary">@(speed < 1_000_000 ? $"{speed / 1_000d:0} KB/s" : $"{speed / 1_000_000d:0.0} MB/s") · Recent average speed</p>
                     }
-                    <p class="preparation-secondary">Time remaining is for the download. Installation and verification follow.</p>
+                    <p class="preparation-secondary">@L["ComputePreparation.TimeRemainingIsForThe"]</p>
                 }
                 @if (Setup is not null)
                 {
                     <dl class="preparation-health">
                         <div><dt>@(Setup.State is "Ready" or "Failed" ? "Attempt started" : "Time in this step")</dt><dd>@Elapsed</dd></div>
-                        <div><dt>Installer health</dt><dd>@HealthLabel</dd></div>
+                        <div><dt>@L["ComputePreparation.InstallerHealth"]</dt><dd>@HealthLabel</dd></div>
                     </dl>
                 }
                 @if (Notice is { Length: > 0 })
@@ -80,7 +82,7 @@
                     }
                     else if (Setup is { State: "Running", Health: "Unknown" })
                     {
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="OnRefresh">Check status</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="OnRefresh">@L["ComputePreparation.CheckStatus"]</MudButton>
                     }
                     @if (Setup?.LastProgressAt is { } last)
                     {
@@ -90,7 +92,7 @@
                 @if (Setup?.Activity.Count > 0 || Setup?.FailureCode is not null)
                 {
                     <details class="preparation-activity">
-                        <summary>Preparation activity</summary>
+                        <summary>@L["ComputePreparation.PreparationActivity"]</summary>
                         <ol>
                             @foreach (var entry in Setup.Activity)
                             {
@@ -181,7 +183,7 @@
     {
         { State: "Ready" } => "Readiness confirmed",
         { Health: "NeedsPermission" } => "Waiting for permission",
-        { InstallerRunning: true } => $"Process running · checked {Setup.InstallerCheckedAt?.ToLocalTime().ToString("T") ?? CheckedAt.ToLocalTime().ToString("T")}",
+        { InstallerRunning: true } => $"Process running · checked {Setup.InstallerCheckedAt?.ToLocalTime().ToString("T") ?? Time.Format(CheckedAt, "T")}",
         { State: "Failed" } => "Preparation stopped",
         { State: "Pending" } => "Not started",
         _ => "Could not verify process"

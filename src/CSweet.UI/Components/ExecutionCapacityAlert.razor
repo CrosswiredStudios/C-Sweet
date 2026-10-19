@@ -1,6 +1,7 @@
 @inject ISetupApiClient SetupApi
 @inject NavigationManager Navigation
 @inject ExecutionCapacityAlertState CapacityState
+@inject IAppLocalizer L
 @implements IAsyncDisposable
 
 @if (CapacityState.Status != ExecutionCapacityAlertStatus.Hidden)
@@ -10,18 +11,18 @@
             <div>
                 @if (IsConnecting)
                 {
-                    <strong>Waiting for Office to become ready.</strong>
-                    <div>Office may still be starting or reconnecting. This status updates automatically when agent execution is ready.</div>
+                    <strong>@L["ExecutionCapacityAlert.Connecting.Title"]</strong>
+                    <div>@L["ExecutionCapacityAlert.Connecting.Body"]</div>
                 }
                 else
                 {
-                    <strong>Agent execution capacity is unavailable.</strong>
-                    <div>Office is not ready to run builds or agents. Open Offices to check connection status and resolve any issues.</div>
+                    <strong>@L["ExecutionCapacityAlert.Unavailable.Title"]</strong>
+                    <div>@L["ExecutionCapacityAlert.Unavailable.Body"]</div>
                 }
             </div>
             <MudButton Variant="Variant.Filled" Color="Color.Inherit"
                        StartIcon="@Icons.Material.Filled.Dns"
-                       OnClick="OpenFleet">Open Offices</MudButton>
+                       OnClick="OpenFleet">@L["ExecutionCapacityAlert.OpenOffices"]</MudButton>
         </MudStack>
     </MudAlert>
 }

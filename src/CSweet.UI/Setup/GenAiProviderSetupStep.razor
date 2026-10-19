@@ -1,12 +1,13 @@
 @using CSweet.Contracts.GenAi
 @using CSweet.Domain.Setup
 @inject IGenAiProviderApiClient Api
+@inject IAppLocalizer L
 
 <section class="provider-step" aria-labelledby="genai-provider-step-title">
     <header class="provider-step-header">
         <div>
             <MudText Typo="Typo.overline">@ContextLabel</MudText>
-            <h1 id="genai-provider-step-title">Connect generative AI providers.</h1>
+            <h1 id="genai-provider-step-title">@L["GenAiProviderSetupStep.ConnectGenerativeAIProviders"]</h1>
             <p>@(ShowNavigation ? "Give approved agents access to image and video generation. This step is optional." : "Manage image and video providers available to approved agents.")</p>
         </div>
         <div class="provider-count" aria-live="polite">
@@ -27,12 +28,12 @@
         <section class="provider-roster" aria-labelledby="connected-genai-providers-title">
             <div class="provider-section-heading">
                 <div>
-                    <span class="provider-section-kicker">Your roster</span>
-                    <h2 id="connected-genai-providers-title">Connected providers</h2>
+                    <span class="provider-section-kicker">@L["GenAiProviderSetupStep.YourRoster"]</span>
+                    <h2 id="connected-genai-providers-title">@L["GenAiProviderSetupStep.ConnectedProviders"]</h2>
                 </div>
                 @if (_profiles.Count > 0)
                 {
-                    <span class="provider-ready-badge">Ready to continue</span>
+                    <span class="provider-ready-badge">@L["GenAiProviderSetupStep.ReadyToContinue"]</span>
                 }
             </div>
 
@@ -40,7 +41,7 @@
             {
                 <div class="provider-empty-state">
                     <MudIcon Icon="@Icons.Material.Outlined.PermMedia" />
-                    <strong>Your provider roster is empty</strong>
+                    <strong>@L["GenAiProviderSetupStep.YourProviderRosterIsEmpty"]</strong>
                     <span>@(ShowNavigation ? "Choose a service, or skip this optional step." : "Choose a service to connect your first provider.")</span>
                 </div>
             }
@@ -83,7 +84,7 @@
         <section class="provider-picker" aria-labelledby="add-genai-provider-title">
             <div class="provider-section-heading">
                 <div>
-                    <span class="provider-section-kicker">Add another</span>
+                    <span class="provider-section-kicker">@L["GenAiProviderSetupStep.AddAnother"]</span>
                     <h2 id="add-genai-provider-title">@(_showHosted ? "Choose a hosted provider" : "Choose a local runtime")</h2>
                 </div>
                 @if (!_showHosted)
@@ -99,7 +100,7 @@
                 }
             </div>
 
-            <div class="provider-mode-switch" role="group" aria-label="Provider location">
+            <div class="provider-mode-switch" role="group" aria-label="@L["GenAiProviderSetupStep.ProviderLocation"]">
                 <button type="button"
                         class="@(!_showHosted ? "selected" : null)"
                         aria-pressed="@(!_showHosted)"
@@ -107,8 +108,8 @@
                         @onclick="() => SetProviderMode(false)">
                     <MudIcon Icon="@Icons.Material.Outlined.Computer" />
                     <span>
-                        <strong>Local</strong>
-                        <small>Runs on your hardware</small>
+                        <strong>@L["GenAiProviderSetupStep.Local"]</strong>
+                        <small>@L["GenAiProviderSetupStep.RunsOnYourHardware"]</small>
                     </span>
                 </button>
                 <button type="button"
@@ -118,8 +119,8 @@
                         @onclick="() => SetProviderMode(true)">
                     <MudIcon Icon="@Icons.Material.Outlined.CloudQueue" />
                     <span>
-                        <strong>Hosted</strong>
-                        <small>Connect with an API key</small>
+                        <strong>@L["GenAiProviderSetupStep.Hosted"]</strong>
+                        <small>@L["GenAiProviderSetupStep.ConnectWithAnAPIKey"]</small>
                     </span>
                 </button>
             </div>
@@ -155,18 +156,18 @@
                             <h2 id="genai-provider-editor-title">@(_activePreset?.DisplayName ?? ProviderTypeLabel(_providerType))</h2>
                         </div>
                     </div>
-                    <button type="button" class="provider-close-button" aria-label="Close provider form" disabled="@_isBusy" @onclick="CloseEditor">
+                    <button type="button" class="provider-close-button" aria-label="@L["GenAiProviderSetupStep.CloseProviderForm"]" disabled="@_isBusy" @onclick="CloseEditor">
                         <MudIcon Icon="@Icons.Material.Filled.Close" />
                     </button>
                 </header>
 
                 <div class="provider-form-grid">
-                    <MudTextField Label="Provider name"
+                    <MudTextField Label="@L["GenAiProviderSetupStep.ProviderName"]"
                                   @bind-Value="_providerName"
                                   Variant="Variant.Outlined"
                                   Disabled="@_isBusy" />
                     <MudSelect T="GenAiProviderType"
-                               Label="Provider type"
+                               Label="@L["GenAiProviderSetupStep.ProviderType"]"
                                Value="_providerType"
                                ValueChanged="OnProviderTypeChanged"
                                Variant="Variant.Outlined"
@@ -178,7 +179,7 @@
                     </MudSelect>
                     <MudTextField T="string"
                                   Class="provider-form-wide"
-                                  Label="Base URL"
+                                  Label="@L["GenAiProviderSetupStep.BaseURL"]"
                                   Value="_baseUrl"
                                   ValueChanged="OnBaseUrlChanged"
                                   Immediate="true"
@@ -211,15 +212,15 @@
                     <section class="provider-operation-section" aria-labelledby="approved-operations-title">
                         <div class="provider-section-heading">
                             <div>
-                                <span class="provider-section-kicker">Least privilege</span>
-                                <h2 id="approved-operations-title">Approved operations</h2>
+                                <span class="provider-section-kicker">@L["GenAiProviderSetupStep.LeastPrivilege"]</span>
+                                <h2 id="approved-operations-title">@L["GenAiProviderSetupStep.ApprovedOperations"]</h2>
                             </div>
                             <MudButton Variant="Variant.Text"
                                        Size="Size.Small"
                                        StartIcon="@Icons.Material.Filled.Add"
                                        Disabled="@_isBusy"
                                        OnClick="NewOperation">
-                                New operation
+                                @L["GenAiProviderSetupStep.NewOperation"]
                             </MudButton>
                         </div>
 
@@ -242,7 +243,7 @@
                                                        Size="Size.Small"
                                                        Disabled="@_isBusy"
                                                        OnClick="@(() => SetDefaultAsync(operation.Id))">
-                                                Make default
+                                                @L["GenAiProviderSetupStep.MakeDefault"]
                                             </MudButton>
                                         }
                                     </article>
@@ -251,12 +252,12 @@
                         }
                         else
                         {
-                            <p class="provider-operation-empty">Add an approved model or workflow to define exactly what agents may use.</p>
+                            <p class="provider-operation-empty">@L["GenAiProviderSetupStep.AddAnApprovedModelOr"]</p>
                         }
 
                         <div class="provider-operation-form">
                             <MudSelect T="GenAiOperationType"
-                                       Label="Least-privilege operation"
+                                       Label="@L["GenAiProviderSetupStep.LeastPrivilegeOperation"]"
                                        @bind-Value="_operationType"
                                        Variant="Variant.Outlined"
                                        Disabled="@_isBusy">
@@ -265,12 +266,12 @@
                                     <MudSelectItem Value="@type">@OperationLabel(type)</MudSelectItem>
                                 }
                             </MudSelect>
-                            <MudTextField Label="Configuration name"
+                            <MudTextField Label="@L["GenAiProviderSetupStep.ConfigurationName"]"
                                           @bind-Value="_operationName"
                                           Variant="Variant.Outlined"
                                           Disabled="@_isBusy" />
                             <MudTextField Class="provider-form-wide"
-                                          Label="Model ID"
+                                          Label="@L["GenAiProviderSetupStep.ModelID"]"
                                           @bind-Value="_modelId"
                                           Variant="Variant.Outlined"
                                           Disabled="@_isBusy" />
@@ -320,7 +321,7 @@
                         </MudButton>
                     }
                     <span class="provider-editor-spacer"></span>
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseEditor">Cancel</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseEditor">@L["Common.Cancel"]</MudButton>
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
                                EndIcon="@Icons.Material.Filled.ArrowForward"
@@ -340,9 +341,9 @@
                     <MudIcon Icon="@Icons.Material.Outlined.DeleteOutline" />
                 </span>
                 <div>
-                    <span class="provider-section-kicker">Remove connection</span>
+                    <span class="provider-section-kicker">@L["GenAiProviderSetupStep.RemoveConnection"]</span>
                     <h2 id="genai-provider-delete-title">Delete @(_providerPendingDelete?.Name)?</h2>
-                    <p>This removes the saved endpoint, its credentials, and its approved operations. You can reconnect it later.</p>
+                    <p>@L["GenAiProviderSetupStep.ThisRemovesTheSavedEndpoint"]</p>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_deleteMessage))
@@ -351,7 +352,7 @@
                 }
 
                 <footer class="provider-editor-actions">
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseDeleteDialog">Keep provider</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseDeleteDialog">@L["GenAiProviderSetupStep.KeepProvider"]</MudButton>
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Error"
                                StartIcon="@Icons.Material.Outlined.DeleteOutline"
@@ -380,7 +381,7 @@
                        StartIcon="@Icons.Material.Filled.ArrowBack"
                        Disabled="@(_isBusy || IsCompleting)"
                        OnClick="OnBack">
-                Back
+                @L["Common.Back"]
             </MudButton>
             <div>
                 <span>@(_profiles.Count == 0
@@ -388,7 +389,7 @@
                     : $"{_profiles.Count} {(_profiles.Count == 1 ? "provider" : "providers")} connected")</span>
                 @if (_profiles.Count == 0 && !IsFinalStep)
                 {
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@(_isBusy || IsCompleting)" OnClick="OnContinue">Skip for now</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@(_isBusy || IsCompleting)" OnClick="OnContinue">@L["GenAiProviderSetupStep.SkipForNow"]</MudButton>
                 }
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
@@ -522,7 +523,7 @@
         }
         catch
         {
-            _localDiscoveryMessage = "C-Sweet could not scan for local GenAI providers. You can scan again or add one manually.";
+            _localDiscoveryMessage = L["GenAiProviderSetupStep.CSweetCouldNotScan"];
         }
         finally
         {
@@ -801,7 +802,7 @@
             _deleteDialogOpen = false;
             _providerPendingDelete = null;
             _formSucceeded = true;
-            _formMessage = "Provider removed.";
+            _formMessage = L["GenAiProviderSetupStep.ProviderRemoved"];
         }
         catch (Exception exception)
         {
@@ -888,7 +889,7 @@
             await Api.SetDefaultAsync(operationId);
             await LoadAsync();
             _editorError = false;
-            _editorMessage = "Default operation updated.";
+            _editorMessage = L["GenAiProviderSetupStep.DefaultOperationUpdated"];
         }
         catch (Exception exception)
         {

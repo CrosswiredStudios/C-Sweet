@@ -1,46 +1,47 @@
 @page "/organizations/{OrganizationId:guid}/executive-briefings"
 @using CSweet.Contracts.Core
 @inject HttpClient Http
-<PageTitle>Executive briefings - C-Sweet</PageTitle>
+@inject IAppLocalizer L
+<PageTitle>@L["ExecutiveBriefings.PageTitle"]</PageTitle>
 <div class="aurora-page business-workspace business-form-page">
 <MudPaper Elevation="0" Class="page-header">
-    <div><MudText Typo="Typo.h3">Executive briefings</MudText><MudText Color="Color.Secondary">Configure your Chief of Staff's briefing schedule and review delivery history.</MudText></div>
-    <MudButton Href="@($"/organizations/{OrganizationId}/command-center")">Back to overview</MudButton>
+    <div><MudText Typo="Typo.h3">@L["ExecutiveBriefings.ExecutiveBriefings"]</MudText><MudText Color="Color.Secondary">@L["ExecutiveBriefings.ConfigureYourChiefOfStaff"]</MudText></div>
+    <MudButton Href="@($"/organizations/{OrganizationId}/command-center")">@L["ExecutiveBriefings.BackToOverview"]</MudButton>
 </MudPaper>
 @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
 else if (_errorMessage is not null) { <MudAlert Severity="Severity.Error">@_errorMessage</MudAlert> }
 else
 {
             <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-                <MudText Typo="Typo.h6">Executive briefings</MudText>
+                <MudText Typo="Typo.h6">@L["ExecutiveBriefings.ExecutiveBriefings"]</MudText>
                 @if (_briefingSettings is null)
                 {
-                    <MudText Color="Color.Secondary">Assign a Chief of Staff to configure proactive executive briefings.</MudText>
+                    <MudText Color="Color.Secondary">@L["ExecutiveBriefings.AssignAChiefOfStaff"]</MudText>
                 }
                 else
                 {
                     <MudGrid Spacing="2" Class="mt-2">
                         <MudItem xs="12" md="4">
-                            <MudSelect T="Guid" Label="Managing entity" @bind-Value="_briefingManagerId" Variant="Variant.Outlined">
+                            <MudSelect T="Guid" Label="@L["ExecutiveBriefings.ManagingEntity"]" @bind-Value="_briefingManagerId" Variant="Variant.Outlined">
                                 @foreach (var employee in _employees.Where(x => x.Id != _briefingSettings.ChiefOrganizationUserId))
                                 {
                                     <MudSelectItem T="Guid" Value="@employee.Id">@employee.DisplayName</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
-                        <MudItem xs="12" md="2"><MudSelect T="string" Label="Cadence" @bind-Value="_briefingCadence" Variant="Variant.Outlined"><MudSelectItem Value="@("Daily")">Daily</MudSelectItem><MudSelectItem Value="@("Weekdays")">Weekdays</MudSelectItem><MudSelectItem Value="@("Weekly")">Weekly</MudSelectItem></MudSelect></MudItem>
+                        <MudItem xs="12" md="2"><MudSelect T="string" Label="@L["ExecutiveBriefings.Cadence"]" @bind-Value="_briefingCadence" Variant="Variant.Outlined"><MudSelectItem Value="@("Daily")">@L["ExecutiveBriefings.Daily"]</MudSelectItem><MudSelectItem Value="@("Weekdays")">@L["ExecutiveBriefings.Weekdays"]</MudSelectItem><MudSelectItem Value="@("Weekly")">@L["ExecutiveBriefings.Weekly"]</MudSelectItem></MudSelect></MudItem>
                         @if (_briefingCadence == "Weekly")
                         {
-                            <MudItem xs="12" md="2"><MudSelect T="string" Label="Day" @bind-Value="_briefingWeeklyDay" Variant="Variant.Outlined">@foreach (var day in Enum.GetNames<DayOfWeek>()) { <MudSelectItem Value="@day">@day</MudSelectItem> }</MudSelect></MudItem>
+                            <MudItem xs="12" md="2"><MudSelect T="string" Label="@L["ExecutiveBriefings.Day"]" @bind-Value="_briefingWeeklyDay" Variant="Variant.Outlined">@foreach (var day in Enum.GetNames<DayOfWeek>()) { <MudSelectItem Value="@day">@day</MudSelectItem> }</MudSelect></MudItem>
                         }
-                        <MudItem xs="12" md="2"><MudTextField Label="Local time" @bind-Value="_briefingLocalTime" Placeholder="09:00" Variant="Variant.Outlined" /></MudItem>
-                        <MudItem xs="12" md="2"><MudTextField Label="Time zone" @bind-Value="_briefingTimeZone" Variant="Variant.Outlined" /></MudItem>
-                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="Scheduled briefings enabled" @bind-Value="_briefingEnabled" /></MudItem>
-                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="Brief after activation and runtime startup" @bind-Value="_briefingStartupEnabled" /></MudItem>
+                        <MudItem xs="12" md="2"><MudTextField Label="@L["ExecutiveBriefings.LocalTime"]" @bind-Value="_briefingLocalTime" Placeholder="09:00" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="12" md="2"><MudTextField Label="@L["ExecutiveBriefings.TimeZone"]" @bind-Value="_briefingTimeZone" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="@L["ExecutiveBriefings.ScheduledBriefingsEnabled"]" @bind-Value="_briefingEnabled" /></MudItem>
+                        <MudItem xs="12" md="4"><MudCheckBox T="bool" Label="@L["ExecutiveBriefings.BriefAfterActivationAndRuntime"]" @bind-Value="_briefingStartupEnabled" /></MudItem>
                     </MudGrid>
                     <div class="d-flex flex-wrap gap-2 mt-3">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBriefingSettingsAsync" Disabled="_briefingBusy">Save briefing settings</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RunTestBriefingAsync" Disabled="_briefingBusy">Send test briefing now</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBriefingSettingsAsync" Disabled="_briefingBusy">@L["ExecutiveBriefings.SaveBriefingSettings"]</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RunTestBriefingAsync" Disabled="_briefingBusy">@L["ExecutiveBriefings.SendTestBriefingNow"]</MudButton>
                         <MudText Color="Color.Secondary" Class="align-self-center">Next: @(_briefingSettings.NextBriefingAt?.ToLocalTime().ToString("g") ?? "not scheduled")</MudText>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(_briefingMessage))
@@ -50,13 +51,13 @@ else
                     @if (_briefingHistory.Count > 0)
                     {
                         <MudTable T="ExecutiveBriefingHistoryItem" Items="_briefingHistory.Take(5)" Dense="true" Hover="true" Class="mt-3">
-                            <HeaderContent><MudTh>Trigger</MudTh><MudTh>Status</MudTh><MudTh>Created</MudTh><MudTh>Delivery</MudTh><MudTh></MudTh></HeaderContent>
+                            <HeaderContent><MudTh>@L["ExecutiveBriefings.Trigger"]</MudTh><MudTh>@L["ExecutiveBriefings.Status"]</MudTh><MudTh>@L["ExecutiveBriefings.Created"]</MudTh><MudTh>@L["ExecutiveBriefings.Delivery"]</MudTh><MudTh></MudTh></HeaderContent>
                             <RowTemplate>
                                 <MudTd DataLabel="Trigger">@context.TriggerType</MudTd>
                                 <MudTd DataLabel="Status">@context.Status</MudTd>
                                 <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
                                 <MudTd DataLabel="Delivery">@(context.DeliveryStatus ?? context.FailureMessage ?? "Waiting")</MudTd>
-                                <MudTd>@if (context.ConversationId.HasValue) { <MudButton Size="Size.Small" Href="@($"/organizations/{OrganizationId}/communications/{context.ConversationId}")">Open</MudButton> }</MudTd>
+                                <MudTd>@if (context.ConversationId.HasValue) { <MudButton Size="Size.Small" Href="@($"/organizations/{OrganizationId}/communications/{context.ConversationId}")">@L["Common.Open"]</MudButton> }</MudTd>
                             </RowTemplate>
                         </MudTable>
                     }

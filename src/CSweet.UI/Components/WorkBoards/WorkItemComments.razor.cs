@@ -73,7 +73,7 @@ public partial class WorkItemComments
             {
                 _comments.Clear();
                 _canComment = false;
-                _error = "You do not have access to this ticket's comments.";
+                _error = L["WorkItemComments.YouDoNotHaveAccess"];
                 return;
             }
             if (!response.IsSuccessStatusCode)
@@ -129,7 +129,7 @@ public partial class WorkItemComments
                 new AddWorkItemCommentRequest(_draft.Trim(), Guid.NewGuid().ToString("N")));
             if (!await EnsureAcceptedAsync(response)) return;
             _draft = string.Empty;
-            _notice = "Comment posted";
+            _notice = L["WorkItemComments.CommentPosted"];
             await ReloadAsync();
         }
         catch (HttpRequestException exception)
@@ -159,7 +159,7 @@ public partial class WorkItemComments
             if (!await EnsureAcceptedAsync(response)) return;
             _editingId = null;
             _editDraft = string.Empty;
-            _notice = "Comment updated";
+            _notice = L["WorkItemComments.CommentUpdated"];
             await ReloadAsync();
         }
         catch (HttpRequestException exception)
@@ -185,7 +185,7 @@ public partial class WorkItemComments
                 new DeleteWorkItemCommentRequest(comment.Revision, Guid.NewGuid().ToString("N")));
             if (!await EnsureAcceptedAsync(response)) return;
             _deleteConfirmId = null;
-            _notice = "Comment deleted";
+            _notice = L["WorkItemComments.CommentDeleted"];
             await ReloadAsync();
         }
         catch (HttpRequestException exception)

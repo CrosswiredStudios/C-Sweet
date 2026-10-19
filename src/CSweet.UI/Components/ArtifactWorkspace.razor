@@ -4,19 +4,21 @@
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject CSweet.UI.Services.AppRealtimeState Realtime
+@inject IAppLocalizer L
+@inject UserTime Time
 
-<aside class="artifact-workspace" @ref="_panel" aria-label="Document workspace" @onkeydown="OnKeyDown">
+<aside class="artifact-workspace" @ref="_panel" aria-label="@L["ArtifactWorkspace.AriaLabel"]" @onkeydown="OnKeyDown">
     <header class="artifact-workspace-header">
         <div class="artifact-workspace-heading">
             <span class="artifact-workspace-mark" aria-hidden="true">
                 <MudIcon Icon="@Icons.Material.Outlined.Description" />
             </span>
             <div>
-                <span class="artifact-workspace-eyebrow"><i></i>C-SWEET DOCUMENT</span>
-                <MudText Typo="Typo.h5">@(_detail?.Document.Title ?? "Loading…")</MudText>
+                <span class="artifact-workspace-eyebrow"><i></i>@L["ArtifactWorkspace.Eyebrow"]</span>
+                <MudText Typo="Typo.h5">@(_detail?.Document.Title ?? L["Common.Loading"])</MudText>
                 @if (_detail is { } headingDetail)
                 {
-                    <span class="artifact-workspace-type">@(IsRetainedEvidence ? "QA test history" : headingDetail.DocumentTypeDisplayName ?? FormatDocumentType(headingDetail.Document.DocumentType))</span>
+                    <span class="artifact-workspace-type">@(IsRetainedEvidence ? L["ArtifactWorkspace.QaTestHistory"] : headingDetail.DocumentTypeDisplayName ?? FormatDocumentType(headingDetail.Document.DocumentType))</span>
                 }
             </div>
         </div>
@@ -24,9 +26,9 @@
             @if (_detail is not null && !ReviewOnly)
             {
                 <MudIconButton Icon="@(_detail.Document.ArchivedAt.HasValue ? Icons.Material.Outlined.Unarchive : Icons.Material.Outlined.Archive)"
-                               OnClick="ToggleArchiveAsync" Disabled="@_busy" aria-label="Archive or restore document" />
+                               OnClick="ToggleArchiveAsync" Disabled="@_busy" aria-label="@L["ArtifactWorkspace.ArchiveOrRestore"]" />
             }
-            <MudIconButton @ref="_closeButton" Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" aria-label="Close document" />
+            <MudIconButton @ref="_closeButton" Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" aria-label="@L["ArtifactWorkspace.CloseDocument"]" />
         </div>
     </header>
 
@@ -37,10 +39,10 @@
     else if (_notFound)
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-            This document is unavailable or has not been shared with you.
+            @L["ArtifactWorkspace.Unavailable"]
         </MudAlert>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="RequestAccessAsync" Class="mt-3">
-            Request access
+            @L["ArtifactWorkspace.RequestAccess"]
         </MudButton>
     }
     else if (_error is not null && _detail is null)
@@ -48,16 +50,16 @@
     else if (_detail is { } detail)
     {
         <div class="artifact-workspace-meta">
-            <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)" Variant="Variant.Filled">@(IsRetainedEvidence && detail.Document.ArchivedAt is null ? "Evidence saved" : StatusLabel(detail.Document.Status))</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(detail.Document.Status)" Variant="Variant.Filled">@(IsRetainedEvidence && detail.Document.ArchivedAt is null ? L["ArtifactWorkspace.EvidenceSaved"] : StatusLabel(detail.Document.Status))</MudChip>
             @if (PreviewRevision is { } displayedRevision)
-            { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.HistoryEdu" Size="Size.Small" />Revision @displayedRevision.Number</span> }
+            { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.HistoryEdu" Size="Size.Small" />@L.Format("ArtifactWorkspace.Revision", new { number = displayedRevision.Number })</span> }
             @if (!IsRetainedEvidence)
-            { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />Accepted @(detail.AcceptedRevision is null ? "none" : $"revision {detail.AcceptedRevision.Number}")</span> }
+            { <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Verified" Size="Size.Small" />@(detail.AcceptedRevision is null ? L["ArtifactWorkspace.AcceptedNone"] : L.Format("ArtifactWorkspace.AcceptedRevision", new { number = detail.AcceptedRevision.Number }))</span> }
             @if (detail.Document.PackageId.HasValue)
             {
-                <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Small" />Document package</span>
+                <span class="artifact-meta-item"><MudIcon Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Small" />@L["ArtifactWorkspace.DocumentPackage"]</span>
             }
-            <span class="artifact-meta-item artifact-meta-owner"><MudIcon Icon="@Icons.Material.Outlined.PersonOutline" Size="Size.Small" />Created by @detail.Document.CreatorDisplayName@(detail.Document.CreatorIsFormerEmployee ? " (former employee)" : null)</span>
+            <span class="artifact-meta-item artifact-meta-owner"><MudIcon Icon="@Icons.Material.Outlined.PersonOutline" Size="Size.Small" />@L.Format(detail.Document.CreatorIsFormerEmployee ? "ArtifactWorkspace.CreatedByFormer" : "ArtifactWorkspace.CreatedBy", new { name = detail.Document.CreatorDisplayName })</span>
         </div>
 
         @if (!string.IsNullOrWhiteSpace(_error))
@@ -66,27 +68,27 @@
         }
 
         @if (PreviewRevision is null)
-        { <MudAlert Severity="Severity.Warning" Class="ma-3">The linked revision is unavailable. No decision can be made from this view.</MudAlert> }
+        { <MudAlert Severity="Severity.Warning" Class="ma-3">@L["ArtifactWorkspace.RevisionUnavailable"]</MudAlert> }
         else if (detail.Document.SubmittedRevisionId.HasValue && PreviewRevision.Id != detail.Document.SubmittedRevisionId && ReviewOnly)
-        { <MudAlert Severity="Severity.Info" Class="ma-3">This is a historical revision. A different revision is now awaiting review.</MudAlert> }
+        { <MudAlert Severity="Severity.Info" Class="ma-3">@L["ArtifactWorkspace.HistoricalRevision"]</MudAlert> }
         else if (PreviewRevision.Id != detail.LatestRevision.Id)
-        { <p class="artifact-review-caption">Showing revision @PreviewRevision.Number. The latest draft is revision @detail.LatestRevision.Number.</p> }
+        { <p class="artifact-review-caption">@L.Format("ArtifactWorkspace.ShowingRevision", new { number = PreviewRevision.Number, latest = detail.LatestRevision.Number })</p> }
 
         <MudTabs @bind-ActivePanelIndex="_tab" Class="artifact-workspace-tabs">
-            <MudTabPanel Text="Preview" Icon="@Icons.Material.Outlined.Visibility">
+            <MudTabPanel Text="@L["ArtifactWorkspace.Tab.Preview"]" Icon="@Icons.Material.Outlined.Visibility">
                 @if (PreviewRevision is { } preview)
                 {
                 <div class="artifact-preview-shell">
                     <div class="artifact-preview-caption">
-                        <span>Revision @preview.Number · @(IsRetainedEvidence ? "Saved evidence" : preview.Status)</span>
-                        <span>Updated @preview.CreatedAt.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</span>
+                        <span>@L.Format("ArtifactWorkspace.PreviewCaption", new { number = preview.Number, status = IsRetainedEvidence ? L["ArtifactWorkspace.SavedEvidence"] : preview.Status })</span>
+                        <span>@L.Format("ArtifactWorkspace.Updated", new { time = Time.Format(preview.CreatedAt, "MMM d, yyyy · h:mm tt") })</span>
                     </div>
                     @if (IsRetainedEvidence)
                     {
                         <article class="artifact-markdown-preview">
-                            <p>Earlier QA command results were saved so the team can recover after an interruption. No action is needed from you.</p>
-                            <p>These logs support further testing. They do not mean QA passed.</p>
-                            <details><summary>View original command logs</summary><pre>@preview.Content</pre></details>
+                            <p>@L["ArtifactWorkspace.Evidence.Intro"]</p>
+                            <p>@L["ArtifactWorkspace.Evidence.Note"]</p>
+                            <details><summary>@L["ArtifactWorkspace.Evidence.ViewLogs"]</summary><pre>@preview.Content</pre></details>
                         </article>
                     }
                     else
@@ -96,25 +98,25 @@
             </MudTabPanel>
             @if (!ReviewOnly)
             {
-            <MudTabPanel Text="Edit" Icon="@Icons.Material.Outlined.Edit">
-                <MudTextField @bind-Value="_draft" Label="Markdown" Variant="Variant.Outlined"
+            <MudTabPanel Text="@L["Common.Edit"]" Icon="@Icons.Material.Outlined.Edit">
+                <MudTextField @bind-Value="_draft" Label="@L["ArtifactWorkspace.MarkdownLabel"]" Variant="Variant.Outlined"
                               Lines="22" FullWidth="true" Immediate="true" />
                 <div class="artifact-workspace-actions">
-                    <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="SaveDraftAsync">Save draft</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SubmitAsync">@(IsRetainedEvidence ? "Save evidence" : "Submit for review")</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="SaveDraftAsync">@L["ArtifactWorkspace.SaveDraft"]</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="SubmitAsync">@(IsRetainedEvidence ? L["ArtifactWorkspace.SaveEvidence"] : L["ArtifactWorkspace.SubmitForReview"])</MudButton>
                 </div>
             </MudTabPanel>
             }
-            <MudTabPanel Text="History" Icon="@Icons.Material.Outlined.History">
+            <MudTabPanel Text="@L["ArtifactWorkspace.Tab.History"]" Icon="@Icons.Material.Outlined.History">
                 @if (detail.Revisions.Count == 0)
-                { <MudText Color="Color.Secondary" Class="pa-4">No earlier revisions. Saved changes will appear here.</MudText> }
+                { <MudText Color="Color.Secondary" Class="pa-4">@L["ArtifactWorkspace.NoRevisions"]</MudText> }
                 <MudList T="ArtifactRevisionResponse" Dense="true">
                     @foreach (var revision in detail.Revisions)
                     {
                         <MudListItem T="ArtifactRevisionResponse" Value="revision">
                             <div class="artifact-history-row">
-                                <strong>Revision @revision.Number</strong>
-                                <span>@revision.Status · @revision.CreatorDisplayName · @revision.CreatedAt.ToLocalTime().ToString("g")</span>
+                                <strong>@L.Format("ArtifactWorkspace.Revision", new { number = revision.Number })</strong>
+                                <span>@L.Format("ArtifactWorkspace.HistoryMeta", new { status = revision.Status, creator = revision.CreatorDisplayName, time = Time.Format(revision.CreatedAt, "g") })</span>
                             </div>
                         </MudListItem>
                     }
@@ -122,40 +124,40 @@
             </MudTabPanel>
             @if (!ReviewOnly)
             {
-            <MudTabPanel Text="Access" Icon="@Icons.Material.Outlined.Lock">
-                <MudText Typo="Typo.subtitle2">Location</MudText>
+            <MudTabPanel Text="@L["ArtifactWorkspace.Tab.Access"]" Icon="@Icons.Material.Outlined.Lock">
+                <MudText Typo="Typo.subtitle2">@L["ArtifactWorkspace.Location"]</MudText>
                 <div class="d-flex align-center gap-2 mb-3">
-                    <MudSelect T="Guid?" @bind-Value="_moveFolderId" Label="Folder" Variant="Variant.Outlined" Dense="true">
-                        <MudSelectItem T="Guid?" Value="@((Guid?)null)">Unfiled</MudSelectItem>
+                    <MudSelect T="Guid?" @bind-Value="_moveFolderId" Label="@L["ArtifactWorkspace.Folder"]" Variant="Variant.Outlined" Dense="true">
+                        <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["ArtifactWorkspace.Unfiled"]</MudSelectItem>
                         @foreach (var folder in _folders) { <MudSelectItem T="Guid?" Value="folder.Id">@folder.Name</MudSelectItem> }
                     </MudSelect>
-                    <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="MoveAsync">Move</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@_busy" OnClick="MoveAsync">@L["ArtifactWorkspace.Move"]</MudButton>
                 </div>
                 @foreach (var grant in detail.Grants.Where(x => x.RevokedAt is null))
                 {
                     <div class="artifact-access-row">
                         <strong>@grant.SubjectDisplayName</strong><span>@PermissionLabel(grant.Action)</span>
                         <MudIconButton Icon="@Icons.Material.Outlined.RemoveCircleOutline" Size="Size.Small"
-                                       Disabled="@_busy" OnClick="@(() => RevokeAsync(grant))" aria-label="Revoke access" />
+                                       Disabled="@_busy" OnClick="@(() => RevokeAsync(grant))" aria-label="@L["ArtifactWorkspace.RevokeAccess"]" />
                     </div>
                 }
                 @foreach (var request in detail.AccessRequests.Where(x => x.Status == "Pending"))
                 {
                     <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-                        @request.SubjectDisplayName requested @string.Join(", ", request.Actions): @request.Justification
+                        @L.Format("ArtifactWorkspace.AccessRequested", new { subject = request.SubjectDisplayName, actions = string.Join(", ", request.Actions), justification = request.Justification })
                     </MudAlert>
                 }
                 <MudDivider Class="my-3" />
-                <MudText Typo="Typo.subtitle2">Share this document</MudText>
-                <MudSelect T="string" @bind-Value="_shareSubjectKind" Label="Share with" Variant="Variant.Outlined" Class="mt-2">
-                    <MudSelectItem T="string" Value="@("OrganizationUser")">Human employee</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("AgentInstallation")">Agent installation</MudSelectItem>
+                <MudText Typo="Typo.subtitle2">@L["ArtifactWorkspace.ShareTitle"]</MudText>
+                <MudSelect T="string" @bind-Value="_shareSubjectKind" Label="@L["ArtifactWorkspace.ShareWith"]" Variant="Variant.Outlined" Class="mt-2">
+                    <MudSelectItem T="string" Value="@("OrganizationUser")">@L["ArtifactWorkspace.HumanEmployee"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("AgentInstallation")">@L["ArtifactWorkspace.AgentInstallation"]</MudSelectItem>
                 </MudSelect>
-                <MudTextField @bind-Value="_shareSubjectId" Label="Employee or installation ID" Variant="Variant.Outlined" Class="mt-2" />
-                <MudSelect T="string" @bind-Value="_shareAction" Label="Permission" Variant="Variant.Outlined" Class="mt-2">
+                <MudTextField @bind-Value="_shareSubjectId" Label="@L["ArtifactWorkspace.SubjectIdLabel"]" Variant="Variant.Outlined" Class="mt-2" />
+                <MudSelect T="string" @bind-Value="_shareAction" Label="@L["ArtifactWorkspace.PermissionLabel"]" Variant="Variant.Outlined" Class="mt-2">
                     @foreach (var action in ArtifactActions.FileActions.Order()) { <MudSelectItem T="string" Value="action">@PermissionLabel(action)</MudSelectItem> }
                 </MudSelect>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ShareAsync" Class="mt-2">Grant access</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ShareAsync" Class="mt-2">@L["ArtifactWorkspace.GrantAccess"]</MudButton>
             </MudTabPanel>
             }
         </MudTabs>
@@ -164,17 +166,17 @@
         {
             <footer class="artifact-decision-bar">
                 <div class="artifact-decision-copy">
-                    <span>REVIEW DECISION</span>
-                    <strong>Decision for submitted revision @(PreviewRevision!.Number).</strong>
-                    <p>Approving makes this the reviewed version your team can use. Requesting changes sends it back to the author for revision.</p>
+                    <span>@L["ArtifactWorkspace.ReviewDecision"]</span>
+                    <strong>@L.Format("ArtifactWorkspace.DecisionFor", new { number = PreviewRevision!.Number })</strong>
+                    <p>@L["ArtifactWorkspace.DecisionHelp"]</p>
                 </div>
                 <div class="artifact-decision-controls">
-                    <MudTextField @bind-Value="_decisionComment" Label="Decision comment" Placeholder="Optional for approval; required when requesting changes" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Disabled="_busy" />
+                    <MudTextField @bind-Value="_decisionComment" Label="@L["ArtifactWorkspace.DecisionComment"]" Placeholder="@L["ArtifactWorkspace.DecisionCommentPlaceholder"]" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Disabled="_busy" />
                     <div class="artifact-decision-buttons">
                         <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Outlined.Check"
-                                   Disabled="@_busy" OnClick="AcceptAsync">Approve revision @(PreviewRevision!.Number)</MudButton>
+                                   Disabled="@_busy" OnClick="AcceptAsync">@L.Format("ArtifactWorkspace.ApproveRevision", new { number = PreviewRevision!.Number })</MudButton>
                         <MudButton Color="Color.Warning" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.RateReview"
-                                   Disabled="@_busy" OnClick="RequestChangesAsync">Request changes</MudButton>
+                                   Disabled="@_busy" OnClick="RequestChangesAsync">@L["ArtifactWorkspace.RequestChanges"]</MudButton>
                     </div>
                 </div>
             </footer>
@@ -183,10 +185,10 @@
 </aside>
 
 @code {
-    private static string PermissionLabel(string action) => action switch
+    private string PermissionLabel(string action) => action switch
     {
-        ArtifactActions.Read => "View document", ArtifactActions.Revise => "Edit document",
-        ArtifactActions.Submit => "Submit for review", ArtifactActions.Decide => "Review and approve", _ => action
+        ArtifactActions.Read => L["ArtifactWorkspace.Permission.View"], ArtifactActions.Revise => L["ArtifactWorkspace.Permission.Edit"],
+        ArtifactActions.Submit => L["ArtifactWorkspace.SubmitForReview"], ArtifactActions.Decide => L["ArtifactWorkspace.Permission.Decide"], _ => action
     };
     [Parameter, EditorRequired] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public Guid ArtifactId { get; set; }
@@ -274,7 +276,7 @@
                 _folders.Clear(); if (folders is not null) _folders.AddRange(folders);
             }
         }
-        catch (Exception) { if (version == _loadVersion) { _detail = null; _error = "The document could not be loaded. Close it and try again."; } }
+        catch (Exception) { if (version == _loadVersion) { _detail = null; _error = L["ArtifactWorkspace.Error.LoadFailed"]; } }
         finally { if (version == _loadVersion) _loading = false; }
     }
 
@@ -291,9 +293,9 @@
         try
         {
             var response = await Http.PostAsJsonAsync($"api/organizations/{OrganizationId:D}/documents/{ArtifactId:D}/access-requests",
-                new RequestArtifactAccessRequest([ArtifactActions.Read], "I need access to this linked document.", $"ui-access:{ArtifactId:N}"));
+                new RequestArtifactAccessRequest([ArtifactActions.Read], L["ArtifactWorkspace.AccessRequestJustification"], $"ui-access:{ArtifactId:N}"));
             if (!response.IsSuccessStatusCode) _error = await response.Content.ReadAsStringAsync();
-            else _error = "Access request submitted for an Owner or Manager to review.";
+            else _error = L["ArtifactWorkspace.AccessRequestSubmitted"];
         }
         catch (Exception exception) { _error = exception.Message; }
         finally { _busy = false; }
@@ -314,7 +316,7 @@
     {
         if (_busy || !CanReviewDisplayedRevision || PreviewRevision is not { } revision) return;
         if (decision == "request-revision" && string.IsNullOrWhiteSpace(_decisionComment))
-        { _error = "Feedback is required when requesting a revision."; return; }
+        { _error = L["ArtifactWorkspace.Error.FeedbackRequired"]; return; }
         var revisionId = revision.Id;
         var organization = OrganizationId;
         var artifact = ArtifactId;
@@ -325,7 +327,7 @@
             if (_disposed || organization != OrganizationId || artifact != ArtifactId) return;
             if (!CanReviewDisplayedRevision || PreviewRevision?.Id != revisionId)
             {
-                _error = "This revision is no longer awaiting your decision. Review its current status before continuing.";
+                _error = L["ArtifactWorkspace.Error.NoLongerAwaiting"];
                 if (_detail is not null) await Changed.InvokeAsync(_detail);
                 return;
             }
@@ -346,7 +348,7 @@
 
     private async Task ShareAsync()
     {
-        if (!Guid.TryParse(_shareSubjectId, out var subjectId)) { _error = "Enter a valid employee or installation ID."; return; }
+        if (!Guid.TryParse(_shareSubjectId, out var subjectId)) { _error = L["ArtifactWorkspace.Error.InvalidSubjectId"]; return; }
         await MutateAsync(Http.PutAsJsonAsync($"api/organizations/{OrganizationId:D}/documents/{ArtifactId:D}/grants",
             new UpsertArtifactGrantRequest(_shareSubjectKind, subjectId, [_shareAction], null,
                 $"ui-share:{ArtifactId:N}:{subjectId:N}:{_shareAction}")));
@@ -375,10 +377,10 @@
             {
                 _error = reviewDecision ? response.StatusCode switch
                 {
-                    System.Net.HttpStatusCode.Forbidden => "You no longer have permission to decide this revision.",
-                    System.Net.HttpStatusCode.NotFound => "This document or revision is no longer available.",
-                    System.Net.HttpStatusCode.Conflict => "This revision changed or was already decided. Close and reopen the document to review its current status.",
-                    _ => "The decision could not be saved. Try again or reopen the document to check its status."
+                    System.Net.HttpStatusCode.Forbidden => L["ArtifactWorkspace.Error.DecisionForbidden"],
+                    System.Net.HttpStatusCode.NotFound => L["ArtifactWorkspace.Error.DecisionNotFound"],
+                    System.Net.HttpStatusCode.Conflict => L["ArtifactWorkspace.Error.DecisionConflict"],
+                    _ => L["ArtifactWorkspace.Error.DecisionFailed"]
                 } : await response.Content.ReadAsStringAsync();
                 return;
             }
@@ -407,8 +409,7 @@
     }
     private static Color StatusColor(string status) => status switch
     { "Approved" => Color.Success, "InReview" => Color.Info, "ChangesRequested" => Color.Warning, "Archived" => Color.Default, _ => Color.Primary };
-    private static string StatusLabel(string status) => status switch
-    { "InReview" => "In review", "ChangesRequested" => "Changes requested", _ => status };
+    private string StatusLabel(string status) => L.Has("ArtifactWorkspace.Status." + status) ? L["ArtifactWorkspace.Status." + status] : status;
     private static string FormatDocumentType(string documentType) => documentType
         .Replace('-', ' ')
         .Replace('.', ' ');

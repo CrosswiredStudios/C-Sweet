@@ -3,37 +3,38 @@
 @using CSweet.Contracts.Core
 @inject HttpClient Http
 @inject NavigationManager Navigation
-<PageTitle>@(ProjectId.HasValue ? "Project members" : "New project") - C-Sweet</PageTitle>
-<MudText Typo="Typo.h3">@(ProjectId.HasValue ? "Project members" : "New project")</MudText>
-<MudText Class="mb-4">Choose a manager and the people working on this project. Project assignments do not change reporting relationships.</MudText>
+@inject IAppLocalizer L
+<PageTitle>@(ProjectId.HasValue ? L["ProjectSetup.MembersPageTitle"] : L["ProjectSetup.NewPageTitle"])</PageTitle>
+<MudText Typo="Typo.h3">@(ProjectId.HasValue ? L["ProjectSetup.MembersTitle"] : L["ProjectSetup.NewTitle"])</MudText>
+<MudText Class="mb-4">@L["ProjectSetup.Lead"]</MudText>
 @if (_error is not null) { <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert> }
 @if (_options is null) { <MudProgressLinear Indeterminate="true" /> }
 else
 {
-    @if (!ProjectId.HasValue && !_options.CanCreate) { <MudAlert Severity="Severity.Info">Ask an organization owner or manager to create this project.</MudAlert> }
+    @if (!ProjectId.HasValue && !_options.CanCreate) { <MudAlert Severity="Severity.Info">@L["ProjectSetup.CannotCreate"]</MudAlert> }
     <MudPaper Outlined="true" Class="pa-5" Style="max-width: 760px">
-        <MudTextField @bind-Value="_name" Label="Project name" Required="true" MaxLength="160" Disabled="ProjectId.HasValue" />
-        <MudTextField @bind-Value="_goal" Label="Goal" Required="true" Lines="3" MaxLength="6000" Disabled="ProjectId.HasValue" />
-        <MudSelect T="Guid" @bind-Value="_manager" Label="Manager" Required="true">
+        <MudTextField @bind-Value="_name" Label="@L["ProjectSetup.NameLabel"]" Required="true" MaxLength="160" Disabled="ProjectId.HasValue" />
+        <MudTextField @bind-Value="_goal" Label="@L["ProjectSetup.GoalLabel"]" Required="true" Lines="3" MaxLength="6000" Disabled="ProjectId.HasValue" />
+        <MudSelect T="Guid" @bind-Value="_manager" Label="@L["ProjectSetup.ManagerLabel"]" Required="true">
             @foreach (var person in _options.People.Where(x => x.CanManageProject || ProjectId.HasValue && x.Id == _existingManager)) { <MudSelectItem Value="person.Id">@person.Name (@person.EmployeeType)</MudSelectItem> }
         </MudSelect>
-        <MudSelect T="Guid?" @bind-Value="_team" Label="Team" Disabled="ProjectId.HasValue" HelperText="Existing agent teams are reused. A new team is created only when selected agents have never belonged to a team.">
-            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Reuse the agents' team, or create a team if needed</MudSelectItem>
+        <MudSelect T="Guid?" @bind-Value="_team" Label="@L["ProjectSetup.TeamLabel"]" Disabled="ProjectId.HasValue" HelperText="@L["ProjectSetup.TeamHelp"]">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["ProjectSetup.TeamDefault"]</MudSelectItem>
             @foreach (var team in _options.Teams) { <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem> }
         </MudSelect>
-        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_members" ToStringFunc="MemberName" Label="Project members" Required="true" HelperText="Only selected people will participate in this project; the manager is included automatically.">
+        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_members" ToStringFunc="MemberName" Label="@L["ProjectSetup.MembersLabel"]" Required="true" HelperText="@L["ProjectSetup.MembersHelp"]">
             @foreach (var person in _options.People) { <MudSelectItem Value="person.Id">@person.Name (@person.EmployeeType)</MudSelectItem> }
         </MudSelect>
         @if (!ProjectId.HasValue)
         {
-            <MudSelect T="Guid?" @bind-Value="_repository" Label="Existing repository (optional)">
-                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Create a repository when development starts</MudSelectItem>
+            <MudSelect T="Guid?" @bind-Value="_repository" Label="@L["ProjectSetup.RepositoryLabel"]">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["ProjectSetup.RepositoryDefault"]</MudSelectItem>
                 @foreach (var repo in _options.Repositories) { <MudSelectItem T="Guid?" Value="@((Guid?)repo.Id)">@repo.Name</MudSelectItem> }
             </MudSelect>
-            <MudText Typo="Typo.body2" Class="my-4">This software prototype project supports a human manager and developer. QA and an architect are optional. Tasks still go through Testing and merge review.</MudText>
+            <MudText Typo="Typo.body2" Class="my-4">@L["ProjectSetup.PrototypeNote"]</MudText>
         }
-        <MudButton OnClick="SaveAsync" Disabled="@(_saving || !_loaded || (!ProjectId.HasValue && !_options.CanCreate))" Color="Color.Primary" Variant="Variant.Filled" Class="mt-4">@(ProjectId.HasValue ? "Save members" : "Create project")</MudButton>
-        <MudButton Href="@(ProjectId.HasValue ? $"/organizations/{OrganizationId}/projects/{ProjectId}" : $"/organizations/{OrganizationId}/projects")" Class="mt-4 ml-2">Cancel</MudButton>
+        <MudButton OnClick="SaveAsync" Disabled="@(_saving || !_loaded || (!ProjectId.HasValue && !_options.CanCreate))" Color="Color.Primary" Variant="Variant.Filled" Class="mt-4">@(ProjectId.HasValue ? L["ProjectSetup.SaveMembers"] : L["ProjectSetup.CreateProject"])</MudButton>
+        <MudButton Href="@(ProjectId.HasValue ? $"/organizations/{OrganizationId}/projects/{ProjectId}" : $"/organizations/{OrganizationId}/projects")" Class="mt-4 ml-2">@L["Common.Cancel"]</MudButton>
     </MudPaper>
 }
 @code {
@@ -41,7 +42,7 @@ else
     [Parameter] public Guid? ProjectId { get; set; }
     [SupplyParameterFromQuery(Name = "intake")] public Guid? IntakeId { get; set; }
     private ProjectSetupOptions? _options;
-    private string MemberName(Guid id) => _options?.People.FirstOrDefault(x => x.Id == id)?.Name ?? "Unavailable member";
+    private string MemberName(Guid id) => _options?.People.FirstOrDefault(x => x.Id == id)?.Name ?? L["ProjectSetup.UnavailableMember"];
     private string _name = "", _goal = "";
     private Guid _manager;
     private Guid? _existingManager;
@@ -68,8 +69,8 @@ else
             {
                 var draft = (await Http.GetFromJsonAsync<ProjectSetupDraft>($"{Api}/intakes/{IntakeId}"))!;
                 _intakeRevision = draft.Revision;
-                if (draft.Status is "Cancelled" or "Started") throw new InvalidOperationException("This request is no longer awaiting setup. Return to the developer's conversation for its current status.");
-                if (draft.ProjectId != ProjectId) throw new InvalidOperationException("This setup link is out of date. Open the latest link from the developer.");
+                if (draft.Status is "Cancelled" or "Started") throw new InvalidOperationException(L["ProjectSetup.Error.IntakeClosed"]);
+                if (draft.ProjectId != ProjectId) throw new InvalidOperationException(L["ProjectSetup.Error.LinkOutOfDate"]);
                 if (!ProjectId.HasValue) { _name = draft.Name; _goal = draft.Goal; _manager = draft.ManagerId; _team = draft.TeamId; }
                 _members = _members.Append(draft.DeveloperId).Distinct().ToArray();
             }
@@ -83,7 +84,7 @@ else
         try
         {
             if (_manager == Guid.Empty || !_members.Any() || (!ProjectId.HasValue && (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_goal))))
-                throw new InvalidOperationException("Enter a name and goal, then select a manager and at least one member.");
+                throw new InvalidOperationException(L["ProjectSetup.Error.Incomplete"]);
             using var response = ProjectId.HasValue
                 ? await Http.PutAsJsonAsync($"{Api}/projects/{ProjectId}/members", new UpdateProjectMembersRequest(_manager, _members.ToArray(), _revision, IntakeId, IntakeId.HasValue ? _intakeRevision : null))
                 : await Http.PostAsJsonAsync($"{Api}/projects", new CreateProjectRequest(_name, _goal, _manager, _team, _members.ToArray(), _repository, IntakeId, IntakeId.HasValue ? _intakeRevision : null, _key));
@@ -91,7 +92,7 @@ else
             {
                 var error = await response.Content.ReadAsStringAsync();
                 try { using var json = System.Text.Json.JsonDocument.Parse(error); error = json.RootElement.GetProperty("error").GetString() ?? error; } catch (Exception e) when (e is System.Text.Json.JsonException or KeyNotFoundException) { }
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "You do not have permission to make this change." : error);
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? L["ProjectSetup.Error.Forbidden"] : error);
             }
             var result = (await response.Content.ReadFromJsonAsync<ProjectSetupResult>())!;
             Navigation.NavigateTo($"/organizations/{OrganizationId}/projects/{result.ProjectId}");

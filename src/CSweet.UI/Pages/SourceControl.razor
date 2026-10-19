@@ -4,21 +4,22 @@
 @using CSweet.Contracts.Core
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<PageTitle>Source Control</PageTitle>
+<PageTitle>@L["SourceControl.PageTitle"]</PageTitle>
 
 <MudContainer @key="OrganizationId" MaxWidth="MaxWidth.False" Class="aurora-page business-workspace source-workspace">
     <div class="source-surface @(RepositoryId is null ? null : "repository-open")">
     <div class="source-header">
         <div>
             <MudText Typo="Typo.overline">Code &amp; collaboration</MudText>
-            <MudText Typo="Typo.h3">Source control</MudText>
-            <MudText Class="source-description">Your repositories, the latest work, and who has access.</MudText>
+            <MudText Typo="Typo.h3">@L["SourceControl.SourceControl"]</MudText>
+            <MudText Class="source-description">@L["SourceControl.YourRepositoriesTheLatestWork"]</MudText>
         </div>
         @if (_dashboard is { CanManageSourceControl: true })
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
-                       Disabled="_loading" OnClick="BeginCreate">Create repository</MudButton>
+                       Disabled="_loading" OnClick="BeginCreate">@L["SourceControl.CreateRepository"]</MudButton>
         }
     </div>
     @if (!string.IsNullOrWhiteSpace(_error))
@@ -27,21 +28,21 @@
     }
     @if (_loading)
     {
-        <MudProgressLinear Indeterminate="true" aria-label="Loading source control" />
+        <MudProgressLinear Indeterminate="true" aria-label="@L["SourceControl.LoadingSourceControl"]" />
     }
     else if (_dashboard is null)
     {
-        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Try again</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">@L["SourceControl.TryAgain"]</MudButton>
     }
     else
     {
-        <nav class="source-tabs" aria-label="Source control sections">
-            <button type="button" class="@TabClass(WorkspaceSection.Repositories)" aria-current="@CurrentTab(WorkspaceSection.Repositories)" @onclick="() => SelectSection(WorkspaceSection.Repositories)">Repositories</button>
-            <button type="button" class="@TabClass(WorkspaceSection.Connections)" aria-current="@CurrentTab(WorkspaceSection.Connections)" @onclick="() => SelectSection(WorkspaceSection.Connections)">Connections</button>
+        <nav class="source-tabs" aria-label="@L["SourceControl.SourceControlSections"]">
+            <button type="button" class="@TabClass(WorkspaceSection.Repositories)" aria-current="@CurrentTab(WorkspaceSection.Repositories)" @onclick="() => SelectSection(WorkspaceSection.Repositories)">@L["SourceControl.Repositories"]</button>
+            <button type="button" class="@TabClass(WorkspaceSection.Connections)" aria-current="@CurrentTab(WorkspaceSection.Connections)" @onclick="() => SelectSection(WorkspaceSection.Connections)">@L["SourceControl.Connections"]</button>
             @if (_dashboard.CanManageSourceControl)
             {
-                <button type="button" class="@TabClass(WorkspaceSection.Activity)" aria-current="@CurrentTab(WorkspaceSection.Activity)" @onclick="() => SelectSection(WorkspaceSection.Activity)">Activity</button>
-                <button type="button" class="@TabClass(WorkspaceSection.Settings)" aria-current="@CurrentTab(WorkspaceSection.Settings)" @onclick="() => SelectSection(WorkspaceSection.Settings)">Settings</button>
+                <button type="button" class="@TabClass(WorkspaceSection.Activity)" aria-current="@CurrentTab(WorkspaceSection.Activity)" @onclick="() => SelectSection(WorkspaceSection.Activity)">@L["SourceControl.Activity"]</button>
+                <button type="button" class="@TabClass(WorkspaceSection.Settings)" aria-current="@CurrentTab(WorkspaceSection.Settings)" @onclick="() => SelectSection(WorkspaceSection.Settings)">@L["SourceControl.Settings"]</button>
             }
         </nav>
         @if (_section == WorkspaceSection.Repositories && (_dashboard.ActiveOnboarding is not null || _dashboard.Connections.Any(c => c.Status is "AttentionRequired" or "Disconnected")))
@@ -49,7 +50,7 @@
             <div class="source-attention">
                 <MudIcon Icon="@Icons.Material.Outlined.Info" Color="Color.Warning" />
                 <span>@(_dashboard.ActiveOnboarding is not null ? "GitHub setup is not finished." : "A repository connection needs attention.")</span>
-                <MudButton OnClick="() => SelectSection(WorkspaceSection.Connections)">View connections</MudButton>
+                <MudButton OnClick="() => SelectSection(WorkspaceSection.Connections)">@L["SourceControl.ViewConnections"]</MudButton>
             </div>
         }
         <div hidden="@(_section != WorkspaceSection.Repositories)">
@@ -60,8 +61,8 @@
         </div>
         @if (_section == WorkspaceSection.Connections)
         {
-            <section class="source-section" aria-label="Repository providers">
-                <h2>Repository providers</h2>
+            <section class="source-section" aria-label="@L["SourceControl.RepositoryProviders"]">
+                <h2>@L["SourceControl.RepositoryProviders"]</h2>
                 <div class="source-provider-list">
                     @foreach (var connection in _dashboard.Connections)
                     {
@@ -90,7 +91,7 @@
                         </div>
                         @if (_dashboard.CanManageSourceControl)
                         {
-                            <MudButton Variant="Variant.Outlined" OnClick="OpenGitHubWizard">Connect GitHub</MudButton>
+                            <MudButton Variant="Variant.Outlined" OnClick="OpenGitHubWizard">@L["SourceControl.ConnectGitHub"]</MudButton>
                         }
                     </div>
                 </div>
@@ -99,7 +100,7 @@
         @if (_dashboard.CanManageSourceControl)
         {
             <MudDialog @bind-Visible="_showGitHubSetup" Options="GitHubDialogOptions">
-                <TitleContent><MudText Typo="Typo.h6">Connect GitHub</MudText></TitleContent>
+                <TitleContent><MudText Typo="Typo.h6">@L["SourceControl.ConnectGitHub"]</MudText></TitleContent>
                 <DialogContent>
                     <MudStack Spacing="3" aria-live="polite">
                         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
@@ -117,14 +118,14 @@
                             @if (_availableProjects.Count == 0 && !_loadingSetup)
                             {
                                 <MudAlert Severity="Severity.Info">@(setup.CurrentStep == "choose-projects" ? "No repositories are available. Add repositories to the app on GitHub, then retry." : "Choose a template repository on GitHub before enabling creation.")</MudAlert>
-                                <MudButton Disabled="_loadingSetup" OnClick="LoadAsync">Retry</MudButton>
+                                <MudButton Disabled="_loadingSetup" OnClick="LoadAsync">@L["Common.Retry"]</MudButton>
                             }
                             else
                             {
                                 <MudText Typo="Typo.body2">@(setup.CurrentStep == "choose-projects" ? (_availableProjects.Count > 500 ? "Choose repositories to connect to this business." : "The repositories you allowed on GitHub are selected. Click Done to connect them.") : "Choose a template and team for new repositories.")</MudText>
                                 @if (setup.CurrentStep == "choose-projects" && _availableProjects.Count > 500)
                                 {
-                                    <MudAlert Severity="Severity.Info">Choose up to 500 repositories for this business.</MudAlert>
+                                    <MudAlert Severity="Severity.Info">@L["SourceControl.ChooseUpTo500Repositories"]</MudAlert>
                                 }
                                 <MudSelect T="string" Label="@(setup.CurrentStep == "choose-projects" ? "Repositories" : "Templates")"
                                            MultiSelection="true" @bind-SelectedValues="_selectedProjectIds" ToStringFunc="RepositoryName" Disabled="_savingSetup">
@@ -135,37 +136,37 @@
                                 </MudSelect>
                                 @if (setup.CurrentStep == "configure-managed-projects")
                                 {
-                                    <MudSelect T="Guid" Label="Team" @bind-Value="_defaultTeamId" Disabled="_savingSetup">
+                                    <MudSelect T="Guid" Label="@L["SourceControl.Team"]" @bind-Value="_defaultTeamId" Disabled="_savingSetup">
                                         @foreach (var team in _teams)
                                         {
                                             <MudSelectItem T="Guid" Value="@team.Id">@team.Name</MudSelectItem>
                                         }
                                     </MudSelect>
                                     <MudExpansionPanels Elevation="0">
-                                        <MudExpansionPanel Text="Creation options">
-                                            <MudTextField @bind-Value="_namePrefix" Label="Repository name prefix" Disabled="_savingSetup" />
-                                            <MudNumericField T="int" @bind-Value="_maximumProjects" Label="Repository limit" Min="1" Max="500" Disabled="_savingSetup" />
-                                            <MudSwitch T="bool" @bind-Value="_managerApprovalRequired" Disabled="_savingSetup">Require manager approval</MudSwitch>
+                                        <MudExpansionPanel Text="@L["SourceControl.CreationOptions"]">
+                                            <MudTextField @bind-Value="_namePrefix" Label="@L["SourceControl.RepositoryNamePrefix"]" Disabled="_savingSetup" />
+                                            <MudNumericField T="int" @bind-Value="_maximumProjects" Label="@L["SourceControl.RepositoryLimit"]" Min="1" Max="500" Disabled="_savingSetup" />
+                                            <MudSwitch T="bool" @bind-Value="_managerApprovalRequired" Disabled="_savingSetup">@L["SourceControl.RequireManagerApproval"]</MudSwitch>
                                         </MudExpansionPanel>
                                     </MudExpansionPanels>
                                 }
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                            Disabled="@(_savingSetup || _loadingSetup || _selectedProjectIds.Count == 0 || _selectedProjectIds.Count > (setup.CurrentStep == "configure-managed-projects" ? 20 : 500) || (setup.CurrentStep == "configure-managed-projects" && _defaultTeamId == Guid.Empty))"
-                                           OnClick="@(() => SaveProjectSetupAsync(connectionId, setup.CurrentStep))">Done</MudButton>
+                                           OnClick="@(() => SaveProjectSetupAsync(connectionId, setup.CurrentStep))">@L["Common.Done"]</MudButton>
                             }
                         }
                         else
                         {
-                            <MudText Typo="Typo.h5">Connect your GitHub account</MudText>
-                            <MudText>Choose your account and the repositories C-Sweet can work with on GitHub.</MudText>
-                            <MudCheckBox T="bool" @bind-Value="_allowRepositoryCreation" Label="Allow C-Sweet to create repositories" Disabled="_starting" />
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">Optional. We’ll guide you through the required GitHub approvals.</MudText>
+                            <MudText Typo="Typo.h5">@L["SourceControl.ConnectYourGitHubAccount"]</MudText>
+                            <MudText>@L["SourceControl.ChooseYourAccountAndThe"]</MudText>
+                            <MudCheckBox T="bool" @bind-Value="_allowRepositoryCreation" Label="@L["SourceControl.AllowCSweetToCreate"]" Disabled="_starting" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@L["SourceControl.OptionalWeLlGuideYou"]</MudText>
                             @if (!_dashboard.PlatformReadiness.ExistingGitHubAvailable)
                             {
-                                <MudText Typo="Typo.body2">A C-Sweet administrator must complete the one-time GitHub setup.</MudText>
+                                <MudText Typo="Typo.body2">@L["SourceControl.ACSweetAdministratorMust"]</MudText>
                             }
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Custom.Brands.GitHub"
-                                       Disabled="_starting" OnClick="ContinueConnectionAsync">Continue to GitHub</MudButton>
+                                       Disabled="_starting" OnClick="ContinueConnectionAsync">@L["SourceControl.ContinueToGitHub"]</MudButton>
                         }
                     </MudStack>
                 </DialogContent>
@@ -180,10 +181,10 @@
         }
         @if (_section == WorkspaceSection.Settings && _dashboard.CanManageSourceControl)
         {
-            <section class="source-section source-settings" aria-label="Repository settings">
-                <h2>Repository defaults</h2>
+            <section class="source-section source-settings" aria-label="@L["SourceControl.RepositorySettings"]">
+                <h2>@L["SourceControl.RepositoryDefaults"]</h2>
                 <div class="source-setting-row">
-                    <div class="source-row-copy"><h3>New repository defaults</h3><p>Provider and template for new repositories</p></div>
+                    <div class="source-row-copy"><h3>@L["SourceControl.NewRepositoryDefaults"]</h3><p>@L["SourceControl.ProviderAndTemplateForNew"]</p></div>
                     <MudButton Variant="Variant.Outlined" OnClick="() => ToggleSetting(RepositorySetting.Defaults)">@(_setting == RepositorySetting.Defaults ? "Close" : "Edit")</MudButton>
                 </div>
                 @if (_setting == RepositorySetting.Defaults)
@@ -191,7 +192,7 @@
                     <div class="source-settings-editor"><BusinessSourceControlDefaultsEditor OrganizationId="OrganizationId" /></div>
                 }
                 <div class="source-setting-row">
-                    <div class="source-row-copy"><h3>Creation policy</h3><p>Approvals, naming, team defaults, and limits</p></div>
+                    <div class="source-row-copy"><h3>@L["SourceControl.CreationPolicy"]</h3><p>@L["SourceControl.ApprovalsNamingTeamDefaultsAnd"]</p></div>
                     <MudButton Variant="Variant.Outlined" OnClick="() => ToggleSetting(RepositorySetting.Creation)">@(_setting == RepositorySetting.Creation ? "Close" : "View")</MudButton>
                 </div>
                 @if (_setting == RepositorySetting.Creation)
@@ -199,7 +200,7 @@
                     <div class="source-settings-editor"><InternalProvisioningSettings OrganizationId="OrganizationId" Expanded="true" /></div>
                 }
                 <div class="source-setting-row">
-                    <div class="source-row-copy"><h3>Backups</h3><p>Schedules, retained copies, and restore</p></div>
+                    <div class="source-row-copy"><h3>@L["SourceControl.Backups"]</h3><p>@L["SourceControl.SchedulesRetainedCopiesAndRestore"]</p></div>
                     <MudButton Variant="Variant.Outlined" OnClick="() => ToggleSetting(RepositorySetting.Backups)">@(_setting == RepositorySetting.Backups ? "Close" : "View")</MudButton>
                 </div>
                 @if (_setting == RepositorySetting.Backups)
@@ -209,8 +210,8 @@
             </section>
         }
         <footer class="source-footer">
-            <span>Private repositories for this business</span>
-            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+            <span>@L["SourceControl.PrivateRepositoriesForThisBusiness"]</span>
+            <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="LoadAsync">@L["Common.Refresh"]</MudButton>
         </footer>
     }
     </div>
@@ -350,7 +351,7 @@
         catch (Exception)
         {
             if (version == _loadVersion && business == OrganizationId)
-                _error = "Repositories could not be loaded. Retry when GitHub is available.";
+                _error = L["SourceControl.RepositoriesCouldNotBeLoaded"];
         }
         finally
         {

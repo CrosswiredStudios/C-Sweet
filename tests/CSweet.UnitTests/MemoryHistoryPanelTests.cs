@@ -45,7 +45,7 @@ public sealed class MemoryHistoryPanelTests
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static MemoryHistoryPanel Panel(HttpClient http)
     {
-        var panel = new MemoryHistoryPanel();
+        var panel = TestLocalization.Inject(new MemoryHistoryPanel());
         typeof(MemoryHistoryPanel).GetProperty("Http", Members)!.SetValue(panel, http);
         typeof(MemoryHistoryPanel).GetProperty("RecordId")!.SetValue(panel, Guid.NewGuid());
         typeof(MemoryHistoryPanel).GetProperty("Kind")!.SetValue(panel, "Claim");

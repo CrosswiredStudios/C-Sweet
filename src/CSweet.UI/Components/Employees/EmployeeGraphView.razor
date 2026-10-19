@@ -1,7 +1,8 @@
-<section class="employee-graph-view" aria-label="Employee reporting graph">
+@inject IAppLocalizer L
+<section class="employee-graph-view" aria-label="@L["EmployeeGraphView.EmployeeReportingGraph"]">
     <div class="graph-toolbar">
-        <span>Organization <small>@Graph.Nodes.Count of @Employees.Count people</small></span>
-        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ExpandAll" StartIcon="@Icons.Material.Outlined.UnfoldMore" Disabled="@(_collapsed.Count == 0)">Expand all</MudButton>
+        <span>@L["EmployeeGraphView.Organization"] <small>@Graph.Nodes.Count of @Employees.Count people</small></span>
+        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ExpandAll" StartIcon="@Icons.Material.Outlined.UnfoldMore" Disabled="@(_collapsed.Count == 0)">@L["EmployeeGraphView.ExpandAll"]</MudButton>
     </div>
     <EmployeeGraphCanvas Graph="Graph" CollapsedIds="_collapsed" BranchToggled="ToggleBranch" />
 </section>

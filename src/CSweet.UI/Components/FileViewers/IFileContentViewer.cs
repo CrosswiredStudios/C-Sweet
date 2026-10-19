@@ -20,9 +20,9 @@ public interface IFileContentViewer
     /// <summary>Whether this viewer offers a rendered preview distinct from the raw source.</summary>
     bool SupportsPreview { get; }
 
-    /// <summary>Label for the preview toggle option.</summary>
+    /// <summary>Resource key of the label for the preview toggle option (resolved with <c>IAppLocalizer</c>).</summary>
     string PreviewLabel { get; }
 
-    /// <summary>Label for the raw-source toggle option.</summary>
+    /// <summary>Resource key of the label for the raw-source toggle option (resolved with <c>IAppLocalizer</c>).</summary>
     string RawLabel { get; }
 }

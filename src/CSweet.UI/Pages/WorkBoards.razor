@@ -27,11 +27,12 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
 @if (!Embedded)
 {
-    <PageTitle>Boards - Projects - C-Sweet</PageTitle>
-    <MudButton Href="@($"/organizations/{OrganizationId:D}/projects?view=boards")" StartIcon="@Icons.Material.Outlined.ArrowBack">Projects</MudButton>
+    <PageTitle>@L["WorkBoards.PageTitle"]</PageTitle>
+    <MudButton Href="@($"/organizations/{OrganizationId:D}/projects?view=boards")" StartIcon="@Icons.Material.Outlined.ArrowBack">@L["WorkBoards.Projects"]</MudButton>
 }
 
 @if (!BoardId.HasValue)
@@ -42,38 +43,38 @@
 <MudPaper Elevation="0" Class="surface-panel">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Projects workspace</MudText>
-            <MudText Typo="Typo.h4">All boards</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["WorkBoards.ProjectsWorkspace"]</MudText>
+            <MudText Typo="Typo.h4">@L["WorkBoards.AllBoards"]</MudText>
             <MudText Color="Color.Secondary">
-                Find and manage the operational boards you are granted to access.
+                @L["WorkBoards.FindAndManageTheOperational"]
             </MudText>
         </div>
         @if (_directory?.CanCreateBoard == true)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary"
                        StartIcon="@Icons.Material.Outlined.Add" OnClick="OpenCreate">
-                New board
+                @L["WorkBoards.NewBoard"]
             </MudButton>
         }
     </MudStack>
 
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-5" Style="flex-wrap: wrap;">
-        <MudTextField T="string" Label="Search boards" @bind-Value="_search"
+        <MudTextField T="string" Label="@L["WorkBoards.SearchBoards"]" @bind-Value="_search"
                       Variant="Variant.Outlined" Adornment="Adornment.End"
                       AdornmentIcon="@Icons.Material.Outlined.Search"
                       OnKeyDown="SearchKeyDown" Immediate="true" />
         <MudSwitch T="bool" Value="_favoritesOnly" Color="Color.Primary"
-                   ValueChanged="SetFavoritesOnlyAsync">Favorites only</MudSwitch>
+                   ValueChanged="SetFavoritesOnlyAsync">@L["WorkBoards.FavoritesOnly"]</MudSwitch>
         <MudSwitch T="bool" Value="_includeArchived" Color="Color.Primary"
-                   ValueChanged="SetIncludeArchivedAsync">Show archived</MudSwitch>
+                   ValueChanged="SetIncludeArchivedAsync">@L["WorkBoards.ShowArchived"]</MudSwitch>
         <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
-                       Disabled="_loading" OnClick="ReloadAsync" aria-label="Refresh boards" />
+                       Disabled="_loading" OnClick="ReloadAsync" aria-label="@L["WorkBoards.RefreshBoards"]" />
     </MudStack>
 
     @if (_forbidden)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
-            You do not have a board read grant for this company.
+            @L["WorkBoards.YouDoNotHaveA"]
         </MudAlert>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
@@ -87,7 +88,7 @@
     else if (_directory?.Boards.Count is null or 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-4">
-            No boards match the current filters.
+            @L["WorkBoards.NoBoardsMatchTheCurrent"]
         </MudAlert>
     }
     else
@@ -103,11 +104,11 @@
                                     <MudText Typo="Typo.h6">@board.Name</MudText>
                                     @if (board.IsDefault)
                                     {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">Default</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary">@L["WorkBoards.Default"]</MudChip>
                                     }
                                     @if (board.IsArchived)
                                     {
-                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Archived</MudChip>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">@L["WorkBoards.Archived"]</MudChip>
                                     }
                                 </MudStack>
                             </CardHeaderContent>
@@ -142,12 +143,12 @@
                         <MudCardActions>
                             <MudButton Variant="Variant.Text" Color="Color.Primary"
                                        StartIcon="@Icons.Material.Outlined.Visibility"
-                                       OnClick="@(() => OpenBoardAsync(board))">View</MudButton>
+                                       OnClick="@(() => OpenBoardAsync(board))">@L["Common.View"]</MudButton>
                             @if (board.AllowedActions.Contains(WorkBoardActions.Configure))
                             {
                                 <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Edit"
                                            Disabled="board.IsArchived" OnClick="@(() => OpenEdit(board))">
-                                    Configure
+                                    @L["WorkBoards.Configure"]
                                 </MudButton>
                             }
                             <MudSpacer />
@@ -156,14 +157,14 @@
                             {
                                 <MudIconButton Icon="@Icons.Material.Outlined.Archive"
                                                Color="Color.Warning" OnClick="@(() => ArchiveAsync(board))"
-                                               aria-label="Archive board" />
+                                               aria-label="@L["WorkBoards.ArchiveBoard"]" />
                             }
                             else if (board.IsArchived &&
                                      board.AllowedActions.Contains(WorkBoardActions.Restore))
                             {
                                 <MudIconButton Icon="@Icons.Material.Outlined.Unarchive"
                                                Color="Color.Success" OnClick="@(() => RestoreAsync(board))"
-                                               aria-label="Restore board" />
+                                               aria-label="@L["WorkBoards.RestoreBoard"]" />
                             }
                         </MudCardActions>
                     </MudCard>
@@ -179,16 +180,16 @@
     <MudPaper Elevation="1" Class="surface-panel mt-5">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
             <div>
-                <MudText Typo="Typo.overline" Color="Color.Primary">Protected work</MudText>
-                <MudText Typo="Typo.h5">Personal boards</MudText>
+                <MudText Typo="Typo.overline" Color="Color.Primary">@L["WorkBoards.ProtectedWork"]</MudText>
+                <MudText Typo="Typo.h5">@L["WorkBoards.PersonalBoards"]</MudText>
                 <MudText Color="Color.Secondary">
-                    Your priorities and your direct reports' work.
+                    @L["WorkBoards.YourPrioritiesAndYourDirect"]
                 </MudText>
             </div>
             <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Color="Color.Primary"
-                           OnClick="LoadPersonalTodosAsync" aria-label="Refresh personal boards" />
+                           OnClick="LoadPersonalTodosAsync" aria-label="@L["WorkBoards.RefreshPersonalBoards"]" />
         </MudStack>
-        @if (_personalTodos?.Boards.Count == 0 && string.IsNullOrWhiteSpace(_personalTodoError)) { <MudText Class="pa-4">No personal boards are available to you.</MudText> }
+        @if (_personalTodos?.Boards.Count == 0 && string.IsNullOrWhiteSpace(_personalTodoError)) { <MudText Class="pa-4">@L["WorkBoards.NoPersonalBoardsAreAvailable"]</MudText> }
         @if (_personalTodos?.Boards.Count > 0)
         {
             <EmployeePortraitScope OrganizationId="OrganizationId">
@@ -218,14 +219,14 @@
         <MudText Typo="Typo.h6">@(_editingBoard is null ? "Create board" : "Configure board")</MudText>
     </TitleContent>
     <DialogContent>
-        <MudTextField T="string" Label="Name" @bind-Value="_editorName"
+        <MudTextField T="string" Label="@L["WorkBoards.Name"]" @bind-Value="_editorName"
                       Variant="Variant.Outlined" Required="true" Class="mt-2" />
-        <MudTextField T="string" Label="Description" @bind-Value="_editorDescription"
+        <MudTextField T="string" Label="@L["WorkBoards.Description"]" @bind-Value="_editorDescription"
                       Variant="Variant.Outlined" Lines="3" Class="mt-3" />
-        <MudTextField T="string" Label="Board key" @bind-Value="_editorKey"
+        <MudTextField T="string" Label="@L["WorkBoards.BoardKey"]" @bind-Value="_editorKey"
                       Variant="Variant.Outlined" Required="true" Class="mt-3"
                       HelperText="2–12 uppercase letters or digits; used in immutable ticket identifiers." />
-        <MudSelect T="Guid?" Label="Board manager" @bind-Value="_editorManagerId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.BoardManager"]" @bind-Value="_editorManagerId"
                    Variant="Variant.Outlined" Required="true" Class="mt-3">
             @foreach (var person in _organizationUsers.Where(x => x.IsActive).OrderBy(x => x.DisplayName))
             {
@@ -235,7 +236,7 @@
         @if (_editingBoard is not null)
         {
             <MudSwitch T="bool" @bind-Value="_editorDefault" Color="Color.Primary" Class="mt-3">
-                Default company board
+                @L["WorkBoards.DefaultCompanyBoard"]
             </MudSwitch>
         }
         @if (!string.IsNullOrWhiteSpace(_editorError))
@@ -244,7 +245,7 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _editorOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _editorOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving"
                    OnClick="SaveEditorAsync">@(_saving ? "Saving..." : "Save")</MudButton>
     </DialogActions>
@@ -255,13 +256,13 @@
     @if (_detailLoading)
     {
         <MudProgressLinear Indeterminate="true" />
-        <p class="pa-4">Loading board details…</p>
+        <p class="pa-4">@L["WorkBoards.LoadingBoardDetails"]</p>
     }
     else if (!string.IsNullOrWhiteSpace(_detailError))
     {
         <MudAlert Severity="Severity.Error">@_detailError</MudAlert>
-        <MudButton OnClick="RetryBoardAsync">Retry</MudButton>
-        <MudButton OnClick="BackToBoards">All boards</MudButton>
+        <MudButton OnClick="RetryBoardAsync">@L["Common.Retry"]</MudButton>
+        <MudButton OnClick="BackToBoards">@L["WorkBoards.AllBoards"]</MudButton>
     }
     else if (_detail is not null)
     {
@@ -276,23 +277,23 @@
             <BoardActions>
                 @if (_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
                 {
-                    <button type="button" @onclick="@(() => _sprintsOpen = true)">Manage sprints</button>
+                    <button type="button" @onclick="@(() => _sprintsOpen = true)">@L["WorkBoards.ManageSprints"]</button>
                 }
                 @if (_detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Read))
                 {
-                    <button type="button" @onclick="OpenOrchestrationAsync">Orchestration</button>
+                    <button type="button" @onclick="OpenOrchestrationAsync">@L["WorkBoards.Orchestration"]</button>
                 }
                 @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ConfigureColumns) && !_detail.Board.IsArchived)
                 {
-                    <button type="button" @onclick="OpenColumnEditor">Configure columns</button>
+                    <button type="button" @onclick="OpenColumnEditor">@L["WorkBoards.ConfigureColumns"]</button>
                 }
                 @if (_detail.Board.AllowedActions.Contains(WorkAutomationActions.Manage))
                 {
-                    <button type="button" @onclick="OpenAutomationsAsync">Automations</button>
+                    <button type="button" @onclick="OpenAutomationsAsync">@L["WorkBoards.Automations"]</button>
                 }
                 @if (_detail.Board.AllowedActions.Contains(WorkBoardActions.ManageGrants))
                 {
-                    <button type="button" @onclick="OpenAgentAccessAsync">Access management</button>
+                    <button type="button" @onclick="OpenAgentAccessAsync">@L["WorkBoards.AccessManagement"]</button>
                 }
             </BoardActions>
             <ContextContent>
@@ -301,7 +302,7 @@
                 <details class="board-pipeline" open="@(!string.IsNullOrWhiteSpace(_deliveryPipeline.LastError))"><summary>Delivery pipeline · @_deliveryPipeline.Status · @_deliveryPipeline.Stage</summary><div class="pa-3">
                     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                         <div>
-                            <MudText Typo="Typo.subtitle1"><b>Delivery pipeline</b></MudText>
+                            <MudText Typo="Typo.subtitle1"><b>@L["WorkBoards.DeliveryPipeline"]</b></MudText>
                             <MudText Typo="Typo.body2">
                                 @_deliveryPipeline.Status · @_deliveryPipeline.Stage
                                 @if (_deliveryPipeline.QualityCycle > 0)
@@ -322,7 +323,7 @@
                             @if (!string.IsNullOrWhiteSpace(_deliveryPipeline.SourcePullRequestUrl))
                             {
                                 <MudLink Href="@_deliveryPipeline.SourcePullRequestUrl" Target="_blank">
-                                    Source pull request
+                                    @L["WorkBoards.SourcePullRequest"]
                                 </MudLink>
                             }
                         </div>
@@ -349,7 +350,7 @@
 }
 
 <div class="work-item-drawer-host" @onkeydown="HandleDetailKey">
-<MudDrawer @bind-Open="_itemDetailsOpen" Anchor="Anchor.End" Variant="DrawerVariant.Temporary" Fixed="true" Width="min(1180px, 92vw)" Class="work-item-drawer" Elevation="4" role="dialog" aria-label="Work item details" aria-modal="true" aria-hidden="@(!_itemDetailsOpen)" inert="@(_itemDetailsOpen ? null : "")">
+<MudDrawer @bind-Open="_itemDetailsOpen" Anchor="Anchor.End" Variant="DrawerVariant.Temporary" Fixed="true" Width="min(1180px, 92vw)" Class="work-item-drawer" Elevation="4" role="dialog" aria-label="@L["WorkBoards.WorkItemDetails"]" aria-modal="true" aria-hidden="@(!_itemDetailsOpen)" inert="@(_itemDetailsOpen ? null : "")">
     <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild" Disabled="@(!_itemDetailsOpen)">
         @if (_detailItem is { } detailItem && _detail is not null)
         {
@@ -359,9 +360,9 @@
                     {
                         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
                             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                <MudText Typo="Typo.body2">This ticket is blocked and waiting for a decision. Check its discussion, then retry it to send it back to Ready.</MudText>
+                                <MudText Typo="Typo.body2">@L["WorkBoards.ThisTicketIsBlockedAnd"]</MudText>
                                 @if (WorkBoardWorkspacePresentation.CanRetry(detailItem, _detail.Board.AllowedActions))
-                                { <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="_retryPending" StartIcon="@Icons.Material.Outlined.Replay" OnClick="@(() => RetryItemAsync(detailItem))">Retry</MudButton> }
+                                { <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="_retryPending" StartIcon="@Icons.Material.Outlined.Replay" OnClick="@(() => RetryItemAsync(detailItem))">@L["Common.Retry"]</MudButton> }
                             </MudStack>
                             @if (!string.IsNullOrWhiteSpace(_retryError)) { <MudText Typo="Typo.caption" Color="Color.Error">@_retryError</MudText> }
                         </MudAlert>
@@ -370,8 +371,8 @@
                 <DeliveryContent>
                     @if (CanManageSprintScope)
                     {
-                        <MudSelect T="Guid?" Label="Sprint" Value="detailItem.SprintId" ValueChanged="@(id => SetItemSprintAsync(detailItem, id))" Disabled="_saving" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="Choose a sprint or return this ticket to the backlog.">
-                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Backlog</MudSelectItem>
+                        <MudSelect T="Guid?" Label="@L["WorkBoards.Sprint"]" Value="detailItem.SprintId" ValueChanged="@(id => SetItemSprintAsync(detailItem, id))" Disabled="_saving" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@L["WorkBoards.ChooseASprintOrReturn"]">
+                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["WorkBoards.Backlog"]</MudSelectItem>
                             @foreach (var sprint in AssignableSprints) { <MudSelectItem T="Guid?" Value="@((Guid?)sprint.Id)">@sprint.Name · @sprint.Status</MudSelectItem> }
                             @if (detailItem.SprintId.HasValue && !AssignableSprints.Any(x => x.Id == detailItem.SprintId)) { <MudSelectItem T="Guid?" Value="detailItem.SprintId" Disabled="true">@(SprintFor(detailItem.SprintId)?.Name ?? "Unavailable sprint")</MudSelectItem> }
                         </MudSelect>
@@ -381,9 +382,9 @@
                 </DeliveryContent>
                 <FooterContent>
                     @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Estimate) && !_detail.Board.IsArchived)
-                    { <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Calculate" OnClick="@(() => OpenEstimate(detailItem))">Set estimate</MudButton> }
-                    <MudButton Variant="Variant.Text" OnClick="@(() => OpenCollaborationAsync(detailItem))">More actions</MudButton>
-                    <MudMenu Label="Move or assign" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.DriveFileMove">
+                    { <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Calculate" OnClick="@(() => OpenEstimate(detailItem))">@L["WorkBoards.SetEstimate"]</MudButton> }
+                    <MudButton Variant="Variant.Text" OnClick="@(() => OpenCollaborationAsync(detailItem))">@L["WorkBoards.MoreActions"]</MudButton>
+                    <MudMenu Label="@L["WorkBoards.MoveOrAssign"]" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.DriveFileMove">
                         @foreach (var targetColumn in _detail.Columns)
                         { <MudMenuItem Disabled="@(!CanMoveTo(detailItem, targetColumn))" OnClick="@(() => MoveFromDetailsAsync(detailItem, targetColumn))">Move to @targetColumn.Name</MudMenuItem> }
                     </MudMenu>
@@ -396,7 +397,7 @@
 
 <MudDialog @bind-Visible="_automationsOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Board automations</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.BoardAutomations"]</MudText></TitleContent>
     <DialogContent>
         @if (!string.IsNullOrWhiteSpace(_automationError))
         {
@@ -408,17 +409,17 @@
              !_detail.Board.IsArchived)
         {
             <MudPaper Outlined="true" Class="pa-3">
-                <MudText Typo="Typo.subtitle1">New event rule</MudText>
-                <MudTextField T="string" Label="Name" @bind-Value="_automationName"
+                <MudText Typo="Typo.subtitle1">@L["WorkBoards.NewEventRule"]</MudText>
+                <MudTextField T="string" Label="@L["WorkBoards.Name"]" @bind-Value="_automationName"
                               Variant="Variant.Outlined" Class="mt-2" />
-                <MudSelect T="string" Label="When" @bind-Value="_automationTrigger"
+                <MudSelect T="string" Label="@L["WorkBoards.When"]" @bind-Value="_automationTrigger"
                            Variant="Variant.Outlined" Class="mt-2">
                     @foreach (var trigger in AutomationTriggers)
                     {
                         <MudSelectItem T="string" Value="@trigger">@ActivityLabel(trigger)</MudSelectItem>
                     }
                 </MudSelect>
-                <MudSelect T="Guid?" Label="Only while in column"
+                <MudSelect T="Guid?" Label="@L["WorkBoards.OnlyWhileInColumn"]"
                            @bind-Value="_automationConditionColumnId"
                            Clearable="true" Variant="Variant.Outlined" Class="mt-2">
                     @foreach (var column in _detail.Columns)
@@ -426,14 +427,14 @@
                         <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
                     }
                 </MudSelect>
-                <MudSelect T="string" Label="Action" @bind-Value="_automationAction"
+                <MudSelect T="string" Label="@L["WorkBoards.Action"]" @bind-Value="_automationAction"
                            Variant="Variant.Outlined" Class="mt-2">
                     @foreach (var action in AutomationItemActions)
                     {
                         <MudSelectItem T="string" Value="@action">@action.Replace("work.item.", "")</MudSelectItem>
                     }
                 </MudSelect>
-                <MudSelect T="Guid?" Label="Target column" @bind-Value="_automationTargetColumnId"
+                <MudSelect T="Guid?" Label="@L["WorkBoards.TargetColumn"]" @bind-Value="_automationTargetColumnId"
                            Variant="Variant.Outlined" Class="mt-2">
                     @foreach (var column in _detail.Columns)
                     {
@@ -444,13 +445,13 @@
                            Disabled="@(_saving || string.IsNullOrWhiteSpace(_automationName) ||
                                        !_automationTargetColumnId.HasValue)"
                            OnClick="CreateAutomationAsync">
-                    Create disabled rule
+                    @L["WorkBoards.CreateDisabledRule"]
                 </MudButton>
             </MudPaper>
         }
         @if (_automations?.Rules.Count is null or 0)
         {
-            <MudText Color="Color.Secondary" Class="mt-4">No automation rules are configured.</MudText>
+            <MudText Color="Color.Secondary" Class="mt-4">@L["WorkBoards.NoAutomationRulesAreConfigured"]</MudText>
         }
         else
         {
@@ -495,7 +496,7 @@
         }
         @if (_automations?.RecentExecutions.Count > 0)
         {
-            <MudText Typo="Typo.subtitle2" Class="mt-4">Recent executions</MudText>
+            <MudText Typo="Typo.subtitle2" Class="mt-4">@L["WorkBoards.RecentExecutions"]</MudText>
             @foreach (var execution in _automations.RecentExecutions.Take(20))
             {
                 <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-1">
@@ -507,12 +508,12 @@
             }
         }
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _automationsOpen = false)">Close</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _automationsOpen = false)">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_sprintsOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Sprints</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.Sprints"]</MudText></TitleContent>
     <DialogContent>
         @if (!string.IsNullOrWhiteSpace(_sprintError))
         {
@@ -525,7 +526,7 @@
             <MudButton Variant="Variant.Outlined"
                        StartIcon="@Icons.Material.Outlined.Insights"
                        OnClick="LoadSprintReportAsync">
-                Refresh report
+                @L["WorkBoards.RefreshReport"]
             </MudButton>
             @if (_sprintReport is not null)
             {
@@ -563,14 +564,14 @@
                         }
                         else
                         {
-                            <span>A forecast needs at least one completed sprint with delivered points.</span>
+                            <span>@L["WorkBoards.AForecastNeedsAtLeast"]</span>
                         }
                     </MudAlert>
                 }
                 @if (_sprintReport.Burndown.FirstOrDefault(x => x.Status == "Active") is { } activeSeries &&
                      activeSeries.Points.Count > 0)
                 {
-                    <MudText Typo="Typo.subtitle2" Class="mt-3">Recent burndown changes</MudText>
+                    <MudText Typo="Typo.subtitle2" Class="mt-3">@L["WorkBoards.RecentBurndownChanges"]</MudText>
                     @foreach (var point in activeSeries.Points.TakeLast(8).Reverse())
                     {
                         <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-1">
@@ -587,22 +588,22 @@
              !_detail.Board.IsArchived)
         {
             <MudPaper Outlined="true" Class="pa-3">
-                <MudText Typo="Typo.subtitle1">Plan a sprint</MudText>
-                <MudTextField T="string" Label="Name" @bind-Value="_sprintName"
+                <MudText Typo="Typo.subtitle1">@L["WorkBoards.PlanASprint"]</MudText>
+                <MudTextField T="string" Label="@L["WorkBoards.Name"]" @bind-Value="_sprintName"
                               Variant="Variant.Outlined" Class="mt-2" />
-                <MudTextField T="string" Label="Goal" @bind-Value="_sprintGoal"
+                <MudTextField T="string" Label="@L["WorkBoards.Goal"]" @bind-Value="_sprintGoal"
                               Variant="Variant.Outlined" Lines="2" Class="mt-2" />
                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                            StartIcon="@Icons.Material.Outlined.Add"
                            Disabled="@(_saving || string.IsNullOrWhiteSpace(_sprintName))"
                            OnClick="CreateSprintAsync" Class="mt-2">
-                    Create sprint
+                    @L["WorkBoards.CreateSprint"]
                 </MudButton>
             </MudPaper>
         }
         @if (_sprints.Count == 0)
         {
-            <MudText Color="Color.Secondary" Class="mt-4">No sprints have been planned.</MudText>
+            <MudText Color="Color.Secondary" Class="mt-4">@L["WorkBoards.NoSprintsHaveBeenPlanned"]</MudText>
         }
         @foreach (var sprint in _sprints)
         {
@@ -629,7 +630,7 @@
                 </MudStack>
                 <MudStack Row="true" Class="mt-2">
                     @if (CanManageSprintScope && sprint.Status is "Planned" or "Active")
-                    { <MudButton OnClick="@(() => OpenSprintScopeAsync(sprint))" Disabled="_saving">Add tickets</MudButton> }
+                    { <MudButton OnClick="@(() => OpenSprintScopeAsync(sprint))" Disabled="_saving">@L["WorkBoards.AddTickets"]</MudButton> }
                     @if (CanStartSprint(sprint))
                     {
                         <MudButton Variant="Variant.Text" Color="Color.Success"
@@ -644,14 +645,14 @@
                         <MudButton Variant="Variant.Text" Color="Color.Warning"
                                    Disabled="_saving"
                                    OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "pause"))">
-                            Pause
+                            @L["WorkBoards.Pause"]
                         </MudButton>
                     }
                     @if (sprint.Status == "Paused" &&
                          _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Resume) == true)
                     {
                         <MudButton Variant="Variant.Text" Color="Color.Success" Disabled="_saving"
-                                   OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "resume"))">Resume</MudButton>
+                                   OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "resume"))">@L["WorkBoards.Resume"]</MudButton>
                     }
                     @if ((sprint.Status == "Active" || sprint.Status == "Paused") &&
                          _detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Cancel) == true)
@@ -659,7 +660,7 @@
                         <MudButton Variant="Variant.Text" Color="Color.Error"
                                    Disabled="_saving"
                                    OnClick="@(() => ControlOrchestratedSprintAsync(sprint, "cancel"))">
-                            Cancel
+                            @L["Common.Cancel"]
                         </MudButton>
                     }
                     @if ((sprint.Status == "Planned" || sprint.Status == "Active") &&
@@ -667,7 +668,7 @@
                     {
                         <MudButton Variant="Variant.Text"
                                    OnClick="@(() => OpenCapacity(sprint))">
-                            Capacity
+                            @L["WorkBoards.Capacity"]
                         </MudButton>
                     }
                     @if ((sprint.Status == "Completed" || sprint.Status == "Cancelled") &&
@@ -677,23 +678,23 @@
                     {
                         <MudButton Variant="Variant.Text"
                                    OnClick="@(() => OpenCarryover(sprint))">
-                            Carry over
+                            @L["WorkBoards.CarryOver"]
                         </MudButton>
                     }
                     @if (sprint.Status is "Active" or "Paused" or "Completed" or "Cancelled")
                     {
-                        <MudButton Variant="Variant.Text" OnClick="@(() => OpenExecutionAsync(sprint))">Execution</MudButton>
+                        <MudButton Variant="Variant.Text" OnClick="@(() => OpenExecutionAsync(sprint))">@L["WorkBoards.Execution"]</MudButton>
                     }
                 </MudStack>
             </MudPaper>
         }
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _sprintsOpen = false)">Close</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _sprintsOpen = false)">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_executionOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Sprint execution</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.SprintExecution"]</MudText></TitleContent>
     <DialogContent>
         @if (!string.IsNullOrWhiteSpace(_executionError))
         {
@@ -729,16 +730,16 @@
                             <MudStack Row="true" Spacing="1">
                                 @if (current.Status == "WaitingForApproval")
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Success" OnClick="@(() => DecideStageAsync(current, true))">Approve</MudButton>
-                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => DecideStageAsync(current, false))">Reject</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Success" OnClick="@(() => DecideStageAsync(current, true))">@L["Common.Approve"]</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => DecideStageAsync(current, false))">@L["Common.Reject"]</MudButton>
                                 }
                                 @if (current.Status == "WaitingForHuman")
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => CompleteManualStageAsync(current))">Complete</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => CompleteManualStageAsync(current))">@L["WorkBoards.Complete"]</MudButton>
                                 }
                                 @if (current.Status is "Blocked" or "Failed")
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => RetryStageAsync(current))">Retry</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => RetryStageAsync(current))">@L["Common.Retry"]</MudButton>
                                 }
                             </MudStack>
                         }
@@ -747,7 +748,7 @@
             }
         }
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _executionOpen = false)">Close</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _executionOpen = false)">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_manualDeliveryOpen" Options="@(new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true })">
@@ -758,47 +759,47 @@
             <MudText>@manualItem.Identifier · @manualItem.Title</MudText>
             @if (_manualDeliveryStage?.StageKey is "development" or "specialist-execution")
             {
-                <MudTextField T="string" Label="Delivered document ID" @bind-Value="_manualArtifactId" />
-                <MudTextField T="string" Label="Delivered revision ID" @bind-Value="_manualArtifactRevisionId" />
-                <MudButton OnClick="LoadManualArtifactAsync">Read exact revision</MudButton>
+                <MudTextField T="string" Label="@L["WorkBoards.DeliveredDocumentID"]" @bind-Value="_manualArtifactId" />
+                <MudTextField T="string" Label="@L["WorkBoards.DeliveredRevisionID"]" @bind-Value="_manualArtifactRevisionId" />
+                <MudButton OnClick="LoadManualArtifactAsync">@L["WorkBoards.ReadExactRevision"]</MudButton>
             }
             @if (_manualDocument is { } document) { <MudText>Revision @document.Id · @document.ContentSha256</MudText><pre>@document.Content</pre> }
             @if (_manualDeliveryItem.Delivery?.DeliveryKind == "Code")
             {
                 <MudTextField T="string" Label="@(_manualDeliveryStage?.StageKey == "technical-review" ? "Reviewed source commit" : "Tested integrated story commit")" @bind-Value="_manualCommit" />
-                @if (_manualDeliveryStage?.StageKey == "technical-review") { <MudTextField T="string" Label="Reviewed story target commit" @bind-Value="_manualTarget" /> }
+                @if (_manualDeliveryStage?.StageKey == "technical-review") { <MudTextField T="string" Label="@L["WorkBoards.ReviewedStoryTargetCommit"]" @bind-Value="_manualTarget" /> }
                 @if (_manualDeliveryStage?.StageKey == "quality")
                 {
-                    <MudTextField T="string" Label="Executed test command" @bind-Value="_manualCommand" />
-                    <MudNumericField T="int" Label="Exit code" @bind-Value="_manualExitCode" />
-                    <MudTextField T="string" Label="Observed test output" Lines="4" @bind-Value="_manualTestOutput" />
+                    <MudTextField T="string" Label="@L["WorkBoards.ExecutedTestCommand"]" @bind-Value="_manualCommand" />
+                    <MudNumericField T="int" Label="@L["WorkBoards.ExitCode"]" @bind-Value="_manualExitCode" />
+                    <MudTextField T="string" Label="@L["WorkBoards.ObservedTestOutput"]" Lines="4" @bind-Value="_manualTestOutput" />
                 }
             }
             @if (_manualDeliveryStage?.StageKey == "quality")
             {
                 @foreach (var criterion in _manualCriteria)
-                { <MudCheckBox T="bool" @bind-Value="criterion.Satisfied" Label="@criterion.Criterion" /><MudTextField T="string" Label="Observed criterion evidence" @bind-Value="criterion.Evidence" /> }
+                { <MudCheckBox T="bool" @bind-Value="criterion.Satisfied" Label="@criterion.Criterion" /><MudTextField T="string" Label="@L["WorkBoards.ObservedCriterionEvidence"]" @bind-Value="criterion.Evidence" /> }
             }
-            <MudTextField T="string" Label="Review summary" Lines="3" @bind-Value="_manualSummary" />
+            <MudTextField T="string" Label="@L["WorkBoards.ReviewSummary"]" Lines="3" @bind-Value="_manualSummary" />
             <MudTextField T="string" Label="Findings (one per line)" Lines="3" @bind-Value="_manualFindings" />
         }
         @if (_manualError is { } manualError) { <MudAlert Severity="Severity.Error">@manualError</MudAlert> }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _manualDeliveryOpen = false)">Close</MudButton>
-        @if (_manualDeliveryStage?.StageKey is "quality" or "technical-review") { <MudButton Color="Color.Error" Disabled="@_manualBusy" OnClick="@(() => SubmitManualDeliveryAsync(false))">Request fixes</MudButton> }
-        <MudButton Color="Color.Success" Disabled="@_manualBusy" OnClick="@(() => SubmitManualDeliveryAsync(true))">Submit exact deliverable</MudButton>
+        <MudButton OnClick="@(() => _manualDeliveryOpen = false)">@L["Common.Close"]</MudButton>
+        @if (_manualDeliveryStage?.StageKey is "quality" or "technical-review") { <MudButton Color="Color.Error" Disabled="@_manualBusy" OnClick="@(() => SubmitManualDeliveryAsync(false))">@L["WorkBoards.RequestFixes"]</MudButton> }
+        <MudButton Color="Color.Success" Disabled="@_manualBusy" OnClick="@(() => SubmitManualDeliveryAsync(true))">@L["WorkBoards.SubmitExactDeliverable"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_estimateOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Estimate work item</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.EstimateWorkItem"]</MudText></TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2">@_estimateItem?.Title</MudText>
-        <MudNumericField T="decimal?" Label="Story points" @bind-Value="_estimatePoints"
+        <MudNumericField T="decimal?" Label="@L["WorkBoards.StoryPoints"]" @bind-Value="_estimatePoints"
                          Min="0" Max="999999.99m" Variant="Variant.Outlined" Class="mt-3"
-                         HelperText="Leave empty to remove the estimate." />
+                         HelperText="@L["WorkBoards.LeaveEmptyToRemoveThe"]" />
         @if (!string.IsNullOrWhiteSpace(_planningError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
@@ -807,20 +808,20 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _estimateOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _estimateOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="_saving" OnClick="SaveEstimateAsync">Save</MudButton>
+                   Disabled="_saving" OnClick="SaveEstimateAsync">@L["Common.Save"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_capacityOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Sprint capacity</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.SprintCapacity"]</MudText></TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2">@_capacitySprint?.Name</MudText>
-        <MudNumericField T="decimal?" Label="Capacity points" @bind-Value="_capacityPoints"
+        <MudNumericField T="decimal?" Label="@L["WorkBoards.CapacityPoints"]" @bind-Value="_capacityPoints"
                          Min="0" Max="999999.99m" Variant="Variant.Outlined" Class="mt-3"
-                         HelperText="Leave empty for no capacity target." />
+                         HelperText="@L["WorkBoards.LeaveEmptyForNoCapacity"]" />
         @if (!string.IsNullOrWhiteSpace(_planningError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
@@ -829,20 +830,20 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _capacityOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _capacityOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="_saving" OnClick="SaveCapacityAsync">Save</MudButton>
+                   Disabled="_saving" OnClick="SaveCapacityAsync">@L["Common.Save"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_carryoverOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Carry over incomplete work</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.CarryOverIncompleteWork"]</MudText></TitleContent>
     <DialogContent>
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            The completed sprint snapshot remains unchanged. Current incomplete cards move to the selected sprint.
+            @L["WorkBoards.TheCompletedSprintSnapshotRemains"]
         </MudAlert>
-        <MudSelect T="Guid?" Label="Target sprint" @bind-Value="_carryoverTargetSprintId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.TargetSprint"]" @bind-Value="_carryoverTargetSprintId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var sprint in AssignableSprints.Where(x => x.Id != _carryoverSource?.Id))
             {
@@ -857,10 +858,10 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _carryoverOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _carryoverOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_saving || !_carryoverTargetSprintId.HasValue)"
-                   OnClick="CarryOverAsync">Carry over all incomplete</MudButton>
+                   OnClick="CarryOverAsync">@L["WorkBoards.CarryOverAllIncomplete"]</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -888,16 +889,16 @@
                 <WorkItemComments @ref="_dialogComments" OrganizationId="OrganizationId"
                                   BoardId="@(_selectedItem.BoardId)" ItemId="@(_selectedItem.Id)" />
                 <MudExpansionPanels Class="mt-4">
-                    <MudExpansionPanel Text="Efficiency"><WorkEfficiencyPanel OrganizationId="OrganizationId" WorkItemId="_selectedItem.Id" /></MudExpansionPanel>
+                    <MudExpansionPanel Text="@L["WorkBoards.Efficiency"]"><WorkEfficiencyPanel OrganizationId="OrganizationId" WorkItemId="_selectedItem.Id" /></MudExpansionPanel>
                 </MudExpansionPanels>
             }
 
             <MudDivider Class="my-4" />
-            <MudText Typo="Typo.subtitle1">Activity</MudText>
+            <MudText Typo="Typo.subtitle1">@L["WorkBoards.Activity"]</MudText>
             @if (_collaboration?.Activity.Count is null or 0)
             {
                 <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
-                    No recorded activity yet.
+                    @L["WorkBoards.NoRecordedActivityYet"]
                 </MudText>
             }
             else
@@ -919,11 +920,11 @@
                  TransferTargets.Count > 0 && !_detail.Board.IsArchived)
             {
                 <MudDivider Class="my-4" />
-                <MudText Typo="Typo.subtitle1">Transfer to another board</MudText>
+                <MudText Typo="Typo.subtitle1">@L["WorkBoards.TransferToAnotherBoard"]</MudText>
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">
-                    The work item keeps one canonical state and leaves this board when transferred.
+                    @L["WorkBoards.TheWorkItemKeepsOne"]
                 </MudAlert>
-                <MudSelect T="Guid?" Label="Destination board" @bind-Value="_transferBoardId"
+                <MudSelect T="Guid?" Label="@L["WorkBoards.DestinationBoard"]" @bind-Value="_transferBoardId"
                            Variant="Variant.Outlined" Class="mt-3">
                     @foreach (var board in TransferTargets)
                     {
@@ -934,22 +935,22 @@
                            StartIcon="@Icons.Material.Outlined.DriveFileMove"
                            Disabled="@(_saving || !_transferBoardId.HasValue)"
                            OnClick="TransferItemAsync" Class="mt-2">
-                    Transfer
+                    @L["WorkBoards.Transfer"]
                 </MudButton>
             }
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _collaborationOpen = false)">Close</MudButton>
+        <MudButton OnClick="@(() => _collaborationOpen = false)">@L["Common.Close"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_orchestrationOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Board orchestration</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.BoardOrchestration"]</MudText></TitleContent>
     <DialogContent>
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            Starting a sprint is the authorization boundary. C-Sweet dispatches only to the exact agents assigned on each ticket.
+            @L["WorkBoards.StartingASprintIsThe"]
         </MudAlert>
         @if (PublishedPolicy is not null)
         {
@@ -958,42 +959,42 @@
         }
         else
         {
-            <MudText Typo="Typo.body2" Class="mt-3">No policy has been published for this board.</MudText>
+            <MudText Typo="Typo.body2" Class="mt-3">@L["WorkBoards.NoPolicyHasBeenPublished"]</MudText>
         }
-        <MudSelect T="Guid?" Label="Ready column" @bind-Value="_orchestrationReadyColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.ReadyColumn"]" @bind-Value="_orchestrationReadyColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Development column" @bind-Value="_orchestrationDevelopmentColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.DevelopmentColumn"]" @bind-Value="_orchestrationDevelopmentColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="QA column" @bind-Value="_orchestrationQualityColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.QAColumn"]" @bind-Value="_orchestrationQualityColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Done column" @bind-Value="_orchestrationDoneColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.DoneColumn"]" @bind-Value="_orchestrationDoneColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="string" Label="Merge policy" @bind-Value="_orchestrationMergeMode"
+        <MudSelect T="string" Label="@L["WorkBoards.MergePolicy"]" @bind-Value="_orchestrationMergeMode"
                    Variant="Variant.Outlined" Class="mt-3">
-            <MudSelectItem T="string" Value="@("ManagerApproval")">Manager approval</MudSelectItem>
-            <MudSelectItem T="string" Value="@("Automatic")">Governed automatic merge</MudSelectItem>
+            <MudSelectItem T="string" Value="@("ManagerApproval")">@L["WorkBoards.ManagerApproval"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Automatic")">@L["WorkBoards.GovernedAutomaticMerge"]</MudSelectItem>
         </MudSelect>
-        <MudNumericField T="int" Label="Maximum QA cycles" @bind-Value="_orchestrationQualityCycles"
+        <MudNumericField T="int" Label="@L["WorkBoards.MaximumQACycles"]" @bind-Value="_orchestrationQualityCycles"
                          Min="1" Max="10" Variant="Variant.Outlined" Class="mt-3" />
         @if (!string.IsNullOrWhiteSpace(_orchestrationError))
         {
@@ -1001,59 +1002,58 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _orchestrationOpen = false)">Close</MudButton>
+        <MudButton OnClick="@(() => _orchestrationOpen = false)">@L["Common.Close"]</MudButton>
         @if (_detail?.Board.AllowedActions.Contains(WorkOrchestrationActions.Configure) == true)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_saving || !OrchestrationTemplateComplete)"
-                       OnClick="PublishSoftwarePolicyAsync">Publish software policy</MudButton>
+                       OnClick="PublishSoftwarePolicyAsync">@L["WorkBoards.PublishSoftwarePolicy"]</MudButton>
         }
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_deliveryOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Delivery pipeline</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.DeliveryPipeline"]</MudText></TitleContent>
     <DialogContent>
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            Enabling is the one-time authorization for sequential Developer → QA → governed merge
-            processing across approved sprints.
+            @L["WorkBoards.EnablingIsTheOneTime"]
         </MudAlert>
-        <MudSelect T="Guid?" Label="Developer" @bind-Value="_pipelineDeveloperId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.Developer"]" @bind-Value="_pipelineDeveloperId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var agent in _pipelineAgents.Where(x => x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer"))
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Software QA" @bind-Value="_pipelineQualityId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.SoftwareQA"]" @bind-Value="_pipelineQualityId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var agent in _pipelineAgents.Where(x => x.AgentId == "com.csweet.software-qa"))
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Development column" @bind-Value="_pipelineDevelopmentColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.DevelopmentColumn"]" @bind-Value="_pipelineDevelopmentColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns.Where(x => x.Category != "Done") ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="QA column" @bind-Value="_pipelineQualityColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.QAColumn"]" @bind-Value="_pipelineQualityColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns.Where(x => x.Category != "Done") ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Done column" @bind-Value="_pipelineDoneColumnId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.DoneColumn"]" @bind-Value="_pipelineDoneColumnId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var column in _detail?.Columns.Where(x => x.Category == "Done") ?? [])
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)column.Id)">@column.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Repository" @bind-Value="_pipelineRepositoryId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.Repository"]" @bind-Value="_pipelineRepositoryId"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var connection in _repositoryConnections)
             {
@@ -1072,15 +1072,15 @@
     <DialogActions>
         @if (_deliveryPipeline?.IsEnabled == true)
         {
-            <MudButton Color="Color.Warning" OnClick="@(() => ChangePipelineAsync("pause"))">Pause</MudButton>
-            <MudButton Color="Color.Error" OnClick="@(() => ChangePipelineAsync("disable"))">Disable</MudButton>
+            <MudButton Color="Color.Warning" OnClick="@(() => ChangePipelineAsync("pause"))">@L["WorkBoards.Pause"]</MudButton>
+            <MudButton Color="Color.Error" OnClick="@(() => ChangePipelineAsync("disable"))">@L["WorkBoards.Disable"]</MudButton>
         }
         @if (_deliveryPipeline?.Status == "Paused")
         {
-            <MudButton Color="Color.Success" OnClick="@(() => ChangePipelineAsync("resume"))">Resume</MudButton>
+            <MudButton Color="Color.Success" OnClick="@(() => ChangePipelineAsync("resume"))">@L["WorkBoards.Resume"]</MudButton>
         }
         <MudSpacer />
-        <MudButton OnClick="@(() => _deliveryOpen = false)">Close</MudButton>
+        <MudButton OnClick="@(() => _deliveryOpen = false)">@L["Common.Close"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_saving || !PipelineFormComplete)"
                    OnClick="SaveDeliveryPipelineAsync">
@@ -1091,12 +1091,12 @@
 
 <MudDialog @bind-Visible="_agentAccessOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Agent board access</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.AgentBoardAccess"]</MudText></TitleContent>
     <DialogContent>
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">
-            Board grants and the agent package's MCP capability grant are both required.
+            @L["WorkBoards.BoardGrantsAndTheAgent"]
         </MudAlert>
-        <MudSelect T="Guid?" Label="Agent installation" Value="_selectedAgentId"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.AgentInstallation"]" Value="_selectedAgentId"
                    ValueChanged="SelectAgentAccess" Variant="Variant.Outlined" Class="mt-3">
             @foreach (var agent in _boardAgents)
             {
@@ -1105,11 +1105,11 @@
                 </MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="string" Label="Access profile" @bind-Value="_agentAccessProfile"
+        <MudSelect T="string" Label="@L["WorkBoards.AccessProfile"]" @bind-Value="_agentAccessProfile"
                    Variant="Variant.Outlined" Class="mt-3">
-            <MudSelectItem T="string" Value="@("None")">No access</MudSelectItem>
-            <MudSelectItem T="string" Value="@("ReadOnly")">Read only</MudSelectItem>
-            <MudSelectItem T="string" Value="@("Operator")">Work-item operator</MudSelectItem>
+            <MudSelectItem T="string" Value="@("None")">@L["WorkBoards.NoAccess"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("ReadOnly")">@L["WorkBoards.ReadOnly"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Operator")">@L["WorkBoards.WorkItemOperator"]</MudSelectItem>
         </MudSelect>
         @if (!string.IsNullOrWhiteSpace(_agentAccessError))
         {
@@ -1119,31 +1119,31 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _agentAccessOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _agentAccessOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_saving || !_selectedAgentId.HasValue)"
-                   OnClick="SaveAgentAccessAsync">Save access</MudButton>
+                   OnClick="SaveAgentAccessAsync">@L["WorkBoards.SaveAccess"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_itemCreatorOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">New work item</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.NewWorkItem"]</MudText></TitleContent>
     <DialogContent>
-        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">New items are added to the backlog. Assign them to a sprint from their details.</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">@L["WorkBoards.NewItemsAreAddedTo"]</MudText>
         <div class="mt-2">
-            <StructuredMentionTextField Label="Title" Value="@_itemTitle"
+            <StructuredMentionTextField Label="@L["WorkBoards.Title"]" Value="@_itemTitle"
                 ValueChanged="@(value => _itemTitle = value)" Mentions="_itemTitleMentions"
                 MentionsChanged="@(value => _itemTitleMentions = value)" People="_organizationUsers"
                 Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Title" />
         </div>
         <div class="mt-3">
-            <StructuredMentionTextField Label="Description" Value="@_itemDescription"
+            <StructuredMentionTextField Label="@L["WorkBoards.Description"]" Value="@_itemDescription"
                 ValueChanged="@(value => _itemDescription = value)" Mentions="_itemDescriptionMentions"
                 MentionsChanged="@(value => _itemDescriptionMentions = value)" People="_organizationUsers"
                 Field="@CSweet.WorkManagement.Contracts.WorkItemMentionFields.Description" Lines="3" />
         </div>
-        <MudSelect T="string" Label="Type" @bind-Value="_itemKind"
+        <MudSelect T="string" Label="@L["WorkBoards.Type"]" @bind-Value="_itemKind"
                    Variant="Variant.Outlined" Class="mt-3">
             @foreach (var kind in WorkItemKinds)
             {
@@ -1152,7 +1152,7 @@
         </MudSelect>
         @if (_itemKind is not ("Initiative" or "Epic"))
         {
-            <MudSelect T="Guid?" Label="Accountable owner" @bind-Value="_itemAccountableOwnerId"
+            <MudSelect T="Guid?" Label="@L["WorkBoards.AccountableOwner"]" @bind-Value="_itemAccountableOwnerId"
                        Variant="Variant.Outlined" Class="mt-3" Required="true">
                 @foreach (var person in _organizationUsers.Where(x => x.IsActive).OrderBy(x => x.DisplayName))
                 {
@@ -1162,7 +1162,7 @@
             @if (PublishedPolicy is null)
             {
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                    Publish an orchestration policy before creating executable work.
+                    @L["WorkBoards.PublishAnOrchestrationPolicyBefore"]
                 </MudAlert>
             }
             else
@@ -1202,21 +1202,20 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _itemCreatorOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _itemCreatorOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="_saving" OnClick="CreateItemAsync">Create</MudButton>
+                   Disabled="_saving" OnClick="CreateItemAsync">@L["Common.Create"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_developerAssignmentOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Assign software developer</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.AssignSoftwareDeveloper"]</MudText></TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Color="Color.Secondary">
-            C-Sweet will materialize the selected code project into a credential-free workspace.
-            The developer can build and test changes, while C-Sweet owns commit and publication.
+            @L["WorkBoards.CSweetWillMaterializeThe"]
         </MudText>
-        <MudSelect T="Guid?" Label="Developer installation"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.DeveloperInstallation"]"
                    @bind-Value="_developerInstallationId"
                    Variant="Variant.Outlined" Class="mt-3" Required="true">
             @foreach (var installation in _developerInstallations)
@@ -1226,7 +1225,7 @@
                 </MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="Guid?" Label="Code project"
+        <MudSelect T="Guid?" Label="@L["WorkBoards.CodeProject"]"
                    Value="_developerConnectionId"
                    ValueChanged="SelectDeveloperConnection"
                    Variant="Variant.Outlined" Class="mt-3" Required="true">
@@ -1247,8 +1246,7 @@
                       @bind-Value="_developerConstraints"
                       Variant="Variant.Outlined" Lines="3" Class="mt-3" />
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-            The agent receives no Git credentials, provider tokens, remote URL, or `.git`
-            directory. The trusted GitHost validates the assigned repository, branch, and commit.
+            @L["WorkBoards.TheAgentReceivesNoGit"]
         </MudAlert>
         @if (!string.IsNullOrWhiteSpace(_developerAssignmentError))
         {
@@ -1261,9 +1259,9 @@
         @if (_developerAssignmentItem?.AssignedInstallationId is not null)
         {
             <MudButton Color="Color.Error" Disabled="_saving"
-                       OnClick="UnassignDeveloperAsync">Unassign</MudButton>
+                       OnClick="UnassignDeveloperAsync">@L["WorkBoards.Unassign"]</MudButton>
         }
-        <MudButton OnClick="@(() => _developerAssignmentOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _developerAssignmentOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_saving || !_developerInstallationId.HasValue ||
                                !_developerConnectionId.HasValue)"
@@ -1275,22 +1273,22 @@
 
 <MudDialog @bind-Visible="_columnsOpen"
            Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Configure columns</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.ConfigureColumns"]</MudText></TitleContent>
     <DialogContent>
         @foreach (var draft in _columnDrafts)
         {
             <MudPaper Outlined="true" Class="pa-3 mt-3">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudTextField T="string" Label="Name" @bind-Value="draft.Name"
+                    <MudTextField T="string" Label="@L["WorkBoards.Name"]" @bind-Value="draft.Name"
                                   Variant="Variant.Outlined" />
-                    <MudSelect T="string" Label="Category" @bind-Value="draft.Category"
+                    <MudSelect T="string" Label="@L["WorkBoards.Category"]" @bind-Value="draft.Category"
                                Variant="Variant.Outlined">
                         @foreach (var category in ColumnCategories)
                         {
                             <MudSelectItem T="string" Value="@category">@category</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudSelect T="string" Label="WIP policy" @bind-Value="draft.WipPolicy"
+                    <MudSelect T="string" Label="@L["WorkBoards.WIPPolicy"]" @bind-Value="draft.WipPolicy"
                                Variant="Variant.Outlined">
                         @foreach (var policy in WipPolicies)
                         {
@@ -1299,41 +1297,41 @@
                     </MudSelect>
                     @if (draft.WipPolicy != "Disabled")
                     {
-                        <MudNumericField T="int?" Label="Limit" @bind-Value="draft.WipLimit"
+                        <MudNumericField T="int?" Label="@L["WorkBoards.Limit"]" @bind-Value="draft.WipLimit"
                                          Min="1" Variant="Variant.Outlined" />
                     }
                     <MudIconButton Icon="@Icons.Material.Outlined.Delete"
                                    Color="Color.Error"
                                    Disabled="@(_columnDrafts.Count <= 2)"
                                    OnClick="@(() => _columnDrafts.Remove(draft))"
-                                   aria-label="Remove column" />
+                                   aria-label="@L["WorkBoards.RemoveColumn"]" />
                 </MudStack>
             </MudPaper>
         }
         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Add"
-                   Class="mt-3" OnClick="AddColumn">Add column</MudButton>
+                   Class="mt-3" OnClick="AddColumn">@L["WorkBoards.AddColumn"]</MudButton>
         @if (!string.IsNullOrWhiteSpace(_columnsError))
         {
             <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">@_columnsError</MudAlert>
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _columnsOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _columnsOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="_saving" OnClick="SaveColumnsAsync">Save workflow</MudButton>
+                   Disabled="_saving" OnClick="SaveColumnsAsync">@L["WorkBoards.SaveWorkflow"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_scopeOpen" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">Sprint tickets</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["WorkBoards.SprintTickets"]</MudText></TitleContent>
     <DialogContent>
         @if (SprintFor(_scopeSprintId) is { Status: "Planned" or "Active" } scopeSprint && _detail is not null && CanManageSprintScope)
         {
             <SprintScopeEditor Sprint="scopeSprint" Items="_detail.Items" Busy="_saving" Error="@_scopeError" OnAssign="@(change => SetItemSprintAsync(change.Item, change.SprintId))" />
         }
-        else { <MudAlert Severity="Severity.Info">This sprint is no longer available for planning.</MudAlert> }
+        else { <MudAlert Severity="Severity.Info">@L["WorkBoards.ThisSprintIsNoLonger"]</MudAlert> }
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _scopeOpen = false)">Close</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _scopeOpen = false)">@L["Common.Close"]</MudButton></DialogActions>
 </MudDialog>
 
 @code {
@@ -1580,7 +1578,7 @@
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
                 _personalTodos = null;
-                _personalTodoError = "You do not have access to personal work boards for this company.";
+                _personalTodoError = L["WorkBoards.YouDoNotHaveAccess"];
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -1641,7 +1639,7 @@
     {
         if (string.IsNullOrWhiteSpace(_editorName) || string.IsNullOrWhiteSpace(_editorKey) || !_editorManagerId.HasValue)
         {
-            _editorError = "Board name, key, and manager are required.";
+            _editorError = L["WorkBoards.BoardNameKeyAndManager"];
             return;
         }
         _saving = true;
@@ -1713,7 +1711,7 @@
     private async Task RefreshBoardViewAsync()
     {
         try { _moveError = null; await RefreshDetailAsync(); }
-        catch (Exception) { _moveError = "The board could not be refreshed. Please try again."; }
+        catch (Exception) { _moveError = L["WorkBoards.TheBoardCouldNotBe"]; }
     }
 
     private async Task LoadBoardAsync()
@@ -1745,7 +1743,7 @@
             _detail = await response.Content.ReadFromJsonAsync<WorkBoardDetailResponse>();
             if (_detail is null)
             {
-                _detailError = "The server returned an empty board response. Please try again.";
+                _detailError = L["WorkBoards.TheServerReturnedAnEmpty"];
                 return;
             }
 
@@ -1767,15 +1765,15 @@
         }
         catch (TaskCanceledException)
         {
-            _detailError = "The board request timed out. Check the server and try again.";
+            _detailError = L["WorkBoards.TheBoardRequestTimedOut"];
         }
         catch (HttpRequestException)
         {
-            _detailError = "The board service could not be reached. Check that the application is running and try again.";
+            _detailError = L["WorkBoards.TheBoardServiceCouldNot"];
         }
         catch (Exception)
         {
-            _detailError = "An unexpected error occurred while loading the board. Please try again.";
+            _detailError = L["WorkBoards.AnUnexpectedErrorOccurredWhile"];
         }
         finally
         {
@@ -1821,7 +1819,7 @@
     {
         if (_detail is null || string.IsNullOrWhiteSpace(_itemTitle))
         {
-            _itemError = "A title is required.";
+            _itemError = L["WorkBoards.ATitleIsRequired"];
             return;
         }
         _saving = true;
@@ -2178,7 +2176,7 @@
         if (requirements.Count == 0 || acceptanceCriteria.Count == 0)
         {
             _developerAssignmentError =
-                "At least one requirement and one acceptance criterion are required.";
+                L["WorkBoards.AtLeastOneRequirementAnd"];
             return;
         }
 
@@ -2322,7 +2320,7 @@
             await LoadSprintsAsync();
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
-        { _sprintError = "Sprint start could not be confirmed. Refresh the board before trying again."; }
+        { _sprintError = L["WorkBoards.SprintStartCouldNotBe"]; }
         finally
         {
             _saving = false;
@@ -2340,7 +2338,7 @@
             var execution = await Http.GetFromJsonAsync<WorkSprintExecutionResponse>($"{root}/execution");
             if (execution is null)
             {
-                _sprintError = "The sprint execution could not be loaded.";
+                _sprintError = L["WorkBoards.TheSprintExecutionCouldNot"];
                 return;
             }
             var response = await Http.PostAsJsonAsync(
@@ -2500,7 +2498,7 @@
             await RefreshDetailAsync();
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
-        { _scopeError = "The assignment could not be confirmed. Refresh the board before trying again."; }
+        { _scopeError = L["WorkBoards.TheAssignmentCouldNotBe"]; }
         finally { _saving = false; }
     }
 

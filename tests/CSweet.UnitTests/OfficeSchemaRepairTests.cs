@@ -56,7 +56,7 @@ public sealed class OfficeSchemaRepairTests
         var css = File.ReadAllText(Path.Combine(
             root, "src", "CSweet.UI", "Setup", "AgentHostOnboardingStep.razor.css"));
 
-        Assert.Contains("Where should your agents work?", razor, StringComparison.Ordinal);
+        LocalizedSource.AssertContains("Where should your agents work?", razor);
         Assert.Contains("new(\"small\", \"Small\"", razor, StringComparison.Ordinal);
         Assert.Contains("new(\"balanced\", \"Balanced\"", razor, StringComparison.Ordinal);
         Assert.Contains("new(\"performance\", \"Performance\"", razor, StringComparison.Ordinal);

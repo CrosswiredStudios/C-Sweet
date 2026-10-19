@@ -269,8 +269,11 @@ public sealed partial class PlatformLlmCapabilityHandler
         messages = messages.Where(message => message.Role != ChatRole.System).ToList();
         var callerInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
+        // The workspace language rides on every request so agent packages never need to know about it.
+        var languageInstructions = CSweet.Application.Localization.AgentLanguageInstructions.For(
+            await CSweet.Infrastructure.Localization.WorkspaceLanguagePolicy.ResolveAsync(_dbContext, session.BusinessId, requestToken));
         var combinedInstructions = string.Join("\n\n", new[] { callerInstructions, caseInstructions?.Text,
-            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions }
+            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions, languageInstructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         var runLog = CreateRunLog(
             session,
@@ -380,6 +383,8 @@ public sealed partial class PlatformLlmCapabilityHandler
                 requestToken);
             await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
                 InferenceExecutionAttribution.Current?.WorkId, requestToken, InferenceExecutionAttribution.Current?.Attempt);
+            if (Guid.TryParse(session.RuntimeInstanceId, out var chiefRuntime))
+                await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.BindInferenceAsync(_dbContext, runLog, chiefRuntime, requestToken);
             updates = ModelStreamCoalescer.ReadAsync(DispatchUpdatesAsync(chatClient,
                 messages,
                 options,
@@ -653,6 +658,9 @@ public sealed partial class PlatformLlmCapabilityHandler
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            if (runLog.OrganizationId is { } organization && runLog.AgentInstallationId is { } installation &&
+                await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.ChiefAsync(_dbContext, organization, installation, CancellationToken.None) is not null)
+                throw new InvalidOperationException("chief.work-card.audit-unavailable: Could not persist Chief inference usage.", exception);
             _dbContext.Entry(runLog).State = EntityState.Detached;
             _logger.LogWarning(
                 exception,

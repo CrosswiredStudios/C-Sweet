@@ -113,7 +113,7 @@ public sealed partial class HiringService
         var authority = settings.Mode != HiringSelectionMode.Automatic ? "Each hire requires your confirmation."
             : settings.AutomaticLevel switch {
                 AutomaticHiringLevel.ApprovedPackages => "Use packages and grants already approved in this business.",
-                AutomaticHiringLevel.BroadDelegation => "Use eligible packages and their requested grants for approved roles, within platform restrictions.",
+                AutomaticHiringLevel.BroadDelegation => "Use eligible packages and their requested grants for my own leadership recommendations and approved team roles, within platform restrictions.",
                 _ => $"Limits: {settings.MaximumHireCost} {settings.Currency} per hire; {settings.MaximumTotalCost} {settings.Currency} total. Allowed capabilities: {string.Join(", ", settings.AllowedCapabilities ?? [])}. Allowed network access: {string.Join(", ", settings.AllowedNetworkAccess ?? [])}." };
         var messageId = Guid.NewGuid();
         db.CoreConversationMessages.Add(new ConversationMessage
@@ -122,7 +122,7 @@ public sealed partial class HiringService
             SenderOrganizationUserId = chief.Id, SourceProvider = "HiringPolicy", CreatedAt = policy.UpdatedAt,
             CorrelationId = policy.Id, CausationId = policy.SourceDecisionId,
             IdempotencyKey = $"hiring-policy-memory:{policy.InstallationId:N}:{policy.Revision}",
-            Content = $"Your hiring preferences are saved: {modeLabel}; {sourceLabel}. {authority} Reason: {policy.Rationale}. These preferences apply to future approved plans. I will check the current platform policy before every automatic hire."
+            Content = $"Your hiring preferences are saved: {modeLabel}; {sourceLabel}. {authority} Reason: {policy.Rationale}. These preferences apply to my own leadership recommendations and future approved team plans. I will check the current platform policy before every automatic hire."
         });
         db.MemoryCaptureOutbox.Add(new MemoryCaptureOutboxItem
         {
@@ -376,7 +376,14 @@ public sealed partial class HiringService
 
     private async Task<HiringPolicySettings> BoundPolicyAsync(WorkforcePlan plan, CancellationToken token)
     {
-        if (plan.SourceResourceChangeRequestId is not Guid requestId) return new();
+        if (plan.SourceResourceChangeRequestId is not Guid requestId)
+        {
+            // The Chief's own company leadership suggestions use the owner's live policy.
+            // Team/workstream staffing still requires its manager-approved resource change.
+            if (plan.TeamId.HasValue || plan.WorkstreamId.HasValue) return new();
+            var current = await ReadPolicyAsync(plan.OrganizationId, plan.RequestingInstallationId, token);
+            return current.SetupComplete ? current.Settings : new();
+        }
         var existing = await db.HiringPlanDelegations.SingleOrDefaultAsync(x =>
             x.ResourceChangeRequestId == requestId && x.InstallationId == plan.RequestingInstallationId, token);
         if (existing is not null) return Policy(existing.SettingsJson);
@@ -408,18 +415,39 @@ public sealed partial class HiringService
             if (transaction is not null) await transaction.CommitAsync(token);
             return new(recommendationId, null, "Succeeded", "The approved role is already filled.");
         }
+        var recommendation = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
+        var auditCard = await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.ActionAsync(db, organizationId, installationId,
+            $"hire:{recommendationId:N}", $"Hire {recommendation.Title}", token);
         DelegatedHireResponse result;
-        do
+        try
         {
-            result = await SubmitDelegatedCoreAsync(organizationId, installationId, recommendationId, token);
-        } while (result.Status == "Succeeded" && await db.WorkforcePlans.AnyAsync(x => x.Id == recommendationId &&
-            x.OrganizationId == organizationId && x.Status == ProposalStatus.Pending && x.FulfilledHeadcount < x.Headcount, token));
+            do
+            {
+                result = await SubmitDelegatedCoreAsync(organizationId, installationId, recommendationId, auditCard?.Id, token);
+            } while (result.Status == "Succeeded" && await db.WorkforcePlans.AnyAsync(x => x.Id == recommendationId &&
+                x.OrganizationId == organizationId && x.Status == ProposalStatus.Pending && x.FulfilledHeadcount < x.Headcount, token));
+            if (auditCard is not null)
+                await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.FinishActionAsync(db, auditCard,
+                    result.Status == "Succeeded" ? WorkTaskStatus.Completed : result.Status is "NeedsReview" or "Failed" or "NeedsSetup"
+                        ? WorkTaskStatus.Blocked : WorkTaskStatus.Running, result.Message ?? $"Automatic hiring: {result.Status}.", token);
+            await db.SaveChangesAsync(token);
+        }
+        catch
+        {
+            if (auditCard is not null)
+            {
+                await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.FinishActionAsync(db, auditCard, WorkTaskStatus.Blocked,
+                    "Automatic hiring did not complete. See the recorded workflow and failure evidence.", CancellationToken.None);
+                await db.SaveChangesAsync(CancellationToken.None);
+            }
+            throw;
+        }
         if (transaction is not null) await transaction.CommitAsync(token);
         return result;
     }
 
     private async Task<DelegatedHireResponse> SubmitDelegatedCoreAsync(Guid organizationId, Guid installationId,
-        Guid recommendationId, CancellationToken token = default)
+        Guid recommendationId, Guid? auditCardId, CancellationToken token = default)
     {
         var plan = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
         var selection = await SelectCandidateAsync(organizationId, installationId, recommendationId, token);
@@ -431,9 +459,11 @@ public sealed partial class HiringService
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == current.OwnerId &&
             x.OrganizationId == organizationId && x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.ApplicationUserId.HasValue, token);
         var preview = await PreviewMarketplaceHireAsync(organizationId, owner.ApplicationUserId!.Value,
-            new PreviewMarketplaceHireRequest(candidate.AgentReference, plan.Title, candidate.Name, null,
+            new PreviewMarketplaceHireRequest(candidate.AgentReference, plan.Title, candidate.Name, current.OwnerId,
                 $"delegated-hire:{plan.Id:N}:{plan.FulfilledHeadcount}") { RecommendationId = plan.Id, TeamId = plan.TeamId }, token);
         var workflow = await db.StaffingActionProposals.SingleAsync(x => x.Id == preview.WorkflowId, token);
+        var reviewedSnapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions)!;
+        workflow.PayloadJson = JsonSerializer.Serialize(reviewedSnapshot with { AuditWorkItemId = auditCardId }, JsonOptions);
         workflow.DelegatedInstallationId = installationId;
         await db.SaveChangesAsync(token);
         try
@@ -463,6 +493,10 @@ public sealed partial class HiringService
         if (!current.SetupComplete || current.Settings.Mode != HiringSelectionMode.Automatic || bound.Mode != HiringSelectionMode.Automatic)
             throw new UnauthorizedAccessException("Automatic hiring authority has been revoked or was not granted for this plan.");
         var snapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions)!;
+        if (plan.SourceResourceChangeRequestId is null &&
+            (snapshot.ReportsToOrganizationUserId != current.OwnerId || snapshot.TeamId != plan.TeamId ||
+             snapshot.WorkstreamId != plan.WorkstreamId || snapshot.RoleTitle != plan.Title || snapshot.Objective != plan.Objective))
+            throw new InvalidOperationException("The leadership recommendation or reporting manager changed; create a new review.");
         var candidate = await db.WorkforceCandidates.AsNoTracking().SingleAsync(x => x.Id == ParseCandidateReference(workflow.CandidateId), token);
         var catalogReference = ReadMetadata(candidate.ExplanationJson).CatalogReference;
         var agent = await agentCatalog!.ResolveAsync(workflow.OrganizationId, catalogReference ?? candidate.ExternalCandidateId, token)

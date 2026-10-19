@@ -1,34 +1,35 @@
 @using CSweet.Contracts.Core
 @using CSweet.UI.Components.Employees.Models
+@inject IAppLocalizer L
 
-<section class="team-workspace" aria-label="Teams">
+<section class="team-workspace" aria-label="@L["TeamClustersView.Teams"]">
     <div class="workspace-tools">
-        <MudTextField T="string" @bind-Value="_search" Placeholder="Search people or roles" Immediate="true"
+        <MudTextField T="string" @bind-Value="_search" Placeholder="@L["TeamClustersView.SearchPeopleOrRoles"]" Immediate="true"
                       Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
-                      AdornmentIcon="@Icons.Material.Outlined.Search" aria-label="Search team members" />
-        <MudSelect T="string" Value="_archiveFilter" ValueChanged="ChangeArchiveFilter" Label="Teams" Variant="Variant.Outlined" Margin="Margin.Dense">
-            <MudSelectItem T="string" Value="@("active")">Active</MudSelectItem>
-            <MudSelectItem T="string" Value="@("archived")">Archived</MudSelectItem>
-            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                      AdornmentIcon="@Icons.Material.Outlined.Search" aria-label="@L["TeamClustersView.SearchTeamMembers"]" />
+        <MudSelect T="string" Value="_archiveFilter" ValueChanged="ChangeArchiveFilter" Label="@L["TeamClustersView.Teams"]" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@("active")">@L["TeamClustersView.Active"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("archived")">@L["TeamClustersView.Archived"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@("all")">@L["TeamClustersView.All"]</MudSelectItem>
         </MudSelect>
         @if (Directory.CanManageTeams)
         {
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.GroupAdd"
-                       OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Create)))">Create team</MudButton>
+                       OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Create)))">@L["TeamClustersView.CreateTeam"]</MudButton>
         }
     </div>
     <div class="workspace-body">
-        <nav class="team-rail" aria-label="Choose a team">
-            <button class="@(_selectedTeamId is null && !_unassigned ? "active" : null)" aria-pressed="@(_selectedTeamId is null && !_unassigned)" @onclick="() => Choose(null)"><span>All people</span><small>@Employees.Count</small></button>
+        <nav class="team-rail" aria-label="@L["TeamClustersView.ChooseATeam"]">
+            <button class="@(_selectedTeamId is null && !_unassigned ? "active" : null)" aria-pressed="@(_selectedTeamId is null && !_unassigned)" @onclick="() => Choose(null)"><span>@L["TeamClustersView.AllPeople"]</span><small>@Employees.Count</small></button>
             @foreach (var team in FilteredTeams)
             {
                 <button class="@(_selectedTeamId == team.Id ? "active" : null)" aria-pressed="@(_selectedTeamId == team.Id)" @onclick="() => Choose(team.Id)">
-                    <span>@team.Name @if (team.IsArchived) { <em>Archived</em> }</span><small>@team.ActiveMemberCount</small>
+                    <span>@team.Name @if (team.IsArchived) { <em>@L["TeamClustersView.Archived"]</em> }</span><small>@team.ActiveMemberCount</small>
                 </button>
             }
             @if (Unassigned.Count > 0)
             {
-                <button class="@(_unassigned ? "active" : null)" aria-pressed="@_unassigned" @onclick="ChooseUnassigned"><span>Unassigned</span><small>@Unassigned.Count</small></button>
+                <button class="@(_unassigned ? "active" : null)" aria-pressed="@_unassigned" @onclick="ChooseUnassigned"><span>@L["TeamClustersView.Unassigned"]</span><small>@Unassigned.Count</small></button>
             }
         </nav>
         <div class="team-content">
@@ -36,20 +37,20 @@
             <header class="team-content-heading">
                 <div><h2>@(selectedTeam?.Name ?? (_unassigned ? "Unassigned" : "All people"))</h2>
                     @if (!string.IsNullOrWhiteSpace(selectedTeam?.Description)) { <p>@selectedTeam.Description</p> }
-                    @if (selectedTeam?.TeamKey == LeadershipTeamPresentation.TeamKey) { <p>Membership follows your reporting structure.</p> }
+                    @if (selectedTeam?.TeamKey == LeadershipTeamPresentation.TeamKey) { <p>@L["TeamClustersView.MembershipFollowsYourReportingStructure"]</p> }
                 </div>
                 @if (selectedTeam is not null && Directory.CanManageTeams && selectedTeam.TeamKey != LeadershipTeamPresentation.TeamKey)
                 {
                     <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="@($"Manage {selectedTeam.Name}")">
-                        <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Edit, selectedTeam.Id)))">Edit team</MudMenuItem>
+                        <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Edit, selectedTeam.Id)))">@L["TeamClustersView.EditTeam"]</MudMenuItem>
                         @if (selectedTeam.IsArchived)
                         {
-                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Restore, selectedTeam.Id)))">Restore team</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Restore, selectedTeam.Id)))">@L["TeamClustersView.RestoreTeam"]</MudMenuItem>
                         }
                         else
                         {
-                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.AddMember, selectedTeam.Id)))">Add member</MudMenuItem>
-                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Archive, selectedTeam.Id)))">Archive team</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.AddMember, selectedTeam.Id)))">@L["TeamClustersView.AddMember"]</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => ActionRequested.InvokeAsync(new TeamUiActionRequest(TeamUiActionKind.Archive, selectedTeam.Id)))">@L["TeamClustersView.ArchiveTeam"]</MudMenuItem>
                         }
                     </MudMenu>
                 }
@@ -63,7 +64,7 @@
                             <EmployeeAvatar Employee="employee" />
                             <strong>@employee.Name</strong>
                             <span>@(membership?.TeamRoleName ?? employee.RoleLabel)</span>
-                            @if (membership?.IsLead == true) { <small>Team lead</small> }
+                            @if (membership?.IsLead == true) { <small>@L["TeamClustersView.TeamLead"]</small> }
                         </a>
                         @if (employee.IsAgent) { <div class="person-state"><EmployeeStatusBadge Status="employee.Status" Compact="true" /></div> }
                         @if (membership is not null && selectedTeam is not null && Directory.CanManageTeams && selectedTeam.TeamKey != LeadershipTeamPresentation.TeamKey && !membership.IsLead && !selectedTeam.IsArchived)

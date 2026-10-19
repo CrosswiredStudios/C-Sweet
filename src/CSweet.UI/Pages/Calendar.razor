@@ -4,26 +4,27 @@
 @inject CalendarApiClient Api
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Business calendar</PageTitle>
+<PageTitle>@L["Calendar.PageTitle"]</PageTitle>
 <div class="aurora-page business-workspace calendar-page">
-    <header class="calendar-header"><div><span class="business-eyebrow">Plan ahead</span><h1>Calendar</h1><p>Plan the business. Keep work moving.</p></div>
-        @if (_calendar?.CanCreate == true) { <button class="primary" @onclick="NewEvent">New event</button> }
+    <header class="calendar-header"><div><span class="business-eyebrow">@L["Calendar.PlanAhead"]</span><h1>@L["Calendar.Calendar"]</h1><p>@L["Calendar.PlanTheBusinessKeepWork"]</p></div>
+        @if (_calendar?.CanCreate == true) { <button class="primary" @onclick="NewEvent">@L["Calendar.NewEvent"]</button> }
     </header>
-    @if (_error is not null) { <div role="alert" class="calendar-error">@_error <button @onclick="Load">Refresh calendar</button></div> }
+    @if (_error is not null) { <div role="alert" class="calendar-error">@_error <button @onclick="Load">@L["Calendar.RefreshCalendar"]</button></div> }
     <div class="calendar-toolbar">
-        <button aria-label="Previous period" @onclick="() => Move(-1)">←</button><button @onclick="Today">Today</button>
-        <button aria-label="Next period" @onclick="() => Move(1)">→</button><strong>@_date.ToString("MMMM yyyy")</strong>
-        <label>View <select value="@View" @onchange="ChangeView"><option>Month</option><option>Week</option><option>Agenda</option></select></label>
+        <button aria-label="@L["Calendar.PreviousPeriod"]" @onclick="() => Move(-1)">←</button><button @onclick="Today">@L["Calendar.Today"]</button>
+        <button aria-label="@L["Calendar.NextPeriod"]" @onclick="() => Move(1)">→</button><strong>@_date.ToString("MMMM yyyy")</strong>
+        <label>@L["Common.View"] <select value="@View" @onchange="ChangeView"><option>@L["Calendar.Month"]</option><option>@L["Calendar.Week"]</option><option>@L["Calendar.Agenda"]</option></select></label>
         <span>@(_calendar?.TimeZoneId ?? "UTC")</span>
     </div>
-    @if (_calendar is null) { <p role="status">Loading calendar…</p> }
+    @if (_calendar is null) { <p role="status">@L["Calendar.LoadingCalendar"]</p> }
     else
     {
         @if (_reminders.Count > 0)
         {
-            <aside class="calendar-reminders" aria-label="Calendar reminders"><h2>Reminders</h2>
-                @foreach (var reminder in _reminders) { <div><span>@reminder.Title · @Display(reminder.Start).ToString("g")</span><button @onclick="() => Dismiss(reminder.Id)">Dismiss</button></div> }
+            <aside class="calendar-reminders" aria-label="@L["Calendar.CalendarReminders"]"><h2>@L["Calendar.Reminders"]</h2>
+                @foreach (var reminder in _reminders) { <div><span>@reminder.Title · @Display(reminder.Start).ToString("g")</span><button @onclick="() => Dismiss(reminder.Id)">@L["Common.Dismiss"]</button></div> }
             </aside>
         }
         @if (View == "Agenda")
@@ -31,7 +32,7 @@
             <div class="calendar-agenda">
                 @foreach (var occurrence in _calendar.Occurrences)
                 { <button class="calendar-event" @onclick="() => Open(occurrence)"><strong>@occurrence.Event.Title</strong><span>@Display(occurrence.Start).ToString("f") · @occurrence.WorkStatus</span></button> }
-                @if (_calendar.Occurrences.Count == 0) { <p>No events in this period.</p> }
+                @if (_calendar.Occurrences.Count == 0) { <p>@L["Calendar.NoEventsInThisPeriod"]</p> }
             </div>
         }
         else
@@ -49,47 +50,47 @@
         }
         @if (_calendar.CanConfigure)
         {
-            <details class="calendar-settings"><summary>Calendar settings</summary><label>Business time zone <input @bind="_settingsZone" /></label>
-                <button @onclick="SaveSettings">Save time zone</button><p>New events use this time zone. Existing events retain their own zone.</p></details>
+            <details class="calendar-settings"><summary>@L["Calendar.CalendarSettings"]</summary><label>@L["Calendar.BusinessTimeZone"] <input @bind="_settingsZone" /></label>
+                <button @onclick="SaveSettings">@L["Calendar.SaveTimeZone"]</button><p>@L["Calendar.NewEventsUseThisTime"]</p></details>
         }
     }
     @if (_editing)
     {
         <div class="calendar-overlay"><MudFocusTrap Class="calendar-focus"><section role="dialog" aria-modal="true" aria-labelledby="event-heading" class="calendar-editor" @onkeydown="EditorKey">
-            <header><h2 id="event-heading">@(_selected is null ? "New event" : "Event details")</h2><button aria-label="Close event" @onclick="() => _editing = false">×</button></header>
+            <header><h2 id="event-heading">@(_selected is null ? "New event" : "Event details")</h2><button aria-label="@L["Calendar.CloseEvent"]" @onclick="() => _editing = false">×</button></header>
             @if (_selected?.WorkError is not null) { <p role="alert">@_selected.WorkError</p> }
-            @if (_selected?.WorkItemId is { } workId) { <p><a href="@($"/organizations/{OrganizationId}/work")">View work queue</a> · Assignment @workId</p> }
+            @if (_selected?.WorkItemId is { } workId) { <p><a href="@($"/organizations/{OrganizationId}/work")">@L["Calendar.ViewWorkQueue"]</a> · Assignment @workId</p> }
             <fieldset disabled="@(!Editable || _saving)">
                 @if (_selected?.Series.Event.Recurrence is not null)
-                { <label>Edit <select @bind="_editScope" @bind:after="ResetScope"><option value="Occurrence">This occurrence</option><option value="Series">Entire series (clears occurrence overrides)</option></select></label> }
-                <label>Title <input @bind="_title" maxlength="300" /></label>
-                <label>Description <textarea @bind="_description" rows="3"></textarea></label>
-                <div class="calendar-fields"><label>Start <input type="datetime-local" @bind="_start" /></label><label>End (exclusive) <input type="datetime-local" @bind="_end" /></label></div>
+                { <label>@L["Common.Edit"] <select @bind="_editScope" @bind:after="ResetScope"><option value="Occurrence">@L["Calendar.ThisOccurrence"]</option><option value="Series">Entire series (clears occurrence overrides)</option></select></label> }
+                <label>@L["Calendar.Title"] <input @bind="_title" maxlength="300" /></label>
+                <label>@L["Calendar.Description"] <textarea @bind="_description" rows="3"></textarea></label>
+                <div class="calendar-fields"><label>@L["Calendar.Start"] <input type="datetime-local" @bind="_start" /></label><label>End (exclusive) <input type="datetime-local" @bind="_end" /></label></div>
                 <label><input type="checkbox" @bind="_allDay" @bind:after="AllDayChanged" /> All day (midnight to midnight)</label>
-                <label>Time zone <input @bind="_zone" list="calendar-zones" /></label>
+                <label>@L["Calendar.TimeZone"] <input @bind="_zone" list="calendar-zones" /></label>
                 <datalist id="calendar-zones">@foreach (var zone in TimeZoneInfo.GetSystemTimeZones()) { <option value="@zone.Id">@zone.DisplayName</option> }</datalist>
-                <label>Location <input @bind="_location" /></label>
-                <label>Owner <select @bind="_owner" disabled="@(!_calendar!.CanConfigure || (_selected is not null && _editScope == "Occurrence"))">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
+                <label>@L["Calendar.Location"] <input @bind="_location" /></label>
+                <label>@L["Calendar.Owner"] <select @bind="_owner" disabled="@(!_calendar!.CanConfigure || (_selected is not null && _editScope == "Occurrence"))">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
                 <details><summary>Attendees (@_attendees.Count)</summary>@foreach (var member in _calendar!.Members) { <label><input type="checkbox" checked="@_attendees.Contains(member.Id)" @onchange="e => ToggleAttendee(member.Id, e)" /> @member.Name</label> }</details>
                 <label>Reminder minutes before start (comma separated) <input @bind="_reminderText" placeholder="15, 60" /></label>
                 @if (_selected is null || _editScope == "Series")
                 {
-                    <label>Repeat <select @bind="_frequency"><option value="">Never</option><option>Daily</option><option>Weekly</option><option>Monthly</option><option>Yearly</option></select></label>
-                    @if (_frequency != "") { <div class="calendar-fields"><label>Every <input type="number" min="1" @bind="_interval" /></label><label>Count (optional) <input type="number" min="1" @bind="_count" /></label><label>Until (optional) <input type="date" @bind="_until" /></label></div> }
+                    <label>@L["Calendar.Repeat"] <select @bind="_frequency"><option value="">@L["Calendar.Never"]</option><option>@L["Calendar.Daily"]</option><option>@L["Calendar.Weekly"]</option><option>@L["Calendar.Monthly"]</option><option>@L["Calendar.Yearly"]</option></select></label>
+                    @if (_frequency != "") { <div class="calendar-fields"><label>@L["Calendar.Every"] <input type="number" min="1" @bind="_interval" /></label><label>Count (optional) <input type="number" min="1" @bind="_count" /></label><label>Until (optional) <input type="date" @bind="_until" /></label></div> }
                 }
-                <label>Scheduled work <select @bind="_workKind"><option value="">None</option><option value="Instructions">New assignment</option><option value="ExistingItem">Activate existing personal work</option></select></label>
+                <label>@L["Calendar.ScheduledWork"] <select @bind="_workKind"><option value="">@L["Common.None"]</option><option value="Instructions">@L["Calendar.NewAssignment"]</option><option value="ExistingItem">@L["Calendar.ActivateExistingPersonalWork"]</option></select></label>
                 @if (_workKind != "")
                 {
-                    <label>Responsible worker <select @bind="_target">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
-                    @if (_workKind == "Instructions") { <label>Assignment instructions <textarea @bind="_instructions" rows="4"></textarea></label> }
-                    else { <label>Backlog personal work item ID <input @bind="_itemId" /></label> }
-                    <p>Work starts at the event start time, subject to current permissions and work approvals.</p>
+                    <label>@L["Calendar.ResponsibleWorker"] <select @bind="_target">@foreach (var member in _calendar!.Members) { <option value="@member.Id">@member.Name</option> }</select></label>
+                    @if (_workKind == "Instructions") { <label>@L["Calendar.AssignmentInstructions"] <textarea @bind="_instructions" rows="4"></textarea></label> }
+                    else { <label>@L["Calendar.BacklogPersonalWorkItemID"] <input @bind="_itemId" /></label> }
+                    <p>@L["Calendar.WorkStartsAtTheEvent"]</p>
                 }
             </fieldset>
-            @if (_editorError is not null) { <div class="calendar-error" role="alert">@_editorError <button @onclick="DiscardAndRefresh">Discard edits and refresh</button></div> }
-            <footer>@if (Editable) { <button class="primary" disabled="@_saving" @onclick="Save">Save event</button>
+            @if (_editorError is not null) { <div class="calendar-error" role="alert">@_editorError <button @onclick="DiscardAndRefresh">@L["Calendar.DiscardEditsAndRefresh"]</button></div> }
+            <footer>@if (Editable) { <button class="primary" disabled="@_saving" @onclick="Save">@L["Calendar.SaveEvent"]</button>
                 @if (_selected is not null) { <button disabled="@_saving" @onclick="Cancel">Cancel @(_editScope == "Series" ? "series" : "event")</button> } }
-                <button @onclick="() => _editing = false">Close</button></footer>
+                <button @onclick="() => _editing = false">@L["Common.Close"]</button></footer>
         </section></MudFocusTrap></div>
     }
 </div>

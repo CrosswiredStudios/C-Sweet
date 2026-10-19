@@ -1,14 +1,15 @@
 @page "/settings/genai-providers"
 @layout SettingsLayout
+@inject IAppLocalizer L
 
-<PageTitle>GenAI Providers - C-Sweet</PageTitle>
+<PageTitle>@L["GenAiProviders.PageTitle"]</PageTitle>
 
 <div class="setup-shell agents-page llm-providers-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Provider management</MudText>
-            <MudText Typo="Typo.h3">GenAI Providers</MudText>
-            <MudText Color="Color.Secondary">Manage approved image and video generation and editing providers.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["GenAiProviders.ProviderManagement"]</MudText>
+            <MudText Typo="Typo.h3">@L["GenAiProviders.GenAIProviders"]</MudText>
+            <MudText Color="Color.Secondary">@L["GenAiProviders.ManageApprovedImageAndVideo"]</MudText>
         </div>
     </MudPaper>
     <MudPaper Elevation="1" Class="setup-card">

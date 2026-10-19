@@ -1,3 +1,4 @@
+@inject IAppLocalizer L
 <article class="employee-directory-card @(Employee.Id == SelectedId ? "selected" : null)">
     <EmployeeIdentityButton Employee="Employee" EmployeeSelected="EmployeeSelected" />
     <div class="employee-card-badges">
@@ -6,8 +7,8 @@
     </div>
     <EmployeeTeamChips Teams="Employee.Teams" />
     <dl>
-        <div><dt>Manager</dt><dd>@(Employee.ManagerName ?? "—")</dd></div>
-        <div><dt>Direct reports</dt><dd>@Employee.DirectReportCount</dd></div>
+        <div><dt>@L["EmployeeDirectoryCard.Manager"]</dt><dd>@(Employee.ManagerName ?? "—")</dd></div>
+        <div><dt>@L["EmployeeDirectoryCard.DirectReports"]</dt><dd>@Employee.DirectReportCount</dd></div>
     </dl>
     <EmployeeActionMenu Employee="Employee" ActionRequested="ActionRequested" />
 </article>

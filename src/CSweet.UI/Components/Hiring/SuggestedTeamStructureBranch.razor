@@ -1,3 +1,4 @@
+@inject IAppLocalizer L
 <li class="suggested-team-role-branch">
     <div class="suggested-team-role-cohort"
          style="--seat-count: @Cohort.Seats.Count"
@@ -18,7 +19,7 @@
             <span>Priority @Cohort.Priority</span>
             @if (Cohort.HumanRequired)
             {
-                <span>Human required</span>
+                <span>@L["SuggestedTeamStructureBranch.HumanRequired"]</span>
             }
         </div>
     </div>

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -24,7 +25,7 @@ public sealed partial class EmployeePersonalBoardTests
         Assert.False(PersonalBoardPresentation.CanMove(task, "Ready", true, true));
         Assert.True(PersonalBoardPresentation.CanMove(epic, "Running", true, true));
         var board = Board(epic) with { Items = [epic, story, task] };
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddScoped<AppRealtimeState>();
         services.AddSingleton(new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) })) { BaseAddress = new Uri("http://localhost") });

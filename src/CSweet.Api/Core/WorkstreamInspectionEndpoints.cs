@@ -319,7 +319,11 @@ public static class WorkstreamInspectionEndpoints
                 item.Category, item.Outcome, item.EntityType, item.EntityId, item.Summary ?? string.Empty, item.ActorKind,
                 item.ActorOrganizationUserId, item.ActorDisplayName, item.ActorAgentId, item.ActorInstallationId,
                 item.CorrelationId, item.TraceId, item.ParentEventId, item.RecordHash ?? string.Empty)).ToList(),
-            DateTimeOffset.UtcNow));
+            DateTimeOffset.UtcNow)
+        {
+            CanRename = actor.EmployeeType == EmployeeType.Human && actor.ArchivedAt == null &&
+                (actor.PermissionLevel >= OrganizationPermissionLevel.Manager || workstream.AccountableManagerOrganizationUserId == actor.Id)
+        });
     }
 
     private static ProjectInspectionResource Resource(

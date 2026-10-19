@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -52,7 +53,7 @@ public sealed class PersonalAssistantRenderingTests
 
     private static async Task<string> RenderAsync<T>(string theme, Dictionary<string, object?> parameters, bool dialog = false) where T : IComponent
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, Navigation>();
         services.AddSingleton<IAppRealtimeConnection, OfflineRealtime>();
         services.AddSingleton(new HttpClient(new Api()) { BaseAddress = new Uri("http://localhost/") });

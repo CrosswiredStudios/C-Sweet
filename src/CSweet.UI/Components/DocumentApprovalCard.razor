@@ -3,6 +3,7 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 @implements IDisposable
+@inject IAppLocalizer L
 
 <div class="document-approval-card">
     <AttentionRequestCard Kind="Approval" EmployeeId="Approval.RequesterOrganizationUserId"
@@ -19,18 +20,18 @@
             {
                 <MudChip T="string" Size="Size.Small" Color="@(Approval.Status == "Approved" ? Color.Success : Color.Warning)">@StatusLabel</MudChip>
                 @if (!string.IsNullOrWhiteSpace(Approval.ActualDecisionMaker)) { <p class="document-decision-note">Decided by @Approval.ActualDecisionMaker</p> }
-                @if (!string.IsNullOrWhiteSpace(Approval.DecisionComment)) { <p class="document-decision-note"><strong>Feedback:</strong> @Approval.DecisionComment</p> }
+                @if (!string.IsNullOrWhiteSpace(Approval.DecisionComment)) { <p class="document-decision-note"><strong>@L["DocumentApprovalCard.Feedback"]</strong> @Approval.DecisionComment</p> }
             }
             @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3" role="alert">@_error</MudAlert> }
             @if (_revisionOpen && IsPending)
             {
                 <div class="document-revision-feedback">
-                    <MudTextField T="string" @bind-Value="_feedback" Label="Feedback for the author" Placeholder="What should change?"
+                    <MudTextField T="string" @bind-Value="_feedback" Label="@L["DocumentApprovalCard.FeedbackForTheAuthor"]" Placeholder="@L["DocumentApprovalCard.WhatShouldChange"]"
                         Lines="3" Variant="Variant.Outlined" Disabled="_busy" Immediate="true"
-                        HelperText="Feedback is required when requesting a revision." />
+                        HelperText="@L["DocumentApprovalCard.FeedbackIsRequiredWhenRequesting"]" />
                     <div class="document-approval-actions">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RequestRevisionAsync" Disabled="@(_busy || !CanDecide)">Send revision request</MudButton>
-                        <MudButton OnClick="() => _revisionOpen = false" Disabled="_busy">Cancel</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RequestRevisionAsync" Disabled="@(_busy || !CanDecide)">@L["DocumentApprovalCard.SendRevisionRequest"]</MudButton>
+                        <MudButton OnClick="() => _revisionOpen = false" Disabled="_busy">@L["Common.Cancel"]</MudButton>
                     </div>
                 </div>
             }
@@ -38,7 +39,7 @@
         <ChildContent>
             @if (IsPending && Approval.CanDecide)
             {
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => _revisionOpen = true" Disabled="@(_busy || !CanDecide)">Request revision</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="() => _revisionOpen = true" Disabled="@(_busy || !CanDecide)">@L["DocumentApprovalCard.RequestRevision"]</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Outlined.Check"
                     OnClick="ApproveAsync" Disabled="@(_busy || !CanDecide)">@(_busy ? "Submitting…" : ApproveLabel)</MudButton>
             }
@@ -103,13 +104,13 @@
             var detail = await response.Content.ReadFromJsonAsync<ArtifactDocumentDetail>();
             if (_disposed || version != _loadVersion) return;
             _detail = detail;
-            if (Revision is null) _error = "The linked revision is unavailable. Open the document to check its status.";
+            if (Revision is null) _error = L["DocumentApprovalCard.TheLinkedRevisionIsUnavailable"];
             else if (IsPending && !CanDecide && !_completed && Approval.CanDecide)
-                _error = "This revision is no longer awaiting approval. Open it to review its current status.";
+                _error = L["DocumentApprovalCard.ThisRevisionIsNoLonger"];
         }
         catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException)
         {
-            if (version == _loadVersion) { _detail = null; _error = "Could not reach the document service. Open the document to retry."; }
+            if (version == _loadVersion) { _detail = null; _error = L["DocumentApprovalCard.CouldNotReachTheDocument"]; }
         }
     }
     private Task OpenAsync() => Opened.InvokeAsync(new DocumentApprovalSelection(Approval.Artifact!.ArtifactId, RevisionId, Approval.CanDecide && IsPending));
@@ -119,7 +120,7 @@
     {
         if (_busy || !CanDecide) return;
         if (decision == "request-revision" && string.IsNullOrWhiteSpace(_feedback))
-        { _error = "Feedback is required when requesting a revision."; return; }
+        { _error = L["DocumentApprovalCard.FeedbackIsRequiredWhenRequesting"]; return; }
         _busy = true; _error = null;
         var organization = OrganizationId;
         var artifact = Approval.Artifact!.ArtifactId;
@@ -145,7 +146,7 @@
             _completed = true; _revisionOpen = false;
             await RefreshRequested.InvokeAsync();
         }
-        catch (HttpRequestException) { _error = "Could not save the decision. Try again."; }
+        catch (HttpRequestException) { _error = L["DocumentApprovalCard.CouldNotSaveTheDecision"]; }
         finally { _busy = false; }
     }
     private void OnEvent(AppRealtimeEventEnvelope envelope)

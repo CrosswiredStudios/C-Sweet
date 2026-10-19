@@ -9,28 +9,29 @@
 @inject ISetupApiClient SetupApi
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
 <PageTitle>@(SelectedOffice is { } selected ? $"{selected.Name} - Offices - C-Sweet" : "Offices - C-Sweet")</PageTitle>
 
 <div class="setup-shell configuration-page offices-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Server settings</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["ExecutionFleet.ServerSettings"]</MudText>
             <MudText Typo="Typo.h3">@(SelectedOffice?.Name ?? "Offices")</MudText>
             <MudText Color="Color.Secondary">@(OfficeId is null ? "Manage every Office connected to this server, wherever it runs." : "Manage this computer and the work it runs.")</MudText>
         </div>
         <div class="office-actions">
             @if (OfficeId is not null)
             {
-                <MudButton Href="/settings/offices" Variant="Variant.Outlined">All Offices</MudButton>
-                @if (_careInProgress) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCareAsync">View progress</MudButton> }
+                <MudButton Href="/settings/offices" Variant="Variant.Outlined">@L["ExecutionFleet.AllOffices"]</MudButton>
+                @if (_careInProgress) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCareAsync">@L["ExecutionFleet.ViewProgress"]</MudButton> }
             }
             else
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => _showSetup = !_showSetup">@(_showSetup ? "Close setup" : "Add Office")</MudButton>
             }
             <MudButton Variant="Variant.Outlined" Disabled="@(_checkingUpdates || _loading)" OnClick="CheckUpdatesAsync">@(_checkingUpdates ? "Checking for updates…" : "Check for updates")</MudButton>
-            <MudButton Variant="Variant.Outlined" Disabled="@(_busy || _refreshing)" OnClick="LoadAsync">Refresh</MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="@(_busy || _refreshing)" OnClick="LoadAsync">@L["Common.Refresh"]</MudButton>
         </div>
     </MudPaper>
 
@@ -56,15 +57,15 @@
     }
     @if (_loading)
     {
-        <MudProgressLinear Indeterminate="true" aria-label="Loading Offices" />
+        <MudProgressLinear Indeterminate="true" aria-label="@L["ExecutionFleet.LoadingOffices"]" />
     }
     else if (_fleet is not null && OfficeId is null)
     {
-        <div class="office-summary" aria-label="Office summary">
-            <div><strong>@_fleet.Nodes.Count</strong><span>Total Offices</span></div>
-            <div><strong>@_fleet.Nodes.Count(x => Status(x) == "Ready")</strong><span>Ready</span></div>
-            <div><strong>@_fleet.Nodes.Count(x => Status(x) is "Offline" or "Awaiting approval" or "Needs attention")</strong><span>Need attention</span></div>
-            <div><strong>@_fleet.Nodes.Count(x => Status(x) == "Draining")</strong><span>Draining</span></div>
+        <div class="office-summary" aria-label="@L["ExecutionFleet.OfficeSummary"]">
+            <div><strong>@_fleet.Nodes.Count</strong><span>@L["ExecutionFleet.TotalOffices"]</span></div>
+            <div><strong>@_fleet.Nodes.Count(x => Status(x) == "Ready")</strong><span>@L["ExecutionFleet.Ready"]</span></div>
+            <div><strong>@_fleet.Nodes.Count(x => Status(x) is "Offline" or "Awaiting approval" or "Needs attention")</strong><span>@L["ExecutionFleet.NeedAttention"]</span></div>
+            <div><strong>@_fleet.Nodes.Count(x => Status(x) == "Draining")</strong><span>@L["ExecutionFleet.Draining"]</span></div>
         </div>
         @if (_showSetup)
         {
@@ -74,56 +75,56 @@
         }
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
             <div class="office-toolbar">
-                <MudTextField T="string" Label="Find an Office" Placeholder="Name, machine, or pool" Immediate="true" @bind-Value="_search" />
-                <MudSelect T="string" Label="Status" @bind-Value="_statusFilter">
-                    <MudSelectItem T="string" Value='@("all")'>All statuses</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("Ready")'>Ready</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("attention")'>Needs attention</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("Draining")'>Draining</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("Revoked")'>Revoked</MudSelectItem>
+                <MudTextField T="string" Label="@L["ExecutionFleet.FindAnOffice"]" Placeholder="@L["ExecutionFleet.NameMachineOrPool"]" Immediate="true" @bind-Value="_search" />
+                <MudSelect T="string" Label="@L["ExecutionFleet.Status"]" @bind-Value="_statusFilter">
+                    <MudSelectItem T="string" Value='@("all")'>@L["ExecutionFleet.AllStatuses"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Ready")'>@L["ExecutionFleet.Ready"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("attention")'>@L["ExecutionFleet.NeedsAttention"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Draining")'>@L["ExecutionFleet.Draining"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Revoked")'>@L["ExecutionFleet.Revoked"]</MudSelectItem>
                 </MudSelect>
             </div>
             @if (_fleet.Nodes.Count == 0)
             {
-                <div class="office-empty"><MudText Typo="Typo.h6">No Offices yet</MudText><MudText>Add an Office to run agent builds and work on this server.</MudText></div>
+                <div class="office-empty"><MudText Typo="Typo.h6">@L["ExecutionFleet.NoOfficesYet"]</MudText><MudText>@L["ExecutionFleet.AddAnOfficeToRun"]</MudText></div>
             }
             else if (!VisibleOffices.Any())
             {
-                <div class="office-empty">No Offices match your search and status filter.</div>
+                <div class="office-empty">@L["ExecutionFleet.NoOfficesMatchYourSearch"]</div>
             }
             else
             {
                 <div class="office-table-scroll">
                     <table class="office-table">
-                        <caption class="office-sr-only">All Offices associated with this server</caption>
-                        <thead><tr><th scope="col">Office</th><th scope="col">Status</th><th scope="col">Version</th><th scope="col">Active work</th><th scope="col">Last seen</th><th scope="col">Actions</th></tr></thead>
+                        <caption class="office-sr-only">@L["ExecutionFleet.AllOfficesAssociatedWithThis"]</caption>
+                        <thead><tr><th scope="col">@L["ExecutionFleet.Office"]</th><th scope="col">@L["ExecutionFleet.Status"]</th><th scope="col">@L["ExecutionFleet.Version"]</th><th scope="col">@L["ExecutionFleet.ActiveWork"]</th><th scope="col">@L["ExecutionFleet.LastSeen"]</th><th scope="col">@L["ExecutionFleet.Actions"]</th></tr></thead>
                         <tbody>
                             @foreach (var node in VisibleOffices)
                             {
                                 <tr @key="node.Id">
                                     <td><a class="office-name" href="@OfficeUrl(node.Id)">@node.Name</a><span class="office-meta">@node.MachineName · @node.OperatingSystem</span><span class="office-meta">@PoolName(node.ExecutionPoolId)</span></td>
                                     <td><MudChip T="string" Size="Size.Small" Color="@StatusColor(node)">@Status(node)</MudChip></td>
-                                    <td><span title="Last version reported by this Office">@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</span>
+                                    <td><span title="@L["ExecutionFleet.LastVersionReportedByThis"]">@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</span>
                                     @if (_updates is not null && node.Status != "revoked") { <span class="office-meta">@OfficeUpdatePresentation.Status(node, _updates)</span> }
                                     </td>
                                     <td>@ActiveWorkLabel(node.Id)</td>
                                     <td>@Heartbeat(node.LastHeartbeatAt)</td>
-                                    <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">Details</MudButton>
+                                    <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">@L["ExecutionFleet.Details"]</MudButton>
                                     @if (node.Status != "revoked" && node.Status != "pendingapproval")
                                     {
                                         @if (HasUpdate(node) || CanBuildLocally(node))
                                         {
-                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">Update</MudButton>
+                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">@L["ExecutionFleet.Update"]</MudButton>
                                         }
-                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Repair</MudButton>
+                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">@L["ExecutionFleet.Repair"]</MudButton>
                                     }
                                     @if (node.Status == "ready")
                                     {
-                                        <MudButton Size="Size.Small" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Drain</MudButton>
+                                        <MudButton Size="Size.Small" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>@L["ExecutionFleet.Drain"]</MudButton>
                                     }
                                     else if (node.Status == "draining")
                                     {
-                                        <MudButton Size="Size.Small" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Resume</MudButton>
+                                        <MudButton Size="Size.Small" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>@L["ExecutionFleet.Resume"]</MudButton>
                                     }
                                     </div></td>
                                 </tr>
@@ -135,16 +136,16 @@
             <MudText Typo="Typo.caption" Class="mt-3">Server-wide list · Updated @Heartbeat(_lastUpdated) · Refreshes every 15 seconds</MudText>
         </MudPaper>
         <MudExpansionPanels>
-            <MudExpansionPanel Text="Advanced: workload pools and routing">
+            <MudExpansionPanel Text="@L["ExecutionFleet.AdvancedWorkloadPoolsAndRouting"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Pools</MudText>
-            <MudText Color="Color.Secondary">Pools define workload limits, required node labels, business allowlists, and global build/runtime defaults.</MudText>
+            <MudText Typo="Typo.h5">@L["ExecutionFleet.Pools"]</MudText>
+            <MudText Color="Color.Secondary">@L["ExecutionFleet.PoolsDefineWorkloadLimitsRequired"]</MudText>
             <MudGrid Class="mt-2">
-                <MudItem xs="12" md="3"><MudTextField Label="New pool name" @bind-Value="_newPoolName" /></MudItem>
-                <MudItem xs="12" md="2"><MudNumericField T="int" Label="Workload limit" Min="1" Max="100000" @bind-Value="_newPoolLimit" /></MudItem>
-                <MudItem xs="12" md="3"><MudTextField Label="Required labels" HelperText="region=west,tier=gpu" @bind-Value="_newPoolLabels" /></MudItem>
-                <MudItem xs="12" md="3"><MudTextField Label="Allowed businesses" HelperText="Empty allows all" @bind-Value="_newPoolBusinesses" /></MudItem>
-                <MudItem xs="12" md="1" Class="d-flex align-center"><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="CreatePoolAsync">Add</MudButton></MudItem>
+                <MudItem xs="12" md="3"><MudTextField Label="@L["ExecutionFleet.NewPoolName"]" @bind-Value="_newPoolName" /></MudItem>
+                <MudItem xs="12" md="2"><MudNumericField T="int" Label="@L["ExecutionFleet.WorkloadLimit"]" Min="1" Max="100000" @bind-Value="_newPoolLimit" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField Label="@L["ExecutionFleet.RequiredLabels"]" HelperText="region=west,tier=gpu" @bind-Value="_newPoolLabels" /></MudItem>
+                <MudItem xs="12" md="3"><MudTextField Label="@L["ExecutionFleet.AllowedBusinesses"]" HelperText="@L["ExecutionFleet.EmptyAllowsAll"]" @bind-Value="_newPoolBusinesses" /></MudItem>
+                <MudItem xs="12" md="1" Class="d-flex align-center"><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="CreatePoolAsync">@L["Common.Add"]</MudButton></MudItem>
             </MudGrid>
             @foreach (var pool in _fleet.Pools)
             {
@@ -153,32 +154,32 @@
                     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
                             <MudText Typo="Typo.h6">@pool.Name</MudText>
-                            @if (pool.IsDefaultBuildPool) { <MudChip T="string" Size="Size.Small" Color="Color.Primary">Build default</MudChip> }
-                            @if (pool.IsDefaultRuntimePool) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">Runtime default</MudChip> }
-                            @if (!pool.IsEnabled) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">Disabled</MudChip> }
+                            @if (pool.IsDefaultBuildPool) { <MudChip T="string" Size="Size.Small" Color="Color.Primary">@L["ExecutionFleet.BuildDefault"]</MudChip> }
+                            @if (pool.IsDefaultRuntimePool) { <MudChip T="string" Size="Size.Small" Color="Color.Secondary">@L["ExecutionFleet.RuntimeDefault"]</MudChip> }
+                            @if (!pool.IsEnabled) { <MudChip T="string" Size="Size.Small" Color="Color.Warning">@L["Common.Disabled"]</MudChip> }
                         </MudStack>
                         <MudText Typo="Typo.caption">@pool.ReadyNodeCount/@pool.NodeCount ready offices | @pool.ActiveAssignmentCount active assignments</MudText>
                     </MudStack>
                     <MudGrid Class="mt-2">
-                        <MudItem xs="12" md="3"><MudTextField Label="Name" @bind-Value="edit.Name" /></MudItem>
-                        <MudItem xs="12" md="2"><MudNumericField T="int" Label="Workload limit" Min="1" Max="100000" @bind-Value="edit.MaximumActiveWorkloads" /></MudItem>
-                        <MudItem xs="12" md="3"><MudTextField Label="Required labels" HelperText="key=value, comma separated" @bind-Value="edit.RequiredLabels" /></MudItem>
-                        <MudItem xs="12" md="3"><MudTextField Label="Allowed businesses" HelperText="Empty allows all" @bind-Value="edit.AllowedBusinessIds" /></MudItem>
-                        <MudItem xs="12" md="1" Class="d-flex align-center"><MudCheckBox T="bool" Label="Enabled" @bind-Value="edit.IsEnabled" /></MudItem>
+                        <MudItem xs="12" md="3"><MudTextField Label="@L["ExecutionFleet.Name"]" @bind-Value="edit.Name" /></MudItem>
+                        <MudItem xs="12" md="2"><MudNumericField T="int" Label="@L["ExecutionFleet.WorkloadLimit"]" Min="1" Max="100000" @bind-Value="edit.MaximumActiveWorkloads" /></MudItem>
+                        <MudItem xs="12" md="3"><MudTextField Label="@L["ExecutionFleet.RequiredLabels"]" HelperText="key=value, comma separated" @bind-Value="edit.RequiredLabels" /></MudItem>
+                        <MudItem xs="12" md="3"><MudTextField Label="@L["ExecutionFleet.AllowedBusinesses"]" HelperText="@L["ExecutionFleet.EmptyAllowsAll"]" @bind-Value="edit.AllowedBusinessIds" /></MudItem>
+                        <MudItem xs="12" md="1" Class="d-flex align-center"><MudCheckBox T="bool" Label="@L["Common.Enabled"]" @bind-Value="edit.IsEnabled" /></MudItem>
                     </MudGrid>
                     <MudStack Row="true" Spacing="1" Class="mt-2" Style="flex-wrap: wrap">
-                        <MudButton Variant="Variant.Filled" Disabled="@ActionsDisabled" OnClick="() => SavePoolAsync(pool.Id)">Save policy</MudButton>
+                        <MudButton Variant="Variant.Filled" Disabled="@ActionsDisabled" OnClick="() => SavePoolAsync(pool.Id)">@L["ExecutionFleet.SavePolicy"]</MudButton>
                         @if (!pool.IsDefaultBuildPool)
                         {
-                            <MudButton Variant="Variant.Outlined" Disabled="@(ActionsDisabled || !edit.IsEnabled)" OnClick="() => SavePoolAsync(pool.Id, setBuildDefault: true)">Make build default</MudButton>
+                            <MudButton Variant="Variant.Outlined" Disabled="@(ActionsDisabled || !edit.IsEnabled)" OnClick="() => SavePoolAsync(pool.Id, setBuildDefault: true)">@L["ExecutionFleet.MakeBuildDefault"]</MudButton>
                         }
                         @if (!pool.IsDefaultRuntimePool)
                         {
-                            <MudButton Variant="Variant.Outlined" Disabled="@(ActionsDisabled || !edit.IsEnabled)" OnClick="() => SavePoolAsync(pool.Id, setRuntimeDefault: true)">Make runtime default</MudButton>
+                            <MudButton Variant="Variant.Outlined" Disabled="@(ActionsDisabled || !edit.IsEnabled)" OnClick="() => SavePoolAsync(pool.Id, setRuntimeDefault: true)">@L["ExecutionFleet.MakeRuntimeDefault"]</MudButton>
                         }
                         @if (!pool.IsDefaultBuildPool && !pool.IsDefaultRuntimePool)
                         {
-                            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@ActionsDisabled" OnClick="() => DeletePoolAsync(pool.Id)">Delete</MudButton>
+                            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@ActionsDisabled" OnClick="() => DeletePoolAsync(pool.Id)">@L["Common.Delete"]</MudButton>
                         }
                     </MudStack>
                 </MudPaper>
@@ -186,11 +187,11 @@
         </MudPaper>
 
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Runtime pool overrides</MudText>
-            <MudText Color="Color.Secondary">Agents use the global runtime pool unless an administrator assigns an installation to another enabled pool.</MudText>
+            <MudText Typo="Typo.h5">@L["ExecutionFleet.RuntimePoolOverrides"]</MudText>
+            <MudText Color="Color.Secondary">@L["ExecutionFleet.AgentsUseTheGlobalRuntime"]</MudText>
             @if (_fleet.InstallationOverrides.Count == 0)
             {
-                <MudText Class="mt-3">No active agent installations are available.</MudText>
+                <MudText Class="mt-3">@L["ExecutionFleet.NoActiveAgentInstallationsAre"]</MudText>
             }
             @foreach (var installation in _fleet.InstallationOverrides)
             {
@@ -201,9 +202,9 @@
                             <MudText Typo="Typo.caption">Business @installation.BusinessId | effective pool @installation.EffectiveExecutionPoolName</MudText>
                         </MudItem>
                         <MudItem xs="12" md="7">
-                            <MudSelect T="string" Label="Runtime execution pool" Value="@PoolSelection(installation)"
+                            <MudSelect T="string" Label="@L["ExecutionFleet.RuntimeExecutionPool"]" Value="@PoolSelection(installation)"
                                        ValueChanged="value => SetInstallationPoolAsync(installation.InstallationId, value)" Disabled="@ActionsDisabled">
-                                <MudSelectItem T="string" Value="@DefaultPoolSelection">Use global runtime default</MudSelectItem>
+                                <MudSelectItem T="string" Value="@DefaultPoolSelection">@L["ExecutionFleet.UseGlobalRuntimeDefault"]</MudSelectItem>
                                 @foreach (var pool in _fleet.Pools.Where(x => x.IsEnabled))
                                 {
                                     <MudSelectItem T="string" Value="@PoolValue(pool.Id)">@pool.Name</MudSelectItem>
@@ -226,43 +227,43 @@
             OnSessionChanged="session => _careSession = session" ActionMessage="@_message" ActionSucceeded="_messageSucceeded"
             OnChanged="LoadAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
         <MudTabs @bind-ActivePanelIndex="_activeTab" KeepPanelsAlive="true" Elevation="0" Rounded="true" Class="office-tabs">
-        <MudTabPanel Text="Overview">
+        <MudTabPanel Text="@L["ExecutionFleet.Overview"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
             <div class="office-detail-heading"><div><MudChip T="string" Color="@StatusColor(node)">@Status(node)</MudChip><MudText>@node.MachineName · @node.OperatingSystem / @node.Architecture</MudText></div>
                 <div class="office-actions">
                     @if (node.Status == "ready")
                     {
-                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>Pause new work</MudButton>
+                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>@L["ExecutionFleet.PauseNewWork"]</MudButton>
                     }
                     else if (node.Status == "draining")
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Allow new work</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>@L["ExecutionFleet.AllowNewWork"]</MudButton>
                     }
                     @if (node.Status == "pendingapproval")
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="() => ApproveAsync(node.Id)">Approve Office</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="() => ApproveAsync(node.Id)">@L["ExecutionFleet.ApproveOffice"]</MudButton>
                     }
                 </div>
             </div>
             <div class="office-facts">
-                <div><span>Last reported version</span><strong>@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</strong>
+                <div><span>@L["ExecutionFleet.LastReportedVersion"]</span><strong>@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</strong>
                 @if (_updates is not null) { <span>@OfficeUpdatePresentation.Status(node, _updates)</span> }
                 </div>
-                <div><span>Workload pool</span><strong>@PoolName(node.ExecutionPoolId)</strong></div>
-                <div><span>Active work</span><strong>@ActiveWorkLabel(node.Id)</strong></div>
-                <div><span>Last seen</span><strong>@Heartbeat(node.LastHeartbeatAt)</strong></div>
-                <div><span>Capacity</span><strong>@node.AllocatableCpuCount CPU · @((node.AllocatableMemoryMb / 1024d).ToString("0.#")) GB memory</strong></div>
-                <div><span>Work limit</span><strong>@node.MaximumConcurrentWorkloads concurrent workloads</strong></div>
+                <div><span>@L["ExecutionFleet.WorkloadPool"]</span><strong>@PoolName(node.ExecutionPoolId)</strong></div>
+                <div><span>@L["ExecutionFleet.ActiveWork"]</span><strong>@ActiveWorkLabel(node.Id)</strong></div>
+                <div><span>@L["ExecutionFleet.LastSeen"]</span><strong>@Heartbeat(node.LastHeartbeatAt)</strong></div>
+                <div><span>@L["ExecutionFleet.Capacity"]</span><strong>@node.AllocatableCpuCount CPU · @((node.AllocatableMemoryMb / 1024d).ToString("0.#")) GB memory</strong></div>
+                <div><span>@L["ExecutionFleet.WorkLimit"]</span><strong>@node.MaximumConcurrentWorkloads concurrent workloads</strong></div>
             </div>
             @if (Status(node) == "Offline")
             {
                 <MudAlert Severity="Severity.Warning" Class="mt-3">
-                    This Office isn't connected. Open Office care to get it working again.
+                    @L["ExecutionFleet.ThisOfficeIsnTConnected"]
                 </MudAlert>
             }
             else if (node.Status == "draining")
             {
-                <MudText Class="mt-3">New work is paused. Current work is allowed to finish.</MudText>
+                <MudText Class="mt-3">@L["ExecutionFleet.NewWorkIsPausedCurrent"]</MudText>
             }
         </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel command-section-wide" id="upgrade">
@@ -270,7 +271,7 @@
             @if ((HasUpdate(node) || CanBuildLocally(node)) && !_careInProgress)
             {
                 <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "A local source fallback is available. C-Sweet will prefer the latest verified prebuilt Office bundle." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
-                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">Update Office</MudButton>
+                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">@L["ExecutionFleet.UpdateOffice"]</MudButton>
             }
             <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Repair the connection or update the Office software with step-by-step help.")</MudText>
             @if (node.Status is "revoked" or "pendingapproval")
@@ -279,12 +280,12 @@
             }
             <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCareAsync">@(_careInProgress ? "View progress" : "Open Office care")</MudButton>
         </MudPaper>
-        <MudExpansionPanels><MudExpansionPanel Text="Connection details and diagnostics">
+        <MudExpansionPanels><MudExpansionPanel Text="@L["ExecutionFleet.ConnectionDetailsAndDiagnostics"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Connection and capabilities</MudText>
+            <MudText Typo="Typo.h5">@L["ExecutionFleet.ConnectionAndCapabilities"]</MudText>
             <MudText>Certificate expires: @Heartbeat(node.CertificateExpiresAt)</MudText>
             <MudText Typo="Typo.caption">Office ID: @node.Id · Protocol @node.ProtocolVersion</MudText>
-            @if (node.Providers.Count == 0) { <MudText Class="mt-3">No capabilities have been reported yet.</MudText> }
+            @if (node.Providers.Count == 0) { <MudText Class="mt-3">@L["ExecutionFleet.NoCapabilitiesHaveBeenReported"]</MudText> }
             @foreach (var provider in node.Providers)
             {
                 <div class="office-provider"><strong>@provider.ProviderId</strong><MudChip T="string" Size="Size.Small" Color="@(provider.IsAvailable ? Color.Success : Color.Warning)">@(provider.IsAvailable ? "Available" : "Unavailable")</MudChip>
@@ -305,58 +306,58 @@
         @if (_careSession is { } care)
         {
             <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-                <MudText Typo="Typo.h6">Office maintenance</MudText>
+                <MudText Typo="Typo.h6">@L["ExecutionFleet.OfficeMaintenance"]</MudText>
                 <MudText>@care.PhaseDisplayName</MudText>
                 <MudText Typo="Typo.body2">@care.Message</MudText>
-                <MudButton OnClick="OpenCareAsync">View details</MudButton>
+                <MudButton OnClick="OpenCareAsync">@L["ExecutionFleet.ViewDetails"]</MudButton>
             </MudPaper>
         }
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Recent work</MudText>
+            <MudText Typo="Typo.h5">@L["ExecutionFleet.RecentWork"]</MudText>
             <MudText Class="mt-2">Active jobs: @ActiveWorkLabel(node.Id)</MudText>
             @if (_activityError is not null) { <MudAlert Severity="Severity.Warning">@_activityError</MudAlert> }
-            else if (_activity is null) { <MudText>Loading work history…</MudText> }
-            else if (_activity.RecentAssignments.Count == 0) { <MudText Class="mt-3">No work has been assigned to this Office.</MudText> }
+            else if (_activity is null) { <MudText>@L["ExecutionFleet.LoadingWorkHistory"]</MudText> }
+            else if (_activity.RecentAssignments.Count == 0) { <MudText Class="mt-3">@L["ExecutionFleet.NoWorkHasBeenAssigned"]</MudText> }
             else
             {
                 <div class="office-table-scroll"><table class="office-table"><caption class="office-sr-only">Latest 50 workloads for @node.Name</caption>
-                    <thead><tr><th scope="col">Queued</th><th scope="col">Work</th><th scope="col">Status</th><th scope="col">Outcome</th></tr></thead><tbody>
+                    <thead><tr><th scope="col">@L["ExecutionFleet.Queued"]</th><th scope="col">@L["ExecutionFleet.Work"]</th><th scope="col">@L["ExecutionFleet.Status"]</th><th scope="col">@L["ExecutionFleet.Outcome"]</th></tr></thead><tbody>
                     @foreach (var assignment in _activity.RecentAssignments)
                     {
-                        <tr><td>@Heartbeat(assignment.QueuedAt)</td><td>@WorkName(assignment.WorkloadKind)</td><td>@assignment.Status</td><td>@if (assignment.FailureCode is { } failure) { <details><summary>View details</summary>@failure</details> } else { <span>—</span> }</td></tr>
+                        <tr><td>@Heartbeat(assignment.QueuedAt)</td><td>@WorkName(assignment.WorkloadKind)</td><td>@assignment.Status</td><td>@if (assignment.FailureCode is { } failure) { <details><summary>@L["ExecutionFleet.ViewDetails"]</summary>@failure</details> } else { <span>—</span> }</td></tr>
                     }
                 </tbody></table></div>
             }
         </MudPaper>
         </MudTabPanel>
-        <MudTabPanel Text="Settings">
+        <MudTabPanel Text="@L["ExecutionFleet.Settings"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
-            <MudText Typo="Typo.h5">Office settings</MudText>
-            <MudTextField Label="Office name" @bind-Value="_officeName" Disabled="@(ActionsDisabled || _careInProgress)" MaxLength="200" />
-            <MudSelect T="Guid" Label="Workload group" @bind-Value="_officePool" Disabled="@(ActionsDisabled || _careInProgress)">
+            <MudText Typo="Typo.h5">@L["ExecutionFleet.OfficeSettings"]</MudText>
+            <MudTextField Label="@L["ExecutionFleet.OfficeName"]" @bind-Value="_officeName" Disabled="@(ActionsDisabled || _careInProgress)" MaxLength="200" />
+            <MudSelect T="Guid" Label="@L["ExecutionFleet.WorkloadGroup"]" @bind-Value="_officePool" Disabled="@(ActionsDisabled || _careInProgress)">
                 @foreach (var pool in _fleet.Pools.Where(x => x.IsEnabled || x.Id == node.ExecutionPoolId))
                 { <MudSelectItem T="Guid" Value="pool.Id">@pool.Name</MudSelectItem> }
             </MudSelect>
             <MudText Typo="Typo.body2" Class="mt-3">This computer reports a limit of @node.MaximumConcurrentWorkloads jobs at once. Its capacity is managed by the Office installation.</MudText>
-            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(ActionsDisabled || _careInProgress || string.IsNullOrWhiteSpace(_officeName))" OnClick="SaveOfficeAsync">Save changes</MudButton>
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(ActionsDisabled || _careInProgress || string.IsNullOrWhiteSpace(_officeName))" OnClick="SaveOfficeAsync">@L["ExecutionFleet.SaveChanges"]</MudButton>
         </MudPaper>
         <MudExpansionPanels>
-            <MudExpansionPanel Text="Office labels and access">
-                <MudTextField Label="Office labels" HelperText="key=value, comma separated" @bind-Value="_nodeLabelEdits[node.Id]" Disabled="@(ActionsDisabled || _careInProgress)" />
-                <MudButton Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => SaveNodeLabelsAsync(node.Id)">Save labels</MudButton>
+            <MudExpansionPanel Text="@L["ExecutionFleet.OfficeLabelsAndAccess"]">
+                <MudTextField Label="@L["ExecutionFleet.OfficeLabels"]" HelperText="key=value, comma separated" @bind-Value="_nodeLabelEdits[node.Id]" Disabled="@(ActionsDisabled || _careInProgress)" />
+                <MudButton Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => SaveNodeLabelsAsync(node.Id)">@L["ExecutionFleet.SaveLabels"]</MudButton>
                 @if (node.Status != "revoked")
                 {
                     <MudDivider Class="my-4" />
-                    <MudText>Removing access disconnects this Office and stops its current work. You will need to add the Office again to reconnect it.</MudText>
+                    <MudText>@L["ExecutionFleet.RemovingAccessDisconnectsThisOffice"]</MudText>
                     @if (_confirmRevocation)
                     {
                         <MudAlert Severity="Severity.Warning">Revoke @node.Name? Any active work will lose access immediately.</MudAlert>
-                        <MudButton Color="Color.Error" Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => RevokeAsync(node.Id)">Confirm revocation</MudButton>
-                        <MudButton OnClick="() => _confirmRevocation = false">Cancel</MudButton>
+                        <MudButton Color="Color.Error" Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => RevokeAsync(node.Id)">@L["ExecutionFleet.ConfirmRevocation"]</MudButton>
+                        <MudButton OnClick="() => _confirmRevocation = false">@L["Common.Cancel"]</MudButton>
                     }
                     else
                     {
-                        <MudButton Color="Color.Error" Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => _confirmRevocation = true">Revoke access</MudButton>
+                        <MudButton Color="Color.Error" Disabled="@(ActionsDisabled || _careInProgress)" OnClick="() => _confirmRevocation = true">@L["ExecutionFleet.RevokeAccess"]</MudButton>
                     }
                 }
             </MudExpansionPanel>
@@ -366,7 +367,7 @@
     }
     else if (_fleet is not null)
     {
-        <MudAlert Severity="Severity.Warning">This Office is not associated with this server. Return to All Offices to choose another.</MudAlert>
+        <MudAlert Severity="Severity.Warning">@L["ExecutionFleet.ThisOfficeIsNotAssociated"]</MudAlert>
     }
 </div>
 
@@ -456,7 +457,7 @@
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or TaskCanceledException or InvalidDataException)
         {
-            _updateError = "Could not check for Office updates. Try again shortly.";
+            _updateError = L["ExecutionFleet.CouldNotCheckForOffice"];
         }
         finally { _checkingUpdates = false; }
     }
@@ -550,7 +551,7 @@
                 }
                 catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException)
                 {
-                    if (officeId == OfficeId) { _activity = null; _activityError = "Could not refresh this Office's work status."; }
+                    if (officeId == OfficeId) { _activity = null; _activityError = L["ExecutionFleet.CouldNotRefreshThisOffice"]; }
                 }
                 if (_packages is null)
                 {
@@ -571,7 +572,7 @@
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or InvalidDataException or TaskCanceledException)
         {
-            _loadError = "Could not refresh Offices from the server.";
+            _loadError = L["ExecutionFleet.CouldNotRefreshOfficesFrom"];
         }
         finally { _loading = false; _refreshing = false; }
     }
@@ -588,8 +589,8 @@
             _message = result?.Message ?? "Office approval failed.";
             if (_messageSucceeded) await LoadAsync();
         }
-        catch (HttpRequestException) { _messageSucceeded = false; _message = "The request failed. Refresh Office status before trying again."; }
-        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = "The server returned an unreadable response. Refresh Office status."; }
+        catch (HttpRequestException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheRequestFailedRefreshOffice"]; }
+        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheServerReturnedAnUnreadable"]; }
         finally { _busy = false; }
     }
 
@@ -646,8 +647,8 @@
                 : "The Office labels were rejected.";
             if (_messageSucceeded) await LoadAsync();
         }
-        catch (HttpRequestException) { _messageSucceeded = false; _message = "The request failed. Refresh Office status before trying again."; }
-        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = "The server returned an unreadable response. Refresh Office status."; }
+        catch (HttpRequestException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheRequestFailedRefreshOffice"]; }
+        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheServerReturnedAnUnreadable"]; }
         finally { _busy = false; }
     }
 
@@ -667,8 +668,8 @@
             _message = result?.Message ?? "The Office settings could not be updated.";
             if (_messageSucceeded) await LoadAsync();
         }
-        catch (HttpRequestException) { _messageSucceeded = false; _message = "The request failed. Refresh Office status before trying again."; }
-        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = "The server returned an unreadable response. Refresh Office status."; }
+        catch (HttpRequestException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheRequestFailedRefreshOffice"]; }
+        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheServerReturnedAnUnreadable"]; }
         finally { _busy = false; }
     }
 
@@ -682,7 +683,7 @@
             {
                 labels = result;
                 _messageSucceeded = false;
-                _message = "Required labels must use unique key=value entries separated by commas.";
+                _message = L["ExecutionFleet.RequiredLabelsMustUseUnique"];
                 return false;
             }
         }
@@ -717,8 +718,8 @@
                 : "The Office action failed. Refresh its status and try again.");
             if (_messageSucceeded) await LoadAsync();
         }
-        catch (HttpRequestException) { _messageSucceeded = false; _message = "The request failed. Refresh Office status before trying again."; }
-        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = "The server returned an unreadable response. Refresh Office status."; }
+        catch (HttpRequestException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheRequestFailedRefreshOffice"]; }
+        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheServerReturnedAnUnreadable"]; }
         finally { _busy = false; }
     }
 
@@ -732,11 +733,11 @@
             response.EnsureSuccessStatusCode();
             _confirmRevocation = false;
             _messageSucceeded = true;
-            _message = "Office access was revoked.";
+            _message = L["ExecutionFleet.OfficeAccessWasRevoked"];
             await LoadAsync();
         }
-        catch (HttpRequestException) { _messageSucceeded = false; _message = "The request failed. Refresh Office status before trying again."; }
-        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = "The server returned an unreadable response. Refresh Office status."; }
+        catch (HttpRequestException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheRequestFailedRefreshOffice"]; }
+        catch (System.Text.Json.JsonException) { _messageSucceeded = false; _message = L["ExecutionFleet.TheServerReturnedAnUnreadable"]; }
         finally { _busy = false; }
     }
 

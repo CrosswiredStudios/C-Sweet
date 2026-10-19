@@ -9,14 +9,15 @@
 @inject IAgentApiClient AgentApi
 @inject ILlmProviderApiClient LlmProviderApi
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
-<section class="executive-decision-card hiring-workflow-card" aria-label="Hiring workflow approval">
+<section class="executive-decision-card hiring-workflow-card" aria-label="@L["HiringWorkflowApprovalCard.HiringWorkflowApproval"]">
     <header>
-        <span>HIRING APPROVAL</span>
+        <span>@L["HiringWorkflowApprovalCard.HIRINGAPPROVAL"]</span>
         <strong>@Workflow.RoleTitle</strong>
     </header>
     <MudText Typo="Typo.body2">
-        Hire <strong>@Workflow.EmployeeDisplayName</strong> from @Workflow.CandidateSource,
+        @L["HiringWorkflowApprovalCard.Hire"] <strong>@Workflow.EmployeeDisplayName</strong> from @Workflow.CandidateSource,
         reporting to <strong>@Workflow.ReportsToDisplayName</strong>.
     </MudText>
     <MudText Typo="Typo.caption" Color="Color.Secondary">@Workflow.InstallationConsequence</MudText>
@@ -43,7 +44,7 @@
     {
         @if (Workflow.ConfigurationFields.Count > 0)
         {
-            <MudText Typo="Typo.subtitle2" Class="mt-3">Required configuration</MudText>
+            <MudText Typo="Typo.subtitle2" Class="mt-3">@L["HiringWorkflowApprovalCard.RequiredConfiguration"]</MudText>
             @foreach (var field in Workflow.ConfigurationFields.Where(IsConfigurationFieldVisible))
             {
                 @if (IsProviderField(field))
@@ -121,14 +122,14 @@
         <MudStack Row="true" Spacing="1">
             <MudButton Color="Color.Success" Variant="Variant.Filled"
                        Disabled="@(_busy || HasMissingRequiredConfiguration)"
-                       OnClick="@(() => DecideAsync(HiringWorkflowDecisionKinds.Approve))">Approve and hire</MudButton>
+                       OnClick="@(() => DecideAsync(HiringWorkflowDecisionKinds.Approve))">@L["HiringWorkflowApprovalCard.ApproveAndHire"]</MudButton>
             <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="_busy"
-                       OnClick="@(() => DecideAsync(HiringWorkflowDecisionKinds.Reject))">Deny</MudButton>
+                       OnClick="@(() => DecideAsync(HiringWorkflowDecisionKinds.Reject))">@L["HiringWorkflowApprovalCard.Deny"]</MudButton>
         </MudStack>
     }
     else
     {
-        <MudText Typo="Typo.caption"><strong>Status:</strong> @Workflow.Status @Workflow.DecisionComment</MudText>
+        <MudText Typo="Typo.caption"><strong>@L["HiringWorkflowApprovalCard.Status"]</strong> @Workflow.Status @Workflow.DecisionComment</MudText>
     }
 </section>
 

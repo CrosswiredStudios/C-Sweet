@@ -3,15 +3,16 @@
 @using CSweet.UI.Components
 @implements IDisposable
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<PageTitle>Compute - C-Sweet</PageTitle>
+<PageTitle>@L["Compute.PageTitle"]</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.False" Class="aurora-page business-workspace compute-page">
     <div class="compute-heading">
         <div>
-            <MudText Typo="Typo.overline">Business resources</MudText>
-            <MudText Typo="Typo.h4">Compute</MudText>
-            <MudText Color="Color.Secondary">Prepare environments. Give your agents room to build.</MudText>
+            <MudText Typo="Typo.overline">@L["Compute.BusinessResources"]</MudText>
+            <MudText Typo="Typo.h4">@L["Compute.Compute"]</MudText>
+            <MudText Color="Color.Secondary">@L["Compute.PrepareEnvironmentsGiveYourAgents"]</MudText>
         </div>
 
     </div>
@@ -23,62 +24,62 @@
     </div>
     @if (_error is not null)
     {
-        <MudAlert Severity="Severity.Error" Class="mb-4">@_error <MudButton OnClick="LoadAsync" Disabled="_loading" Color="Color.Inherit">Try again</MudButton></MudAlert>
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_error <MudButton OnClick="LoadAsync" Disabled="_loading" Color="Color.Inherit">@L["Compute.TryAgain"]</MudButton></MudAlert>
     }
     @if (_dashboard is null && _loading)
     {
-        <MudProgressLinear Indeterminate="true" aria-label="Loading compute" />
+        <MudProgressLinear Indeterminate="true" aria-label="@L["Compute.LoadingCompute"]" />
     }
     @if (_dashboard is { } dashboard)
     {
         <div class="compute-heading compute-section-heading">
-            <MudText Typo="Typo.h6">Compute types</MudText>
-            <span class="compute-secondary">Set up once · Reuse across instances</span>
+            <MudText Typo="Typo.h6">@L["Compute.ComputeTypes"]</MudText>
+            <span class="compute-secondary">@L["Compute.SetUpOnceReuseAcross"]</span>
         </div>
         <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork"
                             Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
         @if (_showCreate && dashboard.CanManageNetwork && dashboard.Setup?.State == "Ready")
         {
             <section class="compute-create" aria-labelledby="create-instance-title">
-                <div class="compute-heading"><h3 id="create-instance-title">Create Linux instance</h3><MudButton OnClick="CloseCreate" Disabled="_creating">Cancel</MudButton></div>
-                <p class="compute-secondary">Choose an agent and its assigned project. Existing compute permissions and capacity limits apply.</p>
+                <div class="compute-heading"><h3 id="create-instance-title">@L["Compute.CreateLinuxInstance"]</h3><MudButton OnClick="CloseCreate" Disabled="_creating">@L["Common.Cancel"]</MudButton></div>
+                <p class="compute-secondary">@L["Compute.ChooseAnAgentAndIts"]</p>
                 @if (_creationOptions is null)
                 {
-                    @if (_creationError is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading instance options" /> }
+                    @if (_creationError is null) { <MudProgressLinear Indeterminate="true" aria-label="@L["Compute.LoadingInstanceOptions"]" /> }
                 }
                 else if (_creationOptions.Options.Count == 0)
                 {
-                    <MudAlert Severity="Severity.Info">No eligible agent/project assignments. Assign a compute-capable agent to an active project to create an instance.</MudAlert>
+                    <MudAlert Severity="Severity.Info">@L["Compute.NoEligibleAgentProjectAssignments"]</MudAlert>
                 }
                 else
                 {
                     <div class="compute-create-fields">
-                        <MudSelect T="ComputeCreationOption" Label="Agent / project" @bind-Value="_creationOption" ToStringFunc="@(option => option is null ? string.Empty : $"{option.Agent} · {option.Project}")" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
+                        <MudSelect T="ComputeCreationOption" Label="@L["Compute.AgentProject"]" @bind-Value="_creationOption" ToStringFunc="@(option => option is null ? string.Empty : $"{option.Agent} · {option.Project}")" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
                             @foreach (var option in _creationOptions.Options)
                             {
                                 <MudSelectItem T="ComputeCreationOption" Value="option">@option.Agent · @option.Project</MudSelectItem>
                             }
                         </MudSelect>
-                        <MudTextField T="string" Label="Instance name" @bind-Value="_instanceName" Variant="Variant.Outlined" MaxLength="64" HelperText="Lowercase letters, numbers and hyphens; start with a letter." Disabled="@(_creating || _pendingCreation is not null)" />
-                        <MudSelect T="int" Label="Lifetime" @bind-Value="_instanceLifetime" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
-                            @if (_creationOptions.MaximumLifetimeSeconds == 0) { <MudSelectItem T="int" Value="0">Until released</MudSelectItem> }
+                        <MudTextField T="string" Label="@L["Compute.InstanceName"]" @bind-Value="_instanceName" Variant="Variant.Outlined" MaxLength="64" HelperText="Lowercase letters, numbers and hyphens; start with a letter." Disabled="@(_creating || _pendingCreation is not null)" />
+                        <MudSelect T="int" Label="@L["Compute.Lifetime"]" @bind-Value="_instanceLifetime" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
+                            @if (_creationOptions.MaximumLifetimeSeconds == 0) { <MudSelectItem T="int" Value="0">@L["Compute.UntilReleased"]</MudSelectItem> }
                             <MudSelectItem T="int" Value="@DefaultLifetime">Release after @TimeSpan.FromSeconds(DefaultLifetime).TotalMinutes.ToString("0") minutes</MudSelectItem>
                         </MudSelect>
                     </div>
-                    <p class="compute-secondary">2 vCPU · 2 GiB RAM · 20 GiB disk · Linux only</p>
-                    <p class="compute-secondary">Network access follows the agent's reviewed permissions. Creating an instance grants no new network access.</p>
+                    <p class="compute-secondary">@L["Compute.2VCPU2GiBRAM"]</p>
+                    <p class="compute-secondary">@L["Compute.NetworkAccessFollowsTheAgent"]</p>
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateInstanceAsync" Disabled="@(_creating || _creationOption is null || string.IsNullOrWhiteSpace(_instanceName))">@(_creating ? "Requesting instance…" : "Create instance")</MudButton>
                 }
                 @if (_creationError is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">@_creationError</MudAlert> }
             </section>
         }
         @if (_creationNotice is not null) { <MudAlert Severity="Severity.Success" Class="mt-4">@_creationNotice</MudAlert> }
-        <MudText Typo="Typo.h6" Class="compute-instances-heading">Instances <span class="compute-count">@dashboard.Resources.Count</span></MudText>
+        <MudText Typo="Typo.h6" Class="compute-instances-heading">@L["Compute.Instances"] <span class="compute-count">@dashboard.Resources.Count</span></MudText>
         @if (dashboard.Resources.Count == 0)
         {
             <MudPaper Outlined="true" Elevation="0" Class="compute-empty pa-8">
                 <MudIcon Icon="@Icons.Material.Outlined.Dns" Size="Size.Large" Color="Color.Secondary" />
-                <MudText Typo="Typo.h6" Class="mt-2">No compute instances yet</MudText>
+                <MudText Typo="Typo.h6" Class="mt-2">@L["Compute.NoComputeInstancesYet"]</MudText>
                 <MudText Class="mt-2">@(dashboard.Setup?.State == "Ready" ? "Linux is ready. Create an instance, or let an agent request one when it needs to build or test." : "Prepare Linux to make instances available. Existing requests continue automatically when compute is ready.")</MudText>
             </MudPaper>
         }
@@ -86,7 +87,7 @@
         {
             <MudTable Items="dashboard.Resources" Hover="true" Elevation="0" Breakpoint="Breakpoint.Md" Class="compute-table">
                 <HeaderContent>
-                    <MudTh>Instance</MudTh><MudTh>Agent / project</MudTh><MudTh>State</MudTh><MudTh>Resources</MudTh><MudTh>Lease expires</MudTh><MudTh>Last change</MudTh><MudTh>Browser access</MudTh>
+                    <MudTh>@L["Compute.Instance"]</MudTh><MudTh>@L["Compute.AgentProject"]</MudTh><MudTh>@L["Compute.State"]</MudTh><MudTh>@L["Compute.Resources"]</MudTh><MudTh>@L["Compute.LeaseExpires"]</MudTh><MudTh>@L["Compute.LastChange"]</MudTh><MudTh>@L["Compute.BrowserAccess"]</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Instance"><strong>@(context.Name ?? context.OperatingSystem)</strong><br /><span class="compute-id">@context.OperatingSystem · @context.Id.ToString("N")[..8]</span></MudTd>
@@ -96,10 +97,10 @@
                         @if (context.FailureCode is not null) { <div class="compute-failure">@context.FailureCode</div> }
                         @if (context.State is "Requested" or "Provisioning" or "Bootstrapping" && dashboard.CheckedAt - context.UpdatedAt > TimeSpan.FromMinutes(2))
                         {
-                            <div class="compute-secondary">Waiting for a provider update. Last confirmed state shown.</div>
+                            <div class="compute-secondary">@L["Compute.WaitingForAProviderUpdate"]</div>
                         }
-                        @if (context.DesiredState == "Destroyed" && context.State != "Destroyed") { <div>Removal requested</div> }
-                        @if (context.LeaseExpiresAt <= dashboard.CheckedAt && context.State != "Destroyed") { <div>Lease expired</div> }
+                        @if (context.DesiredState == "Destroyed" && context.State != "Destroyed") { <div>@L["Compute.RemovalRequested"]</div> }
+                        @if (context.LeaseExpiresAt <= dashboard.CheckedAt && context.State != "Destroyed") { <div>@L["Compute.LeaseExpired"]</div> }
                     </MudTd>
                     <MudTd DataLabel="Resources">@context.CpuCount CPU · @(context.MemoryMiB / 1024d) GiB RAM<br />@(context.DiskMiB / 1024d) GiB disk</MudTd>
                     <MudTd DataLabel="Lease expires">
@@ -108,13 +109,13 @@
                         {
                             @if (_releaseConfirm == context.Id)
                             {
-                                <p>Release this instance and delete its compute files? Its saved repository remains available.</p>
-                                <MudButton Color="Color.Error" Disabled="_grantBusy.HasValue" OnClick="@(() => ReleaseAsync(context))">Confirm release</MudButton>
-                                <MudButton OnClick="@(() => _releaseConfirm = null)">Cancel</MudButton>
+                                <p>@L["Compute.ReleaseThisInstanceAndDelete"]</p>
+                                <MudButton Color="Color.Error" Disabled="_grantBusy.HasValue" OnClick="@(() => ReleaseAsync(context))">@L["Compute.ConfirmRelease"]</MudButton>
+                                <MudButton OnClick="@(() => _releaseConfirm = null)">@L["Common.Cancel"]</MudButton>
                             }
                             else
                             {
-                                <MudButton Size="Size.Small" Disabled="_grantBusy.HasValue" OnClick="@(() => _releaseConfirm = context.Id)">Release instance</MudButton>
+                                <MudButton Size="Size.Small" Disabled="_grantBusy.HasValue" OnClick="@(() => _releaseConfirm = context.Id)">@L["Compute.ReleaseInstance"]</MudButton>
                             }
                         }
                     </MudTd>
@@ -123,8 +124,8 @@
                         <div class="compute-access" id="@($"compute-access-{context.Id:D}")">
                             @if (context.LeaseExpiresAt <= dashboard.CheckedAt || context.State is "Destroyed" or "Destroying")
                             {
-                                <strong>Test link unavailable</strong>
-                                <p>This instance has expired or is being removed.</p>
+                                <strong>@L["Compute.TestLinkUnavailable"]</strong>
+                                <p>@L["Compute.ThisInstanceHasExpiredOr"]</p>
                             }
                             else
                             {
@@ -147,15 +148,15 @@
                                 }
                                 else if (!context.LocalLinkAllowed)
                                 {
-                                    <p>A business owner can allow access.</p>
+                                    <p>@L["Compute.ABusinessOwnerCanAllow"]</p>
                                 }
-                                <p class="compute-access-scope">This computer only · This instance only · Expires with the instance. No public or outbound internet access.</p>
+                                <p class="compute-access-scope">@L["Compute.ThisComputerOnlyThisInstance"]</p>
                             }
                         </div>
                     </MudTd>
                 </RowTemplate>
             </MudTable>
-            @if (dashboard.HasMore) { <MudText Typo="Typo.caption">Showing the 100 most recent instances.</MudText> }
+            @if (dashboard.HasMore) { <MudText Typo="Typo.caption">@L["Compute.ShowingThe100MostRecent"]</MudText> }
         }
     }
 </MudContainer>
@@ -211,7 +212,7 @@
         {
             if (organization != OrganizationId || generation != _createGeneration) return;
             _creationOptions = null;
-            _creationError = "Could not load instance options. Close this form and try again.";
+            _creationError = L["Compute.CouldNotLoadInstanceOptions"];
         }
     }
     private async Task CreateInstanceAsync()
@@ -240,14 +241,14 @@
             }
             _pendingCreation = null;
             _showCreate = false;
-            _creationNotice = "Instance request accepted. Provisioning progress appears in Instances.";
+            _creationNotice = L["Compute.InstanceRequestAcceptedProvisioningProgr"];
             await LoadAsync();
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
         catch (Exception)
         {
             if (organization == OrganizationId && generation == _createGeneration)
-                _creationError = "The request outcome is not yet confirmed. Retry with the same details to recover it without creating a duplicate.";
+                _creationError = L["Compute.TheRequestOutcomeIsNot"];
         }
         finally { if (organization == OrganizationId && generation == _createGeneration) _creating = false; }
     }
@@ -263,7 +264,7 @@
             if (organization == OrganizationId) await LoadAsync();
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-        catch (Exception) { if (organization == OrganizationId) _error = "Could not request Linux preparation. Refresh Compute and try again."; }
+        catch (Exception) { if (organization == OrganizationId) _error = L["Compute.CouldNotRequestLinuxPreparation"]; }
         finally { if (organization == OrganizationId) _repairingSetup = false; }
     }
     private async Task RepairSetupAsync()
@@ -278,7 +279,7 @@
             if (organization == OrganizationId) await LoadAsync();
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-        catch (Exception) { if (organization == OrganizationId) _error = "Could not request Linux preparation repair. Refresh Compute and try again."; }
+        catch (Exception) { if (organization == OrganizationId) _error = L["Compute.CouldNotRequestLinuxPreparation2"]; }
         finally { if (organization == OrganizationId) _repairingSetup = false; }
     }
     private async Task ReleaseAsync(ComputeResourceStatus resource)
@@ -292,7 +293,7 @@
             _releaseConfirm = null;
             await LoadAsync();
         }
-        catch (Exception) { _error = "Could not release the instance. Refresh Compute and try again."; }
+        catch (Exception) { _error = L["Compute.CouldNotReleaseTheInstance"]; }
         finally { _grantBusy = null; }
     }
     private async Task SetLocalLinkAsync(ComputeResourceStatus resource)
@@ -305,7 +306,7 @@
             response.EnsureSuccessStatusCode();
             await LoadAsync();
         }
-        catch (Exception) { _error = "Could not change the network grant. Refresh Compute and try again."; }
+        catch (Exception) { _error = L["Compute.CouldNotChangeTheNetwork"]; }
         finally { _grantBusy = null; }
     }
     protected override void OnInitialized() => _ = RefreshLoopAsync();
@@ -337,7 +338,7 @@
             _error = null;
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-        catch (Exception) { if (organization == OrganizationId) _error = "Could not refresh compute. Displayed information may be out of date. Please try again."; }
+        catch (Exception) { if (organization == OrganizationId) _error = L["Compute.CouldNotRefreshComputeDisplayed"]; }
         finally { _loading = false; }
     }
     private async Task RefreshLoopAsync()

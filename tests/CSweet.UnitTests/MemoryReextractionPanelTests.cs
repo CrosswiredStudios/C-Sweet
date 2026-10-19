@@ -17,7 +17,7 @@ public sealed class MemoryReextractionPanelTests
     { panel.GetType().GetProperty("EmployeeId", Members)!.SetValue(panel, employee); panel.GetType().GetMethod("OnParametersSet", Members)!.Invoke(panel, null); }
     private static MemoryReextractionPanel Panel(HttpClient http)
     {
-        var panel = new MemoryReextractionPanel(); panel.GetType().GetProperty("OrganizationId", Members)!.SetValue(panel, Guid.NewGuid());
+        var panel = TestLocalization.Inject(new MemoryReextractionPanel()); panel.GetType().GetProperty("OrganizationId", Members)!.SetValue(panel, Guid.NewGuid());
         panel.GetType().GetProperty("Http", Members)!.SetValue(panel, http); Navigate(panel, Guid.NewGuid()); return panel;
     }
     private static MemoryReextractionPreview Preview(bool allowed = true) => new(Guid.NewGuid(), Guid.NewGuid(), 2,

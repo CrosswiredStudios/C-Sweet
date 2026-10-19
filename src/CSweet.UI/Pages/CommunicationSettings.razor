@@ -4,13 +4,14 @@
 @inject IBusinessContext BusinessContext
 @inject HttpClient Http
 @implements IDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Communications - C-Sweet Settings</PageTitle>
+<PageTitle>@L["CommunicationSettings.PageTitle"]</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.False" Class="settings-page-container">
-    <MudText Typo="Typo.h4">Communications</MudText>
+    <MudText Typo="Typo.h4">@L["CommunicationSettings.Title"]</MudText>
     <MudText Color="Color.Secondary" Class="mb-6">
-        Connect apps for your company. Your conversations stay available in C-Sweet.
+        @L["CommunicationSettings.Lead"]
     </MudText>
 
     @if (!string.IsNullOrWhiteSpace(_message))
@@ -24,33 +25,33 @@
     }
     else if (BusinessContext.SelectedBusiness is null)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Create or select a company before connecting an external communication surface.</MudAlert>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L["CommunicationSettings.NoCompany"]</MudAlert>
     }
     else
     {
-        <MudText Typo="Typo.subtitle1" Class="mb-3">Settings for <strong>@BusinessContext.SelectedBusiness.Name</strong></MudText>
+        <MudText Typo="Typo.subtitle1" Class="mb-3">@L["CommunicationSettings.SettingsFor"] <strong>@BusinessContext.SelectedBusiness.Name</strong></MudText>
         <MudGrid>
             <MudItem xs="12" md="6">
                 <MudPaper Outlined="true" Class="pa-5 h-100">
                     <MudIcon Icon="@Icons.Material.Outlined.Chat" Color="Color.Primary" Size="Size.Large" />
-                    <MudText Typo="Typo.h6" Class="mt-2">C-Sweet app</MudText>
-                    <MudChip T="string" Color="Color.Success" Size="Size.Small">Always active</MudChip>
-                    <MudText Typo="Typo.body2" Class="mt-3">Your inbox for messages, approvals, and agent activity. Always available in C-Sweet.</MudText>
+                    <MudText Typo="Typo.h6" Class="mt-2">@L["CommunicationSettings.App.Title"]</MudText>
+                    <MudChip T="string" Color="Color.Success" Size="Size.Small">@L["CommunicationSettings.App.AlwaysActive"]</MudChip>
+                    <MudText Typo="Typo.body2" Class="mt-3">@L["CommunicationSettings.App.Description"]</MudText>
                 </MudPaper>
             </MudItem>
             <MudItem xs="12" md="6">
                 <MudPaper Outlined="true" Class="pa-5 h-100">
                     <MudIcon Icon="@Icons.Material.Outlined.Forum" Color="Color.Primary" Size="Size.Large" />
-                    <MudText Typo="Typo.h6" Class="mt-2">Discord</MudText>
+                    <MudText Typo="Typo.h6" Class="mt-2">@L["CommunicationSettings.Discord"]</MudText>
                     @if (_loading)
                     {
                         <MudProgressLinear Indeterminate="true" Class="my-3" />
                     }
                     else if (_discord is null || _discord.Status == "Disconnected")
                     {
-                        <MudChip T="string" Size="Size.Small">Not connected</MudChip>
-                        <MudText Typo="Typo.body2" Class="my-3">Authorize C-Sweet and review the server layout before any managed resources are created.</MudText>
-                        <MudButton Href="@DiscordSetupHref" Variant="Variant.Filled" Color="Color.Primary">Set up Discord</MudButton>
+                        <MudChip T="string" Size="Size.Small">@L["CommunicationSettings.Discord.NotConnected"]</MudChip>
+                        <MudText Typo="Typo.body2" Class="my-3">@L["CommunicationSettings.Discord.SetupHint"]</MudText>
+                        <MudButton Href="@DiscordSetupHref" Variant="Variant.Filled" Color="Color.Primary">@L["CommunicationSettings.Discord.SetUp"]</MudButton>
                     }
                     else
                     {
@@ -58,8 +59,8 @@
                         <MudText Typo="Typo.body2" Class="mt-3">Server ID: @_discord.WorkspaceExternalId</MudText>
                         <MudText Typo="Typo.body2">Mode: @_discord.WorkspaceMode</MudText>
                         <MudStack Row="true" Class="mt-4">
-                            <MudButton Href="@DiscordSetupHref" Variant="Variant.Outlined" Color="Color.Primary">Manage setup</MudButton>
-                            <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => _showDisconnect = true)">Disconnect</MudButton>
+                            <MudButton Href="@DiscordSetupHref" Variant="Variant.Outlined" Color="Color.Primary">@L["CommunicationSettings.Discord.ManageSetup"]</MudButton>
+                            <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => _showDisconnect = true)">@L["CommunicationSettings.Discord.Disconnect"]</MudButton>
                         </MudStack>
                     }
                 </MudPaper>
@@ -69,12 +70,12 @@
         @if (_showDisconnect && _discord is not null)
         {
             <MudPaper Outlined="true" Class="pa-5 mt-5">
-                <MudText Typo="Typo.h6" Color="Color.Error">Disconnect Discord?</MudText>
-                <MudText Typo="Typo.body2" Class="my-3">New Discord messages will stop immediately. Managed channels and roles will be archived, webhooks revoked, linked identities disconnected, and C-Sweet conversation history preserved.</MudText>
-                <MudCheckBox T="bool" @bind-Value="_disconnectConfirmed" Label="I understand that Discord communication will stop" />
+                <MudText Typo="Typo.h6" Color="Color.Error">@L["CommunicationSettings.DisconnectDialog.Title"]</MudText>
+                <MudText Typo="Typo.body2" Class="my-3">@L["CommunicationSettings.DisconnectDialog.Body"]</MudText>
+                <MudCheckBox T="bool" @bind-Value="_disconnectConfirmed" Label="@L["CommunicationSettings.DisconnectDialog.Acknowledge"]" />
                 <MudStack Row="true" Class="mt-3">
-                    <MudButton Variant="Variant.Text" OnClick="CancelDisconnect">Cancel</MudButton>
-                    <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(!_disconnectConfirmed || _busy)" OnClick="DisconnectAsync">Confirm disconnect</MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="CancelDisconnect">@L["Common.Cancel"]</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(!_disconnectConfirmed || _busy)" OnClick="DisconnectAsync">@L["CommunicationSettings.DisconnectDialog.Confirm"]</MudButton>
                 </MudStack>
             </MudPaper>
         }

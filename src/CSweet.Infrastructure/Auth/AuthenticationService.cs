@@ -59,7 +59,37 @@ public sealed class AuthenticationService : IAuthenticationService
             user?.Email,
             user?.EmailConfirmed == true,
             emailRecoveryAvailable,
-            antiforgeryToken);
+            antiforgeryToken,
+            user?.PreferredLanguage,
+            user?.TimeZoneId);
+    }
+
+    public async Task<UserPreferencesResponse?> GetPreferencesAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        return user is null ? null : new UserPreferencesResponse(user.PreferredLanguage, user.TimeZoneId);
+    }
+
+    public async Task<UserPreferencesResponse?> UpdatePreferencesAsync(Guid userId, UpdateUserPreferencesRequest request, CancellationToken cancellationToken = default)
+    {
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user is null)
+        {
+            return null;
+        }
+
+        user.PreferredLanguage = string.IsNullOrWhiteSpace(request.PreferredLanguage) ? null : request.PreferredLanguage.Trim();
+        user.TimeZoneId = string.IsNullOrWhiteSpace(request.TimeZoneId) ? null : request.TimeZoneId.Trim();
+        var result = await _userManager.UpdateAsync(user);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(
+                "Saving user preferences failed: " + string.Join("; ", result.Errors.Select(e => e.Description)));
+        }
+
+        global::CSweet.Infrastructure.Localization.WorkspaceLanguagePolicy.Invalidate();
+
+        return new UserPreferencesResponse(user.PreferredLanguage, user.TimeZoneId);
     }
 
     public async Task<AuthActionResponse> RegisterAsync(RegisterAdminRequest request, CancellationToken cancellationToken = default)

@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @inject AppearanceState Appearance
+@inject AppCulture Culture
 @implements IDisposable
 
 <MudThemeProvider Theme="_theme" />
@@ -9,6 +10,7 @@
 <AppRealtimeCoordinator />
 <AgentHireOperationTray />
 
+<MudRTLProvider RightToLeft="@Culture.IsRightToLeft">
 <MudLayout data-appearance="@Appearance.Theme">
     <MudAppBar Elevation="0" Dense="true" Color="Color.Surface" Class="app-bar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
@@ -34,6 +36,7 @@
         </MudContainer>
     </MudMainContent>
 </MudLayout>
+</MudRTLProvider>
 
 @code {
     private bool _drawerOpen = true;

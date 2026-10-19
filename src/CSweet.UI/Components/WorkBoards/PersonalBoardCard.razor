@@ -1,4 +1,5 @@
 @using CSweet.WorkManagement.Contracts
+@inject IAppLocalizer L
 
 <a class="personal-board-card" href="@Href"
    aria-label="@($"Open {Board.OwnerDisplayName}'s Kanban board, {_activeCount} active tickets, {_blockedCount} blocked")">
@@ -17,7 +18,7 @@
         <span class="personal-board-name">@Board.OwnerDisplayName</span>
         <span class="personal-board-role">@(Portraits?.FindRole(Board.OwnerOrganizationUserId) ?? "Personal board")</span>
         <span class="personal-board-stats">
-            <span class="personal-board-active"><strong>@_activeCount</strong> active</span>
+            <span class="personal-board-active"><strong>@_activeCount</strong> @L["PersonalBoardCard.Active"]</span>
             @if (_blockedCount > 0)
             {
                 <span class="personal-board-status is-blocked">
@@ -29,7 +30,7 @@
             {
                 <span class="personal-board-status">
                     <MudIcon Icon="@Icons.Material.Outlined.Check" Size="Size.Small" />
-                    No blockers
+                    @L["PersonalBoardCard.NoBlockers"]
                 </span>
             }
         </span>

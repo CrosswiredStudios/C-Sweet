@@ -1,6 +1,7 @@
+@inject IAppLocalizer L
 <MudPaper Elevation="0" Class="employee-empty">
     <MudIcon Icon="@Icons.Material.Outlined.Groups" Size="Size.Large" />
-    <MudText Typo="Typo.h6">No employees yet</MudText>
-    <MudText Color="Color.Secondary">Hire the first human or agent employee to start building this organization.</MudText>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="HireRequested">Hire employee</MudButton>
+    <MudText Typo="Typo.h6">@L["EmployeeEmptyState.NoEmployeesYet"]</MudText>
+    <MudText Color="Color.Secondary">@L["EmployeeEmptyState.HireTheFirstHumanOr"]</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="HireRequested">@L["EmployeeEmptyState.HireEmployee"]</MudButton>
 </MudPaper>

@@ -3,6 +3,7 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 @implements IDisposable
+@inject IAppLocalizer L
 
 @if (_item is not null)
 {
@@ -10,9 +11,9 @@
 }
 else if (_error is not null)
 {
-    <MudAlert Severity="Severity.Warning">@_error <MudButton OnClick="LoadAsync">Refresh</MudButton></MudAlert>
+    <MudAlert Severity="Severity.Warning">@_error <MudButton OnClick="LoadAsync">@L["Common.Refresh"]</MudButton></MudAlert>
 }
-else { <MudProgressLinear Indeterminate="true" aria-label="Loading approval" /> }
+else { <MudProgressLinear Indeterminate="true" aria-label="@L["InlineApprovalCard.LoadingApproval"]" /> }
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
@@ -37,10 +38,10 @@ else { <MudProgressLinear Indeterminate="true" aria-label="Loading approval" /> 
         try
         {
             var item = await Http.GetFromJsonAsync<ApprovalDashboardItemResponse>($"api/core/organizations/{OrganizationId:D}/approvals/projects/{ApprovalId:D}");
-            if (!_disposed && version == _version) { _item = item; if (item is null) _error = "Approval unavailable."; }
+            if (!_disposed && version == _version) { _item = item; if (item is null) _error = L["InlineApprovalCard.ApprovalUnavailable"]; }
         }
         catch (Exception e) when (e is HttpRequestException or System.Text.Json.JsonException)
-        { if (!_disposed && version == _version) { _item = null; _error = "This approval is unavailable or you no longer have access."; } }
+        { if (!_disposed && version == _version) { _item = null; _error = L["InlineApprovalCard.ThisApprovalIsUnavailableOr"]; } }
     }
     private async Task DecidedAsync(string _) { await LoadAsync(); await DecisionCompleted.InvokeAsync(); }
     private void Changed(AppRealtimeEventEnvelope e) { if (e.OrganizationId == OrganizationId && e.EventType == AppRealtimeEvents.ApprovalChanged) Reconnected(); }

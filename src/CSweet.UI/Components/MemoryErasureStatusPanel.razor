@@ -1,24 +1,25 @@
 @using CSweet.Contracts.Memory
 @using System.Net
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <MudExpansionPanels>
-    <MudExpansionPanel Text="Check a saved erasure operation">
-        <MudButton OnClick="@(() => LoadOperationsAsync(true))" Disabled="_busy">Find my saved erasure operations</MudButton>
+    <MudExpansionPanel Text="@L["MemoryErasureStatusPanel.CheckASavedErasureOperation"]">
+        <MudButton OnClick="@(() => LoadOperationsAsync(true))" Disabled="_busy">@L["MemoryErasureStatusPanel.FindMySavedErasureOperations"]</MudButton>
         @if (_page is { } page)
         {
-            @if (page.Items.Count == 0) { <MudText>No saved operations on this page.</MudText> }
+            @if (page.Items.Count == 0) { <MudText>@L["MemoryErasureStatusPanel.NoSavedOperationsOnThis"]</MudText> }
             @foreach (var item in page.Items)
             {
                 <MudText>Saved @item.ErasedAt.ToLocalTime().ToString("g") · @item.OperationId</MudText>
                 <MudText>@Availability(item.Availability)</MudText>
-                <MudButton OnClick="@(() => SelectAsync(item.OperationId))" Disabled="_busy">Check this operation</MudButton>
+                <MudButton OnClick="@(() => SelectAsync(item.OperationId))" Disabled="_busy">@L["MemoryErasureStatusPanel.CheckThisOperation"]</MudButton>
             }
             @if (page.NextBeforeReceiptId is not null)
-            { <MudButton OnClick="@(() => LoadOperationsAsync(false))" Disabled="_busy">Older operations</MudButton> }
+            { <MudButton OnClick="@(() => LoadOperationsAsync(false))" Disabled="_busy">@L["MemoryErasureStatusPanel.OlderOperations"]</MudButton> }
         }
-        <MudTextField T="string" @bind-Value="_operation" Label="Erasure operation ID" Disabled="_busy" />
-        <MudButton OnClick="LoadAsync" Disabled="_busy">Check erasure status</MudButton>
+        <MudTextField T="string" @bind-Value="_operation" Label="@L["MemoryErasureStatusPanel.ErasureOperationID"]" Disabled="_busy" />
+        <MudButton OnClick="LoadAsync" Disabled="_busy">@L["MemoryErasureStatusPanel.CheckErasureStatus"]</MudButton>
         @if (_result is { } result)
         {
             <MudText>@result.ErasedRecords records erased; @result.ClearedWorks work items cleared.</MudText>
@@ -77,7 +78,7 @@
             if (generation == _generation) _page = page;
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (generation == _generation) _message = "Saved operations could not be loaded. Refresh and try again."; }
+        { if (generation == _generation) _message = L["MemoryErasureStatusPanel.SavedOperationsCouldNotBe"]; }
         finally { if (generation == _generation) _busy = false; }
     }
 
@@ -93,7 +94,7 @@
         if (_busy) return;
         _result = null; _message = null;
         if (!Guid.TryParse(_operation, out var operation) || operation == Guid.Empty)
-        { _message = "Enter a valid erasure operation ID."; return; }
+        { _message = L["MemoryErasureStatusPanel.EnterAValidErasureOperation"]; return; }
         var generation = ++_generation; _busy = true;
         try
         {
@@ -111,9 +112,9 @@
                         code.ValueKind == System.Text.Json.JsonValueKind.String)
                     {
                         if (code.GetString() == "memory_erasure_ownership_review_required")
-                        { _message = "Saved cleanup evidence does not identify every responsible employee. Ownership review is required before this operation can be checked or retried."; return; }
+                        { _message = L["MemoryErasureStatusPanel.SavedCleanupEvidenceDoesNot"]; return; }
                         if (code.GetString() == "memory_erasure_evidence_review_required")
-                        { _message = "Saved cleanup evidence cannot be verified. Evidence review is required before this operation can be checked or retried."; return; }
+                        { _message = L["MemoryErasureStatusPanel.SavedCleanupEvidenceCannotBe"]; return; }
                     }
                 }
                 _message = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized
@@ -125,7 +126,7 @@
             if (generation == _generation) _result = result;
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (generation == _generation) _message = "Status could not be loaded. Try again."; }
+        { if (generation == _generation) _message = L["MemoryErasureStatusPanel.StatusCouldNotBeLoaded"]; }
         finally { if (generation == _generation) _busy = false; }
     }
 }

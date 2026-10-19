@@ -1,23 +1,25 @@
 @using System.Text.Json
 @using CSweet.Contracts.Core
+@inject IAppLocalizer L
+@inject UserTime Time
 
 @foreach (var preview in Resources.Where(x => x.ResourceType == "Preview"))
 {
-    <section class="pa-4 mb-3 mud-paper mud-paper-outlined" aria-label="Game preview">
-        <h3>Playable preview</h3>
+    <section class="pa-4 mb-3 mud-paper mud-paper-outlined" aria-label="@L["ProjectPreviewLinks.AriaLabel"]">
+        <h3>@L["ProjectPreviewLinks.Title"]</h3>
         <p>@preview.Title · @preview.Status</p>
-        <p>Build: @Text(preview.Metadata, "BuildId")</p>
+        <p>@L.Format("ProjectPreviewLinks.Build", new { build = Text(preview.Metadata, "BuildId") ?? "" })</p>
         @if (Expiry(preview.Metadata) is { } expiry)
         {
-            <p>Expires: @expiry.LocalDateTime</p>
+            <p>@L.Format("ProjectPreviewLinks.Expires", new { expires = Time.Format(expiry, "g") })</p>
         }
         @if (ReadyLink(preview) is { } link)
         {
-            <a href="@link" target="_blank" rel="noopener noreferrer">Open playable preview</a>
+            <a href="@link" target="_blank" rel="noopener noreferrer">@L["ProjectPreviewLinks.Open"]</a>
         }
         else
         {
-            <p>@(Expiry(preview.Metadata) <= DateTimeOffset.UtcNow ? "This preview has expired." : "No playable link is available. Refresh delivery status to check again.")</p>
+            <p>@(Expiry(preview.Metadata) <= DateTimeOffset.UtcNow ? L["ProjectPreviewLinks.Expired"] : L["ProjectPreviewLinks.NoLink"])</p>
         }
     </section>
 }

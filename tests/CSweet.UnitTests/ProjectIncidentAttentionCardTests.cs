@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -99,7 +100,7 @@ public sealed class ProjectIncidentAttentionCardTests
                 "Provider connection interrupted", "Review the failed step", "/report", DateTimeOffset.UtcNow)
             { Collaboration = new(session, chat, 7, status, canRetry,
                 $"/organizations/{org}/communications/{chat}?perspective={Guid.NewGuid()}&collaboration={session}") };
-            var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+            var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
             services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, Navigation>();
             services.AddSingleton<IComponentActivator>(capture);
             services.AddSingleton(new HttpClient(Handler) { BaseAddress = new Uri("http://localhost/") });

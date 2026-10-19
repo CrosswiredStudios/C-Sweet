@@ -163,7 +163,7 @@ public partial class CurrentActivity
         {
             if (!token.IsCancellationRequested)
             {
-                _feedError = "The feed is unavailable or access has changed. Refresh to try again.";
+                _feedError = L["CurrentActivity.Feed.Error"];
                 if (error is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound }) { _feed.Clear(); _seen.Clear(); _sequence = 0; }
             }
         }

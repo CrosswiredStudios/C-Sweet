@@ -1,25 +1,27 @@
 @using CSweet.Contracts.Core
 @using CSweet.UI.Components.Projects
+@inject IAppLocalizer L
+@inject UserTime Time
 
-<article class="resource-section" aria-label="@Title">
-    <header><div><h2>@Title</h2>@if (!string.IsNullOrWhiteSpace(Description)) { <p>@Description</p> }</div><span>@Visible.Count() of @Resources.Count</span></header>
+<article class="resource-section" aria-label="@TitleText">
+    <header><div><h2>@TitleText</h2>@if (!string.IsNullOrWhiteSpace(Description)) { <p>@Description</p> }</div><span>@L.Format("ProjectResourceSection.VisibleOf", new { visible = Visible.Count(), total = Resources.Count })</span></header>
     @if (Resources.Count > 0)
     {
-        <div class="resource-toolbar"><label class="resource-search">Search <input aria-label="@($"Search {Title}")" placeholder="Search by name, type, or status" @bind="_search" @bind:event="oninput" /></label><label class="resource-sort">Sort <select @bind="_sort"><option value="attention">Needs attention first</option><option value="recent">Recently updated</option><option value="name">Name</option></select></label></div>
+        <div class="resource-toolbar"><label class="resource-search">@L["Common.Search"] <input aria-label="@L.Format("ProjectResourceSection.SearchAriaLabel", new { title = TitleText })" placeholder="@L["ProjectResourceSection.SearchPlaceholder"]" @bind="_search" @bind:event="oninput" /></label><label class="resource-sort">@L["ProjectResourceSection.Sort"] <select @bind="_sort"><option value="attention">@L["ProjectResourceSection.Sort.Attention"]</option><option value="recent">@L["ProjectResourceSection.Sort.Recent"]</option><option value="name">@L["ProjectResourceSection.Sort.Name"]</option></select></label></div>
     }
     @if (Groups.Length > 1)
     {
-        <nav aria-label="@($"{Title} sections")" class="resource-filters">
+        <nav aria-label="@L.Format("ProjectResourceSection.SectionsAriaLabel", new { title = TitleText })" class="resource-filters">
             @foreach (var group in Groups)
             {
-                <button type="button" aria-pressed="@((_selected == group).ToString().ToLowerInvariant())" @onclick="@(() => _selected = group)">@group <span>@Resources.Count(x => group == "All" || Group(x.ResourceType) == group)</span></button>
+                <button type="button" aria-pressed="@((_selected == group).ToString().ToLowerInvariant())" @onclick="@(() => _selected = group)">@GroupLabel(group) <span>@Resources.Count(x => group == "All" || Group(x.ResourceType) == group)</span></button>
             }
         </nav>
     }
     @if (ShowPreviews && (_selected is "All" or "Previews")) { <ProjectPreviewLinks Resources="@Visible.ToList()" /> }
     @if (!Visible.Any())
     {
-        <div class="resource-empty"><MudIcon Icon="@Icon" Size="Size.Large" /><h3>@(string.IsNullOrWhiteSpace(_search) ? $"No {EmptyLabel} yet" : "No matching results")</h3><p>@(string.IsNullOrWhiteSpace(_search) ? EmptyText : "Try another name, type, or status.")</p>@if (!string.IsNullOrWhiteSpace(_search)) { <button type="button" @onclick='@(() => _search = "")'>Clear search</button> }</div>
+        <div class="resource-empty"><MudIcon Icon="@Icon" Size="Size.Large" /><h3>@(string.IsNullOrWhiteSpace(_search) ? L.Format("ProjectResourceSection.NoneYet", new { label = EmptyLabel }) : L["ProjectResourceSection.NoMatches"])</h3><p>@(string.IsNullOrWhiteSpace(_search) ? EmptyTextOrDefault : L["ProjectResourceSection.NoMatchesHint"])</p>@if (!string.IsNullOrWhiteSpace(_search)) { <button type="button" @onclick='@(() => _search = "")'>@L["Common.ClearSearch"]</button> }</div>
     }
     else
     {
@@ -28,15 +30,15 @@
             <article class="resource-row" @key="resource.Id">
                 <div class="resource-heading"><div><small>@resource.ResourceType</small><h3><a href="@resource.DeepLink">@resource.Title</a></h3></div><span class="resource-status">@resource.Status</span></div>
                 <div class="resource-summary">
-                    @foreach (var field in SummaryFields(resource)) { <span>@field.Label · @field.Value</span> }
-                    @if (resource.OccurredAt.HasValue) { <time datetime="@resource.OccurredAt.Value.ToString("O")">@resource.OccurredAt.Value.LocalDateTime.ToString("MMM d, yyyy · h:mm tt")</time> }
+                    @foreach (var field in SummaryFields(resource)) { <span>@L[field.LabelKey] · @field.Value</span> }
+                    @if (resource.OccurredAt.HasValue) { <time datetime="@resource.OccurredAt.Value.ToString("O")">@Time.Format(resource.OccurredAt.Value, "MMM d, yyyy · h:mm tt")</time> }
                 </div>
-                <details><summary>Record details</summary><dl>
-                    @if (!string.IsNullOrWhiteSpace(resource.TypeKey)) { <dt>Type</dt><dd>@resource.TypeKey</dd> }
-                    @if (resource.Revision.HasValue) { <dt>Revision</dt><dd>@resource.Revision</dd> }
-                    @if (!string.IsNullOrWhiteSpace(resource.Sha256)) { <dt>Hash</dt><dd>@resource.Sha256</dd> }
-                    @if (!string.IsNullOrWhiteSpace(resource.ProviderPackageId)) { <dt>Provider</dt><dd>@resource.ProviderPackageId · @resource.ProviderPackageVersion</dd> }
-                    <dt>Resource ID</dt><dd>@resource.Id</dd>
+                <details><summary>@L["ProjectResourceSection.RecordDetails"]</summary><dl>
+                    @if (!string.IsNullOrWhiteSpace(resource.TypeKey)) { <dt>@L["ProjectResourceSection.Field.Type"]</dt><dd>@resource.TypeKey</dd> }
+                    @if (resource.Revision.HasValue) { <dt>@L["ProjectResourceSection.Field.Revision"]</dt><dd>@resource.Revision</dd> }
+                    @if (!string.IsNullOrWhiteSpace(resource.Sha256)) { <dt>@L["ProjectResourceSection.Field.Hash"]</dt><dd>@resource.Sha256</dd> }
+                    @if (!string.IsNullOrWhiteSpace(resource.ProviderPackageId)) { <dt>@L["ProjectResourceSection.Field.Provider"]</dt><dd>@resource.ProviderPackageId · @resource.ProviderPackageVersion</dd> }
+                    <dt>@L["ProjectResourceSection.Field.ResourceId"]</dt><dd>@resource.Id</dd>
                 </dl></details>
             </article>
         }
@@ -44,9 +46,9 @@
 </article>
 
 @code {
-    [Parameter] public string Title { get; set; } = "Resources";
+    [Parameter] public string? Title { get; set; }
     [Parameter] public string Description { get; set; } = "";
-    [Parameter] public string EmptyText { get; set; } = "Linked records will appear here when available.";
+    [Parameter] public string? EmptyText { get; set; }
     [Parameter] public string Icon { get; set; } = Icons.Material.Outlined.FolderOpen;
     [Parameter] public IReadOnlyList<ProjectInspectionResource> Resources { get; set; } = [];
     [Parameter] public string[] Groups { get; set; } = ["All"];
@@ -59,7 +61,10 @@
         if (_loadedTitle != Title || !Groups.Contains(_selected)) { _selected = Groups.FirstOrDefault() ?? "All"; _search = ""; }
         _loadedTitle = Title;
     }
-    private string EmptyLabel => (_selected == "All" ? Title : _selected).ToLowerInvariant();
+    private string TitleText => string.IsNullOrEmpty(Title) ? L["ProjectResourceSection.DefaultTitle"] : Title;
+    private string EmptyTextOrDefault => string.IsNullOrEmpty(EmptyText) ? L["ProjectResourceSection.DefaultEmpty"] : EmptyText;
+    private string EmptyLabel => (_selected == "All" ? TitleText : GroupLabel(_selected)).ToLowerInvariant();
+    private string GroupLabel(string group) => L.Has("ProjectResourceSection.Group." + group) ? L["ProjectResourceSection.Group." + group] : group;
     private IEnumerable<ProjectInspectionResource> Visible
     {
         get
@@ -81,12 +86,12 @@
         "Build" => "Builds", "Preview" => "Previews", "Media" => "Media", "Evaluation" or "Validation" => "Evaluations", "ReleaseReadiness" => "Release",
         _ => type
     };
-    private static IEnumerable<(string Label, string Value)> SummaryFields(ProjectInspectionResource resource)
+    private IEnumerable<(string LabelKey, string Value)> SummaryFields(ProjectInspectionResource resource)
     {
-        foreach (var (key, label) in new[] { ("TargetDate", "Target"), ("DueAt", "Due"), ("ParticipantCount", "Participants"), ("MessageCount", "Messages"), ("Disposition", "Outcome"), ("ContentType", "Format"), ("TargetKey", "Target"), ("StartsAt", "Starts") })
+        foreach (var (key, labelKey) in new[] { ("TargetDate", "ProjectResourceSection.Summary.Target"), ("DueAt", "ProjectResourceSection.Summary.Due"), ("ParticipantCount", "ProjectResourceSection.Summary.Participants"), ("MessageCount", "ProjectResourceSection.Summary.Messages"), ("Disposition", "ProjectResourceSection.Summary.Outcome"), ("ContentType", "ProjectResourceSection.Summary.Format"), ("TargetKey", "ProjectResourceSection.Summary.Target"), ("StartsAt", "ProjectResourceSection.Summary.Starts") })
         {
             var value = ProjectPresentation.Metadata(resource, key, "");
-            if (value.Length > 0) yield return (label, key is "TargetDate" or "DueAt" or "StartsAt" && DateTimeOffset.TryParse(value, out var date) ? date.LocalDateTime.ToString("MMM d, yyyy · h:mm tt") : value);
+            if (value.Length > 0) yield return (labelKey, key is "TargetDate" or "DueAt" or "StartsAt" && DateTimeOffset.TryParse(value, out var date) ? Time.Format(date, "MMM d, yyyy · h:mm tt") : value);
         }
     }
 }

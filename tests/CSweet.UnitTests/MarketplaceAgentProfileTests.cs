@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -68,7 +69,7 @@ public sealed class MarketplaceAgentProfileTests
     {
         parameters.TryAdd(nameof(MarketplaceAgentProfile.Agent), Agent());
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton(new HttpClient(handler ?? new ProfileHandler()) { BaseAddress = new("http://localhost") });
         await using var provider = services.BuildServiceProvider();

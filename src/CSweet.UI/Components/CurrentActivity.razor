@@ -3,6 +3,7 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 @inject IJSRuntime JavaScript
+@inject IAppLocalizer L
 
 <div class="current-activity @(!_animate ? "motion-paused" : "")" @ref="_root">
     <div class="activity-toolbar">
@@ -13,48 +14,48 @@
                 <span class="activity-connection @(_connected ? "connected" : "")">@(_connected ? "Live" : "Connection interrupted")</span>
             }
         </div>
-        <div class="activity-filters" role="group" aria-label="Activity scope">
-            <button type="button" aria-pressed="@(!_projectsOnly ? "true" : "false")" @onclick="() => FilterAsync(false)">All work</button>
-            <button type="button" aria-pressed="@(_projectsOnly ? "true" : "false")" @onclick="() => FilterAsync(true)">Projects</button>
-            <button type="button" class="activity-refresh" aria-label="Refresh current activity" @onclick="RefreshAsync" disabled="@_loading"><MudIcon Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" /></button>
+        <div class="activity-filters" role="group" aria-label="@L["CurrentActivity.ScopeAriaLabel"]">
+            <button type="button" aria-pressed="@(!_projectsOnly ? "true" : "false")" @onclick="() => FilterAsync(false)">@L["CurrentActivity.AllWork"]</button>
+            <button type="button" aria-pressed="@(_projectsOnly ? "true" : "false")" @onclick="() => FilterAsync(true)">@L["CurrentActivity.Projects"]</button>
+            <button type="button" class="activity-refresh" aria-label="@L["CurrentActivity.RefreshAriaLabel"]" @onclick="RefreshAsync" disabled="@_loading"><MudIcon Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" /></button>
         </div>
     </div>
-    <div class="activity-rows" role="region" aria-label="Current activity list" tabindex="0" aria-busy="@(_loading ? "true" : "false")">
+    <div class="activity-rows" role="region" aria-label="@L["CurrentActivity.ListAriaLabel"]" tabindex="0" aria-busy="@(_loading ? "true" : "false")">
         @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert> }
         @if (_loading && _page is null) { <MudProgressLinear Indeterminate="true" /> }
         @if (_page is not null && _rows.Count == 0)
         {
-            <div class="activity-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /><span>No active agent work is visible in this scope.</span></div>
+            <div class="activity-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" /><span>@L["CurrentActivity.Empty"]</span></div>
         }
         @foreach (var item in VisibleRows)
         {
             <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" Inspect="ToggleStreamAsync">
     @if (_selected is { } selected && selected.Key == item.Key)
     {
-        <section class="activity-stream @(_wide ? "wide" : "")" role="region" aria-label="Provider stream" data-activity-stream>
-            <header class="activity-popover-header"><div><h3>Provider stream</h3><div class="activity-meta">@(selected.Provider ?? "No correlated model call") @selected.Model</div></div><button type="button" class="activity-icon-button" data-activity-close aria-label="Close provider stream" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
+        <section class="activity-stream @(_wide ? "wide" : "")" role="region" aria-label="@L["CurrentActivity.Stream.Title"]" data-activity-stream>
+            <header class="activity-popover-header"><div><h3>@L["CurrentActivity.Stream.Title"]</h3><div class="activity-meta">@(selected.Provider ?? "No correlated model call") @selected.Model</div></div><button type="button" class="activity-icon-button" data-activity-close aria-label="@L["CurrentActivity.Stream.CloseAriaLabel"]" @onclick="CloseDetails"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
             <div class="activity-feed-header"><span class="activity-meta">@selected.EmployeeName</span><button type="button" aria-expanded="@(_wide ? "true" : "false")" @onclick="() => _wide = !_wide">@(_wide ? "Compact" : "Expand")</button></div>
-            @if (!selected.CanInspect) { <p class="activity-notice">You can see this work item, but do not have access to this employee's diagnostics.</p> }
-            else if (selected.AttemptId is null && selected.ModelRunId is null) { <p class="activity-notice">No current execution attempt is available. Work may be waiting for an agent claim or recovery.</p> }
+            @if (!selected.CanInspect) { <p class="activity-notice">@L["CurrentActivity.Stream.NoAccess"]</p> }
+            else if (selected.AttemptId is null && selected.ModelRunId is null) { <p class="activity-notice">@L["CurrentActivity.Stream.NoAttempt"]</p> }
             else
             {
                 @if (_feedError is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_feedError</MudAlert> }
                 @if (_feedLoading && _feed.Count == 0) { <MudProgressLinear Indeterminate="true" /> }
-                <div class="activity-feed" data-activity-feed role="log" aria-label="Provider output and actions" aria-live="@(_follow ? "polite" : "off")" aria-relevant="additions text">
+                <div class="activity-feed" data-activity-feed role="log" aria-label="@L["CurrentActivity.Feed.AriaLabel"]" aria-live="@(_follow ? "polite" : "off")" aria-relevant="additions text">
                     @foreach (var entry in FeedRows)
                     {
                         <article class="activity-feed-entry" @key="entry.Key"><div><span>@entry.Label</span><time title="@entry.OccurredAt.ToLocalTime().ToString("g")">@entry.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</time></div><p>@entry.Text</p></article>
                     }
-                    @if (!_feedLoading && _feed.Count == 0) { <p class="activity-notice">No captured activity for this attempt yet.</p> }
+                    @if (!_feedLoading && _feed.Count == 0) { <p class="activity-notice">@L["CurrentActivity.Feed.Empty"]</p> }
                 </div>
-                <div class="activity-feed-controls"><label><input type="checkbox" checked="@_follow" @onchange="FollowChanged" />Follow latest</label><button type="button" @onclick="RefreshFeedAsync" disabled="@_feedLoading">@(_feedHasMore ? "Load newer activity" : "Refresh feed")</button></div>
-                @if (!_feed.Any(x => x.Kind == "Reasoning")) { <p class="activity-notice">No readable provider reasoning has been reported. Agent progress and observed actions appear as available.</p> }
-                @if (_feedOmitted) { <p class="activity-notice">Showing a bounded recent feed. Earlier content is available in the employee timeline.</p> }
-                @if (_evidenceUnavailable) { <p class="activity-notice">Some captured evidence is unavailable or could not be verified.</p> }
+                <div class="activity-feed-controls"><label><input type="checkbox" checked="@_follow" @onchange="FollowChanged" />@L["CurrentActivity.Feed.FollowLatest"]</label><button type="button" @onclick="RefreshFeedAsync" disabled="@_feedLoading">@(_feedHasMore ? "Load newer activity" : "Refresh feed")</button></div>
+                @if (!_feed.Any(x => x.Kind == "Reasoning")) { <p class="activity-notice">@L["CurrentActivity.Feed.NoReasoning"]</p> }
+                @if (_feedOmitted) { <p class="activity-notice">@L["CurrentActivity.Feed.Bounded"]</p> }
+                @if (_evidenceUnavailable) { <p class="activity-notice">@L["CurrentActivity.Feed.EvidenceUnavailable"]</p> }
             }
             <div class="activity-detail-links">
-                @if (selected.BoardId.HasValue) { <a href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, selected)">Open work item</a> }
-                <a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">Employee details</a>
+                @if (selected.BoardId.HasValue) { <a href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, selected)">@L["CurrentActivity.OpenWorkItem"]</a> }
+                <a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">@L["CurrentActivity.EmployeeDetails"]</a>
             </div>
         </section>
     }

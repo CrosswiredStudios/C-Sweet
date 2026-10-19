@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -61,7 +62,7 @@ public sealed class WorkEvidenceLinksTests
 
     private static async Task<string> Render(Guid organization, Wire.WorkExecutionEvidence[] evidence)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

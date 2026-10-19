@@ -7,25 +7,26 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject IAgentApiClient AgentApi
+@inject IAppLocalizer L
 
 <EmployeePortraitScope OrganizationId="OrganizationId">
-<PageTitle>Employees - C-Sweet</PageTitle>
+<PageTitle>@L["Employees.PageTitle"]</PageTitle>
 
 <div class="command-center-shell aurora-page employee-workspace employees-page">
     <header class="employees-heading">
-        <h1>Employees</h1>
+        <h1>@L["Employees.Employees"]</h1>
         @if (!_loading)
         {
             <span class="employees-census">@_employees.Count people <span aria-hidden="true">·</span> @PresentedTeams.Teams.Count(x => !x.IsArchived) teams</span>
         }
     </header>
-    <nav class="employees-navigation" aria-label="Employee views">
+    <nav class="employees-navigation" aria-label="@L["Employees.EmployeeViews"]">
         @foreach (var view in new[] { EmployeeViewKind.Graph, EmployeeViewKind.Teams, EmployeeViewKind.Directory })
         {
             <a href="@ViewUrl(view)" aria-current="@(!IsHiringTab && _activeView == view ? "page" : null)"
                class="@(!IsHiringTab && _activeView == view ? "active" : null)">@(view == EmployeeViewKind.Graph ? "Org chart" : view.ToString())</a>
         }
-        <a href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" aria-current="@(IsHiringTab ? "page" : null)" class="@(IsHiringTab ? "active" : null)">Hiring</a>
+        <a href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" aria-current="@(IsHiringTab ? "page" : null)" class="@(IsHiringTab ? "active" : null)">@L["Employees.Hiring"]</a>
     </nav>
     @if (IsHiringTab)
     {
@@ -39,14 +40,14 @@
         }
         else
         {
-            <MudButton OnClick="OpenHireDialog" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd">Add employee</MudButton>
+            <MudButton OnClick="OpenHireDialog" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd">@L["Employees.AddEmployee"]</MudButton>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
-                Review proposed team changes and find your next hire.
-                <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">Browse the agent marketplace</MudLink>.
+                @L["Employees.ReviewProposedTeamChangesAnd"]
+                <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">@L["Employees.BrowseTheAgentMarketplace"]</MudLink>.
             </MudAlert>
             @if (_hiringDashboard?.ResourceChanges.Count > 0)
             {
-                <MudText Typo="Typo.h5" Class="mb-3">Team design approvals</MudText>
+                <MudText Typo="Typo.h5" Class="mb-3">@L["Employees.TeamDesignApprovals"]</MudText>
                 <MudStack Spacing="3" Class="mb-6">
                     @foreach (var request in _hiringDashboard.ResourceChanges)
                     {
@@ -72,14 +73,14 @@
                                 @if (request.Status == "Pending" &&
                                      request.ManagerOrganizationUserId == _hiringDashboard.CurrentOrganizationUserId)
                                 {
-                                    <MudTextField @bind-Value="_resourceFeedback" Label="Decision feedback" Lines="2" Variant="Variant.Outlined" />
+                                    <MudTextField @bind-Value="_resourceFeedback" Label="@L["Employees.DecisionFeedback"]" Lines="2" Variant="Variant.Outlined" />
                                     <MudStack Row="true" Spacing="1">
                                         <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="_resourceDecisionBusy"
-                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.Approve))">Approve team</MudButton>
+                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.Approve))">@L["Employees.ApproveTeam"]</MudButton>
                                         <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="_resourceDecisionBusy"
-                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.RequestRevision))">@L["Employees.RequestRevision"]</MudButton>
                                         <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="_resourceDecisionBusy"
-                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+                                                   OnClick="@(() => DecideResourceChangeAsync(request, ResourceChangeDecisionKinds.Reject))">@L["Common.Reject"]</MudButton>
                                     </MudStack>
                                 }
                                 else if (!string.IsNullOrWhiteSpace(request.DecisionComment))
@@ -94,8 +95,8 @@
             @if (_hiringDashboard?.Recommendations.Count is null or 0)
             {
                 <MudPaper Class="pa-6" Elevation="0" Outlined="true">
-                    <MudText Typo="Typo.h6">No hiring recommendation yet</MudText>
-                    <MudText Color="Color.Secondary">New staffing recommendations will appear here when your team identifies a need.</MudText>
+                    <MudText Typo="Typo.h6">@L["Employees.NoHiringRecommendationYet"]</MudText>
+                    <MudText Color="Color.Secondary">@L["Employees.NewStaffingRecommendationsWillAppear"]</MudText>
                 </MudPaper>
             }
             else
@@ -109,7 +110,7 @@
                                     <div><MudText Typo="Typo.overline">Priority @recommendation.Priority · @recommendation.Status</MudText><MudText Typo="Typo.h5">@recommendation.Title</MudText><MudText Color="Color.Secondary">@recommendation.Objective</MudText></div>
                                     <MudButton Href="@recommendation.HiringUrl" Variant="Variant.Filled"
                                                Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Storefront">
-                                        Browse candidates
+                                        @L["Employees.BrowseCandidates"]
                                     </MudButton>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(recommendation.SuggestedBy))
@@ -118,7 +119,7 @@
                                 }
                                 @if (recommendation.SourceResourceChangeRequestId.HasValue)
                                 {
-                                    <details class="hiring-provenance"><summary>Request details</summary><MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    <details class="hiring-provenance"><summary>@L["Employees.RequestDetails"]</summary><MudText Typo="Typo.caption" Color="Color.Secondary">
                                         Requested by @(recommendation.RequestingEmployee ?? "delivery manager")
                                         · team @(recommendation.RequestingTeam ?? recommendation.TeamId?.ToString("D") ?? "not scoped")
                                         · assigned to @(recommendation.AssignedApprover ?? "manager")
@@ -180,9 +181,9 @@
     <TitleContent><MudText Typo="Typo.h6">@(_editingTeam is null ? "Create team" : $"Edit {_editingTeam.Name}")</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudTextField @bind-Value="_teamName" Label="Team name" Variant="Variant.Outlined" Required="true" />
-            <MudTextField @bind-Value="_teamDescription" Label="Description" Lines="3" Variant="Variant.Outlined" />
-            <MudSelect T="Guid?" @bind-Value="_teamLeadId" Label="Required lead" Variant="Variant.Outlined" Required="true">
+            <MudTextField @bind-Value="_teamName" Label="@L["Employees.TeamName"]" Variant="Variant.Outlined" Required="true" />
+            <MudTextField @bind-Value="_teamDescription" Label="@L["Employees.Description"]" Lines="3" Variant="Variant.Outlined" />
+            <MudSelect T="Guid?" @bind-Value="_teamLeadId" Label="@L["Employees.RequiredLead"]" Variant="Variant.Outlined" Required="true">
                 @foreach (var employee in _employees.OrderBy(x => x.DisplayName))
                 {
                     <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)">@employee.DisplayName — @EmployeeLabel(employee)</MudSelectItem>
@@ -190,7 +191,7 @@
             </MudSelect>
             @if (_editingTeam is null)
             {
-                <MudText Typo="Typo.subtitle2">Initial members and team-specific roles</MudText>
+                <MudText Typo="Typo.subtitle2">@L["Employees.InitialMembersAndTeamSpecific"]</MudText>
                 @foreach (var employee in _employees.OrderBy(x => x.DisplayName))
                 {
                     var unavailable = IsAgentBoundToAnotherTeam(employee, null);
@@ -201,13 +202,13 @@
                                      Label="@employee.DisplayName" />
                         @if (unavailable)
                         {
-                            <MudText Typo="Typo.caption" Color="Color.Warning">This agent employee is lifetime-bound to another team. Hire another installation for this team.</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Warning">@L["Employees.ThisAgentEmployeeIsLifetime"]</MudText>
                         }
                         @if (_teamInitialMemberIds.Contains(employee.Id))
                         {
                             <MudSelect T="Guid?" Value="@InitialTeamRole(employee.Id)"
                                        ValueChanged="@(value => SetInitialTeamRole(employee.Id, value))"
-                                       Label="Team role" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                       Label="@L["Employees.TeamRole"]" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                                 @foreach (var role in _roles.OrderBy(x => x.Name))
                                 {
                                     <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
@@ -219,8 +220,8 @@
             }
             @if (_teamRevisionConflict)
             {
-                <MudAlert Severity="Severity.Warning">The team changed while you were editing. Your values were retained and current state was reloaded.</MudAlert>
-                <MudCheckBox T="bool" @bind-Value="_teamRevisionReviewed" Label="I reviewed the current team state and want to retry." />
+                <MudAlert Severity="Severity.Warning">@L["Employees.TheTeamChangedWhileYou"]</MudAlert>
+                <MudCheckBox T="bool" @bind-Value="_teamRevisionReviewed" Label="@L["Employees.IReviewedTheCurrentTeam"]" />
             }
             @if (!string.IsNullOrWhiteSpace(_teamMutationError))
             {
@@ -229,7 +230,7 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _teamDialogOpen = false)">Cancel</MudButton>
+        <MudButton OnClick="@(() => _teamDialogOpen = false)">@L["Common.Cancel"]</MudButton>
         <MudButton OnClick="SaveTeamAsync" Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_teamMutationBusy || (_teamRevisionConflict && !_teamRevisionReviewed))">
             @(_teamMutationBusy ? "Saving..." : "Review and save")
@@ -238,10 +239,10 @@
 </MudDialog>
 
 <MudDialog @bind-Visible="_teamMemberDialogOpen" Options="_dialogOptions">
-    <TitleContent><MudText Typo="Typo.h6">Add or reactivate team member</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["Employees.AddOrReactivateTeamMember"]</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudSelect T="Guid?" @bind-Value="_teamMemberId" Label="Employee" Variant="Variant.Outlined">
+            <MudSelect T="Guid?" @bind-Value="_teamMemberId" Label="@L["Employees.Employee"]" Variant="Variant.Outlined">
                 @foreach (var employee in _employees.OrderBy(x => x.DisplayName))
                 {
                     var unavailable = IsAgentBoundToAnotherTeam(employee, _editingTeam?.Id);
@@ -250,7 +251,7 @@
                     </MudSelectItem>
                 }
             </MudSelect>
-            <MudSelect T="Guid?" @bind-Value="_teamMemberRoleId" Label="Team-specific role" Variant="Variant.Outlined" Clearable="true">
+            <MudSelect T="Guid?" @bind-Value="_teamMemberRoleId" Label="@L["Employees.TeamSpecificRole"]" Variant="Variant.Outlined" Clearable="true">
                 @foreach (var role in _roles.OrderBy(x => x.Name))
                 {
                     <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
@@ -263,8 +264,8 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _teamMemberDialogOpen = false)">Cancel</MudButton>
-        <MudButton OnClick="SaveTeamMemberAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="_teamMutationBusy">Save membership</MudButton>
+        <MudButton OnClick="@(() => _teamMemberDialogOpen = false)">@L["Common.Cancel"]</MudButton>
+        <MudButton OnClick="SaveTeamMemberAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="_teamMutationBusy">@L["Employees.SaveMembership"]</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -272,8 +273,8 @@
     <TitleContent><MudText Typo="Typo.h6">@_teamConfirmTitle</MudText></TitleContent>
     <DialogContent><MudText>@_teamConfirmMessage</MudText></DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => _teamConfirmDialogOpen = false)">Cancel</MudButton>
-        <MudButton OnClick="ConfirmTeamActionAsync" Variant="Variant.Filled" Color="@(_pendingTeamAction?.Action == TeamUiActionKind.Restore ? Color.Primary : Color.Error)" Disabled="_teamMutationBusy">Confirm</MudButton>
+        <MudButton OnClick="@(() => _teamConfirmDialogOpen = false)">@L["Common.Cancel"]</MudButton>
+        <MudButton OnClick="ConfirmTeamActionAsync" Variant="Variant.Filled" Color="@(_pendingTeamAction?.Action == TeamUiActionKind.Restore ? Color.Primary : Color.Error)" Disabled="_teamMutationBusy">@L["Common.Confirm"]</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -305,7 +306,7 @@
         }
         else if (_runtimeRuns.Count == 0)
         {
-            <MudText Color="Color.Secondary">No runtime attempts have been recorded for this instance.</MudText>
+            <MudText Color="Color.Secondary">@L["Employees.NoRuntimeAttemptsHaveBeen"]</MudText>
         }
         else
         {
@@ -322,7 +323,7 @@
                             <pre class="agent-build-log">@RuntimeEventLog(run)</pre>
                             @if (!string.IsNullOrWhiteSpace(run.LogExcerpt))
                             {
-                                <MudText Typo="Typo.subtitle2">Container output</MudText>
+                                <MudText Typo="Typo.subtitle2">@L["Employees.ContainerOutput"]</MudText>
                                 <pre class="agent-build-log">@run.LogExcerpt</pre>
                             }
                         </MudStack>
@@ -332,28 +333,28 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@_loadingRuntimeConsole" OnClick="RefreshRuntimeConsoleAsync">Refresh</MudButton>
-        <MudButton Variant="Variant.Text" OnClick="CloseRuntimeConsole">Close</MudButton>
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@_loadingRuntimeConsole" OnClick="RefreshRuntimeConsoleAsync">@L["Common.Refresh"]</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="CloseRuntimeConsole">@L["Common.Close"]</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_hireDialogOpen" Options="_dialogOptions">
-    <TitleContent><MudText Typo="Typo.h6">Hire employee</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["Employees.HireEmployee"]</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
             @if (!string.IsNullOrWhiteSpace(_actionError))
             {
                 <MudAlert Severity="Severity.Error" Dense="true">@_actionError</MudAlert>
             }
-            <MudTextField Label="Name" @bind-Value="_hireName" Required="true" Variant="Variant.Outlined" Disabled="@_saving" />
+            <MudTextField Label="@L["Employees.Name"]" @bind-Value="_hireName" Required="true" Variant="Variant.Outlined" Disabled="@_saving" />
             <MudTextField Label="Email (optional)" @bind-Value="_hireEmail" InputType="InputType.Email" Variant="Variant.Outlined" Disabled="@_saving" />
-            <MudSelect T="int" Label="Employee type" @bind-Value="_hireEmployeeType" Variant="Variant.Outlined" Disabled="@_saving">
-                <MudSelectItem T="int" Value="0">Human</MudSelectItem>
-                <MudSelectItem T="int" Value="1">Agent</MudSelectItem>
+            <MudSelect T="int" Label="@L["Employees.EmployeeType"]" @bind-Value="_hireEmployeeType" Variant="Variant.Outlined" Disabled="@_saving">
+                <MudSelectItem T="int" Value="0">@L["Employees.Human"]</MudSelectItem>
+                <MudSelectItem T="int" Value="1">@L["Employees.Agent"]</MudSelectItem>
             </MudSelect>
             @if (_hireEmployeeType == 1)
             {
-                <MudSelect T="string" Label="Agent" @bind-Value="_hireAgentKey" Required="true" Variant="Variant.Outlined" Disabled="@_saving">
+                <MudSelect T="string" Label="@L["Employees.Agent"]" @bind-Value="_hireAgentKey" Required="true" Variant="Variant.Outlined" Disabled="@_saving">
                     @foreach (var agent in AvailableAgents)
                     {
                         <MudSelectItem T="string" Value="@agent.Key">@agent.Name</MudSelectItem>
@@ -362,7 +363,7 @@
                 @if (AvailableAgents.Count == 0)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                        No enabled agents are available. Add or enable an agent before hiring an agent employee.
+                        @L["Employees.NoEnabledAgentsAreAvailable"]
                     </MudAlert>
                 }
             }
@@ -374,7 +375,7 @@
                     <MudSelectItem T="Guid?" Value="@((Guid?)employee.Id)">@employee.DisplayName</MudSelectItem>
                 }
             </MudSelect>
-            <MudText Typo="Typo.subtitle2">Team assignments</MudText>
+            <MudText Typo="Typo.subtitle2">@L["Employees.TeamAssignments"]</MudText>
             <MudText Typo="Typo.caption" Color="Color.Secondary">
                 @(_hireEmployeeType == 1
                     ? "An AI employee instance can join at most one team for its lifetime."
@@ -391,7 +392,7 @@
                     {
                         <MudSelect T="Guid?" Value="@HireTeamRole(team.Id)"
                                    ValueChanged="@(value => SetHireTeamRole(team.Id, value))"
-                                   Label="Team-specific role" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                                   Label="@L["Employees.TeamSpecificRole"]" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                             @foreach (var role in _roles.OrderBy(role => role.Name))
                             {
                                 <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
@@ -400,11 +401,11 @@
                     }
                 </MudPaper>
             }
-            <MudText Typo="Typo.subtitle2">Manages</MudText>
-            <MudText Typo="Typo.caption" Color="Color.Secondary">Select existing employees who will report to this new hire.</MudText>
+            <MudText Typo="Typo.subtitle2">@L["Employees.Manages"]</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@L["Employees.SelectExistingEmployeesWhoWill"]</MudText>
             @if (_employees.Count == 0)
             {
-                <MudText Color="Color.Secondary">There are no existing employees to assign.</MudText>
+                <MudText Color="Color.Secondary">@L["Employees.ThereAreNoExistingEmployees"]</MudText>
             }
             else
             {
@@ -422,7 +423,7 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="CloseHireDialog" Disabled="@_saving">Cancel</MudButton>
+        <MudButton OnClick="CloseHireDialog" Disabled="@_saving">@L["Common.Cancel"]</MudButton>
         <MudButton OnClick="HireAsync" Variant="Variant.Filled" Color="Color.Primary"
                    Disabled="@(_saving || (_hireEmployeeType == 1 && !_hireManagerId.HasValue))">
             @(_saving ? "Hiring..." : "Hire")
@@ -431,11 +432,11 @@
 </MudDialog>
 
 <MudDialog @bind-Visible="_roleDialogOpen" Options="_dialogOptions">
-    <TitleContent><MudText Typo="Typo.h6">Change company role</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["Employees.ChangeCompanyRole"]</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudText Color="Color.Secondary">This changes the administrator’s position in this company. System administrator and Owner access remain unchanged.</MudText>
-            <MudSelect T="Guid?" Label="Company role" @bind-Value="_selectedRoleId" Clearable="true" Variant="Variant.Outlined" Disabled="_saving">
+            <MudText Color="Color.Secondary">@L["Employees.ThisChangesTheAdministratorS"]</MudText>
+            <MudSelect T="Guid?" Label="@L["Employees.CompanyRole"]" @bind-Value="_selectedRoleId" Clearable="true" Variant="Variant.Outlined" Disabled="_saving">
                 @foreach (var role in _roles)
                 {
                     <MudSelectItem T="Guid?" Value="@((Guid?)role.Id)">@role.Name</MudSelectItem>
@@ -448,23 +449,23 @@
         </MudStack>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="CloseRoleDialog" Disabled="_saving">Cancel</MudButton>
+        <MudButton OnClick="CloseRoleDialog" Disabled="_saving">@L["Common.Cancel"]</MudButton>
         <MudButton OnClick="SaveRoleAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="_saving">@(_saving ? "Saving..." : "Save role")</MudButton>
     </DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_fireDialogOpen" Options="_dialogOptions">
-    <TitleContent><MudText Typo="Typo.h6">Fire employee?</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["Employees.FireEmployee"]</MudText></TitleContent>
     <DialogContent>
         @if (!string.IsNullOrWhiteSpace(_actionError))
         {
             <MudAlert Severity="Severity.Error" Dense="true">@_actionError</MudAlert>
         }
-        <MudText>Remove <strong>@_employeeToFire?.DisplayName</strong> from this organization?</MudText>
+        <MudText>@L.Format("Employees.RemoveConfirm", new { name = _employeeToFire?.DisplayName })</MudText>
         @if (_employeeToFire?.EmployeeType == 1)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                Firing an agent also permanently removes its conversation history.
+                @L["Employees.FiringAnAgentAlsoPermanently"]
             </MudAlert>
         }
         @if (_employeeToFire is not null && SubordinateCount(_employeeToFire) > 0)
@@ -475,7 +476,7 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="CloseFireDialog" Disabled="@_saving">Cancel</MudButton>
+        <MudButton OnClick="CloseFireDialog" Disabled="@_saving">@L["Common.Cancel"]</MudButton>
         <MudButton OnClick="FireAsync" Variant="Variant.Filled" Color="Color.Error" Disabled="@_saving">@(_saving ? "Firing..." : "Fire")</MudButton>
     </DialogActions>
 </MudDialog>

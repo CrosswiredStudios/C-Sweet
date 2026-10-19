@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -56,7 +57,7 @@ public sealed class PersonalBoardCardTests
 
     private static async Task<string> Render(IReadOnlyList<PersonalTodoItem> items)
     {
-        await using var provider = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var provider = new ServiceCollection().AddLogging().AddCSweetLocalization().BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
         {

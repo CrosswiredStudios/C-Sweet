@@ -1,12 +1,13 @@
 @using CSweet.Contracts.Memory
 @inject HttpClient Http
 @implements IDisposable
+@inject IAppLocalizer L
 
 <MudDivider Class="my-3" />
-<MudText Typo="Typo.subtitle2">Version history</MudText>
+<MudText Typo="Typo.subtitle2">@L["MemoryHistoryPanel.VersionHistory"]</MudText>
 <MudText Typo="Typo.caption">Historical snapshots may be rejected, expired or deleted. They do not indicate eligibility for current recall. Baseline entries record the migration snapshot; earlier changes are unknown.</MudText>
 <MudButton OnClick="LoadAsync" Disabled="@(_busy || Disabled)">@(_page is null ? "View history" : "Refresh history")</MudButton>
-@if (_back.Count > 0) { <MudButton OnClick="BackAsync" Disabled="@(_busy || Disabled)">Back to previous record</MudButton> }
+@if (_back.Count > 0) { <MudButton OnClick="BackAsync" Disabled="@(_busy || Disabled)">@L["MemoryHistoryPanel.BackToPreviousRecord"]</MudButton> }
 @if (_page is { } page)
 {
     <MudText Typo="Typo.caption">@(page.Kind) · @(page.Scope) · Versions shown oldest first</MudText>
@@ -26,15 +27,15 @@
                 @if (review.RelatedRecord is { } related)
                 { <MudButton OnClick="@(() => FollowAsync(related))" Disabled="@(_busy || Disabled)">@related.Label history</MudButton> }
             }
-            @if (snapshot.Reviews.Count == 0) { <MudText Typo="Typo.caption">No recorded human review for this version.</MudText> }
+            @if (snapshot.Reviews.Count == 0) { <MudText Typo="Typo.caption">@L["MemoryHistoryPanel.NoRecordedHumanReviewFor"]</MudText> }
             @foreach (var link in snapshot.Sources.Take(20).Concat(snapshot.RelatedRecords))
             { <MudButton OnClick="@(() => FollowAsync(link))" Disabled="@(_busy || Disabled)">@link.Label history</MudButton> }
             @if (snapshot.Sources.Count > 20) { <MudText Typo="Typo.caption">Showing the first 20 of @snapshot.Sources.Count source links.</MudText> }
         </MudPaper>
     }
-    @if (page.Items.Count == 0) { <MudText>No further versions.</MudText> }
-    @if (_cursors.Count > 0) { <MudButton OnClick="PreviousAsync" Disabled="@(_busy || Disabled)">Previous versions</MudButton> }
-    @if (page.NextAfterRevision.HasValue) { <MudButton OnClick="NextAsync" Disabled="@(_busy || Disabled)">Next versions</MudButton> }
+    @if (page.Items.Count == 0) { <MudText>@L["MemoryHistoryPanel.NoFurtherVersions"]</MudText> }
+    @if (_cursors.Count > 0) { <MudButton OnClick="PreviousAsync" Disabled="@(_busy || Disabled)">@L["MemoryHistoryPanel.PreviousVersions"]</MudButton> }
+    @if (page.NextAfterRevision.HasValue) { <MudButton OnClick="NextAsync" Disabled="@(_busy || Disabled)">@L["MemoryHistoryPanel.NextVersions"]</MudButton> }
 }
 @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
 
@@ -86,12 +87,12 @@
         {
             using var response = await Http.GetAsync($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/memory/history/{Uri.EscapeDataString(link.Kind)}/{link.Id}?afterRevision={cursor}&limit=20", _cancellation.Token);
             if (generation != _generation || _disposed) return;
-            if (!response.IsSuccessStatusCode) { _message = "This history is unavailable or your review permission changed."; return; }
+            if (!response.IsSuccessStatusCode) { _message = L["MemoryHistoryPanel.ThisHistoryIsUnavailableOr"]; return; }
             var page = await response.Content.ReadFromJsonAsync<MemoryHistoryPage>(_cancellation.Token);
             if (generation == _generation && !_disposed) _page = page;
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (generation == _generation && !_disposed) _message = "History could not be loaded. Try again."; }
+        { if (generation == _generation && !_disposed) _message = L["MemoryHistoryPanel.HistoryCouldNotBeLoaded"]; }
         finally { if (generation == _generation) _busy = false; }
     }
     public void Dispose() { _disposed = true; _generation++; _cancellation?.Cancel(); _cancellation?.Dispose(); }

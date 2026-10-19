@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -21,7 +22,7 @@ public sealed class ProjectApprovalRenderingTests
         var (owner, _, proposal, _) = await ProjectApprovalReviewTests.Seed(db);
         var item = (await new CSweet.Infrastructure.Core.ProjectApprovalReader(db).ReadAsync(owner.OrganizationId, owner.Id, proposal.Id))!;
         item = item with { ProjectCreation = item.ProjectCreation! with { Outcome = "<script>unsafe</script>" } };
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton(new HttpClient());
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

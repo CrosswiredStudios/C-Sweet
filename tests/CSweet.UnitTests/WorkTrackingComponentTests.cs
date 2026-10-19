@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -21,7 +22,7 @@ public sealed class WorkTrackingComponentTests
         var item = Guid.NewGuid();
         var snapshot = new WorkTrackingSnapshot(item, following, limited, limited ? null : "/canonical-work",
             [new(Guid.NewGuid(), item, Guid.NewGuid(), 2, "Blocked", "Approval is needed.", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
-        var services = new ServiceCollection().AddLogging();
+        var services = new ServiceCollection().AddLogging(); services.AddCSweetLocalization();
         services.AddSingleton(new HttpClient(new Handler(snapshot)) { BaseAddress = new("http://localhost") });
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

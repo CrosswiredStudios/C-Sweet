@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -130,7 +131,7 @@ public sealed class OverviewAttentionStateTests
         }
         api.Compute = api.Compute with { HasMore = hasMore };
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices(); services.AddCSweetApiClients();
+        services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IBusinessContext>(new TestBusinessContext());
         services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
         services.AddSingleton<NavigationManager, TestNavigation>();

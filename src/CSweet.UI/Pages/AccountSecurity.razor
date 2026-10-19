@@ -4,43 +4,44 @@
 @inject AuthSessionStore AuthSession
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Account security - C-Sweet</PageTitle>
+<PageTitle>@L["AccountSecurity.PageTitle"]</PageTitle>
 
 <div class="setup-shell">
 <div class="page-header"><div>
-    <MudText Typo="Typo.overline" Color="Color.Primary">Account</MudText>
-    <MudText Typo="Typo.h4">Security</MudText>
+    <MudText Typo="Typo.overline" Color="Color.Primary">@L["AccountSecurity.Overline"]</MudText>
+    <MudText Typo="Typo.h4">@L["AccountSecurity.Title"]</MudText>
     <MudText Color="Color.Secondary">@AuthSession.Current?.Email</MudText>
 </div></div>
 <MudPaper Elevation="0" Class="surface-panel">
-    <MudText Typo="Typo.h6">Account recovery</MudText>
+    <MudText Typo="Typo.h6">@L["AccountSecurity.Recovery"]</MudText>
     <div class="setup-check-list mt-4">
-        <MudText>Email verified: @(AuthSession.Current?.IsEmailConfirmed == true ? "Yes" : "No")</MudText>
-        <MudText>Email recovery available: @(AuthSession.Current?.EmailRecoveryAvailable == true ? "Yes" : "No — configure and test email delivery first")</MudText>
+        <MudText>@L.Format("AccountSecurity.EmailVerified", new { verified = AuthSession.Current?.IsEmailConfirmed == true })</MudText>
+        <MudText>@L.Format("AccountSecurity.EmailRecoveryAvailable", new { available = AuthSession.Current?.EmailRecoveryAvailable == true })</MudText>
     </div>
-    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-4">Regenerating invalidates every previously unused root recovery code and refreshes your current session.</MudAlert>
-    <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_busy" OnClick="RegenerateAsync" Class="mt-4">Regenerate recovery codes</MudButton>
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-4">@L["AccountSecurity.RegenerateWarning"]</MudAlert>
+    <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_busy" OnClick="RegenerateAsync" Class="mt-4">@L["AccountSecurity.Regenerate"]</MudButton>
     @if (!string.IsNullOrWhiteSpace(_message))
     {
         <MudAlert Severity="@(_codes.Count > 0 ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mt-4">@_message</MudAlert>
     }
     @if (_codes.Count > 0)
     {
-        <MudText Typo="Typo.h6" Class="mt-4">Save these now — they will not be shown again.</MudText>
+        <MudText Typo="Typo.h6" Class="mt-4">@L["AccountSecurity.SaveNow"]</MudText>
         <div class="recovery-code-grid">
             @foreach (var recoveryCode in _codes) { <code>@recoveryCode</code> }
         </div>
         <MudStack Row="true" Class="mt-4">
-            <MudButton Variant="Variant.Outlined" OnClick="CopyAsync">Copy</MudButton>
-            <MudButton Variant="Variant.Outlined" OnClick="DownloadAsync">Download</MudButton>
-            <MudButton Variant="Variant.Outlined" OnClick="PrintAsync">Print</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="CopyAsync">@L["Common.Copy"]</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="DownloadAsync">@L["Register.Codes.Download"]</MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="PrintAsync">@L["Register.Codes.Print"]</MudButton>
         </MudStack>
     }
 
 </MudPaper>
 <MudPaper Elevation="0" Class="surface-panel">
-    <EmailDeliverySetupStep ContextLabel="Email delivery profiles" ShowNavigation="false" />
+    <EmailDeliverySetupStep ContextLabel="@L["AccountSecurity.EmailDeliveryContext"]" ShowNavigation="false" />
 </MudPaper>
 </div>
 
@@ -49,7 +50,7 @@
     private string? _message;
     private IReadOnlyList<string> _codes = [];
     private IJSObjectReference? _module;
-    private string Text => $"C-Sweet root recovery codes{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, _codes)}";
+    private string Text => $"{L["Register.RecoveryText.Title"]}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, _codes)}";
     private async Task<IJSObjectReference> ModuleAsync() => _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
 
     private async Task RegenerateAsync()
@@ -62,7 +63,7 @@
     }
     private async Task CopyAsync() => await (await ModuleAsync()).InvokeVoidAsync("copyText", Text);
     private async Task DownloadAsync() => await (await ModuleAsync()).InvokeVoidAsync("downloadText", "csweet-root-recovery-codes.txt", Text);
-    private async Task PrintAsync() => await (await ModuleAsync()).InvokeVoidAsync("printText", "C-Sweet root recovery codes", Text);
+    private async Task PrintAsync() => await (await ModuleAsync()).InvokeVoidAsync("printText", L["Register.RecoveryText.Title"], Text);
 
     public async ValueTask DisposeAsync() { if (_module is not null) await _module.DisposeAsync(); }
 }

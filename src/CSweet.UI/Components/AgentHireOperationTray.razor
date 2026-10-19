@@ -4,10 +4,11 @@
 @inject AgentHireOperationState HireOperations
 @inject BusinessOnboardingOperationState BusinessOnboardingOperations
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
 @if (HireOperations.Operations.Count > 0 || VisibleBusinessOperations.Any())
 {
-    <aside class="agent-hire-tray" aria-live="polite" aria-label="Background operation progress">
+    <aside class="agent-hire-tray" aria-live="polite" aria-label="@L["AgentHireOperationTray.BackgroundOperationProgress"]">
         @foreach (var operation in HireOperations.Operations)
         {
             <section class="@ToastClass(operation)">
@@ -26,7 +27,7 @@
                             <MudIconButton Class="agent-hire-toast-dismiss"
                                            Icon="@Icons.Material.Filled.Close"
                                            Size="Size.Small"
-                                           aria-label="Dismiss hiring notification"
+                                           aria-label="@L["AgentHireOperationTray.DismissHiringNotification"]"
                                            OnClick="@(() => DismissAsync(operation))" />
                         }
                     </header>
@@ -51,13 +52,13 @@
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"
-                                       OnClick="@(() => Open(operation))">View team</MudButton>
+                                       OnClick="@(() => Open(operation))">@L["AgentHireOperationTray.ViewTeam"]</MudButton>
                         }
                         else if (operation.Status == AgentHireOperationStatuses.NeedsSetup)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"
-                                       OnClick="@(() => Open(operation))">Finish setup</MudButton>
+                                       OnClick="@(() => Open(operation))">@L["AgentHireOperationTray.FinishSetup"]</MudButton>
                         }
                         else if (operation.Status is AgentHireOperationStatuses.Failed or AgentHireOperationState.UnconfirmedStatus)
                         {
@@ -65,15 +66,15 @@
                                        OnClick="@(() => RetryAsync(operation))">@(operation.Status == AgentHireOperationState.UnconfirmedStatus ? "Check status" : "Retry")</MudButton>
                             @if (!string.IsNullOrWhiteSpace(operation.ActionUri))
                             {
-                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Open(operation))">View details</MudButton>
+                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Open(operation))">@L["AgentHireOperationTray.ViewDetails"]</MudButton>
                             }
                         }
                         else if (operation.Status == AgentHireOperationStatuses.AwaitingConfirmation)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
-                                       OnClick="@(() => RetryAsync(operation))">Resume hire</MudButton>
+                                       OnClick="@(() => RetryAsync(operation))">@L["AgentHireOperationTray.ResumeHire"]</MudButton>
                             <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
-                                       OnClick="@(() => CancelAsync(operation))">Cancel</MudButton>
+                                       OnClick="@(() => CancelAsync(operation))">@L["Common.Cancel"]</MudButton>
                         }
                     </div>
                 </div>
@@ -97,7 +98,7 @@
                             <MudIconButton Class="agent-hire-toast-dismiss"
                                            Icon="@Icons.Material.Filled.Close"
                                            Size="Size.Small"
-                                           aria-label="Dismiss onboarding notification"
+                                           aria-label="@L["AgentHireOperationTray.DismissOnboardingNotification"]"
                                            OnClick="@(() => DismissBusinessAsync(operation))" />
                         }
                     </header>
@@ -124,30 +125,30 @@
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"
-                                       OnClick="@(() => OpenBusiness(operation))">Open business</MudButton>
+                                       OnClick="@(() => OpenBusiness(operation))">@L["AgentHireOperationTray.OpenBusiness"]</MudButton>
                         }
                         else if (operation.Status == BusinessOnboardingOperationStatuses.Succeeded)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"
-                                       OnClick="@(() => OpenBusiness(operation))">Open business</MudButton>
+                                       OnClick="@(() => OpenBusiness(operation))">@L["AgentHireOperationTray.OpenBusiness"]</MudButton>
                         }
                         else if (operation.Status == BusinessOnboardingOperationStatuses.NeedsSetup)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
                                        EndIcon="@Icons.Material.Outlined.ArrowForward"
-                                       OnClick="@(() => OpenBusiness(operation))">Finish setup</MudButton>
+                                       OnClick="@(() => OpenBusiness(operation))">@L["AgentHireOperationTray.FinishSetup"]</MudButton>
                             <MudButton Size="Size.Small" Variant="Variant.Text"
-                                       OnClick="@(() => RetryBusinessAsync(operation))">Retry</MudButton>
+                                       OnClick="@(() => RetryBusinessAsync(operation))">@L["Common.Retry"]</MudButton>
                         }
                         else if (operation.Status == BusinessOnboardingOperationStatuses.Failed)
                         {
                             <MudButton Class="agent-hire-primary-action" Size="Size.Small" Variant="Variant.Filled"
-                                       OnClick="@(() => RetryBusinessAsync(operation))">Retry</MudButton>
+                                       OnClick="@(() => RetryBusinessAsync(operation))">@L["Common.Retry"]</MudButton>
                             @if (!string.IsNullOrWhiteSpace(operation.ActionUri))
                             {
                                 <MudButton Size="Size.Small" Variant="Variant.Text"
-                                           OnClick="@(() => OpenBusiness(operation))">View details</MudButton>
+                                           OnClick="@(() => OpenBusiness(operation))">@L["AgentHireOperationTray.ViewDetails"]</MudButton>
                             }
                         }
                     </div>

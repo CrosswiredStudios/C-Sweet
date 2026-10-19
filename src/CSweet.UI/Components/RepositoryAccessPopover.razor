@@ -1,4 +1,5 @@
 @using CSweet.Contracts.SourceControl
+@inject IAppLocalizer L
 
 <MudMenu @ref="_menu" @bind-Open="_open" ActivationEvent="MouseEvent.LeftClick"
          AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" PopoverClass="repository-access-popover"
@@ -11,10 +12,10 @@
     </ActivatorContent>
     <ChildContent>
         <MudFocusTrap DefaultFocus="DefaultFocus.FirstChild">
-        <section @onkeydown="HandleKeyAsync" role="dialog" class="repository-access-card" id="@PopupId" aria-label="Who has access" @onclick:stopPropagation="true">
+        <section @onkeydown="HandleKeyAsync" role="dialog" class="repository-access-card" id="@PopupId" aria-label="@L["RepositoryAccessPopover.WhoHasAccess"]" @onclick:stopPropagation="true">
             <header class="repository-access-header">
-                <div><h2>Who has access</h2><p>@Repository.Name · @AgentCount @(AgentCount == 1 ? "agent" : "agents"), @HumanCount @(HumanCount == 1 ? "person" : "people")</p></div>
-                <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" Size="Size.Small" aria-label="Close access list" />
+                <div><h2>@L["RepositoryAccessPopover.WhoHasAccess"]</h2><p>@Repository.Name · @AgentCount @(AgentCount == 1 ? "agent" : "agents"), @HumanCount @(HumanCount == 1 ? "person" : "people")</p></div>
+                <MudIconButton Icon="@Icons.Material.Outlined.Close" OnClick="CloseAsync" Size="Size.Small" aria-label="@L["RepositoryAccessPopover.CloseAccessList"]" />
             </header>
             @if (Access.Count > 0)
             {
@@ -29,8 +30,8 @@
                     }
                 </ul>
             }
-            else { <p class="repository-access-empty">No C-Sweet access is configured.</p> }
-            <footer>Team access requires assigned work and approved capabilities. External provider permissions are managed separately.</footer>
+            else { <p class="repository-access-empty">@L["RepositoryAccessPopover.NoCSweetAccessIs"]</p> }
+            <footer>@L["RepositoryAccessPopover.TeamAccessRequiresAssignedWork"]</footer>
         </section>
         </MudFocusTrap>
     </ChildContent>

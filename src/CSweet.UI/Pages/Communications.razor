@@ -13,9 +13,10 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject IAgentApiClient AgentApi
+@inject IAppLocalizer L
 
 <EmployeePortraitScope OrganizationId="OrganizationId">
-<PageTitle>Communications - C-Sweet</PageTitle>
+<PageTitle>@L["Communications.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace communications-document-layout">
 <div class="hub-page @(_mobileConversations ? "show-conversations" : null)">
@@ -25,29 +26,29 @@
     </button>
     @if (_loading)
     {
-        <div class="hub-centered"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><span>Opening communications…</span></div>
+        <div class="hub-centered"><MudProgressCircular Indeterminate="true" Color="Color.Primary" /><span>@L["Communications.Opening"]</span></div>
     }
     else if (!string.IsNullOrWhiteSpace(_error) || _hub is null)
     {
         <div class="hub-centered">
             <MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Color="Color.Error" Size="Size.Large" />
-            <MudText Typo="Typo.h6">Communications could not be opened</MudText>
+            <MudText Typo="Typo.h6">@L["Communications.OpenFailed.Title"]</MudText>
             <MudText Color="Color.Secondary">@_error</MudText>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">Try again</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync">@L["Communications.TryAgain"]</MudButton>
         </div>
     }
     else
     {
         <aside class="hub-sidebar" id="business-conversations">
             <div class="hub-perspective">
-                <label for="communications-perspective">View communications as</label>
+                <label for="communications-perspective">@L["Communications.Perspective.Label"]</label>
                 <div class="hub-perspective-select">
                     <MudIcon Icon="@Icons.Material.Outlined.Visibility" Size="Size.Small" />
                     <select id="communications-perspective"
-                            aria-label="View communications as"
+                            aria-label="@L["Communications.Perspective.Label"]"
                             value="@PerspectiveValue"
                             @onchange="OnPerspectiveChanged">
-                        <option value="">Self</option>
+                        <option value="">@L["Communications.Perspective.Self"]</option>
                         @if (PerspectiveAgents.Any())
                         {
                             <option disabled>──────────</option>
@@ -62,20 +63,20 @@
                 {
                     <span class="hub-readonly-badge">
                         <MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" />
-                        Read-only agent perspective
+                        @L["Communications.Perspective.ReadOnlyBadge"]
                     </span>
                 }
             </div>
             <div class="hub-search">
                 <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" />
-                <input aria-label="Search conversations" placeholder="Search" @bind="_search" @bind:event="oninput" />
+                <input aria-label="@L["Communications.Search.AriaLabel"]" placeholder="@L["Common.Search"]" @bind="_search" @bind:event="oninput" />
             </div>
-            <nav class="hub-nav" aria-label="Conversations">
+            <nav class="hub-nav" aria-label="@L["Communications.Conversations"]">
                 <div class="hub-section-title">
-                    <span>Channels</span>
+                    <span>@L["Communications.Channels"]</span>
                     @if (_hub.CanManageChats)
                     {
-                        <button title="Create channel" aria-label="Create channel" @onclick="OpenCreateGroup"><MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" /></button>
+                        <button title="@L["Communications.CreateChannel"]" aria-label="@L["Communications.CreateChannel"]" @onclick="OpenCreateGroup"><MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" /></button>
                     }
                 </div>
                 @foreach (var chat in FilteredChats.Where(x => !x.IsDirect))
@@ -88,10 +89,10 @@
                 }
                 @if (!FilteredChats.Any(x => !x.IsDirect))
                 {
-                    <p class="hub-nav-empty">No channels yet</p>
+                    <p class="hub-nav-empty">@L["Communications.NoChannels"]</p>
                 }
 
-                <div class="hub-section-title direct"><span>Direct Reports</span></div>
+                <div class="hub-section-title direct"><span>@L["Communications.DirectReports"]</span></div>
                 @foreach (var entry in DirectReports)
                 {
                     <button class="hub-nav-item @(entry.Chat?.Id == _selected?.Id ? "active" : null) @(entry.Chat is not null && ChatUnread(entry.Chat) > 0 ? "unread" : null)"
@@ -100,15 +101,15 @@
                               title="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"
                               aria-label="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"></span><span class="hub-avatar dm-portrait"><PersonAvatarContent EmployeeId="entry.Person.Id" IsAgent="true" Initials="@Initials(entry.Person.DisplayName)" /></span><span>@entry.Title</span>
                         @if (entry.Chat is not null && ChatUnread(entry.Chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(entry.Chat)} unread messages")"></span> }
-                        <span class="agent-mark">AI</span>
+                        <span class="agent-mark">@L["Communications.AgentMark"]</span>
                     </button>
                 }
                 @if (!DirectReports.Any())
                 {
-                    <p class="hub-nav-empty">No direct reports</p>
+                    <p class="hub-nav-empty">@L["Communications.NoDirectReports"]</p>
                 }
 
-                <div class="hub-section-title direct"><span>Agents</span></div>
+                <div class="hub-section-title direct"><span>@L["Communications.Agents"]</span></div>
                 @foreach (var entry in DirectMessages)
                 {
                     <button class="hub-nav-item @(entry.Chat?.Id == _selected?.Id ? "active" : null) @(entry.Chat is not null && ChatUnread(entry.Chat) > 0 ? "unread" : null)"
@@ -117,19 +118,19 @@
                               title="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"
                               aria-label="@PresenceTitle(entry.Person.DisplayName, entry.Person.PresenceStatus, entry.Person.PresenceDetail)"></span><span class="hub-avatar dm-portrait"><PersonAvatarContent EmployeeId="entry.Person.Id" IsAgent="@(entry.Person.EmployeeType == "Agent")" Initials="@Initials(entry.Person.DisplayName)" /></span><span>@entry.Title</span>
                         @if (entry.Chat is not null && ChatUnread(entry.Chat) > 0) { <span class="hub-unread-dot" aria-label="@($"{ChatUnread(entry.Chat)} unread messages")"></span> }
-                        @if (entry.Person.EmployeeType == "Agent") { <span class="agent-mark">AI</span> }
+                        @if (entry.Person.EmployeeType == "Agent") { <span class="agent-mark">@L["Communications.AgentMark"]</span> }
                     </button>
                 }
                 @if (!DirectMessages.Any())
                 {
-                    <p class="hub-nav-empty">No other agents</p>
+                    <p class="hub-nav-empty">@L["Communications.NoOtherAgents"]</p>
                 }
                 @if (!_hub.IsReadOnlyPerspective)
                 {
                     <div class="hub-section-title direct">
                         <button class="hub-mentions-toggle" @onclick="@(() => _showMentions = !_showMentions)"
                                 aria-expanded="@_showMentions">
-                            <span>Notifications</span>
+                            <span>@L["Communications.Notifications"]</span>
                             @if (UnreadNotifications > 0) { <span class="hub-unread-count">@UnreadNotifications</span> }
                         </button>
                     </div>
@@ -147,13 +148,13 @@
                             }
                             @if (!VisibleNotifications.Any())
                             {
-                                <p class="hub-nav-empty">No notifications yet</p>
+                                <p class="hub-nav-empty">@L["Communications.NoNotifications"]</p>
                             }
                         </div>
                     }
                 }
             </nav>
-            <a class="hub-settings" href="/settings/communications"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" /> Connected apps</a>
+            <a class="hub-settings" href="/settings/communications"><MudIcon Icon="@Icons.Material.Outlined.Settings" Size="Size.Small" /> @L["Communications.ConnectedApps"]</a>
         </aside>
 
         <main class="hub-main" aria-busy="@_switchingChat">
@@ -178,7 +179,7 @@
                     <div class="hub-header-actions">
                         @if (_selected.CanManage)
                         {
-                            <button title="Manage channel" @onclick="OpenEdit"><MudIcon Icon="@Icons.Material.Outlined.Edit" /></button>
+                            <button title="@L["Communications.ManageChannel"]" @onclick="OpenEdit"><MudIcon Icon="@Icons.Material.Outlined.Edit" /></button>
                         }
                     </div>
                 </header>
@@ -209,14 +210,14 @@
                                         @(_retryingStartup ? "Queuing retry…" : "Retry startup")
                                     </MudButton>
                                 }
-                                <a href="/settings/agents">Review diagnostics</a>
+                                <a href="/settings/agents">@L["Communications.AgentStatus.ReviewDiagnostics"]</a>
                             }
                         </section>
                     }
 
                     @foreach (var coordination in _coordinationSessions)
                     {
-                        <section id="@($"collaboration-{coordination.Id:D}")" class="hub-coordination-card" aria-label="Agent collaboration" tabindex="-1">
+                        <section id="@($"collaboration-{coordination.Id:D}")" class="hub-coordination-card" aria-label="@L["Communications.Coordination.AriaLabel"]" tabindex="-1">
                             <div class="hub-coordination-icon"><MudIcon Icon="@Icons.Material.Outlined.Hub" /></div>
                             <div class="hub-coordination-content">
                                 <span>AGENT COLLABORATION · @coordination.Status</span>
@@ -227,7 +228,7 @@
                                 }
                                 else if (coordination.Status == "Blocked")
                                 {
-                                    <p>This collaboration is waiting for a blocker to be resolved.</p>
+                                    <p>@L["Communications.Coordination.Blocked"]</p>
                                 }
                                 else if (coordination.Status is "Completed" or "Cancelled")
                                 {
@@ -243,7 +244,7 @@
                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
                                            Disabled="@_stoppingCoordination.Contains(coordination.Id)"
                                            OnClick="@(() => RetryCoordinationAsync(coordination))">
-                                    Retry collaboration
+                                    @L["Communications.Coordination.Retry"]
                                 </MudButton>
                             }
                             @if (_hub.CanManageChats && coordination.Status is ("Active" or "Summarizing"))
@@ -251,7 +252,7 @@
                                 <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
                                            Disabled="@_stoppingCoordination.Contains(coordination.Id)"
                                            OnClick="@(() => StopCoordinationAsync(coordination))">
-                                    Stop collaboration
+                                    @L["Communications.Coordination.Stop"]
                                 </MudButton>
                             }
                         </section>
@@ -263,7 +264,7 @@
                 {
                     <div class="hub-conversation-loading" role="status" aria-live="polite">
                         <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
-                        <span>Opening conversation…</span>
+                        <span>@L["Communications.OpeningConversation"]</span>
                     </div>
                 }
                 <section class="hub-message-list" role="log" aria-live="polite" @ref="_messageList">
@@ -272,7 +273,7 @@
                         <div class="hub-welcome">
                             <div class="hub-welcome-icon">@(_selected.IsDirect ? "@" : "#")</div>
                             <MudText Typo="Typo.h5">This is the start of @_selected.Title</MudText>
-                            <MudText Color="Color.Secondary">Keep decisions, context, and work moving in one place.</MudText>
+                            <MudText Color="Color.Secondary">@L["Communications.Welcome.Lead"]</MudText>
                         </div>
                     }
                     @for (var messageIndex = 0; messageIndex < _messages.Count; messageIndex++)
@@ -314,7 +315,7 @@
                                             {
                                                 <div class="hub-system-action-completed">
                                                     <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
-                                                    <span>Completed</span>
+                                                    <span>@L["Communications.SuggestedAction.Completed"]</span>
                                                     @if (primaryAction.ResultOrganizationUserId is Guid resultUserId)
                                                     {
                                                         <MudLink Href="@($"/organizations/{OrganizationId:D}/employees/{resultUserId:D}")"
@@ -397,7 +398,7 @@
                                   }
                                   @if (message.Attachments.Count > 0)
                                   {
-                                      <div class="hub-message-attachments" aria-label="Message attachments">
+                                      <div class="hub-message-attachments" aria-label="@L["Communications.Attachments.AriaLabel"]">
                                           @foreach (var attachment in message.Attachments)
                                           {
                                               <span class="hub-message-attachment" title="@attachment.Sha256">
@@ -410,7 +411,7 @@
                                   }
                                   @if (message.Artifacts.Count > 0)
                                   {
-                                          <div class="hub-message-artifacts" aria-label="Linked documents">
+                                          <div class="hub-message-artifacts" aria-label="@L["Communications.LinkedDocuments"]">
                                               @foreach (var artifact in message.Artifacts)
                                               {
                                                   <MessageArtifactActions OrganizationId="OrganizationId"
@@ -423,12 +424,12 @@
                                   }
                                  @if (message.ResourceChange is { } resourceChange)
                                  {
-                                      <section class="hub-system-action-message hub-resource-change-approval" aria-label="Hiring plan approval">
+                                      <section class="hub-system-action-message hub-resource-change-approval" aria-label="@L["Communications.ResourceChange.AriaLabel"]">
                                           <div class="hub-system-action-icon">
                                               <MudIcon Icon="@Icons.Material.Outlined.Groups" />
                                           </div>
                                           <div class="hub-system-action-content">
-                                               <span>HIRING PLAN APPROVAL</span>
+                                               <span>@L["Communications.ResourceChange.Overline"]</span>
                                                <strong>@(resourceChange.TeamName ?? "Review proposed product team")</strong>
                                                <p>@resourceChange.ProductGoal</p>
                                                <SuggestedTeamStructureGraph Request="resourceChange"
@@ -451,8 +452,8 @@
                                               resourceChange.ManagerOrganizationUserId == _hub.CurrentOrganizationUserId)
                                          {
                                               <MudTextField @bind-Value="_resourceFeedback"
-                                                            Label="Revision feedback"
-                                                            Placeholder="Required only when requesting a revision"
+                                                            Label="@L["Communications.ResourceChange.FeedbackLabel"]"
+                                                            Placeholder="@L["Communications.ResourceChange.FeedbackPlaceholder"]"
                                                             Lines="2" Variant="Variant.Outlined" Class="hub-resource-change-feedback" />
                                              @if (!string.IsNullOrWhiteSpace(_resourceDecisionError))
                                              {
@@ -462,13 +463,13 @@
                                                   <MudButton Color="Color.Primary" Variant="Variant.Filled"
                                                              StartIcon="@Icons.Material.Outlined.Check"
                                                              Disabled="@_resourceDecisionBusy"
-                                                             OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Approve))">Approve plan</MudButton>
+                                                             OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Approve))">@L["Communications.ResourceChange.Approve"]</MudButton>
                                                   <MudButton Color="Color.Primary" Variant="Variant.Outlined"
                                                             Disabled="@_resourceDecisionBusy"
-                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.RequestRevision))">@L["Communications.ResourceChange.RequestRevision"]</MudButton>
                                                  <MudButton Color="Color.Error" Variant="Variant.Text"
                                                             Disabled="@_resourceDecisionBusy"
-                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+                                                            OnClick="@(() => DecideResourceChangeAsync(message, resourceChange, ResourceChangeDecisionKinds.Reject))">@L["Common.Reject"]</MudButton>
                                               </div>
                                          }
                                          else
@@ -492,7 +493,7 @@
                                  }
                                  @if (message.Actions is { Count: > 0 })
                                 {
-                                    <div class="hub-message-actions" aria-label="Suggested actions">
+                                    <div class="hub-message-actions" aria-label="@L["Communications.SuggestedActions.AriaLabel"]">
                                         @foreach (var action in message.Actions)
                                         {
                                             @if (action.ApprovalId is { } approvalId)
@@ -518,7 +519,7 @@
                                             {
                                                 <MudChip T="string" Color="Color.Success" Variant="Variant.Outlined"
                                                          Icon="@Icons.Material.Outlined.CheckCircle">
-                                                    Completed
+                                                    @L["Communications.SuggestedAction.Completed"]
                                                 </MudChip>
                                                 @if (action.ResultOrganizationUserId is Guid resultUserId)
                                                 {
@@ -541,9 +542,9 @@
                                     }
                                     else
                                     {
-                                    <section class="executive-decision-card" aria-label="Question">
+                                    <section class="executive-decision-card" aria-label="@L["Communications.Decision.AriaLabel"]">
                                         <header>
-                                            <span>QUESTION</span>
+                                            <span>@L["Communications.Decision.Overline"]</span>
                                             <strong>@decision.Prompt</strong>
                                         </header>
                                         @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
@@ -556,7 +557,7 @@
                                                                checked="@SelectedDecisionOption(decision.Id, option.Id)"
                                                                @onchange="@(() => SelectDecisionOption(decision.Id, option.Id))" />
                                                         <span><strong>@option.Label</strong>
-                                                            @if (option.Recommended) { <small class="recommendation-badge">RECOMMENDED</small> }
+                                                            @if (option.Recommended) { <small class="recommendation-badge">@L["Communications.Decision.Recommended"]</small> }
                                                             @if (!string.IsNullOrWhiteSpace(option.Description)) { <small>@option.Description</small> }
                                                         </span>
                                                     </label>
@@ -567,12 +568,12 @@
                                                         <input type="radio" name="@($"decision-{decision.Id}")"
                                                                checked="@SelectedDecisionOption(decision.Id, SomethingElseKey)"
                                                                @onchange="@(() => SelectDecisionOption(decision.Id, SomethingElseKey))" />
-                                                        <span><strong>Something else</strong><small>Give the agent a different direction.</small></span>
+                                                        <span><strong>@L["Communications.Decision.SomethingElse"]</strong><small>@L["Communications.Decision.SomethingElseHint"]</small></span>
                                                     </label>
                                                 }
                                                 @if (decision.AllowFreeText && (decision.Options.Count == 0 || SelectedDecisionOption(decision.Id, SomethingElseKey)))
                                                 {
-                                                    <textarea aria-label="@(decision.Options.Count == 0 ? "Your answer" : "Something else")" placeholder="Your answer" rows="4" maxlength="4000" disabled="@_decisionBusy.Contains(decision.Id)"
+                                                    <textarea aria-label="@(decision.Options.Count == 0 ? "Your answer" : "Something else")" placeholder="@L["Communications.Decision.YourAnswer"]" rows="4" maxlength="4000" disabled="@_decisionBusy.Contains(decision.Id)"
                                                               value="@DecisionOther(decision.Id)"
                                                               @oninput="@(e => SetDecisionOther(decision.Id, e.Value?.ToString()))"></textarea>
                                                 }
@@ -584,21 +585,21 @@
                                             <footer>
                                                 <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                                            Disabled="@(!CanSubmitDecision(decision) || _decisionBusy.Contains(decision.Id))"
-                                                           OnClick="@(() => SubmitDecisionAsync(message, decision))">Submit</MudButton>
+                                                           OnClick="@(() => SubmitDecisionAsync(message, decision))">@L["Communications.Decision.Submit"]</MudButton>
                                             </footer>
                                         }
                                         else if (decision.Status == "Pending")
                                         {
                                             <div class="executive-decision-answer">
                                                 <MudIcon Icon="@Icons.Material.Outlined.Visibility" Color="Color.Secondary" Size="Size.Small" />
-                                                <span>Pending · read-only</span>
+                                                <span>@L["Communications.Decision.PendingReadOnly"]</span>
                                             </div>
                                         }
                                         else if (decision.Status == "Outdated")
                                         {
                                             <div class="executive-decision-answer">
                                                 <MudIcon Icon="@Icons.Material.Outlined.Info" Color="Color.Warning" Size="Size.Small" />
-                                                <span>This request is outdated. Check the project status or ask the agent to request a new decision.</span>
+                                                <span>@L["Communications.Decision.Outdated"]</span>
                                             </div>
                                         }
                                         else
@@ -647,13 +648,13 @@
                                 @if (!string.IsNullOrWhiteSpace(pending.DraftText))
                                 {
                                     <div role="status" aria-live="polite" aria-atomic="false">
-                                        <div class="hub-turn-draft-label">DRAFT</div>
+                                        <div class="hub-turn-draft-label">@L["Communications.Turn.Draft"]</div>
                                         <ChatMarkdown Content="@pending.DraftText" />
                                     </div>
                                 }
                                 else if (string.IsNullOrWhiteSpace(pending.StreamingText))
                                 {
-                                    <div class="hub-turn-running"><MudProgressLinear Indeterminate="true" Color="Color.Primary" /><span>The agent turn is running.</span></div>
+                                    <div class="hub-turn-running"><MudProgressLinear Indeterminate="true" Color="Color.Primary" /><span>@L["Communications.Turn.Running"]</span></div>
                                 }
                                 else
                                 {
@@ -669,7 +670,7 @@
                 {
                     <footer class="hub-readonly-footer">
                         <MudIcon Icon="@Icons.Material.Outlined.Visibility" />
-                        <span>You are viewing this conversation as <strong>@ViewedPersonName</strong>. Sending and conversation actions are disabled.</span>
+                        <span>@L["Communications.ReadOnlyFooter.Before"] <strong>@ViewedPersonName</strong>@L["Communications.SendingAndConversationActionsAre"]</span>
                     </footer>
                 }
                 else
@@ -688,7 +689,7 @@
                                           Disabled="@(_sending || ComposerBlocked)" />
                             @if (_mentionOpen)
                             {
-                                <div class="hub-mention-menu" role="listbox" aria-label="Mention a person or agent">
+                                <div class="hub-mention-menu" role="listbox" aria-label="@L["Communications.Mention.AriaLabel"]">
                                     @foreach (var match in _mentionMatches.Select((person, index) => (person, index)))
                                     {
                                         <button class="@(match.index == _mentionSelection ? "selected" : null)"
@@ -707,7 +708,7 @@
                                     @foreach (var attachment in _pendingAttachments)
                                     {
                                         <span>@attachment.FileName <small>@FormatAttachmentBytes(attachment.SizeBytes)</small>
-                                            <button type="button" title="Remove attachment" aria-label="@($"Remove {attachment.FileName}")" @onclick="@(() => RemoveAttachment(attachment.Id))">×</button>
+                                            <button type="button" title="@L["Communications.Composer.RemoveAttachment"]" aria-label="@($"Remove {attachment.FileName}")" @onclick="@(() => RemoveAttachment(attachment.Id))">×</button>
                                         </span>
                                     }
                                 </div>
@@ -718,12 +719,12 @@
                             <MudIconButton Class="hub-composer-send" Variant="Variant.Filled" Color="Color.Error"
                                            Icon="@Icons.Material.Filled.Stop" OnClick="@(() => StopTurnAsync(activeTurn))"
                                            Disabled="@_stoppingTurn" aria-label="@(_stoppingTurn ? "Stopping response" : "Stop response")"
-                                           title="Stop response" />
+                                           title="@L["Communications.Composer.StopResponse"]" />
                         }
                         else
                         {
                             <MudIconButton Class="hub-composer-send" Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
-                                           Icon="@Icons.Material.Filled.ArrowUpward" aria-label="Send message" title="Send message"
+                                           Icon="@Icons.Material.Filled.ArrowUpward" aria-label="@L["Communications.Composer.Send"]" title="@L["Communications.Composer.Send"]"
                                            Disabled="@(_sending || ComposerBlocked || _uploadingAttachments || (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))" />
                         }
                         </div>
@@ -736,14 +737,14 @@
         {
             <div class="hub-dialog-backdrop" @onclick="CloseEditor">
                 <section class="hub-dialog" role="dialog" aria-modal="true" aria-labelledby="chat-editor-title" @onclick:stopPropagation="true">
-                    <header><div><span>@(_editing is null ? "NEW CHANNEL" : "CHANNEL SETTINGS")</span><h2 id="chat-editor-title">@(_editing is null ? "Create a place to work" : $"Manage #{_editing.Title}")</h2></div><button aria-label="Close channel settings" @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Filled.Close" /></button></header>
+                    <header><div><span>@(_editing is null ? "NEW CHANNEL" : "CHANNEL SETTINGS")</span><h2 id="chat-editor-title">@(_editing is null ? "Create a place to work" : $"Manage #{_editing.Title}")</h2></div><button aria-label="@L["Communications.Editor.CloseAria"]" @onclick="CloseEditor"><MudIcon Icon="@Icons.Material.Filled.Close" /></button></header>
                     @if (!string.IsNullOrWhiteSpace(_editorError)) { <MudAlert Severity="Severity.Error" Dense="true">@_editorError</MudAlert> }
-                    <MudTextField Label="Channel name" @bind-Value="_editorTitle" Variant="Variant.Outlined" Immediate="true" />
-                    <MudTextField Label="Description" @bind-Value="_editorDescription" Variant="Variant.Outlined" Lines="2" />
-                    <MudCheckBox T="bool" @bind-Value="_editorPrivate" Label="Private channel" />
+                    <MudTextField Label="@L["Communications.Editor.NameLabel"]" @bind-Value="_editorTitle" Variant="Variant.Outlined" Immediate="true" />
+                    <MudTextField Label="@L["Communications.Editor.DescriptionLabel"]" @bind-Value="_editorDescription" Variant="Variant.Outlined" Lines="2" />
+                    <MudCheckBox T="bool" @bind-Value="_editorPrivate" Label="@L["Communications.Editor.Private"]" />
                     @if (_hub.Audiences.Count > 0)
                     {
-                        <div class="hub-editor-section"><strong>Add a whole group</strong><span>Role-based departments and active product workstreams stay easy to select.</span>
+                        <div class="hub-editor-section"><strong>@L["Communications.Editor.AudienceTitle"]</strong><span>@L["Communications.Editor.AudienceHint"]</span>
                             <div class="hub-audience-list">
                                 @foreach (var audience in _hub.Audiences)
                                 {
@@ -756,7 +757,7 @@
                             </div>
                         </div>
                     }
-                    <div class="hub-editor-section"><strong>Members</strong><span>@_selectedMembers.Count selected</span>
+                    <div class="hub-editor-section"><strong>@L["Communications.Editor.Members"]</strong><span>@_selectedMembers.Count selected</span>
                         <div class="hub-member-grid">
                             @foreach (var person in _hub.People)
                             {
@@ -766,14 +767,14 @@
                     </div>
                     @if (_confirmArchive)
                     {
-                        <MudAlert Severity="Severity.Warning">Archive this channel? Its history will be preserved and it will disappear from the workspace.</MudAlert>
+                        <MudAlert Severity="Severity.Warning">@L["Communications.Editor.ArchiveConfirm"]</MudAlert>
                     }
                     <footer>
                         @if (_editing is not null)
                         {
                             <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="ArchiveAsync">@(_confirmArchive ? "Confirm archive" : "Archive channel")</MudButton>
                         }
-                        <span></span><MudButton Variant="Variant.Text" OnClick="CloseEditor">Cancel</MudButton>
+                        <span></span><MudButton Variant="Variant.Text" OnClick="CloseEditor">@L["Common.Cancel"]</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_editorBusy" OnClick="SaveEditorAsync">@(_editing is null ? "Create channel" : "Save changes")</MudButton>
                     </footer>
                 </section>
@@ -805,7 +806,7 @@
         {
             <div class="thinking-dialog-loading" role="status">
                 <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
-                <span>Loading memory and thinking output...</span>
+                <span>@L["Communications.Thinking.Loading"]</span>
             </div>
         }
         else if (!string.IsNullOrWhiteSpace(_thinkingDialogError))
@@ -821,12 +822,12 @@
                         <div class="chat-trace-event" role="listitem">
                             <div><strong>@traceEvent.Title</strong><small>@traceEvent.OccurredAt.ToLocalTime().ToString("T") @if (traceEvent.DurationMs.HasValue) { <span>· @traceEvent.DurationMs ms</span> }</small></div>
                             @if (!string.IsNullOrWhiteSpace(traceEvent.Summary)) { <pre>@traceEvent.Summary</pre> }
-                            @if (traceEvent.Details.HasValue) { <details><summary>Structured details</summary><pre>@traceEvent.Details.Value.ToString()</pre></details> }
+                            @if (traceEvent.Details.HasValue) { <details><summary>@L["Communications.Thinking.StructuredDetails"]</summary><pre>@traceEvent.Details.Value.ToString()</pre></details> }
                         </div>
                     }
                     @if (dialogTurn.Events.Count == 0)
                     {
-                        <div class="thinking-dialog-empty">No memory or thinking output has been recorded yet.</div>
+                        <div class="thinking-dialog-empty">@L["Communications.Thinking.Empty"]</div>
                     }
                 </div>
             </div>
@@ -837,14 +838,14 @@
         {
             @if (!IsTerminal(actionTurn.Turn.Status))
             {
-                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => CancelTurnAsync(actionTurn))">Cancel turn</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => CancelTurnAsync(actionTurn))">@L["Communications.Thinking.CancelTurn"]</MudButton>
             }
             else if (actionTurn.Turn.Status is "Failed" or "CompletedWithWarnings" or "Cancelled")
             {
-                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@HasActiveTurnFor(actionTurn)" OnClick="@(() => RetryTurnAsync(actionTurn))">Retry</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@HasActiveTurnFor(actionTurn)" OnClick="@(() => RetryTurnAsync(actionTurn))">@L["Common.Retry"]</MudButton>
             }
         }
-        <MudButton Variant="Variant.Text" OnClick="CloseThinkingDialog">Close</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="CloseThinkingDialog">@L["Common.Close"]</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -1006,7 +1007,7 @@
             var chat = _hub?.Chats.FirstOrDefault(x => x.Id == ChatId.Value || x.MergedConversationIds.Contains(ChatId.Value));
             if (chat is null)
             {
-                _error = "This conversation was not found or is not available to you.";
+                _error = L["Communications.Error.NotFound"];
                 return;
             }
 
@@ -1058,7 +1059,7 @@
         try
         {
             await AgentApi.RetryStartupAsync(installationId, _disposeCts.Token);
-            _notice = "Startup retry queued. The agent will appear available once it connects.";
+            _notice = L["Communications.Notice.RetryQueued"];
             await LoadAsync();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -1294,7 +1295,7 @@
                     $"ui-retry:{session.Id:N}:{session.Revision}"), _disposeCts.Token);
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
-            _notice = "The collaboration was queued to continue. Its existing transcript is preserved.";
+            _notice = L["Communications.Coordination.RetryQueued"];
             await LoadMessagesAsync(markRead: false);
         }
         catch (Exception error) when (error is not OperationCanceledException)
@@ -1318,7 +1319,7 @@
                 _disposeCts.Token);
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
-            _notice = "The collaboration was stopped. Its transcript remains available for audit.";
+            _notice = L["Communications.Coordination.Stopped"];
             await LoadMessagesAsync(markRead: false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -1495,7 +1496,7 @@
         if (_hub?.IsReadOnlyPerspective == true || _resourceDecisionBusy) return;
         if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_resourceFeedback))
         {
-            _resourceDecisionError = "Tell the Product Manager what must change.";
+            _resourceDecisionError = L["Communications.ResourceChange.FeedbackRequired"];
             return;
         }
 
@@ -1711,7 +1712,7 @@
     private async Task SaveEditorAsync()
     {
         if (_hub?.IsReadOnlyPerspective == true) return;
-        if (string.IsNullOrWhiteSpace(_editorTitle)) { _editorError = "Give the channel a name."; return; }
+        if (string.IsNullOrWhiteSpace(_editorTitle)) { _editorError = L["Communications.Editor.NameRequired"]; return; }
         _editorBusy = true; _editorError = null;
         try
         {

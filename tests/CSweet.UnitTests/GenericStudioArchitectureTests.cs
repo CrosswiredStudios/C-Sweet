@@ -37,7 +37,7 @@ public sealed class GenericStudioArchitectureTests
         Assert.Contains("/organizations/{OrganizationId:guid}/projects/{WorkstreamId:guid}", page, StringComparison.Ordinal);
         Assert.All(new[] { "Profile", "Phase", "Manager", "Health", "Team", "Release readiness",
             "Actor", "Resource or event", "Correlation or causation", "Outcome" },
-            label => Assert.Contains(label, page, StringComparison.Ordinal));
+            label => LocalizedSource.AssertContains(label, page));
         Assert.Contains("Realtime.EventReceived += OnRealtimeEvent", page, StringComparison.Ordinal);
         var inspectionPanels = string.Join("\n", Directory.EnumerateFiles(Path.Combine(root, "src", "CSweet.UI", "Components", "Projects"), "*.razor").Select(File.ReadAllText));
         Assert.Contains(".DeepLink", page + inspectionPanels, StringComparison.Ordinal);

@@ -4,16 +4,17 @@
 @using CSweet.Contracts.Plugins
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<PageTitle>Connect agent - C-Sweet</PageTitle>
+<PageTitle>@L["PluginSetup.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace business-form-page">
-    <MudButton Href="@($"/organizations/{OrganizationId}/employees")" StartIcon="@Icons.Material.Outlined.ArrowBack" Class="mb-4">Back to employees</MudButton>
+    <MudButton Href="@($"/organizations/{OrganizationId}/employees")" StartIcon="@Icons.Material.Outlined.ArrowBack" Class="mb-4">@L["PluginSetup.BackToEmployees"]</MudButton>
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Secure agent setup</MudText>
-            <MudText Typo="Typo.h3">@(_setup?.Flow.Title ?? "Connect your account")</MudText>
-            <MudText Color="Color.Secondary">Connect your account securely. Your agent never receives your password or sign-in credentials.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["PluginSetup.Overline"]</MudText>
+            <MudText Typo="Typo.h3">@(_setup?.Flow.Title ?? L["PluginSetup.DefaultTitle"])</MudText>
+            <MudText Color="Color.Secondary">@L["PluginSetup.Lead"]</MudText>
         </div>
         @if (_setup is not null)
         {
@@ -34,20 +35,20 @@
         @foreach (var cleanup in _setup.Cleanup)
         {
             <MudAlert Severity="@(cleanup.RevocationConfirmed ? Severity.Success : Severity.Warning)" Class="mt-3">
-                @(cleanup.Status == "Pending" ? "External access is disabled. Secure disconnection is still finishing; reconnect will be available afterward."
-                    : cleanup.RevocationConfirmed ? "The provider confirmed disconnection and local sign-in credentials were removed."
-                    : "Local sign-in credentials were removed, but provider revocation was not confirmed. Review the application's access in your provider account.")
+                @(cleanup.Status == "Pending" ? L["PluginSetup.Cleanup.Pending"]
+                    : cleanup.RevocationConfirmed ? L["PluginSetup.Cleanup.Confirmed"]
+                    : L["PluginSetup.Cleanup.Unconfirmed"])
             </MudAlert>
         }
         @foreach (var dependency in _dependencies)
         {
             <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
-                <MudText Typo="Typo.h6">Choose the account this agent can use</MudText>
-                <MudText Color="Color.Secondary">Access is granted only to the account you explicitly select. Changing accounts disables existing automatic-action policies.</MudText>
+                <MudText Typo="Typo.h6">@L["PluginSetup.Dependency.Title"]</MudText>
+                <MudText Color="Color.Secondary">@L["PluginSetup.Dependency.Intro"]</MudText>
                 @if (dependency.Choices.Count == 0)
                 {
-                    <MudAlert Severity="Severity.Info" Class="mt-3">The required connection has not been installed for this organization. Ask an administrator to add it, then refresh this page.</MudAlert>
-                    <MudText Typo="Typo.caption">Required package: @dependency.PluginId</MudText>
+                    <MudAlert Severity="Severity.Info" Class="mt-3">@L["PluginSetup.Dependency.NotInstalled"]</MudAlert>
+                    <MudText Typo="Typo.caption">@L.Format("PluginSetup.Dependency.RequiredPackage", new { id = dependency.PluginId })</MudText>
                 }
                 @foreach (var choice in dependency.Choices)
                 {
@@ -56,24 +57,24 @@
                         @foreach (var account in choice.Accounts)
                         {
                             <MudText>@account.Name</MudText>
-                            <MudText Typo="Typo.caption">Account ID: @account.Id</MudText>
+                            <MudText Typo="Typo.caption">@L.Format("PluginSetup.AccountId", new { id = account.Id })</MudText>
                         }
                         @if (dependency.SelectedInstallationId == choice.InstallationId)
                         {
-                            <MudChip T="string" Color="Color.Primary">Selected for this agent</MudChip>
+                            <MudChip T="string" Color="Color.Primary">@L["PluginSetup.Dependency.Selected"]</MudChip>
                         }
                         @if (choice.UnavailableReason is not null)
                         {
                             <MudText Color="Color.Warning">@choice.UnavailableReason</MudText>
                         }
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !choice.CanSelect)"
-                                   OnClick="@(() => SelectConnectionAsync(dependency, choice))">Use this account</MudButton>
+                                   OnClick="@(() => SelectConnectionAsync(dependency, choice))">@L["PluginSetup.Dependency.UseAccount"]</MudButton>
                         <MudButton Href="@($"/organizations/{OrganizationId:D}/plugin-setup/{choice.InstallationId:D}")" Target="_blank"
-                                   Variant="Variant.Text">@(choice.CanSelect ? "Manage connection" : "Finish account setup")</MudButton>
+                                   Variant="Variant.Text">@(choice.CanSelect ? L["PluginSetup.Dependency.ManageConnection"] : L["PluginSetup.Dependency.FinishSetup"])</MudButton>
                     </MudPaper>
                 }
-                <MudText Typo="Typo.caption" Class="mt-3">Account setup opens separately. Return here when finished and refresh the choices.</MudText>
-                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="LoadAsync">Refresh choices</MudButton>
+                <MudText Typo="Typo.caption" Class="mt-3">@L["PluginSetup.Dependency.OpensSeparately"]</MudText>
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="LoadAsync">@L["PluginSetup.Dependency.RefreshChoices"]</MudButton>
             </MudPaper>
         }
         <MudStepper ActiveIndex="@ActiveIndex" NonLinear="@(_setup.State == "Ready")" Class="mt-4">
@@ -88,7 +89,7 @@
                         @if (step.Kind == "permission-summary")
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                Permissions are granted to C-Sweet's secure connection broker. The agent never receives your provider password, OAuth token, or client secret.
+                                @L["PluginSetup.PermissionSummary"]
                             </MudAlert>
                             @if (_setup.State == "Ready")
                             {
@@ -96,9 +97,9 @@
                                 {
                                     <MudPaper Outlined="true" Elevation="0" Class="pa-3">
                                         <MudText Typo="Typo.h6">@connection.ExternalAccountName</MudText>
-                                        <MudText>Connection: @connection.Status</MudText>
-                                        <MudText>Account: @connection.BoundResourceId</MudText>
-                                        <MudText Typo="Typo.caption">Granted permissions: @string.Join(", ", connection.GrantedScopes)</MudText>
+                                        <MudText>@L.Format("PluginSetup.ConnectionStatus", new { status = connection.Status })</MudText>
+                                        <MudText>@L.Format("PluginSetup.ConnectionAccount", new { account = connection.BoundResourceId })</MudText>
+                                        <MudText Typo="Typo.caption">@L.Format("PluginSetup.GrantedPermissions", new { scopes = string.Join(", ", connection.GrantedScopes) })</MudText>
                                     </MudPaper>
                                 }
                             }
@@ -107,10 +108,10 @@
                         {
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
                                 @PermissionPurpose(step)<br />
-                                <strong>New permissions:</strong> @PermissionDifference(step)
+                                <strong>@L["PluginSetup.NewPermissions"]</strong> @PermissionDifference(step)
                             </MudAlert>
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link"
-                                       Disabled="_busy" OnClick="@(() => ConnectAsync(step))">Connect @ProviderName(step)</MudButton>
+                                       Disabled="_busy" OnClick="@(() => ConnectAsync(step))">@L.Format("PluginSetup.Connect", new { provider = ProviderName(step) })</MudButton>
                         }
                         else if (step.Kind == "form")
                         {
@@ -148,17 +149,17 @@
                             @if (_loadingAccounts)
                             {
                                 <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                                <MudText Color="Color.Secondary">Finding accounts available through this connection…</MudText>
+                                <MudText Color="Color.Secondary">@L["PluginSetup.FindingAccounts"]</MudText>
                             }
                             else if (_accountOptions.Count == 0)
                             {
-                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">No accessible accounts were found. Reconnect with the provider account that owns or manages the resource.</MudAlert>
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L["PluginSetup.NoAccounts"]</MudAlert>
                             }
                             else
                             {
-                                <MudSelect T="string" Label="Account" Value="_selectedAccountId"
+                                <MudSelect T="string" Label="@L["PluginSetup.AccountLabel"]" Value="_selectedAccountId"
                                            ValueChanged="SelectAccount" Variant="Variant.Outlined"
-                                           HelperText="This connection will be bound to the account you confirm.">
+                                           HelperText="@L["PluginSetup.AccountHelp"]">
                                     @foreach (var account in _accountOptions)
                                     {
                                         <MudSelectItem T="string" Value="@account.Id">@account.Name @account.Handle</MudSelectItem>
@@ -169,14 +170,14 @@
                                     <MudPaper Outlined="true" Elevation="0" Class="pa-3">
                                         <MudText Typo="Typo.h6">@selected.Name</MudText>
                                         <MudText Color="Color.Secondary">@selected.Handle</MudText>
-                                        <MudText Typo="Typo.caption">Account ID: @selected.Id</MudText>
+                                        <MudText Typo="Typo.caption">@L.Format("PluginSetup.AccountId", new { id = selected.Id })</MudText>
                                     </MudPaper>
                                 }
                             }
                         }
                         else if (step.Kind == "health-check")
                         {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">C-Sweet will verify the connected permissions and account binding before activation.</MudAlert>
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L["PluginSetup.HealthCheck"]</MudAlert>
                             @if (_setup.Values.TryGetValue($"health:{step.Id}", out var health))
                             {
                                 @if (health.TryGetProperty("message", out var healthMessage))
@@ -199,27 +200,27 @@
                         }
                         else if (step.Kind == "disconnect")
                         {
-                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">Disconnecting immediately disables external work, revokes authorization, and disables autonomous policies.</MudAlert>
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L["PluginSetup.DisconnectWarning"]</MudAlert>
                             <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
-                                       OnClick="@(() => PreviewDisconnectAsync(step))">Disconnect @ProviderName(step)</MudButton>
+                                       OnClick="@(() => PreviewDisconnectAsync(step))">@L.Format("PluginSetup.Disconnect", new { provider = ProviderName(step) })</MudButton>
                             @if (_disconnectStepId == step.Id)
                             {
                                 <MudAlert Severity="Severity.Warning">
-                                    This stops account access for every linked agent and disables their automatic-action policies.
+                                    @L["PluginSetup.DisconnectImpact"]
                                     @foreach (var name in _disconnectImpact?.AffectedAgents ?? [])
                                     {
                                         <MudText>@name</MudText>
                                     }
                                 </MudAlert>
-                                <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="_busy" OnClick="@(() => DisconnectAsync(step))">Confirm disconnect</MudButton>
-                                <MudButton Disabled="_busy" OnClick="@(() => _disconnectStepId = null)">Keep connected</MudButton>
+                                <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="_busy" OnClick="@(() => DisconnectAsync(step))">@L["PluginSetup.ConfirmDisconnect"]</MudButton>
+                                <MudButton Disabled="_busy" OnClick="@(() => _disconnectStepId = null)">@L["PluginSetup.KeepConnected"]</MudButton>
                             }
                         }
 
                         @if (step.Kind is not ("oauth-connect" or "permission-request" or "disconnect"))
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy"
-                                       OnClick="@(() => CompleteStepAsync(step))">Continue</MudButton>
+                                       OnClick="@(() => CompleteStepAsync(step))">@L["Common.Continue"]</MudButton>
                         }
                     </MudStack>
                 </MudStep>
@@ -229,19 +230,19 @@
         @if (_setup.CurrentStepId is null && _setup.State != "Ready")
         {
             <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
-                <MudText Typo="Typo.h6">Ready to activate</MudText>
-                <MudText Color="Color.Secondary">Activation enables the installation only after access and setup validation succeed.</MudText>
+                <MudText Typo="Typo.h6">@L["PluginSetup.Ready.Title"]</MudText>
+                <MudText Color="Color.Secondary">@L["PluginSetup.Ready.Intro"]</MudText>
                 @if (!DependenciesReady)
                 {
-                    <MudText Color="Color.Warning">Select a connected account above before activating.</MudText>
+                    <MudText Color="Color.Warning">@L["PluginSetup.Ready.SelectAccount"]</MudText>
                 }
-                <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Disabled="@(_busy || !DependenciesReady)" OnClick="ActivateAsync">Activate</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Disabled="@(_busy || !DependenciesReady)" OnClick="ActivateAsync">@L["PluginSetup.Ready.Activate"]</MudButton>
             </MudPaper>
         }
         else if (_setup.State == "Ready")
         {
-            <MudAlert Severity="Severity.Success" Variant="Variant.Filled" Class="mt-4">This installation is connected and ready. Use the settings steps above to manage permissions and preferences.</MudAlert>
-            <MudButton Href="@($"/organizations/{OrganizationId:D}/employees")" Variant="Variant.Filled" Color="Color.Primary" Class="mt-3">Open your team</MudButton>
+            <MudAlert Severity="Severity.Success" Variant="Variant.Filled" Class="mt-4">@L["PluginSetup.Connected"]</MudAlert>
+            <MudButton Href="@($"/organizations/{OrganizationId:D}/employees")" Variant="Variant.Filled" Color="Color.Primary" Class="mt-3">@L["PluginSetup.OpenTeam"]</MudButton>
         }
     }
 </div>
@@ -313,7 +314,7 @@
                 new { });
             await EnsureSuccessAsync(response);
             var callback = await response.Content.ReadFromJsonAsync<PluginBootstrapCallbackResponse>()
-                ?? throw new InvalidOperationException("The connected provider returned no account choices.");
+                ?? throw new InvalidOperationException(L["PluginSetup.Error.NoAccountChoices"]);
             _accountOptions.Clear();
             if (callback.Value.TryGetProperty("accounts", out var accounts) && accounts.ValueKind == JsonValueKind.Array)
             {
@@ -347,7 +348,7 @@
                 new BeginPluginAuthorizationRequest(step.ScopeSet!));
             await EnsureSuccessAsync(response);
             var result = await response.Content.ReadFromJsonAsync<BeginPluginAuthorizationResponse>()
-                ?? throw new InvalidOperationException("Authorization could not be started.");
+                ?? throw new InvalidOperationException(L["PluginSetup.Error.AuthorizationNotStarted"]);
             Navigation.NavigateTo(result.AuthorizationUrl, true);
         }
         catch (Exception exception) { _error = exception.Message; _busy = false; }
@@ -430,29 +431,29 @@
     }
 
     private string ProviderName(PluginSetupStep step) => _setup?.ConnectionDeclarations
-        .FirstOrDefault(x => x.Id == step.Connection)?.Provider?.DisplayName ?? "provider";
+        .FirstOrDefault(x => x.Id == step.Connection)?.Provider?.DisplayName ?? L["PluginSetup.DefaultProvider"];
 
     private string PermissionPurpose(PluginSetupStep step) => _setup?.ConnectionDeclarations
         .FirstOrDefault(x => x.Id == step.Connection)?.ScopeSets.FirstOrDefault(x => x.Id == step.ScopeSet)?.Purpose
-        ?? "Review and approve the requested provider permissions.";
+        ?? L["PluginSetup.DefaultPermissionPurpose"];
     private string PermissionDifference(PluginSetupStep step)
     {
         var requested = _setup?.ConnectionDeclarations.FirstOrDefault(x => x.Id == step.Connection)
             ?.ScopeSets.FirstOrDefault(x => x.Id == step.ScopeSet)?.Scopes ?? [];
         var granted = _setup?.Connections.FirstOrDefault(x => x.DeclarationId == step.Connection)?.GrantedScopes ?? [];
         var difference = requested.Except(granted, StringComparer.Ordinal).ToArray();
-        return difference.Length == 0 ? "Already granted" : string.Join(", ", difference);
+        return difference.Length == 0 ? L["PluginSetup.AlreadyGranted"] : string.Join(", ", difference);
     }
     private string StringValue(string key) => _values.TryGetValue(key, out var value) ? value?.ToString() ?? "" : "";
     private bool BooleanValue(string key) => _values.TryGetValue(key, out var value) && value is true;
     private static string FriendlyName(string value) => string.Concat(value.Select((character, index) =>
         index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
-    private static string EligibilityValue(JsonElement value) => value.ValueKind switch
+    private string EligibilityValue(JsonElement value) => value.ValueKind switch
     {
-        JsonValueKind.True => "Eligible",
-        JsonValueKind.False => "Not eligible",
-        JsonValueKind.String => value.GetString() ?? "Unknown",
-        _ => "Unknown"
+        JsonValueKind.True => L["PluginSetup.Eligible"],
+        JsonValueKind.False => L["PluginSetup.NotEligible"],
+        JsonValueKind.String => value.GetString() ?? L["Common.Unknown"],
+        _ => L["Common.Unknown"]
     };
     private static async Task EnsureSuccessAsync(HttpResponseMessage response)
     {

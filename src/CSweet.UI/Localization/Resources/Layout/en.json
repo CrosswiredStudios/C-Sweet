@@ -1,0 +1,56 @@
+{
+  "_": "Layout area: app shell layouts (main, anonymous, registration, settings, setup), the navigation menu, the business switcher and the execution capacity alert.",
+
+  "Layout.LanguagePicker": "Language",
+
+  "AnonymousLayout.Tagline": "Build and operate your company with an agent-first workforce.",
+
+  "RegistrationLayout.Context": "Your workspace starts here",
+
+  "SettingsLayout.Settings": "Settings",
+  "SettingsLayout.BackToWorkspace": "Back to workspace",
+  "SettingsLayout.BrowseSettings": "Browse settings",
+
+  "SetupLayout.BrandAriaLabel": "C-Sweet setup",
+  "SetupLayout.Context": "Workspace setup",
+  "SetupLayout.SignOut": "Sign out",
+
+  "NavMenu.BrandAriaLabel": "C-Sweet Enterprise home",
+  "NavMenu.Tagline": "Run the company",
+  "NavMenu.Enterprise": "Enterprise",
+  "NavMenu.PersonalAssistant": "Personal Assistant",
+  "NavMenu.Overview": "Overview",
+  "NavMenu.Projects": "Projects",
+  "NavMenu.SourceControl": "Source Control",
+  "NavMenu.Compute": "Compute",
+  "NavMenu.Approvals": "Approvals",
+  "NavMenu.PendingApprovals": "{count, plural, one {# pending approval} other {# pending approvals}}",
+  "NavMenu.Calendar": "Calendar",
+  "NavMenu.Documents": "Documents",
+  "NavMenu.Employees": "Employees",
+  "NavMenu.Analytics": "Analytics",
+  "NavMenu.AgentMarketplace": "Agent marketplace",
+  "NavMenu.Communications": "Communications",
+  "NavMenu.Security": "Security",
+  "NavMenu.Settings": "Settings",
+  "NavMenu.SignOut": "Sign out",
+  "_NavMenu.AttentionAriaLabel": "Screen-reader label for the Overview badge; count is the exact number of items.",
+  "NavMenu.AttentionAriaLabel": "{count, plural, one {# item needs} other {# items need}} your attention",
+  "_NavMenu.AttentionAriaLabelAtLeast": "Same as NavMenu.AttentionAriaLabel when the count is capped (there may be more).",
+  "NavMenu.AttentionAriaLabelAtLeast": "At least {count, plural, one {# item needs} other {# items need}} your attention",
+  "NavMenu.UnreadNotifications": "{count, plural, one {# unread notification} other {# unread notifications}}",
+  "_NavMenu.User": "Fallback label for the account menu when the e-mail address is unknown.",
+  "NavMenu.User": "User",
+
+  "BusinessSwitcher.Loading": "Loading businesses...",
+  "_BusinessSwitcher.LoadFailed": "Returned as a key by BusinessContext.ErrorMessage.",
+  "BusinessSwitcher.LoadFailed": "Businesses could not be loaded.",
+  "BusinessSwitcher.CreateBusiness": "Create a business",
+  "BusinessSwitcher.FocusedBusiness": "Focused business",
+
+  "ExecutionCapacityAlert.Connecting.Title": "Waiting for Office to become ready.",
+  "ExecutionCapacityAlert.Connecting.Body": "Office may still be starting or reconnecting. This status updates automatically when agent execution is ready.",
+  "ExecutionCapacityAlert.Unavailable.Title": "Agent execution capacity is unavailable.",
+  "ExecutionCapacityAlert.Unavailable.Body": "Office is not ready to run builds or agents. Open Offices to check connection status and resolve any issues.",
+  "ExecutionCapacityAlert.OpenOffices": "Open Offices"
+}

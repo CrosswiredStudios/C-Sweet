@@ -96,4 +96,7 @@ public sealed record ProjectInspectionResponse(
     IReadOnlyList<ProjectInspectionResource> Governance,
     IReadOnlyList<ProjectInspectionResource> Evidence,
     IReadOnlyList<ProjectAuditEntry> Audit,
-    DateTimeOffset GeneratedAt);
+    DateTimeOffset GeneratedAt)
+{
+    public bool CanRename { get; init; }
+}

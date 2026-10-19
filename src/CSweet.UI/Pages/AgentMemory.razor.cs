@@ -26,13 +26,13 @@ public partial class AgentMemory
         {
             using var response = await Http.GetAsync($"{BaseUrl}/claims/{review.ClaimId}/review/entities?search={Uri.EscapeDataString(_entitySearch)}");
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound)
-            { _review = null; _reviewMessage = "This claim is unavailable or your review permission changed."; return; }
+            { _review = null; _reviewMessage = L["AgentMemory.ThisClaimIsUnavailableOr"]; return; }
             response.EnsureSuccessStatusCode();
             _correctionTargets = await response.Content.ReadFromJsonAsync<MemoryClaimCorrectionTarget[]>() ?? [];
-            if (_correctionTargets.Count == 0) _reviewMessage = "No eligible entities matched. Try a more specific name or check their source evidence.";
+            if (_correctionTargets.Count == 0) _reviewMessage = L["AgentMemory.NoEligibleEntitiesMatchedTry"];
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { _reviewMessage = "Entity choices could not be loaded. Check the search and try again."; }
+        { _reviewMessage = L["AgentMemory.EntityChoicesCouldNotBe"]; }
         finally { _reviewBusy = false; }
     }
 
@@ -43,11 +43,11 @@ public partial class AgentMemory
         try
         {
             var item = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{sourceId}");
-            if (item is null) { _reviewMessage = "This source is no longer available."; return; }
+            if (item is null) { _reviewMessage = L["AgentMemory.ThisSourceIsNoLonger"]; return; }
             _selected = item; _review = null; _reviewMessage = null;
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { _reviewMessage = "This source could not be loaded. Refresh the claim before reviewing it."; }
+        { _reviewMessage = L["AgentMemory.ThisSourceCouldNotBe"]; }
         finally { _reviewBusy = false; }
     }
 
@@ -61,15 +61,15 @@ public partial class AgentMemory
             using var response = await Http.GetAsync($"{BaseUrl}/claims/{selected.Id}/review");
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
             {
-                _reviewMessage = "Review requires an authorized human manager. Relationship claims can only be reviewed by that relationship's participant.";
+                _reviewMessage = L["AgentMemory.ReviewRequiresAnAuthorizedHuman"];
                 return;
             }
-            if (!response.IsSuccessStatusCode) { _reviewMessage = "This claim cannot currently be reviewed. Refresh its details or try again later."; return; }
+            if (!response.IsSuccessStatusCode) { _reviewMessage = L["AgentMemory.ThisClaimCannotCurrentlyBe"]; return; }
             var review = await response.Content.ReadFromJsonAsync<MemoryClaimReviewResponse>();
             if (_selected?.Id == selected.Id) _review = review;
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { _reviewMessage = "Review details could not be loaded. Try again."; }
+        { _reviewMessage = L["AgentMemory.ReviewDetailsCouldNotBe"]; }
         finally { _reviewBusy = false; }
     }
 
@@ -87,18 +87,18 @@ public partial class AgentMemory
             if (response.StatusCode == HttpStatusCode.Conflict)
             {
                 _pendingReview = null; _review = null;
-                _reviewMessage = "The claim or its evidence changed. Load the current review before deciding again.";
+                _reviewMessage = L["AgentMemory.TheClaimOrItsEvidence"];
                 return;
             }
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or HttpStatusCode.NotFound)
             {
                 _pendingReview = null; _review = null;
-                _reviewMessage = "The claim is unavailable or your review permission changed.";
+                _reviewMessage = L["AgentMemory.TheClaimIsUnavailableOr"];
                 return;
             }
             if (response.StatusCode == HttpStatusCode.BadRequest)
             {
-                _pendingReview = null; _reviewMessage = "The correction could not be accepted. Check the value and try again."; return;
+                _pendingReview = null; _reviewMessage = L["AgentMemory.TheCorrectionCouldNotBe"]; return;
             }
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<ReviewMemoryClaimResponse>() ?? throw new System.Text.Json.JsonException();

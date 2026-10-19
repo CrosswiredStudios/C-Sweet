@@ -56,7 +56,7 @@ public sealed class BusinessContext : IBusinessContext, IDisposable
         {
             Businesses = [];
             SelectedBusiness = null;
-            ErrorMessage = "Businesses could not be loaded.";
+            ErrorMessage = "BusinessSwitcher.LoadFailed";
         }
         finally
         {

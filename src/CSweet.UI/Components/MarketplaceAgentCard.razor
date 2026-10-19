@@ -1,12 +1,13 @@
 @using CSweet.Agent.SDK
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject IAppLocalizer L
 
 <article @ref="_card" class="agent-brand-card" style="@AccentStyle" data-open="false" aria-label="@Agent.Name">
     <button type="button" class="agent-brand-front" aria-expanded="false" aria-controls="@_detailsId"
-            aria-label="@($"Explore {Agent.Name}, {RoleLabel}")">
+            aria-label="@L.Format("MarketplaceAgentCard.ExploreAria", new { name = Agent.Name, role = RoleLabel })">
         <span class="agent-brand-art">
-            <img src="@ImageUrl" alt="@($"{Agent.Name} agent artwork")" loading="lazy" decoding="async"
+            <img src="@ImageUrl" alt="@L.Format("MarketplaceAgentCard.ArtworkAlt", new { name = Agent.Name })" loading="lazy" decoding="async"
                  referrerpolicy="no-referrer" @onerror="ImageFailed" />
             <span class="agent-brand-company">
                 @if (CompanyLogoUrl is { } logo)
@@ -20,20 +21,20 @@
             </span>
             @if (Agent.Availability is AgentAvailabilityState.InstalledEnabled or AgentAvailabilityState.InstalledDisabled)
             {
-                <span class="agent-brand-state">Installed</span>
+                <span class="agent-brand-state">@L["MarketplaceAgentCard.Installed"]</span>
             }
         </span>
         <span class="agent-brand-copy">
             <span class="agent-brand-name">@Agent.Name</span>
             <span class="agent-brand-role">@RoleLabel</span>
             <span class="agent-brand-summary">@Agent.Summary</span>
-            <span class="agent-brand-explore">Explore agent <MudIcon Icon="@Icons.Material.Outlined.North" Size="Size.Small" /></span>
+            <span class="agent-brand-explore">@L["MarketplaceAgentCard.ExploreAgent"] <MudIcon Icon="@Icons.Material.Outlined.North" Size="Size.Small" /></span>
         </span>
     </button>
-    <section id="@_detailsId" class="agent-brand-details" aria-label="@($"About {Agent.Name}")" aria-hidden="true" inert>
+    <section id="@_detailsId" class="agent-brand-details" aria-label="@L.Format("MarketplaceAgentCard.AboutAria", new { name = Agent.Name })" aria-hidden="true" inert>
         <header class="agent-brand-details-header">
             <span class="agent-brand-publisher">@Agent.Publisher</span>
-            <button type="button" class="agent-brand-close" aria-label="@($"Close {Agent.Name} details")">
+            <button type="button" class="agent-brand-close" aria-label="@L.Format("MarketplaceAgentCard.CloseDetailsAria", new { name = Agent.Name })">
                 <MudIcon Icon="@Icons.Material.Outlined.Close" Size="Size.Small" />
             </button>
         </header>
@@ -43,7 +44,7 @@
             <p class="agent-brand-description">@LongDescription</p>
             @if (Agent.Keywords.Count > 0)
             {
-                <div class="agent-brand-tags" aria-label="Specialties">
+                <div class="agent-brand-tags" aria-label="@L["MarketplaceAgentCard.Specialties"]">
                     @foreach (var keyword in Agent.Keywords.Take(4))
                     {
                         <span>@keyword</span>
@@ -55,14 +56,14 @@
         <footer class="agent-brand-details-footer">
             <span class="agent-brand-price">@PriceLabel</span>
             <button type="button" class="agent-brand-meet" @onclick="OpenProfile">
-                Meet Agent <MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" />
+                @L["MarketplaceAgentCard.MeetAgent"] <MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" />
             </button>
-            <small>View profile, capabilities &amp; access</small>
+            <small>@L["MarketplaceAgentCard.ViewProfileHint"]</small>
         </footer>
     </section>
 </article>
 
-<MudDialog @bind-Visible="_profileOpen" Options="_profileOptions" ContentClass="pa-0" Gutters="false" aria-label="@($"Meet {Agent.Name}")">
+<MudDialog @bind-Visible="_profileOpen" Options="_profileOptions" ContentClass="pa-0" Gutters="false" aria-label="@L.Format("MarketplaceAgentCard.MeetAria", new { name = Agent.Name })">
     <DialogContent>
         @if (_profileOpen)
         {
@@ -96,15 +97,15 @@
     private string AccentStyle => MarketplaceAgentPresentation.AccentStyle(Agent.AccentColor);
     private string LongDescription => string.IsNullOrWhiteSpace(Agent.LongDescription) ? Agent.Summary : Agent.LongDescription;
     private string RoleLabel => string.IsNullOrWhiteSpace(Agent.RoleName) ? Agent.Category : Agent.RoleName;
-    private string AvailabilityLabel => Agent.Availability switch
+    private string AvailabilityLabel => L[Agent.Availability switch
     {
-        AgentAvailabilityState.InstalledEnabled => "Installed · enabled",
-        AgentAvailabilityState.InstalledDisabled => "Installed · disabled",
-        AgentAvailabilityState.Planned => "Coming soon",
-        AgentAvailabilityState.AvailableToInstall => "Available to hire",
-        _ => "Unavailable"
-    };
-    private string PriceLabel => Agent.Price is null ? "No listed cost" : $"{Agent.Price:0.##} {Agent.Currency}";
+        AgentAvailabilityState.InstalledEnabled => "MarketplaceAgentCard.Availability.InstalledEnabled",
+        AgentAvailabilityState.InstalledDisabled => "MarketplaceAgentCard.Availability.InstalledDisabled",
+        AgentAvailabilityState.Planned => "MarketplaceAgentCard.Availability.Planned",
+        AgentAvailabilityState.AvailableToInstall => "MarketplaceAgentCard.Availability.AvailableToInstall",
+        _ => "MarketplaceAgentCard.Availability.Unavailable"
+    }];
+    private string PriceLabel => Agent.Price is null ? L["MarketplaceAgentCard.NoListedCost"] : $"{Agent.Price:0.##} {Agent.Currency}";
 
     protected override void OnParametersSet()
     {

@@ -2,20 +2,22 @@ using MudBlazor;
 
 namespace CSweet.UI.Components;
 
-public sealed record SettingsSection(string Group, string Title, string Url, string Description, string Icon);
+/// <summary>A settings page entry. Titles and descriptions are resource keys in the Settings area.</summary>
+public sealed record SettingsSection(string GroupKey, string TitleKey, string Url, string DescriptionKey, string Icon);
 
 public static class SettingsSections
 {
     public static IReadOnlyList<SettingsSection> All { get; } = [
-        new("Preferences", "Appearance", "/settings/appearance", "Choose the colors and atmosphere of your workspace.", Icons.Material.Outlined.Palette),
-        new("Models", "LLM providers", "/settings/llm-providers", "Connect language models, check capabilities, and inspect usage.", Icons.Material.Outlined.AutoAwesome),
-        new("Models", "GenAI providers", "/settings/genai-providers", "Configure image and video generation providers.", Icons.Material.Outlined.PermMedia),
-        new("Agents", "Installed agents", "/settings/agents", "Manage agent definitions, updates, and defaults for new hires.", Icons.Material.Outlined.SmartToy),
-        new("Agents", "Runtime", "/settings/agents/runtime", "Set execution limits, schedules, and cleanup policies.", Icons.Material.Outlined.Memory),
-        new("Platform", "Offices", "/settings/offices", "Manage computers, capacity, and maintenance.", Icons.Material.Outlined.Hub),
-        new("Platform", "Source control", "/settings/source-control", "Connect GitHub and inspect repository storage.", Icons.Material.Outlined.AccountTree),
-        new("Platform", "Plugins", "/settings/plugins", "Review packages, connection profiles, and access grants.", Icons.Material.Outlined.Extension),
-        new("Platform", "Communications", "/settings/communications", "Connect communication apps for your selected company.", Icons.Material.Outlined.Forum),
-        new("Account", "Security", "/settings/security", "Manage account recovery and email delivery.", Icons.Material.Outlined.Security)
+        new("Settings.Group.Preferences", "Settings.Section.Appearance.Title", "/settings/appearance", "Settings.Section.Appearance.Description", Icons.Material.Outlined.Palette),
+        new("Settings.Group.Preferences", "Settings.Section.Language.Title", "/settings/language", "Settings.Section.Language.Description", Icons.Material.Outlined.Language),
+        new("Settings.Group.Models", "Settings.Section.LlmProviders.Title", "/settings/llm-providers", "Settings.Section.LlmProviders.Description", Icons.Material.Outlined.AutoAwesome),
+        new("Settings.Group.Models", "Settings.Section.GenAiProviders.Title", "/settings/genai-providers", "Settings.Section.GenAiProviders.Description", Icons.Material.Outlined.PermMedia),
+        new("Settings.Group.Agents", "Settings.Section.InstalledAgents.Title", "/settings/agents", "Settings.Section.InstalledAgents.Description", Icons.Material.Outlined.SmartToy),
+        new("Settings.Group.Agents", "Settings.Section.Runtime.Title", "/settings/agents/runtime", "Settings.Section.Runtime.Description", Icons.Material.Outlined.Memory),
+        new("Settings.Group.Platform", "Settings.Section.Offices.Title", "/settings/offices", "Settings.Section.Offices.Description", Icons.Material.Outlined.Hub),
+        new("Settings.Group.Platform", "Settings.Section.SourceControl.Title", "/settings/source-control", "Settings.Section.SourceControl.Description", Icons.Material.Outlined.AccountTree),
+        new("Settings.Group.Platform", "Settings.Section.Plugins.Title", "/settings/plugins", "Settings.Section.Plugins.Description", Icons.Material.Outlined.Extension),
+        new("Settings.Group.Platform", "Settings.Section.Communications.Title", "/settings/communications", "Settings.Section.Communications.Description", Icons.Material.Outlined.Forum),
+        new("Settings.Group.Account", "Settings.Section.Security.Title", "/settings/security", "Settings.Section.Security.Description", Icons.Material.Outlined.Security)
     ];
 }

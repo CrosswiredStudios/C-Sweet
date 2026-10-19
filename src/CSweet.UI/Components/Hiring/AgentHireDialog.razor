@@ -11,13 +11,14 @@
 @inject ILlmProviderApiClient LlmProviderApi
 @inject AgentHireOperationState HireOperations
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
 <MudDialog @bind-Visible="_reviewOpen" Options="_dialogOptions" Class="hire-profile-dialog">
     <DialogContent>
         <section class="hire-profile" aria-labelledby="hire-dialog-title">
             <header class="profile-topbar">
-                <span class="profile-eyebrow">Your next teammate</span>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="Close hire review" Disabled="_reviewBusy" OnClick="CloseReviewAsync" />
+                <span class="profile-eyebrow">@L["AgentHireDialog.YourNextTeammate"]</span>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="@L["AgentHireDialog.CloseHireReview"]" Disabled="_reviewBusy" OnClick="CloseReviewAsync" />
             </header>
             <div class="profile-scroll">
                 <div class="profile-identity">
@@ -27,11 +28,11 @@
                         {
                             <div class="profile-name-editor" @onkeydown:stopPropagation="true">
                                 <h2 id="hire-dialog-title" class="sr-only">@_employeeDisplayName</h2>
-                                <MudTextField T="string" Label="Employee name" @bind-Value="_nameDraft" Immediate="true" AutoFocus="true"
+                                <MudTextField T="string" Label="@L["AgentHireDialog.EmployeeName"]" @bind-Value="_nameDraft" Immediate="true" AutoFocus="true"
                                               MaxLength="160" Variant="Variant.Outlined" OnKeyDown="HandleNameKey" Disabled="_reviewBusy" />
                                 <div class="profile-name-actions">
-                                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="SaveName" Disabled="@(_reviewBusy || string.IsNullOrWhiteSpace(_nameDraft))">Save</MudButton>
-                                    <MudButton Size="Size.Small" OnClick="CancelNameEdit" Disabled="_reviewBusy">Cancel</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="SaveName" Disabled="@(_reviewBusy || string.IsNullOrWhiteSpace(_nameDraft))">@L["Common.Save"]</MudButton>
+                                    <MudButton Size="Size.Small" OnClick="CancelNameEdit" Disabled="_reviewBusy">@L["Common.Cancel"]</MudButton>
                                 </div>
                             </div>
                         }
@@ -39,7 +40,7 @@
                         {
                             <div class="profile-name">
                                 <h2 id="hire-dialog-title">@_employeeDisplayName</h2>
-                                <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="Edit employee name" Disabled="_reviewBusy" OnClick="BeginNameEdit" />
+                                <MudIconButton Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-label="@L["AgentHireDialog.EditEmployeeName"]" Disabled="_reviewBusy" OnClick="BeginNameEdit" />
                             </div>
                         }
                         <p class="profile-role">@(_preview?.RoleTitle ?? _selectedAgent?.RoleName)</p>
@@ -55,7 +56,7 @@
                 }
                 @if (_reviewBusy && _preview is null)
                 {
-                    <div class="profile-loading"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /> Preparing the hire review…</div>
+                    <div class="profile-loading"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /> @L["AgentHireDialog.PreparingTheHireReview"]</div>
                 }
                 @if (!string.IsNullOrWhiteSpace(_reviewError))
                 {
@@ -68,26 +69,26 @@
                 @if (_preview is not null)
                 {
                     <section class="profile-section" aria-labelledby="profile-placement-title">
-                        <h3 id="profile-placement-title">Joining your team</h3>
+                        <h3 id="profile-placement-title">@L["AgentHireDialog.JoiningYourTeam"]</h3>
                         @if (RecommendationId.HasValue)
                         {
                             <dl class="profile-placement">
-                                <div><dt>Team</dt><dd>@(_teams.FirstOrDefault(t => t.Id == _teamId)?.Name ?? "No team assigned")</dd></div>
-                                <div><dt>Reports to</dt><dd>@(_people.FirstOrDefault(p => p.Id == _reportsToId)?.DisplayName ?? "Manager unavailable")</dd></div>
+                                <div><dt>@L["AgentHireDialog.Team"]</dt><dd>@(_teams.FirstOrDefault(t => t.Id == _teamId)?.Name ?? "No team assigned")</dd></div>
+                                <div><dt>@L["AgentHireDialog.ReportsTo"]</dt><dd>@(_people.FirstOrDefault(p => p.Id == _reportsToId)?.DisplayName ?? "Manager unavailable")</dd></div>
                             </dl>
-                            <p class="profile-note"><MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" /> Assigned by the hiring plan</p>
+                            <p class="profile-note"><MudIcon Icon="@Icons.Material.Outlined.Lock" Size="Size.Small" /> @L["AgentHireDialog.AssignedByTheHiringPlan"]</p>
                         }
                         else
                         {
                             <div class="profile-fields">
-                                <MudSelect T="Guid?" Label="Reports to" @bind-Value="_reportsToId" Required="true" Variant="Variant.Outlined" Disabled="_reviewBusy">
+                                <MudSelect T="Guid?" Label="@L["AgentHireDialog.ReportsTo"]" @bind-Value="_reportsToId" Required="true" Variant="Variant.Outlined" Disabled="_reviewBusy">
                                     @foreach (var person in _people)
                                     {
                                         <MudSelectItem T="Guid?" Value="@person.Id">@person.DisplayName</MudSelectItem>
                                     }
                                 </MudSelect>
-                                <MudSelect T="Guid?" Label="Team" @bind-Value="_teamId" Clearable="true" Variant="Variant.Outlined" Disabled="_reviewBusy"
-                                           HelperText="Optional. Team assignment is permanent for AI employees.">
+                                <MudSelect T="Guid?" Label="@L["AgentHireDialog.Team"]" @bind-Value="_teamId" Clearable="true" Variant="Variant.Outlined" Disabled="_reviewBusy"
+                                           HelperText="@L["AgentHireDialog.OptionalTeamAssignmentIsPermanent"]">
                                     @foreach (var team in _teams.Where(t => !t.IsArchived).OrderBy(t => t.Name))
                                     {
                                         <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem>
@@ -99,7 +100,7 @@
                     @if (HasModelSettings)
                     {
                         <section class="profile-section" aria-labelledby="profile-model-title">
-                            <h3 id="profile-model-title">Model</h3>
+                            <h3 id="profile-model-title">@L["AgentHireDialog.Model"]</h3>
                             <button type="button" class="profile-model" aria-expanded="@(_modelSettingsOpen || ModelFields.Any(f => f.Required && !HasConfigurationValue(f)))" aria-controls="profile-model-fields" disabled="@_reviewBusy" @onclick="() => _modelSettingsOpen = !_modelSettingsOpen">
                                 <MudIcon Icon="@Icons.Material.Outlined.Memory" />
                                 <span><strong>@ModelSummary</strong><small>@SelectedProvider?.Name</small></span>
@@ -114,7 +115,7 @@
                     <section class="profile-access">
                         <button type="button" class="profile-disclosure" aria-expanded="@_grantDetailsOpen" aria-controls="hire-access-details" @onclick="ToggleGrantDetails">
                             <MudIcon Icon="@Icons.Material.Outlined.Security" />
-                            <span>Review access</span>
+                            <span>@L["AgentHireDialog.ReviewAccess"]</span>
                             <MudIcon Icon="@(_grantDetailsOpen ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" />
                         </button>
                         @if (_grantDetailsOpen)
@@ -132,15 +133,15 @@
                     @if (OtherFields.Any())
                     {
                         <details class="profile-details" open="@OtherFields.Any(f => f.Required && !HasConfigurationValue(f))">
-                            <summary>Agent settings <span>@OtherFields.Count() @(OtherFields.Count() == 1 ? "setting" : "settings")</span></summary>
+                            <summary>@L["AgentHireDialog.AgentSettings"] <span>@OtherFields.Count() @(OtherFields.Count() == 1 ? "setting" : "settings")</span></summary>
                             @ConfigurationEditor(OtherFields)
                         </details>
                     }
                     <details class="profile-details profile-package">
-                        <summary>Agent information</summary>
+                        <summary>@L["AgentHireDialog.AgentInformation"]</summary>
                         <dl class="profile-placement">
-                            <div><dt>Source</dt><dd>@_preview.Source</dd></div>
-                            <div><dt>Price</dt><dd>@(_preview.Price.HasValue ? $"{_preview.Price:0.##} {_preview.Currency}" : "Price not provided")</dd></div>
+                            <div><dt>@L["AgentHireDialog.Source"]</dt><dd>@_preview.Source</dd></div>
+                            <div><dt>@L["AgentHireDialog.Price"]</dt><dd>@(_preview.Price.HasValue ? $"{_preview.Price:0.##} {_preview.Currency}" : "Price not provided")</dd></div>
                         </dl>
                         <p class="profile-note">@_preview.InstallationConsequence</p>
                     </details>
@@ -149,10 +150,10 @@
             @if (_preview is not null)
             {
                 <footer class="profile-actions">
-                    <MudButton Variant="Variant.Text" OnClick="CloseReviewAsync" Disabled="_reviewBusy">Cancel</MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="CloseReviewAsync" Disabled="_reviewBusy">@L["Common.Cancel"]</MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"
                                Disabled="@(_reviewBusy || _editingName || !_reportsToId.HasValue || string.IsNullOrWhiteSpace(_employeeDisplayName) || HasMissingRequiredConfiguration)"
-                               OnClick="ConfirmHireAsync">Approve and hire</MudButton>
+                               OnClick="ConfirmHireAsync">@L["AgentHireDialog.ApproveAndHire"]</MudButton>
                 </footer>
             }
         </section>

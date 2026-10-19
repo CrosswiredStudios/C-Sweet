@@ -1,5 +1,6 @@
 @using CSweet.Contracts.Agents
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 @if (Installation.CanReviewRuntimeInternet && (Installation.PublicInternetRequested || Installation.PublicInternetGranted))
 {
@@ -11,14 +12,14 @@
         <MudDialog @bind-Visible="_open">
             <TitleContent><MudText Typo="Typo.h6">Public internet access · @Installation.AgentName</MudText></TitleContent>
             <DialogContent>
-                <MudText>Allow this agent VM and its tools to connect to public internet destinations. Private networks, host access and administrator commands remain blocked. Changing access restarts affected runtimes.</MudText>
+                <MudText>@L["RuntimeInternetAccessReview.AllowThisAgentVMAnd"]</MudText>
                 <MudText Typo="Typo.body2">Reviewing version @Installation.AgentVersion.</MudText>
-                <MudCheckBox T="bool" @bind-Value="_approved" Label="Allow public internet access" Disabled="_busy" />
+                <MudCheckBox T="bool" @bind-Value="_approved" Label="@L["RuntimeInternetAccessReview.AllowPublicInternetAccess"]" Disabled="_busy" />
                 @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
             </DialogContent>
             <DialogActions>
-                <MudButton OnClick="() => _open = false" Disabled="_busy">Cancel</MudButton>
-                <MudButton OnClick="ApplyAsync" Disabled="_busy" Color="Color.Primary">Apply reviewed access</MudButton>
+                <MudButton OnClick="() => _open = false" Disabled="_busy">@L["Common.Cancel"]</MudButton>
+                <MudButton OnClick="ApplyAsync" Disabled="_busy" Color="Color.Primary">@L["RuntimeInternetAccessReview.ApplyReviewedAccess"]</MudButton>
             </DialogActions>
         </MudDialog>
 }

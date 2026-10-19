@@ -6,84 +6,85 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Create administrator - C-Sweet</PageTitle>
+<PageTitle>@L["Register.PageTitle"]</PageTitle>
 
 <section class="registration-sheet" aria-labelledby="registration-title" aria-busy="@_saving">
     @if (_registrationClosed)
     {
         <div class="registration-symbol"><MudIcon Icon="@Icons.Material.Outlined.Lock" /></div>
-        <h1 id="registration-title">Already set up.</h1>
-        <p class="registration-lead">An administrator has already claimed this installation. Sign in to continue.</p>
-        <a class="registration-primary" href="/login">Go to sign in <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></a>
+        <h1 id="registration-title">@L["Register.Closed.Title"]</h1>
+        <p class="registration-lead">@L["Register.Closed.Lead"]</p>
+        <a class="registration-primary" href="/login">@L["Register.Closed.GoToSignIn"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></a>
     }
     else if (_accountCreated)
     {
-        <span class="registration-eyebrow">Account created</span>
-        <h1 id="registration-title">Save your recovery codes.</h1>
-        <p class="registration-lead">Shown only once. Each code resets your administrator password one time, without email.</p>
+        <span class="registration-eyebrow">@L["Register.Created.Eyebrow"]</span>
+        <h1 id="registration-title">@L["Register.Created.Title"]</h1>
+        <p class="registration-lead">@L["Register.Created.Lead"]</p>
         @if (_recoveryCodes.Count > 0)
         {
-            <div class="registration-codes" aria-label="Recovery codes">
+            <div class="registration-codes" aria-label="@L["Register.Codes.AriaLabel"]">
                 @foreach (var recoveryCode in _recoveryCodes) { <code>@recoveryCode</code> }
             </div>
             <div class="registration-exports">
-                <button type="button" disabled="@_exporting" @onclick="CopyCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.ContentCopy" /> Copy</button>
-                <button type="button" class="registration-download" disabled="@_exporting" @onclick="DownloadCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.FileDownload" /> Download</button>
-                <button type="button" disabled="@_exporting" @onclick="PrintCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.Print" /> Print</button>
+                <button type="button" disabled="@_exporting" @onclick="CopyCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.ContentCopy" /> @L["Common.Copy"]</button>
+                <button type="button" class="registration-download" disabled="@_exporting" @onclick="DownloadCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.FileDownload" /> @L["Register.Codes.Download"]</button>
+                <button type="button" disabled="@_exporting" @onclick="PrintCodesAsync"><MudIcon Icon="@Icons.Material.Outlined.Print" /> @L["Register.Codes.Print"]</button>
             </div>
             @if (_exportMessage is not null) { <p class="registration-feedback @(_exportFailed ? "registration-error" : null)" role="status">@_exportMessage</p> }
-            <label class="registration-confirm"><input type="checkbox" @bind="_codesSaved" /><span>I saved these codes in a secure place.</span></label>
-            <button type="button" class="registration-primary" disabled="@(!_codesSaved)" @onclick="ContinueToSetup">Continue to setup <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
-            <p class="registration-footnote">Keep this page open until your codes are saved.</p>
+            <label class="registration-confirm"><input type="checkbox" @bind="_codesSaved" /><span>@L["Register.Codes.Saved"]</span></label>
+            <button type="button" class="registration-primary" disabled="@(!_codesSaved)" @onclick="ContinueToSetup">@L["Register.Codes.ContinueToSetup"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+            <p class="registration-footnote">@L["Register.Codes.KeepOpen"]</p>
         }
         else
         {
-            <p class="registration-error" role="alert">Your account was created, but no recovery codes were returned. Generate a new set before continuing.</p>
+            <p class="registration-error" role="alert">@L["Register.Codes.Missing"]</p>
             @if (_error is not null) { <p class="registration-error" role="alert">@_error</p> }
-            <button type="button" class="registration-primary" disabled="@_saving" @onclick="GenerateCodesAsync">@(_saving ? "Generating codes…" : "Generate recovery codes")</button>
+            <button type="button" class="registration-primary" disabled="@_saving" @onclick="GenerateCodesAsync">@(_saving ? L["Register.Codes.Generating"] : L["Register.Codes.Generate"])</button>
         }
     }
     else
     {
-        <span class="registration-eyebrow">Welcome to C-Sweet</span>
-        <h1 id="registration-title">Create your administrator.</h1>
-        <p class="registration-lead">You’ll manage this installation and its businesses.</p>
+        <span class="registration-eyebrow">@L["Register.Form.Eyebrow"]</span>
+        <h1 id="registration-title">@L["Register.Form.Title"]</h1>
+        <p class="registration-lead">@L["Register.Form.Lead"]</p>
         <EditForm EditContext="_editContext" OnSubmit="RegisterAsync" class="registration-form" novalidate>
             <DataAnnotationsValidator />
             <fieldset disabled="@_saving">
                 <div class="registration-field">
-                    <label for="register-name">Your name</label>
+                    <label for="register-name">@L["Register.Form.Name"]</label>
                     <InputText id="register-name" @bind-Value="_model.DisplayName" autocomplete="name" maxlength="160" aria-required="true" aria-describedby="register-name-error" />
                     <div id="register-name-error"><ValidationMessage For="@(() => _model.DisplayName)" /></div>
                 </div>
                 <div class="registration-field">
-                    <label for="register-email">Email</label>
+                    <label for="register-email">@L["Login.Email"]</label>
                     <InputText id="register-email" type="email" @bind-Value="_model.Email" autocomplete="email" inputmode="email" aria-required="true" aria-describedby="register-email-error" />
                     <div id="register-email-error"><ValidationMessage For="@(() => _model.Email)" /></div>
                 </div>
                 <div class="registration-field">
-                    <label for="register-password">Password</label>
+                    <label for="register-password">@L["Login.Password"]</label>
                     <div class="registration-password">
                         <InputText id="register-password" type="@(_showPassword ? "text" : "password")" @bind-Value="_model.Password" autocomplete="new-password" aria-required="true" aria-describedby="register-password-error" />
-                        <button type="button" aria-label="@(_showPassword ? "Hide password" : "Show password")" aria-pressed="@_showPassword" @onclick="() => _showPassword = !_showPassword">@(_showPassword ? "Hide" : "Show")</button>
+                        <button type="button" aria-label="@(_showPassword ? L["Register.Form.HidePassword"] : L["Register.Form.ShowPassword"])" aria-pressed="@_showPassword" @onclick="() => _showPassword = !_showPassword">@(_showPassword ? L["Register.Form.Hide"] : L["Register.Form.Show"])</button>
                     </div>
                     <div id="register-password-error"><ValidationMessage For="@(() => _model.Password)" /></div>
                 </div>
                 <div class="registration-field">
-                    <label for="register-confirm">Confirm password</label>
+                    <label for="register-confirm">@L["Register.Form.ConfirmPassword"]</label>
                     <div class="registration-password">
                         <InputText id="register-confirm" type="@(_showConfirm ? "text" : "password")" @bind-Value="_model.ConfirmPassword" autocomplete="new-password" aria-required="true" aria-describedby="register-confirm-error" />
-                        <button type="button" aria-label="@(_showConfirm ? "Hide password confirmation" : "Show password confirmation")" aria-pressed="@_showConfirm" @onclick="() => _showConfirm = !_showConfirm">@(_showConfirm ? "Hide" : "Show")</button>
+                        <button type="button" aria-label="@(_showConfirm ? L["Register.Form.HideConfirmation"] : L["Register.Form.ShowConfirmation"])" aria-pressed="@_showConfirm" @onclick="() => _showConfirm = !_showConfirm">@(_showConfirm ? L["Register.Form.Hide"] : L["Register.Form.Show"])</button>
                     </div>
                     <div id="register-confirm-error"><ValidationMessage For="@(() => _model.ConfirmPassword)" /></div>
                 </div>
             </fieldset>
-            <div class="registration-notice"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><div><strong>Keep this installation private during setup.</strong><span>The first person to register becomes its administrator.</span></div></div>
+            <div class="registration-notice"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><div><strong>@L["Register.Form.Notice.Title"]</strong><span>@L["Register.Form.Notice.Body"]</span></div></div>
             @if (_error is not null) { <p class="registration-error" role="alert">@_error</p> }
-            <button type="submit" class="registration-primary" disabled="@_saving"><span role="status">@(_saving ? "Creating your account…" : "Create administrator")</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+            <button type="submit" class="registration-primary" disabled="@_saving"><span role="status">@(_saving ? L["Register.Form.Creating"] : L["Register.Form.Submit"])</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
         </EditForm>
-        <footer class="registration-footer"><span>Already have an account?</span><a href="/login">Sign in</a></footer>
+        <footer class="registration-footer"><span>@L["Register.Form.HaveAccount"]</span><a href="/login">@L["Login.SignIn"]</a></footer>
     }
 </section>
 
@@ -114,7 +115,7 @@
         if (_saving || _accountCreated || _registrationClosed) return;
         _error = null;
         _serverErrors.Clear();
-        if (!_editContext.Validate()) { _error = "Check the highlighted fields to continue."; return; }
+        if (!_editContext.Validate()) { _error = L["Register.Error.Validation"]; return; }
         _saving = true;
         try
         {
@@ -139,7 +140,7 @@
         }
         catch (Exception)
         {
-            _error = "We couldn’t confirm that your account was created. Check your connection and try again, or sign in if you already completed this step.";
+            _error = L["Register.Error.Unconfirmed"];
         }
         finally { _saving = false; }
     }
@@ -154,15 +155,15 @@
             if (result.Succeeded && result.RecoveryCodes is { Count: > 0 }) _recoveryCodes = result.RecoveryCodes;
             else _error = result.Message;
         }
-        catch (Exception) { _error = "Recovery codes couldn’t be generated. Check your connection and try again."; }
+        catch (Exception) { _error = L["Register.Error.GenerateFailed"]; }
         finally { _saving = false; }
     }
 
-    private string RecoveryText => $"C-Sweet root recovery codes{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, _recoveryCodes)}";
+    private string RecoveryText => $"{L["Register.RecoveryText.Title"]}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, _recoveryCodes)}";
     private async Task<IJSObjectReference> ModuleAsync() => _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
-    private Task CopyCodesAsync() => ExportCodesAsync("copyText", "Codes copied. Store them somewhere secure.", "Copy isn’t available. Download or print your codes instead.", RecoveryText);
-    private Task DownloadCodesAsync() => ExportCodesAsync("downloadText", "Download requested. Check the file before continuing.", "Download couldn’t start. Copy or print your codes instead.", "csweet-root-recovery-codes.txt", RecoveryText);
-    private Task PrintCodesAsync() => ExportCodesAsync("printText", "Print requested. Confirm your codes were printed before continuing.", "Print couldn’t open. Allow pop-ups, or copy or download your codes.", "C-Sweet root recovery codes", RecoveryText);
+    private Task CopyCodesAsync() => ExportCodesAsync("copyText", L["Register.Export.CopySuccess"], L["Register.Export.CopyFailure"], RecoveryText);
+    private Task DownloadCodesAsync() => ExportCodesAsync("downloadText", L["Register.Export.DownloadSuccess"], L["Register.Export.DownloadFailure"], "csweet-root-recovery-codes.txt", RecoveryText);
+    private Task PrintCodesAsync() => ExportCodesAsync("printText", L["Register.Export.PrintSuccess"], L["Register.Export.PrintFailure"], L["Register.RecoveryText.Title"], RecoveryText);
     private async Task ExportCodesAsync(string method, string success, string failure, params object[] arguments)
     {
         if (_exporting || _recoveryCodes.Count == 0) return;

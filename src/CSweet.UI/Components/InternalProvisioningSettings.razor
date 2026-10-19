@@ -1,30 +1,31 @@
 @using CSweet.Contracts.SourceControl
 @using CSweet.Contracts.Core
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<MudExpansionPanels><MudExpansionPanel Expanded="Expanded" Text="Internal repository creation policy">
+<MudExpansionPanels><MudExpansionPanel Expanded="Expanded" Text="@L["InternalProvisioningSettings.InternalRepositoryCreationPolicy"]">
     <MudStack Spacing="2">
-        <MudText>Authorized agents can create private internal repositories without a GitHub account. A repository is created only when an agent requests one for a workstream.</MudText>
+        <MudText>@L["InternalProvisioningSettings.AuthorizedAgentsCanCreatePrivate"]</MudText>
         @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
         @if (_settings is not null)
         {
-            <MudCheckBox @bind-Value="_enabled" Label="Allow internal repository creation" Disabled="_busy" />
-            <MudCheckBox @bind-Value="_approval" Label="Require manager approval for each repository" Disabled="_busy" />
-            <MudNumericField T="int" @bind-Value="_maximum" Min="1" Max="10000" Label="Repository quota" Disabled="_busy" />
+            <MudCheckBox @bind-Value="_enabled" Label="@L["InternalProvisioningSettings.AllowInternalRepositoryCreation"]" Disabled="_busy" />
+            <MudCheckBox @bind-Value="_approval" Label="@L["InternalProvisioningSettings.RequireManagerApprovalForEach"]" Disabled="_busy" />
+            <MudNumericField T="int" @bind-Value="_maximum" Min="1" Max="10000" Label="@L["InternalProvisioningSettings.RepositoryQuota"]" Disabled="_busy" />
             <MudTextField @bind-Value="_prefix" Label="Repository name prefix (optional)" Disabled="_busy" />
-            <MudTextField @bind-Value="_branch" Label="Initial branch" Disabled="_busy" />
-            <MudSelect T="Guid?" @bind-Value="_team" Label="Default team" Disabled="_busy" Clearable="true" HelperText="If unset, an agent with one active team uses that team. The requesting agent must belong to the selected team.">
+            <MudTextField @bind-Value="_branch" Label="@L["InternalProvisioningSettings.InitialBranch"]" Disabled="_busy" />
+            <MudSelect T="Guid?" @bind-Value="_team" Label="@L["InternalProvisioningSettings.DefaultTeam"]" Disabled="_busy" Clearable="true" HelperText="@L["InternalProvisioningSettings.IfUnsetAnAgentWith"]">
                 @foreach (var team in _teams) { <MudSelectItem T="Guid?" Value="@((Guid?)team.Id)">@team.Name</MudSelectItem> }
             </MudSelect>
-            <MudText Color="Color.Secondary">Changing this policy invalidates queued requests authorized under the previous policy. Agent capability grants are managed separately.</MudText>
-            <MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">Save creation policy</MudButton>
-            <MudText Typo="Typo.subtitle1">Recent creation requests</MudText>
+            <MudText Color="Color.Secondary">@L["InternalProvisioningSettings.ChangingThisPolicyInvalidatesQueued"]</MudText>
+            <MudButton OnClick="SaveAsync" Disabled="_busy" Variant="Variant.Filled" Color="Color.Primary">@L["InternalProvisioningSettings.SaveCreationPolicy"]</MudButton>
+            <MudText Typo="Typo.subtitle1">@L["InternalProvisioningSettings.RecentCreationRequests"]</MudText>
             @foreach (var job in _settings.Jobs)
             {
                 <MudText>@job.Name · @job.Status @job.Message</MudText>
             }
         }
-        <MudButton OnClick="LoadAsync" Disabled="_busy">Refresh</MudButton>
+        <MudButton OnClick="LoadAsync" Disabled="_busy">@L["Common.Refresh"]</MudButton>
     </MudStack>
 </MudExpansionPanel></MudExpansionPanels>
 

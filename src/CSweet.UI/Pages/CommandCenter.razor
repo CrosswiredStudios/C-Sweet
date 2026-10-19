@@ -6,20 +6,21 @@
 @inject AppRealtimeState Realtime
 @inject ApprovalState ApprovalNotifications
 @implements IDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Company overview - C-Sweet</PageTitle>
+<PageTitle>@L["CommandCenter.PageTitle"]</PageTitle>
 <div class="company-overview aurora-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Company overview</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["CommandCenter.CompanyOverview"]</MudText>
             <MudText Typo="Typo.h3">@(_organization?.Name ?? "Your company")</MudText>
-            <MudText Color="Color.Secondary">Decisions, company health, and the latest from your project leads.</MudText>
+            <MudText Color="Color.Secondary">@L["CommandCenter.DecisionsCompanyHealthAndThe"]</MudText>
         </div>
         <div class="overview-actions">
-            <MudButton Href="@($"/organizations/{OrganizationId}/executive-briefings")" Variant="Variant.Text">Briefing settings</MudButton>
+            <MudButton Href="@($"/organizations/{OrganizationId}/executive-briefings")" Variant="Variant.Text">@L["CommandCenter.BriefingSettings"]</MudButton>
             @if (_errors.Count > 0)
             {
-                <MudButton OnClick="RefreshAsync" Disabled="_loading">Retry failed updates</MudButton>
+                <MudButton OnClick="RefreshAsync" Disabled="_loading">@L["CommandCenter.RetryFailedUpdates"]</MudButton>
             }
         </div>
     </MudPaper>
@@ -29,7 +30,7 @@
     }
     @if (_loading)
     {
-        <div class="overview-loading" aria-label="Updating overview"><MudProgressLinear Indeterminate="true" Color="Color.Primary" /></div>
+        <div class="overview-loading" aria-label="@L["CommandCenter.UpdatingOverview"]"><MudProgressLinear Indeterminate="true" Color="Color.Primary" /></div>
     }
     <div class="overview-widgets">
     @foreach (var widget in _order)
@@ -45,7 +46,7 @@
                 <div class="widget-controls">
                     @if (widget == "attention")
                     {
-                        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" aria-label="Refresh attention items" Disabled="_loading" OnClick="RefreshAsync" />
+                        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" aria-label="@L["CommandCenter.RefreshAttentionItems"]" Disabled="_loading" OnClick="RefreshAsync" />
                     }
                     <MudIconButton Icon="@Icons.Material.Outlined.ArrowUpward" Size="Size.Small" aria-label="@($"Move {Title(widget)} up")" Disabled="@(index == 0 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index - 1)" />
                     <MudIconButton Icon="@Icons.Material.Outlined.ArrowDownward" Size="Size.Small" aria-label="@($"Move {Title(widget)} down")" Disabled="@(index == _order.Count - 1 || _saving || !_layoutLoaded)" OnClick="() => MoveAsync(widget, index + 1)" />
@@ -83,14 +84,14 @@
                         <div class="report-period"><MudText Typo="Typo.subtitle2">@report.Data.AsOf.ToString("MMMM yyyy") · Through @report.Data.AsOf.ToString("MMM d") · @report.Data.Currency</MudText></div>
                         @if (report.Data.AsOf.Year != DateTime.UtcNow.Year || report.Data.AsOf.Month != DateTime.UtcNow.Month)
                         {
-                            <MudText Color="Color.Warning">No report for this month yet. Showing the last published period.</MudText>
+                            <MudText Color="Color.Warning">@L["CommandCenter.NoReportForThisMonth"]</MudText>
                         }
                         <dl class="finance-metrics">
-                            <div><dt>Revenue</dt><dd>@Money(report.Data.Revenue)</dd></div>
-                            <div><dt>Expenses</dt><dd>@Money(report.Data.Expenses)</dd></div>
-                            <div><dt>Net profit</dt><dd>@Money(report.Data.Revenue - report.Data.Expenses)</dd></div>
-                            <div><dt>Cash balance</dt><dd>@Money(report.Data.CashBalance)</dd></div>
-                            <div><dt>Monthly budget</dt><dd>@Money(report.Data.MonthlyBudget)</dd></div>
+                            <div><dt>@L["CommandCenter.Revenue"]</dt><dd>@Money(report.Data.Revenue)</dd></div>
+                            <div><dt>@L["CommandCenter.Expenses"]</dt><dd>@Money(report.Data.Expenses)</dd></div>
+                            <div><dt>@L["CommandCenter.NetProfit"]</dt><dd>@Money(report.Data.Revenue - report.Data.Expenses)</dd></div>
+                            <div><dt>@L["CommandCenter.CashBalance"]</dt><dd>@Money(report.Data.CashBalance)</dd></div>
+                            <div><dt>@L["CommandCenter.MonthlyBudget"]</dt><dd>@Money(report.Data.MonthlyBudget)</dd></div>
                         </dl>
                         <footer class="report-footer">Published by @report.ReporterName · @report.PublishedAt.ToLocalTime().ToString("g")</footer>
                     }
@@ -104,8 +105,8 @@
                         <div class="legal-content">
                             <div><MudText Typo="Typo.h6">@report.Data.EntityName</MudText><MudText Color="Color.Secondary">@report.Data.EntityType</MudText><MudChip T="string" Variant="Variant.Outlined">@report.Data.Status</MudChip><MudText Typo="Typo.caption">Verified @report.Data.VerifiedOn.ToString("d")</MudText></div>
                             <div class="legal-dates">
-                                <MudText Typo="Typo.subtitle2">Important dates</MudText>
-                                @if (report.Data.Obligations.Count == 0) { <MudText Color="Color.Secondary">No upcoming obligations reported.</MudText> }
+                                <MudText Typo="Typo.subtitle2">@L["CommandCenter.ImportantDates"]</MudText>
+                                @if (report.Data.Obligations.Count == 0) { <MudText Color="Color.Secondary">@L["CommandCenter.NoUpcomingObligationsReported"]</MudText> }
                                 @foreach (var obligation in report.Data.Obligations.OrderBy(x => x.DueDate))
                                 {
                                     <div class="legal-date"><span>@obligation.Title</span><span class="@(obligation.DueDate <= DateOnly.FromDateTime(DateTime.Today).AddDays(30) ? "date-attention" : "")">@obligation.DueDate.ToString("MMM d, yyyy") · @DueLabel(obligation.DueDate)</span></div>
@@ -117,7 +118,7 @@
                 }
                 else if (widget == "projects" && _portfolio is not null)
                 {
-                    @if (_portfolio.Projects.Count == 0) { <MudText Color="Color.Secondary">No projects yet. Your projects and their leads' updates will appear here.</MudText> }
+                    @if (_portfolio.Projects.Count == 0) { <MudText Color="Color.Secondary">@L["CommandCenter.NoProjectsYetYourProjects"]</MudText> }
                     <div class="project-cards">
                         @foreach (var project in _portfolio.Projects)
                         {
@@ -130,13 +131,13 @@
                                 }
                                 else
                                 {
-                                    <p class="project-update no-update">No lead update yet.</p>
+                                    <p class="project-update no-update">@L["CommandCenter.NoLeadUpdateYet"]</p>
                                     <MudText Typo="Typo.caption">@(project.AccountableManagerOrganizationUserId.HasValue ? "The project lead's first recorded update will appear here." : "Assign a project lead to start receiving updates.")</MudText>
                                 }
                             </article>
                         }
                     </div>
-                    <MudButton Href="@($"/organizations/{OrganizationId}/projects")" Size="Size.Small" Class="mt-2">View projects</MudButton>
+                    <MudButton Href="@($"/organizations/{OrganizationId}/projects")" Size="Size.Small" Class="mt-2">@L["CommandCenter.ViewProjects"]</MudButton>
                 }
                 else
                 {
@@ -222,7 +223,7 @@
                 _layoutLoaded = true; _layoutMessage = null;
             }, token));
         if (token.IsCancellationRequested) return;
-        if (_errors.ContainsKey("layout")) _layoutMessage = "Could not load your saved layout. Retry failed updates to enable reordering.";
+        if (_errors.ContainsKey("layout")) _layoutMessage = L["CommandCenter.CouldNotLoadYourSaved"];
         _loading = false;
         if (_refreshQueued)
         {
@@ -273,7 +274,7 @@
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            if (OrganizationId == organizationId) { _order = previous; _layoutMessage = "Could not save the order. Your previous layout has been restored."; }
+            if (OrganizationId == organizationId) { _order = previous; _layoutMessage = L["CommandCenter.CouldNotSaveTheOrder"]; }
         }
         finally { _saving = false; }
     }

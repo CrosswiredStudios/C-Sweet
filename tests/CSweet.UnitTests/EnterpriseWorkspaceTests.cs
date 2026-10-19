@@ -14,6 +14,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Extensions;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -166,7 +167,7 @@ public sealed class EnterpriseWorkspaceTests
     private static async Task Run(Api api, string theme, Func<Organizations, Api, Func<string, Task<string>>, Task> test)
     {
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         var navigation = new TestNavigation();

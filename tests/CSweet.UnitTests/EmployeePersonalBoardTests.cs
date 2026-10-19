@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -71,7 +72,7 @@ public sealed partial class EmployeePersonalBoardTests
     public async Task RenderedBoardShowsPreviewAndNoDebugBannerOrCheckboxes()
     {
         var item = Item() with { Description = new string('a', 150) + "HIDDEN_END" };
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddScoped<AppRealtimeState>();
         services.AddSingleton(new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) }))
@@ -198,7 +199,7 @@ public sealed partial class EmployeePersonalBoardTests
             CreatedAt = now.AddDays(-30 + i),
             UpdatedAt = now.AddHours(-25 + i)
         }).ToList();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddScoped<AppRealtimeState>();
         services.AddSingleton(new HttpClient(new Handler(_ => new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) }))
@@ -227,7 +228,7 @@ public sealed partial class EmployeePersonalBoardTests
 
     private static EmployeePersonalBoard Component(Wire.PersonalTodoItem item, HttpClient http)
     {
-        var component = new EmployeePersonalBoard { Http = http };
+        var component = TestLocalization.Inject(new EmployeePersonalBoard { Http = http });
         ParameterView.FromDictionary(new Dictionary<string, object?>
         {
             [nameof(EmployeePersonalBoard.Board)] = Board(item),

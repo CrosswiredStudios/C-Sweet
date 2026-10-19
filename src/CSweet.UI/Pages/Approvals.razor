@@ -4,17 +4,18 @@
 @inject HttpClient Http
 @inject ApprovalState ApprovalNotifications
 @implements IDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Approvals - C-Sweet</PageTitle>
+<PageTitle>@L["Approvals.PageTitle"]</PageTitle>
 
 <EmployeePortraitScope OrganizationId="OrganizationId">
 <div class="aurora-page business-workspace approvals-page">
     <MudPaper Elevation="0" Class="page-header approvals-header">
         <div>
-            <MudText Typo="Typo.overline">Needs your attention</MudText>
-            <MudText Typo="Typo.h3">Approvals</MudText>
+            <MudText Typo="Typo.overline">@L["Approvals.NeedsYourAttention"]</MudText>
+            <MudText Typo="Typo.h3">@L["Approvals.Approvals"]</MudText>
             <MudText Color="Color.Secondary">
-                Review proposals and give your team direction.
+                @L["Approvals.ReviewProposalsAndGiveYour"]
             </MudText>
         </div>
         <MudChip T="string" Color="@(_dashboard?.PendingCount > 0 ? Color.Warning : Color.Success)"
@@ -42,13 +43,13 @@
             </MudButton>
             <MudButton Variant="@(_showHistory ? Variant.Filled : Variant.Text)"
                        Color="Color.Primary" OnClick="@(() => _showHistory = true)">
-                History
+                @L["Approvals.History"]
             </MudButton>
         </MudStack>
 
         @if (SelectedApprovalId.HasValue && !HasActionableSelectedApproval && !_showHistory)
         {
-            <MudAlert Severity="Severity.Info" Class="mb-3">This approval is no longer awaiting your action or is unavailable. Your current approvals are shown below.</MudAlert>
+            <MudAlert Severity="Severity.Info" Class="mb-3">@L["Approvals.ThisApprovalIsNoLonger"]</MudAlert>
         }
 
         @if (VisibleItems.Count == 0)
@@ -96,23 +97,23 @@
                             {
                             <MudButton Href="@item.ActionUri" Variant="Variant.Text"
                                        EndIcon="@Icons.Material.Outlined.OpenInNew">
-                                View context
+                                @L["Approvals.ViewContext"]
                             </MudButton>
                             }
                         </div>
 
                         <div class="approval-meta">
-                            <span><strong>Requested by</strong>@item.RequestedBy</span>
-                            @if (!item.CanDecide) { <span><strong>Assigned to</strong>@item.AssignedTo</span> }
+                            <span><strong>@L["Approvals.RequestedBy"]</strong>@item.RequestedBy</span>
+                            @if (!item.CanDecide) { <span><strong>@L["Approvals.AssignedTo"]</strong>@item.AssignedTo</span> }
                             @if (!string.IsNullOrWhiteSpace(item.RequestingTeam))
                             {
-                                <span><strong>Requesting team</strong>@item.RequestingTeam</span>
+                                <span><strong>@L["Approvals.RequestingTeam"]</strong>@item.RequestingTeam</span>
                             }
                             @if (!string.IsNullOrWhiteSpace(item.ActualDecisionMaker))
                             {
-                                <span><strong>Decided by</strong>@item.ActualDecisionMaker</span>
+                                <span><strong>@L["Approvals.DecidedBy"]</strong>@item.ActualDecisionMaker</span>
                             }
-                            <span><strong>Created</strong>@item.CreatedAt.ToLocalTime().ToString("g")</span>
+                            <span><strong>@L["Approvals.Created"]</strong>@item.CreatedAt.ToLocalTime().ToString("g")</span>
                         </div>
 
                         @if (item.ResourceChange is { } request)
@@ -138,7 +139,7 @@
                             {
                                 <MudTextField Value="@Feedback(item.Id)"
                                               ValueChanged="@((string value) => SetFeedback(item.Id, value))"
-                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" />
+                                              Label="@L["Approvals.DecisionFeedback"]" Lines="2" Variant="Variant.Outlined" />
                                 @if (_decisionErrors.TryGetValue(item.Id, out var decisionError))
                                 {
                                     <MudAlert Severity="Severity.Error" Dense="true">@decisionError</MudAlert>
@@ -147,17 +148,17 @@
                                     <MudButton Color="Color.Success" Variant="Variant.Filled"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideAsync(item, ResourceChangeDecisionKinds.Approve))">
-                                        Approve
+                                        @L["Common.Approve"]
                                     </MudButton>
                                     <MudButton Color="Color.Warning" Variant="Variant.Outlined"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideAsync(item, ResourceChangeDecisionKinds.RequestRevision))">
-                                        Request revision
+                                        @L["Approvals.RequestRevision"]
                                     </MudButton>
                                     <MudButton Color="Color.Error" Variant="Variant.Text"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideAsync(item, ResourceChangeDecisionKinds.Reject))">
-                                        Reject
+                                        @L["Common.Reject"]
                                     </MudButton>
                                 </MudStack>
                             }
@@ -173,48 +174,48 @@
                             @if (item.CanManageStandingPolicy)
                             {
                                 <MudButton Variant="Variant.Outlined" Class="my-3"
-                                    Href="@($"/organizations/{OrganizationId:D}/connector-actions/{item.Id:D}/standing-policy")">Manage automatic approval rules</MudButton>
-                                <MudText Typo="Typo.caption">Owner-only rules for future requests, separate from this action's decision.</MudText>
+                                    Href="@($"/organizations/{OrganizationId:D}/connector-actions/{item.Id:D}/standing-policy")">@L["Approvals.ManageAutomaticApprovalRules"]</MudButton>
+                                <MudText Typo="Typo.caption">@L["Approvals.OwnerOnlyRulesForFuture"]</MudText>
                             }
                             <MudGrid Class="mt-3">
                                 @if (!string.IsNullOrWhiteSpace(agentAction.AccountName))
                                 {
-                                    <MudItem xs="12"><strong>Account</strong><br />@agentAction.AccountName</MudItem>
+                                    <MudItem xs="12"><strong>@L["Approvals.Account"]</strong><br />@agentAction.AccountName</MudItem>
                                 }
-                                <MudItem xs="12"><details><summary>Technical details</summary>
+                                <MudItem xs="12"><details><summary>@L["Approvals.TechnicalDetails"]</summary>
                                     <p>Channel: @agentAction.ChannelId</p><p>Action: @agentAction.ActionType</p>
                                     @if (!string.IsNullOrWhiteSpace(agentAction.ResourceId)) { <p>Resource: @agentAction.ResourceId</p> }
-                                    <p>Payload binding: <code style="overflow-wrap:anywhere">@agentAction.PayloadHash</code></p>
+                                    <p>@L["Approvals.PayloadBinding"] <code style="overflow-wrap:anywhere">@agentAction.PayloadHash</code></p>
                                     @if (!string.IsNullOrWhiteSpace(agentAction.ReviewPayloadJson)) { <pre style="white-space:pre-wrap;overflow-wrap:anywhere">@agentAction.ReviewPayloadJson</pre> }
                                 </details></MudItem>
                                 @if (!string.IsNullOrWhiteSpace(agentAction.FiscalSummary))
                                 {
-                                    <MudItem xs="12"><strong>Fiscal commitment</strong><br />@agentAction.FiscalSummary</MudItem>
+                                    <MudItem xs="12"><strong>@L["Approvals.FiscalCommitment"]</strong><br />@agentAction.FiscalSummary</MudItem>
                                 }
                                 @if (!string.IsNullOrWhiteSpace(agentAction.ApprovalRoute))
                                 {
-                                    <MudItem xs="12"><strong>Approval route</strong><br />@agentAction.ApprovalRoute</MudItem>
+                                    <MudItem xs="12"><strong>@L["Approvals.ApprovalRoute"]</strong><br />@agentAction.ApprovalRoute</MudItem>
                                 }
                                 @if (agentAction.ExpiresAt.HasValue)
                                 {
-                                    <MudItem xs="12" md="6"><strong>Approval expires</strong><br />@agentAction.ExpiresAt.Value.ToLocalTime().ToString("g")</MudItem>
+                                    <MudItem xs="12" md="6"><strong>@L["Approvals.ApprovalExpires"]</strong><br />@agentAction.ExpiresAt.Value.ToLocalTime().ToString("g")</MudItem>
                                 }
                             </MudGrid>
                             @if (item.CanDecide && item.Status == "Pending")
                             {
                                 <MudTextField Value="@Feedback(item.Id)" ValueChanged="@((string value) => SetFeedback(item.Id, value))"
-                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
+                                              Label="@L["Approvals.DecisionFeedback"]" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
                                 @if (_decisionErrors.TryGetValue(item.Id, out var actionError))
                                 {
                                     <MudAlert Severity="Severity.Error" Dense="true">@actionError</MudAlert>
                                 }
                                 <MudStack Row="true" Spacing="1">
                                     <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="@(_decidingId.HasValue)"
-                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.Approve))">Approve</MudButton>
+                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.Approve))">@L["Common.Approve"]</MudButton>
                                     <MudButton Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_decidingId.HasValue)"
-                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.RequestRevision))">Request revision</MudButton>
+                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.RequestRevision))">@L["Approvals.RequestRevision"]</MudButton>
                                     <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="@(_decidingId.HasValue)"
-                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.Reject))">Reject</MudButton>
+                                               OnClick="@(() => DecideAgentActionAsync(item, ResourceChangeDecisionKinds.Reject))">@L["Common.Reject"]</MudButton>
                                 </MudStack>
                             }
                         }
@@ -228,28 +229,28 @@
                         else if (item.SourceControl is { } sourceControl)
                         {
                             <MudGrid Class="mt-3">
-                                <MudItem xs="12" md="6"><strong>Code project</strong><br />@sourceControl.CodeProjectName</MudItem>
-                                <MudItem xs="12" md="6"><strong>GitHub organization</strong><br />@sourceControl.AccountLogin</MudItem>
+                                <MudItem xs="12" md="6"><strong>@L["Approvals.CodeProject"]</strong><br />@sourceControl.CodeProjectName</MudItem>
+                                <MudItem xs="12" md="6"><strong>@L["Approvals.GitHubOrganization"]</strong><br />@sourceControl.AccountLogin</MudItem>
                                 @if (!string.IsNullOrWhiteSpace(sourceControl.TemplateName))
                                 {
-                                    <MudItem xs="12" md="6"><strong>Starter project</strong><br />@sourceControl.TemplateName</MudItem>
+                                    <MudItem xs="12" md="6"><strong>@L["Approvals.StarterProject"]</strong><br />@sourceControl.TemplateName</MudItem>
                                 }
                                 @if (!string.IsNullOrWhiteSpace(sourceControl.DefaultTeamName))
                                 {
-                                    <MudItem xs="12" md="6"><strong>Default team</strong><br />@sourceControl.DefaultTeamName</MudItem>
+                                    <MudItem xs="12" md="6"><strong>@L["Approvals.DefaultTeam"]</strong><br />@sourceControl.DefaultTeamName</MudItem>
                                 }
-                                <MudItem xs="12" md="6"><strong>Visibility</strong><br />@(sourceControl.PrivateOnly ? "Private only" : "Provider policy")</MudItem>
+                                <MudItem xs="12" md="6"><strong>@L["Approvals.Visibility"]</strong><br />@(sourceControl.PrivateOnly ? "Private only" : "Provider policy")</MudItem>
                                 @if (sourceControl.MaximumProjects.HasValue)
                                 {
-                                    <MudItem xs="12" md="6"><strong>Policy quota</strong><br />@sourceControl.MaximumProjects projects</MudItem>
+                                    <MudItem xs="12" md="6"><strong>@L["Approvals.PolicyQuota"]</strong><br />@sourceControl.MaximumProjects projects</MudItem>
                                 }
                             </MudGrid>
                             @if (item.CanDecide && item.Status == "Pending")
                             {
                                 <MudTextField Value="@Feedback(item.Id)"
                                               ValueChanged="@((string value) => SetFeedback(item.Id, value))"
-                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" Class="mt-3"
-                                              HelperText="Feedback is required when rejecting a request." />
+                                              Label="@L["Approvals.DecisionFeedback"]" Lines="2" Variant="Variant.Outlined" Class="mt-3"
+                                              HelperText="@L["Approvals.FeedbackIsRequiredWhenRejecting"]" />
                                 @if (_decisionErrors.TryGetValue(item.Id, out var sourceDecisionError))
                                 {
                                     <MudAlert Severity="Severity.Error" Dense="true">@sourceDecisionError</MudAlert>
@@ -258,12 +259,12 @@
                                     <MudButton Color="Color.Success" Variant="Variant.Filled"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideSourceControlAsync(item, true))">
-                                        Approve
+                                        @L["Common.Approve"]
                                     </MudButton>
                                     <MudButton Color="Color.Error" Variant="Variant.Text"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideSourceControlAsync(item, false))">
-                                        Reject
+                                        @L["Common.Reject"]
                                     </MudButton>
                                 </MudStack>
                             }
@@ -274,8 +275,8 @@
                             {
                                 <MudTextField Value="@Feedback(item.Id)"
                                               ValueChanged="@((string value) => SetFeedback(item.Id, value))"
-                                              Label="Decision feedback" Lines="2" Variant="Variant.Outlined" Class="mt-3"
-                                              HelperText="Feedback is required when requesting a revision." />
+                                              Label="@L["Approvals.DecisionFeedback"]" Lines="2" Variant="Variant.Outlined" Class="mt-3"
+                                              HelperText="@L["Approvals.FeedbackIsRequiredWhenRequesting"]" />
                                 @if (_decisionErrors.TryGetValue(item.Id, out var artifactDecisionError))
                                 {
                                     <MudAlert Severity="Severity.Error" Dense="true">@artifactDecisionError</MudAlert>
@@ -284,39 +285,39 @@
                                     <MudButton Color="Color.Success" Variant="Variant.Filled"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideArtifactAsync(item, artifact, true))">
-                                        Approve
+                                        @L["Common.Approve"]
                                     </MudButton>
                                     <MudButton Color="Color.Warning" Variant="Variant.Outlined"
                                                Disabled="@(_decidingId.HasValue)"
                                                OnClick="@(() => DecideArtifactAsync(item, artifact, false))">
-                                        Request revision
+                                        @L["Approvals.RequestRevision"]
                                     </MudButton>
                                 </MudStack>
                             }
                         }
                         else if (item.ArtifactAccess is { } artifactAccess)
                         {
-                            <MudText Class="mt-3"><strong>Requested actions</strong><br />@string.Join(", ", artifactAccess.Actions)</MudText>
+                            <MudText Class="mt-3"><strong>@L["Approvals.RequestedActions"]</strong><br />@string.Join(", ", artifactAccess.Actions)</MudText>
                             @if (item.CanDecide && item.Status == "Pending")
                             {
                                 <MudTextField Value="@Feedback(item.Id)" ValueChanged="@((string value) => SetFeedback(item.Id, value))"
-                                              Label="Decision comment" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
+                                              Label="@L["Approvals.DecisionComment"]" Lines="2" Variant="Variant.Outlined" Class="mt-3" />
                                 @if (_decisionErrors.TryGetValue(item.Id, out var accessError))
                                 {
                                     <MudAlert Severity="Severity.Error" Dense="true">@accessError</MudAlert>
                                 }
                                 <MudStack Row="true" Spacing="1">
                                     <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="@(_decidingId.HasValue)"
-                                               OnClick="@(() => DecideArtifactAccessAsync(item, "approve"))">Approve exact files</MudButton>
+                                               OnClick="@(() => DecideArtifactAccessAsync(item, "approve"))">@L["Approvals.ApproveExactFiles"]</MudButton>
                                     <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="@(_decidingId.HasValue)"
-                                               OnClick="@(() => DecideArtifactAccessAsync(item, "reject"))">Reject</MudButton>
+                                               OnClick="@(() => DecideArtifactAccessAsync(item, "reject"))">@L["Common.Reject"]</MudButton>
                                 </MudStack>
                             }
                         }
                         else if (item.Status == "Pending")
                         {
                             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                                Use “View context” to review this request in its workflow.
+                                @L["Approvals.UseViewContextToReview"]
                             </MudAlert>
                         }
                     </MudPaper>

@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -178,7 +179,7 @@ public sealed class RegistrationPageTests
         {
             var h = new Harness();
             var services = new ServiceCollection().AddLogging();
-            services.AddMudServices();
+            services.AddMudServices(); services.AddCSweetLocalization();
             services.AddSingleton<IJSRuntime>(h.Js);
             services.AddSingleton<NavigationManager>(h.Navigation);
             services.AddSingleton(new HttpClient(h.Api) { BaseAddress = new("http://localhost/") });

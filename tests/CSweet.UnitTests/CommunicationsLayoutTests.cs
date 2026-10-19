@@ -78,8 +78,8 @@ public sealed class CommunicationsLayoutTests
         var razor = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(), "src", "CSweet.UI", "Pages", "Communications.razor"));
 
-        var reportsHeading = razor.IndexOf("<span>Direct Reports</span>", StringComparison.Ordinal);
-        var agentsHeading = razor.IndexOf("<span>Agents</span>", StringComparison.Ordinal);
+        var reportsHeading = razor.IndexOf("<span>@L[\"Communications.DirectReports\"]</span>", StringComparison.Ordinal);
+        var agentsHeading = razor.IndexOf("<span>@L[\"Communications.Agents\"]</span>", StringComparison.Ordinal);
         Assert.True(reportsHeading >= 0);
         Assert.True(agentsHeading > reportsHeading);
         Assert.Contains("person.EmployeeType == \"Agent\"", razor, StringComparison.Ordinal);
@@ -98,9 +98,9 @@ public sealed class CommunicationsLayoutTests
         var script = File.ReadAllText(Path.Combine(
             root, "src", "CSweet.UI", "wwwroot", "js", "communications.js"));
 
-        Assert.Contains("Hiring suggestions", component, StringComparison.Ordinal);
-        Assert.Contains("Previous hiring suggestion", component, StringComparison.Ordinal);
-        Assert.Contains("Next hiring suggestion", component, StringComparison.Ordinal);
+        LocalizedSource.AssertContains("Hiring suggestions", component);
+        LocalizedSource.AssertContains("Previous hiring suggestion", component);
+        LocalizedSource.AssertContains("Next hiring suggestion", component);
         Assert.Contains("else if (!ReadOnly)", component, StringComparison.Ordinal);
         Assert.DoesNotContain("Hiring key", component, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("overflow-x: auto", css, StringComparison.Ordinal);
@@ -121,7 +121,7 @@ public sealed class CommunicationsLayoutTests
         Assert.Contains("SuggestedUserActionStatuses.Cancelled", component, StringComparison.Ordinal);
         Assert.Contains("SuggestedUserActionStatuses.Superseded", component, StringComparison.Ordinal);
         Assert.Contains("Replaced by @ReplacementRole(action)", component, StringComparison.Ordinal);
-        Assert.Contains("This suggestion was cancelled", component, StringComparison.Ordinal);
+        LocalizedSource.AssertContains("This suggestion was cancelled", component);
         Assert.Contains("AllResolved", component, StringComparison.Ordinal);
         Assert.Contains(".hiring-suggestion-tile.superseded", css, StringComparison.Ordinal);
         Assert.Contains(".hiring-suggestion-tile.cancelled", css, StringComparison.Ordinal);
@@ -155,8 +155,8 @@ public sealed class CommunicationsLayoutTests
         Assert.DoesNotContain("<MudDialog", chat);
         Assert.Contains("<MudDialog", shared);
         Assert.Contains("RecommendationId", shared);
-        Assert.Contains("Plan proposed by", marketplace);
-        Assert.Contains("Browse outside this plan", marketplace);
+        LocalizedSource.AssertContains("Plan proposed by", marketplace);
+        LocalizedSource.AssertContains("Browse outside this plan", marketplace);
     }
 
     private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "") =>

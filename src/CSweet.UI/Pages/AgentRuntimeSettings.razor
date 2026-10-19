@@ -2,22 +2,23 @@
 @layout SettingsLayout
 @using CSweet.Contracts.Setup
 @inject IAgentRuntimeSettingsApiClient AgentRuntimeSettingsApi
+@inject IAppLocalizer L
 
-<PageTitle>Agent Runtime - C-Sweet</PageTitle>
+<PageTitle>@L["AgentRuntimeSettings.PageTitle"]</PageTitle>
 
 <div class="setup-shell configuration-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Agent settings</MudText>
-            <MudText Typo="Typo.h3">Runtime</MudText>
-            <MudText Color="Color.Secondary">Control how agents run: schedules, resource limits, network access, and retention.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["AgentRuntimeSettings.Overline"]</MudText>
+            <MudText Typo="Typo.h3">@L["AgentRuntimeSettings.Title"]</MudText>
+            <MudText Color="Color.Secondary">@L["AgentRuntimeSettings.Lead"]</MudText>
         </div>
     </MudPaper>
 
     <MudPaper Elevation="1" Class="surface-panel command-section-wide">
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
             <MudIcon Icon="@Icons.Material.Outlined.Dns" Color="Color.Primary" />
-            <MudText>Certified execution capacity is managed on the <MudLink Href="/settings/offices">Offices</MudLink> page.</MudText>
+            <MudText>@L["AgentRuntimeSettings.OfficesNote.Before"] <MudLink Href="/settings/offices">@L["AgentRuntimeSettings.OfficesNote.Link"]</MudLink> @L["AgentRuntimeSettings.OfficesNote.After"]</MudText>
         </MudStack>
     </MudPaper>
 
@@ -25,14 +26,14 @@
     {
         <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow" aria-live="polite">
             <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-            <MudText Color="Color.Secondary">Loading agent runtime settings...</MudText>
+            <MudText Color="Color.Secondary">@L["AgentRuntimeSettings.Loading"]</MudText>
         </MudPaper>
     }
     else if (!string.IsNullOrWhiteSpace(_pageError))
     {
         <MudPaper Elevation="1" Class="surface-panel surface-panel-narrow">
             <MudAlert Severity="Severity.Error" Variant="Variant.Filled">@_pageError</MudAlert>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync" Class="mt-4">Retry</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadAsync" Class="mt-4">@L["Common.Retry"]</MudButton>
         </MudPaper>
     }
     else
@@ -44,91 +45,91 @@
             }
 
             <MudExpansionPanels MultiExpansion="true">
-                <MudExpansionPanel Text="Runtime defaults" Expanded="true" Class="configuration-expand-panel">
+                <MudExpansionPanel Text="@L["AgentRuntimeSettings.Panel.RuntimeDefaults"]" Expanded="true" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudCheckBox T="bool" Label="Enable imported agents" @bind-Value="_enableImportedAgents" Disabled="_isBusy" />
-                        <MudSelect T="string" Label="Default activation mode" @bind-Value="_defaultActivationMode" Variant="Variant.Outlined" Disabled="_isBusy">
-                            <MudSelectItem T="string" Value="@("AlwaysOn")">Always on</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("OnDemand")">On demand</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("Scheduled")">Scheduled</MudSelectItem>
+                        <MudCheckBox T="bool" Label="@L["AgentRuntimeSettings.EnableImportedAgents"]" @bind-Value="_enableImportedAgents" Disabled="_isBusy" />
+                        <MudSelect T="string" Label="@L["AgentRuntimeSettings.DefaultActivationMode"]" @bind-Value="_defaultActivationMode" Variant="Variant.Outlined" Disabled="_isBusy">
+                            <MudSelectItem T="string" Value="@("AlwaysOn")">@L["AgentRuntimeSettings.Activation.AlwaysOn"]</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("OnDemand")">@L["AgentRuntimeSettings.Activation.OnDemand"]</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("Scheduled")">@L["AgentRuntimeSettings.Activation.Scheduled"]</MudSelectItem>
                         </MudSelect>
-                        <MudNumericField T="int" Label="Default tick frequency (seconds)" @bind-Value="_defaultTickFrequencySeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Minimum tick frequency (seconds)" @bind-Value="_minimumTickFrequencySeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default maximum runtime (seconds)" @bind-Value="_defaultMaxRuntimeSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudSelect T="string" Label="Default overlap policy" @bind-Value="_defaultOverlapPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
-                            <MudSelectItem T="string" Value="@("Skip")">Skip</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("Queue")">Queue</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("CancelPrevious")">Cancel previous</MudSelectItem>
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultTickFrequency"]" @bind-Value="_defaultTickFrequencySeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.MinimumTickFrequency"]" @bind-Value="_minimumTickFrequencySeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultMaxRuntime"]" @bind-Value="_defaultMaxRuntimeSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudSelect T="string" Label="@L["AgentRuntimeSettings.DefaultOverlapPolicy"]" @bind-Value="_defaultOverlapPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
+                            <MudSelectItem T="string" Value="@("Skip")">@L["AgentRuntimeSettings.Overlap.Skip"]</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("Queue")">@L["AgentRuntimeSettings.Overlap.Queue"]</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("CancelPrevious")">@L["AgentRuntimeSettings.Overlap.CancelPrevious"]</MudSelectItem>
                         </MudSelect>
-                        <MudSelect T="string" Label="Default restart policy" @bind-Value="_defaultRestartPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
-                            <MudSelectItem T="string" Value="@("Never")">Never</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("OnFailure")">On failure</MudSelectItem>
-                            <MudSelectItem T="string" Value="@("Always")">Always</MudSelectItem>
+                        <MudSelect T="string" Label="@L["AgentRuntimeSettings.DefaultRestartPolicy"]" @bind-Value="_defaultRestartPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
+                            <MudSelectItem T="string" Value="@("Never")">@L["AgentRuntimeSettings.Restart.Never"]</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("OnFailure")">@L["AgentRuntimeSettings.Restart.OnFailure"]</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("Always")">@L["AgentRuntimeSettings.Restart.Always"]</MudSelectItem>
                         </MudSelect>
-                        <MudCheckBox T="bool" Label="Allow always-on community agents" @bind-Value="_allowAlwaysOnCommunityAgents" Disabled="_isBusy" />
+                        <MudCheckBox T="bool" Label="@L["AgentRuntimeSettings.AllowAlwaysOnCommunityAgents"]" @bind-Value="_allowAlwaysOnCommunityAgents" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
 
-                <MudExpansionPanel Text="Isolated workload limits" Class="configuration-expand-panel">
+                <MudExpansionPanel Text="@L["AgentRuntimeSettings.Panel.WorkloadLimits"]" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudNumericField T="int" Label="Global active workloads" HelperText="0 = unlimited; Office capacity still applies." Min="0" @bind-Value="_globalMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Active workloads per business" HelperText="0 = unlimited; Office capacity still applies." Min="0" @bind-Value="_perBusinessMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Active workloads per installation" @bind-Value="_perInstallationMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default memory (MB)" @bind-Value="_defaultWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum memory (MB)" @bind-Value="_maximumWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Coding initial memory (MiB)" @bind-Value="_codingInitialMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Coding maximum memory (MiB)" @bind-Value="_codingMaximumMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum coding VM replacements" @bind-Value="_codingMaximumReplacements" Min="0" Max="2" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default CPU (%)" @bind-Value="_defaultWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum CPU (%)" @bind-Value="_maximumWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default process limit" @bind-Value="_defaultWorkloadProcessLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Default log limit (MB)" @bind-Value="_defaultWorkloadLogLimitMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Start timeout (seconds)" @bind-Value="_workloadStartTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="MCP session timeout (seconds)" @bind-Value="_mcpSessionTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Stop grace period (seconds)" @bind-Value="_workloadStopGraceSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.GlobalActiveWorkloads"]" HelperText="@L["AgentRuntimeSettings.UnlimitedHelper"]" Min="0" @bind-Value="_globalMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.ActiveWorkloadsPerBusiness"]" HelperText="@L["AgentRuntimeSettings.UnlimitedHelper"]" Min="0" @bind-Value="_perBusinessMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.ActiveWorkloadsPerInstallation"]" @bind-Value="_perInstallationMaxActiveWorkloads" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultMemory"]" @bind-Value="_defaultWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.MaximumMemory"]" @bind-Value="_maximumWorkloadMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingInitialMemory"]" @bind-Value="_codingInitialMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingMaximumMemory"]" @bind-Value="_codingMaximumMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingMaximumReplacements"]" @bind-Value="_codingMaximumReplacements" Min="0" Max="2" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultCpu"]" @bind-Value="_defaultWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.MaximumCpu"]" @bind-Value="_maximumWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultProcessLimit"]" @bind-Value="_defaultWorkloadProcessLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultLogLimit"]" @bind-Value="_defaultWorkloadLogLimitMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.StartTimeout"]" @bind-Value="_workloadStartTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.McpSessionTimeout"]" @bind-Value="_mcpSessionTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.StopGracePeriod"]" @bind-Value="_workloadStopGraceSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
 
-                <MudExpansionPanel Text="Network and storage" Class="configuration-expand-panel">
+                <MudExpansionPanel Text="@L["AgentRuntimeSettings.Panel.NetworkStorage"]" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudSelect T="string" Label="Default network policy" @bind-Value="_defaultNetworkPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
-                            <MudSelectItem T="string" Value="@("McpOnly")">Private MCP only</MudSelectItem>
+                        <MudSelect T="string" Label="@L["AgentRuntimeSettings.DefaultNetworkPolicy"]" @bind-Value="_defaultNetworkPolicy" Variant="Variant.Outlined" Disabled="_isBusy">
+                            <MudSelectItem T="string" Value="@("McpOnly")">@L["AgentRuntimeSettings.Network.McpOnly"]</MudSelectItem>
                         </MudSelect>
-                        <MudCheckBox T="bool" Label="Allow public internet by default" @bind-Value="_allowPublicInternetByDefault" Disabled="_isBusy" />
-                        <MudTextField Label="Allowed package feed hosts" @bind-Value="_allowedPackageFeedHosts" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudTextField Label="Blocked network CIDRs" @bind-Value="_blockedNetworkCidrs" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudCheckBox T="bool" Label="@L["AgentRuntimeSettings.AllowPublicInternetByDefault"]" @bind-Value="_allowPublicInternetByDefault" Disabled="_isBusy" />
+                        <MudTextField Label="@L["AgentRuntimeSettings.AllowedPackageFeedHosts"]" @bind-Value="_allowedPackageFeedHosts" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudTextField Label="@L["AgentRuntimeSettings.BlockedNetworkCidrs"]" @bind-Value="_blockedNetworkCidrs" Variant="Variant.Outlined" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
 
-                <MudExpansionPanel Text="Build and import" Class="configuration-expand-panel">
+                <MudExpansionPanel Text="@L["AgentRuntimeSettings.Panel.BuildImport"]" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudNumericField T="int" Label="Build timeout (seconds)" @bind-Value="_buildTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Build memory (MB)" @bind-Value="_buildMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Build CPU (%)" @bind-Value="_buildCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum repository size (MB)" @bind-Value="_maximumRepositorySizeMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Maximum build log (MB)" @bind-Value="_maximumBuildLogMb" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudCheckBox T="bool" Label="Keep failed build workspaces" @bind-Value="_keepFailedBuildWorkspaces" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.BuildTimeout"]" @bind-Value="_buildTimeoutSeconds" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.BuildMemory"]" @bind-Value="_buildMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.BuildCpu"]" @bind-Value="_buildCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.MaximumRepositorySize"]" @bind-Value="_maximumRepositorySizeMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.MaximumBuildLog"]" @bind-Value="_maximumBuildLogMb" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudCheckBox T="bool" Label="@L["AgentRuntimeSettings.KeepFailedBuildWorkspaces"]" @bind-Value="_keepFailedBuildWorkspaces" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
 
-                <MudExpansionPanel Text="Cleanup and retention" Class="configuration-expand-panel">
+                <MudExpansionPanel Text="@L["AgentRuntimeSettings.Panel.CleanupRetention"]" Class="configuration-expand-panel">
                     <div class="setup-form-grid">
-                        <MudNumericField T="int" Label="Completed runtime retention (days)" @bind-Value="_completedRuntimeRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Failed runtime retention (days)" @bind-Value="_failedRuntimeRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudNumericField T="int" Label="Build log retention (days)" @bind-Value="_buildLogRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
-                        <MudCheckBox T="bool" Label="Remove workloads after completion" @bind-Value="_removeWorkloadsAfterCompletion" Disabled="_isBusy" />
-                        <MudCheckBox T="bool" Label="Remove workspaces after completion" @bind-Value="_removeWorkspacesAfterCompletion" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CompletedRuntimeRetention"]" @bind-Value="_completedRuntimeRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.FailedRuntimeRetention"]" @bind-Value="_failedRuntimeRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.BuildLogRetention"]" @bind-Value="_buildLogRetentionDays" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudCheckBox T="bool" Label="@L["AgentRuntimeSettings.RemoveWorkloadsAfterCompletion"]" @bind-Value="_removeWorkloadsAfterCompletion" Disabled="_isBusy" />
+                        <MudCheckBox T="bool" Label="@L["AgentRuntimeSettings.RemoveWorkspacesAfterCompletion"]" @bind-Value="_removeWorkspacesAfterCompletion" Disabled="_isBusy" />
                     </div>
                 </MudExpansionPanel>
             </MudExpansionPanels>
 
             <MudStack Row="true" Class="setup-actions">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_isBusy" OnClick="SaveAsync">
-                    @(_isBusy ? "Saving..." : "Save runtime settings")
+                    @L[_isBusy ? "AgentRuntimeSettings.Saving" : "AgentRuntimeSettings.Save"]
                 </MudButton>
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_isBusy"
                            StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RecoverRuntimesAsync">
-                    @(_isBusy ? "Working..." : "Recover stuck runtimes")
+                    @L[_isBusy ? "AgentRuntimeSettings.Working" : "AgentRuntimeSettings.Recover"]
                 </MudButton>
             </MudStack>
         </MudPaper>
@@ -160,7 +161,7 @@
         _isLoading = true;
         _pageError = null;
         try { Hydrate(await AgentRuntimeSettingsApi.GetAsync()); }
-        catch { _pageError = "Unable to load agent runtime settings from the API."; }
+        catch { _pageError = L["AgentRuntimeSettings.LoadFailed"]; }
         finally { _isLoading = false; }
     }
 
@@ -210,10 +211,10 @@
                 CodingMaximumReplacements = _codingMaximumReplacements
             });
             _actionSucceeded = result.Succeeded;
-            _actionMessage = result.Message ?? (result.Succeeded ? "Runtime settings saved." : "Runtime settings could not be saved.");
+            _actionMessage = result.Message ?? L[result.Succeeded ? "AgentRuntimeSettings.Saved" : "AgentRuntimeSettings.SaveFailed"];
             if (result.Settings is not null) Hydrate(result.Settings);
         }
-        catch { _actionSucceeded = false; _actionMessage = "Runtime settings could not be saved. Try again."; }
+        catch { _actionSucceeded = false; _actionMessage = L["AgentRuntimeSettings.SaveError"]; }
         finally { _isBusy = false; }
     }
 
@@ -224,12 +225,12 @@
         {
             var result = await AgentRuntimeSettingsApi.RecoverAsync();
             _actionSucceeded = result.Succeeded;
-            _actionMessage = result.Message ?? "Runtime reconciliation completed.";
+            _actionMessage = result.Message ?? L["AgentRuntimeSettings.Recovered"];
         }
         catch
         {
             _actionSucceeded = false;
-            _actionMessage = "Runtime recovery could not be completed. Review the runtime logs and try again.";
+            _actionMessage = L["AgentRuntimeSettings.RecoverFailed"];
         }
         finally { _isBusy = false; }
     }

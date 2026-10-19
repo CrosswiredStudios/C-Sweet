@@ -30,7 +30,9 @@ fingerprints coalesce continuous idle periods and repeated failures. Revision ch
 `ProjectIncidentReceipt` make mutations idempotent. Reusing a key for a different request fails.
 
 The Producer handles `ProjectHealthEvents.ReviewDue` independently of its planning callback and
-inherits `CSweetManagerAgentBase`, which uses `ProjectIncidentReview` for deterministic diagnosis. It does not send diagnostics to an LLM.
+inherits `CSweetManagerAgentBase`, which uses `ProjectIncidentReview` for deterministic baseline
+diagnosis. Owner-facing reports are generated separately; Producer 4.0.2 bounds that model work as
+described under **Producer report and pitch convergence limits** below.
 Reports distinguish facts, likely causes, missing evidence, and recommended action. If the detailed
 read is unavailable, the baseline still reaches management. Unknown root causes remain unknown.
 The targeted event is a separate durable inbox commitment. Failed diagnostic attempts and event
@@ -415,3 +417,45 @@ agents need an SDK 4.4.0 rebuild to emit the explicit owner-input classification
 `ManagerIncidentCoordinatorTests`. The Pulse Break repair passed 127 focused platform tests,
 including all three disposable PostgreSQL cases, without skipped tests. This platform change
 adds no grants or schema migration.
+
+## Producer report and pitch convergence limits
+
+Producer `SpecialistAgent.GenerateIncidentOwnerReportAsync` in `IncidentReports.cs` overrides the
+shared manager report generator. It makes one tool-free model request with a 1,600-token output
+budget, a 60-second deadline, and bounded current/historical diagnostic excerpts. It neither lists
+model tools nor fetches complete artifact histories. Normal planning, delivery and authenticated
+decision-resolution callbacks retain their existing responsibilities.
+
+`producer-incident-report:<incident>:<current-state-hash>` operating-state records retain validated
+reports and factual fallbacks. Duplicate hints, incident/report revision changes and runtime restarts
+reuse that record while the authoritative current-state hash is unchanged. Changed evidence permits
+one new report. Caller cancellation is propagated rather than cached. Platform freshness validation,
+durable review scheduling and escalation deadlines still govern delivery; the cache grants no authority
+and does not resolve an incident.
+
+Producer `SpecialistAgent.RefinePitchAsync` in `PitchRefinement.cs` stops a repeated normalized
+question set before creating another document revision. Existing legacy transcripts with repeated
+objections stop before inference. `MaximumPitchReviews` limits each window to four Producer reviews,
+including when the coordination session has no turn limit. A new recorded owner-decision identity
+starts a new window; replaying the same identity does not. Exact-revision approval is consumed before
+these guards, so completed readiness and accepted source documents remain usable. Exhaustion retains
+the current draft/questions for manager resolution and never manufactures readiness, hiring, spending
+or changed scope. Pitch calls use a 16,384-token output ceiling and the latest eight conversation
+entries alongside the exact accepted sources, current draft and latest manager guidance.
+
+October 18 verification: Producer 4.0.2 passed all 388 tests with sibling SDK and WorkManagement
+Contracts references disabled, its self-test, Linux runtime publication and NuGet version inspection.
+`IncidentReportTests` covers bounded prompts without tools, replay after restart, changed evidence,
+cached malformed-output fallback, current-report reuse and cancellation. `PitchRefinementTests` covers
+identical/rotating objections, legacy unlimited sessions, new versus replayed owner decisions and
+exact approval after an exhausted legacy window. Existing progressive planning/sprint handoff tests pass.
+
+The authorized local installation used `AgentDefinitionService.UpdateAsync` for Gabriel's existing
+exclusive definition, with identical manifest authority/configuration apart from version. Before/after
+snapshots of tasks, sprint scope, coordination, operating state and artifact revision identities were
+byte-identical at the transaction boundary. The published outline, prototype refinement and eight
+Sprint 1 items were retained. Runtime/source bundles, installation receipt and preservation snapshots
+are under ignored `.artifacts/gabriel-stall-loop-fix`; this was a local installation, not a remote release.
+The replacement isolated runtime established its session with configuration status `Current`. Its first
+completed 4.0.2 `manager-incident` receipt reported 2,044 input tokens, 1,428 output tokens, 4,065 message
+characters and zero tool characters, and persisted the corresponding reusable operating-state report.

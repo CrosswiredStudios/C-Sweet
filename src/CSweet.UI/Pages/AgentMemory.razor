@@ -2,83 +2,85 @@
 @using CSweet.Contracts.Memory
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
+@inject UserTime Time
 
 <div class="learning-journal">
 @if (_loading)
 {
-    <div class="journal-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>Opening memory…</span></div>
+    <div class="journal-loading"><MudProgressCircular Indeterminate="true" Size="Size.Small" /><span>@L["AgentMemory.OpeningMemory"]</span></div>
 }
 else if (_summary is null)
 {
     <MudAlert Severity="Severity.Warning">@(_error ?? "Memory is unavailable.")</MudAlert>
-    <MudButton OnClick="InitializeAsync">Try again</MudButton>
+    <MudButton OnClick="InitializeAsync">@L["AgentMemory.TryAgain"]</MudButton>
 }
 else
 {
     <header class="journal-heading">
-        <div><h2>Learning journal</h2><p>What @_summary.EmployeeName has recorded, refined, and recalled.</p></div>
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="@(() => _manageOpen = !_manageOpen)" aria-expanded="@_manageOpen.ToString().ToLowerInvariant()">Manage memory</MudButton>
+        <div><h2>@L["AgentMemory.LearningJournal"]</h2><p>What @_summary.EmployeeName has recorded, refined, and recalled.</p></div>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Tune" OnClick="@(() => _manageOpen = !_manageOpen)" aria-expanded="@_manageOpen.ToString().ToLowerInvariant()">@L["AgentMemory.ManageMemory"]</MudButton>
     </header>
     <div class="journal-toolbar">
-        <div class="journal-views" role="group" aria-label="Memory view">
+        <div class="journal-views" role="group" aria-label="@L["AgentMemory.MemoryView"]">
             @foreach (var view in new[] { "Journal", "All memory", "Connections" })
             {
                 <button type="button" aria-pressed="@((_view == view).ToString().ToLowerInvariant())" @onclick="@(() => _view = view)">@view</button>
             }
         </div>
         <div class="journal-search">
-            <MudTextField T="string" Placeholder="Search memory…" aria-label="Search memory" @bind-Value="_search" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" OnKeyDown="SearchKeyDown" Disabled="@SelectionLocked" />
-            <MudIconButton Icon="@Icons.Material.Outlined.Search" aria-label="Search" OnClick="SearchAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)" />
-            <MudButton OnClick="@(() => _filtersOpen = !_filtersOpen)" aria-expanded="@_filtersOpen.ToString().ToLowerInvariant()" StartIcon="@Icons.Material.Outlined.FilterList">Filters</MudButton>
+            <MudTextField T="string" Placeholder="@L["AgentMemory.SearchMemory"]" aria-label="@L["AgentMemory.SearchMemory2"]" @bind-Value="_search" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" OnKeyDown="SearchKeyDown" Disabled="@SelectionLocked" />
+            <MudIconButton Icon="@Icons.Material.Outlined.Search" aria-label="@L["Common.Search"]" OnClick="SearchAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)" />
+            <MudButton OnClick="@(() => _filtersOpen = !_filtersOpen)" aria-expanded="@_filtersOpen.ToString().ToLowerInvariant()" StartIcon="@Icons.Material.Outlined.FilterList">@L["AgentMemory.Filters"]</MudButton>
         </div>
     </div>
     <div class="journal-filters" hidden="@(!_filtersOpen)">
-            <MudSelect T="string" Label="Type" @bind-Value="_kind" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All memory</MudSelectItem>
+            <MudSelect T="string" Label="@L["AgentMemory.Type"]" @bind-Value="_kind" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">@L["AgentMemory.AllMemory"]</MudSelectItem>
                 @foreach (var kind in Kinds)
                 {
                     <MudSelectItem T="string" Value="@kind">@kind</MudSelectItem>
                 }
             </MudSelect>
-            <MudSelect T="string" Label="Namespace" @bind-Value="_scope" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All namespaces</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Relationship")">Relationship</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Employee")">Employee</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Organization")">Organization</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Team")">Team</MudSelectItem>
-                <MudSelectItem T="string" Value="@("Role")">Role</MudSelectItem>
+            <MudSelect T="string" Label="@L["AgentMemory.Namespace"]" @bind-Value="_scope" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">@L["AgentMemory.AllNamespaces"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Relationship")">@L["AgentMemory.Relationship"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Employee")">@L["AgentMemory.Employee"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Organization")">@L["AgentMemory.Organization"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Team")">@L["AgentMemory.Team"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Role")">@L["AgentMemory.Role"]</MudSelectItem>
             </MudSelect>
-            <MudSelect T="string" Label="Source" @bind-Value="_source" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All sources</MudSelectItem>
-                <MudSelectItem T="string" Value="@("user")">User</MudSelectItem>
-                <MudSelectItem T="string" Value="@("assistant")">Assistant</MudSelectItem>
-                <MudSelectItem T="string" Value="@("enrichment")">Enrichment</MudSelectItem>
-                <MudSelectItem T="string" Value="@("curated")">Curated</MudSelectItem>
+            <MudSelect T="string" Label="@L["AgentMemory.Source"]" @bind-Value="_source" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">@L["AgentMemory.AllSources"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("user")">@L["AgentMemory.User"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("assistant")">@L["AgentMemory.Assistant"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("enrichment")">@L["AgentMemory.Enrichment"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("curated")">@L["AgentMemory.Curated"]</MudSelectItem>
             </MudSelect>
-            <MudSelect T="string" Label="Sensitivity" @bind-Value="_sensitivity" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All sensitivities</MudSelectItem>
+            <MudSelect T="string" Label="@L["AgentMemory.Sensitivity"]" @bind-Value="_sensitivity" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">@L["AgentMemory.AllSensitivities"]</MudSelectItem>
                 @foreach (var value in Sensitivities) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
             </MudSelect>
-            <MudSelect T="string" Label="Confirmation" @bind-Value="_state" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All states</MudSelectItem>
+            <MudSelect T="string" Label="@L["AgentMemory.Confirmation"]" @bind-Value="_state" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">@L["AgentMemory.AllStates"]</MudSelectItem>
                 @foreach (var value in States) { <MudSelectItem T="string" Value="@value">@value</MudSelectItem> }
             </MudSelect>
-            <MudDatePicker Label="From" @bind-Date="_from" Variant="Variant.Outlined" Clearable="true" />
-            <MudDatePicker Label="To" @bind-Date="_to" Variant="Variant.Outlined" Clearable="true" />
-            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="SearchAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)">Search</MudButton>
+            <MudDatePicker Label="@L["AgentMemory.From"]" @bind-Date="_from" Variant="Variant.Outlined" Clearable="true" />
+            <MudDatePicker Label="@L["AgentMemory.To"]" @bind-Date="_to" Variant="Variant.Outlined" Clearable="true" />
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="SearchAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)">@L["Common.Search"]</MudButton>
 
-        <MudButton OnClick="ClearFiltersAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)">Clear filters</MudButton>
+        <MudButton OnClick="ClearFiltersAsync" Disabled="@(SelectionLocked || _loadingItems || _loadingJournal)">@L["AgentMemory.ClearFilters"]</MudButton>
     </div>
-    @if (_view == "Connections") { <p class="journal-caption">Connections use your search text. Other filters apply to Journal and All memory.</p> }
+    @if (_view == "Connections") { <p class="journal-caption">@L["AgentMemory.ConnectionsUseYourSearchText"]</p> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
-    @if (SelectionLocked) { <MudAlert Severity="Severity.Info">Finish or retry the current review before selecting another memory.</MudAlert> }
-    <section class="journal-management" hidden="@(!_manageOpen)" aria-label="Manage memory">
-        <div class="management-heading"><h3>Manage memory</h3><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="Close management" OnClick="@(() => _manageOpen = false)" /></div>
-        <details><summary>Processing & recovery</summary>
-        <MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="Memory processing recovery">
+    @if (SelectionLocked) { <MudAlert Severity="Severity.Info">@L["AgentMemory.FinishOrRetryTheCurrent"]</MudAlert> }
+    <section class="journal-management" hidden="@(!_manageOpen)" aria-label="@L["AgentMemory.ManageMemory"]">
+        <div class="management-heading"><h3>@L["AgentMemory.ManageMemory"]</h3><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="@L["AgentMemory.CloseManagement"]" OnClick="@(() => _manageOpen = false)" /></div>
+        <details><summary>@L["AgentMemory.ProcessingRecovery"]</summary>
+        <MudPaper Elevation="1" Class="surface-panel pa-4 mb-4" aria-label="@L["AgentMemory.MemoryProcessingRecovery"]">
             <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudText Typo="Typo.h6">Memory processing</MudText>
-                <MudButton OnClick="RefreshRecoveryAsync" Disabled="@_recovering" StartIcon="@Icons.Material.Filled.Refresh">Refresh</MudButton>
+                <MudText Typo="Typo.h6">@L["AgentMemory.MemoryProcessing"]</MudText>
+                <MudButton OnClick="RefreshRecoveryAsync" Disabled="@_recovering" StartIcon="@Icons.Material.Filled.Refresh">@L["Common.Refresh"]</MudButton>
             </MudStack>
             @if (_recoveryError is not null)
             {
@@ -90,7 +92,7 @@ else
             }
             @if (_failures is { Items.Count: > 0 })
             {
-                <MudText Class="mb-2">These memories need attention. After resolving the underlying issue, retry processing. Previously accepted results will be reused.</MudText>
+                <MudText Class="mb-2">@L["AgentMemory.TheseMemoriesNeedAttentionAfter"]</MudText>
                 @foreach (var job in _failures.Items)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" @key="job.Id">
@@ -99,17 +101,17 @@ else
                             <MudText Typo="Typo.caption">@(job.JobKind == "episode" ? "Episode" : "Conversation") · @job.CreatedAt.ToLocalTime().ToString("g") · @job.Attempts attempts · @(job.HasAcceptedExtraction ? "Saved results available" : "Extraction needed")</MudText>
                         </div>
                         <MudButton Color="Color.Secondary" Variant="Variant.Outlined" Disabled="@(_recovering || job.FailureCode is "memory_enrichment_source_invalidated" or "memory_enrichment_unverifiable_output" or "memory_enrichment_input_receipt_capacity" or "memory_enrichment_authority_revoked" or "memory_transfer_source_unavailable" or "memory_capture_excluded" or "memory_source_changed" or "memory_source_suppressed" or "memory_source_erased")"
-                                   OnClick="@(() => RetryAsync(job))" aria-label="Retry memory processing">Retry processing</MudButton>
+                                   OnClick="@(() => RetryAsync(job))" aria-label="@L["AgentMemory.RetryMemoryProcessing"]">@L["AgentMemory.RetryProcessing"]</MudButton>
                     </MudStack>
                 }
                 @if (_failures.NextCursor is not null)
                 {
-                    <MudButton OnClick="LoadMoreFailuresAsync" Disabled="@_recovering">Load more</MudButton>
+                    <MudButton OnClick="LoadMoreFailuresAsync" Disabled="@_recovering">@L["AgentMemory.LoadMore"]</MudButton>
                 }
             }
             else if (_failures is not null)
             {
-                <MudText Color="Color.Secondary">No failed memory jobs.</MudText>
+                <MudText Color="Color.Secondary">@L["AgentMemory.NoFailedMemoryJobs"]</MudText>
             }
         </MudPaper>
 
@@ -117,9 +119,9 @@ else
         <MemoryReextractionPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Recovered="RefreshRecoveryAsync" />
 
         </details>
-        <details><summary>Transfer knowledge</summary><MemoryTransferPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Selected="_selected" @key="EmployeeId" /></details>
-        <details><summary>Saved erasure operations</summary><MemoryErasureStatusPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" /></details>
-        <details><summary>System details</summary>
+        <details><summary>@L["AgentMemory.TransferKnowledge"]</summary><MemoryTransferPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" Selected="_selected" @key="EmployeeId" /></details>
+        <details><summary>@L["AgentMemory.SavedErasureOperations"]</summary><MemoryErasureStatusPanel OrganizationId="OrganizationId" EmployeeId="EmployeeId" /></details>
+        <details><summary>@L["AgentMemory.SystemDetails"]</summary>
             <div class="journal-counts">
                 @SummaryCard("Episodes", _summary.EpisodeCount, Icons.Material.Outlined.History)
                 @SummaryCard("Claims", _summary.ClaimCount, Icons.Material.Outlined.FactCheck)
@@ -141,8 +143,8 @@ else
                 @if (_view == "Journal")
                 {
                     <p class="journal-caption">Activity for @_page?.Items.Count loaded @(_page?.Items.Count == 1 ? "memory" : "memories"). Includes up to 20 revisions per memory; full history is available in the inspector.</p>
-                    @if (_loadingJournal) { <p class="journal-caption">Loading saved review and recall activity…</p> }
-                    @if (_journalNotice is not null) { <MudAlert Severity="Severity.Info">@_journalNotice <MudButton OnClick="LoadJournalAsync" Disabled="@_loadingJournal">Retry activity</MudButton></MudAlert> }
+                    @if (_loadingJournal) { <p class="journal-caption">@L["AgentMemory.LoadingSavedReviewAndRecall"]</p> }
+                    @if (_journalNotice is not null) { <MudAlert Severity="Severity.Info">@_journalNotice <MudButton OnClick="LoadJournalAsync" Disabled="@_loadingJournal">@L["AgentMemory.RetryActivity"]</MudButton></MudAlert> }
                     @foreach (var group in JournalEntries.GroupBy(x => x.At.ToLocalTime().Date))
                     {
                         <h4 class="journal-date">@group.Key.ToString("dddd, MMMM d")</h4>
@@ -157,25 +159,25 @@ else
                     }
                 }
                 else { @ItemsPanel("All") }
-                @if (!_loadingItems && _page is { Items.Count: 0 }) { <div class="journal-empty"><MudIcon Icon="@Icons.Material.Outlined.AutoStories" Size="Size.Large" /><h3>No matching memories</h3><p>Try another search or clear the filters. New records will appear here as they are captured.</p></div> }
-                @if (_page?.NextCursor is not null) { <MudButton Class="mt-3" OnClick="LoadMoreItemsAsync" Disabled="@(_loadingItems || _loadingJournal || SelectionLocked)">Load more memories</MudButton> }
+                @if (!_loadingItems && _page is { Items.Count: 0 }) { <div class="journal-empty"><MudIcon Icon="@Icons.Material.Outlined.AutoStories" Size="Size.Large" /><h3>@L["AgentMemory.NoMatchingMemories"]</h3><p>@L["AgentMemory.TryAnotherSearchOrClear"]</p></div> }
+                @if (_page?.NextCursor is not null) { <MudButton Class="mt-3" OnClick="LoadMoreItemsAsync" Disabled="@(_loadingItems || _loadingJournal || SelectionLocked)">@L["AgentMemory.LoadMoreMemories"]</MudButton> }
             }
         </section>
         <div class="journal-side">
             @if (_selected is not null)
             {
-                <div class="inspector-heading"><span>Memory inspector</span><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="Close memory inspector" Disabled="@SelectionLocked" OnClick="CloseInspector" /></div>
+                <div class="inspector-heading"><span>@L["AgentMemory.MemoryInspector"]</span><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="@L["AgentMemory.CloseMemoryInspector"]" Disabled="@SelectionLocked" OnClick="CloseInspector" /></div>
                 @DetailPanel()
             }
             else
             {
-                <aside class="journal-context"><span class="journal-eyebrow">Always in view</span><h3>Pinned context</h3><p class="journal-caption">Core memory pinned for this employee.</p>
+                <aside class="journal-context"><span class="journal-eyebrow">@L["AgentMemory.AlwaysInView"]</span><h3>@L["AgentMemory.PinnedContext"]</h3><p class="journal-caption">@L["AgentMemory.CoreMemoryPinnedForThis"]</p>
                     @foreach (var item in _pinned) { <button type="button" class="context-item" @onclick="@(() => SelectItemAsync(item))"><strong>@item.Title</strong><span>@Truncate(item.Content, 150)</span></button> }
                     @if (_pinned.Count > 0 && _pinnedError is not null) { <p class="journal-caption">@_pinnedError</p> }
                     @if (_pinned.Count == 0) { <p class="journal-caption">@(_pinnedError ?? "No pinned context yet. Open a core memory to review and pin it.")</p> }
-                    <MudButton OnClick="ShowCoreAsync" Disabled="@(_loadingItems || SelectionLocked)">Explore core memory</MudButton>
+                    <MudButton OnClick="ShowCoreAsync" Disabled="@(_loadingItems || SelectionLocked)">@L["AgentMemory.ExploreCoreMemory"]</MudButton>
                 </aside>
-                <aside class="journal-health"><span class="health-dot" style="@(_summary.Health == "Healthy" ? null : "background:var(--mud-palette-warning)")"></span><div><strong>@_summary.Health</strong><p>@_summary.PendingCaptureCount pending capture@(_summary.PendingCaptureCount == 1 ? "" : "s")</p><button type="button" @onclick="@(() => _manageOpen = true)">Review processing →</button></div></aside>
+                <aside class="journal-health"><span class="health-dot" style="@(_summary.Health == "Healthy" ? null : "background:var(--mud-palette-warning)")"></span><div><strong>@_summary.Health</strong><p>@_summary.PendingCaptureCount pending capture@(_summary.PendingCaptureCount == 1 ? "" : "s")</p><button type="button" @onclick="@(() => _manageOpen = true)">@L["AgentMemory.ReviewProcessing"]</button></div></aside>
             }
         </div>
     </div>
@@ -261,7 +263,7 @@ else
             await RefreshFailuresAsync();
             _summary = await Http.GetFromJsonAsync<AgentMemorySummaryResponse>(BaseUrl + "/summary");
         }
-        catch (Exception) { _recoveryError = "Memory processing status could not be refreshed."; }
+        catch (Exception) { _recoveryError = L["AgentMemory.MemoryProcessingStatusCouldNot"]; }
         finally { _recovering = alreadyRecovering; }
     }
 
@@ -277,7 +279,7 @@ else
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
                 _failures = null;
-                _recoveryError = "Memory recovery is available to authorized human managers in this employee's reporting hierarchy.";
+                _recoveryError = L["AgentMemory.MemoryRecoveryIsAvailableTo"];
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -286,7 +288,7 @@ else
                 _failures = cursor is null || _failures is null ? page : new(
                     _failures.Items.Concat(page.Items).DistinctBy(x => x.Id).ToList(), page.NextCursor);
         }
-        catch (Exception) { _recoveryError = "Failed memory jobs could not be loaded. Try refreshing."; }
+        catch (Exception) { _recoveryError = L["AgentMemory.FailedMemoryJobsCouldNot"]; }
         finally { _recovering = alreadyRecovering; }
     }
 
@@ -304,14 +306,14 @@ else
                 new RetryMemoryEnrichmentRequest(operationId, job.RetryGeneration));
             if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
             {
-                _recoveryNotice = "The job changed or its source is unavailable. Check the employee, source access and processing configuration, then refresh.";
+                _recoveryNotice = L["AgentMemory.TheJobChangedOrIts"];
                 await RefreshRecoveryAsync();
                 return;
             }
             if (response.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized)
             {
                 _failures = null;
-                _recoveryError = "You no longer have permission to retry this memory. Sign in or ask an authorized manager.";
+                _recoveryError = L["AgentMemory.YouNoLongerHavePermission"];
                 return;
             }
             response.EnsureSuccessStatusCode();
@@ -325,7 +327,7 @@ else
             };
             await RefreshRecoveryAsync();
         }
-        catch (Exception) { _recoveryError = "The retry could not be confirmed. Try again; repeating this request will not restart the job twice."; }
+        catch (Exception) { _recoveryError = L["AgentMemory.TheRetryCouldNotBe"]; }
         finally { _recovering = false; }
     }
 
@@ -372,7 +374,7 @@ else
             if (_loadedIdentity.HasValue) StateHasChanged();
             await LoadJournalAsync();
         }
-        catch (Exception) { _page = null; _events.Clear(); _activityLoaded.Clear(); if (!SelectionLocked) _selected = null; _error = "Memory could not be loaded. Try searching again."; }
+        catch (Exception) { _page = null; _events.Clear(); _activityLoaded.Clear(); if (!SelectionLocked) _selected = null; _error = L["AgentMemory.MemoryCouldNotBeLoaded"]; }
         finally
         {
             _loadingItems = false;
@@ -386,7 +388,7 @@ else
             var suffix = string.IsNullOrWhiteSpace(_search) ? string.Empty : $"?search={Uri.EscapeDataString(_search)}";
             _graph = await Http.GetFromJsonAsync<AgentMemoryGraphResponse>($"{BaseUrl}/graph{suffix}", _lifetime.Token);
         }
-        catch (Exception) { _graph = null; _error = "Connections could not be loaded. Try searching again."; }
+        catch (Exception) { _graph = null; _error = L["AgentMemory.ConnectionsCouldNotBeLoaded"]; }
 
     }
 
@@ -401,7 +403,7 @@ else
             var details = await Http.GetFromJsonAsync<AgentMemoryItemResponse>($"{BaseUrl}/items/{item.Id}", _lifetime.Token);
             if (_selected?.Id == item.Id && !SelectionLocked) _selected = details;
         }
-        catch (Exception) { if (_selected?.Id == item.Id && !SelectionLocked) _selected = null; _error = "This memory is unavailable or your access changed."; }
+        catch (Exception) { if (_selected?.Id == item.Id && !SelectionLocked) _selected = null; _error = L["AgentMemory.ThisMemoryIsUnavailableOr"]; }
 
     }
 
@@ -424,7 +426,7 @@ else
             <button type="button" class="memory-item @(item.Id == _selected?.Id ? "selected" : null)" @onclick="@(() => SelectItemAsync(item))" disabled="@SelectionLocked">
                 <span class="memory-item-heading"><strong>@item.Title</strong><small>@item.Kind</small></span>
                 <span>@Truncate(item.Content, 180)</span>
-                <span class="memory-item-meta">@item.Scope · @item.State · @item.OccurredAt.ToLocalTime().ToString("g")</span>
+                <span class="memory-item-meta">@item.Scope · @item.State · @Time.Format(item.OccurredAt, "g")</span>
             </button>
         }
     </div>;
@@ -552,7 +554,7 @@ else
                     <details><summary>Recall history (@_selected.RecallUses.Count)</summary>
                     @foreach (var use in _selected.RecallUses)
                     {
-                        <MudText Typo="Typo.caption">@use.UsedAt.ToLocalTime().ToString("g") in conversation @use.ConversationId</MudText>
+                        <MudText Typo="Typo.caption">@Time.Format(use.UsedAt, "g") in conversation @use.ConversationId</MudText>
                     }
                     </details>
                 }

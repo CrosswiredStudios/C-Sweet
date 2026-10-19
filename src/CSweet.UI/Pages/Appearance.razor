@@ -2,17 +2,18 @@
 @layout SettingsLayout
 @inject AppearanceState AppearanceState
 @implements IDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Appearance - C-Sweet</PageTitle>
+<PageTitle>@L["Appearance.AppearanceCSweet"]</PageTitle>
 <section class="appearance-settings">
-    <MudText Typo="Typo.overline">Preferences</MudText>
-    <MudText Typo="Typo.h4">Appearance</MudText>
-    <p>Choose a look for your business workspace, Settings, and navigation.</p>
-    <div class="appearance-options" role="group" aria-label="Workspace theme">
+    <MudText Typo="Typo.overline">@L["Appearance.Preferences"]</MudText>
+    <MudText Typo="Typo.h4">@L["Appearance.Appearance"]</MudText>
+    <p>@L["Appearance.ChooseALookForYour"]</p>
+    <div class="appearance-options" role="group" aria-label="@L["Appearance.WorkspaceTheme"]">
         @foreach (var theme in new[] { (Key: "aurora", Label: "Aurora Light", Description: "Soft color, luminous surfaces."), (Key: "gold", Label: "Black & Gold", Description: "Deep black, warm gold, crisp white.") })
         {
             <button type="button" class="appearance-option @(AppearanceState.Theme == theme.Key ? "selected" : "")" aria-pressed="@((AppearanceState.Theme == theme.Key).ToString().ToLowerInvariant())" @onclick="@(() => AppearanceState.SetThemeAsync(theme.Key))">
-                <span class="appearance-preview @theme.Key" aria-hidden="true"><span class="preview-nav"><span></span><span></span><span></span></span><span class="preview-content"><strong>Your workspace</strong><span class="preview-card">A little clarity.<br />A little atmosphere.<i></i><i></i></span></span></span>
+                <span class="appearance-preview @theme.Key" aria-hidden="true"><span class="preview-nav"><span></span><span></span><span></span></span><span class="preview-content"><strong>@L["Appearance.YourWorkspace"]</strong><span class="preview-card">@L["Appearance.ALittleClarity"]<br />@L["Appearance.ALittleAtmosphere"]<i></i><i></i></span></span></span>
                 <span class="appearance-option-label"><strong>@theme.Label</strong><span>@(AppearanceState.Theme == theme.Key ? "Selected" : "Select theme")</span></span>
                 <small>@theme.Description</small>
             </button>

@@ -1,6 +1,7 @@
 @namespace CSweet.UI.Components.WorkBoards
+@inject IAppLocalizer L
 
-<section class="work-comments @(Compact ? "is-compact" : null)" aria-label="Ticket comments">
+<section class="work-comments @(Compact ? "is-compact" : null)" aria-label="@L["WorkItemComments.TicketComments"]">
     <div class="comments-heading">
         <h3>
             Comments
@@ -11,13 +12,13 @@
         </h3>
         <div class="comments-heading-actions">
             <span class="comments-status" aria-live="polite">@_notice</span>
-            <button type="button" class="action-button" disabled="@(_busy || _loading)" @onclick="ReloadAsync">Refresh</button>
+            <button type="button" class="action-button" disabled="@(_busy || _loading)" @onclick="ReloadAsync">@L["Common.Refresh"]</button>
         </div>
     </div>
 
     @if (_loading)
     {
-        <p class="comments-loading" role="status">Loading comments…</p>
+        <p class="comments-loading" role="status">@L["WorkItemComments.LoadingComments"]</p>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -25,7 +26,7 @@
     }
     else if (_comments.Count == 0)
     {
-        <p class="comments-empty">No comments yet. Start the discussion on this ticket.</p>
+        <p class="comments-empty">@L["WorkItemComments.NoCommentsYetStartThe"]</p>
     }
 
     @if (!_loading && _comments.Count > 0)
@@ -41,11 +42,11 @@
                             <span class="comment-author">@comment.AuthorDisplayName</span>
                             @if (IsMine(comment))
                             {
-                                <span class="comment-chip">You</span>
+                                <span class="comment-chip">@L["WorkItemComments.You"]</span>
                             }
                             else if (comment.AuthorKind == AgentAuthorKind)
                             {
-                                <span class="comment-chip is-agent">Agent</span>
+                                <span class="comment-chip is-agent">@L["WorkItemComments.Agent"]</span>
                             }
                             <time datetime="@comment.CreatedAt.ToString("o")"
                                   title="@comment.CreatedAt.ToLocalTime().ToString("f")">
@@ -62,11 +63,11 @@
 
                         @if (_editingId == comment.Id)
                         {
-                            <label class="sr-only" for="@EditFieldId(comment.Id)">Edit comment</label>
+                            <label class="sr-only" for="@EditFieldId(comment.Id)">@L["WorkItemComments.EditComment"]</label>
                             <textarea id="@EditFieldId(comment.Id)" class="comment-input" rows="3" maxlength="8192"
                                       @bind="_editDraft" @bind:event="oninput" disabled="@_busy"></textarea>
                             <div class="comment-actions">
-                                <button type="button" class="ghost-button" disabled="@_busy" @onclick="CancelEdit">Cancel</button>
+                                <button type="button" class="ghost-button" disabled="@_busy" @onclick="CancelEdit">@L["Common.Cancel"]</button>
                                 <button type="button" class="submit-button"
                                         disabled="@(_busy || string.IsNullOrWhiteSpace(_editDraft))" @onclick="SaveEditAsync">
                                     @(_busy ? "Saving…" : "Save changes")
@@ -90,23 +91,23 @@
                                     {
                                         <button type="button" class="action-button" disabled="@_busy"
                                                 aria-label="@($"Edit comment by {comment.AuthorDisplayName}")"
-                                                @onclick="@(() => BeginEdit(comment))">Edit</button>
+                                                @onclick="@(() => BeginEdit(comment))">@L["Common.Edit"]</button>
                                     }
                                     @if (comment.CanDelete && _deleteConfirmId != comment.Id)
                                     {
                                         <button type="button" class="action-button is-danger" disabled="@_busy"
                                                 aria-label="@($"Delete comment by {comment.AuthorDisplayName}")"
-                                                @onclick="@(() => _deleteConfirmId = comment.Id)">Delete</button>
+                                                @onclick="@(() => _deleteConfirmId = comment.Id)">@L["Common.Delete"]</button>
                                     }
                                 </div>
                             }
                             @if (_deleteConfirmId == comment.Id)
                             {
                                 <div class="comment-confirm" role="alert">
-                                    <p>Delete this comment? It disappears from the ticket, and its activity history is kept.</p>
+                                    <p>@L["WorkItemComments.DeleteThisCommentItDisappears"]</p>
                                     <div class="comment-actions">
                                         <button type="button" class="ghost-button" disabled="@_busy"
-                                                @onclick="@(() => _deleteConfirmId = null)">Cancel</button>
+                                                @onclick="@(() => _deleteConfirmId = null)">@L["Common.Cancel"]</button>
                                         <button type="button" class="danger-button" disabled="@_busy"
                                                 @onclick="@(() => ConfirmDeleteAsync(comment))">
                                             @(_busy ? "Deleting…" : "Confirm delete")
@@ -124,9 +125,9 @@
     @if (!_loading && _canComment)
     {
         <div class="comment-composer">
-            <label class="sr-only" for="@ComposerFieldId">Add a comment</label>
+            <label class="sr-only" for="@ComposerFieldId">@L["WorkItemComments.AddAComment"]</label>
             <textarea id="@ComposerFieldId" class="comment-input" rows="@(Compact ? 3 : 4)" maxlength="8192"
-                      placeholder="Add a comment…" @bind="_draft" @bind:event="oninput" disabled="@_busy"></textarea>
+                      placeholder="@L["WorkItemComments.AddAComment2"]" @bind="_draft" @bind:event="oninput" disabled="@_busy"></textarea>
             <div class="comment-hint">Mention a teammate with @@Full Name: followed by your question to request a response.</div>
             <div class="comment-actions">
                 <span class="comment-hint" aria-hidden="true">@(_draft.Length > 0 ? $"{_draft.Length}/8192" : "")</span>

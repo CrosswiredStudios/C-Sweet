@@ -12,6 +12,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
 using Wire = CSweet.WorkManagement.Contracts;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -96,7 +97,7 @@ public sealed class WorkItemDetailsContentTests
 
         public Fixture()
         {
-            var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+            var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
             services.AddSingleton<IComponentActivator>(_activator);
             services.AddSingleton<IJSRuntime, NoJavaScript>();
             services.AddSingleton<NavigationManager, TestNavigation>();

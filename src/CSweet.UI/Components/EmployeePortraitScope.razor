@@ -8,6 +8,7 @@
 @inject IAgentApiClient AgentApi
 @inject AppRealtimeState Realtime
 @inject Microsoft.Extensions.Logging.ILogger<EmployeePortraitScope> Logger
+@inject IAppLocalizer L
 
 <CascadingValue Value="_portraits">@ChildContent</CascadingValue>
 

@@ -15,6 +15,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Extensions;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -27,7 +28,7 @@ public sealed class AgentHireDialogRenderingTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var activator = new CapturingActivator();
         var services = new ServiceCollection().AddLogging();
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton<IComponentActivator>(activator);
@@ -174,7 +175,7 @@ public sealed class AgentHireDialogRenderingTests
             var activator = new CapturingActivator();
             var handler = new ProfileHandler(fields);
             var collection = new ServiceCollection().AddLogging();
-            collection.AddMudServices();
+            collection.AddMudServices(); collection.AddCSweetLocalization();
             collection.AddSingleton<IJSRuntime, NoJavaScript>();
             collection.AddSingleton<NavigationManager, TestNavigation>();
             collection.AddSingleton<IComponentActivator>(activator);

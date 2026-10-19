@@ -1,6 +1,7 @@
-<div class="employee-graph-toolbar" aria-label="Graph filters">
+@inject IAppLocalizer L
+<div class="employee-graph-toolbar" aria-label="@L["EmployeeGraphToolbar.GraphFilters"]">
     <MudSelect T="Guid?"
-               Label="Highlight team"
+               Label="@L["EmployeeGraphToolbar.HighlightTeam"]"
                Value="SelectedTeamId"
                ValueChanged="SelectedTeamIdChanged"
                Variant="Variant.Outlined"
@@ -13,17 +14,17 @@
         }
     </MudSelect>
     <MudSelect T="int"
-               Label="Degrees"
+               Label="@L["EmployeeGraphToolbar.Degrees"]"
                Value="Degrees"
                ValueChanged="DegreesChanged"
                Variant="Variant.Outlined"
                Margin="Margin.Dense"
                Class="employee-degree-select">
-        <MudSelectItem T="int" Value="1">1 degree</MudSelectItem>
-        <MudSelectItem T="int" Value="2">2 degrees</MudSelectItem>
-        <MudSelectItem T="int" Value="3">3 degrees</MudSelectItem>
+        <MudSelectItem T="int" Value="1">@L["EmployeeGraphToolbar.1Degree"]</MudSelectItem>
+        <MudSelectItem T="int" Value="2">@L["EmployeeGraphToolbar.2Degrees"]</MudSelectItem>
+        <MudSelectItem T="int" Value="3">@L["EmployeeGraphToolbar.3Degrees"]</MudSelectItem>
     </MudSelect>
-    <MudTooltip Text="Controls how many reporting relationships are shown around the selected employee.">
-        <MudIconButton Icon="@Icons.Material.Outlined.Info" Color="Color.Primary" aria-label="About graph degrees" />
+    <MudTooltip Text="@L["EmployeeGraphToolbar.ControlsHowManyReportingRelationships"]">
+        <MudIconButton Icon="@Icons.Material.Outlined.Info" Color="Color.Primary" aria-label="@L["EmployeeGraphToolbar.AboutGraphDegrees"]" />
     </MudTooltip>
 </div>

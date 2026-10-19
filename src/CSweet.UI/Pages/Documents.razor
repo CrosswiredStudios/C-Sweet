@@ -4,26 +4,27 @@
 @inject NavigationManager Navigation
 @inject CSweet.UI.Services.AppRealtimeState Realtime
 @implements IDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Documents - C-Sweet</PageTitle>
+<PageTitle>@L["Documents.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace documents-page @(_selectedId.HasValue ? "workspace-open" : null)">
     <main class="documents-library">
         <header class="documents-heading">
             <div>
-                <MudText Typo="Typo.overline" Color="Color.Primary">COMPANY KNOWLEDGE</MudText>
-                <MudText Typo="Typo.h4">Documents</MudText>
-                <MudText Color="Color.Secondary">Your team’s documents, reviews, and shared knowledge.</MudText>
+                <MudText Typo="Typo.overline" Color="Color.Primary">@L["Documents.COMPANYKNOWLEDGE"]</MudText>
+                <MudText Typo="Typo.h4">@L["Documents.Documents"]</MudText>
+                <MudText Color="Color.Secondary">@L["Documents.YourTeamSDocumentsReviews"]</MudText>
             </div>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.NoteAdd" OnClick="@(() => _creating = true)">New document</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.NoteAdd" OnClick="@(() => _creating = true)">@L["Documents.NewDocument"]</MudButton>
         </header>
 
         <div class="documents-filters">
-            <MudTextField @bind-Value="_search" Label="Search documents" Variant="Variant.Outlined"
+            <MudTextField @bind-Value="_search" Label="@L["Documents.SearchDocuments"]" Variant="Variant.Outlined"
                           Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Immediate="true"
                           DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
-            <MudSelect T="string" Label="Status" Value="_status" ValueChanged="StatusChanged" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@string.Empty">All statuses</MudSelectItem>
+            <MudSelect T="string" Label="@L["Documents.Status"]" Value="_status" ValueChanged="StatusChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">@L["Documents.AllStatuses"]</MudSelectItem>
                 @foreach (var value in new[] { "Draft", "InReview", "Approved", "ChangesRequested", "Retained" })
                 { <MudSelectItem T="string" Value="@value">@DocumentStatusLabel(value)</MudSelectItem> }
             </MudSelect>
@@ -31,18 +32,18 @@
         <details class="business-filter-disclosure">
             <summary>More filters @if (ExtraFilterCount > 0) { <span>(@ExtraFilterCount active)</span> }</summary>
             <div class="documents-advanced-filters">
-            <MudSelect T="Guid?" Label="Package" Value="_packageId" ValueChanged="PackageChanged" Variant="Variant.Outlined">
-                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All packages</MudSelectItem>
+            <MudSelect T="Guid?" Label="@L["Documents.Package"]" Value="_packageId" ValueChanged="PackageChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["Documents.AllPackages"]</MudSelectItem>
                 @foreach (var package in _packages) { <MudSelectItem T="Guid?" Value="package.Id">@package.Name</MudSelectItem> }
             </MudSelect>
-            <MudTextField @bind-Value="_documentType" Label="Document type" Variant="Variant.Outlined" Immediate="true"
+            <MudTextField @bind-Value="_documentType" Label="@L["Documents.DocumentType"]" Variant="Variant.Outlined" Immediate="true"
                           DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
-            <MudTextField @bind-Value="_creator" Label="Creator or steward" Variant="Variant.Outlined" Immediate="true"
+            <MudTextField @bind-Value="_creator" Label="@L["Documents.CreatorOrSteward"]" Variant="Variant.Outlined" Immediate="true"
                           DebounceInterval="350" OnDebounceIntervalElapsed="ReloadAsync" />
-            <MudCheckBox T="bool" Value="_includeArchived" Label="Include archived" ValueChanged="ArchivedChanged" />
+            <MudCheckBox T="bool" Value="_includeArchived" Label="@L["Documents.IncludeArchived"]" ValueChanged="ArchivedChanged" />
             </div>
         </details>
-        @if (HasFilters) { <MudButton Class="mb-3" OnClick="ClearFiltersAsync" StartIcon="@Icons.Material.Outlined.FilterAltOff">Clear filters</MudButton> }
+        @if (HasFilters) { <MudButton Class="mb-3" OnClick="ClearFiltersAsync" StartIcon="@Icons.Material.Outlined.FilterAltOff">@L["Documents.ClearFilters"]</MudButton> }
 
         @if (_packageId.HasValue && _packages.SingleOrDefault(x => x.Id == _packageId) is { } selectedPackage)
         {
@@ -50,35 +51,35 @@
                 <div><strong>@selectedPackage.Name</strong><div class="text-secondary">Version @selectedPackage.Version · @selectedPackage.Status · @selectedPackage.Members.Count members</div></div>
                 <div class="d-flex gap-2">
                     @if (selectedPackage.Status == "Draft")
-                    { <MudButton Variant="Variant.Outlined" OnClick="SubmitPackageAsync">Submit package</MudButton> }
+                    { <MudButton Variant="Variant.Outlined" OnClick="SubmitPackageAsync">@L["Documents.SubmitPackage"]</MudButton> }
                     @if (selectedPackage.Status == "InReview")
-                    { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AcceptPackageAsync">Accept package</MudButton> }
-                    <MudButton Variant="Variant.Text" Color="Color.Warning" OnClick="ArchivePackageAsync">Archive</MudButton>
+                    { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AcceptPackageAsync">@L["Documents.AcceptPackage"]</MudButton> }
+                    <MudButton Variant="Variant.Text" Color="Color.Warning" OnClick="ArchivePackageAsync">@L["Documents.Archive"]</MudButton>
                 </div>
             </MudPaper>
         }
 
         <div class="documents-content">
             <aside class="documents-folders">
-                <button class="@(!_folderId.HasValue ? "active" : null)" @onclick="@(() => SelectFolderAsync(null))"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />All documents</button>
+                <button class="@(!_folderId.HasValue ? "active" : null)" @onclick="@(() => SelectFolderAsync(null))"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />@L["Documents.AllDocuments"]</button>
                 @foreach (var folder in OrderedFolders())
                 {
                     <button class="@(_folderId == folder.Id ? "active" : null)" style="padding-left:@(1 + FolderDepth(folder) * 1.1)rem" @onclick="@(() => SelectFolderAsync(folder.Id))">
                         <MudIcon Icon="@Icons.Material.Outlined.Folder" />@folder.Name
                     </button>
                 }
-                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Outlined.CreateNewFolder" OnClick="OpenNewFolder">New folder</MudButton>
+                <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Outlined.CreateNewFolder" OnClick="OpenNewFolder">@L["Documents.NewFolder"]</MudButton>
                 @if (_folderId.HasValue)
                 {
-                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Outlined.DriveFileRenameOutline" OnClick="OpenEditFolder">Rename or move</MudButton>
-                    <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Archive" OnClick="ArchiveFolderAsync">Archive folder</MudButton>
+                    <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Outlined.DriveFileRenameOutline" OnClick="OpenEditFolder">@L["Documents.RenameOrMove"]</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" StartIcon="@Icons.Material.Outlined.Archive" OnClick="ArchiveFolderAsync">@L["Documents.ArchiveFolder"]</MudButton>
                 }
             </aside>
 
             <section class="documents-results">
                 @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
                 else if (!string.IsNullOrWhiteSpace(_error)) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
-                else if (_documents.Count == 0) { <div class="documents-empty"><MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Large" /><strong>No documents match this view.</strong></div> }
+                else if (_documents.Count == 0) { <div class="documents-empty"><MudIcon Icon="@Icons.Material.Outlined.Description" Size="Size.Large" /><strong>@L["Documents.NoDocumentsMatchThisView"]</strong></div> }
                 else
                 {
                     @foreach (var document in _documents)
@@ -107,30 +108,30 @@
 </div>
 
 <MudDialog @bind-Visible="_creating" Options="@(new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true })">
-    <TitleContent><MudText Typo="Typo.h6">New document</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["Documents.NewDocument"]</MudText></TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="_newTitle" Label="Title" Variant="Variant.Outlined" Class="mb-3" />
-        <MudTextField @bind-Value="_newType" Label="Document type" Variant="Variant.Outlined" Class="mb-3" />
-        <MudSelect T="Guid?" @bind-Value="_newFolderId" Label="Folder" Variant="Variant.Outlined" Class="mb-3">
-            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Unfiled</MudSelectItem>
+        <MudTextField @bind-Value="_newTitle" Label="@L["Documents.Title"]" Variant="Variant.Outlined" Class="mb-3" />
+        <MudTextField @bind-Value="_newType" Label="@L["Documents.DocumentType"]" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSelect T="Guid?" @bind-Value="_newFolderId" Label="@L["Documents.Folder"]" Variant="Variant.Outlined" Class="mb-3">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["Documents.Unfiled"]</MudSelectItem>
             @foreach (var folder in OrderedFolders()) { <MudSelectItem T="Guid?" Value="folder.Id">@folder.Name</MudSelectItem> }
         </MudSelect>
-        <MudTextField @bind-Value="_newContent" Label="Markdown" Lines="14" Variant="Variant.Outlined" />
+        <MudTextField @bind-Value="_newContent" Label="@L["Documents.Markdown"]" Lines="14" Variant="Variant.Outlined" />
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _creating = false)">Cancel</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateAsync">Create</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _creating = false)">@L["Common.Cancel"]</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateAsync">@L["Common.Create"]</MudButton></DialogActions>
 </MudDialog>
 
 <MudDialog @bind-Visible="_creatingFolder">
     <TitleContent><MudText Typo="Typo.h6">@(_editingFolder ? "Rename or move folder" : "New folder")</MudText></TitleContent>
     <DialogContent>
-        <MudTextField @bind-Value="_newFolderName" Label="Folder name" Variant="Variant.Outlined" Class="mb-3" />
-        <MudSelect T="Guid?" @bind-Value="_folderParentId" Label="Parent folder" Variant="Variant.Outlined">
-            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Top level</MudSelectItem>
+        <MudTextField @bind-Value="_newFolderName" Label="@L["Documents.FolderName"]" Variant="Variant.Outlined" Class="mb-3" />
+        <MudSelect T="Guid?" @bind-Value="_folderParentId" Label="@L["Documents.ParentFolder"]" Variant="Variant.Outlined">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">@L["Documents.TopLevel"]</MudSelectItem>
             @foreach (var folder in OrderedFolders().Where(x => x.Id != _folderId))
             { <MudSelectItem T="Guid?" Value="folder.Id">@folder.Name</MudSelectItem> }
         </MudSelect>
     </DialogContent>
-    <DialogActions><MudButton OnClick="@(() => _creatingFolder = false)">Cancel</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveFolderAsync">Save</MudButton></DialogActions>
+    <DialogActions><MudButton OnClick="@(() => _creatingFolder = false)">@L["Common.Cancel"]</MudButton><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveFolderAsync">@L["Common.Save"]</MudButton></DialogActions>
 </MudDialog>
 
 @code {

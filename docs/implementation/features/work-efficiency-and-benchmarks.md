@@ -17,6 +17,13 @@ and separate human/judge scores. Partial rubric scores are not presented as fina
 
 ## Metric semantics
 
+Chief work-card accounting is enforced by `ChiefWorkCards`, `AgentWorkInbox`, and the MCP/model
+dispatch boundaries. Cards exist before callback delivery and background memory enrichment;
+automatic hiring retains an explicit card link across builds and operation retries. See
+[Chief work cards](employee-audit-timeline.md#chief-of-staff-work-cards) for lifecycle, dispatch,
+coverage and deployment details. This captures future ownership without manufacturing historical
+usage or treating provider-unreported tokens as zero.
+
 - `PersonalTodoCapabilityHandler` supplies `PersonalTodoActor.WorkAttemptId` from the
   single live delivery on the authenticated runtime. `PersonalWorkAttribution.BindClaimAsync`
   appends an `agent.ticket.execution.bound` activity and updates execution focus in the

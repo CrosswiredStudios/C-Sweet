@@ -11,7 +11,7 @@ public sealed class MemoryErasureImpactPanelTests
 {
     private static MemoryErasureStatusPanel StatusPanel(HttpClient http)
     {
-        var panel = new MemoryErasureStatusPanel(); Property(panel, "Http", http);
+        var panel = TestLocalization.Inject(new MemoryErasureStatusPanel()); Property(panel, "Http", http);
         Property(panel, "OrganizationId", Guid.NewGuid()); Property(panel, "EmployeeId", Guid.NewGuid()); Parameters(panel);
         return panel;
     }
@@ -202,7 +202,7 @@ public sealed class MemoryErasureImpactPanelTests
     public async Task SavedStatusExplainsOwnershipReviewWithoutReportingCompletion(string kind, string message)
     {
         using var handler = new DelayedHttp(); using var http = new HttpClient(handler) { BaseAddress = new("http://test/") };
-        var panel = new MemoryErasureStatusPanel(); Property(panel, "Http", http);
+        var panel = TestLocalization.Inject(new MemoryErasureStatusPanel()); Property(panel, "Http", http);
         Property(panel, "OrganizationId", Guid.NewGuid()); Property(panel, "EmployeeId", Guid.NewGuid()); Parameters(panel);
         var operation = Guid.NewGuid().ToString("D"); Set(panel, "_operation", operation);
         var pending = Call(panel, "LoadAsync"); handler.Responses[0].SetResult(OwnershipConflict(kind)); await pending;
@@ -220,7 +220,7 @@ public sealed class MemoryErasureImpactPanelTests
     public async Task SavedErasureStatusCanBeRecoveredWithoutTheErasedSourceAndRejectsOldAudienceResponses()
     {
         using var handler = new DelayedHttp(); using var http = new HttpClient(handler) { BaseAddress = new("http://test/") };
-        var panel = new MemoryErasureStatusPanel(); Property(panel, "Http", http); Property(panel, "OrganizationId", Guid.NewGuid()); Property(panel, "EmployeeId", Guid.NewGuid()); Parameters(panel);
+        var panel = TestLocalization.Inject(new MemoryErasureStatusPanel()); Property(panel, "Http", http); Property(panel, "OrganizationId", Guid.NewGuid()); Property(panel, "EmployeeId", Guid.NewGuid()); Parameters(panel);
         var operation = Guid.NewGuid(); Set(panel, "_operation", operation.ToString());
         var pending = Call(panel, "LoadAsync"); Property(panel, "EmployeeId", Guid.NewGuid()); Parameters(panel);
         handler.Responses[0].SetResult(new(HttpStatusCode.OK) { Content = JsonContent.Create(Erased(Guid.NewGuid(), operation)) }); await pending;
@@ -233,7 +233,7 @@ public sealed class MemoryErasureImpactPanelTests
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
     private static MemoryErasureImpactPanel Panel(HttpClient http)
     {
-        var panel = new MemoryErasureImpactPanel(); Property(panel, "Http", http);
+        var panel = TestLocalization.Inject(new MemoryErasureImpactPanel()); Property(panel, "Http", http);
         Property(panel, "OrganizationId", Guid.NewGuid()); Property(panel, "EmployeeId", Guid.NewGuid()); Property(panel, "EpisodeId", Guid.NewGuid());
         Parameters(panel); return panel;
     }

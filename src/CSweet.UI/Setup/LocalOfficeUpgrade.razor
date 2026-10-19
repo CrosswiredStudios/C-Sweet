@@ -3,6 +3,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
 @if (ShowSummary)
 {
@@ -13,7 +14,7 @@
     </MudPaper>
 }
 <MudDialog @bind-Visible="_open" Options="_dialogOptions">
-<TitleContent><MudText Typo="Typo.h6">Office care</MudText><MudText Typo="Typo.body2">@Office.Name · @Office.MachineName</MudText></TitleContent>
+<TitleContent><MudText Typo="Typo.h6">@L["LocalOfficeUpgrade.OfficeCare"]</MudText><MudText Typo="Typo.body2">@Office.Name · @Office.MachineName</MudText></TitleContent>
 <DialogContent>
 <div class="office-repair-guide" aria-live="polite" aria-busy="@OperationInProgress">
 @if (ActionMessage is not null)
@@ -25,22 +26,22 @@
 else if (Office.OperatingSystem != "windows")
 {
     <MudText Typo="Typo.h5">Set up this Office on @Office.MachineName</MudText>
-    <MudText Class="mt-2">Use the Office installer on that computer. Return here to check its connection.</MudText>
+    <MudText Class="mt-2">@L["LocalOfficeUpgrade.UseTheOfficeInstallerOn"]</MudText>
     @RecoveryDownload
 }
 else if (_confirmRemoval)
 {
-    <MudText Typo="Typo.h5">Reinstall this Office?</MudText>
+    <MudText Typo="Typo.h5">@L["LocalOfficeUpgrade.ReinstallThisOffice"]</MudText>
     <MudText Class="mt-2">We'll replace the Office installation on @Office.MachineName and guide you through reconnecting it. Work must finish first.</MudText>
-    <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="ReinstallAsync">Reinstall Office</MudButton>
-    <MudButton Class="mt-4" Disabled="@_busy" OnClick="() => _confirmRemoval = false">Go back</MudButton>
+    <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="ReinstallAsync">@L["LocalOfficeUpgrade.ReinstallOffice"]</MudButton>
+    <MudButton Class="mt-4" Disabled="@_busy" OnClick="() => _confirmRemoval = false">@L["LocalOfficeUpgrade.GoBack"]</MudButton>
     @if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mt-3">@_error</MudAlert> }
 }
 else
 {
     <MudText Typo="Typo.h5">@Title</MudText>
     <MudText Class="mt-2">@Description</MudText>
-    <div class="repair-stages" aria-label="Repair progress">
+    <div class="repair-stages" aria-label="@L["LocalOfficeUpgrade.RepairProgress"]">
         @foreach (var step in new[] { "Prepare", _operation == "upgrade" ? "Update" : "Repair", "Reconnect" })
         {
             <span class="@(step == Stage ? "current" : "")">@step</span>
@@ -49,12 +50,12 @@ else
     @if (_initializing)
     {
         <MudProgressLinear Indeterminate="true" Class="my-3" />
-        <MudText>Checking for work already in progress…</MudText>
+        <MudText>@L["LocalOfficeUpgrade.CheckingForWorkAlreadyIn"]</MudText>
     }
     else if (_operation == "upgrade" && CanBeginNew && Office.Status != "draining")
     {
-        <MudText Class="mt-3">Pause new work before installing an update. We'll let current work finish.</MudText>
-        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Disabled || _busy || !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))" OnClick="OnPause">Pause new work</MudButton>
+        <MudText Class="mt-3">@L["LocalOfficeUpgrade.PauseNewWorkBeforeInstalling"]</MudText>
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Disabled || _busy || !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))" OnClick="OnPause">@L["LocalOfficeUpgrade.PauseNewWork"]</MudButton>
     }
     else if (_operation == "upgrade" && CanBeginNew && ActiveWork != 0)
     {
@@ -65,12 +66,12 @@ else
     {
         @if (_session?.State is "failed" or "recoveryrequired")
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@CannotStart" OnClick="() => _confirmRemoval = true">Review reinstall</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@CannotStart" OnClick="() => _confirmRemoval = true">@L["LocalOfficeUpgrade.ReviewReinstall"]</MudButton>
         }
         <MudButton Variant="@(_session is null ? Variant.Filled : Variant.Text)" Color="Color.Primary" Disabled="@CannotStart" OnClick="StartAsync" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt">@(_busy ? "Starting…" : _operation == "upgrade" ? "Install update" : _session is null ? "Repair connection" : "Try repair again")</MudButton>
         @if (_session is null && _operation == "repair" && OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))
         {
-            <MudButton Disabled="@CannotStart" OnClick="BeginUpdate">Update Office</MudButton>
+            <MudButton Disabled="@CannotStart" OnClick="BeginUpdate">@L["LocalOfficeUpgrade.UpdateOffice"]</MudButton>
         }
         <MudText Typo="Typo.caption" Class="mt-2 d-block">Your Office settings and identity will be kept. Work must finish before @(_operation == "upgrade" ? "the update" : "repair") can continue.</MudText>
         @if (_session?.ErrorCode == "recovery_app_update_required")
@@ -85,7 +86,7 @@ else
         {
             <MudProgressLinear Class="my-3" Indeterminate="true" />
             <MudText>Waiting for @Office.MachineName. Allow the Windows prompt if one appears.</MudText>
-            <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="OpenHelperAsync">Need help opening the recovery app?</MudButton>
+            <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="OpenHelperAsync">@L["LocalOfficeUpgrade.NeedHelpOpeningTheRecovery"]</MudButton>
         }
         else if (_session.LaunchMethod == "agent")
         {
@@ -93,51 +94,51 @@ else
         }
         else if (_session.LaunchMethod == "server")
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">Continue</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">@L["Common.Continue"]</MudButton>
             <MudText Typo="Typo.caption" Class="mt-2 d-block">Windows will ask you to allow the @(_operation == "upgrade" ? "update" : "repair") on @Office.MachineName.</MudText>
         }
         else
         {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Open this page on <strong>@Office.MachineName</strong>, then select Open recovery app. Keep that computer turned on and connected to C-Sweet.</MudAlert>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">Open recovery app</MudButton>
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">@L["LocalOfficeUpgrade.OpenThisPageOn"] <strong>@Office.MachineName</strong>@L["LocalOfficeUpgrade.ThenSelectOpenRecoveryApp"]</MudAlert>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="LaunchAsync">@L["LocalOfficeUpgrade.OpenRecoveryApp"]</MudButton>
             @RecoveryDownload
-            <MudButton OnClick="CopyPageAsync">Copy this page's link</MudButton>
+            <MudButton OnClick="CopyPageAsync">@L["LocalOfficeUpgrade.CopyThisPageSLink"]</MudButton>
         }
     }
     else if (_session.State == "ready")
     {
-        <MudAlert Severity="Severity.Success" Dense="true">This Office is connected again.</MudAlert>
+        <MudAlert Severity="Severity.Success" Dense="true">@L["LocalOfficeUpgrade.ThisOfficeIsConnectedAgain"]</MudAlert>
         @if (_session.ConnectedOfficeId is { } replacement && replacement != Office.Id)
         {
-            <MudButton Href="@($"/settings/offices/{replacement}")" Color="Color.Primary">Open your reinstalled Office</MudButton>
+            <MudButton Href="@($"/settings/offices/{replacement}")" Color="Color.Primary">@L["LocalOfficeUpgrade.OpenYourReinstalledOffice"]</MudButton>
         }
         else if (Office.Status == "draining")
         {
-            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="OnResume">Resume work</MudButton>
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="OnResume">@L["LocalOfficeUpgrade.ResumeWork"]</MudButton>
         }
         @if (_session.ConnectedOfficeId is null || _session.ConnectedOfficeId == Office.Id)
-        { <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="BeginUpdate">Update Office</MudButton> }
+        { <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="BeginUpdate">@L["LocalOfficeUpgrade.UpdateOffice"]</MudButton> }
     }
     else
     {
         <MudProgressLinear Class="my-3" Indeterminate="true" />
-        <MudText Typo="Typo.caption">You can leave this page. The repair status will be here when you return.</MudText>
+        <MudText Typo="Typo.caption">@L["LocalOfficeUpgrade.YouCanLeaveThisPage"]</MudText>
     }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning" Class="mt-3">@_error</MudAlert> }
-    <MudExpansionPanels Class="mt-4" Elevation="0"><MudExpansionPanel Text="Technical details and help">
+    <MudExpansionPanels Class="mt-4" Elevation="0"><MudExpansionPanel Text="@L["LocalOfficeUpgrade.TechnicalDetailsAndHelp"]">
         <MudText Typo="Typo.body2">Computer: @Office.MachineName</MudText>
         <MudText Typo="Typo.body2">Installed version: @Office.NodeVersion</MudText>
         @if (_session is not null) { <MudText Typo="Typo.body2">@_session.PhaseDisplayName: @_session.Message</MudText> }
         @if (_diagnostic is not null) { <MudText Typo="Typo.body2">@_diagnostic</MudText> }
-        <MudButton OnClick="CopyDetailsAsync" Size="Size.Small">Copy diagnostic summary</MudButton>
+        <MudButton OnClick="CopyDetailsAsync" Size="Size.Small">@L["LocalOfficeUpgrade.CopyDiagnosticSummary"]</MudButton>
         @RecoveryDownload
     </MudExpansionPanel></MudExpansionPanels>
 }
 </div>
 </DialogContent>
 <DialogActions>
-    @if (OperationInProgress) { <MudText Typo="Typo.caption">You can close this dialog. We'll keep working.</MudText> }
-    <MudButton OnClick="() => _open = false">Close</MudButton>
+    @if (OperationInProgress) { <MudText Typo="Typo.caption">@L["LocalOfficeUpgrade.YouCanCloseThisDialog"]</MudText> }
+    <MudButton OnClick="() => _open = false">@L["Common.Close"]</MudButton>
 </DialogActions>
 </MudDialog>
 

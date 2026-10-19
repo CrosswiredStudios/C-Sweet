@@ -1,10 +1,11 @@
 @using CSweet.Contracts.Memory
 @using System.Net
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <MudDivider Class="my-3" />
-<MudText Typo="Typo.subtitle2">Forgetting impact</MudText>
-<MudText Typo="Typo.body2">Review which stored memories and audiences would be affected by forgetting this source.</MudText>
+<MudText Typo="Typo.subtitle2">@L["MemoryErasureImpactPanel.ForgettingImpact"]</MudText>
+<MudText Typo="Typo.body2">@L["MemoryErasureImpactPanel.ReviewWhichStoredMemoriesAnd"]</MudText>
 <MudButton OnClick="LoadAsync" Disabled="@(_busy || _request is not null || _result is not null)">@(_busy ? "Checking impact..." : "Preview forgetting impact")</MudButton>
 @if (_impact is { } impact)
 {
@@ -27,15 +28,15 @@
     { <MudAlert Severity="Severity.Warning">@Blocker(reason)</MudAlert> }
     @if (impact.EvidenceToken is not null && impact.BlockedReason is null && impact.ApplyBlockedReason is null && _result is null && _request is null)
     {
-        <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="_busy" Label="I reviewed the affected audiences and understand this erasure cannot be undone." />
-        <MudButton Color="Color.Error" OnClick="ApplyAsync" Disabled="@(_busy || !_confirmed)">Forget reviewed source</MudButton>
+        <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="_busy" Label="@L["MemoryErasureImpactPanel.IReviewedTheAffectedAudiences"]" />
+        <MudButton Color="Color.Error" OnClick="ApplyAsync" Disabled="@(_busy || !_confirmed)">@L["MemoryErasureImpactPanel.ForgetReviewedSource"]</MudButton>
     }
-    <MudText Typo="Typo.caption">Backups, transaction logs, replicas and previously delivered content require separate retention handling. Refresh after changes.</MudText>
+    <MudText Typo="Typo.caption">@L["MemoryErasureImpactPanel.BackupsTransactionLogsReplicasAnd"]</MudText>
 }
 @if (_request is not null && _result is null)
 {
     <MudText Typo="Typo.caption">Operation: @_request.OperationId. Keep this ID to recover status after reopening the page.</MudText>
-    <MudButton OnClick="ApplyAsync" Disabled="_busy">Retry the same erasure</MudButton>
+    <MudButton OnClick="ApplyAsync" Disabled="_busy">@L["MemoryErasureImpactPanel.RetryTheSameErasure"]</MudButton>
 }
 @if (_result is { } result)
 {
@@ -45,7 +46,7 @@
         @(result.PendingRuntimes == 0 ? "The reviewed cleanup is complete." : $"Database cleanup committed. {result.PendingRuntimes} runtime shutdown acknowledgements are pending.")
     </MudAlert>
     <MudText Typo="Typo.caption">Operation: @result.OperationId</MudText>
-    <MudButton OnClick="StatusAsync" Disabled="_busy">Refresh erasure status</MudButton>
+    <MudButton OnClick="StatusAsync" Disabled="_busy">@L["MemoryErasureImpactPanel.RefreshErasureStatus"]</MudButton>
 }
 @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
 
@@ -100,7 +101,7 @@
             }
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (generation == _generation) _message = "The forgetting impact could not be loaded. Try again."; }
+        { if (generation == _generation) _message = L["MemoryErasureImpactPanel.TheForgettingImpactCouldNot"]; }
         finally { if (generation == _generation) { _busy = false; await LockedChanged.InvokeAsync(_request is not null); } }
     }
 
@@ -152,7 +153,7 @@
                     ? "Current permission to every affected audience is required."
                     : "The erasure could not be confirmed. Retry the same operation or refresh its status.";
                 if (request is not null && response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.BadRequest)
-                { _request = null; _impact = null; _confirmed = false; _message = "The review changed or is blocked. Preview the source again before erasing."; }
+                { _request = null; _impact = null; _confirmed = false; _message = L["MemoryErasureImpactPanel.TheReviewChangedOrIs"]; }
                 return;
             }
             var result = await response.Content.ReadFromJsonAsync<MemoryErasureResponse>();
@@ -161,7 +162,7 @@
             if (generation == _generation) { _result = result; _impact = null; _request = null; }
         }
         catch (Exception error) when (error is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        { if (generation == _generation) _message = "The response was lost. Retry the same erasure operation to recover its receipt."; }
+        { if (generation == _generation) _message = L["MemoryErasureImpactPanel.TheResponseWasLostRetry"]; }
         finally { if (generation == _generation) { _busy = false; await LockedChanged.InvokeAsync(_request is not null); } }
     }
 

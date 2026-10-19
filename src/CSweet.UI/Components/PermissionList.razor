@@ -1,16 +1,17 @@
+@inject IAppLocalizer L
 <MudPaper Outlined="true" Class="pa-3 permission-list">
     @if (SourceAccess)
     {
         <ul>
-            <li><strong>Contents:</strong> Read and write</li>
-            <li><strong>Pull requests:</strong> Read and write</li>
-            <li><strong>Checks:</strong> Read-only</li>
-            <li><strong>Metadata:</strong> Read-only</li>
+            <li><strong>@L["PermissionList.Contents"]</strong> @L["PermissionList.ReadWrite"]</li>
+            <li><strong>@L["PermissionList.PullRequests"]</strong> @L["PermissionList.ReadWrite"]</li>
+            <li><strong>@L["PermissionList.Checks"]</strong> @L["PermissionList.ReadOnly"]</li>
+            <li><strong>@L["PermissionList.Metadata"]</strong> @L["PermissionList.ReadOnly"]</li>
         </ul>
     }
     else
     {
-        <ul><li><strong>Repository administration:</strong> Read and write</li></ul>
+        <ul><li><strong>@L["PermissionList.RepositoryAdministration"]</strong> @L["PermissionList.ReadWrite"]</li></ul>
     }
 </MudPaper>
 

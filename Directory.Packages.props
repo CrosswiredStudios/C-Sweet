@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="CSweet.Agent.SDK" Version="5.0.2" />
+    <PackageVersion Include="CSweet.Agent.SDK" Version="5.0.5" />
     <PackageVersion Include="CSweet.WorkManagement.Contracts" Version="5.1.0" />
     <PackageVersion Include="CSweet.Office.Contracts" Version="0.10.0" />
     <PackageVersion Include="CSweet.Isolation.HyperV" Version="0.1.0" />

@@ -1,9 +1,10 @@
-<nav class="agent-settings-navigation" aria-label="Agent settings sections">
+@inject IAppLocalizer L
+<nav class="agent-settings-navigation" aria-label="@L["AgentSettingsNavigation.AriaLabel"]">
     <MudButton Href="/settings/agents" Variant="@(Runtime ? Variant.Text : Variant.Filled)" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Inventory2">
-        Installed agents
+        @L["AgentSettingsNavigation.InstalledAgents"]
     </MudButton>
     <MudButton Href="/settings/agents/runtime" Variant="@(Runtime ? Variant.Filled : Variant.Text)" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Memory">
-        Runtime
+        @L["AgentSettingsNavigation.Runtime"]
     </MudButton>
 </nav>
 

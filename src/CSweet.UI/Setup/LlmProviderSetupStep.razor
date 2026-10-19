@@ -1,13 +1,14 @@
 @using CSweet.Contracts.Llm
 @using CSweet.Domain.Setup
 @inject ILlmProviderApiClient LlmProviderApi
+@inject IAppLocalizer L
 
 <section class="provider-step" aria-labelledby="provider-step-title">
     <header class="provider-step-header">
         <div>
-            <MudText Typo="Typo.overline">Step 3 of 5</MudText>
-            <h1 id="provider-step-title">Connect your model providers.</h1>
-            <p>Connect local runtimes, hosted services, or both. One saved provider is all you need to continue.</p>
+            <MudText Typo="Typo.overline">@L["LlmProviderSetupStep.Step3Of5"]</MudText>
+            <h1 id="provider-step-title">@L["LlmProviderSetupStep.ConnectYourModelProviders"]</h1>
+            <p>@L["LlmProviderSetupStep.ConnectLocalRuntimesHostedServices"]</p>
         </div>
         <div class="provider-count" aria-live="polite">
             <strong>@_profiles.Count</strong>
@@ -27,12 +28,12 @@
         <section class="provider-roster" aria-labelledby="connected-providers-title">
             <div class="provider-section-heading">
                 <div>
-                    <span class="provider-section-kicker">Your roster</span>
-                    <h2 id="connected-providers-title">Connected providers</h2>
+                    <span class="provider-section-kicker">@L["LlmProviderSetupStep.YourRoster"]</span>
+                    <h2 id="connected-providers-title">@L["LlmProviderSetupStep.ConnectedProviders"]</h2>
                 </div>
                 @if (_profiles.Count > 0)
                 {
-                    <span class="provider-ready-badge">Ready to continue</span>
+                    <span class="provider-ready-badge">@L["LlmProviderSetupStep.ReadyToContinue"]</span>
                 }
             </div>
 
@@ -40,8 +41,8 @@
             {
                 <div class="provider-empty-state">
                     <MudIcon Icon="@Icons.Material.Outlined.Hub" />
-                    <strong>Your provider roster is empty</strong>
-                    <span>Choose a runtime below to make your first connection.</span>
+                    <strong>@L["LlmProviderSetupStep.YourProviderRosterIsEmpty"]</strong>
+                    <span>@L["LlmProviderSetupStep.ChooseARuntimeBelowTo"]</span>
                 </div>
             }
             else
@@ -66,7 +67,7 @@
                             </div>
                             <div class="provider-list-state">
                                 <span class="provider-status verified">
-                                    Connected
+                                    @L["LlmProviderSetupStep.Connected"]
                                 </span>
                                 <button type="button" class="provider-edit-button" aria-label="Edit @profile.Name" @onclick="() => EditProvider(profile)">
                                     <MudIcon Icon="@Icons.Material.Outlined.Edit" />
@@ -88,7 +89,7 @@
         <section class="provider-picker" aria-labelledby="add-provider-title">
             <div class="provider-section-heading">
                 <div>
-                    <span class="provider-section-kicker">Add another</span>
+                    <span class="provider-section-kicker">@L["LlmProviderSetupStep.AddAnother"]</span>
                     <h2 id="add-provider-title">@ProviderPickerTitle</h2>
                 </div>
                 @if (_providerMode == ProviderMode.Local)
@@ -104,7 +105,7 @@
                 }
             </div>
 
-            <div class="provider-mode-switch" role="group" aria-label="Provider location">
+            <div class="provider-mode-switch" role="group" aria-label="@L["LlmProviderSetupStep.ProviderLocation"]">
                 <button type="button"
                         class="@(_providerMode == ProviderMode.Local ? "selected" : null)"
                         aria-pressed="@(_providerMode == ProviderMode.Local)"
@@ -112,8 +113,8 @@
                         @onclick="() => SetProviderMode(ProviderMode.Local)">
                     <MudIcon Icon="@Icons.Material.Outlined.Computer" />
                     <span>
-                        <strong>Local</strong>
-                        <small>Runs on your hardware</small>
+                        <strong>@L["LlmProviderSetupStep.Local"]</strong>
+                        <small>@L["LlmProviderSetupStep.RunsOnYourHardware"]</small>
                     </span>
                 </button>
                 <button type="button"
@@ -123,8 +124,8 @@
                         @onclick="() => SetProviderMode(ProviderMode.Hosted)">
                     <MudIcon Icon="@Icons.Material.Outlined.CloudQueue" />
                     <span>
-                        <strong>Hosted</strong>
-                        <small>Connect with an API key</small>
+                        <strong>@L["LlmProviderSetupStep.Hosted"]</strong>
+                        <small>@L["LlmProviderSetupStep.ConnectWithAnAPIKey"]</small>
                     </span>
                 </button>
                 <button type="button"
@@ -134,8 +135,8 @@
                         @onclick="() => SetProviderMode(ProviderMode.Install)">
                     <MudIcon Icon="@Icons.Material.Outlined.Download" />
                     <span>
-                        <strong>Install</strong>
-                        <small>Get a local runtime</small>
+                        <strong>@L["LlmProviderSetupStep.Install"]</strong>
+                        <small>@L["LlmProviderSetupStep.GetALocalRuntime"]</small>
                     </span>
                 </button>
             </div>
@@ -200,9 +201,9 @@
                         class="custom-provider-choice @(IsActivePreset(ActiveCustomPreset) ? "selected" : null)"
                         aria-pressed="@IsActivePreset(ActiveCustomPreset)"
                         @onclick="() => SelectPresetAsync(ActiveCustomPreset)">
-                    <span class="provider-choice-mark">API</span>
+                    <span class="provider-choice-mark">@L["LlmProviderSetupStep.API"]</span>
                     <span>
-                        <strong>Custom OpenAI-compatible endpoint</strong>
+                        <strong>@L["LlmProviderSetupStep.CustomOpenAICompatibleEndpoint"]</strong>
                         <small>@(_providerMode == ProviderMode.Hosted
                             ? "Bring another hosted service and configure its connection yourself."
                             : "Configure the URL, credentials, and compatibility settings yourself.")</small>
@@ -233,7 +234,7 @@
                         <h2 id="provider-editor-title">@(_activePreset?.DisplayName ?? "Provider")</h2>
                     </div>
                 </div>
-                <button type="button" class="provider-close-button" aria-label="Close provider form" @onclick="CloseEditor">
+                <button type="button" class="provider-close-button" aria-label="@L["LlmProviderSetupStep.CloseProviderForm"]" @onclick="CloseEditor">
                     <MudIcon Icon="@Icons.Material.Filled.Close" />
                 </button>
             </header>
@@ -241,24 +242,24 @@
             @if (_providerType == LlmProviderType.UnslothStudio)
             {
                 <div class="provider-guidance">
-                    Open Unsloth Studio’s API Access screen, start a model, and confirm the endpoint and token shown there.
+                    @L["LlmProviderSetupStep.OpenUnslothStudioSAPI"]
                 </div>
             }
 
             <div class="provider-form-grid">
-                <MudTextField Label="Provider name"
+                <MudTextField Label="@L["LlmProviderSetupStep.ProviderName"]"
                               @bind-Value="_providerName"
                               Variant="Variant.Outlined"
                               Disabled="@_isBusy" />
                 <MudTextField T="string"
-                              Label="Base URL"
+                              Label="@L["LlmProviderSetupStep.BaseURL"]"
                               Value="_baseUrl"
                               ValueChanged="OnBaseUrlChanged"
                               Variant="Variant.Outlined"
                               Immediate="true"
                               OnBlur="@(_ => ValidateConnectionAsync())"
                               Disabled="@_isBusy"
-                              Placeholder="http://localhost:8000/v1" />
+                              Placeholder="@L["LlmProviderSetupStep.HttpLocalhost8000V1"]" />
                 <MudTextField T="string"
                               Class="provider-form-wide"
                               Label="@ApiKeyLabel"
@@ -271,16 +272,16 @@
                               Disabled="@_isBusy"
                               Placeholder="@ApiKeyPlaceholder"
                               autocomplete="off" />
-                <MudNumericField T="int" Label="Maximum concurrent requests" @bind-Value="_maximumConcurrentRequests"
+                <MudNumericField T="int" Label="@L["LlmProviderSetupStep.MaximumConcurrentRequests"]" @bind-Value="_maximumConcurrentRequests"
                                  Min="1" Variant="Variant.Outlined" Disabled="@_isBusy"
-                                 HelperText="Shared by all agents using this provider. Default: 4. Match your server's capacity." />
+                                 HelperText="@L["LlmProviderSetupStep.SharedByAllAgentsUsing"]" />
             </div>
 
             @if (_isDiscovering)
             {
                 <div class="provider-feedback checking" role="status">
                     <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
-                    <span>Checking the model endpoint with these connection details...</span>
+                    <span>@L["LlmProviderSetupStep.CheckingTheModelEndpointWith"]</span>
                 </div>
             }
 
@@ -300,7 +301,7 @@
             }
 
             <footer class="provider-editor-actions">
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseEditor">Cancel</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseEditor">@L["Common.Cancel"]</MudButton>
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            EndIcon="@Icons.Material.Filled.ArrowForward"
@@ -320,9 +321,9 @@
                     <MudIcon Icon="@Icons.Material.Outlined.DeleteOutline" />
                 </span>
                 <div>
-                    <span class="provider-section-kicker">Remove connection</span>
+                    <span class="provider-section-kicker">@L["LlmProviderSetupStep.RemoveConnection"]</span>
                     <h2 id="provider-delete-title">Delete @(_providerPendingDelete?.Name)?</h2>
-                    <p>This removes the saved endpoint and its stored credentials. You can reconnect it later.</p>
+                    <p>@L["LlmProviderSetupStep.ThisRemovesTheSavedEndpoint"]</p>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(_deleteMessage))
@@ -331,7 +332,7 @@
                 }
 
                 <footer class="provider-editor-actions">
-                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseDeleteDialog">Keep provider</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Secondary" Disabled="@_isBusy" OnClick="CloseDeleteDialog">@L["LlmProviderSetupStep.KeepProvider"]</MudButton>
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Error"
                                StartIcon="@Icons.Material.Outlined.DeleteOutline"
@@ -354,12 +355,12 @@
 
     <footer class="provider-step-actions">
         <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="OnBack">
-            Back
+            @L["Common.Back"]
         </MudButton>
         <div>
             @if (_profiles.Count == 0)
             {
-                <span>Add at least one provider to continue</span>
+                <span>@L["LlmProviderSetupStep.AddAtLeastOneProvider"]</span>
             }
             else
             {
@@ -370,7 +371,7 @@
                        EndIcon="@Icons.Material.Filled.ArrowForward"
                        Disabled="@(_profiles.Count == 0 || _isBusy)"
                        OnClick="ContinueAsync">
-                Continue
+                @L["Common.Continue"]
             </MudButton>
         </div>
     </footer>
@@ -530,7 +531,7 @@
         }
         catch
         {
-            _localDiscoveryMessage = "C-Sweet could not scan for local providers. You can scan again or add one manually.";
+            _localDiscoveryMessage = L["LlmProviderSetupStep.CSweetCouldNotScan"];
         }
         finally
         {
@@ -606,7 +607,7 @@
         ResetMessages();
         _catalogSucceeded = true;
         _discoveredModelCount = 1;
-        _catalogMessage = "This saved connection was verified. Change the URL or credentials to check it again.";
+        _catalogMessage = L["LlmProviderSetupStep.ThisSavedConnectionWasVerified"];
         _editorOpen = true;
     }
 
@@ -695,11 +696,11 @@
             _deleteDialogOpen = false;
             _providerPendingDelete = null;
             _formSucceeded = true;
-            _formMessage = "Provider removed.";
+            _formMessage = L["LlmProviderSetupStep.ProviderRemoved"];
         }
         catch
         {
-            _deleteMessage = "C-Sweet could not remove this provider. Try again.";
+            _deleteMessage = L["LlmProviderSetupStep.CSweetCouldNotRemove"];
         }
         finally
         {
@@ -746,13 +747,13 @@
         if (!Uri.TryCreate(_baseUrl.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
         {
             _catalogSucceeded = false;
-            _catalogMessage = "Enter a valid HTTP or HTTPS base URL first.";
+            _catalogMessage = L["LlmProviderSetupStep.EnterAValidHTTPOr"];
             return;
         }
 
         if (RequiresApiKeyInput)
         {
-            _catalogMessage = "Enter an API key or token to verify this hosted connection.";
+            _catalogMessage = L["LlmProviderSetupStep.EnterAnAPIKeyOr"];
             return;
         }
 
@@ -785,7 +786,7 @@
 
             _discoveredModelCount = 0;
             _catalogSucceeded = false;
-            _catalogMessage = "C-Sweet could not reach this provider. Confirm that it is running and the URL is correct.";
+            _catalogMessage = L["LlmProviderSetupStep.CSweetCouldNotReach"];
         }
         finally
         {
@@ -860,7 +861,7 @@
         catch
         {
             _formSucceeded = false;
-            _formMessage = "C-Sweet could not save this provider. Check the connection details and try again.";
+            _formMessage = L["LlmProviderSetupStep.CSweetCouldNotSave"];
         }
         finally
         {

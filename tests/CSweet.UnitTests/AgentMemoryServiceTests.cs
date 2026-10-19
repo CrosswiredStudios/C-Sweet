@@ -82,8 +82,10 @@ public sealed partial class AgentMemoryServiceTests
             if (File.Exists(path + suffix)) File.Delete(path + suffix);
     }
 
-    [Fact]
-    public async Task RelationshipMemory_IsRecalledAcrossConversationsAndBrowsable()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RelationshipMemory_IsRecalledAcrossConversationsAndBrowsable(bool chief)
     {
         var path = Path.Combine(Path.GetTempPath(), $"csweet-agent-memory-{Guid.NewGuid():N}.db");
         await using var store = new SqliteMemoryStore(path);
@@ -109,6 +111,8 @@ public sealed partial class AgentMemoryServiceTests
             db.AgentPackageVersions.Add(package);
             db.AgentInstallations.Add(installation);
             db.CoreOrganizationUsers.Add(employee);
+            if (chief) db.LeadershipAssignments.Add(new LeadershipAssignment { Id = Guid.NewGuid(),
+                OrganizationId = organizationId, OrganizationUserId = employeeId, PositionKey = LeadershipPositionKeys.ChiefOfStaff });
             var first = new Conversation { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentOrganizationUserId = employeeId, InitiatedByOrganizationUserId = humanId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
             var second = new Conversation { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentOrganizationUserId = employeeId, InitiatedByOrganizationUserId = humanId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
             var otherRelationship = new Conversation { Id = Guid.NewGuid(), OrganizationId = organizationId, AgentOrganizationUserId = employeeId, InitiatedByOrganizationUserId = otherHumanId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
@@ -129,7 +133,12 @@ public sealed partial class AgentMemoryServiceTests
             db.MemoryCaptureOutbox.Add(new MemoryCaptureOutboxItem { Id = Guid.NewGuid(), ConversationMessageId = message.Id, Status = MemoryCaptureStatus.Pending, CreatedAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
             await db.SaveChangesAsync();
 
-            var providerFactory = new UsageProviderFactory();
+            var providerFactory = new UsageProviderFactory(chief ? () =>
+            {
+                var receipt = Assert.Single(db.AgentRunLogs.AsNoTracking().ToList());
+                var boundCard = db.CoreWorkTasks.AsNoTracking().Single(x => x.Id == receipt.WorkItemId);
+                Assert.Equal(WorkTaskStatus.Running, boundCard.Status);
+            } : null);
             var configurations = new StaticInstallationConfigurationService(installationId, providerId, "test-model");
             var service = new AgentMemoryService(db, store, providerFactory, configurations,
                 NullLogger<AgentMemoryService>.Instance);
@@ -155,6 +164,14 @@ public sealed partial class AgentMemoryServiceTests
             Assert.Equal(1, await service.ProcessPendingAsync());
             var enrichmentRun = Assert.Single(await db.AgentRunLogs.ToListAsync());
             Assert.Equal("memory-enrichment", enrichmentRun.InvocationKind);
+            if (chief)
+            {
+                var card = await db.CoreWorkTasks.SingleAsync(x => x.Id == enrichmentRun.WorkItemId);
+                Assert.False(card.IsExecutable);
+                Assert.Equal(WorkTaskStatus.Completed, card.Status);
+                Assert.Equal("ChiefMemoryCard", enrichmentRun.AttributionKind);
+                Assert.Contains("Capture and enrich memory", card.Title);
+            }
             Assert.Equal(first.Id, enrichmentRun.ConversationId);
             Assert.Equal(turnId, enrichmentRun.ChatTurnId);
             Assert.Equal(providerId, enrichmentRun.ProviderProfileId);
@@ -175,7 +192,7 @@ public sealed partial class AgentMemoryServiceTests
         }
     }
 
-    private sealed class UsageProviderFactory : ILlmProviderFactory
+    private sealed class UsageProviderFactory(Action? beforeDispatch = null) : ILlmProviderFactory
     {
         public Guid? SelectedProviderId { get; private set; }
         public string? SelectedModel { get; private set; }
@@ -192,7 +209,7 @@ public sealed partial class AgentMemoryServiceTests
         {
             SelectedProviderId = providerProfileId;
             SelectedModel = model;
-            return Task.FromResult<IChatClient>(new UsageChatClient());
+            return Task.FromResult<IChatClient>(new UsageChatClient(beforeDispatch));
         }
     }
 
@@ -226,13 +243,15 @@ public sealed partial class AgentMemoryServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class UsageChatClient : IChatClient
+    private sealed class UsageChatClient(Action? beforeDispatch = null) : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+            CancellationToken cancellationToken = default)
+        {
+            beforeDispatch?.Invoke();
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
                 """
                 {"entities":[{"type":"Person","name":"Alice","aliases":[]}],
                  "claims":[{"subjectName":"Alice","predicate":"name","value":"Alice","confidence":1,"importance":1,"sensitivity":"Public"}],
@@ -241,6 +260,7 @@ public sealed partial class AgentMemoryServiceTests
             {
                 Usage = new UsageDetails { InputTokenCount = 23, OutputTokenCount = 7 }
             });
+        }
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,

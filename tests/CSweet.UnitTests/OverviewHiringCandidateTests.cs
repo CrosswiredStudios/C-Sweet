@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -39,7 +40,7 @@ public sealed class OverviewHiringCandidateTests
             0, 0, null, null, false, null, null, DateTimeOffset.UtcNow) { RecommendationId = recommendation.Id };
         var handler = new OperationHandler { Operations = [operation with { OrganizationId = Guid.NewGuid() }, operation with { RecommendationId = Guid.NewGuid() }] };
         var activator = new CapturingActivator();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
@@ -105,7 +106,7 @@ public sealed class OverviewHiringCandidateTests
             RemainingHeadcount = 1, HiringUrl = "/marketplace?recommendationId=approved-plan"
         };
         var activator = new CapturingActivator();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
@@ -160,7 +161,7 @@ public sealed class OverviewHiringCandidateTests
         };
         var api = new Handler();
         var activator = new CapturingActivator();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
@@ -190,7 +191,7 @@ public sealed class OverviewHiringCandidateTests
         var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Creative Director", "Own creative direction", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
         { RemainingHeadcount = 1, HiringUrl = "/marketplace?recommendationId=approved-plan" };
         var activator = new CapturingActivator();
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();

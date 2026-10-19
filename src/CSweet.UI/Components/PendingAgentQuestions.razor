@@ -5,23 +5,24 @@
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
 @implements IDisposable
+@inject IAppLocalizer L
 
 <section class="pending-decisions @(SummaryOnly ? "decision-summary" : "decision-inbox")" aria-label="@(SummaryOnly ? "Pending attention items" : "Pending Decisions")">
     @if (!SummaryOnly)
     {
     <div class="decisions-toolbar">
         <div>
-            <h2>Pending Decisions</h2>
-            <p>Review requests for direction and respond without leaving this page.</p>
+            <h2>@L["PendingAgentQuestions.PendingDecisions"]</h2>
+            <p>@L["PendingAgentQuestions.ReviewRequestsForDirectionAnd"]</p>
         </div>
-        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="RefreshAsync" aria-label="Refresh decisions" />
+        <MudIconButton Icon="@Icons.Material.Outlined.Refresh" Size="Size.Small" Disabled="_loading" OnClick="RefreshAsync" aria-label="@L["PendingAgentQuestions.RefreshDecisions"]" />
     </div>
     }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     else if (_loading && !_loaded) { <MudProgressLinear Indeterminate="true" /> }
     else if (_questions.Count == 0 && !SummaryOnly)
     {
-        <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>No decisions need your response.</span></div>
+        <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>@L["PendingAgentQuestions.NoDecisionsNeedYourResponse"]</span></div>
     }
     else
     {
@@ -42,22 +43,22 @@
     @if (SummaryOnly)
     {
         @if (ApprovalError is not null) { <MudAlert Severity="Severity.Warning">@ApprovalError</MudAlert> }
-        else if (!ApprovalsLoaded) { <MudText Color="Color.Secondary">Loading approvals…</MudText> }
+        else if (!ApprovalsLoaded) { <MudText Color="Color.Secondary">@L["PendingAgentQuestions.LoadingApprovals"]</MudText> }
         @if (RecommendationError is not null) { <MudAlert Severity="Severity.Warning">@RecommendationError</MudAlert> }
-        else if (!RecommendationsLoaded) { <MudText Color="Color.Secondary">Loading hiring suggestions…</MudText> }
+        else if (!RecommendationsLoaded) { <MudText Color="Color.Secondary">@L["PendingAgentQuestions.LoadingHiringSuggestions"]</MudText> }
         @if (ComputeError is not null) { <MudAlert Severity="Severity.Warning">@ComputeError</MudAlert> }
-        else if (!ComputeLoaded) { <MudText Color="Color.Secondary">Loading compute permissions…</MudText> }
+        else if (!ComputeLoaded) { <MudText Color="Color.Secondary">@L["PendingAgentQuestions.LoadingComputePermissions"]</MudText> }
         @if (ComputeHasMore)
         {
-            <MudText Color="Color.Secondary">Showing permissions for the 100 most recent compute instances.</MudText>
+            <MudText Color="Color.Secondary">@L["PendingAgentQuestions.ShowingPermissionsForThe100"]</MudText>
         }
         @if (_loaded && _error is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && ComputeLoaded && ComputeError is null && !ComputeHasMore && PendingCount == 0)
         {
-            <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>Nothing needs your attention.</span></div>
+            <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>@L["PendingAgentQuestions.NothingNeedsYourAttention"]</span></div>
         }
         else
         {
-            <div class="attention-list" aria-label="Decisions, approvals, hiring, and compute permissions">
+            <div class="attention-list" aria-label="@L["PendingAgentQuestions.DecisionsApprovalsHiringAndCompute"]">
                 @foreach (var question in OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents))
                 {
                     <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Answered="OnAnsweredAsync" />
@@ -78,7 +79,7 @@
                     {
                     <AttentionRequestCard @key="approval.Id" Kind="Approval" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
                         Prompt="@approval.Title" Description="@approval.Summary" Status="@($"Requested {approval.CreatedAt.ToLocalTime():g}")">
-                        <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">Review approval</MudButton>
+                        <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">@L["PendingAgentQuestions.ReviewApproval"]</MudButton>
                     </AttentionRequestCard>
                     }
                 }
@@ -90,7 +91,7 @@
                 {
                     <AttentionRequestCard @key="resource.Id" Kind="Compute" EmployeeId="resource.EmployeeId" Name="@resource.Agent" Context="@resource.Project"
                         Prompt="Allow a local test link" PromptMeta="@($"{resource.OperatingSystem} · {resource.Id.ToString("N")[..8]}")"
-                        Description="Allow the agent to share a browser link so you can test the app on this computer."
+                        Description="@L["PendingAgentQuestions.AllowTheAgentToShare"]"
                         Status="This computer only · This instance only · Expires with the instance. No public or outbound internet access.">
                         <MudButton OnClick="() => AllowLocalLinkAsync(resource.Id)" Disabled="@_grantingLocalLinks.Contains(resource.Id)"
                             Variant="Variant.Outlined" Color="Color.Primary">@(_grantingLocalLinks.Contains(resource.Id) ? "Allowing…" : "Allow access")</MudButton>

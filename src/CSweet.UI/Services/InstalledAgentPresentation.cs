@@ -16,6 +16,19 @@ public static class InstalledAgentPresentation
             _ => ("Updating agent", $"Package status: {build.Status}.")
         };
 
+    /// <summary>Resource keys (Agents area) for the build progress heading and detail. The detail message takes a <c>status</c> argument.</summary>
+    public static (string TitleKey, string DetailKey) BuildProgressKeys(AgentBuildSummaryResponse build) =>
+        (build.SourceMode, build.Status) switch
+        {
+            ("PrebuiltRelease", "Queued") => ("InstalledAgentPresentation.PrebuiltQueued.Title", "InstalledAgentPresentation.PrebuiltQueued.Detail"),
+            ("PrebuiltRelease", "Cloning") => ("InstalledAgentPresentation.PrebuiltCloning.Title", "InstalledAgentPresentation.PrebuiltCloning.Detail"),
+            ("PrebuiltRelease", "Building") => ("InstalledAgentPresentation.PrebuiltBuilding.Title", "InstalledAgentPresentation.PrebuiltBuilding.Detail"),
+            (_, "Queued") => ("InstalledAgentPresentation.Queued.Title", "InstalledAgentPresentation.Queued.Detail"),
+            (_, "Cloning") => ("InstalledAgentPresentation.Cloning.Title", "InstalledAgentPresentation.Cloning.Detail"),
+            (_, "Building") => ("InstalledAgentPresentation.Building.Title", "InstalledAgentPresentation.Building.Detail"),
+            _ => ("InstalledAgentPresentation.Updating.Title", "InstalledAgentPresentation.Updating.Detail")
+        };
+
     public static bool IsBuilding(AgentInstallationResponse installation, bool requestPending = false) =>
         requestPending || installation.Build?.Status is "Queued" or "Cloning" or "Building" ||
         (installation.Build is null && installation.SetupState == "Building");

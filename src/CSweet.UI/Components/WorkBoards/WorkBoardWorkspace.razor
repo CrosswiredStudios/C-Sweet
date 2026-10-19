@@ -4,34 +4,35 @@
 @using Wire = CSweet.WorkManagement.Contracts
 @implements IDisposable
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 <main class="work-board @(_compact ? "is-compact" : "")" aria-label="@Detail.Board.Name">
     <header class="board-header @(Embedded ? "is-embedded" : "")">
         @if (!Embedded)
         {
-        <button type="button" class="back-link" @onclick="OnBack"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" Size="Size.Small" />All boards</button>
+        <button type="button" class="back-link" @onclick="OnBack"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" Size="Size.Small" />@L["WorkBoardWorkspace.AllBoards"]</button>
         }
         <div class="board-title-row">
             @if (!Embedded)
             {
-                <div><div class="board-eyebrow">Projects / Board</div><h2>@Detail.Board.Name</h2></div>
+                <div><div class="board-eyebrow">@L["WorkBoardWorkspace.ProjectsBoard"]</div><h2>@Detail.Board.Name</h2></div>
             }
             <div class="board-title-actions">
-                @if (Detail.Board.IsArchived) { <span class="status-label">Archived · read only</span> }
-                <button type="button" class="icon-button" aria-label="Board information" aria-expanded="@_showInfo" @onclick="@(() => _showInfo = !_showInfo)"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /></button>
-                <button type="button" class="icon-button" aria-label="Toggle favorite" aria-pressed="@Detail.Board.IsFavorite" @onclick="OnFavorite"><MudIcon Icon="@(Detail.Board.IsFavorite ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)" Size="Size.Small" /></button>
+                @if (Detail.Board.IsArchived) { <span class="status-label">@L["WorkBoardWorkspace.ArchivedReadOnly"]</span> }
+                <button type="button" class="icon-button" aria-label="@L["WorkBoardWorkspace.BoardInformation"]" aria-expanded="@_showInfo" @onclick="@(() => _showInfo = !_showInfo)"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /></button>
+                <button type="button" class="icon-button" aria-label="@L["WorkBoardWorkspace.ToggleFavorite"]" aria-pressed="@Detail.Board.IsFavorite" @onclick="OnFavorite"><MudIcon Icon="@(Detail.Board.IsFavorite ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)" Size="Size.Small" /></button>
             </div>
         </div>
-        <nav class="board-tabs" aria-label="Board views">
+        <nav class="board-tabs" aria-label="@L["WorkBoardWorkspace.BoardViews"]">
             @if (CanReadSprints)
             {
-                <button type="button" class="@TabClass(WorkBoardView.Sprint)" aria-current="@Current(WorkBoardView.Sprint)" @onclick="@(() => SelectViewAsync(WorkBoardView.Sprint))">Active sprint</button>
+                <button type="button" class="@TabClass(WorkBoardView.Sprint)" aria-current="@Current(WorkBoardView.Sprint)" @onclick="@(() => SelectViewAsync(WorkBoardView.Sprint))">@L["WorkBoardWorkspace.ActiveSprint"]</button>
             }
-            <button type="button" class="@TabClass(WorkBoardView.Backlog)" aria-current="@Current(WorkBoardView.Backlog)" @onclick="@(() => SelectViewAsync(WorkBoardView.Backlog))">Backlog <span class="count">@BacklogCount</span></button>
-            <button type="button" class="@TabClass(WorkBoardView.All)" aria-current="@Current(WorkBoardView.All)" @onclick="@(() => SelectViewAsync(WorkBoardView.All))">All work</button>
+            <button type="button" class="@TabClass(WorkBoardView.Backlog)" aria-current="@Current(WorkBoardView.Backlog)" @onclick="@(() => SelectViewAsync(WorkBoardView.Backlog))">@L["WorkBoardWorkspace.Backlog"] <span class="count">@BacklogCount</span></button>
+            <button type="button" class="@TabClass(WorkBoardView.All)" aria-current="@Current(WorkBoardView.All)" @onclick="@(() => SelectViewAsync(WorkBoardView.All))">@L["WorkBoardWorkspace.AllWork"]</button>
             @if (CanReadSprints)
             {
-                <button type="button" class="@TabClass(WorkBoardView.Sprints)" aria-current="@Current(WorkBoardView.Sprints)" @onclick="@(() => SelectViewAsync(WorkBoardView.Sprints))">Sprints</button>
+                <button type="button" class="@TabClass(WorkBoardView.Sprints)" aria-current="@Current(WorkBoardView.Sprints)" @onclick="@(() => SelectViewAsync(WorkBoardView.Sprints))">@L["WorkBoardWorkspace.Sprints"]</button>
             }
         </nav>
     </header>
@@ -42,31 +43,31 @@
     <div class="board-content">
         @if (CanReadSprints && !string.IsNullOrWhiteSpace(SprintError))
         {
-            <div class="board-error" role="alert">@SprintError <button type="button" @onclick="OnRefresh">Refresh board</button></div>
+            <div class="board-error" role="alert">@SprintError <button type="button" @onclick="OnRefresh">@L["WorkBoardWorkspace.RefreshBoard"]</button></div>
         }
         @if (_view == WorkBoardView.Sprint && SelectedSprint is null)
         {
             <div class="view-heading">
                 <h2>@(string.IsNullOrWhiteSpace(SprintError) ? "No active sprint" : "Sprint information unavailable")</h2>
-                <p>Review the backlog or choose a planned sprint to prepare the next commitment.</p>
+                <p>@L["WorkBoardWorkspace.ReviewTheBacklogOrChoose"]</p>
             </div>
         }
         else if (_view != WorkBoardView.Sprint)
         {
             <div class="view-heading"><h2>@ViewTitle</h2><p>@ViewDescription</p></div>
         }
-        <div class="board-toolbar" aria-label="Board controls" @onkeydown="HandleToolbarKeyDown">
+        <div class="board-toolbar" aria-label="@L["WorkBoardWorkspace.BoardControls"]" @onkeydown="HandleToolbarKeyDown">
             @if (_displayOpen || _actionsOpen)
             {
-                <button type="button" class="board-menu-dismiss" tabindex="-1" aria-label="Close board menus" @onclick="CloseMenus"></button>
+                <button type="button" class="board-menu-dismiss" tabindex="-1" aria-label="@L["WorkBoardWorkspace.CloseBoardMenus"]" @onclick="CloseMenus"></button>
             }
             @if (_view == WorkBoardView.Sprint)
             {
                 @if (Sprints.Count > 0)
                 {
                     <div class="sprint-selection">
-                        <select aria-label="Select sprint" title="@(SelectedSprint is { } selected ? $"{selected.Name} · {selected.Status}" : "Select sprint")" value="@_sprintId" @onchange="SelectSprintAsync">
-                            @if (!_sprintId.HasValue) { <option value="">Choose a planned or past sprint</option> }
+                        <select aria-label="@L["WorkBoardWorkspace.SelectSprint"]" title="@(SelectedSprint is { } selected ? $"{selected.Name} · {selected.Status}" : "Select sprint")" value="@_sprintId" @onchange="SelectSprintAsync">
+                            @if (!_sprintId.HasValue) { <option value="">@L["WorkBoardWorkspace.ChooseAPlannedOrPast"]</option> }
                             @foreach (var sprint in OrderedSprints)
                             {
                                 <option value="@sprint.Id">@sprint.Name · @sprint.Status</option>
@@ -78,15 +79,15 @@
                 {
                     <div class="sprint-progress" tabindex="0" title="@($"{Present.CompletionPercent(progress):0}% complete · {SprintDates(progress)}")" aria-label="@($"{progress.CompletedItemCount} of {progress.ItemCount} complete. {SprintDates(progress)}")">
                         <strong>@progress.CompletedItemCount / @progress.ItemCount complete</strong>
-                        <progress max="100" value="@Present.CompletionPercent(progress)" aria-label="Sprint completion"></progress>
+                        <progress max="100" value="@Present.CompletionPercent(progress)" aria-label="@L["WorkBoardWorkspace.SprintCompletion"]"></progress>
                     </div>
                 }
             }
             @if (_view != WorkBoardView.Sprints)
             {
-                <label class="board-search"><MudIcon Icon="@Icons.Material.Outlined.Search" Size="Size.Small" /><input type="search" aria-label="Search visible work" placeholder="@SearchPlaceholder" @bind="_search" @bind:event="oninput" /></label>
+                <label class="board-search"><MudIcon Icon="@Icons.Material.Outlined.Search" Size="Size.Small" /><input type="search" aria-label="@L["WorkBoardWorkspace.SearchVisibleWork"]" placeholder="@SearchPlaceholder" @bind="_search" @bind:event="oninput" /></label>
                 <button type="button" class="quiet-button attention-filter @(_attentionOnly ? "is-selected" : "")" aria-label="@($"{AttentionCount} need attention")" title="@($"{AttentionCount} need attention")" aria-pressed="@_attentionOnly" @onclick="@(() => _attentionOnly = !_attentionOnly)"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@AttentionCount</button>
-                <details class="display-options" open="@_displayOpen"><summary @ref="_displaySummary" aria-label="Display options" title="Display options" aria-expanded="@_displayOpen" @onclick:preventDefault="true" @onclick="ToggleDisplay"><MudIcon Icon="@Icons.Material.Outlined.Tune" Size="Size.Small" /></summary><div class="display-options-panel"><label><input type="checkbox" @bind="_compact" />Compact cards</label><label><input type="checkbox" @bind="_showDescriptions" />Show descriptions</label></div></details>
+                <details class="display-options" open="@_displayOpen"><summary @ref="_displaySummary" aria-label="@L["WorkBoardWorkspace.DisplayOptions"]" title="@L["WorkBoardWorkspace.DisplayOptions"]" aria-expanded="@_displayOpen" @onclick:preventDefault="true" @onclick="ToggleDisplay"><MudIcon Icon="@Icons.Material.Outlined.Tune" Size="Size.Small" /></summary><div class="display-options-panel"><label><input type="checkbox" @bind="_compact" />@L["WorkBoardWorkspace.CompactCards"]</label><label><input type="checkbox" @bind="_showDescriptions" />@L["WorkBoardWorkspace.ShowDescriptions"]</label></div></details>
             }
             <div class="board-actions">
                 @if (_view == WorkBoardView.Sprint && SelectedSprint is { } planningSprint)
@@ -95,31 +96,31 @@
                 }
                 @if (_view == WorkBoardView.Sprints || (_view == WorkBoardView.Sprint && SelectedSprint is null))
                 {
-                    @if (CanReadSprints) { <button type="button" class="quiet-button" @onclick="OnManageSprints">Manage sprints</button> }
+                    @if (CanReadSprints) { <button type="button" class="quiet-button" @onclick="OnManageSprints">@L["WorkBoardWorkspace.ManageSprints"]</button> }
                 }
                 @if (Detail.Board.AllowedActions.Contains(WorkItemActions.Create) && !Detail.Board.IsArchived)
                 {
-                    <button type="button" class="primary-button" @onclick="OnCreate"><MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" />New work item</button>
+                    <button type="button" class="primary-button" @onclick="OnCreate"><MudIcon Icon="@Icons.Material.Outlined.Add" Size="Size.Small" />@L["WorkBoardWorkspace.NewWorkItem"]</button>
                 }
                 <details class="board-overflow" open="@_actionsOpen">
-                    <summary @ref="_actionsSummary" class="icon-button" aria-label="More board actions" title="More board actions" aria-expanded="@_actionsOpen" @onclick:preventDefault="true" @onclick="ToggleActions"><MudIcon Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" /></summary>
+                    <summary @ref="_actionsSummary" class="icon-button" aria-label="@L["WorkBoardWorkspace.MoreBoardActions"]" title="@L["WorkBoardWorkspace.MoreBoardActions"]" aria-expanded="@_actionsOpen" @onclick:preventDefault="true" @onclick="ToggleActions"><MudIcon Icon="@Icons.Material.Outlined.MoreVert" Size="Size.Small" /></summary>
                     <div class="board-actions-panel" @onclick="CloseMenus">
                         @if (_view == WorkBoardView.Sprint && SelectedSprint is { } scopeSprint && CanPlan(scopeSprint))
                         {
-                            <button type="button" disabled="@Busy" @onclick="@(() => OnAddTickets.InvokeAsync(scopeSprint))">Add tickets</button>
+                            <button type="button" disabled="@Busy" @onclick="@(() => OnAddTickets.InvokeAsync(scopeSprint))">@L["WorkBoardWorkspace.AddTickets"]</button>
                         }
                         @if (_view == WorkBoardView.Sprint && SelectedSprint is { Status: "Active" or "Paused" or "Completed" or "Cancelled" } executionSprint && CanReadExecution)
                         {
-                            <button type="button" @onclick="@(() => OnExecution.InvokeAsync(executionSprint))">Execution</button>
+                            <button type="button" @onclick="@(() => OnExecution.InvokeAsync(executionSprint))">@L["WorkBoardWorkspace.Execution"]</button>
                         }
-                        <button type="button" disabled="@Busy" @onclick="OnRefresh">Refresh board</button>
+                        <button type="button" disabled="@Busy" @onclick="OnRefresh">@L["WorkBoardWorkspace.RefreshBoard"]</button>
                         @BoardActions
                     </div>
                 </details>
             </div>
         </div>
-        @if (_executionLoading) { <div class="board-notice" role="status">Checking sprint execution…</div> }
-        @if (_executionError is not null) { <div class="board-error" role="alert">@_executionError <button type="button" @onclick="LoadExecutionAsync">Retry execution</button></div> }
+        @if (_executionLoading) { <div class="board-notice" role="status">@L["WorkBoardWorkspace.CheckingSprintExecution"]</div> }
+        @if (_executionError is not null) { <div class="board-error" role="alert">@_executionError <button type="button" @onclick="LoadExecutionAsync">@L["WorkBoardWorkspace.RetryExecution"]</button></div> }
         @if (Busy) { <MudProgressLinear Indeterminate="true" Color="Color.Primary" /> }
         @if (!string.IsNullOrWhiteSpace(MoveError)) { <div class="board-error" role="alert">@MoveError</div> }
         @ContextContent
@@ -129,17 +130,17 @@
             <div class="sprint-directory">
                 @foreach (var sprint in OrderedSprints)
                 {
-                    <article class="sprint-directory-row" @key="sprint.Id"><div><h3>@sprint.Name</h3><p>@sprint.Goal</p><small>@SprintDates(sprint) · @sprint.CompletedItemCount / @sprint.ItemCount complete</small></div><span class="status-label @StatusClass(sprint.Status)">@sprint.Status</span><div class="board-actions"><button type="button" class="quiet-button" @onclick="@(() => OpenSprintAsync(sprint.Id))">View sprint</button>
-                        @if (CanPlan(sprint)) { <button type="button" class="quiet-button" disabled="@Busy" @onclick="@(() => OnAddTickets.InvokeAsync(sprint))">Add tickets</button> }
+                    <article class="sprint-directory-row" @key="sprint.Id"><div><h3>@sprint.Name</h3><p>@sprint.Goal</p><small>@SprintDates(sprint) · @sprint.CompletedItemCount / @sprint.ItemCount complete</small></div><span class="status-label @StatusClass(sprint.Status)">@sprint.Status</span><div class="board-actions"><button type="button" class="quiet-button" @onclick="@(() => OpenSprintAsync(sprint.Id))">@L["WorkBoardWorkspace.ViewSprint"]</button>
+                        @if (CanPlan(sprint)) { <button type="button" class="quiet-button" disabled="@Busy" @onclick="@(() => OnAddTickets.InvokeAsync(sprint))">@L["WorkBoardWorkspace.AddTickets"]</button> }
                         @if (CanStart(sprint)) { <button type="button" class="primary-button" disabled="@Busy" @onclick="@(() => OnStartSprint.InvokeAsync(sprint))">Preflight &amp; start</button> }
                         </div></article>
                 }
-                @if (Sprints.Count == 0 && string.IsNullOrWhiteSpace(SprintError)) { <p class="workspace-empty">No sprints have been planned.</p> }
+                @if (Sprints.Count == 0 && string.IsNullOrWhiteSpace(SprintError)) { <p class="workspace-empty">@L["WorkBoardWorkspace.NoSprintsHaveBeenPlanned"]</p> }
             </div>
         }
         else if (_view == WorkBoardView.Backlog)
         {
-            <div class="backlog-list" aria-label="Unscheduled work">
+            <div class="backlog-list" aria-label="@L["WorkBoardWorkspace.UnscheduledWork"]">
                 @foreach (var item in VisibleItems)
                 {
                     <button type="button" class="backlog-row" @key="item.Id" @onclick="@(() => OnOpenItem.InvokeAsync(item))"><span class="ticket-reference">@Present.ShortIdentifier(item, Detail.Board.Key)</span><span class="backlog-title"><strong>@item.Title</strong><small><WorkItemTypeBadge Kind="@item.Kind" /> · @ColumnName(item) @if (Attention(item) is { } reason) { <span class="attention-text"> · @reason</span> }</small></span><span class="ticket-owner">@(item.AssignedDisplayName ?? "Unassigned")</span><span>@(item.EstimatePoints?.ToString("0.##") ?? "—") pts</span></button>
@@ -153,8 +154,8 @@
         }
         else
         {
-            @if (HasFilters && VisibleItems.Count == 0) { <p class="board-notice" role="status">No work matches these filters. <button type="button" @onclick="ClearFilters">Clear filters</button></p> }
-            <div class="workflow-columns" aria-label="Work board columns">
+            @if (HasFilters && VisibleItems.Count == 0) { <p class="board-notice" role="status">@L["WorkBoardWorkspace.NoWorkMatchesTheseFilters"] <button type="button" @onclick="ClearFilters">@L["WorkBoardWorkspace.ClearFilters"]</button></p> }
+            <div class="workflow-columns" aria-label="@L["WorkBoardWorkspace.WorkBoardColumns"]">
                 @foreach (var column in VisibleColumns)
                 {
                     var columnItems = VisibleItems.Where(x => x.ColumnId == column.Id).ToList();
@@ -188,7 +189,7 @@
                                     }
                                     <span class="ticket-column-status" title="@ColumnName(item)">@Present.CardText(ColumnName(item), 24)</span>
                                 </div>
-                                @if (CanRetry(item)) { <button type="button" class="ticket-retry" disabled="@Busy" @onclick="@(() => OnRetryItem.InvokeAsync(item))" aria-label="Retry @item.Identifier"><MudIcon Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" />Retry</button> }
+                                @if (CanRetry(item)) { <button type="button" class="ticket-retry" disabled="@Busy" @onclick="@(() => OnRetryItem.InvokeAsync(item))" aria-label="Retry @item.Identifier"><MudIcon Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" />@L["Common.Retry"]</button> }
                                 @if (CanDrag(item)) { <button type="button" class="ticket-drag" draggable="true" @ondragstart="@(() => _draggedItem = item)" @ondragend="EndDrag" aria-label="Drag @item.Identifier; open item for Move or assign actions"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button> }
                             </article>
                         }
@@ -304,7 +305,7 @@
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
-            if (request == _executionRequest && !_disposed) _executionError = "Execution information is unavailable. Attention counts may be incomplete.";
+            if (request == _executionRequest && !_disposed) _executionError = L["WorkBoardWorkspace.ExecutionInformationIsUnavailableAttenti"];
         }
         finally { if (request == _executionRequest) _executionLoading = false; }
     }

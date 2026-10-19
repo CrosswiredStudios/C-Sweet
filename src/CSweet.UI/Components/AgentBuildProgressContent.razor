@@ -1,10 +1,12 @@
 @using CSweet.Contracts.Agents
+@inject IAppLocalizer L
+@inject UserTime Time
 
-<section class="agent-build-progress-content" aria-label="Package progress" aria-live="polite">
+<section class="agent-build-progress-content" aria-label="@L["AgentBuildProgressContent.AriaLabel"]" aria-live="polite">
     <MudText Typo="Typo.subtitle2" Class="agent-build-progress-title">@(ProgressTitle ?? BuildTitle)</MudText>
     @if (string.Equals(Build?.SourceMode, "PrebuiltRelease", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(Build?.ReleaseTag))
     {
-        <MudText Typo="Typo.caption" Color="Color.Secondary">Prebuilt release @Build.ReleaseTag@(string.IsNullOrWhiteSpace(Build?.ReleaseAssetName) ? string.Empty : $" · {Build.ReleaseAssetName}")</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@(string.IsNullOrWhiteSpace(Build?.ReleaseAssetName) ? L.Format("AgentBuildProgressContent.PrebuiltRelease", new { tag = Build.ReleaseTag }) : L.Format("AgentBuildProgressContent.PrebuiltReleaseWithAsset", new { tag = Build.ReleaseTag, asset = Build.ReleaseAssetName }))</MudText>
     }
     @if (!string.IsNullOrWhiteSpace(ProgressDetail))
     {
@@ -14,21 +16,21 @@
     {
         @if (IsPrebuilt)
         {
-            <MudText Typo="Typo.body2" Color="Color.Secondary">Installing the prebuilt release package.</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@L["AgentBuildProgressContent.InstallingPrebuilt"]</MudText>
             <ol class="installed-agent-build-steps">
-                <li>Download release</li>
-                <li>Verify bundle</li>
-                <li>Install package</li>
+                <li>@L["AgentBuildProgressContent.Step.Download"]</li>
+                <li>@L["AgentBuildProgressContent.Step.Verify"]</li>
+                <li>@L["AgentBuildProgressContent.Step.Install"]</li>
             </ol>
         }
         else
         {
-            <MudText Typo="Typo.body2" Color="Color.Secondary">Package steps will appear when the request is accepted.</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@L["AgentBuildProgressContent.StepsPending"]</MudText>
         }
     }
     else
     {
-        <MudText Typo="Typo.caption" Color="Color.Secondary">Attempt @Build.Attempt · queued @Build.QueuedAt.ToLocalTime().ToString("g")</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@L.Format("AgentBuildProgressContent.AttemptQueued", new { attempt = Build.Attempt, time = Time.Format(Build.QueuedAt, "g") })</MudText>
         @if (Build.Steps is { Count: > 0 })
         {
             <ol class="installed-agent-build-steps">
@@ -71,25 +73,23 @@
     private bool IsPrebuilt => string.Equals(Build?.SourceMode ?? SourceMode, "PrebuiltRelease", StringComparison.Ordinal);
     private string BuildTitle => (IsPrebuilt, Build?.Status) switch
     {
-        (true, "Queued") => "Install queued",
-        (true, "Cloning") => "Downloading release",
-        (true, "Building") => "Installing release",
-        (true, "Succeeded") => string.IsNullOrWhiteSpace(Build?.ReleaseTag) ? "Release installed" : $"Release {Build.ReleaseTag} installed",
-        (true, "Failed") => "Release install failed",
-        (true, "Cancelled") => "Release install cancelled",
-        (true, null) => "Preparing release install",
-        (_, "Queued") => "Build queued",
-        (_, "Cloning") => "Fetching source",
-        (_, "Building") => "Building package",
-        (_, "Succeeded") => "Build complete",
-        (_, "Failed") => "Build failed",
-        (_, "Cancelled") => "Build cancelled",
-        _ => "Build information"
+        (true, "Queued") => L["AgentBuildProgressContent.Title.PrebuiltQueued"],
+        (true, "Cloning") => L["AgentBuildProgressContent.Title.PrebuiltCloning"],
+        (true, "Building") => L["AgentBuildProgressContent.Title.PrebuiltBuilding"],
+        (true, "Succeeded") => string.IsNullOrWhiteSpace(Build?.ReleaseTag) ? L["AgentBuildProgressContent.Title.ReleaseInstalled"] : L.Format("AgentBuildProgressContent.Title.ReleaseTagInstalled", new { tag = Build.ReleaseTag }),
+        (true, "Failed") => L["AgentBuildProgressContent.Title.PrebuiltFailed"],
+        (true, "Cancelled") => L["AgentBuildProgressContent.Title.PrebuiltCancelled"],
+        (true, null) => L["AgentBuildProgressContent.Title.PrebuiltPreparing"],
+        (_, "Queued") => L["AgentBuildProgressContent.Title.Queued"],
+        (_, "Cloning") => L["AgentBuildProgressContent.Title.Cloning"],
+        (_, "Building") => L["AgentBuildProgressContent.Title.Building"],
+        (_, "Succeeded") => L["AgentBuildProgressContent.Title.Succeeded"],
+        (_, "Failed") => L["AgentBuildProgressContent.Title.Failed"],
+        (_, "Cancelled") => L["AgentBuildProgressContent.Title.Cancelled"],
+        _ => L["AgentBuildProgressContent.Title.Information"]
     };
-    private static string StepStatus(string status) => status switch
-    {
-        "InProgress" => "In progress", "Succeeded" => "Complete", _ => status
-    };
+    private string StepStatus(string status) =>
+        L.Has("AgentBuildProgressContent.StepStatus." + status) ? L["AgentBuildProgressContent.StepStatus." + status] : status;
     private static string StepIcon(string status) => status switch
     {
         "Succeeded" => Icons.Material.Filled.CheckCircle,

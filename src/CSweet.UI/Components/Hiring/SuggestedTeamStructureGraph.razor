@@ -1,6 +1,7 @@
 @using CSweet.Contracts.Core
+@inject IAppLocalizer L
 
-<section class="suggested-team-structure" aria-label="Proposed team changes">
+<section class="suggested-team-structure" aria-label="@L["SuggestedTeamStructureGraph.ProposedTeamChanges"]">
     @if (Model.RetainedRoles.Count > 0)
     {
         <p class="suggested-team-retained">Retained positions — no new hire: @string.Join(", ", Model.RetainedRoles)</p>
@@ -12,7 +13,7 @@
                     <span class="suggested-team-avatar" aria-hidden="true">@Initials(Model.ManagerDisplayName)</span>
                     <span>
                         <strong>@Model.ManagerDisplayName</strong>
-                        <small>Assigned approver</small>
+                        <small>@L["SuggestedTeamStructureGraph.AssignedApprover"]</small>
                     </span>
                 </div>
                 <ol>
@@ -21,7 +22,7 @@
                             <span class="suggested-team-avatar" aria-hidden="true">@Initials(Model.ProductManagerDisplayName)</span>
                             <span>
                                 <strong>@Model.ProductManagerDisplayName</strong>
-                                <small>Requesting delivery manager</small>
+                                <small>@L["SuggestedTeamStructureGraph.RequestingDeliveryManager"]</small>
                             </span>
                         </div>
                         @if (Model.RoleCohorts.Count > 0)

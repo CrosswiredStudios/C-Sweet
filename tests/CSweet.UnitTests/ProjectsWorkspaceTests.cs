@@ -14,11 +14,22 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
 public sealed class ProjectsWorkspaceTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Rename_action_is_shown_only_to_authorized_project_editors(bool allowed)
+    {
+        var api = new Api { CanRename = allowed };
+        var html = await Render(api, new() { ["OrganizationId"] = api.OrganizationId, ["WorkstreamId"] = api.ProjectId });
+        Assert.Equal(allowed, html.Contains("Edit name"));
+        Assert.All(api.Methods, method => Assert.Equal(HttpMethod.Get, method));
+    }
     [Theory]
     [InlineData("teams", "people")]
     [InlineData("governance", "decisions")]
@@ -279,7 +290,7 @@ public sealed class ProjectsWorkspaceTests
 
     private static async Task<string> Render(Api api, Dictionary<string, object?> parameters)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         services.AddSingleton(new HttpClient(api) { BaseAddress = new("http://localhost/") });
@@ -295,6 +306,7 @@ public sealed class ProjectsWorkspaceTests
         public Guid ProjectId { get; } = Guid.NewGuid();
         public Guid ManagerId { get; } = Guid.NewGuid();
         public bool Populated { get; init; }
+        public bool CanRename { get; init; }
         public bool HasProjectUsage { get; init; }
         public List<string> Paths { get; } = [];
         public List<HttpMethod> Methods { get; } = [];
@@ -325,7 +337,7 @@ public sealed class ProjectsWorkspaceTests
         }
         private ProjectInspectionResponse Inspection()
         {
-            if (!Populated) return new(Resource(), new(0, 0, 0, 0, 0, 0, 0, false), [], [], [], [], [], [], [], DateTimeOffset.UtcNow);
+            if (!Populated) return new(Resource() with { Id = ProjectId }, new(0, 0, 0, 0, 0, 0, 0, false), [], [], [], [], [], [], [], DateTimeOffset.UtcNow) { CanRename = CanRename };
             ProjectInspectionResource Item(string type, string title, string status) => Resource() with { ResourceType = type, Title = title, Status = status, TypeKey = null, Revision = null, DeepLink = "/linked-record" };
             ProjectAuditEntry Entry(string summary) => new(Guid.NewGuid(), 1, DateTimeOffset.UtcNow, "work.completed", "Work", "Succeeded", "Project", ProjectId, summary, "Agent", ManagerId, "Gabriel Reyes", null, null, null, null, null, "hash");
             return new(Resource() with { Metadata = JsonSerializer.SerializeToElement(new { Outcome = string.Concat(Enumerable.Repeat("Deliver a polished browser game with responsive controls, readable visual effects, and an accessible first-time player experience. ", 5)), LifecycleStage = "Concept" }) },

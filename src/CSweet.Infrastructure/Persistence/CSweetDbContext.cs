@@ -825,6 +825,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         {
             entity.Property(x => x.DisplayName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.CreatedAt).IsRequired();
+            entity.Property(x => x.PreferredLanguage).HasMaxLength(16);
+            entity.Property(x => x.TimeZoneId).HasMaxLength(64);
             entity.HasIndex(x => x.IsInitialAdministrator)
                 .IsUnique()
                 .HasFilter("\"IsInitialAdministrator\" = TRUE");

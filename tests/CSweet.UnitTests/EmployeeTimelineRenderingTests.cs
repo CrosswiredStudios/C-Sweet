@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -47,7 +48,7 @@ public sealed class EmployeeTimelineRenderingTests
     }
     private static async Task<string> RenderAsync(bool forbidden, bool model = false)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, Navigation>();
         services.AddSingleton(new HttpClient(new Handler(forbidden, model)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();

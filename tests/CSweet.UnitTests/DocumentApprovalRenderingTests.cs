@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using CSweet.Contracts.Core;
 using CSweet.UI.Components;
+using CSweet.UI.Localization;
 using CSweet.UI.Pages;
 using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
@@ -245,7 +246,7 @@ public sealed class DocumentApprovalRenderingTests
         public Fixture()
         {
             var services = new ServiceCollection().AddLogging();
-            services.AddMudServices(); services.AddCSweetApiClients();
+            services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
             services.AddSingleton<IComponentActivator>(_activator);
             services.AddSingleton<IJSRuntime, NoJavaScript>();
             services.AddSingleton<NavigationManager>(Navigation);

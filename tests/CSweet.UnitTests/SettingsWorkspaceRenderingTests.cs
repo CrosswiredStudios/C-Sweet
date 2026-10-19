@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using CSweet.Contracts.Core;
 using CSweet.UI.Components;
+using CSweet.UI.Localization;
 using CSweet.UI.Layout;
 using CSweet.UI.Pages;
 using CSweet.UI.Services;
@@ -78,7 +79,9 @@ public sealed class SettingsWorkspaceRenderingTests
         foreach (var section in SettingsSections.All) Assert.Contains($"href=\"{section.Url}\"", html);
         Assert.DoesNotContain("Marketplace", html);
         Assert.DoesNotContain("/settings/agents/marketplace", html);
-        var page = new Settings();
+        var page = TestLocalization.Inject(new Settings());
+        typeof(Settings).GetProperty("L", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page,
+            new AppLocalizer(new LocalizationResources(), new AppCulture(null, new AuthSessionStore())));
         typeof(Settings).GetField("_search", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, "image");
         var matches = (IEnumerable<SettingsSection>)typeof(Settings).GetProperty("MatchingSections", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!;
         Assert.Equal("/settings/genai-providers", Assert.Single(matches).Url);
@@ -99,6 +102,7 @@ public sealed class SettingsWorkspaceRenderingTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices();
+        services.AddCSweetLocalization();
         var activator = new TrackingActivator();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddCSweetApiClients();
@@ -178,7 +182,7 @@ public sealed class SettingsWorkspaceRenderingTests
     }
     private sealed class TestNavigation : NavigationManager
     {
-        public TestNavigation(Type page) => Initialize("http://localhost/", "http://localhost" + (SettingsSections.All.FirstOrDefault(x => page.Name.Equals(x.Title.Replace(" ", ""), StringComparison.OrdinalIgnoreCase))?.Url ?? "/settings"));
+        public TestNavigation(Type page) => Initialize("http://localhost/", "http://localhost" + (SettingsSections.All.FirstOrDefault(x => page.Name.Equals(x.TitleKey.Split('.')[2], StringComparison.OrdinalIgnoreCase))?.Url ?? "/settings"));
         protected override void NavigateToCore(string uri, bool forceLoad) { }
     }
     private sealed class NoJavaScript : IJSRuntime

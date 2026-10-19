@@ -1,7 +1,8 @@
 @page "/organizations/{OrganizationId:guid}/work/tracking/{ItemId:guid}"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
-<PageTitle>Work progress</PageTitle>
-<h1>Work progress</h1>
+@inject IAppLocalizer L
+<PageTitle>@L["WorkTrackingPage.PageTitle"]</PageTitle>
+<h1>@L["WorkTrackingPage.WorkProgress"]</h1>
 <CSweet.UI.Components.WorkBoards.WorkTracking @key="ItemId" OrganizationId="OrganizationId" ItemId="ItemId" ShowUpdates="true" />
 @code {
     [Parameter] public Guid OrganizationId { get; set; }

@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MudBlazor;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -16,7 +17,7 @@ public sealed class NotificationSnackbarTests
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = new AppRealtimeCoordinator();
+        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
@@ -37,7 +38,7 @@ public sealed class NotificationSnackbarTests
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = new AppRealtimeCoordinator();
+        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
@@ -64,7 +65,7 @@ public sealed class NotificationSnackbarTests
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = new AppRealtimeCoordinator();
+        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
@@ -90,7 +91,7 @@ public sealed class NotificationSnackbarTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<NavigationManager>(new TestNavigation());
-        services.AddMudServices();
+        services.AddMudServices(); services.AddCSweetLocalization();
         return services.BuildServiceProvider();
     }
 

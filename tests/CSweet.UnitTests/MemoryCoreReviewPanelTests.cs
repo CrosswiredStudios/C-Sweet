@@ -74,7 +74,7 @@ public sealed class MemoryCoreReviewPanelTests
         "Pending", "Personal", true, true, true, []);
     private const BindingFlags Members = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
     private static MemoryCoreReviewPanel Panel(HttpClient http)
-    { var panel = new MemoryCoreReviewPanel(); Property(panel, "Http", http); return panel; }
+    { var panel = TestLocalization.Inject(new MemoryCoreReviewPanel()); Property(panel, "Http", http); return panel; }
     private static void Property(object panel, string name, object value) => typeof(MemoryCoreReviewPanel).GetProperty(name, Members)!.SetValue(panel, value);
     private static void Set(object panel, string field, object value) => typeof(MemoryCoreReviewPanel).GetField(field, Members)!.SetValue(panel, value);
     private static object? Get(object panel, string field) => typeof(MemoryCoreReviewPanel).GetField(field, Members)!.GetValue(panel);

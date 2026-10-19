@@ -3,27 +3,28 @@
 @using CSweet.Contracts.Auth
 @inject IAuthenticationApiClient AuthenticationApi
 @inject NavigationManager Navigation
+@inject IAppLocalizer L
 
-<PageTitle>Confirm email - C-Sweet</PageTitle>
+<PageTitle>@L["ConfirmEmail.PageTitle"]</PageTitle>
 
 <MudPaper Elevation="0" Class="auth-card auth-card-centered">
     @if (_working)
     {
         <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-        <MudText Typo="Typo.h5">Confirming your email…</MudText>
+        <MudText Typo="Typo.h5">@L["ConfirmEmail.Working"]</MudText>
     }
     else if (_succeeded)
     {
         <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Large" />
-        <MudText Typo="Typo.h5">Email confirmed</MudText>
-        <MudText Color="Color.Secondary">Continuing to system setup…</MudText>
+        <MudText Typo="Typo.h5">@L["ConfirmEmail.Confirmed"]</MudText>
+        <MudText Color="Color.Secondary">@L["ConfirmEmail.Continuing"]</MudText>
     }
     else
     {
         <MudIcon Icon="@Icons.Material.Filled.Error" Color="Color.Error" Size="Size.Large" />
-        <MudText Typo="Typo.h5">Confirmation failed</MudText>
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_message</MudAlert>
-        <MudButton Href="/login" Variant="Variant.Filled" Color="Color.Primary">Return to sign in</MudButton>
+        <MudText Typo="Typo.h5">@L["ConfirmEmail.Failed"]</MudText>
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@(_message ?? L["ConfirmEmail.InvalidLink"])</MudAlert>
+        <MudButton Href="/login" Variant="Variant.Filled" Color="Color.Primary">@L["ConfirmEmail.ReturnToSignIn"]</MudButton>
     }
 </MudPaper>
 
@@ -32,7 +33,7 @@
     [SupplyParameterFromQuery] public string? Code { get; set; }
     private bool _working = true;
     private bool _succeeded;
-    private string _message = "The confirmation link is invalid or expired.";
+    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {

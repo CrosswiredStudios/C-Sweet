@@ -1,5 +1,36 @@
 # Agent upgrades and configuration readiness
 
+## Hiring and approved package identity
+
+`HiringService.BuildWorkflowSnapshotAsync` resolves remote catalog candidates against existing
+`AgentDefinition` records by normalized repository URL and agent ID. When a definition exists,
+the review uses its approved `PackageVersionId`, commit, manifest, configuration schema and
+default grants. It does not fetch the repository branch or import a newer package during hiring.
+New versions are reviewed through Installed Agents. This also works before the first employee
+is hired into a business; `InstalledAgentCatalogProvider` alone only exposes business installations.
+
+`EmbeddedAgentInstallSnapshot.UsesApprovedDefinition` pins this selection. `RevalidateAsync`
+rejects package replacement, disabling and grant changes before confirmation, and confirmation
+checks the definition response's package ID again before creating the employee. A fresh review
+uses the current approved package. New, uninstalled remote agents retain the normal import flow;
+explicit local archive reviews retain their immutable archive selection.
+
+The message "This agent already has a different approved version" compares package record IDs,
+not only semantic versions. Two commits with identical manifest versions can have different IDs.
+A first-party catalog hiring review previously previewed the moving default branch even when a
+global definition already existed, then requested `ReuseExistingDefinition` for the new record.
+This can produce the error without any direct mutation of an installed agent by Codex.
+
+For an interrupted review made before this fix, dismiss the failed hire and open a fresh hiring
+review from the recommendation. After publishing Producer 4.0.5, update Gabriel through Installed
+Agents before opening that review. Retrying the old notification reuses its pinned snapshot.
+Do not repair this by changing package rows, stored manifests or artifact digests manually.
+
+`HiringServiceTests.ApprovedDefinition` covers approved-package reuse without a remote preview,
+retained restricted grants, and rejection of updates, disabled definitions and grant drift.
+
+## Upgrade configuration
+
 `AgentDefinitionService.UpdateAsync` installs an approved package version independently
 of inference-provider connectivity. An offline model server must not prevent an agent
 package upgrade.

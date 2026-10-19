@@ -16,6 +16,7 @@ using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Extensions;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
@@ -193,7 +194,7 @@ public sealed class OverviewHiringApprovalTests
         public int RefreshCount { get; private set; }
         public Fixture()
         {
-            var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetApiClients();
+            var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
             services.AddSingleton<IComponentActivator>(Activator);
             services.AddSingleton<IJSRuntime, NoJavaScript>();
             services.AddSingleton<NavigationManager, TestNavigation>();

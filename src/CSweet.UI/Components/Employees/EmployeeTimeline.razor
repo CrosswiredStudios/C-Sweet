@@ -4,23 +4,24 @@
 @implements IDisposable
 @inject HttpClient Http
 @inject AppRealtimeState Realtime
-<section class="employee-timeline" aria-label="Employee timeline">
-    <header class="timeline-heading"><div><h2>Timeline</h2><p>Work, conversations, and runtime events</p></div><MudButton StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="ReloadAsync">Refresh</MudButton></header>
+@inject IAppLocalizer L
+<section class="employee-timeline" aria-label="@L["EmployeeTimeline.EmployeeTimeline"]">
+    <header class="timeline-heading"><div><h2>@L["EmployeeTimeline.Timeline"]</h2><p>@L["EmployeeTimeline.WorkConversationsAndRuntimeEvents"]</p></div><MudButton StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_loading" OnClick="ReloadAsync">@L["Common.Refresh"]</MudButton></header>
     <div class="timeline-filters">
-        <label>Period<select value="@_days" @onchange="ChangeRangeAsync"><option value="90">Last 90 days</option><option value="7">Last 7 days</option><option value="1">Last 24 hours</option><option value="0">All history</option></select></label>
-        <label>Event type<select value="@_category" @onchange="ChangeCategoryAsync"><option value="">All events</option>@foreach (var category in Categories) { <option value="@category">@category</option> }</select></label>
-        <label>Outcome<select value="@_outcome" @onchange="ChangeOutcomeAsync"><option value="">All outcomes</option>@foreach (var outcome in Outcomes) { <option value="@outcome">@outcome</option> }</select></label>
-        <label class="timeline-search">Search<input value="@_search" @oninput="@(e => _search = e.Value?.ToString() ?? "")" @onkeydown="SearchKeyAsync" placeholder="Event, actor or correlation ID" /></label>
-        <MudButton OnClick="ReloadAsync" Disabled="_loading">Search</MudButton>
+        <label>@L["EmployeeTimeline.Period"]<select value="@_days" @onchange="ChangeRangeAsync"><option value="90">@L["EmployeeTimeline.Last90Days"]</option><option value="7">@L["EmployeeTimeline.Last7Days"]</option><option value="1">@L["EmployeeTimeline.Last24Hours"]</option><option value="0">@L["EmployeeTimeline.AllHistory"]</option></select></label>
+        <label>@L["EmployeeTimeline.EventType"]<select value="@_category" @onchange="ChangeCategoryAsync"><option value="">@L["EmployeeTimeline.AllEvents"]</option>@foreach (var category in Categories) { <option value="@category">@category</option> }</select></label>
+        <label>@L["EmployeeTimeline.Outcome"]<select value="@_outcome" @onchange="ChangeOutcomeAsync"><option value="">@L["EmployeeTimeline.AllOutcomes"]</option>@foreach (var outcome in Outcomes) { <option value="@outcome">@outcome</option> }</select></label>
+        <label class="timeline-search">@L["Common.Search"]<input value="@_search" @oninput="@(e => _search = e.Value?.ToString() ?? "")" @onkeydown="SearchKeyAsync" placeholder="@L["EmployeeTimeline.EventActorOrCorrelationID"]" /></label>
+        <MudButton OnClick="ReloadAsync" Disabled="_loading">@L["Common.Search"]</MudButton>
     </div>
     @if (_correlation is not null) { <MudChip T="string" OnClose="ClearCorrelationAsync">Interaction: @_correlation</MudChip> }
-    @if (_newEvents) { <MudButton FullWidth="true" Color="Color.Primary" OnClick="ReloadAsync">New activity available · Refresh timeline</MudButton> }
-    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">Retry</MudButton></MudAlert> }
+    @if (_newEvents) { <MudButton FullWidth="true" Color="Color.Primary" OnClick="ReloadAsync">@L["EmployeeTimeline.NewActivityAvailableRefreshTimeline"]</MudButton> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="ReloadAsync">@L["Common.Retry"]</MudButton></MudAlert> }
     @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
     <div class="timeline-split">
         <div class="timeline-feed" aria-live="polite">
-            <div class="feed-heading">@(_days == 0 ? "All recorded history" : $"Last {_days} days")<span>Newest first</span></div>
-            @if (!_loading && _items.Count == 0) { <p class="timeline-empty">No recorded events match these filters.</p> }
+            <div class="feed-heading">@(_days == 0 ? "All recorded history" : $"Last {_days} days")<span>@L["EmployeeTimeline.NewestFirst"]</span></div>
+            @if (!_loading && _items.Count == 0) { <p class="timeline-empty">@L["EmployeeTimeline.NoRecordedEventsMatchThese"]</p> }
             @foreach (var day in _items.GroupBy(x => x.OccurredAt.ToLocalTime().Date))
             {
                 <div class="timeline-date">@day.Key.ToString("dddd, MMMM d")</div>
@@ -35,8 +36,8 @@
                     @if (_selectedId == item.Id) { <div class="timeline-mobile-detail">@Inspector()</div> }
                 }
             }
-            @if (_cursor is not null) { <MudButton FullWidth="true" Disabled="_loading" OnClick="LoadMoreAsync">Load older events</MudButton> }
-            <p class="timeline-footnote">Historical records may contain previews or incomplete evidence. All retained audit history remains available.</p>
+            @if (_cursor is not null) { <MudButton FullWidth="true" Disabled="_loading" OnClick="LoadMoreAsync">@L["EmployeeTimeline.LoadOlderEvents"]</MudButton> }
+            <p class="timeline-footnote">@L["EmployeeTimeline.HistoricalRecordsMayContainPreviews"]</p>
         </div>
         <aside class="timeline-desktop-detail">@Inspector()</aside>
     </div>
@@ -90,7 +91,7 @@
         _selectedId = id; _detail = null; _detailError = null; _detailLoading = true; var version = ++_detailVersion;
         try { var value = await Http.GetFromJsonAsync<SecurityEventDetailResponse>($"api/core/organizations/{OrganizationId}/employees/{EmployeeId}/timeline/{id}", _requests.Token); if (version == _detailVersion) _detail = value; }
         catch (OperationCanceledException) { }
-        catch (HttpRequestException) { if (version == _detailVersion) _detailError = "This event is unavailable or access has changed."; }
+        catch (HttpRequestException) { if (version == _detailVersion) _detailError = L["EmployeeTimeline.ThisEventIsUnavailableOr"]; }
         finally { if (version == _detailVersion) _detailLoading = false; }
     }
     private async Task ChangeRangeAsync(ChangeEventArgs e) { _days = int.Parse(e.Value!.ToString()!); await ReloadAsync(); }
@@ -115,7 +116,7 @@
         catch (OperationCanceledException) { }
         catch (HttpRequestException ex)
         {
-            if (ex.StatusCode == System.Net.HttpStatusCode.Forbidden) { _items.Clear(); _detail = null; _error = "You no longer have access to this employee’s diagnostics."; }
+            if (ex.StatusCode == System.Net.HttpStatusCode.Forbidden) { _items.Clear(); _detail = null; _error = L["EmployeeTimeline.YouNoLongerHaveAccess"]; }
         }
         finally { _checking = false; if (!_disposed) StateHasChanged(); }
     }

@@ -1,11 +1,12 @@
 @using CSweet.Contracts.Core
 @using System.Text.Json
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<article class="project-approval @(Compact ? "compact" : "")" aria-label="Project creation approval">
+<article class="project-approval @(Compact ? "compact" : "")" aria-label="@L["ProjectCreationApprovalCard.ProjectCreationApproval"]">
     <div class="review-body">
         <header>
-            <span class="request-kind">New project</span>
+            <span class="request-kind">@L["ProjectCreationApprovalCard.NewProject"]</span>
             <span class="status">@StatusLabel</span>
         </header>
         <h2>@Item.Title</h2>
@@ -15,32 +16,32 @@
             <p class="outcome">@project.Outcome</p>
             @if (!Compact && !string.IsNullOrWhiteSpace(project.Rationale))
             {
-                <p class="rationale"><strong>Why this project:</strong> @project.Rationale</p>
+                <p class="rationale"><strong>@L["ProjectCreationApprovalCard.WhyThisProject"]</strong> @project.Rationale</p>
             }
             <dl class="facts">
-                <div><dt>Project lead</dt><dd>@project.Lead</dd></div>
-                <div><dt>Proposed budget</dt><dd>@Budget(project)</dd></div>
-                @if (!Compact) { <div><dt>External date constraint</dt><dd>@(project.TargetDate?.ToLocalTime().ToString("MMM d, yyyy") ?? "Not specified")</dd></div> }
+                <div><dt>@L["ProjectCreationApprovalCard.ProjectLead"]</dt><dd>@project.Lead</dd></div>
+                <div><dt>@L["ProjectCreationApprovalCard.ProposedBudget"]</dt><dd>@Budget(project)</dd></div>
+                @if (!Compact) { <div><dt>@L["ProjectCreationApprovalCard.ExternalDateConstraint"]</dt><dd>@(project.TargetDate?.ToLocalTime().ToString("MMM d, yyyy") ?? "Not specified")</dd></div> }
             </dl>
             @if (!Compact)
             {
                 <section class="approval-scope">
-                    <h3>What you’re approving</h3>
+                    <h3>@L["ProjectCreationApprovalCard.WhatYouReApproving"]</h3>
                     <ul>
                         <li>Create @project.Name in the @project.Stage phase@(project.CreatesBoard ? " with a project work board" : "").</li>
                         <li>Assign @project.Lead as project lead@(project.Team is not null ? $" and link {project.Team}" : "").</li>
-                        <li>Save the proposed budget, milestones, evidence, and operating permissions below.</li>
+                        <li>@L["ProjectCreationApprovalCard.SaveTheProposedBudgetMilestones"]</li>
                     </ul>
-                    <p><strong>Agent can:</strong> @List(project.AgentPermissions, "No delegated actions specified")</p>
-                    <p><strong>Comes back for human approval:</strong> @List(project.HumanDecisions, "No additional decision categories specified")</p>
+                    <p><strong>@L["ProjectCreationApprovalCard.AgentCan"]</strong> @List(project.AgentPermissions, "No delegated actions specified")</p>
+                    <p><strong>@L["ProjectCreationApprovalCard.ComesBackForHumanApproval"]</strong> @List(project.HumanDecisions, "No additional decision categories specified")</p>
                 </section>
                 <details>
                     <summary>Plan &amp; success criteria</summary>
-                    <h3>Success criteria</h3>
-                    @if (project.SuccessCriteria.Count == 0) { <p>Not specified</p> }
+                    <h3>@L["ProjectCreationApprovalCard.SuccessCriteria"]</h3>
+                    @if (project.SuccessCriteria.Count == 0) { <p>@L["ProjectCreationApprovalCard.NotSpecified"]</p> }
                     <ul>@foreach (var criterion in project.SuccessCriteria) { <li>@criterion</li> }</ul>
-                    <h3>Milestones</h3>
-                    @if (project.Milestones.Count == 0) { <p>No milestones proposed.</p> }
+                    <h3>@L["ProjectCreationApprovalCard.Milestones"]</h3>
+                    @if (project.Milestones.Count == 0) { <p>@L["ProjectCreationApprovalCard.NoMilestonesProposed"]</p> }
                     @foreach (var milestone in project.Milestones)
                     {
                         <div class="milestone"><strong>@milestone.Name</strong><span>@milestone.Stage · @(milestone.TargetDate?.ToLocalTime().ToString("MMM d, yyyy") ?? "Date not specified")</span>
@@ -52,12 +53,12 @@
                 <details>
                     <summary>Team &amp; operating limits</summary>
                     <dl class="limits">
-                        <dt>Team</dt><dd>@(project.Team ?? "Not assigned")</dd>
-                        <dt>Supervision</dt><dd>@List(project.Supervisors)</dd>
-                        <dt>Authorized staffing roles</dt><dd>@List(project.StaffingRoles)</dd>
-                        <dt>Budget variance allowance</dt><dd>@(project.BudgetVariance?.ToString("P0") ?? "Not specified")</dd>
-                        <dt>Schedule variance allowance</dt><dd>@(project.ScheduleVarianceDays is { } days ? $"{days} days" : "Not specified")</dd>
-                        <dt>Authority expires</dt><dd>@(project.AuthorityExpiresAt?.ToLocalTime().ToString("g") ?? "No expiry specified")</dd>
+                        <dt>@L["ProjectCreationApprovalCard.Team"]</dt><dd>@(project.Team ?? "Not assigned")</dd>
+                        <dt>@L["ProjectCreationApprovalCard.Supervision"]</dt><dd>@List(project.Supervisors)</dd>
+                        <dt>@L["ProjectCreationApprovalCard.AuthorizedStaffingRoles"]</dt><dd>@List(project.StaffingRoles)</dd>
+                        <dt>@L["ProjectCreationApprovalCard.BudgetVarianceAllowance"]</dt><dd>@(project.BudgetVariance?.ToString("P0") ?? "Not specified")</dd>
+                        <dt>@L["ProjectCreationApprovalCard.ScheduleVarianceAllowance"]</dt><dd>@(project.ScheduleVarianceDays is { } days ? $"{days} days" : "Not specified")</dd>
+                        <dt>@L["ProjectCreationApprovalCard.AuthorityExpires"]</dt><dd>@(project.AuthorityExpiresAt?.ToLocalTime().ToString("g") ?? "No expiry specified")</dd>
                     </dl>
                     <p class="help">Staffing roles describe permitted roles; they do not confirm that those employees have been hired.</p>
                 </details>
@@ -70,11 +71,11 @@
             }
             else
             {
-                <p class="help">Creates the project, assigns its lead, and applies the proposed operating permissions. More info shows the full scope.</p>
+                <p class="help">@L["ProjectCreationApprovalCard.CreatesTheProjectAssignsIts"]</p>
             }
         }
         @if (Item.ReviewError is not null) { <MudAlert Severity="Severity.Warning">@Item.ReviewError</MudAlert> }
-        @if (!string.IsNullOrWhiteSpace(Item.DecisionComment)) { <p class="decision-note"><strong>Decision feedback:</strong> @Item.DecisionComment</p> }
+        @if (!string.IsNullOrWhiteSpace(Item.DecisionComment)) { <p class="decision-note"><strong>@L["ProjectCreationApprovalCard.DecisionFeedback"]</strong> @Item.DecisionComment</p> }
         @if (Item.DecidedAt.HasValue) { <p class="help">@StatusLabel @(Item.ActualDecisionMaker is not null ? $"by {Item.ActualDecisionMaker}" : "") · @Item.DecidedAt.Value.ToLocalTime().ToString("g")</p> }
     </div>
     <footer>
@@ -87,28 +88,28 @@
                     Lines="3" MaxLength="4000" Variant="Variant.Outlined" Class="mb-3" Disabled="_busy" />
                 <div class="actions">
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy" OnClick="@(() => DecideAsync(_editing))">@(_editing == ResourceChangeDecisionKinds.RequestRevision ? "Send change request" : "Deny project")</MudButton>
-                    <MudButton Disabled="_busy" OnClick="@(() => _editing = null)">Cancel</MudButton>
+                    <MudButton Disabled="_busy" OnClick="@(() => _editing = null)">@L["Common.Cancel"]</MudButton>
                 </div>
             }
             else
             {
                 <div class="actions">
                     <MudButton Color="Color.Success" Variant="Variant.Filled" Disabled="_busy" OnClick="@(() => DecideAsync(ResourceChangeDecisionKinds.Approve))">@(Compact ? "Approve" : "Approve project")</MudButton>
-                    @if (Compact) { <MudButton Href="@MoreInfoUri" Variant="Variant.Outlined">More info</MudButton> }
-                    else { <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => _editing = ResourceChangeDecisionKinds.RequestRevision)">Request changes</MudButton> }
+                    @if (Compact) { <MudButton Href="@MoreInfoUri" Variant="Variant.Outlined">@L["ProjectCreationApprovalCard.MoreInfo"]</MudButton> }
+                    else { <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => _editing = ResourceChangeDecisionKinds.RequestRevision)">@L["ProjectCreationApprovalCard.RequestChanges"]</MudButton> }
                     <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => _editing = ResourceChangeDecisionKinds.Reject)">@(Compact ? "Deny" : "Decline")</MudButton>
                 </div>
-                @if (!Compact) { <p class="help">Approval applies to this proposal and the permissions shown above.</p> }
+                @if (!Compact) { <p class="help">@L["ProjectCreationApprovalCard.ApprovalAppliesToThisProposal"]</p> }
             }
         }
-        else if (Compact) { <MudButton Href="@MoreInfoUri" Variant="Variant.Outlined">More info</MudButton> }
+        else if (Compact) { <MudButton Href="@MoreInfoUri" Variant="Variant.Outlined">@L["ProjectCreationApprovalCard.MoreInfo"]</MudButton> }
         @if (Item.CreatedProjectId is { } projectId)
         {
-            <MudButton Href="@($"/organizations/{OrganizationId:D}/projects/{projectId:D}")" Color="Color.Primary">View project</MudButton>
+            <MudButton Href="@($"/organizations/{OrganizationId:D}/projects/{projectId:D}")" Color="Color.Primary">@L["ProjectCreationApprovalCard.ViewProject"]</MudButton>
         }
         @if (!Compact && Item.AgentAction is { } action)
         {
-            <details class="technical"><summary>Technical details</summary><p>Action: workstream.create.v2</p><p>Channel: @action.ChannelId</p><p>Payload binding: <code>@action.PayloadHash</code></p></details>
+            <details class="technical"><summary>@L["ProjectCreationApprovalCard.TechnicalDetails"]</summary><p>@L["ProjectCreationApprovalCard.ActionWorkstreamCreateV2"]</p><p>Channel: @action.ChannelId</p><p>@L["ProjectCreationApprovalCard.PayloadBinding"] <code>@action.PayloadHash</code></p></details>
         }
     </footer>
 </article>
@@ -130,7 +131,7 @@
     private async Task DecideAsync(string? decision)
     {
         if (_busy || decision is null || !CanInteract || !Item.CanDecide || Item.Status != "Pending" || Item.AgentAction is not { } action) return;
-        if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_feedback)) { _error = "Describe what should change before sending your request."; return; }
+        if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_feedback)) { _error = L["ProjectCreationApprovalCard.DescribeWhatShouldChangeBefore"]; return; }
         _busy = true; _error = null;
         try
         {
@@ -139,7 +140,7 @@
                     action.IdempotencyKey, $"project-review:{Item.Id:N}:{decision}", action.ResourceId));
             if (!response.IsSuccessStatusCode)
             {
-                _error = "The decision could not be saved. Refresh to check the current proposal and your access.";
+                _error = L["ProjectCreationApprovalCard.TheDecisionCouldNotBe"];
                 try { using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                     if (problem.RootElement.TryGetProperty("message", out var message)) _error = message.GetString() ?? _error; }
                 catch (JsonException) { }
@@ -150,7 +151,7 @@
             await DecisionCompleted.InvokeAsync(decision == ResourceChangeDecisionKinds.Approve ? $"{Item.ProjectCreation?.Name ?? "Project"} created."
                 : decision == ResourceChangeDecisionKinds.RequestRevision ? "Changes requested. Your feedback was saved." : "Project declined.");
         }
-        catch (HttpRequestException) { _error = "The result could not be confirmed. Refresh before trying again."; }
+        catch (HttpRequestException) { _error = L["ProjectCreationApprovalCard.TheResultCouldNotBe"]; }
         finally { _busy = false; }
     }
 }

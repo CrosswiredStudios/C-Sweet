@@ -1,27 +1,28 @@
 @page "/"
 @inject HttpClient Http
+@inject IAppLocalizer L
 
-<PageTitle>Enterprise - C-Sweet</PageTitle>
+<PageTitle>@L["Home.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace enterprise-workspace">
     <Organizations CreateRequested="@CreateRequested" DraftId="DraftId" />
-    <section class="enterprise-tools" aria-label="Enterprise tools">
+    <section class="enterprise-tools" aria-label="@L["Home.EnterpriseTools"]">
         <div>
-            <h2><MudIcon Icon="@Icons.Material.Outlined.Science" Size="Size.Small" />Business benchmarks</h2>
-            <p>Compare models and agents against the same goal.</p>
+            <h2><MudIcon Icon="@Icons.Material.Outlined.Science" Size="Size.Small" />@L["Home.BusinessBenchmarks"]</h2>
+            <p>@L["Home.CompareModelsAndAgentsAgainst"]</p>
         </div>
-        <MudButton Href="benchmarks" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.NorthEast">Explore benchmarks</MudButton>
+        <MudButton Href="benchmarks" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.NorthEast">@L["Home.ExploreBenchmarks"]</MudButton>
     </section>
     <footer class="enterprise-footer">
         <div class="enterprise-connectivity" role="status">
             <MudIcon Icon="@ApiStatusIcon" Color="@ApiStatusColor" Size="Size.Small" />
             <span>@ApiStatusLabel</span>
         </div>
-        <MudButton Href="settings" EndIcon="@Icons.Material.Outlined.ArrowForward">Workspace settings</MudButton>
+        <MudButton Href="settings" EndIcon="@Icons.Material.Outlined.ArrowForward">@L["Home.WorkspaceSettings"]</MudButton>
         @if (_apiStatus == false)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="enterprise-connectivity-error">
-                The API service cannot be reached. Check that the backend is running.
+                @L["Home.TheAPIServiceCannotBe"]
             </MudAlert>
         }
     </footer>

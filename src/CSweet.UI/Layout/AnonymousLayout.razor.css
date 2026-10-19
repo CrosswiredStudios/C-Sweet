@@ -1,0 +1,19 @@
+.auth-language {
+    margin-top: auto;
+    padding-top: 1.5rem;
+}
+
+.auth-language-select {
+    max-width: 14rem;
+    padding: .35rem .6rem;
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .08);
+    color: inherit;
+    font: inherit;
+    font-size: .85rem;
+}
+
+.auth-language-select option {
+    color: #0b2e53;
+}

@@ -660,6 +660,16 @@ public sealed partial class AgentMemoryService(
                     PromptHash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes($"memory-enrichment:{episode.Id:D}")))
                 };
                 await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(db, runLog, null, CancellationToken.None);
+                if (runLog.OrganizationId is { } auditOrg && runLog.AgentInstallationId is { } auditInstallation)
+                {
+                    var card = await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.ActionAsync(db, auditOrg, auditInstallation,
+                        $"memory:{episode.Id:N}", "Capture and enrich memory", CancellationToken.None);
+                    if (card is not null)
+                    {
+                        runLog.WorkItemId = card.Id; runLog.AttributionKind = "ChiefMemoryCard";
+                        runLog.AncestorWorkItemIdsJson = "[]";
+                    }
+                }
                 db.AgentRunLogs.Add(runLog);
             }
             var additional = call.Usage?.AdditionalCounts;
@@ -678,6 +688,13 @@ public sealed partial class AgentMemoryService(
             runLog.UsageAdditionalCountsJson = additional is { Count: > 0 } ? JsonSerializer.Serialize(additional) : null;
             runLog.DurationMs = call.CompletedAt.HasValue ? (long)(call.CompletedAt.Value - call.StartedAt).TotalMilliseconds : 0;
             // Persist before dispatch as well as after completion. A crash leaves visible missing usage.
+            if (runLog.AttributionKind == "ChiefMemoryCard" && runLog.WorkItemId is { } memoryCardId)
+            {
+                var memoryCard = await db.CoreWorkTasks.SingleAsync(x => x.Id == memoryCardId, CancellationToken.None);
+                await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.FinishActionAsync(db, memoryCard,
+                    call.CompletedAt is null ? WorkTaskStatus.Running : call.Status == "Completed" ? WorkTaskStatus.Completed : WorkTaskStatus.Blocked,
+                    $"Memory enrichment: {call.Status}.", CancellationToken.None);
+            }
             await db.SaveChangesAsync(CancellationToken.None);
         }
     }

@@ -1,6 +1,7 @@
 @using CSweet.Contracts.Communications
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject IAppLocalizer L
 
 @if (_submitted) { }
 else
@@ -13,7 +14,7 @@ else
         <BodyContent>
             @if (OpenEnded)
             {
-                <label class="direction-label">Your answer<textarea rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+                <label class="direction-label">@L["AgentQuestionCard.YourAnswer"]<textarea rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
             }
         </BodyContent>
         <ChildContent>
@@ -29,12 +30,12 @@ else
             {
                 @if (Question.Decision.AllowFreeText && option.Id == "provide-direction")
                 {
-                    <MudMenuItem Href="@ConversationHref"><strong>@option.Label</strong><div class="option-description">Continue in the conversation</div></MudMenuItem>
+                    <MudMenuItem Href="@ConversationHref"><strong>@option.Label</strong><div class="option-description">@L["AgentQuestionCard.ContinueInTheConversation"]</div></MudMenuItem>
                 }
                 else
                 {
                     <MudMenuItem Disabled="_busy" OnClick="() => AnswerOptionAsync(option.Id)">
-                        <strong>@option.Label</strong>@if (option.Recommended) { <small>Recommended</small> }
+                        <strong>@option.Label</strong>@if (option.Recommended) { <small>@L["AgentQuestionCard.Recommended"]</small> }
                         @if (!string.IsNullOrWhiteSpace(option.Description)) { <div class="option-description">@option.Description</div> }
                     </MudMenuItem>
                 }
@@ -42,7 +43,7 @@ else
             @if (Question.Decision.AllowFreeText)
             {
                 <MudDivider />
-                <MudMenuItem Href="@ConversationHref" Icon="@Icons.Material.Outlined.ChatBubbleOutline">Something Else<div class="option-description">Continue in the conversation</div></MudMenuItem>
+                <MudMenuItem Href="@ConversationHref" Icon="@Icons.Material.Outlined.ChatBubbleOutline">@L["AgentQuestionCard.SomethingElse"]<div class="option-description">@L["AgentQuestionCard.ContinueInTheConversation"]</div></MudMenuItem>
             }
         </MudMenu>
         }
@@ -55,22 +56,22 @@ else
 <article class="question-card" aria-label="@($"Question from {Question.AgentName}")">
     <details>
     <summary>
-        <span class="question-meta"><strong>@Question.AgentName</strong><span class="question-date">@Question.Decision.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span><span class="pending-label">Pending</span></span>
+        <span class="question-meta"><strong>@Question.AgentName</strong><span class="question-date">@Question.Decision.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span><span class="pending-label">@L["AgentQuestionCard.Pending"]</span></span>
         <span class="question-prompt">@Question.Decision.Prompt</span>
-        <span class="expand-label">Review & respond</span>
+        <span class="expand-label">@L["AgentQuestionCard.ReviewRespond"]</span>
     </summary>
     <div class="question-response">
     <fieldset disabled="@_busy">
-        <legend>Your response</legend>
+        <legend>@L["AgentQuestionCard.YourResponse"]</legend>
         @foreach (var option in Question.Decision.Options)
         {
             <label><input type="radio" name="@Question.Decision.Id" checked="@(_selected == option.Id)" @onchange="() => Select(option.Id)" />
-                <span><strong>@option.Label</strong> @if (option.Recommended) { <small>Recommended</small> }
+                <span><strong>@option.Label</strong> @if (option.Recommended) { <small>@L["AgentQuestionCard.Recommended"]</small> }
                 <span class="option-description">@option.Description</span></span></label>
         }
         @if (Question.Decision.AllowFreeText && !OpenEnded)
         {
-            <label><input type="radio" name="@Question.Decision.Id" checked="@(_selected == Other)" @onchange="() => Select(Other)" /><span>Something else</span></label>
+            <label><input type="radio" name="@Question.Decision.Id" checked="@(_selected == Other)" @onchange="() => Select(Other)" /><span>@L["AgentQuestionCard.SomethingElse2"]</span></label>
         }
         @if (NeedsText)
         {
@@ -80,7 +81,7 @@ else
     @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
     <div class="response-actions">
         <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small" Disabled="@(_busy || (!OpenEnded && _selected is null) || (NeedsText && string.IsNullOrWhiteSpace(_direction)))" OnClick="SubmitAsync">@(_busy ? "Submitting…" : "Send response")</MudButton>
-        <MudButton Href="@($"/organizations/{OrganizationId}/communications/{Question.ConversationId}")" Size="Size.Small">View conversation</MudButton>
+        <MudButton Href="@($"/organizations/{OrganizationId}/communications/{Question.ConversationId}")" Size="Size.Small">@L["AgentQuestionCard.ViewConversation"]</MudButton>
     </div>
     </div>
     </details>
@@ -139,7 +140,7 @@ else
             else _error = result?.Message ?? "Could not send your response. Refresh to check whether this question is still pending.";
         }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
-        { _error = "Could not confirm your response. You can safely try again."; }
+        { _error = L["AgentQuestionCard.CouldNotConfirmYourResponse"]; }
         finally { _busy = false; }
     }
 }

@@ -242,7 +242,7 @@ public partial class Employees
     {
         if (string.IsNullOrWhiteSpace(_teamName) || !_teamLeadId.HasValue)
         {
-            _teamMutationError = "A team name and active lead are required.";
+            _teamMutationError = L["Employees.ATeamNameAndActive"];
             return;
         }
         _teamMutationBusy = true;
@@ -274,7 +274,7 @@ public partial class Employees
             {
                 _teamRevisionConflict = true;
                 _teamRevisionReviewed = false;
-                _teamMutationError = "The team changed while you were editing. Review the refreshed state before retrying.";
+                _teamMutationError = L["Employees.TheTeamChangedWhileYou2"];
                 await ReloadTeamsAsync();
                 return;
             }
@@ -296,7 +296,7 @@ public partial class Employees
     {
         if (_editingTeam is null || !_teamMemberId.HasValue)
         {
-            _teamMutationError = "Select an employee.";
+            _teamMutationError = L["Employees.SelectAnEmployee"];
             return;
         }
         _teamMutationBusy = true;
@@ -383,7 +383,7 @@ public partial class Employees
         if (_resourceDecisionBusy) return;
         if (decision == ResourceChangeDecisionKinds.RequestRevision && string.IsNullOrWhiteSpace(_resourceFeedback))
         {
-            _errorMessage = "Decision feedback is required when requesting a revision.";
+            _errorMessage = L["Employees.DecisionFeedbackIsRequiredWhen"];
             return;
         }
 
@@ -680,7 +680,7 @@ public partial class Employees
             var chat = await response.Content.ReadFromJsonAsync<CommunicationChatResponse>(_disposeCts.Token);
             if (chat is null)
             {
-                _actionError = "The conversation could not be opened.";
+                _actionError = L["Employees.TheConversationCouldNotBe"];
                 return;
             }
             Navigation.NavigateTo($"/organizations/{OrganizationId}/communications/{chat.Id}");
@@ -719,7 +719,7 @@ public partial class Employees
         var employee = _employees.FirstOrDefault(x => x.Id == request.EmployeeId);
         if (employee is null)
         {
-            _actionError = "The selected employee is no longer available.";
+            _actionError = L["Employees.TheSelectedEmployeeIsNo"];
             return;
         }
 
@@ -830,29 +830,29 @@ public partial class Employees
         _actionError = null;
         if (string.IsNullOrWhiteSpace(_hireName))
         {
-            _actionError = "Name is required.";
+            _actionError = L["Employees.NameIsRequired"];
             return;
         }
 
         if (_hireManagerId.HasValue && _managedEmployeeIds.Contains(_hireManagerId.Value))
         {
-            _actionError = "The new employee cannot both manage and report to the same person.";
+            _actionError = L["Employees.TheNewEmployeeCannotBoth"];
             return;
         }
 
         if (_hireEmployeeType == 1 && string.IsNullOrWhiteSpace(_hireAgentKey))
         {
-            _actionError = "Select an available agent.";
+            _actionError = L["Employees.SelectAnAvailableAgent"];
             return;
         }
         if (_hireEmployeeType == 1 && !_hireManagerId.HasValue)
         {
-            _actionError = "Select the employee who will manage this agent.";
+            _actionError = L["Employees.SelectTheEmployeeWhoWill"];
             return;
         }
         if (_hireEmployeeType == (int)EmployeeType.Agent && _hireTeamIds.Count > 1)
         {
-            _actionError = "Select at most one team for an AI employee instance.";
+            _actionError = L["Employees.SelectAtMostOneTeam"];
             return;
         }
 
@@ -889,7 +889,7 @@ public partial class Employees
             var hiredEmployee = await response.Content.ReadFromJsonAsync<OrganizationUserResponse>();
             if (hiredEmployee is null)
             {
-                _actionError = "The employee was hired, but the response was empty.";
+                _actionError = L["Employees.TheEmployeeWasHiredBut"];
                 return;
             }
 
@@ -1030,7 +1030,7 @@ public partial class Employees
     {
         if (employee.AgentInstallationId is null)
         {
-            _actionError = "This agent employee is not linked to an installation.";
+            _actionError = L["Employees.ThisAgentEmployeeIsNot"];
             return Task.CompletedTask;
         }
         _configurationEmployee = employee;
@@ -1043,7 +1043,7 @@ public partial class Employees
         var choice = AvailableAgents.FirstOrDefault(x => x.Key == _hireAgentKey);
         if (choice is null)
         {
-            _actionError = "The selected agent is no longer available.";
+            _actionError = L["Employees.TheSelectedAgentIsNo"];
             return null;
         }
 
@@ -1082,7 +1082,7 @@ public partial class Employees
         var worker = await response.Content.ReadFromJsonAsync<WorkerResponse>();
         if (worker is null)
         {
-            _actionError = "The selected agent could not be prepared for hiring.";
+            _actionError = L["Employees.TheSelectedAgentCouldNot"];
             return null;
         }
 

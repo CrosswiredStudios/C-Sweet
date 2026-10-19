@@ -2,11 +2,12 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject IAppLocalizer L
 
 <MudPaper Outlined="true" Class="pa-4 platform-setup-card">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
         <div>
-            <MudText Typo="Typo.h6">GitHub app setup</MudText>
+            <MudText Typo="Typo.h6">@L["SourceControlPlatformSetupWizard.GitHubAppSetup"]</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
                 @(Setup.Readiness.ExistingGitHubAvailable ? "GitHub app configured. Manage setup and permissions." : "Connect the repositories you want C-Sweet to work with.")
             </MudText>
@@ -17,66 +18,66 @@
 </MudPaper>
 
 <MudDialog @bind-Visible="_open" Options="_options">
-    <TitleContent><MudText Typo="Typo.h6">Set up GitHub</MudText></TitleContent>
+    <TitleContent><MudText Typo="Typo.h6">@L["SourceControlPlatformSetupWizard.SetUpGitHub"]</MudText></TitleContent>
     <DialogContent>
         <MudStack Spacing="3" Class="github-wizard" aria-live="polite">
             @if (_working)
             {
                 <MudProgressLinear Indeterminate="true" />
-                <MudText>Preparing your GitHub connection…</MudText>
+                <MudText>@L["SourceControlPlatformSetupWizard.PreparingYourGitHubConnection"]</MudText>
             }
             @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
             @if (_flow?.Setup.Readiness.ExistingGitHubAvailable == true && !Pending && !_choosingOptions)
             {
                 <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Large" />
-                <MudText Typo="Typo.h5">GitHub is ready</MudText>
-                <MudText>Connect a GitHub account from your business’s Source control page, then choose repositories on GitHub.</MudText>
+                <MudText Typo="Typo.h5">@L["SourceControlPlatformSetupWizard.GitHubIsReady"]</MudText>
+                <MudText>@L["SourceControlPlatformSetupWizard.ConnectAGitHubAccountFrom"]</MudText>
                 @if ((BusinessId ?? _returnBusinessId) is { } businessId)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{businessId:D}/source-control?connectGitHub=true&allowRepositoryCreation={_allowCreation.ToString().ToLowerInvariant()}")">Connect GitHub account</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{businessId:D}/source-control?connectGitHub=true&allowRepositoryCreation={_allowCreation.ToString().ToLowerInvariant()}")">@L["SourceControlPlatformSetupWizard.ConnectGitHubAccount"]</MudButton>
                 }
             }
             else if (_manifest is not null)
             {
                 <MudText Typo="Typo.h5">@(Step == "provisioner-review" ? "Approve repository creation" : "Approve repository access")</MudText>
-                <MudText>Continue on GitHub to approve the app. You’ll return here automatically.</MudText>
+                <MudText>@L["SourceControlPlatformSetupWizard.ContinueOnGitHubToApprove"]</MudText>
                 <form @ref="_manifestForm" action="@_manifest.PostUrl" method="post">
                     <input type="hidden" name="manifest" value="@_manifest.ManifestJson" />
-                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Continue to GitHub</MudButton>
+                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">@L["SourceControlPlatformSetupWizard.ContinueToGitHub"]</MudButton>
                 </form>
             }
             else if (Step is "source-access-confirm" or "provisioner-confirm" or "review-activate" or "capabilities")
             {
-                <MudText>Finish verifying your GitHub setup.</MudText>
+                <MudText>@L["SourceControlPlatformSetupWizard.FinishVerifyingYourGitHubSetup"]</MudText>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working" OnClick="FinishAsync">@(_error is null ? "Finish setup" : "Retry")</MudButton>
             }
             else
             {
-                <MudText Typo="Typo.h5">Connect GitHub to C-Sweet</MudText>
-                <MudText Typo="Typo.body2">Choose what C-Sweet can do. We’ll guide you through the required GitHub approvals.</MudText>
-                <MudCheckBox T="bool" @bind-Value="_allowCreation" Label="Allow C-Sweet to create repositories"
+                <MudText Typo="Typo.h5">@L["SourceControlPlatformSetupWizard.ConnectGitHubToCSweet"]</MudText>
+                <MudText Typo="Typo.body2">@L["SourceControlPlatformSetupWizard.ChooseWhatCSweetCan"]</MudText>
+                <MudCheckBox T="bool" @bind-Value="_allowCreation" Label="@L["SourceControlPlatformSetupWizard.AllowCSweetToCreate"]"
                              Disabled="@(_working || Pending)" />
-                <MudText Typo="Typo.caption" Color="Color.Secondary">Optional. Requires approval of an additional GitHub app.</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@L["SourceControlPlatformSetupWizard.OptionalRequiresApprovalOfAn"]</MudText>
                 <MudText Typo="Typo.body2">@(_useOrganization ? "The app will be owned by this organization." : "The app will be owned by your signed-in personal GitHub account.")</MudText>
-                <MudCheckBox T="bool" @bind-Value="_useOrganization" Label="Use an organization instead"
+                <MudCheckBox T="bool" @bind-Value="_useOrganization" Label="@L["SourceControlPlatformSetupWizard.UseAnOrganizationInstead"]"
                              Disabled="@(_working || Setup.Readiness.ExistingGitHubAvailable || (Pending && Step != "organization"))" />
                 @if (_useOrganization)
                 {
-                    <MudTextField Label="GitHub organization" @bind-Value="_organization" Immediate="true"
-                                  Variant="Variant.Outlined" Disabled="@(_working || Setup.Readiness.ExistingGitHubAvailable || (Pending && Step != "organization"))" HelperText="Use an organization where you can create GitHub Apps." />
+                    <MudTextField Label="@L["SourceControlPlatformSetupWizard.GitHubOrganization"]" @bind-Value="_organization" Immediate="true"
+                                  Variant="Variant.Outlined" Disabled="@(_working || Setup.Readiness.ExistingGitHubAvailable || (Pending && Step != "organization"))" HelperText="@L["SourceControlPlatformSetupWizard.UseAnOrganizationWhereYou"]" />
                 }
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
                     @((Step == "provisioner-review") ? "This enables repository creation and configuration." : "This enables reading code, pushing branches, and managing pull requests in repositories you select later.")
                 </MudText>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Custom.Brands.GitHub"
-                           Disabled="@(_working || (_useOrganization && string.IsNullOrWhiteSpace(_organization)))" OnClick="ContinueAsync">Continue to GitHub</MudButton>
+                           Disabled="@(_working || (_useOrganization && string.IsNullOrWhiteSpace(_organization)))" OnClick="ContinueAsync">@L["SourceControlPlatformSetupWizard.ContinueToGitHub"]</MudButton>
             }
             <MudExpansionPanels Elevation="0">
-                <MudExpansionPanel Text="Advanced setup">
+                <MudExpansionPanel Text="@L["SourceControlPlatformSetupWizard.AdvancedSetup"]">
                     @if (Pending)
                     {
-                        <MudText Typo="Typo.body2">Discarding setup removes pending credentials from C-Sweet. Apps already created on GitHub must be removed there.</MudText>
-                        <MudButton Color="Color.Error" Disabled="_working" OnClick="DiscardAsync" Class="mb-3">Discard setup</MudButton>
+                        <MudText Typo="Typo.body2">@L["SourceControlPlatformSetupWizard.DiscardingSetupRemovesPendingCredentials"]</MudText>
+                        <MudButton Color="Color.Error" Disabled="_working" OnClick="DiscardAsync" Class="mb-3">@L["SourceControlPlatformSetupWizard.DiscardSetup"]</MudButton>
                     }
                     <SourceControlConfigurationInstructions AppKind="source" DefaultTabIndex="@DefaultConfigurationTab" />
                     <MudDivider Class="my-4" />

@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class ProjectSetupTests
+public sealed partial class ProjectSetupTests
 {
     private static CSweetDbContext Db() => new(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
     private static (OrganizationUser Human, OrganizationUser Developer) Seed(CSweetDbContext db)

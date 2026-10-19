@@ -76,7 +76,7 @@ public sealed class LlmProviderModelSelectionTests
 
     private static LlmProviders CreatePage(HttpClient http)
     {
-        var page = new LlmProviders();
+        var page = TestLocalization.Inject(new LlmProviders());
         typeof(LlmProviders).GetProperty("LlmProviderApi", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(page, new LlmProviderApiClient(http));
         Invoke(page, "StartNewProvider");

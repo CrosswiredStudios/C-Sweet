@@ -1,68 +1,69 @@
 @namespace CSweet.UI.Components.Communications
 @using CSweet.Contracts.WorkManagement
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
-<button type="button" class="share-instruction" @onclick="OpenAsync">Share instruction with a work item</button>
+<button type="button" class="share-instruction" @onclick="OpenAsync">@L["ShareWorkInstruction.Open"]</button>
 @if (_open)
 {
     <div class="instruction-backdrop">
         <MudFocusTrap Class="instruction-focus" DefaultFocus="DefaultFocus.FirstChild">
         <section class="instruction-dialog" role="dialog" aria-modal="true" aria-labelledby="@HeadingId" @onkeydown="@(args => { if (args.Key == "Escape") Close(); })">
-            <h2 id="@HeadingId">Share a work instruction</h2>
-            <p>Choose the relevant text from your message and its work item. People and agents with access to that work item's comments can read the published instruction.</p>
+            <h2 id="@HeadingId">@L["ShareWorkInstruction.Title"]</h2>
+            <p>@L["ShareWorkInstruction.Intro"]</p>
             @if (_error is not null) { <p role="alert">@_error</p> }
             @if (_result is not null)
             {
                 <p role="status">Instruction @StatusText(_result.Status).</p>
-                <a href="@WorkHref">Open work item</a>
+                <a href="@WorkHref">@L["ShareWorkInstruction.OpenWorkItem"]</a>
             }
             else
             {
-                <label for="@SourceId">Highlight the instruction to share</label>
+                <label for="@SourceId">@L["ShareWorkInstruction.HighlightLabel"]</label>
                 <textarea id="@SourceId" @ref="_source" readonly rows="6">@Content</textarea>
-                <label for="@BoardId">Board</label>
+                <label for="@BoardId">@L["ShareWorkInstruction.BoardLabel"]</label>
                 <select id="@BoardId" value="@_board" @onchange="ChangeBoardAsync" disabled="@(_busy || _uncertain)">
-                    <option value="">Choose a board</option>
+                    <option value="">@L["ShareWorkInstruction.ChooseBoard"]</option>
                     @foreach (var board in _boards) { <option value="@board.Id">@board.Name</option> }
                 </select>
-                <label for="@ItemId">Work item</label>
+                <label for="@ItemId">@L["ShareWorkInstruction.ItemLabel"]</label>
                 <select id="@ItemId" value="@_item" @onchange="ChangeItemAsync" disabled="@(_busy || _uncertain || _board is null)">
-                    <option value="">Choose a work item</option>
+                    <option value="">@L["ShareWorkInstruction.ChooseItem"]</option>
                     @foreach (var item in _items) { <option value="@item.Id">@(item.Identifier is null ? item.Title : $"{item.Identifier} · {item.Title}")</option> }
                 </select>
                 @if (_preview is not null)
                 {
                     <h3>Publish to @_preview.BoardName · @_preview.WorkItemTitle</h3>
                     <blockquote>@_preview.Instruction</blockquote>
-                    <p>This text will be attributed to you. You can edit or withdraw it in the work item's comments.</p>
+                    <p>@L["ShareWorkInstruction.Attribution"]</p>
                     @if (_uncertain)
                     {
-                        <p role="status">The response was lost. Retry the same publication to check its saved result.</p>
+                        <p role="status">@L["ShareWorkInstruction.ResponseLost"]</p>
                     }
                     <button type="button" disabled="@_busy" @onclick="PublishAsync">@(_uncertain ? "Check publication" : "Publish this instruction")</button>
-                    @if (!_uncertain) { <button type="button" disabled="@_busy" @onclick="ClearReview">Change selection</button> }
+                    @if (!_uncertain) { <button type="button" disabled="@_busy" @onclick="ClearReview">@L["ShareWorkInstruction.ChangeSelection"]</button> }
                 }
                 else
                 {
-                    <button type="button" disabled="@(_busy || _item is null)" @onclick="PreviewAsync">Review highlighted text</button>
+                    <button type="button" disabled="@(_busy || _item is null)" @onclick="PreviewAsync">@L["ShareWorkInstruction.Review"]</button>
                 }
             }
             @if (_item is not null)
             {
                 <details>
-                    <summary>Your published instructions for this work item</summary>
-                    <button type="button" disabled="@_busy" @onclick="RefreshPublicationsAsync">Refresh saved publications</button>
-                    @if (_history.Count == 0) { <p>No saved publications loaded.</p> }
+                    <summary>@L["ShareWorkInstruction.History.Summary"]</summary>
+                    <button type="button" disabled="@_busy" @onclick="RefreshPublicationsAsync">@L["ShareWorkInstruction.History.Refresh"]</button>
+                    @if (_history.Count == 0) { <p>@L["ShareWorkInstruction.History.Empty"]</p> }
                     <ul>
                         @foreach (var publication in _history)
                         {
                             <li @key="publication.Id"><a href="@WorkHref">Instruction @publication.Id.ToString("N")[..8]</a> · @StatusText(publication.Status)</li>
                         }
                     </ul>
-                    @if (_next is not null) { <button type="button" disabled="@_busy" @onclick="LoadMoreAsync">More publications</button> }
+                    @if (_next is not null) { <button type="button" disabled="@_busy" @onclick="LoadMoreAsync">@L["ShareWorkInstruction.History.More"]</button> }
                 </details>
             }
-            <button type="button" @onclick="Close">Close</button>
+            <button type="button" @onclick="Close">@L["Common.Close"]</button>
         </section>
         </MudFocusTrap>
     </div>

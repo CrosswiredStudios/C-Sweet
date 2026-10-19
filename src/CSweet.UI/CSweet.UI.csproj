@@ -23,4 +23,11 @@
     <Folder Include="wwwroot\images\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Localization/Resources/<Area>/<culture>.json → manifest name i18n/<Area>/<culture>.json (see LocalizationResources). -->
+    <Content Remove="Localization\Resources\**" />
+    <None Remove="Localization\Resources\**" />
+    <EmbeddedResource Include="Localization\Resources\**\*.json" LogicalName="i18n/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

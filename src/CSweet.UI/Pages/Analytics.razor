@@ -3,58 +3,59 @@
 @using CSweet.Contracts.Analytics
 @inject HttpClient Http
 @implements IAsyncDisposable
+@inject IAppLocalizer L
 
-<PageTitle>Analytics - C-Sweet</PageTitle>
+<PageTitle>@L["Analytics.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace analytics-page">
     <MudPaper Elevation="0" Class="page-header analytics-header">
         <div>
-            <MudText Typo="Typo.overline" Color="Color.Primary">Business intelligence</MudText>
-            <MudText Typo="Typo.h3">Analytics</MudText>
-            <MudText Color="Color.Secondary">Understand usage, delivery time, and the work behind the numbers.</MudText>
+            <MudText Typo="Typo.overline" Color="Color.Primary">@L["Analytics.BusinessIntelligence"]</MudText>
+            <MudText Typo="Typo.h3">@L["Analytics.Analytics"]</MudText>
+            <MudText Color="Color.Secondary">@L["Analytics.UnderstandUsageDeliveryTimeAnd"]</MudText>
         </div>
         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
-                   Disabled="_loading" OnClick="LoadAsync">Refresh</MudButton>
+                   Disabled="_loading" OnClick="LoadAsync">@L["Common.Refresh"]</MudButton>
     </MudPaper>
 
     <MudTabs Rounded="true" ApplyEffectsToContainer="true" Class="analytics-tabs">
-        <MudTabPanel Text="Inference" Icon="@Icons.Material.Outlined.Memory">
+        <MudTabPanel Text="@L["Analytics.Inference"]" Icon="@Icons.Material.Outlined.Memory">
             <div class="analytics-toolbar">
                 <div>
-                    <MudText Typo="Typo.h6">Inference usage</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">Provider-reported token usage grouped by employee and model.</MudText>
+                    <MudText Typo="Typo.h6">@L["Analytics.InferenceUsage"]</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L["Analytics.ProviderReportedTokenUsageGrouped"]</MudText>
                 </div>
-                <MudSelect T="string" Label="Time range" Value="_window" ValueChanged="OnWindowChanged"
+                <MudSelect T="string" Label="@L["Analytics.TimeRange"]" Value="_window" ValueChanged="OnWindowChanged"
                            Variant="Variant.Outlined" Dense="true" Disabled="_loading" Class="analytics-window-select">
-                    <MudSelectItem T="string" Value="@("24h")">Last 24 hours</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("7d")">Last 7 days</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("30d")">Last 30 days</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("24h")">@L["Analytics.Last24Hours"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("7d")">@L["Analytics.Last7Days"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("30d")">@L["Analytics.Last30Days"]</MudSelectItem>
                 </MudSelect>
             </div>
 
             @if (_forbidden)
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
-                    Inference analytics are restricted to signed-in human Owners and Managers for this business.
+                    @L["Analytics.InferenceAnalyticsAreRestrictedTo"]
                 </MudAlert>
             }
             else if (!string.IsNullOrWhiteSpace(_error))
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-4">
                     @_error
-                    <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="LoadAsync">Try again</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="LoadAsync">@L["Analytics.TryAgain"]</MudButton>
                 </MudAlert>
             }
             else if (_loading && _analytics is null)
             {
                 <div class="analytics-loading" role="status">
                     <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                    <MudText Color="Color.Secondary">Loading inference analytics...</MudText>
+                    <MudText Color="Color.Secondary">@L["Analytics.LoadingInferenceAnalytics"]</MudText>
                 </div>
             }
             else if (_analytics is not null)
             {
-                <section class="analytics-summary-grid" aria-label="Inference token summary">
+                <section class="analytics-summary-grid" aria-label="@L["Analytics.InferenceTokenSummary"]">
                     @SummaryCard("Input tokens", Usage(_analytics.Totals.InputTokens, _analytics.Totals.RequestCount, _analytics.Totals.Coverage.InputReportedCalls, _analytics.Totals.Coverage.PendingCalls), Icons.Material.Outlined.Input)
                     @SummaryCard("Output tokens", Usage(_analytics.Totals.OutputTokens, _analytics.Totals.RequestCount, _analytics.Totals.Coverage.OutputReportedCalls, _analytics.Totals.Coverage.PendingCalls), Icons.Material.Outlined.Output)
                     @SummaryCard("Total tokens", Total(_analytics.Totals.TotalTokens, _analytics.Totals.RequestCount, _analytics.Totals.Coverage), Icons.Material.Outlined.DataUsage)
@@ -65,14 +66,14 @@
                 <MudTable T="EmployeeModelInferenceUsageResponse" Items="_analytics.Employees" Dense="true" Hover="true"
                           Breakpoint="Breakpoint.Md" Loading="_loading" Class="analytics-table" AriaLabel="Employee inference usage">
                     <HeaderContent>
-                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.EmployeeName))">Employee</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.Model ?? string.Empty))">Model</MudTableSortLabel></MudTh>
-                        <MudTh>Provider</MudTh>
-                        <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.InputTokens))">Input</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.OutputTokens))">Output</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.TotalTokens))">Total</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.RequestCount))">Model calls</MudTableSortLabel></MudTh>
-                        <MudTh>Last used</MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.EmployeeName))">@L["Analytics.Employee"]</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.Model ?? string.Empty))">@L["Analytics.Model"]</MudTableSortLabel></MudTh>
+                        <MudTh>@L["Analytics.Provider"]</MudTh>
+                        <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.InputTokens))">@L["Analytics.Input"]</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.OutputTokens))">@L["Analytics.Output"]</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.TotalTokens))">@L["Analytics.Total"]</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="@(new Func<EmployeeModelInferenceUsageResponse, object>(x => x.RequestCount))">@L["Analytics.ModelCalls"]</MudTableSortLabel></MudTh>
+                        <MudTh>@L["Analytics.LastUsed"]</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Employee">
@@ -82,14 +83,14 @@
                             <MudText Typo="Typo.caption" Color="Color.Secondary">@context.AgentKey</MudText>
                             @if (!context.IsActive)
                             {
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">Archived</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">@L["Analytics.Archived"]</MudChip>
                             }
                         </MudTd>
                         <MudTd DataLabel="Model">
                             <MudText Typo="Typo.body2">@(context.Model ?? "Not configured")</MudText>
                             @if (context.IsCurrentModel)
                             {
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Current</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">@L["Analytics.Current"]</MudChip>
                             }
                         </MudTd>
                         <MudTd DataLabel="Provider">@(context.ProviderName ?? "Not configured")</MudTd>
@@ -100,7 +101,7 @@
                         <MudTd DataLabel="Last used">@FormatTimestamp(context.LastUsedAt)</MudTd>
                     </RowTemplate>
                     <NoRecordsContent>
-                        <MudText Color="Color.Secondary" Class="pa-4">No agent employees are available for inference analytics.</MudText>
+                        <MudText Color="Color.Secondary" Class="pa-4">@L["Analytics.NoAgentEmployeesAreAvailable"]</MudText>
                     </NoRecordsContent>
                 </MudTable>
 
@@ -109,7 +110,7 @@
                 </MudText>
             }
         </MudTabPanel>
-        <MudTabPanel Text="Work efficiency" Icon="@Icons.Material.Outlined.Speed">
+        <MudTabPanel Text="@L["Analytics.WorkEfficiency"]" Icon="@Icons.Material.Outlined.Speed">
             <WorkEfficiencyPanel OrganizationId="OrganizationId" />
         </MudTabPanel>
     </MudTabs>
