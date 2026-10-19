@@ -36,6 +36,13 @@ public static class ProjectPresentation
         null or "" => localizer["Projects.Profile.None"], _ => key
     };
 
+    /// <summary>English profile label for callers without a localizer. Prefer the localized overload in components.</summary>
+    public static string Profile(string? key) => key switch
+    {
+        "software-prototype.v1" => "Software prototype",
+        null or "" => "No profile", _ => key
+    };
+
     public static bool Matches(ProjectPortfolioItem item, string search) => string.IsNullOrWhiteSpace(search) ||
         $"{item.Name} {item.Outcome} {item.ProfileKey} {item.AccountableManagerName}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase);
 }
