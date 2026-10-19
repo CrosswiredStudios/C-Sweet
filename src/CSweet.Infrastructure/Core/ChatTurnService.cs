@@ -125,6 +125,7 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         var turn = await db.ChatTurns.SingleOrDefaultAsync(x => x.Id == turnId && x.OrganizationId == organizationId, cancellationToken);
         if (turn is null || !ActiveStatuses.Contains(turn.Status)) return false;
         turn.Status = ChatTurnStatus.Cancelled;
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleChatAsync(db, turn, cancellationToken);
         turn.CompletedAt = turn.UpdatedAt = DateTimeOffset.UtcNow;
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         await CancelPendingDecisionsAsync(turnId, cancellationToken);
@@ -250,6 +251,8 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
             return;
         turn.Status = nextStatus;
         turn.ErrorCode = errorCode; turn.ErrorMessage = errorMessage;
+        if (nextStatus is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleChatAsync(db, turn, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         turn.UpdatedAt = now;
         turn.LastActivityAt = now;

@@ -720,19 +720,23 @@ public sealed partial class AgentDefinitionLifecycleTests
         }
     }
 
-    [Fact]
-    public async Task HireImport_CannotReplaceAnExistingApprovedPackage()
+    [Theory]
+    [InlineData("1.1.0")]
+    [InlineData("1.0.0")]
+    public async Task HireImport_CannotReplaceAnExistingApprovedPackage(string reviewedVersion)
     {
         await using var db = CreateDb();
         var package = SeedPackage(db, AgentPackageVersionStatus.Built, requiredConfiguration: false);
         var definition = SeedDefinition(db, package, ActivationMode.OnDemand);
-        var update = CreateUpdatePackage(package, "1.1.0");
+        var update = CreateUpdatePackage(package, reviewedVersion);
         db.AgentPackageVersions.Add(update);
         await db.SaveChangesAsync();
         var service = new AgentDefinitionService(db, new TestAuditEventWriter(), new RecordingBuildService(db));
 
-        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ImportAsync(
+        var error = await Assert.ThrowsAsync<AgentInstallationException>(() => service.ImportAsync(
             update.Id, Request("AlwaysOn") with { ReuseExistingDefinition = true }));
+        Assert.Contains("fresh hiring review", error.Message);
+        Assert.Contains("Installed Agents", error.Message);
 
         Assert.Equal(package.Id, definition.PackageVersionId);
         Assert.Equal(ActivationMode.OnDemand, definition.DefaultActivationMode);

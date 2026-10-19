@@ -12,7 +12,8 @@ namespace CSweet.UnitTests;
 public sealed partial class HiringServiceTests
 {
     private static async Task<(Guid Organization, Guid Installation, Guid Owner, Guid Application, HiringService Service)> AutonomyFixtureAsync(CSweetDbContext db,
-        AgentCatalogSource source = AgentCatalogSource.FirstPartyCatalog, decimal? price = 0, bool requireConfiguration = true, bool staffed = false)
+        AgentCatalogSource source = AgentCatalogSource.FirstPartyCatalog, decimal? price = 0, bool requireConfiguration = true, bool staffed = false,
+        RecordingDefinitionService? definitions = null)
     {
         var organization = Guid.NewGuid(); var installation = Guid.NewGuid(); var owner = Guid.NewGuid();
         var application = Guid.NewGuid(); var chief = Guid.NewGuid();
@@ -37,7 +38,7 @@ public sealed partial class HiringServiceTests
         var agent = new AvailableAgent("catalog:product-manager", "com.example.product-manager", source, [],
             AgentAvailabilityState.AvailableToInstall, null, "Product Manager", "Own product outcomes", "C-Sweet", "Product",
             ["Product Manager"], ["product"], ["product.strategy"], price, "USD", null, 0, null, repository, 1, "Self-declared publisher");
-        var definitions = new RecordingDefinitionService();
+        definitions ??= new RecordingDefinitionService();
         if (source == AgentCatalogSource.Installed)
         {
             var installedId = Guid.NewGuid();

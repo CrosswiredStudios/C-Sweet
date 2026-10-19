@@ -187,6 +187,7 @@ public sealed partial class AgentWorkInbox(
         };
         item.NativeWorkInputReceiptJson = nativeInputs?.Bind(item);
         db.AgentWorkItems.Add(item);
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.PrepareAsync(db, item, timeProvider, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work("enqueued", kind);
         return item;
@@ -247,6 +248,14 @@ public sealed partial class AgentWorkInbox(
                 (x.MemoryResetRequestedAt != null || x.Status == AgentRuntimeStatus.Stopping ||
                  x.CompletedAt != null), cancellationToken)) return null;
 
+        // The Chief's tool audit context must identify exactly one active callback.
+        if (Guid.TryParse(session.OrganizationId, out var chiefOrg) &&
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.ChiefAsync(db, chiefOrg, session.AgentInstallationId, cancellationToken) is not null &&
+            await db.AgentWorkAttempts.AnyAsync(x => x.AgentWorkItem!.AgentInstallationId == session.AgentInstallationId &&
+                x.FinishedAt == null && x.LeaseExpiresAt > now && x.AgentWorkItem.Status == AgentWorkStatus.Leased &&
+                x.AgentWorkItem.DeadlineAt > now, cancellationToken))
+            return null;
+
         // Delivered work may already have committed business effects. If its retained context
         // outlives the execution lease/deadline, fence it before ordinary expiry can requeue it.
         // The reset settles it nonretryably; an incompatible pending item still has no lease.
@@ -281,6 +290,7 @@ public sealed partial class AgentWorkInbox(
         {
             expiredItem.Status = AgentWorkStatus.DeadLetter;
             expiredItem.LastError = DeadlineElapsedBeforeClaimReason;
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, expiredItem, now, cancellationToken);
             await RecordTicketFailureAsync(expiredItem, expiredItem.AttemptCount, expiredItem.LastError, now, cancellationToken);
             await FailCoordinationForWorkAsync(expiredItem, expiredItem.LastError, now, cancellationToken);
             AgentRuntimeMetrics.Work("dead_lettered", expiredItem.Kind);
@@ -304,6 +314,7 @@ public sealed partial class AgentWorkInbox(
                 : AgentWorkStatus.Pending;
             work.AvailableAt = now;
             work.LastError = "The prior runtime lease expired.";
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, work, now, cancellationToken);
             await RecordTicketFailureAsync(work, expiredAttempt.Attempt, work.LastError, now, cancellationToken);
             if (work.Status == AgentWorkStatus.DeadLetter)
                 await FailCoordinationForWorkAsync(work, work.LastError, now, cancellationToken);
@@ -425,6 +436,8 @@ public sealed partial class AgentWorkInbox(
         };
         db.AgentWorkAttempts.Add(attempt);
         await CSweet.Infrastructure.WorkManagement.WorkOrchestrationBoardState.RecordClaimAsync(db, item, now, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.BindAsync(db, item, attempt, timeProvider, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         AgentRuntimeMetrics.WorkClaimed(item.Kind, now - item.CreatedAt);
@@ -619,6 +632,7 @@ public sealed partial class AgentWorkInbox(
         if (completion.FailureCode == "runtime.resources.handoff")
         {
             await StageResourceHandoffAsync(session, item, attempt, completion, completionHash, now, cancellationToken);
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, now, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return;
@@ -651,6 +665,7 @@ public sealed partial class AgentWorkInbox(
             ApplyConfigurationAcknowledgement(item, completion, now);
         foreach (var observer in resultObservers ?? [])
             await observer.ObserveAsync(item, completion.Succeeded, completion.Value, cancellationToken);
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         if (item.Kind == AgentWorkKind.ConfigurationUpdate && audit is not null)
@@ -721,6 +736,7 @@ public sealed partial class AgentWorkInbox(
         if (item.Status == AgentWorkStatus.DeadLetter)
             foreach (var observer in resultObservers ?? [])
                 await observer.ObserveAsync(item, false, null, cancellationToken);
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work(
             item.Status == AgentWorkStatus.DeadLetter ? "dead_lettered" : "failed",
@@ -730,6 +746,7 @@ public sealed partial class AgentWorkInbox(
     private async Task RecordTicketFailureAsync(AgentWorkItem work, int attemptNumber, string error,
         DateTimeOffset now, CancellationToken token)
     {
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, work, now, token);
         var ticket = await CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.ResolveAsync(db, work, token);
         if (ticket is null || ticket.Status is CSweet.Domain.Core.WorkTaskStatus.Completed or CSweet.Domain.Core.WorkTaskStatus.Cancelled ||
             (ticket.Board?.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
@@ -913,6 +930,7 @@ public sealed partial class AgentWorkInbox(
         item.Status = AgentWorkStatus.Cancelled;
         item.CompletedAt = timeProvider.GetUtcNow();
         item.LastError = Truncate(reason, 2048);
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, item.CompletedAt.Value, cancellationToken);
         var activeAttempts = await db.AgentWorkAttempts.Where(x =>
             x.AgentWorkItemId == workId && x.FinishedAt == null).ToListAsync(cancellationToken);
         foreach (var attempt in activeAttempts)
@@ -947,6 +965,7 @@ public sealed partial class AgentWorkInbox(
             item.Status = AgentWorkStatus.Cancelled;
             item.CompletedAt = now;
             item.LastError = Truncate(reason, 2048);
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, now, cancellationToken);
             foreach (var attempt in item.Attempts.Where(x => x.FinishedAt == null))
             {
                 attempt.LastConfirmedAt = now;

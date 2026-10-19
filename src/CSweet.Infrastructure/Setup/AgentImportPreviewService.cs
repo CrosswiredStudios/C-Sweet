@@ -401,7 +401,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         return warnings;
     }
 
-    private static AgentImportPreviewResponse ToResponse(
+    internal static AgentImportPreviewResponse ToResponse(
         AgentPackageVersion version,
         AgentPackageSource source,
         PluginManifest manifest,

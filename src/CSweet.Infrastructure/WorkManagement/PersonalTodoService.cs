@@ -145,6 +145,12 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             .ToListAsync(cancellationToken);
         foreach (var item in expired)
         {
+            if (!item.IsExecutable && item.CreationIdempotencyKey?.StartsWith(ChiefWorkCards.Prefix, StringComparison.Ordinal) == true)
+            {
+                await SetChiefAuditCardStateAsync(item, WorkTaskStatus.Blocked,
+                    "The execution claim expired. Review the recorded attempt before retrying.", now, cancellationToken);
+                continue;
+            }
             var owner = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
                 x.Id == item.AssignedEmployeeId && x.IsActive &&
                 x.AgentInstallationId != null, cancellationToken);

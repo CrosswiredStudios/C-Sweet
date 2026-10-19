@@ -56,7 +56,7 @@ public sealed class AgentDefinitionService(
         {
             if (definition.PackageVersionId != package.Id)
                 throw new AgentInstallationException(
-                    "This agent already has a different approved version. Update the agent definition before hiring this version.");
+                    "This hiring review uses a different package from the approved agent definition. Open a fresh hiring review to use the installed package, or update the agent in Installed Agents first.");
             return ToResponse(definition, package);
         }
         var now = DateTimeOffset.UtcNow;

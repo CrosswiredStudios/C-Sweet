@@ -101,6 +101,7 @@ public sealed class ChatTurnWorker(
         {
             var installationId = await conversations.GetAgentInstallationIdForEmployeeAsync(turn.TargetAgentOrganizationUserId, hardTimeout.Token)
                 ?? throw new InvalidOperationException("The agent employee is not linked to an installation.");
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.PrepareChatAsync(db, turn, installationId, hardTimeout.Token);
             var existingDispatch = await db.AgentWorkItems.AsNoTracking().AnyAsync(x =>
                 x.OrganizationId == turn.OrganizationId.ToString("D") && x.SourceType == "chat-turn" &&
                 x.SourceId == turnId.ToString("D") && x.IdempotencyKey == $"chat-turn:{turnId:D}:attempt:{turn.Attempt}", hardTimeout.Token);

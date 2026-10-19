@@ -1221,6 +1221,8 @@ public sealed partial class HiringService(
             {
                 definition = await definitionService.GetAsync(embedded.DefinitionId.Value, cancellationToken)
                     ?? throw new InvalidOperationException("The approved catalog agent definition no longer exists.");
+                if (definition.PackageVersionId != embedded.ImportId)
+                    throw new InvalidOperationException("The installed agent version changed; open a new hiring review to use the currently approved package.");
             }
             else
             {
@@ -1574,6 +1576,7 @@ CompleteWorkflow:
         {
             var metadata = ReadMetadata(candidate.ExplanationJson);
             AgentImportPreviewResponse preview;
+            AgentDefinition? approvedDefinition = null;
             var isLocalArchive = candidate.Source == "LocalDirectoryCatalog";
             if (isLocalArchive)
             {
@@ -1590,6 +1593,7 @@ CompleteWorkflow:
             else
             {
                 var repositoryUrl = metadata.RepositoryUrl;
+                string? catalogAgentId = null;
                 if (!string.IsNullOrWhiteSpace(metadata.CatalogReference) && agentCatalog is not null)
                 {
                     var resolved = await agentCatalog.ResolveAsync(
@@ -1597,12 +1601,41 @@ CompleteWorkflow:
                         metadata.CatalogReference,
                         token);
                     repositoryUrl = resolved?.RepositoryUrl;
+                    catalogAgentId = resolved?.AgentId;
                 }
                 if (string.IsNullOrWhiteSpace(repositoryUrl))
                     throw new InvalidOperationException("The catalog agent candidate has no installable repository URL.");
-                var previewService = importPreview
-                    ?? throw new InvalidOperationException("The agent import preview service is unavailable.");
-                preview = await previewService.PreviewAsync(new PreviewAgentImportRequest(repositoryUrl), token);
+                var normalizedUrl = GitHubRepositoryUrlNormalizer.Normalize(repositoryUrl).RepositoryUrl.ToLowerInvariant();
+                approvedDefinition = await db.AgentDefinitions.AsNoTracking()
+                    .Include(x => x.PackageVersion).ThenInclude(x => x!.PackageSource)
+                    .Where(x => x.PackageSource!.RepositoryUrl.ToLower() == normalizedUrl &&
+                        (catalogAgentId == null || x.AgentId == catalogAgentId))
+                    .SingleOrDefaultAsync(token);
+                if (approvedDefinition is not null)
+                {
+                    if (approvedDefinition.Status == AgentDefinitionStatus.Disabled)
+                        throw new InvalidOperationException("This agent definition is disabled. Review it in Installed Agents before hiring.");
+                    var package = approvedDefinition.PackageVersion
+                        ?? throw new InvalidOperationException("The approved agent package was not found.");
+                    // Hiring uses the approved package, even if the repository branch has moved.
+                    // Only the Installed Agents update flow may replace this definition.
+                    var manifest = AgentConfigurationRules.DeserializeManifest(package.ManifestJson);
+                    preview = AgentImportPreviewService.ToResponse(package, package.PackageSource!, manifest, []) with
+                    {
+                        DefaultActivationMode = approvedDefinition.DefaultActivationMode.ToString(),
+                        Capabilities = ReadStrings(approvedDefinition.DefaultProvidedCapabilitiesJson),
+                        RequestedCapabilities = ReadStrings(approvedDefinition.DefaultRequiredCapabilitiesJson),
+                        RequestedSubscriptions = ReadStrings(approvedDefinition.DefaultEventSubscriptionsJson),
+                        RequestedPublications = [],
+                        RequestedNetworkAccess = ReadStrings(approvedDefinition.DefaultNetworkAccessJson)
+                    };
+                }
+                else
+                {
+                    var previewService = importPreview
+                        ?? throw new InvalidOperationException("The agent import preview service is unavailable.");
+                    preview = await previewService.PreviewAsync(new PreviewAgentImportRequest(repositoryUrl), token);
+                }
             }
             ValidateCatalogPreview(preview, requiredGrants);
 
@@ -1627,7 +1660,9 @@ CompleteWorkflow:
                  preview.RequestedNetworkAccess.Distinct(StringComparer.Ordinal).ToList(),
                  preview.ConfigurationFields.Where(field => !field.Secret).ToList(),
                  preview.Setup?.Required == true,
-                 isLocalArchive);
+                 isLocalArchive,
+                 DefinitionId: approvedDefinition?.Id,
+                 UsesApprovedDefinition: approvedDefinition is not null);
         }
         if (candidate.WorkforcePlanId is { } planId)
         {
@@ -1811,6 +1846,19 @@ CompleteWorkflow:
         {
             var embedded = snapshot.EmbeddedAgent
                 ?? throw new InvalidOperationException("The catalog agent installation snapshot is missing.");
+            if (embedded.UsesApprovedDefinition)
+            {
+                var definition = await db.AgentDefinitions.AsNoTracking().SingleOrDefaultAsync(x =>
+                    x.Id == embedded.DefinitionId && x.AgentId == embedded.AgentId &&
+                    x.PackageVersionId == embedded.ImportId && x.Status != AgentDefinitionStatus.Disabled, token);
+                if (definition is null)
+                    throw new InvalidOperationException("The installed agent version changed; open a new hiring review to use the currently approved package.");
+                if (!SameGrantSet(embedded.RequestedCapabilities, ReadStrings(definition.DefaultRequiredCapabilitiesJson)) ||
+                    !SameGrantSet(embedded.ProvidedCapabilities, ReadStrings(definition.DefaultProvidedCapabilitiesJson)) ||
+                    !SameGrantSet(embedded.Subscriptions, ReadStrings(definition.DefaultEventSubscriptionsJson)) ||
+                    !SameGrantSet(embedded.NetworkAccess, ReadStrings(definition.DefaultNetworkAccessJson)))
+                    throw new InvalidOperationException("The approved agent access changed; create a new approval.");
+            }
             if (embedded.IsLocalArchive)
             {
                 var current = await db.AgentPackageVersions.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -2395,6 +2443,32 @@ CompleteWorkflow:
     {
         var workflow = db.StaffingActionProposals.Local.FirstOrDefault(x => x.Id == operation.WorkflowId)
             ?? db.StaffingActionProposals.AsNoTracking().FirstOrDefault(x => x.Id == operation.WorkflowId);
+        var auditSnapshot = workflow is null ? null : JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions);
+        if (auditSnapshot?.AuditWorkItemId is { } auditCardId &&
+            db.CoreWorkTasks.FirstOrDefault(x => x.Id == auditCardId && x.OrganizationId == operation.OrganizationId && !x.IsExecutable) is { } auditCard)
+        {
+            var fulfilled = db.WorkforcePlans.Any(x => x.Id == workflow!.WorkforcePlanId && x.FulfilledHeadcount >= x.Headcount);
+            var status = operation.Status == AgentHireOperationStatus.Succeeded && fulfilled ? WorkTaskStatus.Completed
+                : operation.Status is AgentHireOperationStatus.Failed or AgentHireOperationStatus.NeedsSetup or AgentHireOperationStatus.AwaitingConfirmation
+                    ? WorkTaskStatus.Blocked : WorkTaskStatus.Running;
+            auditCard.Status = status;
+            var category = status == WorkTaskStatus.Completed ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Done
+                : status == WorkTaskStatus.Blocked ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Blocked
+                : CSweet.Domain.WorkManagement.WorkBoardColumnCategory.InProgress;
+            auditCard.BoardColumnId = db.WorkBoardColumns.Where(x => x.BoardId == auditCard.BoardId && x.Category == category).Select(x => x.Id).Single();
+            auditCard.UpdatedAt = DateTimeOffset.UtcNow; auditCard.Revision++;
+            auditCard.ResultSummary = $"Automatic hiring: {operation.Status}. {operation.Error}".Trim();
+            CSweet.Infrastructure.WorkManagement.ChiefWorkCards.Notify(db, auditCard, DateTimeOffset.UtcNow);
+            db.WorkItemActivities.Add(new CSweet.Domain.WorkManagement.WorkItemActivity
+            {
+                Id = Guid.NewGuid(), OrganizationId = operation.OrganizationId, BoardId = auditCard.BoardId!.Value,
+                WorkItemId = auditCard.Id, EventType = "chief.hiring.operation", Action = "platform.hiring-delegation.submit.v1",
+                ActorKind = workflow!.DelegatedInstallationId.HasValue ? CSweet.Domain.Security.GrantSubjectKind.AgentInstallation : CSweet.Domain.Security.GrantSubjectKind.OrganizationUser,
+                ActorSubjectId = workflow.DelegatedInstallationId ?? operation.InitiatedByOrganizationUserId ?? Guid.Empty,
+                DataJson = JsonSerializer.Serialize(new { operationId = operation.Id, workflowId = workflow.Id, recommendationId = workflow.WorkforcePlanId,
+                    status = operation.Status.ToString(), operation.Error }, JsonOptions), OccurredAt = DateTimeOffset.UtcNow
+            });
+        }
         if (workflow?.DelegatedInstallationId is Guid chiefInstallation)
         {
             var chief = db.CoreOrganizationUsers.AsNoTracking().FirstOrDefault(x => x.OrganizationId == operation.OrganizationId && x.AgentInstallationId == chiefInstallation && x.IsActive);
@@ -2458,7 +2532,8 @@ CompleteWorkflow:
         EmbeddedAgentInstallSnapshot? EmbeddedAgent = null,
         string? EmployeeDisplayName = null,
         string? RoleCategoryKey = null,
-        IReadOnlyList<string>? PreferredSpecializationKeys = null);
+        IReadOnlyList<string>? PreferredSpecializationKeys = null,
+        Guid? AuditWorkItemId = null);
     private sealed record EmbeddedAgentInstallSnapshot(
         Guid ImportId,
         string RepositoryUrl,
@@ -2476,7 +2551,8 @@ CompleteWorkflow:
         bool IsLocalArchive = false,
         Guid? InstallationId = null,
         Guid? DefinitionId = null,
-        IReadOnlyDictionary<string, JsonElement>? ConfigurationSettings = null);
+        IReadOnlyDictionary<string, JsonElement>? ConfigurationSettings = null,
+        bool UsesApprovedDefinition = false);
     private sealed record CandidateMetadata
     {
         public string? ResourceType { get; init; }

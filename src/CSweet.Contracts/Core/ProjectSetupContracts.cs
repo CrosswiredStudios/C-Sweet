@@ -19,3 +19,5 @@ public sealed record ProjectMembersDetail(Guid ProjectId, string Name, Guid Mana
     IReadOnlyList<Guid> MemberIds, long Revision);
 
 public sealed record ChangeProjectStatusRequest(string Status, long ExpectedRevision);
+public sealed record RenameProjectRequest(string Name, long ExpectedRevision);
+public sealed record RenameProjectResponse(Guid ProjectId, string Name, long Revision);

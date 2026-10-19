@@ -16,7 +16,8 @@ Modes are **Choose candidates yourself**, **Recommend candidates**, and **Automa
 Automatic levels are **Approved packages**, **Within limits**, and **Broad delegation**.
 Within limits requires explicit per-hire and total costs, currency, capability keys, and
 network entries. Empty permission lists authorize none. Broad delegation allows eligible
-packages' requested grants for approved roles, subject to the existing platform restrictions.
+packages' requested grants for the Chief's own leadership recommendations and approved
+team roles, subject to the existing platform restrictions.
 Unknown cost, missing required configuration, or insufficient authority requires owner review.
 Publisher preference is independent: first-party only, prefer first-party, or best fit.
 Catalog provenance is platform-controlled. `AgentCatalogService.DeduplicationKey` keeps
@@ -28,7 +29,17 @@ The approval's authorized manager decides the roles; the owner's delegation deci
 the Chief may execute hiring. `BoundPolicyAsync` provides conservative recovery for old plans.
 `ApplyToPlanAsync` is an explicit owner action to apply saved policy to an existing approved
 plan. The policy captured at approval and current policy must both permit each uncommitted
-hire. Policy changes cannot expand an existing plan implicitly.
+hire. Policy changes cannot expand an existing approved team plan implicitly.
+
+Standalone company leadership recommendations (no `SourceResourceChangeRequestId`,
+`TeamId`, or `WorkstreamId`) use the completed current owner policy in `BoundPolicyAsync`.
+They do not require a separate resource-change approval or a `HiringPlanDelegation` row.
+This includes outstanding leadership suggestions when the owner enables automatic hiring.
+`SubmitDelegatedCoreAsync` supplies the policy owner as reporting manager;
+`ValidateDelegationAsync` rechecks that manager and the recommendation's role, objective,
+team and workstream before deferred commits. Team/workstream staffing still requires its
+approved resource-change plan. Publisher provenance, costs, grants, configuration, headcount,
+revocation, and duplicate-hire checks apply to both paths.
 
 ## Conversation and owner settings
 
@@ -109,6 +120,18 @@ convert a delegated workflow into implicit owner confirmation. Already completed
 success without another hire. Existing resource-change/recommendation reads and durable events
 support bounded reconnect discovery. Successful asynchronous hires continue remaining slots.
 `QueueOperationChanged` persists automatic hiring progress/completion in the owner conversation.
+Chief `RecoverApprovedHiringAsync` also discovers standalone unfilled suggestions on activation.
+`PrepareHiringCandidateAsync` suppresses manual marketplace actions for successful, starting,
+queued, building and completing hires; review/configuration failures retain the shared review.
+Deploy the platform update and Chief 2.13.3 through the normal published release and Installed
+Agents update flow. Local validation does not change installed packages.
+
+Chief 2.13.4 moves activation recovery to durable attention callbacks. `ChiefWorkCards` binds
+the callback's personal card before dispatch; `SubmitDelegatedAsync` also creates a dedicated
+automatic-hiring card before candidate selection. `WorkflowSnapshot.AuditWorkItemId` carries
+that card through asynchronous builds. Operation transitions append card activity and persist
+board refresh hints with their state changes. Tracking cards are non-executable and do not wake
+another hiring callback. See [Chief work cards](employee-audit-timeline.md#chief-of-staff-work-cards).
 
 ## Shared hiring UI and marketplace context
 

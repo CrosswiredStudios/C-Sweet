@@ -4,6 +4,49 @@ The **Timeline** tab in `EmployeeDetails` is an employee-scoped view of the exis
 
 ## Capture and integrity
 
+### Chief of Staff work cards
+
+`ChiefWorkCards` and `WorkItemMutationEngine.ChiefAudit` create a platform-managed
+personal-board card before dispatching work for an active Chief of Staff. `AgentWorkInbox`
+prepares the card during enqueue and binds it to `AgentWorkAttempt` and `WorkExecutionContext`
+inside the claim transaction before returning the payload. All callback paths, including
+inherited manager, coordination, onboarding, attention and capability handlers, share this
+boundary. `ChatTurnWorker.ProcessAsync` prepares the same conversation-turn card before
+runtime preparation or memory recall. Repeated delivery and chat-turn attempts reuse the card;
+previous claim/binding receipts and inference ownership remain intact.
+
+`McpGatewayEndpoints.CurrentCapabilityAuditContextAsync` requires a single authenticated
+Chief delivery and a usable card before a tool executes. Chief callbacks are serialized by
+the inbox and the Chief manifest's `maximumConcurrentJobs`. `PlatformLlmCapabilityHandler`
+also validates the card at provider dispatch and uses `ChiefWorkCards.BindInferenceAsync`
+to capture the exact runtime attempt when optional model telemetry lacks a work hint. Chief
+inference receipt persistence failures propagate; they cannot silently permit unrecorded dispatch.
+Existing capability, policy, memory and execution checks still supply authority.
+
+`ChiefOfStaffAgent.OnActivatedAsync` performs no platform actions. Startup/reconnect recovery
+runs in `HandleManagerAttentionReviewAsync` through the existing durable attention scheduler,
+after the callback's card is bound. `AgentMemoryService.EnrichWithTelemetryAsync` creates
+and links a separate memory card and initial receipt before each background enrichment call.
+`HiringService.SubmitDelegatedAsync` creates an automatic-hiring card before candidate selection;
+`WorkflowSnapshot.AuditWorkItemId` retains its identity through deferred builds. Operation
+changes update the card and append `chief.hiring.operation` activities and board outbox hints
+with the operation mutation. Multi-seat fulfillment keeps the card active until all seats are
+filled; missing authority/setup or failures leave it blocked.
+
+These tracking cards have `IsExecutable = false`, so their creation does not enqueue another
+personal callback. Existing executable commitments may become the callback's focus while they
+run; the callback card resumes accounting for subsequent tools after that commitment finishes.
+Completion, failure, cancellation and lease-loss recovery retain card and attempt history.
+Provider-unreported token counts remain unknown. No historical tokens or missing actions are
+invented. Deploy the matching platform and Chief 2.13.4 through Installed Agents; no migration,
+new capability grants or installation-record patching is required.
+
+Coverage: `AgentWorkInboxTests.ChiefCards`, `HiringServiceAutonomyTests.Leadership`,
+`AgentMemoryServiceTests.RelationshipMemory_IsRecalledAcrossConversationsAndBrowsable`, and
+Chief `ChiefOfStaffProfileTests.StartupDoesNotPerformUnleasedActions`.
+
+### Shared audit capture
+
 - `CSweetDbContext.CaptureAgentAuditEvents` observes messages, participant changes, chat turns/traces, internal work and attempts/progress, board work/activity/orchestration, model run logs, runtime events, and targeted platform-event state changes. It queues evidence in the same save/transaction as the source mutation. Lease renewal bookkeeping does not emit another work-start event.
 - `CSweetDbContext.QueueAudit` uses the shared `AuditOutbox`. The existing physical `ComputeAuditOutbox` table and entity name remain for migration compatibility; compute and agent producers use the same dispatcher. New evidence is sanitized and protected at rest when the runtime data-protection provider is present. Preserve the application's data-protection keys with database backups.
 - `AuditOutboxDispatcher` retries each record with bounded backoff; a failed record remains pending and does not prevent other records being delivered. Stable event IDs prevent duplicate ledger appends after a lost acknowledgement. `AuditOutboxWorker` also performs bounded historical discovery; agents do not poll for audit delivery.

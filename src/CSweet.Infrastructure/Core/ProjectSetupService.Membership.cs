@@ -29,7 +29,7 @@ public sealed partial class ProjectSetupService
         var project = await db.Workstreams.SingleOrDefaultAsync(x => x.OrganizationId == actor.OrganizationId && x.Id == id, ct)
             ?? throw new KeyNotFoundException("Project not found.");
         if (actor.EmployeeType != EmployeeType.Human || (actor.PermissionLevel < OrganizationPermissionLevel.Manager && project.AccountableManagerOrganizationUserId != actor.Id))
-            throw new UnauthorizedAccessException("Only an authorized human project manager can change project membership.");
+            throw new UnauthorizedAccessException("Only an authorized human project manager can edit this project.");
         return project;
     }
     public async Task<ProjectMembersDetail> MembersAsync(OrganizationUser actor, Guid id, CancellationToken ct)

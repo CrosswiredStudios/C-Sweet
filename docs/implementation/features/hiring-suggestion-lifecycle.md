@@ -18,6 +18,10 @@ Marketplace context uses authorized server attribution and remains attached when
 filters are cleared. **Browse outside this plan** explicitly detaches it. Unavailable or
 fulfilled recommendations disable contextual hiring. Automatic progress is persisted as
 `DelegatedHiring` conversation messages alongside hire-operation outbox events.
+Automatic hiring also covers the Chief's own standalone leadership recommendations under
+the completed live owner policy. Chief `PrepareHiringCandidateAsync` attaches no manual
+marketplace action while an automatic hire succeeds, starts, queues, builds, or completes.
+Missing authority or required owner configuration retains the review action.
 
 ## Company overview hiring row
 

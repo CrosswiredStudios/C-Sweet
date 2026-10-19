@@ -42,6 +42,8 @@ public sealed partial class PlatformLlmCapabilityHandler
             !await _dbContext.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.Id == employee && x.OrganizationId.ToString() == session.BusinessId &&
                 x.AgentInstallationId == installationId && x.EmployeeType == EmployeeType.Agent && x.IsActive && x.ArchivedAt == null, token)))
             throw new ProviderDispatchDeniedException();
+        if (Guid.TryParse(session.BusinessId, out var chiefOrganization))
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.RequireActiveAsync(_dbContext, chiefOrganization, installationId, runtimeId, token);
         if (!await IsModelApprovedAsync(session, current.Id, selectedModel, current.DefaultChatModel, token)) throw new ProviderDispatchDeniedException();
         var benchmark = await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ResolveAsync(_dbContext, installationId, session.BusinessId, token);
         if (benchmark is not null && (benchmark.ProviderProfileId != current.Id || benchmark.Model != selectedModel)) throw new ProviderDispatchDeniedException();

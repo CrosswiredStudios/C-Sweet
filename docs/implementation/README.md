@@ -49,6 +49,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 
 ## Feature plans
 
+- [Project names and continuity](features/project-naming.md) - human rename controls, approved agent changes, stable execution and memory identity, audit history and current chat context.
+
 - [Forecast-driven planning](features/forecast-driven-planning.md) - optional external date constraints, elapsed-history completion ranges, intake memory and manager-owned pause/escalation/relay.
 
 - [Business deletion](features/business-deletion.md) - durable deletion intent, automatic

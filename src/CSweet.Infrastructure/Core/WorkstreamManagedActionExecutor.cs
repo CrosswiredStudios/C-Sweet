@@ -198,6 +198,7 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
             throw new InvalidOperationException("The Workstream profile digest changed after the proposal was reviewed.");
         var profile = await db.WorkstreamProfileDefinitions.AsNoTracking().SingleAsync(x =>
             x.Key == workstream.ProfileKey && x.Version == workstream.ProfileVersion && x.DefinitionDigest == workstream.ProfileDefinitionDigest, token);
+        var previousName = workstream.Name;
         var upgrade = await WorkstreamProfileUpgrade.ResolveAsync(db, workstream, request.Changes, token);
         if (upgrade is not null)
         {
@@ -222,6 +223,7 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
             workstream.Status = WorkstreamStatus.Active;
         }
         workstream.Revision++; workstream.UpdatedAt = clock.GetUtcNow();
+        await projectSetup.QueueNameChangeAsync(workstream, previousName, actor, token);
         var now = clock.GetUtcNow();
         var context = new W.AgentWorkContext(proposal.OrganizationId, workstream.Id, null, null, null, null, null,
             proposal.Id, null, workstream.ProfileKey);

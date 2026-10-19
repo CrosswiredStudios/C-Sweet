@@ -23,6 +23,8 @@ public static class ProjectSetupEndpoints
             Run(organizationId, http, setup, db, policy, true, a => setup.UpdateMembersAsync(a, projectId, request, ct), ct));
         group.MapPut("/projects/{projectId:guid}/status", (Guid organizationId, Guid projectId, ChangeProjectStatusRequest request, HttpContext http, ProjectSetupService setup, CSweetDbContext db, ProjectWorkPolicy policy, CancellationToken ct) =>
             Run(organizationId, http, setup, db, policy, true, a => setup.ChangeStatusAsync(a, projectId, request, ct), ct));
+        group.MapPut("/projects/{projectId:guid}/name", (Guid organizationId, Guid projectId, RenameProjectRequest request, HttpContext http, ProjectSetupService setup, CSweetDbContext db, ProjectWorkPolicy policy, CancellationToken ct) =>
+            Run(organizationId, http, setup, db, policy, true, a => setup.RenameAsync(a, projectId, request, ct), ct));
         return app;
     }
     private static async Task<IResult> Run<T>(Guid org, HttpContext http, ProjectSetupService setup, CSweetDbContext db, ProjectWorkPolicy policy,

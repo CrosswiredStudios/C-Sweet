@@ -116,8 +116,12 @@ public sealed partial class MemoryRecallDispatchEvidence
                 ?? throw Denied();
             workContext = new(binding.OrganizationId, workstreamId, conversation.TeamId, null, null, null, null,
                 binding.TurnId, binding.MessageId, stream.ProfileKey);
+            // Current canonical identity accompanies historical recall; a display-name edit does
+            // not move or rewrite any employee/case memory. These values are receipt-bound below.
+            context["projectId"] = stream.Id.ToString("D");
+            context["projectName"] = stream.Name;
             workstreamHash = MetadataHash(new { stream.Id, stream.OrganizationId, stream.ProfileKey, stream.ProfileVersion,
-                stream.ProfileDefinitionDigest, stream.Revision, stream.AccountableManagerOrganizationUserId, stream.Status, conversation.TeamId });
+                stream.ProfileDefinitionDigest, stream.Revision, stream.Name, stream.AccountableManagerOrganizationUserId, stream.Status, conversation.TeamId });
         }
         var metadata = new PreparedChatMetadata(renderedSender, renderedMentions, renderedAttachments, context, workContext);
         var evidence = new AuxiliaryEvidence(1, sender.Id, PersonHash(sender), mentionInputs, attachmentInputs,

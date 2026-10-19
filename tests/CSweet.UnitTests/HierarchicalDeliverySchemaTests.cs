@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.WorkManagement.Contracts;
 
@@ -6,6 +7,32 @@ namespace CSweet.UnitTests;
 
 public sealed class HierarchicalDeliverySchemaTests
 {
+    [Theory]
+    [InlineData(110)]
+    [InlineData(150)]
+    [InlineData(190)]
+    public async Task Generated_workflow_ticket_requests_fit_the_actual_published_create_schema(int keyLength)
+    {
+        var item = JsonSerializer.Deserialize<WorkItem>("{}")! with {
+            Id = Guid.NewGuid(), Planning = new(["Implement prototype"], ["Prototype works"])
+        };
+        var request = new ConfigureWorkDeliveryPlanRequest(Guid.NewGuid(), "Prototype", Guid.NewGuid(), [item.Id], [],
+            [new("Release", null, Guid.NewGuid(), [])], new string('p', keyLength));
+        var createTool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { WorkItemCapabilities.Create }));
+        Assert.Equal(160, createTool.InputSchema.GetProperty("properties").GetProperty("idempotencyKey").GetProperty("maxLength").GetInt32());
+        var created = 0;
+        var runtime = new CSweet.Agent.SDK.AgentTestRuntime()
+            .RegisterCapability<CreateWorkItemRequest, WorkItem>(WorkItemCapabilities.Create, (r, _) => {
+                JsonSchemaValidator.Validate(JsonSerializer.SerializeToElement(r, new JsonSerializerOptions(JsonSerializerDefaults.Web)), createTool.InputSchema);
+                created++;
+                return Task.FromResult(item with { Id = Guid.NewGuid(), Planning = r.Planning });
+            })
+            .RegisterCapability<ConfigureWorkDeliveryPlanRequest, WorkDeliveryPlanResponse>(WorkDeliveryCapabilities.Configure,
+                (_, _) => Task.FromResult(JsonSerializer.Deserialize<WorkDeliveryPlanResponse>("{}")!));
+        await CSweet.Agent.SDK.TicketWorkflowPlanning.ConfigureAsync(request, [item], runtime.CreateContext(), default);
+        Assert.Equal(1, created);
+    }
+
     [Theory]
     [InlineData("[]")]
     [InlineData("[{\"planId\":\"00000000-0000-0000-0000-000000000001\",\"status\":\"Draft\"}]")]
