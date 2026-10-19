@@ -140,7 +140,21 @@ public sealed class IcuMessageFormatterTests
         var english = resources.GetTable("en");
         Assert.NotEmpty(english);
         Assert.Equal("Save", english["Common.Save"]);
-        // Per-culture completeness is enforced by tools/localization/check-resources.mjs --strict.
+        // Key-level completeness is enforced by tools/localization/check-resources.mjs --strict.
+    }
+
+    [Fact]
+    public void Every_supported_culture_ships_resources_for_every_area()
+    {
+        var resources = new LocalizationResources();
+        var english = resources.GetTable("en");
+        foreach (var culture in SupportedCultures.All.Select(c => c.Code).Where(c => c != "en"))
+        {
+            Assert.Contains(culture, LocalizationResources.AvailableCultures, StringComparer.OrdinalIgnoreCase);
+            var table = resources.GetTable(culture);
+            var missing = english.Keys.Where(k => !table.ContainsKey(k)).Take(5).ToArray();
+            Assert.True(missing.Length == 0, $"{culture} is missing {string.Join(", ", missing)}");
+        }
     }
 
     [Fact]

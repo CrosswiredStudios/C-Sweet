@@ -162,7 +162,7 @@
     <DialogContent>
         <section class="business-dialog business-delete-dialog" aria-labelledby="business-delete-title">
             <header class="business-dialog-header"><div><span class="business-kicker">@L["Organizations.BusinessManagement"]</span><h2 id="business-delete-title">@L["Organizations.DeleteBusiness2"]</h2></div><MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CancelDelete" aria-label="@L["Organizations.CancelDeletion"]" /></header>
-            <p>@L["Common.Delete"] <strong>@_deleteCandidate?.Name</strong> @L["Organizations.AndAllOfItsAssociated"]</p>
+            <p>@L.Format("Organizations.DeleteConfirm", new { name = _deleteCandidate?.Name })</p>
             <p>@L["Organizations.ItsComputeInstancesAndVM"]</p>
             <footer class="business-dialog-actions"><MudButton Variant="Variant.Outlined" OnClick="CancelDelete">@L["Organizations.KeepBusiness"]</MudButton><MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteBusinessAsync">@L["Organizations.DeleteBusiness3"]</MudButton></footer>
         </section>

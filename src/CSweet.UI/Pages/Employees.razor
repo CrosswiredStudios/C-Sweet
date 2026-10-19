@@ -461,7 +461,7 @@
         {
             <MudAlert Severity="Severity.Error" Dense="true">@_actionError</MudAlert>
         }
-        <MudText>@L["Common.Remove"] <strong>@_employeeToFire?.DisplayName</strong> @L["Employees.FromThisOrganization"]</MudText>
+        <MudText>@L.Format("Employees.RemoveConfirm", new { name = _employeeToFire?.DisplayName })</MudText>
         @if (_employeeToFire?.EmployeeType == 1)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">

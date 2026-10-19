@@ -31,7 +31,7 @@
   "Employees.ChangeCompanyRole": "Change company role",
   "Employees.ThisChangesTheAdministratorS": "This changes the administrator’s position in this company. System administrator and Owner access remain unchanged.",
   "Employees.FireEmployee": "Fire employee?",
-  "Employees.FromThisOrganization": "from this organization?",
+  "Employees.RemoveConfirm": "Remove {name} from this organization?",
   "Employees.FiringAnAgentAlsoPermanently": "Firing an agent also permanently removes its conversation history.",
   "Employees.EmployeeViews": "Employee views",
   "Employees.DecisionFeedback": "Decision feedback",

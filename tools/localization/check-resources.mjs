@@ -61,6 +61,10 @@ if (Object.keys(en).length === 0) error('no English resources found');
 // Keys referenced from source.
 const keyPattern = /\bL(?:ocalizer)?\s*(?:\[\s*|\.Format\s*\(\s*|\.Has\s*\(\s*)"([A-Za-z0-9_.-]+)"/g;
 const used = new Map();
+const quoted = new Set(); // keys returned as plain strings by presentation classes and resolved later with L[key]
+for (const file of walk(uiRoot).filter(f => (f.endsWith('.razor') || f.endsWith('.cs')) && !f.includes('Localization'))) {
+  for (const m of readFileSync(file, 'utf8').matchAll(/"([A-Za-z][A-Za-z0-9_.-]*)"/g)) quoted.add(m[1]);
+}
 for (const file of walk(uiRoot).filter(f => (f.endsWith('.razor') || f.endsWith('.cs')) && !f.includes(`${'Localization'}`))) {
   const text = readFileSync(file, 'utf8');
   for (const match of text.matchAll(keyPattern)) {
@@ -73,7 +77,7 @@ for (const [key, files] of used) {
 }
 // Keys built dynamically (e.g. prefix + enum) cannot be matched here; those areas keep an explicit "_dynamic" note.
 for (const key of Object.keys(en)) {
-  if (!used.has(key) && !key.startsWith('Mud.') && !key.startsWith('Common.') && !key.startsWith('Settings.Section.') && !key.startsWith('Settings.Group.')) {
+  if (!used.has(key) && !quoted.has(key) && ![...quoted].some(q => key.startsWith(q.endsWith('.') ? q : q + '.')) && !key.startsWith('Mud.') && !key.startsWith('Common.') && !key.startsWith('Settings.Section.') && !key.startsWith('Settings.Group.')) {
     (strict ? error : warn)(`'${key}' (${en[key].area}) is defined in English but no Razor/C# file references it literally`);
   }
 }

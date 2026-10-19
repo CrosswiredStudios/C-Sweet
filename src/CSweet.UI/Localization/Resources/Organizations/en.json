@@ -24,7 +24,7 @@
   "Organizations.NextChooseAChiefOf": "Next, choose a Chief of Staff from the marketplace.",
   "Organizations.BusinessManagement": "Business management",
   "Organizations.DeleteBusiness2": "Delete business?",
-  "Organizations.AndAllOfItsAssociated": "and all of its associated business data? This cannot be undone.",
+  "Organizations.DeleteConfirm": "Delete {name} and all of its associated business data? This cannot be undone.",
   "Organizations.ItsComputeInstancesAndVM": "Its compute instances and VM-local files will also be released. The business will be deleted automatically when cleanup finishes.",
   "Organizations.KeepBusiness": "Keep business",
   "Organizations.DeleteBusiness3": "Delete business",

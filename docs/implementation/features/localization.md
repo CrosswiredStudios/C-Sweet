@@ -82,7 +82,12 @@ on `CurrentCode`, so a language change re-renders everything without a reload. `
 - Strings passed to MudBlazor dialogs/snackbars are resolved at the call site.
 - A component test that renders a component which injects `IAppLocalizer` must call
   `services.AddCSweetLocalization()` on its `ServiceCollection` (English resources load from the
-  embedded files, so existing English assertions keep passing).
+  embedded files, so existing English assertions keep passing). Tests that construct a component
+  directly use `TestLocalization.Inject(new X())`; source-text assertions on `.razor` files use
+  `LocalizedSource.AssertContains(text, source)`, which also accepts a referenced resource key whose
+  English value contains the text.
+- Never split a sentence around a value (`@L["Delete"] <b>@name</b> @L["…rest"]`): word order differs
+  by language. Use one message with a placeholder: `@L.Format("Organizations.DeleteConfirm", new { name })`.
 
 ## Tooling (`tools/localization`)
 
@@ -96,6 +101,17 @@ on `CurrentCode`, so a language change re-renders everything without a reload. `
   language. Staleness is tracked in `<Area>/translations.<culture>.lock` (sha1 of the English text per key).
   `--culture`, `--area`, `--dry-run`, `--force`.
 - `glossary.json` — mandatory renderings for domain terms. Add a term before it drifts.
+  A standalone "Chief" always means the Chief of Staff; "Enterprise" is the host level above
+  businesses and stays distinct from "business".
+- `python3 tools/localization/stage.py export <Area> <culture>` / `apply <Area> <culture> <file>` —
+  manual or assistant-driven translation: export lists numbered English values that are missing or
+  stale for a culture, apply imports `{"<number>": "<translation>"}` with placeholder and plural
+  validation. Shares the per-culture lock files with `translate.mjs`.
+- `python3 tools/localization/extract.py <Area> <files…> [--report]` — conservative extractor that
+  moves markup text, common text attributes (`Label`, `Title`, `aria-label`, `placeholder`, …) and
+  message assignments (`_error = "…"`, `Snackbar.Add("…")`) into `<Area>/en.json`. It skips Razor
+  directives, C# expressions, interpolated strings and markup-mixed text; `--report` lists what is
+  left for hand conversion. Review its diff: it cannot tell data from display text in `@code`.
 
 ## Agents and language
 

@@ -68,7 +68,7 @@ def main():
         for i, (k, v) in enumerate(items, 1):
             if culture and k in target and lock.get(k) == h(v): continue
             note = f'   # {notes[k]}' if k in notes else ''
-            print(f'{i}\t{json.dumps(v, ensure_ascii=False)}{note}')
+            print(f'{i}\t{k}\t{json.dumps(v, ensure_ascii=False)}{note}')
         return
     if cmd == 'apply':
         culture, path = sys.argv[3], sys.argv[4]
