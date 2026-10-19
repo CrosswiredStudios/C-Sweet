@@ -87,6 +87,8 @@ public sealed class AuthenticationService : IAuthenticationService
                 "Saving user preferences failed: " + string.Join("; ", result.Errors.Select(e => e.Description)));
         }
 
+        Localization.WorkspaceLanguagePolicy.Invalidate();
+
         return new UserPreferencesResponse(user.PreferredLanguage, user.TimeZoneId);
     }
 

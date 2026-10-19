@@ -99,10 +99,20 @@ on `CurrentCode`, so a language change re-renders everything without a reload. `
 
 ## Agents and language
 
-`PreferredLanguage` is passed to agents as part of their work context so chat replies, plans,
-briefings, work-card prose, and review notes are written in the user's language, while structured
-output (JSON fields, status enums, tool names, identifiers) stays English and is localized by the UI.
-See the agent-side section once that lands (SDK context field `PreferredLanguage`).
+Every agent inference request flows through Headquarters (`PlatformLlmCapabilityHandler`, capability
+`platform.llm.chat.stream`). The handler appends `AgentLanguageInstructions.For(code)` to the combined
+instructions, next to the forecast-driven-planning and case instructions, so agent packages need no
+change and no SDK bump: chat replies, plans, briefings, work-card prose, review notes and incident
+reports come back in the workspace language while JSON keys, enum-like values, identifiers, code,
+branch/file names and commit messages stay English (the UI localizes those). For English the
+instruction is omitted, so existing prompts are unchanged.
+
+`WorkspaceLanguagePolicy.ResolveAsync(db, session.BusinessId)` picks the language: user-scoped agents
+(`user:<id>`, the Personal Assistant) follow that user; business agents follow the business owner
+(highest-permission human member linked to an account), then the root administrator, then English.
+Answers are cached for 30 s and dropped when a preference is saved. Per-turn language (a second
+member writing in another language) is handled by the instruction itself: agents answer in the
+language a person wrote in.
 
 Quality caveat: small models write well in `es`, `de`, `fr`, `zh-Hans`, `ja`; `ar`, `ru`, `ko`
 should be benchmarked per model before being recommended.
