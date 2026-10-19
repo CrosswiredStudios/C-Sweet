@@ -203,12 +203,13 @@
         $"agent-hire-toast agent-hire-toast-{operation.Status.ToLowerInvariant()}";
 
     private static bool CanDismiss(string status) =>
-        status is AgentHireOperationStatuses.Succeeded or AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.Failed or AgentHireOperationState.UnconfirmedStatus;
+        status is AgentHireOperationStatuses.Succeeded or AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.Failed or AgentHireOperationStatuses.Cancelled or AgentHireOperationState.UnconfirmedStatus;
 
     private static string StatusLabel(string status) => status switch
     {
         AgentHireOperationStatuses.Succeeded => "AGENT HIRED",
         AgentHireOperationStatuses.Failed => "HIRING INTERRUPTED",
+        AgentHireOperationStatuses.Cancelled => "HIRING CANCELLED",
         AgentHireOperationState.UnconfirmedStatus => "HIRE STATUS UNKNOWN",
         AgentHireOperationStatuses.NeedsSetup => "SETUP REQUIRED",
         AgentHireOperationStatuses.AwaitingConfirmation => "ACTION REQUIRED",
@@ -219,6 +220,7 @@
     {
         AgentHireOperationStatuses.Succeeded => Icons.Material.Filled.CheckCircle,
         AgentHireOperationStatuses.Failed => Icons.Material.Filled.Error,
+        AgentHireOperationStatuses.Cancelled => Icons.Material.Filled.Cancel,
         AgentHireOperationState.UnconfirmedStatus => Icons.Material.Filled.Info,
         AgentHireOperationStatuses.NeedsSetup => Icons.Material.Filled.Settings,
         AgentHireOperationStatuses.AwaitingConfirmation => Icons.Material.Filled.Restore,

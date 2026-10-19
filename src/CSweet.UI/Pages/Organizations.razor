@@ -75,6 +75,8 @@
                             @if (IsDeleting(org.Id))
                             {
                                 <div class="business-delete-progress" role="status" aria-live="polite"><MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" /><div><strong>@(org.Status == "Deleting" ? "Cleaning up resources…" : "Deleting business…")</strong><p>@L["Organizations.TheBusinessWillBeDeleted"]</p></div></div>
+                                <MudButton Href="@($"/organizations/{org.Id}/compute")">@L["Organizations.ViewComputeCleanup"]</MudButton>
+                                <MudButton Color="Color.Error" Disabled="@(_deletingOrganizationId is not null)" OnClick="() => RequestDelete(org)">@L["Organizations.RetryDeletion"]</MudButton>
                             }
                             else if (org.Status == "DeletionFailed")
                             {
@@ -348,7 +350,7 @@
 
     private void RequestDelete(OrganizationResponse organization)
     {
-        if (_deletingOrganizationId is not null || IsDeleting(organization.Id)) return;
+        if (_deletingOrganizationId is not null) return;
         _deleteCandidate = organization;
         _showDelete = true;
     }
@@ -372,7 +374,7 @@
             _deleteSucceeded = true;
             _deleteMessage = $"'{organization.Name}' was deleted.";
         }
-        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending" or "compute_cleanup_failed")
+        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending" or "compute_cleanup_failed" or "deletion_failed")
         {
             if (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending")
             {
@@ -381,6 +383,7 @@
             }
             else
             {
+                _organizations = _organizations.Select(x => x.Id == organization.Id ? x with { Status = "DeletionFailed" } : x).ToList();
                 _deleteComputeOrganizationId = organization.Id;
                 _deleteMessage = $"'{organization.Name}': {exception.Message}";
             }
@@ -388,6 +391,7 @@
         catch (Exception exception)
         {
             _deleteMessage = $"'{organization.Name}' could not be deleted. {exception.Message}";
+            StartDeletionRefresh();
         }
         finally
         {

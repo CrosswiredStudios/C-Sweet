@@ -4,6 +4,57 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputeHyperVScriptTests
 {
+    [Theory]
+    [InlineData("removed-vm", true)]
+    [InlineData("other-vm", false)]
+    [InlineData("unrelated-owner", false)]
+    [InlineData("existing-vm", false)]
+    public async Task Removed_workload_reclaims_only_the_exact_absent_vm_worker_ownership(string scenario, bool allowed)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "csweet-removed-workload-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "Memory.dmp"), "fixture");
+            var vm = Guid.Parse("690f9aad-805b-457f-820c-4ba10753d8b1");
+            var script = """
+                function Import-Module {}
+                function Get-VM { if ($env:CSWEET_TEST_SCENARIO -eq 'existing-vm') { [pscustomobject]@{ Id=[guid]$env:CSWEET_COMPUTE_VM_ID } } }
+                function Get-Acl {
+                    param($LiteralPath)
+                    $acl=[Security.AccessControl.FileSecurity]::new()
+                    $acl.SetOwner([Security.Principal.SecurityIdentifier]::new($env:CSWEET_TEST_OWNER))
+                    return $acl
+                }
+                $script:reclaimed=0
+                function Set-Acl {
+                    param($LiteralPath,$AclObject)
+                    if ($AclObject.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne 'S-1-5-32-544') { throw 'Owner was not reclaimed.' }
+                    $rules=$AclObject.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
+                    if (@($rules | Where-Object { $_.IdentityReference.Value -notin @('S-1-5-32-544','S-1-5-18') }).Count -ne 0) { throw 'Unexpected access remains.' }
+                    $script:reclaimed++
+                }
+                """ + "\n" + HyperVComputeDriver.ProtectRemovedWorkloadScript + "\n[Console]::Write($script:reclaimed)";
+            var parameters = new Dictionary<string, string>
+            {
+                ["CSWEET_COMPUTE_VM_ID"] = vm.ToString("D"),
+                ["CSWEET_COMPUTE_WORKLOAD_PATH"] = root,
+                ["CSWEET_TEST_SCENARIO"] = scenario,
+                ["CSWEET_TEST_OWNER"] = scenario switch
+                {
+                    "other-vm" => HyperVWorkloadProtection.WorkerIdentity(Guid.NewGuid()).Value,
+                    "unrelated-owner" => "S-1-5-32-545",
+                    _ => HyperVWorkloadProtection.WorkerIdentity(vm).Value
+                }
+            };
+            var runner = new HyperVCommandRunner();
+            if (allowed) Assert.Equal("2", await runner.RunAsync(script, parameters, default));
+            else await Assert.ThrowsAsync<IOException>(() => runner.RunAsync(script, parameters, default));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Fact]
     public async Task Fixed_network_rules_use_distinct_priorities_for_every_adapter_setting()
     {

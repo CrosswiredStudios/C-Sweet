@@ -30,6 +30,8 @@ public sealed class ApprovalDashboardService(
             throw new UnauthorizedAccessException(
                 "Only organization owners and managers may view the approvals inbox.");
 
+        await EmployeeActionExpiration.ReconcileAsync(db, organizationId, cancellationToken);
+
         var people = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId)
             .ToListAsync(cancellationToken);

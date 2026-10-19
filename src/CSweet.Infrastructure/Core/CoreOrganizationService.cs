@@ -17,19 +17,22 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
     private readonly IRoleService _roleService;
     private readonly IOrganizationDataPurgeService? _purgeService;
     private readonly ILogger<CoreOrganizationService>? _logger;
+    private readonly TimeProvider _timeProvider;
 
     public CoreOrganizationService(
         CSweetDbContext dbContext,
         IAuditEventWriter auditEventWriter,
         IRoleService roleService,
         IOrganizationDataPurgeService? purgeService = null,
-        ILogger<CoreOrganizationService>? logger = null)
+        ILogger<CoreOrganizationService>? logger = null,
+        TimeProvider? timeProvider = null)
     {
         _dbContext = dbContext;
         _auditEventWriter = auditEventWriter;
         _roleService = roleService;
         _purgeService = purgeService;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task<IReadOnlyList<OrganizationResponse>> ListAsync(CancellationToken cancellationToken = default)
@@ -136,7 +139,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
     public async Task<CoreActionResponse> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using var deletionLock = await OrganizationDeletionLock.AcquireAsync(_dbContext, cancellationToken);
-        return await DeleteCoreAsync(id, cancellationToken);
+        return await DeleteCoreAsync(id, cancellationToken, retryStalledComputeCleanup: true);
     }
 
     internal async Task ContinueDeletionAsync(Guid id, CancellationToken cancellationToken)
@@ -144,18 +147,23 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         await using var deletionLock = await OrganizationDeletionLock.AcquireAsync(_dbContext, cancellationToken);
         _dbContext.ChangeTracker.Clear();
         if (!await _dbContext.CoreOrganizations.AnyAsync(x => x.Id == id && x.Status == OrganizationStatus.Deleting, cancellationToken)) return;
+        var now = _timeProvider.GetUtcNow();
+        var stalledBefore = now - OrganizationDataPurgeService.ComputeCleanupStallTimeout;
         var failed = await _dbContext.ComputeEnvironments.AnyAsync(environment =>
             environment.OrganizationId == id && environment.TeardownConfirmedAt == null &&
             _dbContext.ComputeOperations.Any(operation => operation.EnvironmentId == environment.Id &&
                 operation.Generation == environment.Generation && operation.Action == InfrastructureActions.Destroy &&
-                (operation.Status == "Failed" || operation.Status == "Blocked")), cancellationToken);
+                (operation.Status == "Failed" || operation.Status == "Blocked" ||
+                    (operation.Status == "Pending" || operation.Status == "Dispatching" || operation.Status == "Reconciling") &&
+                    operation.CreatedAt <= stalledBefore &&
+                    (operation.DispatchLeaseExpiresAt == null || operation.DispatchLeaseExpiresAt <= now))), cancellationToken);
         if (failed)
             await MarkDeletionFailedAsync(id, cancellationToken);
         else
             await DeleteCoreAsync(id, cancellationToken);
     }
 
-    private async Task<CoreActionResponse> DeleteCoreAsync(Guid id, CancellationToken cancellationToken)
+    private async Task<CoreActionResponse> DeleteCoreAsync(Guid id, CancellationToken cancellationToken, bool retryStalledComputeCleanup = false)
     {
         var org = await _dbContext.CoreOrganizations
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
@@ -174,7 +182,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         try
         {
             if (_purgeService is not null)
-                await _purgeService.PurgeAsync(id, cancellationToken);
+                await _purgeService.PurgeAsync(id, cancellationToken, retryStalledComputeCleanup);
             else
             {
                 _dbContext.CoreOrganizations.Remove(org);
@@ -187,7 +195,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
                 await MarkDeletionFailedAsync(id, cancellationToken);
             return Failure(exception.ErrorCode, exception.Message);
         }
-        catch (DbUpdateException exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger?.LogError(exception, "Could not delete organization {OrganizationId}.", id);
             await MarkDeletionFailedAsync(id, cancellationToken);

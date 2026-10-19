@@ -70,6 +70,7 @@ public sealed partial class HiringService(
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         await LockHiringOrganizationAsync(organizationId, cancellationToken);
+        await EmployeeActionExpiration.RequireAvailableAsync(db, organizationId, requestingInstallationId, cancellationToken);
         var result = await UpsertRecommendationCoreAsync(organizationId, requestingInstallationId, request, cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return result;
@@ -315,6 +316,18 @@ public sealed partial class HiringService(
         StageHiringWorkflowRequest request,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
+        await EmployeeActionExpiration.RequireAvailableAsync(db, organizationId, requestingInstallationId, cancellationToken);
+        var result = await StageWorkflowCoreAsync(organizationId, requestingInstallationId, request, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private async Task<HiringWorkflowResponse> StageWorkflowCoreAsync(
+        Guid organizationId, Guid requestingInstallationId, StageHiringWorkflowRequest request, CancellationToken cancellationToken)
+    {
         var roleTitle = Required(request.RoleTitle, 160, nameof(request.RoleTitle));
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var existing = await db.StaffingActionProposals.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -431,6 +444,7 @@ public sealed partial class HiringService(
         Guid organizationId,
         CancellationToken cancellationToken = default)
     {
+        await EmployeeActionExpiration.ReconcileAsync(db, organizationId, cancellationToken);
         var plans = await db.WorkforcePlans.AsNoTracking().Where(x =>
                 x.OrganizationId == organizationId && x.Status == ProposalStatus.Pending)
             .OrderBy(x => x.Priority).ThenBy(x => x.CreatedAt).ToListAsync(cancellationToken);
@@ -518,6 +532,10 @@ public sealed partial class HiringService(
             cancellationToken);
         if (owner?.PermissionLevel != OrganizationPermissionLevel.Owner)
             throw new UnauthorizedAccessException("Only an organization owner may review an agent hire.");
+        await EmployeeActionExpiration.ReconcileAsync(db, organizationId, cancellationToken);
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
         var requestedRoleTitle = Required(request.RoleTitle, 160, nameof(request.RoleTitle));
         var employeeDisplayName = Required(
             request.EmployeeDisplayName,
@@ -533,6 +551,7 @@ public sealed partial class HiringService(
                 x.Status == ProposalStatus.Pending &&
                 x.FulfilledHeadcount < x.Headcount,
                 cancellationToken) ?? throw new ArgumentException("The linked hiring recommendation was not found or is already fulfilled.");
+            await EmployeeActionExpiration.RequireAvailableAsync(db, organizationId, linkedRecommendation.RequestingInstallationId, cancellationToken);
             if (request.TeamId.HasValue && request.TeamId != linkedRecommendation.TeamId)
                 throw new UnauthorizedAccessException("The selected team does not match the linked hiring recommendation.");
         }
@@ -663,6 +682,7 @@ public sealed partial class HiringService(
         }
         db.StaffingActionProposals.Add(workflow);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         await audit.WriteAsync("hiring.marketplace.previewed", nameof(StaffingActionProposal), workflow.Id,
             $"Prepared an immutable Marketplace review for {employeeDisplayName} ({agent.Name}) as {roleTitle}.",
             cancellationToken: cancellationToken);
@@ -812,7 +832,7 @@ public sealed partial class HiringService(
     {
         var operation = await AuthorizedOperationAsync(operationId, applicationUserId, cancellationToken);
         if (operation is null) return null;
-        if (operation.Status is not (AgentHireOperationStatus.Succeeded or AgentHireOperationStatus.NeedsSetup or AgentHireOperationStatus.Failed))
+        if (operation.Status is not (AgentHireOperationStatus.Succeeded or AgentHireOperationStatus.NeedsSetup or AgentHireOperationStatus.Failed or AgentHireOperationStatus.Cancelled))
             throw new InvalidOperationException("An active agent hire cannot be dismissed.");
         operation.DismissedAt = DateTimeOffset.UtcNow;
         operation.UpdatedAt = operation.DismissedAt.Value;
@@ -839,7 +859,9 @@ public sealed partial class HiringService(
         if (db.Database.IsRelational())
         {
             var claimed = await db.AgentHireOperations
-                .Where(x => x.Id == candidateId.Value && (!x.LeaseUntil.HasValue || x.LeaseUntil < now))
+                .Where(x => x.Id == candidateId.Value &&
+                    (x.Status == AgentHireOperationStatus.Queued || x.Status == AgentHireOperationStatus.Building || x.Status == AgentHireOperationStatus.CompletingHire) &&
+                    (!x.LeaseUntil.HasValue || x.LeaseUntil < now))
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(x => x.LeaseOwner, leaseOwner)
                     .SetProperty(x => x.LeaseUntil, now.AddMinutes(2)), cancellationToken);
@@ -886,6 +908,9 @@ public sealed partial class HiringService(
                 await using var transaction = db.Database.IsRelational()
                     ? await db.Database.BeginTransactionAsync(cancellationToken)
                     : null;
+                await LockHiringOrganizationAsync(operation.OrganizationId, cancellationToken);
+                await db.Entry(operation).ReloadAsync(cancellationToken);
+                if (operation.Status == AgentHireOperationStatus.Cancelled) return true;
                 operation.Status = AgentHireOperationStatus.CompletingHire;
                 operation.UpdatedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
@@ -931,12 +956,23 @@ public sealed partial class HiringService(
             _executingDelegation = false;
             if (!completedAtomically)
             {
-                operation.LeaseOwner = null;
-                operation.LeaseUntil = null;
-                operation.UpdatedAt = DateTimeOffset.UtcNow;
-                if (operation.Status != originalStatus || !string.Equals(operation.Error, originalError, StringComparison.Ordinal))
-                    QueueOperationChanged(operation);
-                await db.SaveChangesAsync(CancellationToken.None);
+                await using var settlement = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+                    ? await db.Database.BeginTransactionAsync(CancellationToken.None) : null;
+                await LockHiringOrganizationAsync(operation.OrganizationId, CancellationToken.None);
+                var cancelled = await db.AgentHireOperations.AsNoTracking().AnyAsync(x =>
+                    x.Id == operation.Id && x.Status == AgentHireOperationStatus.Cancelled, CancellationToken.None);
+                if (cancelled)
+                    await db.Entry(operation).ReloadAsync(CancellationToken.None);
+                else
+                {
+                    operation.LeaseOwner = null;
+                    operation.LeaseUntil = null;
+                    operation.UpdatedAt = DateTimeOffset.UtcNow;
+                    if (operation.Status != originalStatus || !string.Equals(operation.Error, originalError, StringComparison.Ordinal))
+                        QueueOperationChanged(operation);
+                    await db.SaveChangesAsync(CancellationToken.None);
+                }
+                if (settlement is not null) await settlement.CommitAsync(CancellationToken.None);
             }
         }
         if (completedAtomically)
@@ -974,6 +1010,7 @@ public sealed partial class HiringService(
     public async Task<HiringWorkflowResponse?> DecideWorkflowAsync(Guid organizationId, Guid workflowId,
         Guid applicationUserId, DecideHiringWorkflowRequest request, CancellationToken cancellationToken = default)
     {
+        await EmployeeActionExpiration.ReconcileAsync(db, organizationId, cancellationToken);
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         await LockHiringOrganizationAsync(organizationId, cancellationToken);
@@ -1095,9 +1132,13 @@ public sealed partial class HiringService(
         var workflow = await db.StaffingActionProposals.SingleOrDefaultAsync(x =>
             x.Id == workflowId && x.OrganizationId == organizationId, cancellationToken);
         if (workflow is null) return null;
+        if (db.Database.IsRelational()) await db.Entry(workflow).ReloadAsync(cancellationToken);
         if (workflow.Status == ProposalStatus.Approved) return ToWorkflow(workflow);
         if (workflow.Status != ProposalStatus.Pending)
             throw new InvalidOperationException("The hiring workflow is no longer pending.");
+
+        if (workflow.RequestingInstallationId != Guid.Empty)
+            await EmployeeActionExpiration.RequireAvailableAsync(db, organizationId, workflow.RequestingInstallationId, cancellationToken);
 
         if (workflow.DelegatedInstallationId.HasValue)
         {
@@ -1114,6 +1155,7 @@ public sealed partial class HiringService(
         if (workflow.WorkforcePlanId != Guid.Empty)
         {
             var livePlan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == workflow.WorkforcePlanId && x.OrganizationId == organizationId, cancellationToken);
+            await EmployeeActionExpiration.RequireAvailableAsync(db, organizationId, livePlan.RequestingInstallationId, cancellationToken);
             if (livePlan.Status != ProposalStatus.Pending || livePlan.FulfilledHeadcount >= livePlan.Headcount)
                 throw new InvalidOperationException("The hiring recommendation is withdrawn or already fulfilled.");
             if (livePlan.SourceResourceChangeRequestId is Guid sourcePlanId)
@@ -2293,6 +2335,7 @@ CompleteWorkflow:
             AgentHireOperationStatus.Succeeded => "Hire complete",
             AgentHireOperationStatus.NeedsSetup => "Setup required",
             AgentHireOperationStatus.Failed => "Hire failed",
+            AgentHireOperationStatus.Cancelled => "Hire cancelled",
             _ => "Review hire status"
         };
         var detail = operation.Status switch
@@ -2309,6 +2352,7 @@ CompleteWorkflow:
             AgentHireOperationStatus.Succeeded => $"{employeeName} joined the team.",
             AgentHireOperationStatus.NeedsSetup => $"{employeeName} joined the team and needs setup.",
             AgentHireOperationStatus.Failed => operation.Error ?? "The agent hire could not be completed.",
+            AgentHireOperationStatus.Cancelled => operation.Error ?? "The agent hire was cancelled.",
             AgentHireOperationStatus.AwaitingConfirmation => $"The result of the previous {employeeName} hire could not be confirmed. Check your team before resuming.",
             _ => $"Preparing {employeeName}…"
         };
@@ -2448,11 +2492,13 @@ CompleteWorkflow:
             db.CoreWorkTasks.FirstOrDefault(x => x.Id == auditCardId && x.OrganizationId == operation.OrganizationId && !x.IsExecutable) is { } auditCard)
         {
             var fulfilled = db.WorkforcePlans.Any(x => x.Id == workflow!.WorkforcePlanId && x.FulfilledHeadcount >= x.Headcount);
-            var status = operation.Status == AgentHireOperationStatus.Succeeded && fulfilled ? WorkTaskStatus.Completed
+            var status = operation.Status == AgentHireOperationStatus.Cancelled ? WorkTaskStatus.Cancelled
+                : operation.Status == AgentHireOperationStatus.Succeeded && fulfilled ? WorkTaskStatus.Completed
                 : operation.Status is AgentHireOperationStatus.Failed or AgentHireOperationStatus.NeedsSetup or AgentHireOperationStatus.AwaitingConfirmation
                     ? WorkTaskStatus.Blocked : WorkTaskStatus.Running;
             auditCard.Status = status;
-            var category = status == WorkTaskStatus.Completed ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Done
+            var category = status == WorkTaskStatus.Cancelled ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Cancelled
+                : status == WorkTaskStatus.Completed ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Done
                 : status == WorkTaskStatus.Blocked ? CSweet.Domain.WorkManagement.WorkBoardColumnCategory.Blocked
                 : CSweet.Domain.WorkManagement.WorkBoardColumnCategory.InProgress;
             auditCard.BoardColumnId = db.WorkBoardColumns.Where(x => x.BoardId == auditCard.BoardId && x.Category == category).Select(x => x.Id).Single();

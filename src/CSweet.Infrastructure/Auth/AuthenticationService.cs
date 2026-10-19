@@ -131,7 +131,10 @@ public sealed class AuthenticationService : IAuthenticationService
             UserName = email,
             Email = email,
             IsInitialAdministrator = true,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            // Captured once at account creation; afterwards only the person changes it (Settings → Language & region).
+            PreferredLanguage = string.IsNullOrWhiteSpace(request.PreferredLanguage) ? null : request.PreferredLanguage.Trim(),
+            TimeZoneId = string.IsNullOrWhiteSpace(request.TimeZoneId) ? null : request.TimeZoneId.Trim()
         };
 
         IdentityResult created;

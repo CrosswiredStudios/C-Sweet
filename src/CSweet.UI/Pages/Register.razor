@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 @inject IAppLocalizer L
+@inject AppCulture Culture
 
 <PageTitle>@L["Register.PageTitle"]</PageTitle>
 
@@ -119,7 +120,8 @@
         _saving = true;
         try
         {
-            var result = await AuthenticationApi.RegisterAsync(new RegisterAdminRequest(_model.DisplayName, _model.Email, _model.Password, _model.ConfirmPassword));
+            var result = await AuthenticationApi.RegisterAsync(new RegisterAdminRequest(_model.DisplayName, _model.Email, _model.Password, _model.ConfirmPassword,
+                Culture.CurrentCode, Culture.PreferredTimeZoneId ?? Culture.DeviceTimeZoneId));
             if (result.Succeeded)
             {
                 _accountCreated = true;

@@ -289,7 +289,8 @@ public enum AgentHireOperationStatus
     Succeeded,
     NeedsSetup,
     Failed,
-    AwaitingConfirmation
+    AwaitingConfirmation,
+    Cancelled
 }
 
 public sealed class AgentHireOperation

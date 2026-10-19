@@ -103,6 +103,10 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
         if (!(Test-Path -LiteralPath $path)) { exit 0 }
         $admins = [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
         $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        # Hyper-V crash dumps can retain the removed VM worker as their owner.
+        # Derive its exact SID without relying on account lookup after VM removal.
+        $vmBytes = $expected.ToByteArray()
+        $worker = [Security.Principal.SecurityIdentifier]::new('S-1-5-83-1-' + ((0..3 | ForEach-Object { [BitConverter]::ToUInt32($vmBytes, $_ * 4) }) -join '-'))
         $entries = [Collections.Generic.List[IO.FileSystemInfo]]::new()
         $pending = [Collections.Generic.Stack[IO.FileSystemInfo]]::new()
         $pending.Push((Get-Item -LiteralPath $path -Force -ErrorAction Stop))
@@ -111,7 +115,7 @@ internal sealed class HyperVComputeDriver(IHyperVCommandRunner runner)
             if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Preserve redirected workload path.' }
             if ($entry -is [IO.FileInfo] -and (Get-Item -LiteralPath $entry.FullName -Force -ErrorAction Stop).LinkType -eq 'HardLink') { throw 'Preserve linked workload file.' }
             $owner = (Get-Acl -LiteralPath $entry.FullName -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier])
-            if (!$owner.Equals($admins) -and !$owner.Equals($system)) { throw 'Preserve untrusted workload ownership.' }
+            if (!$owner.Equals($admins) -and !$owner.Equals($system) -and !$owner.Equals($worker)) { throw 'Preserve untrusted workload ownership.' }
             $entries.Add($entry)
             if ($entry -is [IO.DirectoryInfo]) { foreach ($child in @(Get-ChildItem -LiteralPath $entry.FullName -Force -ErrorAction Stop)) { $pending.Push($child) } }
         }

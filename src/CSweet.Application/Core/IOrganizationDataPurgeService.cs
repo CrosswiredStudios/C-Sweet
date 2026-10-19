@@ -2,7 +2,7 @@ namespace CSweet.Application.Core;
 
 public interface IOrganizationDataPurgeService
 {
-    Task PurgeAsync(Guid organizationId, CancellationToken cancellationToken = default);
+    Task PurgeAsync(Guid organizationId, CancellationToken cancellationToken = default, bool retryStalledComputeCleanup = false);
 }
 
 public sealed class OrganizationDeletionException : Exception

@@ -65,7 +65,8 @@ public sealed class StaffingReplenishmentService(
         var duplicateGap = await db.StaffingReplenishmentRequests.AsNoTracking().SingleOrDefaultAsync(x =>
             x.SourceResourceChangeRequestId == request.SourceResourceChangeRequestId &&
             x.DecisionFingerprint == request.DecisionFingerprint &&
-            x.Status != StaffingReplenishmentRequestStatus.Rejected, cancellationToken);
+            x.Status != StaffingReplenishmentRequestStatus.Rejected &&
+            x.Status != StaffingReplenishmentRequestStatus.Cancelled, cancellationToken);
         if (duplicateGap is not null) return ToResponse(duplicateGap);
 
         var conversation = await db.CoreConversations.Include(x => x.Participants).SingleOrDefaultAsync(x =>

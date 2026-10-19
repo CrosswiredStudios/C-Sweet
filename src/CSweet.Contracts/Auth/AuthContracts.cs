@@ -23,7 +23,10 @@ public sealed record RegisterAdminRequest(
     [property: Required, MaxLength(160)] string DisplayName,
     [property: Required, EmailAddress] string Email,
     [property: Required] string Password,
-    [property: Required] string ConfirmPassword);
+    [property: Required] string ConfirmPassword,
+    // Detected by the client when the account is created and saved once as the account's preference.
+    [property: MaxLength(16)] string? PreferredLanguage = null,
+    [property: MaxLength(64)] string? TimeZoneId = null);
 
 public sealed record LoginRequest(
     [property: Required, EmailAddress] string Email,
