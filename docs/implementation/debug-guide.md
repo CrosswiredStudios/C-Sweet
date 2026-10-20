@@ -487,6 +487,18 @@ server-written `PersonalPlan.Order` as their rank. Board moves and retries may c
 `WorkTask.BoardRank`, but cannot reorder execution dependencies. Regression coverage:
 `PersonalTodoServiceTests.PlanReplayPreservesDependencyOrderAfterBoardRanksChange`.
 
+## Project personal work loses its claim after five minutes
+
+If code or research progresses but source checkpointing fails with **An active, owned
+personal ticket with a retained chat request and live claim is required**, compare the
+coordinator's claim expiry with its authenticated callback lease. `AgentWorkInbox`
+renewal previously covered personal boards only. `RenewPersonalTaskClaimAsync` now also
+renews project-board coordinators for the matching event or exact server-bound work context.
+`CanRenewProjectClaimAsync` requires the current enabled installation, claim capability,
+assigned employee, project participation, team membership and board grant. It never revives
+expired or blocked claims, and caps renewal at the work deadline without changing ticket
+revisions. Regression coverage: `AgentWorkInboxTests.RuntimeRenewalKeepsOnlyItsAuthorizedLiveProjectClaimAlive`.
+
 ## Local compute fails for a second business
 
 `ComputeLocalInstallation` and `scripts/Get-ComputeLocalInstallation.ps1` select the

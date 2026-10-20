@@ -503,19 +503,24 @@ public sealed partial class AgentWorkInbox(
         var claims = await db.CoreWorkTasks.Where(x =>
             x.OrganizationId == organizationId && x.Status == WorkTaskStatus.Running &&
             x.ArchivedAt == null && x.ClaimEventId == eventId && x.ClaimExpiresAt > now &&
-            x.Board != null && x.Board.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
-            db.CoreOrganizationUsers.Any(owner => owner.Id == x.Board.OwnerOrganizationUserId &&
-                owner.OrganizationId == organizationId && owner.IsActive &&
-                owner.AgentInstallationId == work.AgentInstallationId))
+            x.Board != null && (
+                (x.Board.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
+                    db.CoreOrganizationUsers.Any(owner => owner.Id == x.Board.OwnerOrganizationUserId &&
+                        owner.OrganizationId == organizationId && owner.IsActive && owner.AgentInstallationId == work.AgentInstallationId)) ||
+                (x.Board.WorkstreamId != null && x.AssignedAgentInstallationId == work.AgentInstallationId &&
+                    db.CoreOrganizationUsers.Any(owner => owner.Id == x.AssignedEmployeeId &&
+                        owner.OrganizationId == organizationId && owner.IsActive && owner.AgentInstallationId == work.AgentInstallationId))))
             .ToListAsync(cancellationToken);
         foreach (var claim in claims)
-            claim.ClaimExpiresAt = now.AddMinutes(5);
+            if (await CanRenewProjectClaimAsync(work, claim, cancellationToken))
+                claim.ClaimExpiresAt = now.AddMinutes(5) < work.DeadlineAt ? now.AddMinutes(5) : work.DeadlineAt;
         // Inline claims can use their own event ID inside a chat/collaboration delivery.
         // Renew only the exact server-bound root, never another task owned by the employee.
         var contexts = await WorkContextsForRenewalAsync(work, now, cancellationToken);
         foreach (var (attempt, root) in contexts)
-            if (await CSweet.Infrastructure.Analytics.PersonalWorkAttribution.MatchesClaimAsync(db, root, work, attempt.Id, cancellationToken))
-                root.ClaimExpiresAt = now.AddMinutes(5);
+            if (await CSweet.Infrastructure.Analytics.PersonalWorkAttribution.MatchesClaimAsync(db, root, work, attempt.Id, cancellationToken) &&
+                await CanRenewProjectClaimAsync(work, root, cancellationToken))
+                root.ClaimExpiresAt = now.AddMinutes(5) < work.DeadlineAt ? now.AddMinutes(5) : work.DeadlineAt;
         // Lease bookkeeping does not change the task revision expected by the active callback.
     }
 
@@ -528,9 +533,37 @@ public sealed partial class AgentWorkInbox(
             where attempt.AgentWorkItemId == work.Id && attempt.FinishedAt == null && attempt.LeaseExpiresAt > now &&
                 root.OrganizationId.ToString() == work.OrganizationId && root.AssignedAgentInstallationId == work.AgentInstallationId &&
                 root.Status == CSweet.Domain.Core.WorkTaskStatus.Running && root.ArchivedAt == null && root.ClaimExpiresAt > now &&
-                root.Board != null && root.Board.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal
+                context.OrganizationId.ToString() == work.OrganizationId && context.AgentInstallationId == work.AgentInstallationId &&
+                context.AgentWorkItemId == work.Id && root.Board != null &&
+                (root.Board.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal || root.Board.WorkstreamId != null)
             select new { Attempt = attempt, Root = root }).ToListAsync(ct);
         return rows.Select(x => (x.Attempt, x.Root)).ToList();
+    }
+
+    private async Task<bool> CanRenewProjectClaimAsync(AgentWorkItem work, WorkTask root, CancellationToken ct)
+    {
+        var board = root.Board ?? await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x => x.Id == root.BoardId, ct);
+        if (board?.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal) return true;
+        if (board?.WorkstreamId is null || board.ArchivedAt is not null || root.AssignedAgentInstallationId != work.AgentInstallationId ||
+            board.OrganizationId != root.OrganizationId || root.SourceConversationId is null || root.SourceMessageId is null ||
+            root.NextReviewAt is not null || root.WaitingReason is not null ||
+            !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == root.AssignedEmployeeId && x.OrganizationId == root.OrganizationId &&
+                x.AgentInstallationId == work.AgentInstallationId && x.IsActive && x.ArchivedAt == null, ct)) return false;
+        var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x =>
+            x.Id == work.AgentInstallationId && x.BusinessId == work.OrganizationId && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, ct);
+        var capabilities = JsonSerializer.Deserialize<HashSet<string>>(installation?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
+        if (!capabilities.Contains(CSweet.Contracts.WorkManagement.PersonalTodoActions.Claim)) return false;
+        try
+        {
+            await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, timeProvider).RequireAsync(
+                root.OrganizationId, root.AssignedEmployeeId!.Value, board.Id, ct);
+            return true;
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or InvalidOperationException)
+        {
+            // Renewal cannot restore project membership, grants or a stopped/reassigned ticket.
+            return false;
+        }
     }
 
     public Task AppendProgressAsync(
