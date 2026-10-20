@@ -1995,7 +1995,7 @@
                 x.Name.Equals("Ready To Merge", StringComparison.OrdinalIgnoreCase))?.Id
                 ?? _orchestrationQualityColumnId!.Value;
             var response = await Http.PostAsJsonAsync(
-                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/software-template",
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/policy/software-template",
                 new CreateSoftwareOrchestrationTemplateRequest(
                     _orchestrationReadyColumnId!.Value,
                     _orchestrationDevelopmentColumnId!.Value,
