@@ -48,6 +48,24 @@ public sealed class ResearchCapabilityTests
         Assert.Equal("content",text.Text); Assert.True(text.Truncated);
     }
 
+    [Theory]
+    [InlineData(403)]
+    [InlineData(404)]
+    [InlineData(429)]
+    [InlineData(500)]
+    public void PublicHttpErrorsReturnActionableEvidenceWithoutTreatingErrorPagesAsDocumentation(int status)
+    {
+        var result = ResearchCapabilityHandler.Extract(new(status, "https://nodejs.org/api/test/", "text/html",
+            Encoding.UTF8.GetBytes("<html><title>Not documentation</title><body>Untrusted error page</body></html>"), true), 20000);
+        Assert.Equal("https://nodejs.org/api/test/", result.Url);
+        Assert.Empty(result.Title);
+        Assert.Empty(result.Text);
+        Assert.True(result.Truncated);
+        Assert.Contains($"HTTP {status}", result.Limitation);
+        Assert.Contains("Search for the current documentation URL", result.Limitation);
+        Assert.DoesNotContain("Untrusted error page", result.Limitation);
+    }
+
     [Fact]
     public void CheckpointToolsAreHiddenAndEveryTransferFitsExistingOfficeFrames()
     {

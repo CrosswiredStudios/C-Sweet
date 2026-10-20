@@ -499,6 +499,16 @@ assigned employee, project participation, team membership and board grant. It ne
 expired or blocked claims, and caps renewal at the work deadline without changing ticket
 revisions. Regression coverage: `AgentWorkInboxTests.RuntimeRenewalKeepsOnlyItsAuthorizedLiveProjectClaimAlive`.
 
+## Research stops on an outdated documentation URL
+
+`ResearchCapabilityHandler.Extract` returns a `WebPageResult` with empty title/text and an explicit
+HTTP-status limitation for public 403/404/429/500 responses. The model can search for a current URL
+without treating an error page as documentation or terminating its coding callback. Protected
+transport, destination authorization and response bounds still apply. The live OpenHands pilot
+exposed this through `https://nodejs.org/api/test/` returning 404; the official page is
+`https://nodejs.org/api/test.html`. Regression coverage:
+`ResearchCapabilityTests.PublicHttpErrorsReturnActionableEvidenceWithoutTreatingErrorPagesAsDocumentation`.
+
 ## Local compute fails for a second business
 
 `ComputeLocalInstallation` and `scripts/Get-ComputeLocalInstallation.ps1` select the

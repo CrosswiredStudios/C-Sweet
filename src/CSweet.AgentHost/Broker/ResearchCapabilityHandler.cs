@@ -109,7 +109,10 @@ public sealed class ResearchCapabilityHandler(PlatformWebProxyCapabilityHandler 
 
     internal static WebPageResult Extract(PlatformWebFetchResponse page, int maximumCharacters)
     {
-        if (page.StatusCode is < 200 or >= 300) throw new InvalidOperationException("The public page returned an error.");
+        if (page.StatusCode is < 200 or >= 300)
+            return new(page.FinalUrl, "", "", page.Truncated,
+                $"The public page returned HTTP {page.StatusCode}. No page content was used. " +
+                "Search for the current documentation URL or use another authoritative source.");
         var contentType = page.ContentType.Split(';')[0].Trim().ToLowerInvariant();
         if (contentType is not ("text/html" or "application/xhtml+xml" or "text/plain"))
             return new(page.FinalUrl, "", "", page.Truncated, "Only public HTML and plain text are supported.");
