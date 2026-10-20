@@ -1682,7 +1682,7 @@ CompleteWorkflow:
                     preview = await previewService.PreviewAsync(new PreviewAgentImportRequest(repositoryUrl), token);
                 }
             }
-            ValidateCatalogPreview(preview, requiredGrants);
+            ValidateCatalogPreview(preview, requiredGrants, approvedDefinition is not null);
 
             digest = preview.ManifestDigest;
             currentGrants = preview.RequestedCapabilities
@@ -2264,13 +2264,14 @@ CompleteWorkflow:
 
     private static void ValidateCatalogPreview(
         AgentImportPreviewResponse preview,
-        IReadOnlyList<string> requiredGrants)
+        IReadOnlyList<string> requiredGrants,
+        bool usesReviewedDefinition)
     {
         if (!preview.PluginKind.Equals("Agent", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The catalog source does not contain an agent plugin.");
         if (preview.RequestedPermissions.Count > 0)
             throw new InvalidOperationException("Catalog agents using legacy permissions cannot be installed through hiring.");
-        if (preview.RequestedNetworkAccess.Contains("all-public", StringComparer.Ordinal))
+        if (!usesReviewedDefinition && preview.RequestedNetworkAccess.Contains("all-public", StringComparer.Ordinal))
             throw new InvalidOperationException("All-public web access requires a separate installation review.");
         if (requiredGrants.Except(preview.RequestedCapabilities, StringComparer.Ordinal).Any())
             throw new InvalidOperationException("The requested grant list contains capabilities not declared by the catalog agent.");

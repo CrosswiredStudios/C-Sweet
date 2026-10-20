@@ -17,6 +17,8 @@ public sealed partial class HiringServiceTests
     [InlineData("updated")]
     [InlineData("access-changed")]
     [InlineData("disabled")]
+    [InlineData("network-approved")]
+    [InlineData("network-changed")]
     public async Task CatalogHire_UsesApprovedDefinitionWithoutPreviewingMovingRepository(string change)
     {
         await using var db = CreateDb();
@@ -63,6 +65,8 @@ public sealed partial class HiringServiceTests
             DefaultRequiredCapabilitiesJson = "[\"tool.approved\"]",
             DefaultProvidedCapabilitiesJson = "[\"product-management.plan.v1\"]"
         };
+        if (change.StartsWith("network-", StringComparison.Ordinal))
+            definition.DefaultNetworkAccessJson = "[\"all-public\"]";
         db.AgentDefinitions.Add(definition);
         await db.SaveChangesAsync();
         var agent = new AvailableAgent("first-party:product-manager", package.AgentId,
@@ -88,9 +92,10 @@ public sealed partial class HiringServiceTests
 
         if (change == "updated") definition.PackageVersionId = Guid.NewGuid();
         if (change == "access-changed") definition.DefaultRequiredCapabilitiesJson = "[]";
+        if (change == "network-changed") definition.DefaultNetworkAccessJson = "[]";
         if (change == "disabled") definition.Status = AgentDefinitionStatus.Disabled;
         await db.SaveChangesAsync();
-        if (change == "unchanged")
+        if (change is "unchanged" or "network-approved")
         {
             var result = await service.ConfirmAsync(organizationId, preview.WorkflowId, applicationUserId, new("approved-confirm"));
             Assert.Equal(AgentHireOperationStatuses.Succeeded, result?.Status);
@@ -101,7 +106,7 @@ public sealed partial class HiringServiceTests
         {
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ConfirmAsync(
                 organizationId, preview.WorkflowId, applicationUserId, new("approved-confirm")));
-            Assert.Contains(change == "access-changed" ? "access changed" : "version changed", error.Message);
+            Assert.Contains(change is "access-changed" or "network-changed" ? "access changed" : "version changed", error.Message);
             Assert.Equal(0, users.CreateCount);
         }
         Assert.Equal(0, definitions.ImportCount);
