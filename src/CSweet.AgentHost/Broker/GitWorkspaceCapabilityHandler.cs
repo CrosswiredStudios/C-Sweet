@@ -873,8 +873,14 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             await RequireActiveTeamMemberAsync(organizationId, installationId, origin.TeamId, cancellationToken);
             return new AssignmentContext(item, origin.TeamId, repo, access, review.CommitSha);
         }
+        var personalPlan = string.IsNullOrWhiteSpace(item.PlanningSpecificationJson) ? null :
+            JsonSerializer.Deserialize<WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions)?.PersonalPlan;
+        // Planned children retain their coordinator's chat request and claim rather than
+        // copying them. Resolve them through the same personal authorization checks,
+        // which validate the current child, coordinator, installation and project binding.
         var personalBoard = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.Id == item.BoardId && x.OrganizationId == organizationId && (x.Kind == WorkBoardKind.Personal || (x.WorkstreamId != null && item.SourceConversationId != null && item.ClaimEventId != null)), cancellationToken);
+            x.Id == item.BoardId && x.OrganizationId == organizationId && (x.Kind == WorkBoardKind.Personal ||
+                (x.WorkstreamId != null && ((item.SourceConversationId != null && item.ClaimEventId != null) || personalPlan != null))), cancellationToken);
         if (personalBoard is not null)
             return await RequirePersonalAssignmentAsync(organizationId, installationId, item, personalBoard,
                 assignmentRevision, action, cancellationToken);

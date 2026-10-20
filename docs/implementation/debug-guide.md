@@ -469,6 +469,18 @@ Regression coverage: `DeploymentDiagnosticTests`, the exhausted-budget case in
 `ComputeDeploymentRecoveryTests.CompleteBacklogPrecedesCodingAndRestartAdvancesOnlyOneTaskWithFreshEvidence`,
 and `AgentTicketFeedbackTests.ReportedBlockerPreservesEvidenceAndRecoveryStepsInPersistedComment`.
 
+## Project personal-plan child cannot prepare its source workspace
+
+If a direct project's coordinator creates its plan but the first child fails
+`source-control.personal-work.prepare.v1` with a source-control authorization denial,
+inspect `GitWorkspaceCapabilityHandler.RequireAssignmentContextAsync`. Project plan
+children keep the retained chat request and live claim on their coordinator; the child
+does not copy those fields. Typed `WorkItemPlanningSpecification.PersonalPlan` metadata
+routes these children through `RequirePersonalAssignmentAsync`, which checks their
+current assignment, coordinator claim, installation, team and project repository binding.
+It does not confer an orchestration grant or authorize a different project. Regression
+coverage: `PersonalDevelopmentWorkspaceTests.Plan_tasks_have_distinct_branches_in_one_repository_and_later_stories_start_from_main`.
+
 ## Local compute fails for a second business
 
 `ComputeLocalInstallation` and `scripts/Get-ComputeLocalInstallation.ps1` select the

@@ -78,18 +78,33 @@ public sealed class PersonalDevelopmentWorkspaceTests
         Assert.Equal(loseFirstResponse ? 2 : 1, source.RepositoryIds.Count);
     }
 
-    [Fact]
-    public async Task Plan_tasks_have_distinct_branches_in_one_repository_and_later_stories_start_from_main()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Plan_tasks_have_distinct_branches_in_one_repository_and_later_stories_start_from_main(bool projectBoard)
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync();
         var actions = new HashSet<string> { GitWorkspaceCapabilities.PreparePersonal, GitWorkspaceCapabilities.Prepare };
         (await f.Db.AgentInstallationGrants.SingleAsync()).RequiredCapabilitiesJson = JsonSerializer.Serialize(actions);
         var actor = await f.Db.CoreOrganizationUsers.SingleAsync();
         var board = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = f.Organization, Kind = WorkBoardKind.Personal, OwnerOrganizationUserId = actor.Id };
+        if (projectBoard)
+        {
+            var team = Guid.NewGuid();
+            board.Kind = WorkBoardKind.Standard; board.OwnerOrganizationUserId = null;
+            board.WorkstreamId = f.Workstream; board.TeamId = team;
+            f.Db.OrganizationTeams.Add(new() { Id = team, OrganizationId = f.Organization, Name = "Project team", LeadOrganizationUserId = actor.Id });
+            f.Db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, TeamId = team,
+                OrganizationUserId = actor.Id, ExclusiveAgentEmployeeId = actor.Id, JoinedAt = DateTimeOffset.UtcNow });
+            f.Db.ProjectDeliveryBindings.Add(new() { OrganizationId = f.Organization, WorkstreamId = f.Workstream,
+                BoardId = board.Id, TeamId = team, RepositoryId = Guid.NewGuid(), CreationKey = "project-test" });
+        }
         var root = new WorkTask { Id = Guid.NewGuid(), OrganizationId = f.Organization, BoardId = board.Id, Board = board,
-            Title = "Breakout", Status = WorkTaskStatus.Running, ClaimEventId = Guid.NewGuid(), ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10), SourceConversationId = Guid.NewGuid(), SourceMessageId = Guid.NewGuid() };
+            Title = "Breakout", Status = WorkTaskStatus.Running, AssignedEmployeeId = actor.Id, AssignedAgentInstallationId = f.Installation,
+            ClaimEventId = Guid.NewGuid(), ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10), SourceConversationId = Guid.NewGuid(), SourceMessageId = Guid.NewGuid() };
         WorkTask Child(string title) => new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, BoardId = board.Id, Board = board,
-            ParentWorkTaskId = Guid.NewGuid(), Title = title, Kind = WorkItemKind.Task, AssignedAgentInstallationId = f.Installation, Status = WorkTaskStatus.Running,
+            ParentWorkTaskId = Guid.NewGuid(), Title = title, Kind = WorkItemKind.Task, AssignedEmployeeId = actor.Id,
+            AssignedAgentInstallationId = f.Installation, Status = WorkTaskStatus.Running,
             PlanningSpecificationJson = JsonSerializer.Serialize(new CSweet.WorkManagement.Contracts.WorkItemPlanningSpecification([], []) {
                 PersonalPlan = new(root.Id, 1, "Implementation") }, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
         var first = Child("Paddle"); var second = Child("Bricks");
@@ -123,6 +138,29 @@ public sealed class PersonalDevelopmentWorkspaceTests
         Assert.Null(host.Requests.Last().ExpectedCommitSha);
         Assert.Equal(one.WorkspaceId, (await Prepare(first)).WorkspaceId);
         Assert.Single(await f.Db.SourceControlRepositories.ToListAsync());
+        // A child cannot use the routing fix as a grant: every retry rechecks both
+        // its current assignment and the retained coordinator's live authority.
+        async Task Reject()
+        {
+            var request = new RequestCapability { RequestId = "denied", Capability = GitWorkspaceCapabilities.PreparePersonal,
+                Payload = JsonPayload.From(new { itemId = root.Id, taskItemId = first.Id, idempotencyKey = "denied-retry" }) };
+            var results = new List<CapabilityResult>();
+            await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
+            var denial = Assert.Single(results);
+            Assert.False(denial.Succeeded);
+            using var payload = JsonDocument.Parse(denial.Payload.Span.ToArray());
+            Assert.Equal("Denied", payload.RootElement.GetProperty("code").GetString());
+        }
+        first.AssignedAgentInstallationId = Guid.NewGuid(); await f.Db.SaveChangesAsync(); await Reject();
+        first.AssignedAgentInstallationId = f.Installation;
+        root.AssignedAgentInstallationId = Guid.NewGuid(); await f.Db.SaveChangesAsync(); await Reject();
+        root.AssignedAgentInstallationId = f.Installation;
+        root.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1); await f.Db.SaveChangesAsync(); await Reject();
+        root.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
+        (await f.Db.AgentInstallationGrants.SingleAsync()).RequiredCapabilitiesJson = "[]";
+        await f.Db.SaveChangesAsync(); await Reject();
+        (await f.Db.AgentInstallationGrants.SingleAsync()).RequiredCapabilitiesJson = JsonSerializer.Serialize(actions);
+        (await f.Db.AgentInstallations.SingleAsync()).IsEnabled = false; await f.Db.SaveChangesAsync(); await Reject();
     }
 
     [Theory]

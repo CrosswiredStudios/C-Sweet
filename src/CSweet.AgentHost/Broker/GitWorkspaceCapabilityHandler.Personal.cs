@@ -231,6 +231,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
         var capabilities = JsonSerializer.Deserialize<HashSet<string>>(approved?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
         if (actor is null || !capabilities.Contains(PersonalPrepareCapability) || board is not { ArchivedAt: null } ||
             board.OrganizationId != business || (board.Kind == WorkBoardKind.Personal ? board.OwnerOrganizationUserId != actor.Id : item.AssignedEmployeeId != actor.Id) || item.ArchivedAt is not null ||
+            (item.AssignedAgentInstallationId is { } assigned && assigned != installation) ||
             item.Status != WorkTaskStatus.Running || item.ClaimEventId is null || item.ClaimExpiresAt is null || item.ClaimExpiresAt <= DateTimeOffset.UtcNow ||
             item.SourceConversationId is null || item.SourceMessageId is null)
             throw new UnauthorizedAccessException("An active, owned personal ticket with a retained chat request and live claim is required.");
