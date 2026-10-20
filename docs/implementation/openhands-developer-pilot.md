@@ -1,9 +1,11 @@
 # OpenHands developer pilot
 
-The independent `CSweet.Agent.SoftwareDeveloper.OpenHands` repository contains three 0.1.0 packages:
+The independent `CSweet.Agent.SoftwareDeveloper.OpenHands` repository contains three 0.1.4 packages:
 `CSweet.Agent.Development` (shared SDK workflows), `CSweet.Agent.OpenHands` (execution worker), and
 the thin agent entrypoint. The initial release is 0.1.0; 0.1.1 adds the installer-required bundle
-checksum sidecar. The opt-in identity is `com.csweet.software-developer.openhands`.
+checksum sidecar. Version 0.1.4 preserves provider reasoning defaults and operational failure
+classification, and is installed through the normal update flow in the disposable pilot business.
+The opt-in identity is `com.csweet.software-developer.openhands`.
 Daniel and Adrian's repositories, package versions and installed payloads are unchanged.
 
 `IDevelopmentExecutionEngine` receives current authorized context, source workspace, tools, limits
@@ -52,3 +54,13 @@ Publish SDK 5.1.0 before the new packages and agent release. Import and install 
 C-Sweet flows, then use a disposable project and independently review the delivered candidate.
 `docs/pilot-acceptance.md` in the agent repository defines the live journeys and matched-model
 comparison. Build/test results alone do not establish live acceptance or justify replacing a developer.
+
+The pilot has verified clean Linux preparation (628 compute tests), installed 0.1.4, and reached
+real model/tool execution and test repair. All 244 adapter tests passed locally and in Linux release CI.
+Live work also exposed platform recovery defects: project plan-child workspace routing, execution
+order after board retries, and project coordinator claims expiring during a live callback.
+`AgentWorkInbox.RenewPersonalTaskClaimAsync` now renews only an authorized live project claim,
+including exact server-bound inline callbacks, within the delivery deadline. All 175 focused
+lease, project-policy, personal-plan and workspace tests passed. Detailed evidence and unresolved
+live scenarios are recorded in the agent repository's `docs/pilot-results.md`; source review,
+governed manager resume and the matched comparison remain acceptance requirements.
