@@ -44,3 +44,17 @@ Read the [normative delivery specification](hierarchical-delivery.md) first. Thi
 Final results and package versions are recorded in [verified results and package handoff](hierarchical-delivery-validation.md).
 
 The local feed is a handoff artifact. Publication, deployment and database deletion require separate work and are not performed by this implementation.
+
+## Isolated branch bootstrap
+
+`WorkDeliveryService.ProvisionBranchesAsync` uses the trusted `bootstrap` operation when a
+`WorkDeliveryBranchBinding.TargetBaseBranch` initializes a new integration target. The baseline
+is an input, not a promotion target owned by that plan. `InternalGitRepositoryStore.DeliveryBranchAsync`
+protects only the new source ref during bootstrap, preserving every existing protection on the
+baseline. Ordinary `ensure` still protects both declared integration refs. Replayed bootstrap
+retains integrated source history and never resets either ref. The Git host must support this
+operation before the requesting platform services are updated; older hosts fail closed.
+
+`HierarchicalGitDeliveryTests.BootstrapProtectsOnlyItsNewBranchAndRetainsAnyExistingBaselineProtection`
+checks real Git refs, denied author writes, previously protected baselines, unchanged baseline
+heads and retained reviewed work across bootstrap replay.

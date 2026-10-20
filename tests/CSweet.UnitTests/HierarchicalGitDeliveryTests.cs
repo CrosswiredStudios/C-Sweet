@@ -6,6 +6,31 @@ namespace CSweet.UnitTests;
 
 public sealed class HierarchicalGitDeliveryTests : IDisposable
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BootstrapProtectsOnlyItsNewBranchAndRetainsAnyExistingBaselineProtection(bool baseAlreadyManaged)
+    {
+        await store.ExecuteAsync(new(org, repository, "create", "main"));
+        await Publish("seed", "main", "seed.txt", "seed");
+        if (baseAlreadyManaged) await Ensure("release-existing", "main");
+        var baseline = await Head("main");
+        await store.DeliveryBranchAsync(Operation("isolated", "main", "bootstrap", "isolated-base"));
+        await Ensure("isolated", "isolated");
+        Assert.Equal(baseline, await Head("isolated"));
+        var writeBase = new InternalGitRepositoryRequest(org, repository, "update-ref", Ref: "refs/heads/main", TargetSha: baseline, ExpectedSha: baseline);
+        if (baseAlreadyManaged)
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.ExecuteAsync(writeBase));
+        else await store.ExecuteAsync(writeBase);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => store.ExecuteAsync(new(org, repository,
+            "update-ref", Ref: "refs/heads/isolated", TargetSha: baseline, ExpectedSha: baseline)));
+        await Publish("implementation", "isolated", "delivered.txt", "reviewed work");
+        await Promote("implementation", "isolated", "integrate");
+        var integrated = await Head("isolated");
+        await store.DeliveryBranchAsync(Operation("isolated", "main", "bootstrap", "isolated-base"));
+        Assert.Equal(integrated, await Head("isolated")); Assert.Equal(baseline, await Head("main"));
+    }
+
     [Fact]
     public async Task SuccessorIncrementInheritsAcceptedScaffoldWhileDefaultBranchStaysUnpromoted()
     {

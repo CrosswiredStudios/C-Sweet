@@ -222,7 +222,7 @@ public sealed partial class WorkDeliveryService
             var repository = await RepositoryAsync(plan.OrganizationId, branch.RepositoryId, ct);
             if (branch.TargetBaseBranch is { } baseline)
                 await sourceControl.DeliveryBranchAsync(Operation(plan, repository,
-                    branch with { SourceBranch = branch.TargetBranch, TargetBranch = baseline }, "ensure", $"delivery:{plan.Id:N}:target:{branch.RepositoryId:N}:{branch.TargetBranch}"), ct);
+                    branch with { SourceBranch = branch.TargetBranch, TargetBranch = baseline }, "bootstrap", $"delivery:{plan.Id:N}:target:{branch.RepositoryId:N}:{branch.TargetBranch}"), ct);
             await sourceControl.DeliveryBranchAsync(Operation(plan, repository, branch, "ensure", $"delivery:{plan.Id:N}:{branch.Scope}:{branch.ItemId}:{branch.RepositoryId:N}"), ct);
         }
         foreach (var branch in branches) await Ensure(branch);

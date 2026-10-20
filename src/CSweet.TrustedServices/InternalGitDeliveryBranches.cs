@@ -16,7 +16,8 @@ public sealed partial class InternalGitRepositoryStore
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = await AcquireDeliveryLockAsync(repository, ct);
         var refs = await RefsAsync(repository, ct);
-        if (request.Operation == "ensure" && refs.Count == 0)
+        var ensure = request.Operation is "ensure" or "bootstrap";
+        if (ensure && refs.Count == 0)
         {
             var tree = (await RunAsync(repository, ["mktree"], ct)).Trim();
             var initial = (await RunAsync(repository, ["commit-tree", tree, "-m", "Initialize delivery repository"], ct)).Trim();
@@ -26,19 +27,21 @@ public sealed partial class InternalGitRepositoryStore
         var source = refs.SingleOrDefault(x => x.Name == "refs/heads/" + request.SourceBranch)?.Sha;
         var target = refs.SingleOrDefault(x => x.Name == "refs/heads/" + request.TargetBranch)?.Sha
             ?? throw new InvalidOperationException("The delivery target branch is missing.");
-        if (request.Operation == "ensure" && source is null)
+        if (ensure && source is null)
         {
             await RunAsync(repository, ["update-ref", "refs/heads/" + request.SourceBranch, target, new string('0', target.Length)], ct);
             source = target;
         }
         if (source is null) throw new InvalidOperationException("The delivery source branch is missing.");
-        if (request.Operation == "ensure")
+        if (ensure)
         {
-            foreach (var branch in new[] { request.SourceBranch, request.TargetBranch })
+            // Bootstrap reads its baseline; that ref is not an integration target owned by this plan.
+            // Existing protection refs are never removed or altered by this distinction.
+            foreach (var branch in request.Operation == "bootstrap" ? new[] { request.SourceBranch } : new[] { request.SourceBranch, request.TargetBranch })
                 await RunAsync(repository, ["symbolic-ref", "refs/csweet/managed/" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(branch))),
                     "refs/heads/" + branch], ct);
         }
-        if (request.Operation is "inspect" or "ensure") return new(source, target, null);
+        if (request.Operation == "inspect" || ensure) return new(source, target, null);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.IdempotencyKey))).ToLowerInvariant();
         var receiptRef = "refs/csweet/delivery/" + key;
         var receipt = (await RunAsync(repository, ["for-each-ref", "--format=%(objectname)", receiptRef], ct)).Trim();
