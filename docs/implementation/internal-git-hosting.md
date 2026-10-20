@@ -18,6 +18,15 @@ C-Sweet now has an internal repository store behind the existing authenticated G
 - Settings source-control page displays effective storage locations, repository readiness, and optional GitHub configuration. Repository readiness probes file creation, flush, rename, and the Git executable; it is not an S3 connectivity or backup check.
 - Aspire forwards storage configuration to GitHost. Docker Compose includes GitHost, persistent data and a private shared-key volume. The running local app must be restarted to load changes.
 
+## Exact candidate browsing
+
+`InternalGitRepositoryStore.InspectAsync` also accepts a full 40-character commit ID for an
+exact published-candidate review link. The object must be a commit reachable from a retained
+branch or tag in the authorized repository; abbreviated IDs, revision expressions, tree/blob
+objects and unreferenced commits are rejected. `InternalRepositoryDetail` labels the pinned
+revision in its selector and preserves it while browsing files. Moving a branch does not change
+the source displayed by an existing exact-candidate link.
+
 ## Business default provider
 
 Managers choose the default provider and approved template on the business source-control page. New businesses and businesses without an explicit setting use the empty internal Git template. A connected Managed GitHub organization or personal account with source-access/provisioner installations and an enabled, policy-approved template can be selected instead. GitHub creation currently requires an approved template.

@@ -43,6 +43,10 @@
                     {
                         <div class="code-toolbar">
                             <MudSelect T="string" Value="@CurrentReference" ValueChanged="ChangeReferenceAsync" Variant="Variant.Outlined" Dense="true" Class="branch-select" aria-label="@L["InternalRepositoryDetail.BranchOrTag"]">
+                                @if (_selectedRef is { } exact && !_details.Inspection.Refs.Any(r => r.Name == exact))
+                                {
+                                    <MudSelectItem T="string" Value="@exact">Commit @ShortSha(exact)</MudSelectItem>
+                                }
                                 @foreach (var reference in _details.Inspection.Refs) { <MudSelectItem T="string" Value="@reference.Name">@ShortReference(reference.Name)</MudSelectItem> }
                             </MudSelect>
                             <span class="code-toolbar-summary">@BranchCount @Pluralize(BranchCount, "branch") / @TagCount @(TagCount == 1 ? "tag" : "tags")</span>

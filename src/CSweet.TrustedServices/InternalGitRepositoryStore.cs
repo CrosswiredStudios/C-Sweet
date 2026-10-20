@@ -166,8 +166,26 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
         var selected = requestedRef ?? (refs.Any(r => r.Name == headRef)
             ? headRef
             : refs.FirstOrDefault(r => r.Name.StartsWith("refs/heads/", StringComparison.Ordinal))?.Name ?? refs[0].Name);
-        var commit = refs.SingleOrDefault(r => r.Name == selected)?.Sha
-            ?? throw new ArgumentException("Select an existing branch or tag.");
+        var commit = refs.SingleOrDefault(r => r.Name == selected)?.Sha;
+        if (commit is null)
+        {
+            // Review links pin a published candidate, even after its branch advances.
+            // Accept full commit IDs only, and keep browsing within retained branch/tag history.
+            ValidateSha(selected);
+            try
+            {
+                var type = (await RunAsync(path, ["cat-file", "-t", selected], cancellationToken)).Trim();
+                if (type != "commit") throw new ArgumentException("Select an existing reachable commit.");
+                var containing = await RunAsync(path,
+                    ["for-each-ref", "--contains=" + selected, "--format=%(refname)", "refs/heads/", "refs/tags/"], cancellationToken);
+                if (string.IsNullOrWhiteSpace(containing)) throw new ArgumentException("Select an existing reachable commit.");
+            }
+            catch (InvalidOperationException error)
+            {
+                throw new ArgumentException("Select an existing reachable commit.", error);
+            }
+            commit = selected;
+        }
         var log = await RunAsync(path, ["log", "-30", "--format=%H%x09%an%x09%s", commit, "--"], cancellationToken);
         var commits = log.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd().Split('\t', 3))
             .Where(p => p.Length == 3).Select(p => new InternalGitCommit(p[0], p[1], p[2])).ToList();

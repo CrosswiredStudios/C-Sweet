@@ -65,6 +65,40 @@ public sealed class InternalGitRepositoryStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ReviewLinksInspectExactCurrentAndHistoricalCommitsWithoutAcceptingOtherObjects()
+    {
+        await Store.ExecuteAsync(new(_business, _repository, "create", "main"));
+        var snapshot = await Store.PrepareAsync(new(_business, _repository, Guid.NewGuid(), "main", "work/one", null, "prepare"), new());
+        var first = await Store.ExecuteAsync(new(_business, _repository, "inspect", Ref: snapshot.BaseCommitSha));
+        Assert.Equal(snapshot.BaseCommitSha, first.Commits[0].Sha);
+        var tree = await FixtureGitAsync("rev-parse", snapshot.BaseCommitSha + "^{tree}");
+        var next = await FixtureGitAsync("commit-tree", tree, "-p", snapshot.BaseCommitSha, "-m", "Next candidate");
+        await Store.ExecuteAsync(new(_business, _repository, "update-ref", Ref: "refs/heads/main",
+            ExpectedSha: snapshot.BaseCommitSha, TargetSha: next));
+        var historical = await Store.ExecuteAsync(new(_business, _repository, "inspect", Ref: snapshot.BaseCommitSha));
+        Assert.Equal(snapshot.BaseCommitSha, historical.Commits[0].Sha);
+        Assert.DoesNotContain(historical.Refs, r => r.Sha == snapshot.BaseCommitSha);
+        Assert.Equal(next, (await Store.ExecuteAsync(new(_business, _repository, "inspect"))).Commits[0].Sha);
+        var orphan = await FixtureGitAsync("commit-tree", tree, "-m", "Unreferenced candidate");
+        foreach (var invalid in new[] { tree, orphan, new string('f', 40), snapshot.BaseCommitSha[..8], snapshot.BaseCommitSha + "^", "HEAD", "--all" })
+            await Assert.ThrowsAsync<ArgumentException>(() => Store.ExecuteAsync(new(_business, _repository, "inspect", Ref: invalid)));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => Store.ExecuteAsync(new(Guid.NewGuid(), _repository, "inspect", Ref: next)));
+    }
+
+    private async Task<string> FixtureGitAsync(params string[] arguments)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "--git-dir",
+            Path.Combine(_root, _business.ToString("N"), _repository.ToString("N") + ".git") }.Concat(arguments)) start.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        Assert.True(process.ExitCode == 0, await error);
+        return (await output).Trim();
+    }
+
+    [Fact]
     public async Task InspectFallsBackToAnExistingBranchWhenHeadHasNoCommit()
     {
         await Store.ExecuteAsync(new(_business, _repository, "create", "main"));

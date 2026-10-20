@@ -119,6 +119,26 @@ public sealed class SourceControlWorkspaceRenderingTests
     }
 
     [Fact]
+    public async Task RepositoryDetailLabelsAnExactPublishedCandidateAndPreservesItsQuery()
+    {
+        var api = new WorkspaceApi();
+        var repository = Repository(Connection("InternalGit").Id, "candidate", "Ready");
+        const string candidate = "1234567890abcdef1234567890abcdef12345678";
+        api.RepositoryDetails = new(repository, 1, new("main",
+            [new("refs/heads/main", new string('a', 40))],
+            [new(candidate, "C-Sweet", "Reviewed candidate")], ["slug.mjs"]));
+        var html = await RenderAsync<InternalRepositoryDetail>(api, new()
+        {
+            [nameof(InternalRepositoryDetail.OrganizationId)] = api.Business,
+            [nameof(InternalRepositoryDetail.RepositoryId)] = repository.Id,
+            [nameof(InternalRepositoryDetail.SelectedReference)] = candidate
+        });
+        Assert.Contains("Commit 12345678", html);
+        Assert.Contains("slug.mjs", html);
+        Assert.Contains(api.Requests, path => path.Contains("reference=" + candidate, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RepositoryDetailShowsLatestWorkBranchWhenDefaultBranchHasNoFiles()
     {
         var api = new WorkspaceApi();
