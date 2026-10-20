@@ -874,9 +874,11 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             ? await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.OrganizationId == organizationId && db.CoreWorkTasks.Any(t => t.Id == requestedId && t.BoardId == x.Id && t.AssignedEmployeeId == owner.Id && t.AssignedAgentInstallationId == actor.AgentInstallationId), cancellationToken)
             : await PersonalBoardAsync(organizationId, owner.Id, cancellationToken);
         await RequireGrantAsync(organizationId, board.Id, actor, PersonalTodoActions.Claim, cancellationToken);
+        var isPersonalBoard = board.Kind == WorkBoardKind.Personal;
         var now = clock.GetUtcNow();
         var columns = board.Columns.ToDictionary(x => x.Category);
-        var expired = await db.CoreWorkTasks.Where(x => x.BoardId == board.Id && x.AssignedEmployeeId == owner.Id && x.AssignedAgentInstallationId == actor.AgentInstallationId && x.Status == WorkTaskStatus.Running &&
+        var expired = await db.CoreWorkTasks.Where(x => x.BoardId == board.Id && x.AssignedEmployeeId == owner.Id && x.AssignedAgentInstallationId == actor.AgentInstallationId &&
+            (isPersonalBoard || x.PersonalWorkContextJson != null) && x.Status == WorkTaskStatus.Running &&
             x.ClaimExpiresAt < now).ToListAsync(cancellationToken);
         foreach (var stale in expired)
         {
@@ -893,6 +895,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 db.Entry(stale).State = EntityState.Detached;
         }
         var item = await db.CoreWorkTasks.FirstOrDefaultAsync(x => x.BoardId == board.Id && x.AssignedEmployeeId == owner.Id && x.AssignedAgentInstallationId == actor.AgentInstallationId &&
+            (isPersonalBoard || x.PersonalWorkContextJson != null) &&
             x.Status == WorkTaskStatus.Running && x.ClaimEventId == request.EventId &&
             (!request.ItemId.HasValue || x.Id == request.ItemId.Value),
             cancellationToken);
@@ -901,6 +904,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         {
             var candidate = await db.CoreWorkTasks.AsNoTracking()
                 .Where(x => x.BoardId == board.Id && x.AssignedEmployeeId == owner.Id && x.AssignedAgentInstallationId == actor.AgentInstallationId && x.ArchivedAt == null &&
+                    (isPersonalBoard || x.PersonalWorkContextJson != null) &&
                     x.Status == WorkTaskStatus.Ready && x.IsExecutable &&
                     (!request.ItemId.HasValue || x.Id == request.ItemId.Value) &&
                     (!request.ExpectedRevision.HasValue || x.Revision == request.ExpectedRevision.Value))
@@ -915,6 +919,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).RequireIfConfiguredAsync(claimedTask, cancellationToken);
             var updated = await db.CoreWorkTasks
                 .Where(x => x.Id == candidate.Id && x.Status == WorkTaskStatus.Ready &&
+                    (isPersonalBoard || x.PersonalWorkContextJson != null) &&
                     x.Revision == candidate.Revision)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(x => x.Status, WorkTaskStatus.Running)

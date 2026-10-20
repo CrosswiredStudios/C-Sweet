@@ -28,3 +28,11 @@ Assignments without a development stage retain their legacy lifecycle requiremen
 Both paths still require the confined development runtime, serialized jobs, current team
 repository policy and the existing platform authorization checks. `DeveloperBriefAuthorityTests`
 covers incompatible principals, missing capabilities, runtime restrictions and legacy behavior.
+
+`WorkItemMutationEngine.ClaimAsync` distinguishes personal plans on project boards from
+canonical stage tickets. Outside a personal board, a retained `PersonalWorkContextJson`
+is required for new claims, claim replay and expired-claim recovery. Assigning a developer
+or repository brief alone cannot enter the personal dispatcher. Canonical tickets retain
+their stage-owned execution and claim state. `PersonalTodoClaimBoundaryPostgresTests`
+reproduces ready, replayed and expired canonical claims and preserves ordinary personal
+plan claims and revoked-grant checks against PostgreSQL.
