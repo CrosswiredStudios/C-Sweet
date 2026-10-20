@@ -61,6 +61,34 @@ public sealed partial class PersonalTodoServiceTests
     }
 
     [Fact]
+    public async Task PlanReplayPreservesDependencyOrderAfterBoardRanksChange()
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var actor = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var root = await service.AddAsync(setup.Organization.Id, actor, Add("Tetris", "plan-order", null));
+        var stored = await db.CoreWorkTasks.SingleAsync();
+        stored.Status = WorkTaskStatus.Running; stored.ClaimEventId = Guid.NewGuid();
+        stored.ClaimExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5); await db.SaveChangesAsync();
+        var request = Plan(root.Id);
+        var initial = await service.CreatePlanAsync(setup.Organization.Id, actor, request);
+        var originalTasks = initial.Items.Where(x => x.Kind == "Task").OrderBy(x => x.Rank).ToList();
+        var first = await db.CoreWorkTasks.SingleAsync(x => x.Id == originalTasks[0].Id);
+        first.BoardRank = long.MaxValue; // Normal blocked-ticket Retry moves a ticket to the end.
+        first.Status = WorkTaskStatus.Ready;
+        await db.SaveChangesAsync();
+        var replay = await service.CreatePlanAsync(setup.Organization.Id, actor, request);
+        var replayedTasks = replay.Items.Where(x => x.Kind == "Task").OrderBy(x => x.Rank).ToList();
+        Assert.Equal(originalTasks.Select(x => x.Id), replayedTasks.Select(x => x.Id));
+        Assert.Equal(long.MaxValue, first.BoardRank);
+        var started = await service.ReportPlanTaskAsync(setup.Organization.Id, actor,
+            new(root.Id, replayedTasks[0].Id, replayedTasks[0].Revision, "Running", null, "resume-first"));
+        Assert.Equal(first.Id, started.Id);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReportPlanTaskAsync(setup.Organization.Id, actor,
+            new(root.Id, replayedTasks[1].Id, replayedTasks[1].Revision, "Running", null, "cannot-skip")));
+    }
+
+    [Fact]
     public async Task PlanEnforcesDependenciesEvidenceAndEpicCompletion()
     {
         await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();

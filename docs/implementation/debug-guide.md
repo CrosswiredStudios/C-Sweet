@@ -474,12 +474,18 @@ and `AgentTicketFeedbackTests.ReportedBlockerPreservesEvidenceAndRecoveryStepsIn
 If a direct project's coordinator creates its plan but the first child fails
 `source-control.personal-work.prepare.v1` with a source-control authorization denial,
 inspect `GitWorkspaceCapabilityHandler.RequireAssignmentContextAsync`. Project plan
-children keep the retained chat request and live claim on their coordinator; the child
-does not copy those fields. Typed `WorkItemPlanningSpecification.PersonalPlan` metadata
+children keep the live claim on their coordinator; the child does not copy that lease.
+Typed `WorkItemPlanningSpecification.PersonalPlan` metadata
 routes these children through `RequirePersonalAssignmentAsync`, which checks their
 current assignment, coordinator claim, installation, team and project repository binding.
 It does not confer an orchestration grant or authorize a different project. Regression
 coverage: `PersonalDevelopmentWorkspaceTests.Plan_tasks_have_distinct_branches_in_one_repository_and_later_stories_start_from_main`.
+
+If a retried first child then fails with **Complete preceding plan tasks before starting
+this task**, inspect `PersonalTodoService.ReadPlanAsync`. Plan responses expose the
+server-written `PersonalPlan.Order` as their rank. Board moves and retries may change
+`WorkTask.BoardRank`, but cannot reorder execution dependencies. Regression coverage:
+`PersonalTodoServiceTests.PlanReplayPreservesDependencyOrderAfterBoardRanksChange`.
 
 ## Local compute fails for a second business
 

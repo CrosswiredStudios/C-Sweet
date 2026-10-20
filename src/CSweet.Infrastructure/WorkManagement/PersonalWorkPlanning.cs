@@ -216,8 +216,11 @@ public sealed partial class WorkItemMutationEngine
     {
         var all = await db.CoreWorkTasks.AsNoTracking().Where(x => x.BoardId == root.BoardId && x.OrganizationId == root.OrganizationId).ToListAsync(ct);
         var items = new List<Wire.PersonalTodoItem>();
-        foreach (var item in all.Where(x => ReadPlanSpecification(x)?.PersonalPlan?.RootItemId == root.Id).OrderBy(x => x.BoardRank))
-            items.Add(await MapItemAsync(item, ct));
+        foreach (var item in all.Where(x => ReadPlanSpecification(x)?.PersonalPlan?.RootItemId == root.Id)
+                     .OrderBy(x => ReadPlanSpecification(x)!.PersonalPlan!.Order))
+            // Board moves/retries can change queue rank. Plan consumers need the immutable
+            // dependency order used by ReportPlanTaskAsync, including after restoration.
+            items.Add((await MapItemAsync(item, ct)) with { Rank = ReadPlanSpecification(item)!.PersonalPlan!.Order });
         return new(root.Id, root.Revision, items);
     }
 
