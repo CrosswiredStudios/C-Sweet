@@ -3,6 +3,29 @@
     "Marketplace": {
       "FirstPartyAgents": [
         {
+          "Id": "81a480b0-28df-41f8-89cd-0ac1b91bbf68",
+          "AgentId": "com.csweet.software-developer.openhands",
+          "ListingSlug": "software-developer-openhands",
+          "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
+          "AccentColor": "#356286",
+          "Name": "OpenHands Developer",
+          "Summary": "Opt-in OpenHands developer pilot with C-Sweet tickets, tested delivery, web research and manager escalation. Requires explicit owner selection.",
+          "Category": "Engineering",
+          "RoleKey": "software-developer",
+          "RoleName": "Software Developer",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [ "software-development.implement.v1", "work.execution.run", "work.execution.build-readiness.v1" ],
+          "RoleAliases": [ "OpenHands Developer" ],
+          "SpecializationKeys": [ "openhands", "pilot" ],
+          "Keywords": [ "openhands", "pilot", "software", "development", "research" ],
+          "IsFeatured": false,
+          "ManualSelectionOnly": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper.OpenHands",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper.OpenHands#readme"
+        },
+        {
           "Id": "f7a98e3d-4214-4b64-8f15-8ef31f81e3c4",
           "AgentId": "com.csweet.infrastructure-engineer.namecheap",
           "ListingSlug": "namecheap-infrastructure-engineer",

@@ -46,6 +46,7 @@ public sealed class FirstPartyMarketplaceAgentOptions
     public List<string> SpecializationKeys { get; set; } = [];
     public List<string> Keywords { get; set; } = [];
     public bool IsFeatured { get; set; }
+    public bool ManualSelectionOnly { get; set; }
     public string Availability { get; set; } = "Available";
     public string RepositoryUrl { get; set; } = string.Empty;
     public string DocumentationUrl { get; set; } = string.Empty;

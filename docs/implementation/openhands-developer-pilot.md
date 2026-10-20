@@ -2,7 +2,8 @@
 
 The independent `CSweet.Agent.SoftwareDeveloper.OpenHands` repository contains three 0.1.0 packages:
 `CSweet.Agent.Development` (shared SDK workflows), `CSweet.Agent.OpenHands` (execution worker), and
-the thin agent entrypoint. The opt-in identity is `com.csweet.software-developer.openhands`.
+the thin agent entrypoint. The initial release is 0.1.0; 0.1.1 adds the installer-required bundle
+checksum sidecar. The opt-in identity is `com.csweet.software-developer.openhands`.
 Daniel and Adrian's repositories, package versions and installed payloads are unchanged.
 
 `IDevelopmentExecutionEngine` receives current authorized context, source workspace, tools, limits
@@ -32,6 +33,10 @@ selection, model budgets, leases and platform mutation authority stay with C-Swe
   removes the organization tree, and removed installations are reclaimed after the grace period.
 - `ManagerResponseRecovery` retains exact question/answer revisions and asks the typed orchestration
   retry API to resume only a resolved, unchanged assignment. Discussion does not grant execution rights.
+- `FirstPartyMarketplaceAgentOptions.ManualSelectionOnly` keeps the published pilot visible for owner
+  selection. `IAgentCatalogService.IsAutomaticSelectionAllowed` excludes flagged agents from automatic
+  candidate selection and rechecks the restriction before a delegated hire can commit. Installed copies
+  retain this restriction through their stable agent identity. The default developer remains eligible.
 
 The new generic APIs ship in SDK 5.1.0. WorkManagement and Office contracts were not modified.
 

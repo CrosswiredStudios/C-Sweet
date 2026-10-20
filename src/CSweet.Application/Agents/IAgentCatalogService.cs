@@ -4,6 +4,9 @@ namespace CSweet.Application.Agents;
 
 public interface IAgentCatalogService
 {
+    /// <summary>Manual-only pilots remain discoverable, but cannot be selected or executed by automatic hiring.</summary>
+    bool IsAutomaticSelectionAllowed(AvailableAgent agent) => true;
+
     Task<AvailableAgentSearchResult> GetAvailableAgentsAsync(
         Guid? organizationId,
         AvailableAgentSearchQuery query,

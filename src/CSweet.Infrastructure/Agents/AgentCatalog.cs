@@ -31,8 +31,13 @@ public sealed class AgentCatalogOptions
 
 public sealed class AgentCatalogService(
     IEnumerable<IAgentCatalogProvider> providers,
-    ILogger<AgentCatalogService> logger) : IAgentCatalogService
+    ILogger<AgentCatalogService> logger, IOptions<MarketplaceOptions>? options = null) : IAgentCatalogService
 {
+    public bool IsAutomaticSelectionAllowed(AvailableAgent agent) =>
+        !(options?.Value.FirstPartyAgents.Any(x => x.ManualSelectionOnly &&
+            (string.Equals(x.AgentId, agent.AgentId, StringComparison.Ordinal) ||
+             string.Equals(agent.AgentReference, $"first-party:{x.Id:N}", StringComparison.Ordinal))) ?? false);
+
     public async Task<AvailableAgentSearchResult> GetAvailableAgentsAsync(
         Guid? organizationId,
         AvailableAgentSearchQuery query,

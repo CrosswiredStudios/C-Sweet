@@ -320,6 +320,7 @@ public sealed partial class HiringService
                 RequiredCapabilities: ReadStrings(approvedRole?.RequiredCapabilitiesJson),
                 RoleCategoryKey: context?.RoleCategoryKey, PreferredSpecializationKeys: context?.PreferredSpecializationKeys), token);
         var eligible = candidates.Agents.Where(x => x.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled);
+        eligible = eligible.Where(agentCatalog!.IsAutomaticSelectionAllowed);
         // Only the platform's embedded catalog establishes first-party provenance.
         if (policy.Settings.Publishers == HiringPublisherPreference.FirstPartyOnly)
             eligible = eligible.Where(IsFirstParty);
@@ -502,6 +503,8 @@ public sealed partial class HiringService
         var catalogReference = ReadMetadata(candidate.ExplanationJson).CatalogReference;
         var agent = await agentCatalog!.ResolveAsync(workflow.OrganizationId, catalogReference ?? candidate.ExternalCandidateId, token)
             ?? throw new InvalidOperationException("The selected package is unavailable.");
+        if (!agentCatalog.IsAutomaticSelectionAllowed(agent))
+            throw new UnauthorizedAccessException("This agent requires explicit owner selection and cannot be hired automatically.");
         // Resolve returns the installed record, while discovery attaches platform catalog
         // provenance only for the same package repository and manifest identity.
         if (agent.Source == AgentCatalogSource.Installed)
