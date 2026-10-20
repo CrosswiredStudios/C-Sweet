@@ -81,7 +81,7 @@ public sealed class ExecutionCheckpointStore(CSweetDbContext db, IOptions<AgentR
         var head = JsonSerializer.Deserialize<Head>(state.PayloadJson, Json)!;
         if (head.EngineVersion != input.EngineVersion)
             throw new InvalidOperationException("execution.checkpoint.incompatible: retained engine format requires the matching agent package.");
-        await AuthorizeSourceAsync(organization, installation, head.WorkspaceId, head.AssignmentRevision, token, allowPublished:true);
+        await AuthorizeSourceAsync(organization, installation, head.WorkspaceId, head.AssignmentRevision, token, readOnly:true);
         if (head.WorkspaceId is null && head.LogicalWorkId != work)
             throw new UnauthorizedAccessException("This checkpoint belongs to another logical work item.");
         return await LoadAsync(organization, installation, state, head, token);
@@ -146,18 +146,20 @@ public sealed class ExecutionCheckpointStore(CSweetDbContext db, IOptions<AgentR
         return active.Length == 1 ? active[0] : throw new UnauthorizedAccessException("A single current authorized work lease is required.");
     }
 
-    private async Task AuthorizeSourceAsync(Guid organization, Guid installation, Guid? workspaceId, long? revision, CancellationToken token, bool allowPublished = false)
+    private async Task AuthorizeSourceAsync(Guid organization, Guid installation, Guid? workspaceId, long? revision, CancellationToken token, bool readOnly = false)
     {
         if (workspaceId is null) return;
         if (revision is not > 0) throw new ArgumentException("A source assignment revision is required.");
         var workspace = await db.SourceControlWorkspaces.AsNoTracking().SingleOrDefaultAsync(x => x.Id == workspaceId &&
             x.OrganizationId == organization && x.AgentInstallationId == installation && x.AssignmentRevision == revision, token)
             ?? throw new UnauthorizedAccessException("Source checkpoint identity changed.");
-        if (workspace.Status != SourceControlWorkspaceStatus.Ready && !(allowPublished && workspace.Status == SourceControlWorkspaceStatus.Published)) throw new UnauthorizedAccessException("The source workspace is no longer available.");
-        if (!await new CanonicalWorkspaceAuthorization(db).AuthorizeAsync(workspace, allowPublished ? GitWorkspaceCapabilities.Inspect : GitWorkspaceCapabilities.Publish, null, token) &&
+        // A published workspace is retained for review repair; its status is not a work grant.
+        if (workspace.Status is not (SourceControlWorkspaceStatus.Ready or SourceControlWorkspaceStatus.Published)) throw new UnauthorizedAccessException("The source workspace is no longer available.");
+        if (!await new CanonicalWorkspaceAuthorization(db).AuthorizeAsync(workspace, readOnly ? GitWorkspaceCapabilities.Inspect : GitWorkspaceCapabilities.Publish, null, token) &&
             !await db.CoreWorkTasks.AnyAsync(x => x.Id == workspace.WorkItemId && x.OrganizationId == organization &&
                 x.AssignedAgentInstallationId == installation && x.AssignmentRevision == revision && x.ArchivedAt == null &&
-                x.Status != CSweet.Domain.Core.WorkTaskStatus.Completed && x.Status != CSweet.Domain.Core.WorkTaskStatus.Cancelled, token))
+                (readOnly ? x.Status != CSweet.Domain.Core.WorkTaskStatus.Completed && x.Status != CSweet.Domain.Core.WorkTaskStatus.Cancelled :
+                    x.Status == CSweet.Domain.Core.WorkTaskStatus.Running), token))
             throw new UnauthorizedAccessException("Current source assignment authority is required.");
     }
 

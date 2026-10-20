@@ -86,3 +86,8 @@ direction on a pending merge card to `TaskDeliveryService.ApplyDecisionAsync` as
 changes. The service checks the current manager, review revision, assignment and publication,
 clears approval, records the feedback and queues the developer wake hint atomically with the
 decision. Free text cannot approve a merge or change story/epic merge preferences.
+
+`ExecutionCheckpointStore.AuthorizeSourceAsync` accepts retained `Published` workspaces during
+authorized source repair as well as `Ready` workspaces. Writes still use publication authority;
+the personal-work fallback requires a running, current, owned assignment. A published source
+snapshot cannot authorize checkpoint writes for stopped, waiting or reassigned work.

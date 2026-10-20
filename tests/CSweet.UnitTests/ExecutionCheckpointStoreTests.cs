@@ -56,6 +56,59 @@ public sealed class ExecutionCheckpointStoreTests : IDisposable
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Store.ReadAsync(f.Organization,f.Installation,f.Runtime,new("work","engine-1"),default));
     }
 
+    [Theory]
+    [InlineData(SourceControlWorkspaceStatus.Ready)]
+    [InlineData(SourceControlWorkspaceStatus.Published)]
+    public async Task Active_source_rework_can_checkpoint_a_retained_published_workspace(SourceControlWorkspaceStatus status)
+    {
+        await using var f = await CreateAsync();
+        var task = new WorkTask { Id = Guid.NewGuid(), OrganizationId = f.Organization, Title = "Repair source",
+            Status = WorkTaskStatus.Running, AssignedAgentInstallationId = f.Installation, AssignmentRevision = 1 };
+        var workspace = new SourceControlWorkspace { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            AgentInstallationId = f.Installation, WorkItemId = task.Id, AssignmentRevision = 1, Status = status };
+        f.Db.CoreWorkTasks.Add(task); f.Db.SourceControlWorkspaces.Add(workspace); await f.Db.SaveChangesAsync();
+        var input = new ExecutionCheckpointWrite("repair", "engine-1", 0, 1, Archive("event.json", "retained event"),
+            "repair-1", workspace.Id, 1, Archive("module.mjs", "export const value = 1;"));
+        var first = await f.Store.WriteAsync(f.Organization, f.Installation, f.Runtime, 7, input, default);
+        var next = await f.Store.WriteAsync(f.Organization, f.Installation, f.Runtime, 7,
+            input with { ExpectedRevision = first.Revision, EventCursor = 2, IdempotencyKey = "repair-2" }, default);
+        Assert.Equal(2, next.Revision); Assert.Equal(workspace.Id, next.WorkspaceId);
+        Assert.Equal(input.SourceArchive, next.SourceArchive);
+    }
+
+    [Theory]
+    [InlineData("blocked")]
+    [InlineData("cancelled")]
+    [InlineData("completed")]
+    [InlineData("waiting")]
+    [InlineData("ready")]
+    [InlineData("assignee")]
+    [InlineData("assignment")]
+    [InlineData("archived")]
+    [InlineData("workspace")]
+    public async Task Published_source_does_not_bypass_current_work_authority(string changed)
+    {
+        await using var f = await CreateAsync();
+        var task = new WorkTask { Id = Guid.NewGuid(), OrganizationId = f.Organization, Title = "Repair source",
+            Status = WorkTaskStatus.Running, AssignedAgentInstallationId = f.Installation, AssignmentRevision = 1 };
+        var workspace = new SourceControlWorkspace { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            AgentInstallationId = f.Installation, WorkItemId = task.Id, AssignmentRevision = 1, Status = SourceControlWorkspaceStatus.Published };
+        if (changed == "blocked") task.Status = WorkTaskStatus.Blocked;
+        if (changed == "cancelled") task.Status = WorkTaskStatus.Cancelled;
+        if (changed == "completed") task.Status = WorkTaskStatus.Completed;
+        if (changed == "waiting") task.Status = WorkTaskStatus.WaitingForApproval;
+        if (changed == "ready") task.Status = WorkTaskStatus.Ready;
+        if (changed == "assignee") task.AssignedAgentInstallationId = Guid.NewGuid();
+        if (changed == "assignment") task.AssignmentRevision++;
+        if (changed == "archived") task.ArchivedAt = DateTimeOffset.UtcNow;
+        if (changed == "workspace") workspace.Status = SourceControlWorkspaceStatus.Failed;
+        f.Db.CoreWorkTasks.Add(task); f.Db.SourceControlWorkspaces.Add(workspace); await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Store.WriteAsync(f.Organization, f.Installation, f.Runtime, 7,
+            new("repair", "engine-1", 0, 1, Archive("event.json", "event"), "repair", workspace.Id, 1,
+                Archive("module.mjs", "source")), default));
+        Assert.Empty(f.Db.PluginOperationalStates);
+    }
+
     [Fact]
     public async Task ChunksAreProtectedAndOnlyCompleteDigestCanCommit()
     {
