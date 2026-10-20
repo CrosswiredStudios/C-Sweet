@@ -80,3 +80,9 @@ the current question on that ticket and writes `discussion.reply` plus its corre
 and notification outbox atomically. Changed/deleted/foreign questions and archived boards are
 rejected. Existing ordinary comments retain their behavior. All 36 collaboration/UI/discussion
 tests passed. Replies remain evidence and cannot grant execution or approve a scope change.
+
+For personal-plan source reviews, `ExecutiveDecisionService` routes the manager's free-text
+direction on a pending merge card to `TaskDeliveryService.ApplyDecisionAsync` as requested
+changes. The service checks the current manager, review revision, assignment and publication,
+clears approval, records the feedback and queues the developer wake hint atomically with the
+decision. Free text cannot approve a merge or change story/epic merge preferences.

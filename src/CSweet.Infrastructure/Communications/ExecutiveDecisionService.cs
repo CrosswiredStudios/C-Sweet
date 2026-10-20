@@ -302,7 +302,8 @@ public sealed partial class ExecutiveDecisionService(
         if (storedOptions.TaskMerge is { } taskMerge)
         {
             var mergeFailure = await new CSweet.Infrastructure.SourceControl.TaskDeliveryService(db, TimeProvider.System)
-                .ApplyDecisionAsync(organizationId, decision.Id, taskMerge, actorOrganizationUserId, selected?.Id, cancellationToken);
+                .ApplyDecisionAsync(organizationId, decision.Id, taskMerge, actorOrganizationUserId,
+                    freeText is null ? selected?.Id : "changes", cancellationToken, freeText);
             if (mergeFailure is not null) return Failure("decision_not_pending", mergeFailure);
         }
         var linkedFailure = await ApplyWorkstreamDecisionAsync(decision, storedOptions, actorOrganizationUserId,

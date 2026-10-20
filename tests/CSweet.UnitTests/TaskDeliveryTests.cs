@@ -76,6 +76,60 @@ public sealed class TaskDeliveryTests
     }
 
     [Fact]
+    public async Task Manager_feedback_returns_exact_candidate_for_rework_without_merge_authority()
+    {
+        await using var f = await Fixture.Create(); var review = await f.Submit();
+        var saved = await f.Db.TaskDeliveryReviews.SingleAsync();
+        saved.ApprovedCommitSha = saved.CommitSha; saved.ApprovedByOrganizationUserId = f.Manager.Id;
+        await f.Db.SaveChangesAsync();
+        var error = await f.Service.ApplyDecisionAsync(f.Org, Guid.NewGuid(), new(review.Id, review.Revision),
+            f.Manager.Id, "changes", default, " Remove the BOM and rerun Node syntax checks. ");
+        Assert.Null(error); await f.Db.SaveChangesAsync(); await f.Merge();
+        Assert.Equal("ChangesRequested", saved.Status); Assert.Null(saved.ApprovedCommitSha);
+        Assert.Null(saved.ApprovedByOrganizationUserId); Assert.Equal(0, f.Host.Calls);
+        Assert.Equal(WorkTaskStatus.Running, f.Task.Status);
+        Assert.Equal("Remove the BOM and rerun Node syntax checks.", f.Task.BlockReason);
+        Assert.Equal(saved.Failure, f.Task.BlockReason); Assert.Equal("ChangesRequested", f.Task.MergeStatus);
+        Assert.Empty(await f.Db.TaskMergePreferences.ToListAsync());
+        Assert.Contains(await f.Db.AgentPlatformEventOutbox.ToListAsync(), x => x.EventType == TaskDeliveryCapabilities.Changed);
+        Assert.NotNull(await f.Service.ApplyDecisionAsync(f.Org, Guid.NewGuid(), new(review.Id, review.Revision),
+            f.Manager.Id, "changes", default, "Duplicate answer"));
+    }
+
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("oversized")]
+    [InlineData("manager")]
+    [InlineData("revision")]
+    [InlineData("stopped")]
+    [InlineData("assignee")]
+    [InlineData("assignment")]
+    [InlineData("head")]
+    [InlineData("publication")]
+    public async Task Invalid_or_stale_manager_feedback_does_not_restart_work(string changed)
+    {
+        await using var f = await Fixture.Create(); var review = await f.Submit();
+        var revision = review.Revision;
+        var manager = f.Manager.Id;
+        var feedback = "Correct the published source.";
+        if (changed == "empty") feedback = " ";
+        if (changed == "oversized") feedback = new string('x', 4001);
+        if (changed == "manager") manager = Guid.NewGuid();
+        if (changed == "revision") revision++;
+        if (changed == "stopped") f.Task.Status = WorkTaskStatus.Cancelled;
+        if (changed == "assignee") f.Task.AssignedAgentInstallationId = Guid.NewGuid();
+        if (changed == "assignment") f.Task.AssignmentRevision++;
+        if (changed == "head") f.Publication.CommitSha = new string('c', 40);
+        if (changed == "publication") f.Publication.Status = SourceControlPublicationStatus.Superseded;
+        await f.Db.SaveChangesAsync(); var originalStatus = f.Task.Status;
+        Assert.NotNull(await f.Service.ApplyDecisionAsync(f.Org, Guid.NewGuid(), new(review.Id, revision),
+            manager, "changes", default, feedback));
+        Assert.Equal(originalStatus, f.Task.Status);
+        Assert.Equal("AwaitingApproval", (await f.Db.TaskDeliveryReviews.SingleAsync()).Status);
+        Assert.Empty(await f.Db.AgentPlatformEventOutbox.ToListAsync());
+    }
+
+    [Fact]
     public async Task Story_override_and_revocation_apply_to_unstarted_tasks_and_survive_new_service()
     {
         await using var f = await Fixture.Create(); var review = await f.Submit();

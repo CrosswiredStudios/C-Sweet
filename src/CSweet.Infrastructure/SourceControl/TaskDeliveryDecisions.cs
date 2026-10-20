@@ -2,6 +2,7 @@ using CSweet.Application.Communications;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Domain.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.SourceControl;
@@ -43,7 +44,7 @@ public sealed partial class TaskDeliveryService
     }
 
     internal async Task<string?> ApplyDecisionAsync(Guid org, Guid decisionId, TaskMergeChoice choice,
-        Guid managerId, string? option, CancellationToken ct)
+        Guid managerId, string? option, CancellationToken ct, string? feedback = null)
     {
         await LockAsync(org, ct);
         var review = await db.TaskDeliveryReviews.SingleOrDefaultAsync(x => x.OrganizationId == org && x.Id == choice.ReviewId, ct);
@@ -52,10 +53,37 @@ public sealed partial class TaskDeliveryService
         var developer = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == org && x.AgentInstallationId == review.DeveloperInstallationId, ct);
         if ((await ManagerAsync(org, developer, ct, review.BoardId)).Id != managerId || review.ManagerOrganizationUserId != managerId)
             return "Only this task's current manager may approve its merge.";
-        if (option is not ("task" or "story" or "epic" or "review")) return "Choose a merge scope or review the task first.";
+        if (option is not ("task" or "story" or "epic" or "review" or "changes")) return "Choose a merge scope or review the task first.";
+        if (option == "changes" && (string.IsNullOrWhiteSpace(feedback) || feedback.Length > 4000))
+            return "Describe the requested changes in at most 4000 characters.";
         var currentTask = await TaskAsync(org, review.TaskId, ct);
         if (currentTask.Status != WorkTaskStatus.WaitingForApproval) return "The task is no longer awaiting review.";
-        if (option == "review") review.Status = "ManualReview";
+        if (option == "changes")
+        {
+            var candidate = await db.SourceControlPublications.AsNoTracking().SingleAsync(x =>
+                x.OrganizationId == org && x.Id == review.PublicationId, ct);
+            var workspace = await db.SourceControlWorkspaces.AsNoTracking().SingleAsync(x =>
+                x.OrganizationId == org && x.Id == candidate.WorkspaceId, ct);
+            if (currentTask.AssignedAgentInstallationId != review.DeveloperInstallationId ||
+                currentTask.AssignmentRevision != workspace.AssignmentRevision || candidate.CommitSha != review.CommitSha ||
+                candidate.Status is SourceControlPublicationStatus.Failed or SourceControlPublicationStatus.Superseded ||
+                await db.SourceControlPublications.AnyAsync(x => x.WorkspaceId == candidate.WorkspaceId &&
+                    x.CreatedAt > candidate.CreatedAt && x.Status != SourceControlPublicationStatus.Failed &&
+                    x.Status != SourceControlPublicationStatus.Superseded, ct))
+                return "The task changed after review. Review its current publication before requesting changes.";
+            review.Status = "ChangesRequested";
+            review.Failure = feedback!.Trim();
+            review.ApprovedByOrganizationUserId = null;
+            review.ApprovedCommitSha = null;
+            currentTask.Status = WorkTaskStatus.Running;
+            currentTask.MergeStatus = "ChangesRequested";
+            currentTask.BlockReason = review.Failure;
+            currentTask.BoardColumnId = await db.WorkBoardColumns.Where(x => x.BoardId == currentTask.BoardId &&
+                x.Category == WorkBoardColumnCategory.InProgress).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct) ?? currentTask.BoardColumnId;
+            currentTask.Revision++; currentTask.UpdatedAt = clock.GetUtcNow();
+            await QueueUiAsync(currentTask, ct);
+        }
+        else if (option == "review") review.Status = "ManualReview";
         else
         {
             if (option is "story" or "epic") await SetPreferenceAsync(org, option == "story" ? review.StoryId : review.EpicId,
