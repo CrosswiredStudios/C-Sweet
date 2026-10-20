@@ -94,14 +94,31 @@ public sealed class WorkItemCollaborationService(
         ValidateMutation(body, request.IdempotencyKey, "Comment body");
         if (body!.Length > 8192)
             throw new ArgumentException("Comment body cannot exceed 8192 characters.");
+        if (request.ReplyToCommentId.HasValue != request.ReplyToCommentRevision.HasValue || request.ReplyToCommentRevision is < 1)
+            throw new ArgumentException("A reply requires the exact question and its positive revision.");
+        var correlation = request.ReplyToCommentId is { } replyId ? $"{replyId:D}:{request.ReplyToCommentRevision}" : null;
         var existing = await db.WorkItemComments.AsNoTracking().SingleOrDefaultAsync(x =>
             x.WorkItemId == itemId &&
             x.AuthorKind == GrantSubjectKind.OrganizationUser &&
             x.AuthorSubjectId == member.Id &&
             x.IdempotencyKey == request.IdempotencyKey, cancellationToken);
         if (existing is not null)
+        {
+            if (existing.CausationId != correlation)
+                throw new InvalidOperationException("This comment key was already used for a different reply.");
             return await ToCommentResponseAsync(
                 existing, organizationId, boardId, member.Id, cancellationToken);
+        }
+        if (request.ReplyToCommentId is { } questionId)
+        {
+            if (await db.WorkBoards.AnyAsync(x => x.Id == boardId && x.ArchivedAt != null, cancellationToken))
+                throw new InvalidOperationException("Archived boards do not accept question replies.");
+            var question = await db.WorkItemComments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == questionId &&
+                x.OrganizationId == organizationId && x.WorkItemId == itemId && x.DeletedAt == null, cancellationToken);
+            if (question is null || question.Kind != "discussion.request" || question.AuthorKind != GrantSubjectKind.AgentInstallation)
+                throw new InvalidOperationException("The agent question is no longer available on this ticket.");
+            RequireExpectedRevision(question.Revision, request.ReplyToCommentRevision!.Value, "question");
+        }
 
         var now = DateTimeOffset.UtcNow;
         var comment = new WorkItemComment
@@ -113,6 +130,8 @@ public sealed class WorkItemCollaborationService(
             AuthorSubjectId = member.Id,
             AuthorDisplayName = member.DisplayName,
             Body = body!,
+            Kind = correlation is null ? null : "discussion.reply",
+            CausationId = correlation,
             IdempotencyKey = request.IdempotencyKey.Trim(),
             CreatedAt = now
         };
@@ -620,7 +639,8 @@ public sealed class WorkItemCollaborationService(
         comment.AuthorSubjectId, comment.AuthorDisplayName, comment.Body,
         comment.Revision, comment.CreatedAt, comment.EditedAt,
         permissions.CanUpdate && IsAuthor(comment, memberId),
-        permissions.CanDelete && IsAuthor(comment, memberId));
+        permissions.CanDelete && IsAuthor(comment, memberId))
+        { Kind = comment.Kind, CausationId = comment.CausationId };
 
     private sealed record CommentPermissions(bool CanComment, bool CanUpdate, bool CanDelete);
 

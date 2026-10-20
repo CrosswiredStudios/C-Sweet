@@ -14,6 +14,72 @@ namespace CSweet.UnitTests;
 public sealed class WorkItemCollaborationServiceTests
 {
     [Theory]
+    [InlineData("active")]
+    [InlineData("changed")]
+    [InlineData("deleted")]
+    [InlineData("foreign-ticket")]
+    [InlineData("foreign-tenant")]
+    [InlineData("not-question")]
+    [InlineData("missing-revision")]
+    [InlineData("denied")]
+    [InlineData("archived-board")]
+    public async Task HumanRepliesBindCurrentAgentQuestionsWithoutGrantingExecution(string scenario)
+    {
+        await using var db = CreateDb();
+        var owner = SeedOwner(db); var board = Board(owner.OrganizationId, "Delivery"); var item = Item(owner.OrganizationId, board);
+        var installation = Guid.NewGuid();
+        db.AddRange(board, item, new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = owner.OrganizationId,
+            AgentInstallationId = installation, EmployeeType = EmployeeType.Agent, IsActive = true, DisplayName = "Developer" });
+        foreach (var action in new[] { WorkItemActions.Read, WorkItemActions.ReadComments })
+            db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = owner.OrganizationId,
+                SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = installation,
+                ScopeKind = GrantScopeKind.Board, ScopeId = board.Id, Action = action });
+        var question = new WorkItemComment { Id = Guid.NewGuid(), OrganizationId = owner.OrganizationId, WorkItemId = item.Id,
+            AuthorKind = GrantSubjectKind.AgentInstallation, AuthorSubjectId = installation,
+            Body = "Which existing behavior applies?", Kind = "discussion.request", Revision = 3, IdempotencyKey = "question" };
+        if (scenario == "changed") question.Revision++;
+        if (scenario == "deleted") question.DeletedAt = DateTimeOffset.UtcNow;
+        if (scenario == "foreign-ticket") question.WorkItemId = Guid.NewGuid();
+        if (scenario == "foreign-tenant") question.OrganizationId = Guid.NewGuid();
+        if (scenario == "not-question") question.Kind = null;
+        if (scenario == "archived-board") board.ArchivedAt = DateTimeOffset.UtcNow;
+        db.WorkItemComments.Add(question);
+        var actor = scenario == "denied" ? SeedMember(db, owner) : owner;
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var request = new AddWorkItemCommentRequest("Use the documented existing behavior.", "answer")
+            { ReplyToCommentId = question.Id, ReplyToCommentRevision = scenario == "missing-revision" ? null : 3 };
+        Task<WorkItemCommentResponse?> Post() => service.AddCommentAsync(owner.OrganizationId, board.Id, item.Id, actor.ApplicationUserId, request);
+        if (scenario != "active")
+        {
+            var expected = scenario switch
+            {
+                "changed" => typeof(DbUpdateConcurrencyException),
+                "missing-revision" => typeof(ArgumentException),
+                "denied" => typeof(UnauthorizedAccessException),
+                _ => typeof(InvalidOperationException)
+            };
+            await Assert.ThrowsAsync(expected, Post);
+            Assert.DoesNotContain(db.WorkItemComments, x => x.AuthorKind == GrantSubjectKind.OrganizationUser);
+            Assert.Empty(db.AgentPlatformEventOutbox);
+            return;
+        }
+        var first = await Post(); var replay = await Post();
+        Assert.Equal(first, replay);
+        Assert.Equal("OrganizationUser", first!.AuthorKind);
+        Assert.Equal("discussion.reply", first.Kind);
+        Assert.Equal($"{question.Id:D}:3", first.CausationId);
+        Assert.Equal(2, await db.WorkItemComments.CountAsync());
+        Assert.Single(db.AgentPlatformEventOutbox);
+        Assert.Equal(WorkTaskStatus.Ready, item.Status);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.AddCommentAsync(owner.OrganizationId, board.Id, item.Id,
+            owner.ApplicationUserId, request with { ReplyToCommentId = Guid.NewGuid() }));
+        var thread = await service.GetAsync(owner.OrganizationId, board.Id, item.Id, owner.ApplicationUserId);
+        Assert.Equal("discussion.request", thread!.Comments.Single(x => x.Id == question.Id).Kind);
+        Assert.Equal(first.CausationId, thread.Comments.Single(x => x.Id == first.Id).CausationId);
+    }
+
+    [Theory]
     [InlineData(true, true, "Daniel Kim", "Daniel Kim")]
     [InlineData(true, false, "Daniel Kim", "com.csweet.software-developer")]
     [InlineData(false, true, "Other company's employee", "com.csweet.software-developer")]

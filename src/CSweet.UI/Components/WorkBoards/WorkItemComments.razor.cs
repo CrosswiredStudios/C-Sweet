@@ -30,6 +30,7 @@ public partial class WorkItemComments
     private string _editDraft = string.Empty;
     private Guid? _editingId;
     private Guid? _deleteConfirmId;
+    private WorkItemCommentResponse? _replyTo;
     private string _notice = string.Empty;
     private string? _error;
     private bool _loading;
@@ -56,6 +57,7 @@ public partial class WorkItemComments
         _editDraft = string.Empty;
         _editingId = null;
         _deleteConfirmId = null;
+        _replyTo = null;
         _notice = string.Empty;
         await ReloadAsync();
     }
@@ -85,6 +87,11 @@ public partial class WorkItemComments
             _comments.Clear();
             if (payload is null) return;
             _comments.AddRange(payload.Comments.OrderByDescending(x => x.CreatedAt));
+            if (_replyTo is not null && !_comments.Any(x => x.Id == _replyTo.Id && x.Revision == _replyTo.Revision))
+            {
+                _replyTo = null;
+                _notice = "The question changed. Select its current version before replying.";
+            }
             _canComment = payload.CanComment;
             _currentOrganizationUserId = payload.CurrentOrganizationUserId;
         }
@@ -126,9 +133,11 @@ public partial class WorkItemComments
         {
             var response = await Http.PostAsJsonAsync(
                 CommentsPath,
-                new AddWorkItemCommentRequest(_draft.Trim(), Guid.NewGuid().ToString("N")));
+                new AddWorkItemCommentRequest(_draft.Trim(), Guid.NewGuid().ToString("N"))
+                { ReplyToCommentId = _replyTo?.Id, ReplyToCommentRevision = _replyTo?.Revision });
             if (!await EnsureAcceptedAsync(response)) return;
             _draft = string.Empty;
+            _replyTo = null;
             _notice = L["WorkItemComments.CommentPosted"];
             await ReloadAsync();
         }

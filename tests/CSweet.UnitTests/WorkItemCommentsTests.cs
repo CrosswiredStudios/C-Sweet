@@ -14,6 +14,19 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkItemCommentsTests
 {
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task ReplyAffordanceRequiresCommentAuthorityAndAnAgentQuestion(bool canComment, bool question)
+    {
+        var payload = Payload(Guid.NewGuid());
+        payload = payload with { CanComment = canComment,
+            Comments = [payload.Comments.Last() with { Kind = question ? "discussion.request" : null }] };
+        var (html, _) = await Render(payload);
+        Assert.Equal(canComment && question, html.Contains("Reply to Software Architect", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task RendersAuthorTimestampEditedMarkerAndAgentChip()
     {

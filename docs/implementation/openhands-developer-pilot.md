@@ -64,3 +64,19 @@ including exact server-bound inline callbacks, within the delivery deadline. All
 lease, project-policy, personal-plan and workspace tests passed. Detailed evidence and unresolved
 live scenarios are recorded in the agent repository's `docs/pilot-results.md`; source review,
 governed manager resume and the matched comparison remain acceptance requirements.
+
+## Human manager replies
+
+OpenHands 0.1.5 extends assigned-stage questions to current human managers. The reviewed grants and
+SDK/WorkManagement/Office packages do not change. `TicketDiscussionTools` retains either an agent
+installation or human employee identity; `ManagerResponseRecovery` checks exact question/answer
+revisions, current roster availability, management and assignment before typed orchestration retry.
+All 260 adapter tests passed locally, including actual worker persistence, with 22 focused question
+and response cases. Linux release CI verifies the same suite before publishing assets.
+
+`WorkItemComments` offers Reply only on agent questions when the viewer can comment. The internal
+`AddWorkItemCommentRequest` accepts an optional question identity/revision; the platform validates
+the current question on that ticket and writes `discussion.reply` plus its correlation, activity
+and notification outbox atomically. Changed/deleted/foreign questions and archived boards are
+rejected. Existing ordinary comments retain their behavior. All 36 collaboration/UI/discussion
+tests passed. Replies remain evidence and cannot grant execution or approve a scope change.

@@ -308,7 +308,11 @@ public sealed record WorkItemCommentResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? EditedAt,
     bool CanEdit = false,
-    bool CanDelete = false);
+    bool CanDelete = false)
+{
+    public string? Kind { get; init; }
+    public string? CausationId { get; init; }
+}
 
 public sealed record WorkItemActivityResponse(
     Guid Id,
@@ -330,7 +334,11 @@ public sealed record WorkItemCollaborationResponse(
 
 public sealed record AddWorkItemCommentRequest(
     [property: Required, MaxLength(8192)] string Body,
-    [property: Required, MaxLength(160)] string IdempotencyKey);
+    [property: Required, MaxLength(160)] string IdempotencyKey)
+{
+    public Guid? ReplyToCommentId { get; init; }
+    public long? ReplyToCommentRevision { get; init; }
+}
 
 public sealed record UpdateWorkItemCommentRequest(
     [property: Required, MaxLength(8192)] string Body,

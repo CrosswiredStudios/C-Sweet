@@ -84,9 +84,15 @@
                             {
                                 <p class="comment-text">@comment.Body</p>
                             }
-                            @if (comment.CanEdit || comment.CanDelete)
+                            @if (comment.CanEdit || comment.CanDelete || _canComment && comment.Kind == "discussion.request" && comment.AuthorKind == AgentAuthorKind)
                             {
                                 <div class="comment-actions">
+                                    @if (_canComment && comment.Kind == "discussion.request" && comment.AuthorKind == AgentAuthorKind)
+                                    {
+                                        <button type="button" class="action-button" disabled="@(_busy || _saving)"
+                                                aria-label="@($"Reply to {comment.AuthorDisplayName}")"
+                                                @onclick="@(() => _replyTo = comment)">Reply</button>
+                                    }
                                     @if (comment.CanEdit)
                                     {
                                         <button type="button" class="action-button" disabled="@_busy"
@@ -125,6 +131,13 @@
     @if (!_loading && _canComment)
     {
         <div class="comment-composer">
+            @if (_replyTo is { } question)
+            {
+                <div class="comment-hint" role="status">
+                    Replying to @question.AuthorDisplayName
+                    <button type="button" class="action-button" disabled="@_saving" @onclick="@(() => _replyTo = null)">Cancel reply</button>
+                </div>
+            }
             <label class="sr-only" for="@ComposerFieldId">@L["WorkItemComments.AddAComment"]</label>
             <textarea id="@ComposerFieldId" class="comment-input" rows="@(Compact ? 3 : 4)" maxlength="8192"
                       placeholder="@L["WorkItemComments.AddAComment2"]" @bind="_draft" @bind:event="oninput" disabled="@_busy"></textarea>
