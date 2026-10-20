@@ -19,9 +19,15 @@ public sealed partial class AgentMemoryReviewService
         // by calling a local memory cleanup complete.
         if (await db.CommunicationDeliveries.AnyAsync(x => x.ConversationMessageId != null && outputs.Contains(x.ConversationMessageId.Value), token))
             return "memory_erasure_external_delivery_review_required";
-        var traces = await db.ChatTurnTraceEvents.AsNoTracking().Where(x => ids.Contains(x.ChatTurnId)).Select(x => x.Id).Take(32769).ToArrayAsync(token);
+        var traces = await db.ChatTurnTraceEvents.AsNoTracking().Where(x => ids.Contains(x.ChatTurnId))
+            .Select(x => new { x.Id, x.ChatTurnId }).Take(32769).ToArrayAsync(token);
         if (traces.Length > 32768) throw new InvalidOperationException("memory_erasure_scan_limit");
-        var related = ids.Concat(traces).ToArray();
+        var owners = turns.ToDictionary(x => x.Id);
+        foreach (var trace in traces)
+            if (!owners.TryAdd(trace.Id, owners[trace.ChatTurnId])) return "memory_erasure_diagnostics_review_required";
+        var related = owners.Keys.ToArray();
+        bool SafeMetadata(Guid? source, string? metadata) => source is { } id && owners.TryGetValue(id, out var turn) &&
+            MemoryAuditAssociations.Matches(metadata, null, turn.ConversationId, turn.TargetAgentOrganizationUserId);
         var audits = await db.AuditEvents.AsNoTracking().Where(x => x.EntityId != null && related.Contains(x.EntityId.Value))
             .OrderBy(x => x.Id).Take(8193).ToArrayAsync(token);
         var outbox = await db.AuditOutbox.AsNoTracking().Where(x => x.SourceEntityId != null && related.Contains(x.SourceEntityId.Value))
@@ -64,13 +70,13 @@ public sealed partial class AgentMemoryReviewService
                     ? Encoding.UTF8.GetString((protection ?? db.AuditProtection ?? throw new CryptographicException()).CreateProtector("CSweet.AuditOutbox.v1").Unprotect(protectedRequest))
                     : item.RequestJson;
                 var request = JsonSerializer.Deserialize<AuditEventWriteRequest>(json);
-                if (request is null || !SafeEvent(request.EventType) || request.MetadataJson is not null || request.ErrorMessage is not null ||
+                if (request is null || !SafeEvent(request.EventType) || !SafeMetadata(item.SourceEntityId, request.MetadataJson) || request.ErrorMessage is not null ||
                     request.ErrorCode is not null || request.Summary != request.EventType || request.Payload is not { } payload ||
                     !Safe(Encoding.UTF8.GetString(payload.Span))) return "memory_erasure_diagnostics_review_required";
             }
             foreach (var item in audits)
             {
-                if (!SafeEvent(item.EventType) || item.MetadataJson is not null || item.ErrorMessage is not null || item.ErrorCode is not null ||
+                if (!SafeEvent(item.EventType) || !SafeMetadata(item.EntityId, item.MetadataJson) || item.ErrorMessage is not null || item.ErrorCode is not null ||
                     item.Summary != item.EventType) return "memory_erasure_diagnostics_review_required";
                 var payload = await db.AuditEventPayloads.AsNoTracking().SingleOrDefaultAsync(x => x.AuditEventId == item.Id, token);
                 var json = payload is null ? item.PayloadPreview : Encoding.UTF8.GetString((protection ?? db.AuditProtection ?? throw new CryptographicException())

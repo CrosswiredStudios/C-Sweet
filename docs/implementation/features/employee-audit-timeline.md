@@ -75,6 +75,19 @@ Chief `ChiefOfStaffProfileTests.StartupDoesNotPerformUnleasedActions`.
 
 ## Historical data and retention
 
+Reviewed memory erasure recognizes content-free activity metadata through
+`MemoryAuditAssociations.Matches`. The three fields `activityWorkItemId`,
+`activityConversationId` and `activityPerspectiveEmployeeId` must exactly match the retained
+chat turn, trace owner or model run. Legacy null metadata remains supported. Unknown fields,
+duplicate/missing fields, malformed values and links to another primary record require review;
+they cannot be treated as safely omitted memory content. `AgentMemoryReviewService` and
+`MemoryWorkErasure` apply the same check to pending outbox evidence and delivered audit rows.
+`MemoryAuditAssociationTests` covers strict link validation and PostgreSQL erasure rejection.
+
+The Memory contracts workflow partitions its existing selection into memory-erasure,
+other-memory and runtime/model suites. The final `memory-contracts` check requires every suite
+to pass; each suite publishes its own test-result artifact.
+
 `AuditHistoryImporter` imports bounded batches into the same ledger. Outbox source receipts checkpoint discovery and make restart safe. It reuses existing records rather than replacing sealed evidence. Legacy association indexes use explicitly recorded actor IDs and message recipient metadata; installation-only historical identity is not guessed from today's employee links.
 
 Mutable historical records are labelled `audit.source.snapshot`. They cannot recover previous message versions, missing work transitions, full model requests omitted by older logging, or absent reasoning artifacts. Available immutable traces/attempts retain their recorded evidence and timestamps. The UI identifies preview-only or missing payloads.

@@ -34,6 +34,7 @@ internal sealed partial class MemoryWorkErasure
                 throw new InvalidOperationException(ModelReviewRequired);
         }
         var ids = logs.Select(x => x.Id).ToArray();
+        var primary = logs.ToDictionary(x => x.Id);
         var outbox = await db.AuditOutbox.AsNoTracking().Where(x => x.SourceEntityId != null && ids.Contains(x.SourceEntityId.Value))
             .OrderBy(x => x.Id).Take(8193).ToArrayAsync(token);
         var audits = await db.AuditEvents.AsNoTracking().Where(x => x.EntityId != null && ids.Contains(x.EntityId.Value))
@@ -67,7 +68,8 @@ internal sealed partial class MemoryWorkErasure
                 var request = JsonSerializer.Deserialize<AuditEventWriteRequest>(json);
                 if (request is null || request.OrganizationId != organization || request.EntityType != nameof(AgentRunLog) ||
                     request.EntityId != copy.SourceEntityId || request.Payload is not { } payload ||
-                    !SafeModelMetadata(request.EventType, request.Summary, request.MetadataJson, request.ErrorCode, request.ErrorMessage) ||
+                    !SafeModelMetadata(request.EventType, request.Summary, request.MetadataJson, request.ErrorCode, request.ErrorMessage,
+                        primary[copy.SourceEntityId!.Value]) ||
                     !SafeModelEvidence(ReadBytes(payload.ToArray()), request.EventType)) throw new InvalidOperationException(ModelReviewRequired);
                 if (request.EventId != copy.Id) throw new InvalidOperationException(ModelReviewRequired);
                 Permit(copy.SourceEntityId!.Value, copy.Id, request.EventType, payload);
@@ -75,7 +77,8 @@ internal sealed partial class MemoryWorkErasure
             foreach (var copy in audits)
             {
                 if (copy.OrganizationId != organization || copy.EntityType != nameof(AgentRunLog) ||
-                    !SafeModelMetadata(copy.EventType, copy.Summary, copy.MetadataJson, copy.ErrorCode, copy.ErrorMessage))
+                    !SafeModelMetadata(copy.EventType, copy.Summary, copy.MetadataJson, copy.ErrorCode, copy.ErrorMessage,
+                        primary[copy.EntityId!.Value]))
                     throw new InvalidOperationException(ModelReviewRequired);
                 var payload = await db.AuditEventPayloads.AsNoTracking().SingleOrDefaultAsync(x => x.AuditEventId == copy.Id, token);
                 var json = payload is null ? ReadBytes(Encoding.UTF8.GetBytes(copy.PayloadPreview ?? ""))
@@ -96,9 +99,10 @@ internal sealed partial class MemoryWorkErasure
     }
 
     private IDataProtector Protector(string purpose) => (diagnosticProtection ?? protection ?? db.AuditProtection ?? throw new CryptographicException()).CreateProtector(purpose);
-    private static bool SafeModelMetadata(string type, string? summary, string? metadata, string? code, string? error) =>
+    private static bool SafeModelMetadata(string type, string? summary, string? metadata, string? code, string? error, AgentRunLog run) =>
         type is "model.call.started" or "model.call.completed" or "model.response.chunk" or "audit.source.snapshot" &&
-        metadata is null && code is null && error is null && (summary == type || type == "model.response.chunk" && summary is null);
+        MemoryAuditAssociations.Matches(metadata, run.WorkItemId, run.ConversationId, run.EmployeeId) &&
+        code is null && error is null && (summary == type || type == "model.response.chunk" && summary is null);
 
     private static bool SafeModelEvidence(string json, string type)
     {

@@ -39,7 +39,18 @@ permissions:
   contents: read
 
 jobs:
-  memory-contracts:
+  contracts:
+    name: memory-contracts (${{ matrix.suite }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: memory-erasure
+            filter: 'FullyQualifiedName~Memory&FullyQualifiedName~Erasure'
+          - suite: memory-other
+            filter: 'FullyQualifiedName~Memory&FullyQualifiedName!~Erasure'
+          - suite: runtime-and-model
+            filter: '(FullyQualifiedName~Audit|FullyQualifiedName~AgentRuntime|FullyQualifiedName~ChatPromptPolicyTests|FullyQualifiedName~OpenAiCompatibleLlmProviderFactoryTests|FullyQualifiedName~ProviderDispatchTests|FullyQualifiedName~PlatformLlmCapabilityHandlerTests|FullyQualifiedName~AgentWorkInboxTests|FullyQualifiedName~ExecutionWorkload|FullyQualifiedName~OfficeGateway|FullyQualifiedName~OfficeConnectionIdentityTests|FullyQualifiedName~PlatformLlmQueueTests|FullyQualifiedName~PlatformLlmPagingTests|FullyQualifiedName~LlmProviderFailureMessageTests|FullyQualifiedName~ProviderResponseContractChatClientTests|FullyQualifiedName~ReasoningContentChatClientTests|FullyQualifiedName~OrganizationDeletionTests)&FullyQualifiedName!~Memory'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -49,7 +60,7 @@ jobs:
           POSTGRES_PASSWORD: memory-ci-only
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       CSWEET_MEMORY_TEST_POSTGRES: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=memory-ci-only
       CSWEET_COMPUTE_TEST_DATABASE: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=memory-ci-only
@@ -67,7 +78,7 @@ jobs:
         run: >-
           dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
           --configuration Release
-          --filter 'FullyQualifiedName~Memory|FullyQualifiedName~Audit|FullyQualifiedName~AgentRuntime|FullyQualifiedName~ChatPromptPolicyTests|FullyQualifiedName~OpenAiCompatibleLlmProviderFactoryTests|FullyQualifiedName~ProviderDispatchTests|FullyQualifiedName~PlatformLlmCapabilityHandlerTests|FullyQualifiedName~AgentWorkInboxTests|FullyQualifiedName~ExecutionWorkload|FullyQualifiedName~OfficeGateway|FullyQualifiedName~OfficeConnectionIdentityTests|FullyQualifiedName~PlatformLlmQueueTests|FullyQualifiedName~PlatformLlmPagingTests|FullyQualifiedName~LlmProviderFailureMessageTests|FullyQualifiedName~ProviderResponseContractChatClientTests|FullyQualifiedName~ReasoningContentChatClientTests|FullyQualifiedName~OrganizationDeletionTests'
+          --filter '${{ matrix.filter }}'
           --logger 'trx;LogFileName=memory-contracts.trx' --results-directory artifacts/memory-contracts
           -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
           -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
@@ -75,5 +86,15 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: memory-contract-results
+          name: memory-contract-results-${{ matrix.suite }}
           path: artifacts/memory-contracts/*.trx
+
+  # Preserve the existing required check name and fail if any shard did not pass.
+  memory-contracts:
+    if: always()
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every contract suite to pass
+        run: test '${{ needs.contracts.result }}' = 'success'
