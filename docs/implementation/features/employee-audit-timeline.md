@@ -85,8 +85,10 @@ they cannot be treated as safely omitted memory content. `AgentMemoryReviewServi
 `MemoryAuditAssociationTests` covers strict link validation and PostgreSQL erasure rejection.
 
 The Memory contracts workflow partitions its existing selection into memory-erasure,
-other-memory and runtime/model suites. The final `memory-contracts` check requires every suite
-to pass; each suite publishes its own test-result artifact.
+other-memory, two `AgentMemoryServiceTests` groups, and runtime/model suites. The largest fixture
+uses method prefixes A–M and their complement, retaining new methods automatically. Test discovery
+verifies the partition is disjoint and matches the original selection. The final `memory-contracts`
+check requires every suite to pass; each suite publishes its own test-result artifact.
 
 `AuditHistoryImporter` imports bounded batches into the same ledger. Outbox source receipts checkpoint discovery and make restart safe. It reuses existing records rather than replacing sealed evidence. Legacy association indexes use explicitly recorded actor IDs and message recipient metadata; installation-only historical identity is not guessed from today's employee links.
 
