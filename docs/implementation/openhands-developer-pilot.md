@@ -91,3 +91,7 @@ decision. Free text cannot approve a merge or change story/epic merge preference
 authorized source repair as well as `Ready` workspaces. Writes still use publication authority;
 the personal-work fallback requires a running, current, owned assignment. A published source
 snapshot cannot authorize checkpoint writes for stopped, waiting or reassigned work.
+
+The board developer selectors use the installation's reviewed
+`software-development.implement.v1` capability instead of fixed agent identities. Independent
+developer packages participate in the same assignment and delivery controls as existing developers.

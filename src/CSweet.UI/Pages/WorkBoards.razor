@@ -1020,7 +1020,7 @@
         </MudAlert>
         <MudSelect T="Guid?" Label="@L["WorkBoards.Developer"]" @bind-Value="_pipelineDeveloperId"
                    Variant="Variant.Outlined" Class="mt-3">
-            @foreach (var agent in _pipelineAgents.Where(x => x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer"))
+            @foreach (var agent in _pipelineAgents.Where(x => x.GrantedCapabilities.Contains("software-development.implement.v1", StringComparer.Ordinal)))
             {
                 <MudSelectItem T="Guid?" Value="@((Guid?)agent.Id)">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
             }
@@ -1927,7 +1927,7 @@
                 .Where(x =>
                     x.IsEnabled &&
                     x.RevisionStatus == "Active" &&
-                    x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer")
+                    x.GrantedCapabilities.Contains("software-development.implement.v1", StringComparer.Ordinal))
                 .OrderBy(x => x.AgentName)
                 .ToList();
             _repositoryConnections =
@@ -2050,7 +2050,7 @@
                 await Http.GetFromJsonAsync<IReadOnlyList<SourceControlRepositoryOptionResponse>>(
                     $"api/organizations/{OrganizationId:D}/source-control/repositories") ?? [];
             var developers = _pipelineAgents.Where(
-                x => x.AgentId is "com.csweet.software-developer" or "com.csweet.video-game-engineer").ToList();
+                x => x.GrantedCapabilities.Contains("software-development.implement.v1", StringComparer.Ordinal)).ToList();
             _pipelineDeveloperId = _deliveryPipeline?.DeveloperInstallationId ??
                 (developers.Count == 1 ? developers[0].Id : (Guid?)null);
             _pipelineQualityId = _deliveryPipeline?.QualityInstallationId ??
