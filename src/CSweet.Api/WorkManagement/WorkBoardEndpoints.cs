@@ -718,6 +718,14 @@ public static class WorkBoardEndpoints
                 return result is null ? Results.NotFound() : Results.Ok(result);
             }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (DbUpdateConcurrencyException exception)
+            {
+                return Results.Conflict(new { error = "question_changed", message = exception.Message });
+            }
+            catch (InvalidOperationException exception)
+            {
+                return Results.Conflict(new { error = "question_unavailable", message = exception.Message });
+            }
             catch (ArgumentException exception)
             {
                 return Results.BadRequest(new { error = "invalid_comment", message = exception.Message });
