@@ -379,7 +379,7 @@ public sealed partial class ComputeReplayJournal
                 if (stream.Length > MaximumBytes) throw new InvalidDataException("The compute journal exceeds its storage budget.");
                 await stream.FlushAsync(token); stream.Flush(true);
             }
-            File.Move(temporary, StatePath, overwrite: true);
+            await CommitFileAsync(temporary, StatePath, overwrite: true, token);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
@@ -404,9 +404,29 @@ public sealed partial class ComputeReplayJournal
                 if (stream.Length > MaximumBytes) throw new InvalidDataException("The compute journal archive exceeds its storage budget.");
                 await stream.FlushAsync(token); stream.Flush(true);
             }
-            File.Move(temporary, archive);
+            await CommitFileAsync(temporary, archive, overwrite: false, token);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    private async Task CommitFileAsync(string temporary, string destination, bool overwrite, CancellationToken token)
+    {
+        // Windows scanners/readers can briefly deny rename/delete access after a write.
+        // Retry only the atomic rename while retaining the journal lock and durable bytes;
+        // never rerun an effect or remove the previous journal to make replacement succeed.
+        for (var attempt = 0; ; attempt++)
+        {
+            token.ThrowIfCancellationRequested();
+            verifyProtectedPath(directory);
+            verifyProtectedPath(temporary);
+            if (File.Exists(destination)) verifyProtectedPath(destination);
+            try { File.Move(temporary, destination, overwrite); return; }
+            catch (Exception error) when (attempt < 20 && OperatingSystem.IsWindows() &&
+                error is IOException or UnauthorizedAccessException && (error.HResult & 0xffff) is 5 or 32 or 33)
+            {
+                await Task.Delay(50, token);
+            }
+        }
     }
 
     private sealed record JournalEnvelope(int Version, string StateJson, string Digest);

@@ -501,6 +501,18 @@ rejection, service lifecycle, and the PowerShell service arguments.
 
 ## Linux preparation fails at compute installation validation
 
+If preparation stops at **Checking the compute service** with `compute_checks_failed`,
+inspect `%LocalAppData%\CSweet\ComputeSetup\<setup-id>\installation.log` and the
+`acceptance\compute.trx` beside it. This phase runs the compute acceptance tests before
+installing the service. A successful image build is retained for the next attempt.
+
+`ComputeReplayJournal.CommitFileAsync` tolerates brief Windows access-denied or sharing
+failures when atomically renaming a flushed journal file. Retries are limited to one
+second, retain the journal lock, recheck protected paths, and honor cancellation. A
+persistent failure preserves the previous journal and stops the operation; physical
+effects are never retried as part of this file commit. Regression coverage:
+`ComputeReplayJournalFileContentionTests`.
+
 If `Install-ComputeLocalProvider.ps1` reports `Compute installation validation failed`
 after the provider prints command-line usage, inspect
 `Get-ComputeLocalInstallation.ValidationArguments`. The default installation needs a
