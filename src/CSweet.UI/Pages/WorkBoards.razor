@@ -1150,6 +1150,13 @@
                 <MudSelectItem T="string" Value="@kind">@kind</MudSelectItem>
             }
         </MudSelect>
+        <MudSelect T="Guid?" Label="@L["PersonalWorkHierarchy.ParentTicket"]" @bind-Value="_itemParentId" Clearable="true"
+                   Variant="Variant.Outlined" Class="mt-3">
+            @foreach (var parent in _detail?.Items ?? [])
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)parent.Id)">@parent.Title (@parent.Kind)</MudSelectItem>
+            }
+        </MudSelect>
         @if (_itemKind is not ("Initiative" or "Epic"))
         {
             <MudSelect T="Guid?" Label="@L["WorkBoards.AccountableOwner"]" @bind-Value="_itemAccountableOwnerId"
@@ -1167,9 +1174,24 @@
             }
             else
             {
-                @foreach (var stage in PublishedPolicy.Stages.Where(x => x.StageType is "AgentExecution" or "ManualWork"))
+                @foreach (var stage in PublishedPolicy.Stages.Where(x => x.StageType is "AgentExecution" or "ManualWork" or "MemberExecution"))
                 {
-                    @if (stage.StageType == "AgentExecution")
+                    @if (stage.StageType == "MemberExecution")
+                    {
+                        <MudSelect T="string" Label="@($"{stage.Name} assignee")"
+                                   Value="@StageMember(stage.Key)" ValueChanged="@(value => SetStageMember(stage.Key, value))"
+                                   Variant="Variant.Outlined" Class="mt-3" Required="true">
+                            @foreach (var person in _organizationUsers.Where(x => x.IsActive && x.EmployeeType == 0).OrderBy(x => x.DisplayName))
+                            {
+                                <MudSelectItem T="string" Value="@($"human:{person.Id:D}")">@person.DisplayName</MudSelectItem>
+                            }
+                            @foreach (var agent in _itemAgentInstallations)
+                            {
+                                <MudSelectItem T="string" Value="@($"agent:{agent.Id:D}")">@agent.AgentName (@agent.AgentVersion)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    else if (stage.StageType == "AgentExecution")
                     {
                         <MudSelect T="Guid?" Label="@($"{stage.Name} agent")"
                                    Value="@StageAgent(stage.Key)"
@@ -1389,6 +1411,7 @@
     private IReadOnlyList<CSweet.WorkManagement.Contracts.WorkItemMentionInput> _itemTitleMentions = [];
     private IReadOnlyList<CSweet.WorkManagement.Contracts.WorkItemMentionInput> _itemDescriptionMentions = [];
     private string _itemKind = "Task";
+    private Guid? _itemParentId;
     private Guid? _itemAccountableOwnerId;
     private IReadOnlyList<OrganizationUserResponse> _organizationUsers = [];
     private IReadOnlyList<AgentInstallationResponse> _itemAgentInstallations = [];
@@ -1788,6 +1811,7 @@
         _itemTitleMentions = [];
         _itemDescriptionMentions = [];
         _itemKind = "Task";
+        _itemParentId = null;
         _itemAccountableOwnerId = null;
         _stageAgentAssignments.Clear();
         _stageHumanAssignments.Clear();
@@ -1804,8 +1828,8 @@
                 .OrderBy(x => x.AgentName).ToList();
             foreach (var stage in PublishedPolicy?.Stages ?? [])
             {
-                if (stage.StageType == "AgentExecution") _stageAgentAssignments[stage.Key] = null;
-                if (stage.StageType == "ManualWork") _stageHumanAssignments[stage.Key] = null;
+                if (stage.StageType is "AgentExecution" or "MemberExecution") _stageAgentAssignments[stage.Key] = null;
+                if (stage.StageType is "ManualWork" or "MemberExecution") _stageHumanAssignments[stage.Key] = null;
             }
         }
         catch (Exception exception)
@@ -1829,7 +1853,7 @@
             var assignments = BuildItemStageAssignments();
             var response = await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items",
-                new CreateBoardWorkItemRequest(_itemTitle, _itemDescription, _itemKind)
+                new CreateBoardWorkItemRequest(_itemTitle, _itemDescription, _itemKind, ParentItemId: _itemParentId)
                 {
                     TypeKey = WorkTypeKeyFor(_detail.Board.ProfileKey, _itemKind),
                     AccountableOrganizationUserId = _itemKind is "Initiative" or "Epic" ? null : _itemAccountableOwnerId,
@@ -1872,6 +1896,17 @@
     private Guid? StageHuman(string key) => _stageHumanAssignments.GetValueOrDefault(key);
     private void SetStageAgent(string key, Guid? value) => _stageAgentAssignments[key] = value;
     private void SetStageHuman(string key, Guid? value) => _stageHumanAssignments[key] = value;
+    private string? StageMember(string key) => StageAgent(key) is { } agent ? $"agent:{agent:D}" :
+        StageHuman(key) is { } human ? $"human:{human:D}" : null;
+    private void SetStageMember(string key, string? value)
+    {
+        if (string.IsNullOrEmpty(value)) { SetStageAgent(key, null); SetStageHuman(key, null); return; }
+        var parts = value.Split(':', 2);
+        if (parts.Length != 2 || !Guid.TryParse(parts[1], out var id) || id == Guid.Empty || parts[0] is not ("agent" or "human"))
+            throw new InvalidOperationException("Choose an exact human or agent assignee.");
+        SetStageAgent(key, parts[0] == "agent" ? id : null);
+        SetStageHuman(key, parts[0] == "human" ? id : null);
+    }
 
     private IReadOnlyList<WorkStageAssignment> BuildItemStageAssignments()
     {
@@ -1883,6 +1918,13 @@
         {
             switch (stage.StageType)
             {
+                case "MemberExecution":
+                    if (StageAgent(stage.Key) is { } memberAgent && !StageHuman(stage.Key).HasValue)
+                        result.Add(new(stage.Key, "AgentInstallation", AgentInstallationId: memberAgent));
+                    else if (StageHuman(stage.Key) is { } memberHuman && !StageAgent(stage.Key).HasValue)
+                        result.Add(new(stage.Key, "Human", OrganizationUserId: memberHuman));
+                    else throw new InvalidOperationException($"Choose one exact human or agent for {stage.Name}.");
+                    break;
                 case "AgentExecution":
                     if (!StageAgent(stage.Key).HasValue)
                         throw new InvalidOperationException($"Choose an exact agent for {stage.Name}.");
