@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[OpenHands developer pilot](openhands-developer-pilot.md) maps the independent execution adapter,
+SDK 5.1.0 research/checkpoints, protected storage, verification and opt-in rollout.
+
 [Progressive game planning](progressive-game-planning.md) describes complete scope outlines,
 bounded increment refinement, checkpoint recovery, independent delivery acceptance and the
 verified Sweet Sweet Games rollout.

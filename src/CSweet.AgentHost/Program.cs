@@ -73,6 +73,11 @@ builder.Services.AddSingleton<IMemoryStore>(_ => new PostgreSqlMemoryStore(
 builder.Services.AddScoped<PlatformMemoryCapabilityHandler>();
 builder.Services.AddScoped<IPlatformMemoryReadEvidence, PlatformMemoryReadEvidence>();
 builder.Services.AddScoped<PlatformWebProxyCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ResearchCapabilityHandler>();
+builder.Services.AddScoped<CSweet.Infrastructure.Setup.ExecutionCheckpointStore>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ExecutionCheckpointCapabilityHandler>();
+builder.Services.AddHostedService<ExecutionCheckpointCleanupService>();
+builder.Services.AddHttpClient("searxng-research").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<PlatformWebSocketCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, LlmPlatformCapabilityAdapter>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, MemoryPlatformCapabilityAdapter>();

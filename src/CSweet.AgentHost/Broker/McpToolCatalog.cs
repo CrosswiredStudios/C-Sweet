@@ -70,6 +70,7 @@ public sealed class McpToolCatalog(
     [
         .. ComputeMcpTools.All,
         .. DelegationToolSchemas.Tools,
+        .. ResearchAndCheckpointToolSchemas.Tools,
         Read(W.WorkDeliveryCapabilities.Read, "read_delivery_plans", "Discover bounded, authorized project releases and their exact current scope."),
         Read(W.WorkDeliveryCapabilities.Evidence, "read_delivery_evidence", "Read exact candidate revisions or an authorized immutable repository snapshot."),
         Write(W.WorkDeliveryCapabilities.Configure, "configure_delivery_plan", "Define or amend release scope, assignments and explicit integration branches."),

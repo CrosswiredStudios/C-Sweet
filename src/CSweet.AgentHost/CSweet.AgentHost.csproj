@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="SmartReader" />
     <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
     <PackageReference Include="CSweet.WorkManagement.Contracts" Condition="'$(UseLocalCSweetWorkManagementContracts)' != 'true'" />
     <PackageReference Include="CSweet.Memory.Broker" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
