@@ -9,6 +9,7 @@ public sealed partial class InternalGitRepositoryStore
     {
         if (request.Size < 0 || request.Size > MaximumGitRequestBytes || request.Body.Length > MaximumGitRequestBytes || request.Operation is not ("upload" or "download"))
             throw new ArgumentException("Unsupported LFS transfer or object size.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         using var lfs = new InternalGitLfsStore(Options.Create(_options));

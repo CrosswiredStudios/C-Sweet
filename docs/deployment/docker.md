@@ -2,7 +2,7 @@
 
 ## Current support status
 
-Docker Desktop is required for the current source-development experience. The Aspire AppHost provisions the PostgreSQL database through Docker, and the application cannot complete startup while the Docker engine is unavailable.
+Docker Desktop is required for the current source-development experience. The Aspire AppHost provisions PostgreSQL and SearXNG through Docker, and the application cannot complete startup while the Docker engine is unavailable.
 
 Docker is **trusted application infrastructure**. It is not the isolation boundary for imported or marketplace agents. On Windows, untrusted agent code runs only in a certified Hyper-V Generation 2 virtual machine managed by RuntimeHost. If that provider is unavailable, agent execution stays disabled; C-Sweet does not fall back to Docker or a host process.
 
@@ -25,7 +25,7 @@ After cloning the repository, double-click `Start-CSweet.cmd` in the repository 
 3. Attempts to start Docker Desktop when it is installed but stopped.
 4. Waits up to two minutes for the engine while reporting elapsed time.
 5. Verifies the local HTTPS development certificate, asks Windows to trust it when needed, and falls back to the local HTTP profile if certificate trust is unavailable.
-6. Starts the Aspire AppHost, which provisions PostgreSQL, runs migrations, and starts the C-Sweet projects.
+6. Starts the Aspire AppHost, which provisions PostgreSQL and SearXNG, runs migrations, and starts the C-Sweet projects. Docker downloads missing images automatically on the first run.
 
 Developers can start the same topology from an IDE or with:
 
@@ -64,6 +64,59 @@ Aspire stores PostgreSQL data in a named Docker volume so company state, setup d
 
 Changing the configured PostgreSQL credentials does not change credentials already stored in an initialized volume. See the [debug guide](../implementation/debug-guide.md#aspire-postgres-authentication) for the deliberate development reset procedure.
 
+## SearXNG search infrastructure
+
+`src/CSweet.AppHost/Program.cs` registers `searxng` as a Docker container. Running
+`Start-CSweet.cmd`, an IDE AppHost session, or `dotnet run --project src/CSweet.AppHost`
+starts it automatically. Aspire allocates a local HTTP endpoint, displays it in the
+dashboard, and checks `/healthz`. AgentHost receives that endpoint as
+`CSweet:Search:Searxng:BaseUrl`. No user-supplied instance URL or search API key is required.
+The core services do not wait for search health, so a search outage does not prevent
+access to the application. Agent-facing search callbacks and page reading are future work.
+
+`docker-compose.yml` also includes the `searxng` service in the default topology, using
+the same image and mounted configuration. AgentHost receives `http://searxng:8080`;
+the search port is not published to the host. This packages the search dependency for
+container deployments; the unrelated Compose migration blockers below still apply.
+The search service alone can be started with `docker compose up -d searxng`.
+
+- Image: `docker.io/searxng/searxng:2026.10.19-81371861f`, pinned to the multi-platform
+  digest `sha256:5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271`.
+  Update both AppHost and Compose pins together after validating an upstream upgrade.
+- Settings: `docker/searxng/settings.yml`, mounted read-only. HTML and JSON are enabled;
+  the upstream DuckDuckGo and Brave engines require no paid API keys.
+  The service is private and has public-instance bot limiting disabled. Keep it off
+  public ingress; future agent access belongs behind the authenticated broker.
+- Startup: `docker/searxng/start.sh` generates a random `SEARXNG_SECRET` unless one is
+  already supplied, then executes the unmodified upstream entrypoint. No secret is
+  committed or printed. Without an explicitly supplied secret, browser sessions reset
+  when the container restarts. `.gitattributes` preserves Linux shell line endings.
+- Cache: the disposable `csweet-searxng-cache` Docker volume survives restarts. It
+  contains SearXNG cache data, not canonical C-Sweet company records.
+
+For a development smoke check, copy the `searxng` HTTP URL from the Aspire dashboard:
+
+```powershell
+$searchUrl = 'http://localhost:<port-from-dashboard>'
+Invoke-RestMethod "$searchUrl/healthz"
+$result = Invoke-RestMethod "$searchUrl/search?q=Microsoft%20Learn%20ASP.NET%20Core&format=json"
+$result.results | Select-Object -First 3 title, url
+$result.unresponsive_engines
+```
+
+`/healthz` confirms the local server is running. The JSON search additionally checks
+the enabled format and upstream connectivity; an HTTP 200 alone does not prove results
+are available. Engines may be throttled or return CAPTCHAs, reported in
+`unresponsive_engines`. Use the dashboard container logs for startup failures.
+
+SearXNG is a separate upstream component under **AGPL-3.0-or-later**; C-Sweet does not
+copy its implementation into application projects. Its source for this pinned image
+is [revision 81371861f67226091d1c4df2e3908a11d3b54eb9](https://github.com/searxng/searxng/tree/81371861f67226091d1c4df2e3908a11d3b54eb9),
+including the [license](https://github.com/searxng/searxng/blob/81371861f67226091d1c4df2e3908a11d3b54eb9/LICENSE).
+Preserve its notices and satisfy the applicable corresponding-source requirements
+when redistributing its image. An upstream source link alone should not be treated
+as a complete binary-redistribution compliance process.
+
 ## Docker Compose migration status
 
 Docker Compose remains the intended packaging mechanism for trusted core services, but the checked-in `docker-compose.yml` still contains legacy Docker-agent-runner wiring. It is not currently the supported path for testing the new untrusted-agent architecture.
@@ -89,6 +142,7 @@ A future supported Compose distribution may package trusted application componen
 | WorkerHost | Durable trusted background work | Internal only |
 | AgentHost | Unprivileged policy and MCP broker | Internal only |
 | PostgreSQL | Durable company state | Internal only |
+| SearXNG | Agent research search backend | Internal only, through the broker |
 
 That topology must connect to a separately installed, authenticated RuntimeHost for local untrusted execution. Containerizing AgentHost does not make it an isolation provider.
 

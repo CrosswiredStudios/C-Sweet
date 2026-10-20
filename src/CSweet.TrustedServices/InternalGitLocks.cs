@@ -12,6 +12,7 @@ public sealed partial class InternalGitRepositoryStore
         if (!string.IsNullOrEmpty(request.Path)) ValidateLockPath(request.Path);
         if (!string.IsNullOrEmpty(request.Id) && !Guid.TryParseExact(request.Id, "N", out _)) throw new ArgumentException("Invalid lock ID.");
         if (!string.IsNullOrEmpty(request.Cursor) && !Guid.TryParseExact(request.Cursor, "N", out _)) throw new ArgumentException("Invalid lock cursor.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

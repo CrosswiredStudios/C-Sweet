@@ -11,6 +11,38 @@ namespace CSweet.Api.Compute;
 
 public static class ComputeWorkEndpoints
 {
+    internal static Task<IResult> ConfirmRetirementAsync(HttpContext http,
+        [FromServices] ComputeProviderRetirementService service, CancellationToken token) => RetirementAsync(http, service, true, token);
+    internal static Task<IResult> AuthorizeRetirementAsync(HttpContext http,
+        [FromServices] ComputeProviderRetirementService service, CancellationToken token) => RetirementAsync(http, service, false, token);
+    private static async Task<IResult> RetirementAsync(HttpContext http,
+        ComputeProviderRetirementService service, bool confirm, CancellationToken token)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        if (!http.Request.IsHttps) return Results.StatusCode(403);
+        if (!http.Request.HasJsonContentType() || http.Request.ContentLength > 4096 ||
+            !string.IsNullOrEmpty(http.Request.Headers.ContentEncoding)) return Results.BadRequest();
+        try
+        {
+            var bytes = new byte[4097];
+            var length = 0;
+            while (length < bytes.Length)
+            {
+                var count = await http.Request.Body.ReadAsync(bytes.AsMemory(length), token);
+                if (count == 0) break;
+                length += count;
+            }
+            if (length > 4096) return Results.StatusCode(413);
+            var receipt = JsonSerializer.Deserialize<ComputeProviderRetirementReceipt>(bytes.AsSpan(0, length), ComputeProtocol.Json);
+            if (receipt is null) return Results.BadRequest();
+            if (confirm) await service.ConfirmAsync(receipt, token);
+            else if (!await service.AuthorizeAsync(receipt, token)) return Results.Conflict();
+            return Results.NoContent();
+        }
+        catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+        catch (JsonException) { return Results.BadRequest(); }
+        catch (InvalidOperationException) { return Results.Conflict(); }
+    }
     internal static Task<IResult> DependencyAccessAsync(HttpContext http, [FromServices] ComputeDependencyAccess access, CancellationToken token) =>
         ReceiveAsync(http, async envelope => Results.Json(await access.AuthorizeAsync(envelope, token), ComputeProtocol.Json), token);
     internal static Task<IResult> PublicationAccessAsync(HttpContext http, [FromServices] ComputePublicationAccess access, CancellationToken token) =>

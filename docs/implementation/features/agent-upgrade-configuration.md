@@ -2,6 +2,14 @@
 
 ## Hiring and approved package identity
 
+`InstalledAgentCatalogProvider.SearchAsync` excludes disabled installations with no active
+employee. Firing an employee leaves that installation disabled for audit, but its installed
+listing must not hide the first-party catalog entry for a fresh hire. Direct
+`InstalledAgentCatalogProvider.ResolveAsync` still returns the old disabled instance so stale
+references retain their original identity and cannot restart it. Disabled instances attached
+to an active employee remain visible as disabled. `AgentCatalogServiceTests` covers firing,
+fresh catalog discovery, paused employees and historical-reference resolution.
+
 `HiringService.BuildWorkflowSnapshotAsync` resolves remote catalog candidates against existing
 `AgentDefinition` records by normalized repository URL and agent ID. When a definition exists,
 the review uses its approved `PackageVersionId`, commit, manifest, configuration schema and

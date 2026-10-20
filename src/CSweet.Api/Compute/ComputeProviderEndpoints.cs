@@ -47,6 +47,12 @@ public static class ComputeProviderEndpoints
         endpoints.MapPost(ComputeWorkTransport.DiscoveryPath, ComputeWorkEndpoints.DiscoverAsync)
             .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
+        endpoints.MapPost("/api/compute/provider/retirement-receipt", ComputeWorkEndpoints.ConfirmRetirementAsync)
+            .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(4096));
+        endpoints.MapPost("/api/compute/provider/retirement-authorize", ComputeWorkEndpoints.AuthorizeRetirementAsync)
+            .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(4096));
         endpoints.MapPost(ComputeWorkTransport.ClaimPath, ComputeWorkEndpoints.ClaimAsync)
             .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));

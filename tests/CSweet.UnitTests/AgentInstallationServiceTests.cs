@@ -28,6 +28,9 @@ public sealed class AgentInstallationServiceTests
         var organizationId = Guid.NewGuid();
         var installation = await service.InstallAsync(package.Id, ValidRequest() with { BusinessId = organizationId.ToString("D") });
         var other = await service.InstallAsync(package.Id, ValidRequest() with { BusinessId = Guid.NewGuid().ToString("D") });
+        // Older installations accepted noncanonical GUID strings; cleanup must still find them.
+        (await db.AgentInstallations.SingleAsync(x => x.Id == installation.Id)).BusinessId = organizationId.ToString("N").ToUpperInvariant();
+        await db.SaveChangesAsync();
         var runtime = new AgentRuntimeInstance
         {
             Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installation.Id,
@@ -61,7 +64,7 @@ public sealed class AgentInstallationServiceTests
         Assert.True((await db.AgentInstallations.SingleAsync(x => x.Id == other.Id)).IsEnabled);
         Assert.True((await db.AgentSchedules.SingleAsync(x => x.AgentInstallationId == other.Id)).IsEnabled);
         Assert.All(workloads.Removed, id => Assert.Equal("business-workload", id));
-        Assert.Equal(2, workloads.Removed.Count);
+        Assert.Single(workloads.Removed);
     }
 
     [Fact]
@@ -1308,7 +1311,7 @@ public sealed class AgentInstallationServiceTests
         public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
         {
             Inspected.Add(handle.ProviderInstanceId);
-            return Task.FromResult<IsolationWorkloadStatus?>(containerExists
+            return Task.FromResult<IsolationWorkloadStatus?>(containerExists && !Removed.Contains(handle.ProviderInstanceId)
                 ? new IsolationWorkloadStatus(handle, IsolationWorkloadState.Stopped, IsolationTerminationReason.Completed, 0, null, null, null, null)
                 : null);
         }

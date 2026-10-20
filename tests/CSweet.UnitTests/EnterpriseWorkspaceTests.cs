@@ -85,6 +85,7 @@ public sealed class EnterpriseWorkspaceTests
     [Theory]
     [InlineData("compute_cleanup_pending")]
     [InlineData("agent_cleanup_pending")]
+    [InlineData("storage_cleanup_pending")]
     public async Task DeleteKeepsTileBusyAndRemovesItWhenBackgroundDeletionCompletes(string code)
     {
         await Run(new Api { DeleteErrorCode = code }, "aurora", async (page, api, render) =>

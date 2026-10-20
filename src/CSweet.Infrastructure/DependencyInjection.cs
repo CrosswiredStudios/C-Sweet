@@ -376,6 +376,11 @@ public static class DependencyInjection
             (BusinessOnboardingService)services.GetRequiredService<IBusinessOnboardingService>());
         builder.Services.AddScoped<IOrganizationDataPurgeService, OrganizationDataPurgeService>();
         builder.Services.AddScoped<OrganizationDeletionRecovery>();
+        builder.Services.AddScoped<InstallationRuntimeCleanup>();
+        builder.Services.AddScoped<BusinessStorageCleanup>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeProviderRetirementService>();
+        builder.Services.AddScoped<IBusinessComputeStorageCleanup>(sp => sp.GetRequiredService<CSweet.Infrastructure.Compute.ComputeProviderRetirementService>());
+        builder.Services.AddScoped<ResourceCleanupProcessor>();
         builder.Services.AddScoped<CoreOrganizationService>();
         builder.Services.AddScoped<ICoreOrganizationService>(provider => provider.GetRequiredService<CoreOrganizationService>());
         builder.Services.AddScoped<IRoleService, RoleService>();

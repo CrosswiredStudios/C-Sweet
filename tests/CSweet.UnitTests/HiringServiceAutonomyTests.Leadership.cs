@@ -8,6 +8,42 @@ namespace CSweet.UnitTests;
 public sealed partial class HiringServiceTests
 {
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AutomaticHiring_NoEligibleAgentLeavesOneActionableRoleScopedCard(bool emptyCatalog)
+    {
+        await using var db = CreateDb();
+        var f = await AutonomyFixtureAsync(db,
+            source: emptyCatalog ? AgentCatalogSource.FirstPartyCatalog : AgentCatalogSource.Marketplace,
+            requireConfiguration: false, catalogEmpty: emptyCatalog);
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+            new(HiringSelectionMode.Automatic, AutomaticHiringLevel.BroadDelegation, HiringPublisherPreference.FirstPartyOnly),
+            0, "Hire eligible first-party agents automatically");
+        var created = await f.Service.UpsertRecommendationAsync(f.Organization, f.Installation,
+            new("Creative Director", "Own creative direction", null, [], null, "unfilled-creative-role"));
+        Assert.False(created.NoSuitableAgentFound); // Selection has not run yet.
+        for (var retry = 0; retry < 2; retry++)
+        {
+            Assert.Equal("NeedsReview", (await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, created.Id)).Status);
+            var card = Assert.Single(await f.Service.ListRecommendationsAsync(f.Organization));
+            Assert.True(card.NoSuitableAgentFound);
+            Assert.Null(card.SelectedCatalogAgentJson);
+            Assert.Equal(1, card.RemainingHeadcount);
+            Assert.Contains("role=Creative%20Director", card.HiringUrl);
+            Assert.Contains($"recommendationId={created.Id:D}", card.HiringUrl);
+        }
+        Assert.Empty(await db.HiringRecommendationFulfillments.ToListAsync());
+        Assert.Empty(await db.StaffingActionProposals.ToListAsync());
+        Assert.Equal(HiringPublisherPreference.FirstPartyOnly,
+            (await f.Service.ReadPolicyAsync(f.Organization, f.Installation)).Settings.Publishers);
+
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+            new(HiringSelectionMode.ChooseCandidates), 1, "I will select a candidate");
+        await f.Service.SelectCandidateAsync(f.Organization, f.Installation, created.Id);
+        Assert.False(Assert.Single(await f.Service.ListRecommendationsAsync(f.Organization)).NoSuitableAgentFound);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task HiringPolicy_OwnDeferredHireRevalidatesCurrentAuthority(bool revoke)

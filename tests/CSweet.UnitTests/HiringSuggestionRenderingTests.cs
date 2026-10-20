@@ -20,10 +20,11 @@ namespace CSweet.UnitTests;
 public sealed class HiringSuggestionRenderingTests
 {
     [Theory]
-    [InlineData(true, "Pending")]
-    [InlineData(false, "Pending")]
-    [InlineData(true, "Completed")]
-    public async Task CardShowsSelectedAgentAndContextWithSharedHireReview(bool selected, string status)
+    [InlineData(true, "Pending", false)]
+    [InlineData(false, "Pending", false)]
+    [InlineData(true, "Completed", false)]
+    [InlineData(false, "Pending", true)]
+    public async Task CardShowsSelectedAgentAndContextWithSharedHireReview(bool selected, string status, bool noSuitableAgent)
     {
         var id = Guid.NewGuid();
         var agent = new AvailableAgent("creative", "creative", AgentCatalogSource.FirstPartyCatalog, [],
@@ -34,7 +35,9 @@ public sealed class HiringSuggestionRenderingTests
             null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
         {
             SelectedCatalogAgentJson = selected ? JsonSerializer.Serialize(agent, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
-            SelectionRationale = "Specializes in game creative direction.", RequestingEmployee = "Evelyn Brooks"
+            SelectionRationale = "Specializes in game creative direction.", RequestingEmployee = "Evelyn Brooks",
+            NoSuitableAgentFound = noSuitableAgent,
+            HiringUrl = $"/marketplace?role=Creative%20Director&recommendationId={id:D}"
         };
         var action = new ActionResponse(Guid.NewGuid(), "hiring.marketplace.browse.v1", "Browse candidates",
             null, $"/marketplace?recommendationId={id:D}", status, DateTimeOffset.UtcNow)
@@ -57,7 +60,14 @@ public sealed class HiringSuggestionRenderingTests
         Assert.Equal(1, activator.HireDialogs);
         Assert.Contains("Creative Director", html);
         Assert.Contains("Plan proposed by Evelyn Brooks", html);
-        Assert.Contains("Specializes in game creative direction.", html);
+        if (noSuitableAgent)
+        {
+            Assert.Contains("No suitable agent found", html);
+            Assert.Contains("suitable agent for Creative Director within your hiring preferences", html);
+            Assert.Contains("role=Creative%20Director", html);
+            Assert.DoesNotContain("Specializes in game creative direction.", html);
+        }
+        else Assert.Contains("Specializes in game creative direction.", html);
         if (selected)
         {
             Assert.Contains("Alex Morgan", html);
@@ -66,7 +76,7 @@ public sealed class HiringSuggestionRenderingTests
         }
         if (status == "Pending")
         {
-            Assert.Contains("Browse Candidates", html);
+            Assert.Contains(noSuitableAgent ? "Open Agent Marketplace" : "Browse Candidates", html);
             Assert.Contains($"recommendationId={id:D}", html);
             Assert.Equal(selected, html.Contains(">Hire</span>", StringComparison.Ordinal));
         }

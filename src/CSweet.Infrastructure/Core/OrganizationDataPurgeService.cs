@@ -18,7 +18,8 @@ public sealed class OrganizationDataPurgeService(
     IBusinessAgentInstallationCleanup agentCleanup,
     ILogger<OrganizationDataPurgeService> logger,
     IComputeBroker? computeBroker = null,
-    TimeProvider? timeProvider = null) : IOrganizationDataPurgeService
+    TimeProvider? timeProvider = null,
+    BusinessStorageCleanup? storageCleanup = null) : IOrganizationDataPurgeService
 {
     // A missed provider result must not leave deletion permanently busy. This is
     // an attention threshold, never evidence that VM or disk teardown succeeded.
@@ -56,7 +57,7 @@ public sealed class OrganizationDataPurgeService(
         {
             await agentCleanup.QuiesceAsync(organizationId, cancellationToken);
         }
-        catch (DbUpdateConcurrencyException exception)
+        catch (Exception exception) when (exception is DbUpdateConcurrencyException or CSweet.Infrastructure.Setup.AgentCleanupPendingException)
         {
             logger.LogInformation(exception, "Agent schedules changed while stopping business {OrganizationId}; deletion will resume.", organizationId);
             throw new OrganizationDeletionException(
@@ -69,6 +70,24 @@ public sealed class OrganizationDataPurgeService(
             throw new OrganizationDeletionException(
                 "The business could not be deleted because its agent workloads could not be stopped. Check agent runtime health, then retry the deletion.",
                 exception);
+        }
+
+        if (storageCleanup is not null)
+        {
+            var request = await dbContext.ResourceCleanupRequests.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Kind == CSweet.Infrastructure.Setup.ResourceCleanupQueue.BusinessStorage && x.ResourceId == organizationId, cancellationToken);
+            if (request?.CompletedAt is null)
+            {
+                if (request is null)
+                {
+                    await CSweet.Infrastructure.Setup.ResourceCleanupQueue.EnqueueAsync(dbContext,
+                        CSweet.Infrastructure.Setup.ResourceCleanupQueue.BusinessStorage, organizationId, organizationId,
+                        DateTimeOffset.UtcNow, cancellationToken);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+                throw new OrganizationDeletionException("Business storage cleanup is in progress and will retry automatically.",
+                    errorCode: "storage_cleanup_pending");
+            }
         }
 
         await using var transaction = dbContext.Database.IsRelational()
@@ -233,11 +252,12 @@ public sealed class OrganizationDataPurgeService(
         {
             var tableIdentifier = sqlHelper.DelimitIdentifier(table.Name, table.Schema);
             var columnIdentifier = sqlHelper.DelimitIdentifier(table.ColumnName);
-            var sql = $"DELETE FROM {tableIdentifier} WHERE {columnIdentifier} = {{0}}";
-            object value = table.ValueKind == ScopeValueKind.Guid
-                ? organizationId
-                : organizationId.ToString("D");
-            await dbContext.Database.ExecuteSqlRawAsync(sql, new[] { value }, cancellationToken);
+            var sql = table.ValueKind == ScopeValueKind.Guid
+                ? $"DELETE FROM {tableIdentifier} WHERE {columnIdentifier} = {{0}}"
+                : $"DELETE FROM {tableIdentifier} WHERE {columnIdentifier} IN ({{0}}, {{1}}, {{2}}, {{3}})";
+            object[] values = table.ValueKind == ScopeValueKind.Guid ? [organizationId] :
+                [organizationId.ToString("D"), organizationId.ToString("N"), organizationId.ToString("D").ToUpperInvariant(), organizationId.ToString("N").ToUpperInvariant()];
+            await dbContext.Database.ExecuteSqlRawAsync(sql, values, cancellationToken);
         }
 
         // Business onboarding records use ResultOrganizationId rather than OrganizationId.

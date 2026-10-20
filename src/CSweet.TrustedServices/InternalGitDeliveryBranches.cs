@@ -11,6 +11,7 @@ public sealed partial class InternalGitRepositoryStore
         ValidateBranch(request.SourceBranch); ValidateBranch(request.TargetBranch);
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 200)
             throw new ArgumentException("A bounded operation identity is required.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = await AcquireDeliveryLockAsync(repository, ct);

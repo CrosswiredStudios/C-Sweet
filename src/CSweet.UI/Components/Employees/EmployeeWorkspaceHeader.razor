@@ -1,0 +1,27 @@
+@inject IAppLocalizer L
+@inject NavigationManager Navigation
+
+<header class="employees-heading">
+    <h1>@L["Employees.Employees"]</h1>
+    @ChildContent
+</header>
+<nav class="employees-navigation" aria-label="@L["Employees.EmployeeViews"]">
+    <a href="@ViewUrl("graph")" aria-current="@Current("graph")" class="@ActiveClass("graph")">Org chart</a>
+    <a href="@ViewUrl("teams")" aria-current="@Current("teams")" class="@ActiveClass("teams")">@L["EmployeeViewToggle.Teams"]</a>
+    <a href="@ViewUrl("directory")" aria-current="@Current("directory")" class="@ActiveClass("directory")">@L["EmployeeViewToggle.Directory"]</a>
+    <a href="@ViewUrl("hiring")" aria-current="@Current("hiring")" class="@ActiveClass("hiring")">@L["Employees.Hiring"]</a>
+    <a href="@MarketplaceUrl" aria-current="@Current("marketplace")" class="@ActiveClass("marketplace")">@L["NavMenu.AgentMarketplace"]</a>
+</nav>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public string ActiveTab { get; set; } = "teams";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    // Selecting the current tab must retain the role and recommendation on hiring deep links.
+    private string MarketplaceUrl => $"/organizations/{OrganizationId}/employees/marketplace" +
+        (ActiveTab == "marketplace" ? new Uri(Navigation.Uri).Query : string.Empty);
+    private string ViewUrl(string tab) => $"/organizations/{OrganizationId}/employees?tab={tab}";
+    private string? Current(string tab) => ActiveTab == tab ? "page" : null;
+    private string? ActiveClass(string tab) => ActiveTab == tab ? "active" : null;
+}

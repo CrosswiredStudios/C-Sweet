@@ -9,6 +9,7 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed partial class HiringService
 {
+    private const string NoSuitableAgentRationale = "No eligible candidate is available under your publisher preference.";
     private bool _executingDelegation;
 
     private async Task RequireChiefAsync(Guid organizationId, Guid installationId, CancellationToken token)
@@ -324,7 +325,7 @@ public sealed partial class HiringService
             eligible = eligible.Where(IsFirstParty);
         var selected = eligible.OrderByDescending(x => policy.Settings.Publishers == HiringPublisherPreference.PreferFirstParty && IsFirstParty(x))
             .ThenByDescending(x => x.Score).ThenBy(x => x.AgentReference, StringComparer.Ordinal).FirstOrDefault();
-        var rationale = selected is null ? "No eligible candidate is available under your publisher preference." :
+        var rationale = selected is null ? NoSuitableAgentRationale :
             $"{selected.Name} matches the approved {plan.Title} role. Publisher: {selected.Publisher}. " +
             (IsFirstParty(selected) ? "From the platform first-party catalog." : "Third-party package; review its permissions before hiring.");
         plan.SelectedCatalogAgentJson = selected is null ? null : JsonSerializer.Serialize(selected, JsonOptions);
@@ -468,7 +469,7 @@ public sealed partial class HiringService
         await db.SaveChangesAsync(token);
         try
         {
-            await ValidateDelegationAsync(workflow, token);
+            await ValidateDelegationAsync(workflow, token, configure: true);
             _executingDelegation = true;
             var operation = await StartAsync(organizationId, workflow.Id, owner.ApplicationUserId.Value,
                 new ConfirmHiringWorkflowRequest($"delegated-confirm:{workflow.Id:N}"), token);
@@ -484,7 +485,7 @@ public sealed partial class HiringService
         finally { _executingDelegation = false; }
     }
 
-    private async Task ValidateDelegationAsync(StaffingActionProposal workflow, CancellationToken token)
+    private async Task ValidateDelegationAsync(StaffingActionProposal workflow, CancellationToken token, bool configure = false)
     {
         if (workflow.DelegatedInstallationId is not Guid installationId) return;
         var plan = await RequireRecommendationAsync(workflow.OrganizationId, installationId, workflow.WorkforcePlanId, token);
@@ -550,8 +551,15 @@ public sealed partial class HiringService
             }
             if (snapshot.Price is null) throw new UnauthorizedAccessException("Candidate cost is unknown; owner review is required.");
         }
-        if (embedded?.ConfigurationFields.Any(x => x.Required && x.DefaultValue is null &&
-                !(embedded.ConfigurationSettings?.ContainsKey(x.Key) ?? false)) == true)
-            throw new InvalidOperationException("Required employee configuration needs owner input.");
+        if (configure && embedded is not null)
+        {
+            snapshot = await ConfigureDelegatedHireAsync(snapshot, installationId,
+                bound.AutomaticLevel == AutomaticHiringLevel.BroadDelegation &&
+                current.Settings.AutomaticLevel == AutomaticHiringLevel.BroadDelegation, token);
+            workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
+            await db.SaveChangesAsync(token);
+            embedded = snapshot.EmbeddedAgent;
+        }
+        if (embedded is not null) await ValidateDelegatedConfigurationAsync(embedded, token);
     }
 }

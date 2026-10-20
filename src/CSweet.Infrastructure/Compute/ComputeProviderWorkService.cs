@@ -10,7 +10,8 @@ namespace CSweet.Infrastructure.Compute;
 
 /// <summary>Node-authenticated recovery reads and claims; discovery never grants execution authority.</summary>
 public sealed class ComputeProviderWorkService(CSweetDbContext db, ComputeProviderWorkRequestVerifier verifier,
-    ComputeDispatchAuthorizer authorizer, IAuditEventWriter audit, TimeProvider clock)
+    ComputeDispatchAuthorizer authorizer, IAuditEventWriter audit, TimeProvider clock,
+    ComputeProviderRetirementService? retirement = null)
 {
     public async Task<ComputeProviderWorkRequest> AuthorizeWakeAsync(SignedComputeProviderWorkRequest envelope, CancellationToken token)
     {
@@ -41,7 +42,8 @@ public sealed class ComputeProviderWorkService(CSweetDbContext db, ComputeProvid
         await audit.AppendAsync(new("compute.provider-work.read.v1", Category: "Infrastructure", Outcome: "Read",
             OrganizationId: node.OrganizationId, Actor: new("ComputeProvider", IdentityVerified: true), UseAmbientOrganization: false,
             MetadataJson: JsonSerializer.Serialize(new { node.NodeId, node.ProviderId, node.RequestId, OperationIds = ids })), token);
-        return new(ids, ids.Length == 100 ? ids[^1] : null);
+        return new(ids, ids.Length == 100 ? ids[^1] : null,
+            retirement is null ? null : await retirement.ReadAsync(node, token));
     }
 
     public async Task<ComputeResultAcknowledgement?> ReadResultReceiptAsync(SignedComputeProviderWorkRequest envelope, CancellationToken token)

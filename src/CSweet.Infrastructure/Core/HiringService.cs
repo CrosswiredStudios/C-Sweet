@@ -444,6 +444,7 @@ public sealed partial class HiringService(
         Guid organizationId,
         CancellationToken cancellationToken = default)
     {
+        await RestoreHiredChiefAsync(organizationId, cancellationToken);
         await EmployeeActionExpiration.ReconcileAsync(db, organizationId, cancellationToken);
         var plans = await db.WorkforcePlans.AsNoTracking().Where(x =>
                 x.OrganizationId == organizationId && x.Status == ProposalStatus.Pending)
@@ -1419,7 +1420,9 @@ CompleteWorkflow:
         if (businessOnboarding is null || !IsChiefOfStaffRole(roleTitle))
             return;
         var hasChief = await db.LeadershipAssignments.AsNoTracking().AnyAsync(x =>
-            x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null,
+            x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null &&
+            db.CoreOrganizationUsers.Any(employee => employee.Id == x.OrganizationUserId &&
+                employee.OrganizationId == organizationId && employee.IsActive && employee.ArchivedAt == null),
             cancellationToken);
         if (hasChief)
             return;
@@ -2093,6 +2096,10 @@ CompleteWorkflow:
             HiringUrl = $"/organizations/{plan.OrganizationId:D}/marketplace?role={Uri.EscapeDataString(plan.Title)}&recommendationId={plan.Id:D}",
             SelectedCatalogAgentJson = plan.SelectedCatalogAgentJson,
             SelectionRationale = plan.SelectionRationale,
+            // Preserve the existing durable selection outcome, including older recommendations.
+            // An unstarted search or an explicit owner-selection mode is not a failed match.
+            NoSuitableAgentFound = string.IsNullOrWhiteSpace(plan.SelectedCatalogAgentJson) &&
+                plan.SelectionRationale == NoSuitableAgentRationale,
             SuggestedBy = suggestedBy,
             RoleKey = plan.RoleKey,
             Headcount = plan.Headcount,

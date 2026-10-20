@@ -53,6 +53,7 @@ builder.Services.AddHostedService<ChatTurnWorker>();
 builder.Services.AddHostedService<ArtifactReviewJobWorker>();
 builder.Services.AddHostedService<ArtifactAccessExpiryWorker>();
 builder.Services.AddHostedService<OrganizationDeletionWorker>();
+builder.Services.AddHostedService<CSweet.Infrastructure.Setup.ResourceCleanupWorker>();
 builder.Services.AddHostedService<SourceControlPlatformReconciliationWorker>();
 builder.Services.AddHostedService<TaskDeliveryWorker>();
 builder.Services.AddHostedService<MediaUploadCleanupWorker>();

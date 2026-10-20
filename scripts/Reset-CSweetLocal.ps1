@@ -207,6 +207,28 @@ function Test-CSweetResetAdministrator {
 
 function Test-CSweetResetHyperVAvailable { return $null -ne (Get-Module -ListAvailable Hyper-V) }
 
+function Get-CSweetResetRetirementTasks {
+    @(Get-ScheduledTask -TaskPath '\' -ErrorAction Stop | Where-Object { $_.TaskName -like 'CSweet.Compute.Retire.*' })
+}
+
+function Get-CSweetResetRetirementTaskPlan([object[]] $Tasks, [string] $MachineRoot) {
+    foreach ($task in $Tasks) {
+        if ($task.TaskPath -cne '\' -or $task.TaskName -cnotmatch '^CSweet\.Compute\.Retire\.([0-9a-f]{32})$') {
+            throw 'Unrecognized C-Sweet retirement task. Inspect its ownership before reset.'
+        }
+        $business = $Matches[1]
+        $script = Join-Path $MachineRoot ('ComputeRetirement\' + $business + '\retire.ps1')
+        Assert-CSweetResetPath $script $MachineRoot
+        $expectedExecutable = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $expectedArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $script + '"'
+        $actions = @($task.Actions)
+        if ($actions.Count -ne 1 -or $actions[0].Execute -ine $expectedExecutable -or $actions[0].Arguments -cne $expectedArguments) {
+            throw "Retirement task $($task.TaskName) has an unexpected action. Inspect it before reset."
+        }
+        [pscustomobject]@{ TaskName = $task.TaskName; TaskPath = $task.TaskPath }
+    }
+}
+
 function Get-CSweetResetTrackedFiles([string] $Repository, [string] $Path) {
     $tracked = @(& git -C $Repository ls-files -- $Path)
     if ($LASTEXITCODE -ne 0) { throw "Failed Git inventory: $Path" }
@@ -240,13 +262,13 @@ function Invoke-CSweetLocalReset {
     $localRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CSweet'
     $targets = [Collections.Generic.List[object]]::new()
     $blockers = [Collections.Generic.List[string]]::new()
-    $services = @(); $vms = @(); $containers = @(); $volumePresent = $false
+    $services = @(); $vms = @(); $containers = @(); $retirementTasks = @(); $volumePresent = $false
     function Add-Target([string] $Path, [string] $Boundary, [string] $Kind, [string] $Repo = '') {
         if (Test-Path -LiteralPath $Path) {
             $targets.Add([pscustomobject]@{ Path = [IO.Path]::GetFullPath($Path); Boundary = $Boundary; Kind = $Kind; Repository = $Repo; GiB = $null })
         }
     }
-    foreach ($name in @('AgentRuntime', 'Compute', 'ComputeBusinesses', 'Diagnostics', 'Setup', 'Office', 'SatelliteOffice', 'ExecutionNode')) {
+    foreach ($name in @('AgentRuntime', 'Compute', 'ComputeBusinesses', 'ComputeRetirement', 'Diagnostics', 'Setup', 'Office', 'SatelliteOffice', 'ExecutionNode')) {
         Add-Target (Join-Path $machineRoot $name) $machineRoot 'Runtime'
     }
     foreach ($name in @('Office', 'SatelliteOffice', 'ExecutionNode')) {
@@ -352,6 +374,8 @@ function Invoke-CSweetLocalReset {
             }
         } elseif (-not $hyperVAvailable -and ($disks.Count -gt 0 -or $services.Count -gt 0)) { throw 'Hyper-V module unavailable; cannot verify VM/disk ownership.' }
     } catch { $blockers.Add('Hyper-V inventory failed: ' + $_.Exception.Message) }
+    try { $retirementTasks = @(Get-CSweetResetRetirementTaskPlan @(Get-CSweetResetRetirementTasks) $machineRoot) }
+    catch { $blockers.Add('Retirement task inventory failed: ' + $_.Exception.Message) }
     # The existing Office uninstaller owns registry / service privilege cleanup.
     $officeUninstaller = Join-Path $parent 'CSweet.Office\scripts\windows\Uninstall-CSweetOffice.ps1'
     $hasOffice = @($targets | Where-Object { $_.Kind -eq 'Installed office' -or $_.Path -in @((Join-Path $machineRoot 'Office'), (Join-Path $machineRoot 'SatelliteOffice')) }).Count -gt 0 -or
@@ -387,6 +411,7 @@ function Invoke-CSweetLocalReset {
     Write-Host "Local reset for ALL C-Sweet businesses. User root: $localRoot"
     $targets | Select-Object Kind, GiB, Path | Format-Table -AutoSize -Wrap | Out-Host
     $services | Select-Object Name, State | Format-Table -AutoSize -Wrap | Out-Host
+    $retirementTasks | Format-Table -AutoSize -Wrap | Out-Host
     $vms | Format-Table -AutoSize -Wrap | Out-Host
     foreach ($target in $preserved) { Write-Host "PRESERVED (contains tracked files): $($target.Path)" }
     if ($ResetDatabase) { Write-Host "Aspire database volume present: $volumePresent; Postgres containers: $($containers -join ', ')" }
@@ -404,6 +429,12 @@ function Invoke-CSweetLocalReset {
         Set-Service -Name $service.Name -StartupType Disabled
         Stop-Service -Name $service.Name -Force
         (Get-Service -Name $service.Name).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(60))
+    }
+    # Services can no longer register new retry tasks. Rebuild and validate the task plan before file deletion.
+    $freshTasks = @(Get-CSweetResetRetirementTaskPlan @(Get-CSweetResetRetirementTasks) $machineRoot)
+    foreach ($task in $freshTasks) {
+        Stop-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction Stop
+        Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -Confirm:$false -ErrorAction Stop
     }
     $freshVms = @()
     if ($hyperVAvailable) { $freshVms = @(Get-CSweetResetVmPlan @(Get-VM) @($targets | Select-Object -ExpandProperty Path)) }

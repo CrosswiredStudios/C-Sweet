@@ -73,7 +73,7 @@ public sealed class FileResumableMediaUploadStore : IResumableMediaUploadStore
     public Task DeleteAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         var path = Resolve(sessionId);
-        if (File.Exists(path)) File.Delete(path);
+        CSweet.TrustedServices.OwnedStorage.DeleteFile(_root, path);
         return Task.CompletedTask;
     }
 
@@ -97,6 +97,7 @@ public sealed class ResumableMediaUploadService(
     public async Task<MediaUploadSessionResponse> CreateAsync(Guid organizationId,
         CreateMediaUploadSessionRequest request, CancellationToken cancellationToken = default)
     {
+        await using var storageAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, organizationId, cancellationToken);
         if (!await db.CoreOrganizations.AsNoTracking().AnyAsync(x => x.Id == organizationId, cancellationToken))
             throw new InvalidOperationException("Organization was not found.");
         var fileName = Path.GetFileName(request.FileName);
@@ -162,6 +163,7 @@ public sealed class ResumableMediaUploadService(
     public async Task<MediaUploadSessionResponse> AppendAsync(Guid organizationId, Guid sessionId, long offset,
         long contentLength, Stream content, CancellationToken cancellationToken = default)
     {
+        await using var storageAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, organizationId, cancellationToken);
         var gate = SessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
         try
@@ -185,6 +187,7 @@ public sealed class ResumableMediaUploadService(
     public async Task<MediaUploadSessionResponse> CompleteAsync(Guid organizationId, Guid sessionId,
         CancellationToken cancellationToken = default)
     {
+        await using var storageAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, organizationId, cancellationToken);
         var gate = SessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
         try

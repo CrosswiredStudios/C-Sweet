@@ -1,0 +1,13 @@
+C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj : warning NU1902: Package 'Microsoft.Build.Tasks.Git' 10.0.102 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-23fw-v26w-5fgq
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\WorkManagement\WorkDeliveryService.ComputeRecovery.cs(193,14): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\CSweet.Infrastructure.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\WorkManagement\WorkDeliveryService.Tickets.cs(140,49): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\CSweet.Infrastructure.csproj]
+
+Build succeeded.
+
+C:\Users\PC\Documents\GitHub\CSweet.Office.Contracts\src\CSweet.Office.Contracts\CSweet.Office.Contracts.csproj : warning NU1902: Package 'Microsoft.Build.Tasks.Git' 10.0.102 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-23fw-v26w-5fgq
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\WorkManagement\WorkDeliveryService.ComputeRecovery.cs(193,14): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\CSweet.Infrastructure.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\WorkManagement\WorkDeliveryService.Tickets.cs(140,49): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.Infrastructure\CSweet.Infrastructure.csproj]
+    3 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:57.55

@@ -19,19 +19,21 @@ public sealed partial class InternalGitRepositoryStore
     }
     public async Task DeleteBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default)
     {
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         using var storage = new InternalGitBackupStorage(_options);
         await storage.DeleteAsync(request.OrganizationId, request.RepositoryId, request.BackupId, ct);
     }
     public async Task<InternalGitBackupSummary> CreateBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default)
     {
         if (request.BackupId == Guid.Empty) throw new ArgumentException("Backup identity is required.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         using var storage = new InternalGitBackupStorage(_options);
         var existing = await storage.ReadAsync(request.OrganizationId, request.RepositoryId, request.BackupId, ct);
         if (existing is not null) return BackupSummary(existing);
-        var temporary = NewBackupTemporaryDirectory();
+        var temporary = NewBackupTemporaryDirectory(request.OrganizationId);
         try
         {
             var refs = (await RunAsync(repository, ["for-each-ref", "--format=%(refname) %(objectname)"], ct)).Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -73,6 +75,7 @@ public sealed partial class InternalGitRepositoryStore
     public async Task<InternalGitBackupSummary> RestoreBackupAsync(InternalGitBackupRestoreRequest request, CancellationToken ct = default)
     {
         if (request.TargetRepositoryId == request.RepositoryId) throw new ArgumentException("Restore requires a separate repository.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var target = RepositoryPath(request.OrganizationId, request.TargetRepositoryId);
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         await using var lease = new FileStream(target + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -86,7 +89,7 @@ public sealed partial class InternalGitRepositoryStore
             if (!File.Exists(receipt) || await File.ReadAllTextAsync(receipt, ct) != identity) throw new InvalidOperationException("Restore cannot overwrite an existing repository.");
             return BackupSummary(manifest);
         }
-        var temporary = NewBackupTemporaryDirectory();
+        var temporary = NewBackupTemporaryDirectory(request.OrganizationId);
         var staging = target + ".restore-" + Guid.NewGuid().ToString("N");
         try
         {
@@ -166,10 +169,10 @@ public sealed partial class InternalGitRepositoryStore
             if (!Regex.IsMatch(asset.Oid, "\\A[0-9a-f]{64}\\z") || asset.Size < 0 || asset.Size > _options.Lfs.MaximumObjectBytes)
                 throw new InvalidDataException("Backup LFS metadata is invalid.");
     }
-    private string NewBackupTemporaryDirectory()
+    private string NewBackupTemporaryDirectory(Guid business)
     {
         InternalGitStorageOptions.ValidatePath(_options.TemporaryRoot);
-        var path = Path.Combine(_options.TemporaryRoot, Guid.NewGuid().ToString("N")); Directory.CreateDirectory(path); return path;
+        var path = Path.Combine(BusinessTemporaryRoot(business), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(path); return path;
     }
     private sealed class BackupArchiveStream(string path, long maximum) : FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None)
     {

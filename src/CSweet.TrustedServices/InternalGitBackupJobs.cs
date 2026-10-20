@@ -10,6 +10,12 @@ public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore sto
 {
     private string Root => Path.Combine(options.Value.RepositoryRoot, "csweet-backup-jobs");
 
+    private async Task<FileStream> EnterBusinessAsync(Guid business, CancellationToken token)
+    {
+        if (!(await store.StatusAsync(token)).Ready) throw new IOException("Repository storage is unavailable.");
+        return BusinessStorageLease.Enter(options.Value.RepositoryRoot, business);
+    }
+
     private async Task<string> DirectoryAsync(Guid business, CancellationToken ct)
     {
         if (business == Guid.Empty) throw new ArgumentException("Business identity is required.");
@@ -29,6 +35,7 @@ public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore sto
 
     public async Task<InternalGitBackupJob> QueueAsync(InternalGitBackupRequest request, CancellationToken ct = default)
     {
+        using var businessLease = await EnterBusinessAsync(request.OrganizationId, ct);
         if (request.RepositoryId == Guid.Empty || request.BackupId == Guid.Empty) throw new ArgumentException("Repository and backup identities are required.");
         var directory = await DirectoryAsync(request.OrganizationId, ct);
         var path = Path.Combine(directory, request.BackupId.ToString("N") + ".json");
@@ -50,6 +57,7 @@ public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore sto
 
     public async Task<IReadOnlyList<InternalGitBackupJob>> ListAsync(Guid business, CancellationToken ct = default)
     {
+        using var businessLease = await EnterBusinessAsync(business, ct);
         var directory = await DirectoryAsync(business, ct); var result = new List<InternalGitBackupJob>();
         foreach (var path in Directory.EnumerateFiles(directory, "*.json").Take(1001))
         {
@@ -61,6 +69,7 @@ public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore sto
 
     public async Task ProcessAsync(Guid business, Guid id, CancellationToken ct = default)
     {
+        using var businessLease = await EnterBusinessAsync(business, ct);
         var path = Path.Combine(await DirectoryAsync(business, ct), id.ToString("N") + ".json");
         CheckPath(path); CheckPath(path + ".lock");
         await using var lease = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -84,6 +93,7 @@ public sealed partial class InternalGitBackupJobs(InternalGitRepositoryStore sto
 
     public async Task DismissAsync(Guid business, Guid id, CancellationToken ct = default)
     {
+        using var businessLease = await EnterBusinessAsync(business, ct);
         var path = Path.Combine(await DirectoryAsync(business, ct), id.ToString("N") + ".json");
         CheckPath(path); CheckPath(path + ".lock");
         await using var lease = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

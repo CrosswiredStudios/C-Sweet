@@ -56,7 +56,8 @@ public sealed class WorkspaceVolumeBridge(
     {
         ArgumentNullException.ThrowIfNull(archive);
         await AuthorizeAsync(lease, allowPreparing: true, cancellationToken, CSweet.Agent.SDK.GitWorkspaceCapabilities.Publish);
-        var temporaryRoot = CreateTemporaryRoot();
+        await using var storageAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, lease.OrganizationId, cancellationToken);
+        var temporaryRoot = CreateTemporaryRoot(lease.OrganizationId);
         var extracted = Path.Combine(temporaryRoot, "snapshot");
         var quarantine = Path.Combine(temporaryRoot, "snapshot.zip");
         try
@@ -175,22 +176,17 @@ public sealed class WorkspaceVolumeBridge(
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
 
-    private static string CreateTemporaryRoot()
+    private string CreateTemporaryRoot(Guid business)
     {
-        var parent = Path.Combine(Path.GetTempPath(), "csweet-workspace-broker");
+        var parent = OwnedStorage.Child(_storeRoot, business.ToString("N"), ".incoming");
         Directory.CreateDirectory(parent);
         var path = Path.Combine(parent, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }
 
-    private static void DeleteTemporaryRoot(string temporaryRoot)
+    private void DeleteTemporaryRoot(string temporaryRoot)
     {
-        var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "csweet-workspace-broker"));
-        var resolved = Path.GetFullPath(temporaryRoot);
-        var prefix = root + Path.DirectorySeparatorChar;
-        if (!resolved.StartsWith(prefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            throw new InvalidOperationException("Refusing to remove a temporary path outside the workspace broker root.");
-        if (Directory.Exists(resolved)) Directory.Delete(resolved, recursive: true);
+        OwnedStorage.DeleteDirectory(_storeRoot, temporaryRoot);
     }
 }

@@ -10,6 +10,7 @@ public sealed partial class InternalGitBackupJobs
 {
     public async Task<InternalGitBackupSchedule> ScheduleAsync(Guid business, Guid repository, CancellationToken ct = default)
     {
+        using var businessLease = await EnterBusinessAsync(business, ct);
         if (repository == Guid.Empty) throw new ArgumentException("Repository identity is required.");
         var path = Path.Combine(await DirectoryAsync(business, ct), repository.ToString("N") + ".schedule");
         return await ReadScheduleAsync(path, business, repository, ct);
@@ -17,6 +18,7 @@ public sealed partial class InternalGitBackupJobs
 
     public async Task<InternalGitBackupSchedule> SaveScheduleAsync(InternalGitBackupScheduleCommand command, CancellationToken ct = default)
     {
+        using var businessLease = await EnterBusinessAsync(command.OrganizationId, ct);
         var settings = command.Settings;
         if (command.RepositoryId == Guid.Empty || settings.IntervalHours is < 1 or > 8760 || settings.KeepLatest is < 1 or > 100 ||
             settings.Enabled && settings.KeepLatest is not null && !settings.ConfirmRetention)
@@ -56,6 +58,7 @@ public sealed partial class InternalGitBackupJobs
 
     internal async Task ScheduleDueAsync(Guid business, CancellationToken ct)
     {
+        using var businessLease = await EnterBusinessAsync(business, ct);
         var directory = await DirectoryAsync(business, ct);
         foreach (var path in Directory.EnumerateFiles(directory, "*.schedule"))
         {

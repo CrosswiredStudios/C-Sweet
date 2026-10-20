@@ -29,6 +29,7 @@ try {
     $protectedRoot = $installation.Root
     $serviceName = $installation.ServiceName
     $serviceArguments = $installation.ServiceArguments
+    & (Join-Path $repositoryRoot 'scripts\Register-ComputeBusinessRetirement.ps1') -HandoffPath $HandoffPath -ProtectedRoot $protectedRoot -ServiceName $serviceName
     $validationArguments = @($installation.ValidationArguments)
     $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($null -ne $existingService) {
@@ -124,8 +125,13 @@ try {
             Set-Acl -LiteralPath $businessesRoot -AclObject $acl
         }
     }
+    $newProviderRoot = -not (Test-Path -LiteralPath $protectedRoot)
     New-Item -ItemType Directory -Path $protectedRoot -Force | Out-Null
     Set-Acl -LiteralPath $protectedRoot -AclObject $acl
+    if ($newProviderRoot -and $serviceName -ne 'CSweet.Compute.HyperV') {
+        @{ enrollment = @{ organizationId=$setup.organizationId; nodeId=$setup.setupId } } | ConvertTo-Json -Compress |
+            Set-Content -LiteralPath (Join-Path $protectedRoot 'compute-owner.json') -Encoding UTF8
+    }
     $runtimeRoot = Join-Path $protectedRoot 'runtime'
     $imagesRoot = Join-Path $protectedRoot 'images'
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null

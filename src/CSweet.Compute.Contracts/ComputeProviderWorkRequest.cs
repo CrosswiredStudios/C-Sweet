@@ -5,7 +5,8 @@ public sealed record ComputeProviderWorkRequest(Guid OrganizationId, Guid NodeId
     Guid RequestId, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, Guid? OperationId = null, Guid? AfterOperationId = null, long? ResultSequence = null, string? ResultDigest = null);
 public sealed record SignedComputeProviderWorkRequest(string KeyId, string PayloadJson, string SignatureBase64);
 
-public sealed record ComputeProviderWorkPage(IReadOnlyList<Guid> OperationIds, Guid? NextAfterOperationId);
+public sealed record ComputeProviderWorkPage(IReadOnlyList<Guid> OperationIds, Guid? NextAfterOperationId,
+    ComputeProviderRetirement? Retirement = null);
 public sealed record ComputePublicationPermission(Guid OperationId, bool Allowed);
 public static class ComputeWorkTransport
 {

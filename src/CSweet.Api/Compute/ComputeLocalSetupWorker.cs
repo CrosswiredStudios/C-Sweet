@@ -64,7 +64,10 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             await RequestDockerUpgradeAsync(db, ready, token);
             await transaction.CommitAsync(token);
         }
-        var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().Where(x => x.State == "Pending").OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(token);
+        var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().Where(x => x.State == "Pending" &&
+            !db.CoreOrganizations.Any(b => b.Id == x.OrganizationId &&
+                (b.Status == CSweet.Domain.Core.OrganizationStatus.Deleting || b.Status == CSweet.Domain.Core.OrganizationStatus.DeletionFailed)))
+            .OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(token);
         if (setup is null) return;
         if (!OperatingSystem.IsWindows()) { await FailAsync(db, setup, "local_provider_unavailable", token); return; }
         var root = configuration["CSweet:Compute:RepositoryRoot"] ?? Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
@@ -78,6 +81,8 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
         var now = DateTimeOffset.UtcNow;
         var attemptId = Guid.NewGuid();
+        var firstPrivilegedAttempt = setup.PreparationAttemptId is null;
+        await using var preparationAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, setup.OrganizationId, token);
         if (await db.Set<ComputeLocalSetup>().Where(x => x.Id == setup.Id && x.State == "Pending").ExecuteUpdateAsync(s =>
                 s.SetProperty(x => x.State, "Running").SetProperty(x => x.HandoffHash, hash)
                 .SetProperty(x => x.PreparationAttemptId, attemptId)
@@ -97,9 +102,14 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
                     PropagationFlags.None, AccessControlType.Allow));
             new DirectoryInfo(directory).SetAccessControl(acl);
             var signing = await scope.ServiceProvider.GetRequiredService<IComputeDispatchSigner>().GetIdentityAsync(token);
+            var retirement = await scope.ServiceProvider.GetRequiredService<ComputeProviderRetirementService>()
+                .PrepareAsync(setup.OrganizationId, setup.Id, token);
             await File.WriteAllTextAsync(handoff, JsonSerializer.Serialize(new ComputeLocalSetupHandoff(1, setup.Id,
-                setup.OrganizationId, secret, endpoint.GetLeftPart(UriPartial.Authority) + "/", pin, signing, root, attemptId),
+                setup.OrganizationId, secret, endpoint.GetLeftPart(UriPartial.Authority) + "/", pin, signing, root, attemptId, retirement),
                 ComputeProtocol.Json), token);
+            // Deletion may proceed while UAC/the installer runs, but it now sees the durable
+            // Running setup and pending machine-cleanup receipt before any privileged launch.
+            await preparationAdmission.DisposeAsync();
             using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"),
@@ -111,7 +121,18 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             if (completed.State != "Ready") await FailAsync(db, setup,
                 ComputeSetupObservation.Read(completed, directory).FailureCode ?? "local_setup_failed", token);
         }
-        catch (System.ComponentModel.Win32Exception) { await FailAsync(db, setup, "administrator_approval_required", token); }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            await FailAsync(db, setup, "administrator_approval_required", token);
+            // Process.Start did not launch the first privileged installer. Only this branch
+            // establishes that no machine payload/task was created; a timeout/restart never does.
+            if (firstPrivilegedAttempt && !await db.ComputeNodes.AnyAsync(x => x.OrganizationId == setup.OrganizationId, token))
+            {
+                var request = await db.ResourceCleanupRequests.SingleOrDefaultAsync(x =>
+                    x.Kind == CSweet.Infrastructure.Setup.ResourceCleanupQueue.LocalCompute && x.ResourceId == setup.Id, token);
+                if (request is not null) { request.CompletedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(token); }
+            }
+        }
         catch (Exception error) when (error is not OperationCanceledException)
         {
             logger.LogWarning(error, "Local compute setup {SetupId} failed.", setup.Id);

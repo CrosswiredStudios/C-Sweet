@@ -23,6 +23,13 @@ builder.Services.AddHostedService<InternalGitBackupWorker>();
 var app = builder.Build();
 app.UseTrustedServiceAuthentication();
 app.MapHealthChecks("/health");
+app.MapDelete("/internal/v3/business-storage/{business:guid}", async (Guid business,
+    InternalGitRepositoryStore store, CancellationToken token) =>
+{
+    try { await store.DeleteBusinessStorageAsync(business, token); return Results.NoContent(); }
+    catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+    { return Results.Conflict(new { error = "business_storage_cleanup_pending" }); }
+});
 
 app.MapGet("/internal/v2/configuration/status", (GitHubAppCredentialProvider credentials) =>
 {

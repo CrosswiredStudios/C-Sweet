@@ -13,7 +13,8 @@ public sealed partial class HiringServiceTests
 {
     private static async Task<(Guid Organization, Guid Installation, Guid Owner, Guid Application, HiringService Service)> AutonomyFixtureAsync(CSweetDbContext db,
         AgentCatalogSource source = AgentCatalogSource.FirstPartyCatalog, decimal? price = 0, bool requireConfiguration = true, bool staffed = false,
-        RecordingDefinitionService? definitions = null)
+        RecordingDefinitionService? definitions = null, IReadOnlyList<CSweet.Contracts.Plugins.PluginConfigurationField>? fields = null,
+        bool catalogEmpty = false)
     {
         var organization = Guid.NewGuid(); var installation = Guid.NewGuid(); var owner = Guid.NewGuid();
         var application = Guid.NewGuid(); var chief = Guid.NewGuid();
@@ -62,17 +63,18 @@ public sealed partial class HiringServiceTests
             agent = agent with { AgentReference = $"installed:{installedId:N}", InstallationId = installedId, Availability = AgentAvailabilityState.InstalledEnabled };
         }
         var service = new HiringService(db, new RecordingOrganizationUserService(db), new TestAuditEventWriter(),
-            new AutonomyPreview(new RecordingImportPreview(db, repository), requireConfiguration), new RecordingInstallationService(organization),
-            new RecordingAgentCatalog(agent), definitions);
+            new AutonomyPreview(new RecordingImportPreview(db, repository), requireConfiguration, fields), new RecordingInstallationService(organization),
+            new RecordingAgentCatalog(agent, catalogEmpty), definitions);
         return (organization, installation, owner, application, service);
     }
 
-    private sealed class AutonomyPreview(RecordingImportPreview inner, bool requireConfiguration) : CSweet.Application.Setup.IAgentImportPreviewService
+    private sealed class AutonomyPreview(RecordingImportPreview inner, bool requireConfiguration,
+        IReadOnlyList<CSweet.Contracts.Plugins.PluginConfigurationField>? fields) : CSweet.Application.Setup.IAgentImportPreviewService
     {
         public async Task<CSweet.Contracts.Agents.AgentImportPreviewResponse> PreviewAsync(CSweet.Contracts.Agents.PreviewAgentImportRequest request, CancellationToken token = default)
         {
             var preview = await inner.PreviewAsync(request, token);
-            return requireConfiguration ? preview : preview with { ConfigurationFields = [] };
+            return fields is not null ? preview with { ConfigurationFields = fields } : requireConfiguration ? preview : preview with { ConfigurationFields = [] };
         }
     }
 
@@ -423,6 +425,63 @@ public sealed partial class HiringServiceTests
         var result = await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, plan.Id);
         Assert.Equal("NeedsReview", result.Status); Assert.Contains("configuration", result.Message);
         Assert.Equal(0, plan.FulfilledHeadcount);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public async Task HiringPolicy_AutomaticHireUsesValidatedConfigurationWithoutAnotherApproval(bool approvedDefaults, bool providerEnabled)
+    {
+        await using var db = CreateDb();
+        var fields = new CSweet.Contracts.Plugins.PluginConfigurationField[] {
+            new() { Key = "llmProviderId", Type = "provider", Label = "Provider", Required = true },
+            new() { Key = "llmModel", Type = "model", Label = "Model", Required = true },
+            new() { Key = "privateValue", Type = "text", Label = "Private", Secret = true }
+        };
+        var f = await AutonomyFixtureAsync(db, source: approvedDefaults ? AgentCatalogSource.Installed : AgentCatalogSource.FirstPartyCatalog,
+            staffed: approvedDefaults, fields: fields);
+        var provider = new LlmProviderProfile { Id = Guid.NewGuid(), Name = "Existing provider", IsEnabled = providerEnabled, DefaultChatModel = "existing-model" };
+        var settings = JsonSerializer.Serialize(new { llmProviderId = provider.Id, llmModel = "existing-model", privateValue = "do-not-copy" });
+        db.Add(provider);
+        if (approvedDefaults)
+        {
+            var definition = await db.AgentDefinitions.Include(x => x.PackageVersion).SingleAsync();
+            definition.PackageVersion!.ManifestJson = JsonSerializer.Serialize(new { runtime = new { supportsMultipleInstallations = true }, configuration = fields });
+            definition.Configuration = new AgentDefinitionConfiguration { Id = Guid.NewGuid(), AgentDefinitionId = definition.Id, SettingsJson = settings };
+            db.Add(definition.Configuration);
+        }
+        else
+        {
+            db.Add(new AgentInstallation { Id = f.Installation, BusinessId = f.Organization.ToString(),
+                Configuration = new AgentInstallationConfiguration { Id = Guid.NewGuid(), AgentInstallationId = f.Installation, SettingsJson = settings } });
+        }
+        await db.SaveChangesAsync();
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+            new(HiringSelectionMode.Automatic, AutomaticHiringLevel.BroadDelegation), 0, "Automatic leadership hiring");
+        var plan = new WorkforcePlan { Id = Guid.NewGuid(), OrganizationId = f.Organization, RequestingInstallationId = f.Installation,
+            Title = "Product Manager", Objective = "Own product", IdempotencyKey = "focus-product" };
+        db.Add(plan); await db.SaveChangesAsync();
+        var result = await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, plan.Id);
+        if (!providerEnabled)
+        {
+            Assert.Equal("NeedsReview", result.Status);
+            Assert.Contains("enabled", result.Message);
+            Assert.Equal(0, plan.FulfilledHeadcount);
+            Assert.Empty(await db.HiringRecommendationFulfillments.ToListAsync());
+            return;
+        }
+        Assert.True(result.Status == "Succeeded", result.Message);
+        var workflow = await db.StaffingActionProposals.SingleAsync(x => x.WorkforcePlanId == plan.Id);
+        using var snapshot = JsonDocument.Parse(workflow.PayloadJson);
+        var configured = snapshot.RootElement.GetProperty("embeddedAgent").GetProperty("configurationSettings");
+        Assert.Equal(provider.Id.ToString(), configured.GetProperty("llmProviderId").GetString());
+        Assert.Equal("existing-model", configured.GetProperty("llmModel").GetString());
+        Assert.False(configured.TryGetProperty("privateValue", out _));
+        Assert.Equal(1, plan.FulfilledHeadcount);
+        Assert.Equal("Succeeded", (await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, plan.Id)).Status);
+        Assert.Single(await db.HiringRecommendationFulfillments.ToListAsync());
     }
 
 }

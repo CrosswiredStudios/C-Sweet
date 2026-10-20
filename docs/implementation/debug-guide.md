@@ -8,7 +8,7 @@ before an explicitly requested destructive reset.
 ## Prerequisites
 
 - Windows with the .NET 10 SDK specified by `global.json`.
-- Docker Desktop with its Linux container engine running. AppHost provisions PostgreSQL through Docker, so the complete application cannot start when the Docker engine is unavailable.
+- Docker Desktop with its Linux container engine running. AppHost provisions PostgreSQL and SearXNG through Docker, so the complete application cannot start when the Docker engine is unavailable.
 - An OpenAI-compatible model endpoint for AI features.
 - Windows Professional, Enterprise, or Education with hardware virtualization for local untrusted-agent execution. The browser onboarding flow guides Hyper-V and RuntimeHost preparation.
 
@@ -71,10 +71,17 @@ This will:
 - Build and start `CSweet.WorkerHost` as a background service
 - Build and start `CSweet.AgentHost` as an unprivileged project process that applies policy and brokers approved agent operations
 - Provision PostgreSQL as trusted infrastructure through Docker Desktop
+- Start the pinned SearXNG container with HTML/JSON search and a `/healthz` check; its local URL appears under `searxng` in the dashboard
 - Open the Aspire dashboard automatically (shows all services, health status, logs)
 
 The Aspire dashboard URL appears in the console output (`https://localhost:17201` or `http://localhost:15201` with the checked-in AppHost profiles).
 Docker Desktop must be running because PostgreSQL is a required AppHost resource. AgentHost no longer launches untrusted agents as Docker containers. On Windows, untrusted execution uses the separately installed RuntimeHost service and a certified Hyper-V guest.
+
+SearXNG starts through the same AppHost run, including when launched by `Start-CSweet.cmd`.
+No separate search account or instance configuration is required. Its configuration, cache,
+image pin, Compose packaging, and smoke checks are documented in the
+[Docker infrastructure guide](../deployment/docker.md#searxng-search-infrastructure).
+This provisions the service; agent-facing search callbacks are not implemented yet.
 
 ### AppHost debug fails with port 22201 already in use
 

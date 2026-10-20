@@ -5,7 +5,9 @@ using CSweet.Agent.SDK;
 using CSweet.Application.Agents;
 using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
+using CSweet.Domain.Core;
 using CSweet.Infrastructure.Agents;
+using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Marketplace;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -19,6 +21,67 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentCatalogServiceTests
 {
+    [Fact]
+    public async Task FiredEmployeeDoesNotShadowFreshCatalogHire_AndOldReferenceRemainsDisabled()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organization = new Organization { Id = Guid.NewGuid(), Name = "Example" };
+        var installation = Installation(organization.Id, "Evelyn Brooks");
+        var employee = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organization.Id,
+            AgentInstallationId = installation.Id, DisplayName = "Evelyn", EmployeeType = EmployeeType.Agent };
+        db.AddRange(organization, installation, employee);
+        await db.SaveChangesAsync();
+        var fresh = Agent("first-party:evelyn", AgentCatalogSource.FirstPartyCatalog) with
+        {
+            AgentId = installation.PackageVersion!.AgentId,
+            RepositoryUrl = installation.PackageVersion.PackageSource!.RepositoryUrl, Name = "Evelyn Brooks"
+        };
+        var service = new AgentCatalogService([new InstalledAgentCatalogProvider(db), new StubProvider(fresh.Source, fresh)],
+            NullLogger<AgentCatalogService>.Instance);
+        var before = Assert.Single((await service.GetAvailableAgentsAsync(organization.Id, new())).Agents);
+        Assert.Equal(AgentCatalogSource.Installed, before.Source);
+        Assert.Equal(AgentAvailabilityState.InstalledEnabled, before.Availability);
+
+        Assert.True((await new OrganizationUserService(db, new TestAuditEventWriter()).DeleteAsync(employee.Id)).Succeeded);
+
+        var after = Assert.Single((await service.GetAvailableAgentsAsync(organization.Id, new())).Agents);
+        Assert.Equal(fresh.AgentReference, after.AgentReference);
+        Assert.Equal(AgentCatalogSource.FirstPartyCatalog, after.Source);
+        Assert.Equal(AgentAvailabilityState.AvailableToInstall, after.Availability);
+        Assert.Null(after.InstallationId);
+        var old = Assert.IsType<AvailableAgent>(await service.ResolveAsync(organization.Id, before.AgentReference));
+        Assert.Equal(before.AgentReference, old.AgentReference);
+        Assert.Equal(AgentAvailabilityState.InstalledDisabled, old.Availability);
+        Assert.False(installation.IsEnabled);
+        Assert.False(employee.IsActive);
+        Assert.Single(await db.AgentInstallations.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task DisabledInstalledDiscoveryRequiresAnActiveEmployee(bool activeEmployee, bool expectedVisible)
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var organizationId = Guid.NewGuid();
+        var installation = Installation(organizationId, "Paused agent");
+        installation.IsEnabled = false;
+        db.AddRange(installation, new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+            AgentInstallationId = installation.Id, DisplayName = "Paused employee", EmployeeType = EmployeeType.Agent,
+            IsActive = activeEmployee, ArchivedAt = activeEmployee ? null : DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var provider = new InstalledAgentCatalogProvider(db);
+
+        var result = await provider.SearchAsync(organizationId, new());
+
+        Assert.Equal(expectedVisible ? 1 : 0, result.Agents.Count);
+        if (expectedVisible) Assert.Equal(AgentAvailabilityState.InstalledDisabled, Assert.Single(result.Agents).Availability);
+        Assert.NotNull(await provider.ResolveAsync(organizationId, $"installed:{installation.Id:N}"));
+        Assert.Null(await provider.ResolveAsync(Guid.NewGuid(), $"installed:{installation.Id:N}"));
+    }
+
     [Fact]
     public async Task CurrentFirstPartyAgentsHaveZeroCostInDiscoveryAndInstalledResolution()
     {

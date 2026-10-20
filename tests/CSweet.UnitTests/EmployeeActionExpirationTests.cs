@@ -23,6 +23,11 @@ public sealed class EmployeeActionExpirationTests
     {
         await using var db = CreateDb();
         var (employee, owner, installation) = await SeedAsync(db);
+        var leadership = new LeadershipAssignment { Id = Guid.NewGuid(), OrganizationId = employee.OrganizationId,
+            OrganizationUserId = employee.Id, PositionKey = LeadershipPositionKeys.ChiefOfStaff };
+        var ownerLeadership = new LeadershipAssignment { Id = Guid.NewGuid(), OrganizationId = employee.OrganizationId,
+            OrganizationUserId = owner.Id, PositionKey = LeadershipPositionKeys.ChiefExecutiveOfficer };
+        db.AddRange(leadership, ownerLeadership);
         var plan = Plan(employee.OrganizationId, installation.Id);
         var completedPlan = Plan(employee.OrganizationId, installation.Id);
         completedPlan.Status = ProposalStatus.Approved;
@@ -76,8 +81,14 @@ public sealed class EmployeeActionExpirationTests
 
         Assert.True(result.Succeeded);
         Assert.False(employee.IsActive);
+        Assert.Equal(employee.ArchivedAt, leadership.EndsAt);
+        Assert.Null(ownerLeadership.EndsAt);
         Assert.Null(employee.AgentInstallationId);
         Assert.False(installation.IsEnabled);
+        var cleanup = await db.ResourceCleanupRequests.SingleAsync(x => x.ResourceId == installation.Id);
+        Assert.Equal(CSweet.Infrastructure.Setup.ResourceCleanupQueue.Runtime, cleanup.Kind);
+        Assert.Equal(employee.OrganizationId, cleanup.BusinessId);
+        Assert.Null(cleanup.CompletedAt);
         Assert.NotNull(chat.ArchivedAt);
         Assert.Equal(ProposalStatus.Cancelled, plan.Status);
         Assert.Equal(ProposalStatus.Cancelled, workflow.Status);

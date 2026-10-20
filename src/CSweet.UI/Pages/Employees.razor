@@ -13,21 +13,12 @@
 <PageTitle>@L["Employees.PageTitle"]</PageTitle>
 
 <div class="command-center-shell aurora-page employee-workspace employees-page">
-    <header class="employees-heading">
-        <h1>@L["Employees.Employees"]</h1>
+    <EmployeeWorkspaceHeader OrganizationId="OrganizationId" ActiveTab="@(IsHiringTab ? "hiring" : _activeView.ToString().ToLowerInvariant())">
         @if (!_loading)
         {
             <span class="employees-census">@_employees.Count people <span aria-hidden="true">·</span> @PresentedTeams.Teams.Count(x => !x.IsArchived) teams</span>
         }
-    </header>
-    <nav class="employees-navigation" aria-label="@L["Employees.EmployeeViews"]">
-        @foreach (var view in new[] { EmployeeViewKind.Graph, EmployeeViewKind.Teams, EmployeeViewKind.Directory })
-        {
-            <a href="@ViewUrl(view)" aria-current="@(!IsHiringTab && _activeView == view ? "page" : null)"
-               class="@(!IsHiringTab && _activeView == view ? "active" : null)">@(view == EmployeeViewKind.Graph ? "Org chart" : view.ToString())</a>
-        }
-        <a href="@($"/organizations/{OrganizationId}/employees?tab=hiring")" aria-current="@(IsHiringTab ? "page" : null)" class="@(IsHiringTab ? "active" : null)">@L["Employees.Hiring"]</a>
-    </nav>
+    </EmployeeWorkspaceHeader>
     @if (IsHiringTab)
     {
         @if (_loading)
@@ -43,7 +34,7 @@
             <MudButton OnClick="OpenHireDialog" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd">@L["Employees.AddEmployee"]</MudButton>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
                 @L["Employees.ReviewProposedTeamChangesAnd"]
-                <MudLink Href="@($"/organizations/{OrganizationId}/marketplace")">@L["Employees.BrowseTheAgentMarketplace"]</MudLink>.
+                <MudLink Href="@($"/organizations/{OrganizationId}/employees/marketplace")">@L["Employees.BrowseTheAgentMarketplace"]</MudLink>.
             </MudAlert>
             @if (_hiringDashboard?.ResourceChanges.Count > 0)
             {

@@ -346,7 +346,7 @@ public sealed class FileMediaAssetStore : IMediaAssetStore
     public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         var path = Resolve(storageKey);
-        if (File.Exists(path)) File.Delete(path);
+        CSweet.TrustedServices.OwnedStorage.DeleteFile(_root, path);
         return Task.CompletedTask;
     }
 
@@ -369,6 +369,7 @@ public sealed class MediaAssetService(
 
     public async Task<MediaAssetResponse> SaveUploadAsync(Guid organizationId, string fileName, string contentType, Stream content, CancellationToken cancellationToken = default)
     {
+        await using var storageAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, organizationId, cancellationToken);
         if (!await db.CoreOrganizations.AnyAsync(x => x.Id == organizationId, cancellationToken))
             throw new InvalidOperationException("Organization was not found.");
         var safeName = Path.GetFileName(fileName);

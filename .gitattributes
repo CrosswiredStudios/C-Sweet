@@ -1,0 +1,2 @@
+# Shell entrypoints are mounted into Linux containers, including on Windows.
+docker/searxng/*.sh text eol=lf

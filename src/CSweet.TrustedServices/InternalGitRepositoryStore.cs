@@ -77,6 +77,7 @@ public sealed partial class InternalGitRepositoryStore(IOptions<InternalGitStora
     public async Task<InternalGitRepositoryInspection> ExecuteAsync(InternalGitRepositoryRequest request,
         CancellationToken cancellationToken = default)
     {
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var path = RepositoryPath(request.OrganizationId, request.RepositoryId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await using var lease = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

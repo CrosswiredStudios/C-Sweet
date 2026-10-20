@@ -14,6 +14,7 @@ public sealed partial class InternalGitRepositoryStore
         if (request.Service is not ("git-upload-pack" or "git-receive-pack") || request.Body.Length > MaximumGitRequestBytes || request.ProtectedBranches.Count > 10000)
             throw new ArgumentException("Unsupported Git request.");
         foreach (var branch in request.ProtectedBranches) ValidateBranch(branch);
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

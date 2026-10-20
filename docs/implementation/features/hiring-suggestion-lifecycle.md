@@ -15,6 +15,26 @@ document-access requests, source-control approvals and their waiting operations,
 connector actions become **Cancelled**. Passive Chief audit cards also settle as cancelled.
 Completed hires, answers, artifacts and historical records remain available.
 
+Dismissal also ends the employee's open `LeadershipAssignment` records in the same
+transaction. `CoreOrganizationService`, `HiringService.TryAutoAssignChiefOfStaffAsync`,
+and `BusinessOnboardingService` treat only active, non-archived employees in the same
+organization as current leaders. Assigning a replacement closes stale leadership rows
+under the hiring lock before creating the new assignment and onboarding outbox event.
+
+`HiringService.RestoreHiredChiefAsync`, called by `ListRecommendationsAsync`, repairs
+legacy missing Chief assignments only for a single enabled Chief employee backed by an
+approved hire workflow. It never displaces an active Chief or chooses among multiple
+eligible hires. The replacement retains its own installation-scoped hiring policy;
+the departed Chief's delegation and answers are historical and are never copied.
+Restoration commits an attention invalidation with the assignment so an already-delivered
+onboarding event does not leave candidate selection waiting for a later periodic review.
+`BusinessOnboardingServiceTests` covers stale-slot replacement, reconciliation,
+ambiguous hires, existing active leadership, and fresh hiring-policy setup.
+
+`CurrentActivityService.BaseState` reports an unclaimed personal task with no active
+callback or model call as **Waiting for follow-up**. A released task awaiting review
+does not imply that an execution lease expired; genuinely expired claims still recover.
+
 `EmployeeActionExpiration.ReconcileAsync` repairs requests left behind by older dismissals
 when hiring recommendations, the approvals dashboard or source-control decisions are read.
 It selects disabled business installations with no active employee. Marketplace preview and
@@ -48,6 +68,15 @@ marketplace action while an automatic hire succeeds, starts, queues, builds, or 
 Missing authority or required owner configuration retains the review action.
 
 ## Company overview hiring row
+
+`HiringRecommendationResponse.NoSuitableAgentFound` exposes the persisted no-eligible-candidate
+outcome from `SelectCandidateAsync`, including recommendations created before this UI state.
+Both `OverviewHiringCandidateCard` and `HiringSuggestionCarousel` show **No suitable agent
+found** with an **Open Agent Marketplace** link bound to the original role and recommendation.
+The role remains pending and unfilled, without an interviewing spinner or a fabricated hire.
+An unstarted search and explicit owner-selection mode remain distinct. Repeated automatic
+attempts reuse the same recommendation and preserve publisher restrictions. Human marketplace
+fulfillment is outside this flow.
 
 `OverviewHiringCandidateCard` observes `AgentHireOperationState.Changed` and matches
 operations by organization and `AgentHireOperationResponse.RecommendationId`. Starting,

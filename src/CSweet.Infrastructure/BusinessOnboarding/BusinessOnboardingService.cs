@@ -605,15 +605,19 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         var organization = await _dbContext.CoreOrganizations.SingleOrDefaultAsync(x => x.Id == organizationId, cancellationToken);
         if (organization is null)
             return new(false, "not_found", "The organization was not found.");
-        var current = await _dbContext.LeadershipAssignments.AnyAsync(
-            x => x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null, cancellationToken);
-        if (current)
-            return new(false, "chief_already_assigned", "The organization already has an active Chief of Staff assignment.");
-
         await using var transaction = _dbContext.Database.IsRelational() &&
             _dbContext.Database.CurrentTransaction is null
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        await HiringOrganizationLock.AcquireAsync(_dbContext, organizationId, cancellationToken);
+        var current = await _dbContext.LeadershipAssignments.AnyAsync(
+            x => x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null &&
+                _dbContext.CoreOrganizationUsers.Any(employee => employee.Id == x.OrganizationUserId &&
+                    employee.OrganizationId == organizationId && employee.IsActive && employee.ArchivedAt == null), cancellationToken);
+        if (current)
+            return new(false, "chief_already_assigned", "The organization already has an active Chief of Staff assignment.");
+
+        await EndInactiveLeadershipAsync(organizationId, cancellationToken);
         var assignment = await CreateChiefAssignmentAsync(organizationId, request.AgentDefinitionId, null,
             new Dictionary<string, JsonElement>(), cancellationToken);
         if (!assignment.Succeeded)
@@ -647,8 +651,15 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         if (organization is null)
             return new(false, "not_found", "The organization was not found.");
 
+        await using var transaction = _dbContext.Database.IsRelational() &&
+            _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+        await HiringOrganizationLock.AcquireAsync(_dbContext, organizationId, cancellationToken);
         var current = await _dbContext.LeadershipAssignments.SingleOrDefaultAsync(
-            x => x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null,
+            x => x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null &&
+                _dbContext.CoreOrganizationUsers.Any(employee => employee.Id == x.OrganizationUserId &&
+                    employee.OrganizationId == organizationId && employee.IsActive && employee.ArchivedAt == null),
             cancellationToken);
         if (current is not null)
         {
@@ -663,16 +674,12 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             .SingleOrDefaultAsync(x =>
                 x.Id == organizationUserId &&
                 x.OrganizationId == organizationId &&
-                x.IsActive,
+                x.IsActive && x.ArchivedAt == null,
                 cancellationToken);
         if (chief?.EmployeeType != EmployeeType.Agent || chief.AgentInstallationId is null)
             return new(false, "chief_employee_invalid", "The selected Chief of Staff must be an active agent employee in this organization.");
 
-        await using var transaction = _dbContext.Database.IsRelational() &&
-            _dbContext.Database.CurrentTransaction is null
-            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
-            : null;
-
+        await EndInactiveLeadershipAsync(organizationId, cancellationToken);
         var chiefRole = await _dbContext.CoreRoles.SingleOrDefaultAsync(
             x => x.OrganizationId == organizationId && x.Name == "Chief of Staff", cancellationToken);
         if (chiefRole is null)
@@ -746,6 +753,17 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             warnings,
             $"/organizations/{organizationId}/communications/{onboarding.ConversationId:D}");
         return new(true, null, "Chief of Staff setup completed.", response);
+    }
+
+    private async Task EndInactiveLeadershipAsync(Guid organizationId, CancellationToken token)
+    {
+        var stale = await _dbContext.LeadershipAssignments.Where(x => x.OrganizationId == organizationId && x.EndsAt == null &&
+            !_dbContext.CoreOrganizationUsers.Any(employee => employee.Id == x.OrganizationUserId &&
+                employee.OrganizationId == organizationId && employee.IsActive && employee.ArchivedAt == null)).ToListAsync(token);
+        foreach (var assignment in stale)
+            assignment.EndsAt = await _dbContext.CoreOrganizationUsers.Where(x => x.Id == assignment.OrganizationUserId)
+                .Select(x => x.ArchivedAt).SingleOrDefaultAsync(token) ?? DateTimeOffset.UtcNow;
+        if (stale.Count > 0) await _dbContext.SaveChangesAsync(token);
     }
 
     private static string? TrimOrNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

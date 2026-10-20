@@ -5,18 +5,26 @@ using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentRuntimeCleanupServiceTests
+public sealed class AgentRuntimeCleanupServiceTests : IDisposable
 {
+    private readonly string logRoot = Path.Combine(Path.GetTempPath(), "csweet-cleanup-logs", Guid.NewGuid().ToString("N"));
+    public void Dispose()
+    {
+        if (Directory.Exists(logRoot)) CSweet.TrustedServices.OwnedStorage.DeleteDirectory(Path.GetDirectoryName(logRoot)!, logRoot);
+    }
     [Fact]
     public async Task CleanupAsync_RemovesDeferredResourcesAndExpiredHistory()
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var workspace = $"broker-source:{Guid.NewGuid():N}";
-        var logPath = $"broker-log:{Guid.NewGuid():N}";
+        Directory.CreateDirectory(logRoot);
+        var logPath = Path.Combine(logRoot, "build.log");
+        await File.WriteAllTextAsync(logPath, "retained build diagnostics");
             var now = DateTimeOffset.UtcNow;
             db.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings
             {
@@ -47,7 +55,8 @@ public sealed class AgentRuntimeCleanupServiceTests
                 db,
                 runner,
                 audit,
-                NullLogger<AgentRuntimeCleanupService>.Instance);
+                NullLogger<AgentRuntimeCleanupService>.Instance,
+                Options.Create(new AgentRuntimeManagerOptions { BuildLogStorePath = logRoot }));
 
             var result = await service.CleanupAsync();
 
@@ -58,9 +67,55 @@ public sealed class AgentRuntimeCleanupServiceTests
             Assert.Equal(2, runner.Destroyed.Count);
             Assert.Null(job.SourceWorkspacePath);
             Assert.Null(job.LogPath);
+            Assert.False(File.Exists(logPath));
             Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
             Assert.Equal(AgentRuntimeStatus.Failed, (await db.AgentRuntimeInstances.SingleAsync()).Status);
             Assert.Contains("agent-runtime.cleanup.completed", audit.EventTypes);
+    }
+
+    [Fact]
+    public async Task CleanupAsync_RetainsExpiredRuntimeEvidenceWhenDestructionIsNotConfirmed()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        db.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings
+        { Id = Guid.NewGuid(), RemoveWorkloadsAfterCompletion = true, CompletedRuntimeRetentionDays = 1 });
+        var instance = CompletedRuntime(Guid.NewGuid(), DateTimeOffset.UtcNow.AddDays(-3), "unconfirmed-vm");
+        db.AgentRuntimeInstances.Add(instance);
+        await db.SaveChangesAsync();
+        var service = new AgentRuntimeCleanupService(db, new CleanupRunner(false), new CapturingAuditWriter(),
+            NullLogger<AgentRuntimeCleanupService>.Instance);
+        var result = await service.CleanupAsync();
+        Assert.Equal(0, result.WorkloadsRemoved);
+        Assert.Equal(0, result.RuntimeHistoriesRemoved);
+        Assert.Equal("unconfirmed-vm", (await db.AgentRuntimeInstances.SingleAsync()).ProviderInstanceId);
+    }
+
+    [Fact]
+    public async Task CleanupAsync_RetainsUnsafeLogLocatorAndRetriesAfterStorageConfigurationIsRepaired()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        Directory.CreateDirectory(logRoot);
+        var path = Path.Combine(logRoot, "build.log");
+        await File.WriteAllTextAsync(path, "diagnostic bytes");
+        db.AgentRuntimeGlobalSettings.Add(new AgentRuntimeGlobalSettings { Id = Guid.NewGuid(), BuildLogRetentionDays = 1 });
+        var now = DateTimeOffset.UtcNow.AddDays(-3);
+        var job = new AgentBuildJob { Id = Guid.NewGuid(), PackageVersionId = Guid.NewGuid(), QueuedAt = now, LogPath = path };
+        job.TransitionTo(AgentBuildStatus.Cloning, now);
+        job.TransitionTo(AgentBuildStatus.Failed, now);
+        db.AgentBuildJobs.Add(job);
+        await db.SaveChangesAsync();
+        var configured = new AgentRuntimeManagerOptions { BuildLogStorePath = Path.Combine(logRoot, "different-store") };
+        var service = new AgentRuntimeCleanupService(db, new CleanupRunner(), new CapturingAuditWriter(),
+            NullLogger<AgentRuntimeCleanupService>.Instance, Options.Create(configured));
+        Assert.Equal(0, (await service.CleanupAsync()).BuildLogsRemoved);
+        Assert.Equal(path, job.LogPath);
+        Assert.True(File.Exists(path));
+        configured.BuildLogStorePath = logRoot;
+        Assert.Equal(1, (await service.CleanupAsync()).BuildLogsRemoved);
+        Assert.Null(job.LogPath);
+        Assert.False(File.Exists(path));
     }
 
     private static AgentRuntimeInstance CompletedRuntime(Guid installationId, DateTimeOffset at, string providerInstanceId)
@@ -87,12 +142,12 @@ public sealed class AgentRuntimeCleanupServiceTests
         return runtime;
     }
 
-    private sealed class CleanupRunner : IAgentWorkloadRunner
+    private sealed class CleanupRunner(bool confirmsDestruction = true) : IAgentWorkloadRunner
     {
         public List<IsolationWorkloadHandle> Destroyed { get; } = [];
         public Task<IsolationWorkloadHandle> CreateAndStartAsync(RuntimeWorkloadSpecification workload, AgentTrustLevel trustLevel, string? preferredProviderId = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => Task.FromResult<IsolationWorkloadStatus?>(new(handle, IsolationWorkloadState.Stopped, IsolationTerminationReason.Completed, 0, null, DateTimeOffset.UtcNow, null, null));
+        public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) => Task.FromResult<IsolationWorkloadStatus?>(new(handle, confirmsDestruction && Destroyed.Contains(handle) ? IsolationWorkloadState.Destroyed : IsolationWorkloadState.Stopped, IsolationTerminationReason.Completed, 0, null, DateTimeOffset.UtcNow, null, null));
         public Task DestroyAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default) { Destroyed.Add(handle); return Task.CompletedTask; }
         public Task<string> GetLogsAsync(IsolationWorkloadHandle handle, int maximumBytes, CancellationToken cancellationToken = default) => Task.FromResult(string.Empty);
     }

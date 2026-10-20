@@ -34,6 +34,7 @@ public sealed partial class InternalGitRepositoryStore
         ValidateBranch(request.Branch); ValidateBranch(request.DefaultBranch); ValidateSha(request.BaseSha);
         if (request.Operation is not ("inspect" or "publish" or "refresh") || request.WorkspaceId == Guid.Empty || string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160 ||
             (request.Operation == "publish" && request.Branch == request.DefaultBranch)) throw new ArgumentException("Invalid GitHub workspace operation.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var cache = RepositoryPath(request.OrganizationId, request.RepositoryId);
         Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
         ValidateMetadata(cache + ".github.lock", 4096);

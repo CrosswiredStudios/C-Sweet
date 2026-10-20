@@ -61,10 +61,6 @@
                     <MudNavLink Href="@AnalyticsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Insights" Class="business-nav-link">
                         @L["NavMenu.Analytics"]
                     </MudNavLink>
-                    <MudNavLink Href="@MarketplaceHref" Match="NavLinkMatch.Prefix"
-                                Icon="@Icons.Material.Outlined.Storefront" Class="business-nav-link">
-                        @L["NavMenu.AgentMarketplace"]
-                    </MudNavLink>
                     <MudNavLink Href="@CommunicationsHref" Match="NavLinkMatch.Prefix"
                                 Icon="@Icons.Material.Outlined.Forum" Class="business-nav-link communications-nav-link">
                         <span class="communications-nav-content">
@@ -89,7 +85,6 @@
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Description" /> @L["NavMenu.Documents"]</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Groups" /> @L["NavMenu.Employees"]</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Insights" /> @L["NavMenu.Analytics"]</div>
-                    <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Storefront" /> @L["NavMenu.AgentMarketplace"]</div>
                     <div class="business-nav-disabled" aria-disabled="true"><MudIcon Icon="@Icons.Material.Outlined.Security" /> @L["NavMenu.Security"]</div>
                 }
             </div>
@@ -148,10 +143,6 @@
 
     private string? DocumentsHref => BusinessContext.SelectedBusiness is { } business
         ? $"/organizations/{business.Id}/documents"
-        : null;
-
-    private string? MarketplaceHref => BusinessContext.SelectedBusiness is { } business
-        ? $"/organizations/{business.Id}/marketplace"
         : null;
 
     private string? SecurityHref => BusinessContext.SelectedBusiness is { } business

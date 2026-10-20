@@ -199,11 +199,33 @@ Describe 'Temporary C-Sweet image-build VMs' {
     }
 }
 
+Describe 'Retirement task ownership' {
+    It 'selects only the exact generated task action beneath the machine root' {
+        $root = Join-Path $TestDrive 'machine'
+        $business = [guid]::NewGuid().ToString('N')
+        $script = Join-Path $root ('ComputeRetirement\' + $business + '\retire.ps1')
+        $task = [pscustomobject]@{ TaskName='CSweet.Compute.Retire.' + $business; TaskPath='\'; Actions=@(
+            [pscustomobject]@{Execute=(Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe');
+                Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $script + '"'}) }
+        $plan = @(Get-CSweetResetRetirementTaskPlan @($task) $root)
+        $plan.Count | Should Be 1
+        $plan[0].TaskName | Should Be $task.TaskName
+        $task.Actions[0].Arguments += ' -Command arbitrary'
+        Assert-ResetThrows { Get-CSweetResetRetirementTaskPlan @($task) $root }
+    }
+    It 'refuses a reserved name with an unrelated executable' {
+        $task = [pscustomobject]@{TaskName='CSweet.Compute.Retire.' + [guid]::NewGuid().ToString('N');TaskPath='\';
+            Actions=@([pscustomobject]@{Execute='cmd.exe';Arguments='/c anything'})}
+        Assert-ResetThrows { Get-CSweetResetRetirementTaskPlan @($task) (Join-Path $TestDrive 'machine') }
+    }
+}
+
 Describe 'Local reset execution gates' {
     BeforeEach {
         Mock Test-Path { $LiteralPath -like '*CSweet.AppHost.csproj' }
         Mock Get-CimInstance { @() }
         Mock Test-CSweetResetHyperVAvailable { $false }
+        Mock Get-CSweetResetRetirementTasks { @() }
         Mock Get-ItemProperty { $null }
         Mock Test-CSweetResetAdministrator { $true }
         Mock Set-Service { throw 'Mutation reached' }

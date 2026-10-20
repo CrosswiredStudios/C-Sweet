@@ -95,7 +95,7 @@ public sealed class RepositorySourceStore(IOptions<RepositoryOnboardingOptions> 
         token.ThrowIfCancellationRequested();
         var target = Root(user, draft);
         // Root() has already checked its resolved path remains inside the configured store.
-        if (Directory.Exists(target)) Directory.Delete(target, true);
+        OwnedStorage.DeleteDirectory(options.Value.StagingPath, target, token);
         return Task.CompletedTask;
     }
 

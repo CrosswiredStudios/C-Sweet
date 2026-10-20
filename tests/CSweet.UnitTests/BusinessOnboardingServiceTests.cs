@@ -397,8 +397,13 @@ public class BusinessOnboardingServiceTests
             x.OrganizationId == organization.Id && x.PositionKey == "chief-of-staff" && x.EndsAt == null));
     }
 
-    [Fact]
-    public async Task AssignExistingChiefAsync_ParticipatesInExistingTransactionWithoutDuplicatingHire()
+    [Theory]
+    [InlineData(false, false, 0)]
+    [InlineData(true, false, 0)]
+    [InlineData(true, true, 0)]
+    [InlineData(true, true, 1)]
+    [InlineData(true, true, 2)]
+    public async Task AssignExistingChiefAsync_ParticipatesInExistingTransactionWithoutDuplicatingHire(bool staleChief, bool recoverViaDashboard, int blocker)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -495,19 +500,68 @@ public class BusinessOnboardingServiceTests
         dbContext.CoreOrganizationUsers.Add(employee);
         await dbContext.SaveChangesAsync();
 
+        LeadershipAssignment? retiredAssignment = null;
+        if (staleChief)
+        {
+            var oldInstallationId = Guid.NewGuid();
+            var retired = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                DisplayName = "Retired Chief", EmployeeType = EmployeeType.Agent, IsActive = false, ArchivedAt = now.AddMinutes(-10) };
+            retiredAssignment = new LeadershipAssignment { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                OrganizationUserId = retired.Id, PositionKey = LeadershipPositionKeys.ChiefOfStaff, StartsAt = now.AddDays(-1) };
+            dbContext.AddRange(retired, retiredAssignment, new ChiefHiringPolicy { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                InstallationId = oldInstallationId, SetupComplete = true, SetupStage = "complete", SettingsJson = "{\"mode\":2,\"automaticLevel\":2,\"publishers\":1}" });
+            if (recoverViaDashboard)
+                dbContext.StaffingActionProposals.Add(new StaffingActionProposal { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                    IdempotencyKey = "first-chief", Status = ProposalStatus.Approved, ResultOrganizationUserId = employee.Id });
+            await dbContext.SaveChangesAsync();
+            Assert.True((await new CoreOrganizationService(dbContext, auditWriter, roleService).GetAsync(organizationId))!.NeedsChiefSetup);
+        }
+        if (blocker > 0)
+        {
+            var otherInstallation = OrganizationUserService.CreateHiredInstallation(definition, organizationId, now);
+            var otherChief = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = organizationId, RoleId = chiefRole.Id,
+                AgentInstallationId = otherInstallation.Id, EmployeeType = EmployeeType.Agent, IsActive = true, DisplayName = "Other Chief" };
+            dbContext.AddRange(otherInstallation, otherChief, new StaffingActionProposal { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                IdempotencyKey = "other-chief", Status = ProposalStatus.Approved, ResultOrganizationUserId = otherChief.Id });
+            if (blocker == 2)
+            {
+                retiredAssignment!.EndsAt = now.AddMinutes(-10);
+                await dbContext.SaveChangesAsync();
+                dbContext.Add(new LeadershipAssignment { Id = Guid.NewGuid(), OrganizationId = organizationId,
+                    OrganizationUserId = otherChief.Id, PositionKey = LeadershipPositionKeys.ChiefOfStaff, StartsAt = now });
+            }
+            await dbContext.SaveChangesAsync();
+        }
         await using var outerTransaction = await dbContext.Database.BeginTransactionAsync();
-        var result = await service.AssignExistingChiefAsync(organizationId, employee.Id);
+        var hiring = new HiringService(dbContext, new OrganizationUserService(dbContext, auditWriter), auditWriter, businessOnboarding: service);
+        if (recoverViaDashboard)
+            await hiring.RestoreHiredChiefAsync(organizationId, default);
+        else
+            Assert.True((await service.AssignExistingChiefAsync(organizationId, employee.Id)).Succeeded);
         await outerTransaction.CommitAsync();
 
-        Assert.True(result.Succeeded);
+        if (blocker > 0)
+        {
+            Assert.Equal(OrganizationPermissionLevel.Contributor, employee.PermissionLevel);
+            Assert.False(await dbContext.LeadershipAssignments.AnyAsync(x => x.OrganizationUserId == employee.Id));
+            Assert.Equal(blocker == 2, retiredAssignment!.EndsAt.HasValue);
+            Assert.Single(await dbContext.ChiefHiringPolicies.ToListAsync());
+            return;
+        }
+
         Assert.Single(await dbContext.AgentInstallations.ToListAsync());
         Assert.Single(await dbContext.CoreOrganizationUsers
-            .Where(x => x.EmployeeType == EmployeeType.Agent).ToListAsync());
+            .Where(x => x.EmployeeType == EmployeeType.Agent && x.IsActive).ToListAsync());
         var assignedEmployee = await dbContext.CoreOrganizationUsers.SingleAsync(x => x.Id == employee.Id);
         Assert.Equal(OrganizationPermissionLevel.Manager, assignedEmployee.PermissionLevel);
         Assert.NotNull(assignedEmployee.ReportsToOrganizationUserId);
-        var leadership = await dbContext.LeadershipAssignments.SingleAsync();
+        var leadership = await dbContext.LeadershipAssignments.SingleAsync(x => x.EndsAt == null);
         Assert.Equal(employee.Id, leadership.OrganizationUserId);
+        if (retiredAssignment is not null) Assert.NotNull(retiredAssignment.EndsAt);
+        if (recoverViaDashboard)
+            Assert.Equal("leadership.chief-restored", installation.Schedule!.PendingAttentionTriggerCategory);
+        Assert.False((await hiring.ReadPolicyAsync(organizationId, employee.AgentInstallationId!.Value)).SetupComplete);
+        Assert.False((await new CoreOrganizationService(dbContext, auditWriter, roleService).GetAsync(organizationId))!.NeedsChiefSetup);
     }
 
     private sealed class SuccessfulOnboarding : IAgentCommunicationOnboardingService

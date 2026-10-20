@@ -22,6 +22,45 @@ namespace CSweet.UnitTests;
 
 public sealed class BusinessWorkspaceRenderingTests
 {
+    [Theory]
+    [InlineData("marketplace")]
+    [InlineData("employees/marketplace")]
+    public async Task MarketplaceDeepLinksRetainTeamAndRoleWhenSearchingAndReselectingTab(string section)
+    {
+        var recommendationId = Guid.Parse("20000000-0000-0000-0000-000000000001");
+        var query = $"?role=Video%20Game%20Producer&recommendationId={recommendationId:D}";
+        var api = new BusinessApi();
+        var html = await Render(typeof(Marketplace), "marketplace-context", api: api,
+            marketplaceLocation: $"http://localhost/organizations/{BusinessId}/{section}{query}",
+            exercise: async instance =>
+            {
+                Assert.Equal("Video Game Producer", Get(instance, "_role"));
+                Set(instance, "_search", "producer");
+                await (Task)instance.GetType().GetMethod("SearchAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(instance, null)!;
+                await (Task)instance.GetType().GetMethod("ClearAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(instance, null)!;
+                var agent = new CSweet.Agent.SDK.AvailableAgent("producer", "producer", CSweet.Agent.SDK.AgentCatalogSource.LocalDirectory, [],
+                    CSweet.Agent.SDK.AgentAvailabilityState.AvailableToInstall, null, "Gabriel Reyes", "Producer", "C-Sweet", "Production",
+                    [], [], [], null, null, null, 0, null, null, 1, "FirstParty");
+                await (Task)instance.GetType().GetMethod("ReviewHireAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(instance, [agent])!;
+                var dialog = Get(instance, "_hireDialog")!;
+                Assert.Equal(ItemId, Get(dialog, "_teamId"));
+            });
+        html = WebUtility.HtmlDecode(html);
+        Assert.Contains("Hiring for Video Game Producer", html);
+        Assert.Contains("Video Game Team", html);
+        Assert.Contains($"/employees?tab=hiring&recommendation={recommendationId:D}", html);
+        Assert.Contains($"href=\"/organizations/{BusinessId}/employees/marketplace{query}\" aria-current=\"page\"", html);
+        // Only the explicit 'Browse outside this plan' link detaches recommendation context.
+        Assert.Contains($"href=\"/organizations/{BusinessId}/employees/marketplace\"", html);
+        Assert.Equal(3, api.MarketplaceQueries.Count);
+        Assert.All(api.MarketplaceQueries, request => Assert.Contains($"recommendationId={recommendationId:D}", request));
+        Assert.Contains("role=Video%20Game%20Producer", api.MarketplaceQueries[0]);
+        Assert.Contains("q=producer", api.MarketplaceQueries[1]);
+        var preview = Assert.Single(api.HirePreviews);
+        Assert.Equal(recommendationId, preview.RecommendationId);
+        Assert.Equal("Video Game Producer", preview.RoleTitle);
+    }
+
     [Fact]
     public async Task Analytics_RendersPendingAndUnknownInsteadOfZeroUsage()
     {
@@ -177,12 +216,12 @@ public sealed class BusinessWorkspaceRenderingTests
 
     private static object? Get(object instance, string field) => instance.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(instance);
     private static void Set(object instance, string field, object? value) => instance.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(instance, value);
-    private static async Task<string> Render(Type page, string name, string? field = null, string? value = null, Func<ComponentBase, Task>? exercise = null, int? tab = null)
+    private static async Task<string> Render(Type page, string name, string? field = null, string? value = null, Func<ComponentBase, Task>? exercise = null, int? tab = null, BusinessApi? api = null, string? marketplaceLocation = null)
     {
-        var api = new BusinessApi();
+        api ??= new BusinessApi();
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
-        var activator = new TrackingActivator(); services.AddSingleton<IComponentActivator>(activator);
-        services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
+        var activator = new TrackingActivator(marketplaceLocation); services.AddSingleton<IComponentActivator>(activator);
+        services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager>(new TestNavigation(marketplaceLocation));
         services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
         services.AddSingleton<IBusinessContext, TestBusinessContext>();
         await using var provider = services.BuildServiceProvider();
@@ -218,10 +257,22 @@ public sealed class BusinessWorkspaceRenderingTests
             return html;
         });
     }
-    private sealed class TrackingActivator : IComponentActivator
+    private sealed class TrackingActivator(string? marketplaceLocation) : IComponentActivator
     {
         public List<MudTabs> Tabs { get; } = [];
-        public IComponent CreateInstance(Type type) { var c=(IComponent)Activator.CreateInstance(type)!; if(c is MudTabs tabs) Tabs.Add(tabs); return c; }
+        public IComponent CreateInstance(Type type)
+        {
+            var c = (IComponent)Activator.CreateInstance(type)!;
+            if (c is MudTabs tabs) Tabs.Add(tabs);
+            // Static rendering needs the query state seeded before the page's first render.
+            if (c is Marketplace marketplace && marketplaceLocation is not null)
+            {
+                var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(marketplaceLocation).Query);
+                marketplace.RequestedRole = query["role"];
+                marketplace.RecommendationId = Guid.Parse(query["recommendationId"].ToString());
+            }
+            return c;
+        }
     }
     private sealed class TestHost : ComponentBase
     {
@@ -230,9 +281,20 @@ public sealed class BusinessWorkspaceRenderingTests
     }
     private sealed class BusinessApi : HttpMessageHandler
     {
+        public List<string> MarketplaceQueries { get; } = [];
+        public List<PreviewMarketplaceHireRequest> HirePreviews { get; } = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/hiring/marketplace/preview"))
+            {
+                var body = (await request.Content!.ReadFromJsonAsync<PreviewMarketplaceHireRequest>(cancellationToken))!;
+                HirePreviews.Add(body);
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new MarketplaceHirePreviewResponse(
+                    Guid.NewGuid(), "producer", "Gabriel Reyes", body.EmployeeDisplayName!, "Video Game Producer",
+                    ItemId, "C-Sweet", "Platform verified", null, null, [], [], [], [], "Review access", "Preview")
+                    { ConfigurationFields = [], TeamId = ItemId }) };
+            }
             if (request.Method != HttpMethod.Get)
             {
                 // The existing lock API represents its read-only list operation as a POST.
@@ -255,7 +317,12 @@ public sealed class BusinessWorkspaceRenderingTests
             else if (path.EndsWith("/documents/folders") || path.EndsWith("/documents/packages")) json = "[]";
             else if (path.Contains("/analytics/inference")) json = """{"totals":{"totalTokens":145000,"inputTokens":100000,"outputTokens":45000,"requestCount":350},"employees":[{"employeeId":"10000000-0000-0000-0000-000000000001","employeeName":"Naomi Chen","agentKey":"Creative Director","model":"Creative model","providerName":"Studio provider","totalTokens":145000,"inputTokens":100000,"outputTokens":45000,"requestCount":350,"isActive":true}]}""";
             else if (path.Contains("/efficiency")) json = """{"businessTotal":{},"businessOverhead":{},"unattributed":{},"projects":[],"workItems":[],"coverageNote":"Usage is reported by providers."}""";
-            else if (path.EndsWith("/agents/available")) json = "{\"agents\":[],\"sources\":[]}";
+            else if (path.EndsWith("/agents/available"))
+            {
+                MarketplaceQueries.Add(request.RequestUri.Query);
+                json = "{\"agents\":[],\"sources\":[]}";
+            }
+            else if (path.Contains("/hiring/recommendations/")) json = """{"id":"20000000-0000-0000-0000-000000000001","title":"Video Game Producer","objective":"Produce the game","status":"Pending","candidates":[],"remainingHeadcount":1,"requestingTeam":"Video Game Team","requestingEmployee":"Naomi Chen","actualDecisionMaker":"Matt"}""";
             else if (path.EndsWith("/communications/hub")) json = """{"canManageChats":true,"chats":[],"people":[],"audiences":[]}""";
             else if (path.Contains("/notifications")) json = "[]";
             else if (path.EndsWith("/security/events")) json = """{"items":[{"id":"10000000-0000-0000-0000-000000000001","occurredAt":"2026-10-11T15:00:00Z","summary":"Review completed","eventType":"document.review","category":"DocumentAccess","actorDisplayName":"Naomi Chen","actorKind":"Agent","outcome":"Completed","integrityStatus":"Verified"}]}""";
@@ -273,7 +340,7 @@ public sealed class BusinessWorkspaceRenderingTests
     private static readonly OrganizationResponse Business = new(BusinessId, "Super Awesome Games", null, null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     private sealed class TestNavigation : NavigationManager
     {
-        public TestNavigation() => Initialize("http://localhost/", "http://localhost/");
+        public TestNavigation(string? location = null) => Initialize("http://localhost/", location ?? "http://localhost/");
         protected override void NavigateToCore(string uri, bool forceLoad) { }
         protected override void NavigateToCore(string uri, NavigationOptions options) { }
     }

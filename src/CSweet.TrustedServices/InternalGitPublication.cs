@@ -20,6 +20,7 @@ public sealed partial class InternalGitRepositoryStore
             throw new ArgumentException("A bounded commit message is required.");
         if (request.Branch == request.DefaultBranch && request.Operation == "publish")
             throw new UnauthorizedAccessException("Publication cannot write directly to the default branch.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -31,7 +32,7 @@ public sealed partial class InternalGitRepositoryStore
         var source = refs.SingleOrDefault(r => r.Name == "refs/heads/" + request.Branch)?.Sha;
         var target = refs.SingleOrDefault(r => r.Name == "refs/heads/" + request.DefaultBranch)?.Sha;
         Directory.CreateDirectory(_options.TemporaryRoot);
-        var temporary = Path.Combine(Path.GetFullPath(_options.TemporaryRoot), Guid.NewGuid().ToString("N"));
+        var temporary = Path.Combine(BusinessTemporaryRoot(request.OrganizationId), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporary);
         try
         {
@@ -149,6 +150,7 @@ public sealed partial class InternalGitRepositoryStore
         ValidateBranch(request.SourceBranch); ValidateBranch(request.TargetBranch); ValidateSha(request.ExpectedHeadSha);
         if (request.SourceBranch == request.TargetBranch || request.PublicationId == Guid.Empty || string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 200)
             throw new ArgumentException("Merge identity is required.");
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);

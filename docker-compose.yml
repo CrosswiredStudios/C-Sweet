@@ -1,4 +1,25 @@
 services:
+  # Trusted search infrastructure; also provisioned by the development AppHost.
+  # No host port: the broker reaches it on the Compose network.
+  searxng:
+    image: docker.io/searxng/searxng:2026.10.19-81371861f@sha256:5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271
+    restart: unless-stopped
+    expose:
+      - "8080"
+    entrypoint: ["/bin/sh", "/usr/local/bin/csweet-searxng-start.sh"]
+    environment:
+      FORCE_OWNERSHIP: "false"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./docker/searxng/start.sh:/usr/local/bin/csweet-searxng-start.sh:ro
+      - csweet-searxng-cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD", "/usr/local/searxng/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   csweet-githost:
     build:
       context: .
@@ -160,6 +181,8 @@ services:
     expose:
       - "8081"
     depends_on:
+      searxng:
+        condition: service_started
       postgres:
         condition: service_healthy
       csweet-migrator:
@@ -169,6 +192,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       DOTNET_ENVIRONMENT: ${DOTNET_ENVIRONMENT:-Production}
+      CSweet__Search__Searxng__BaseUrl: http://searxng:8080
       ConnectionStrings__Postgres: ${CSWEET_CONNECTIONSTRINGS__POSTGRES:-Host=postgres;Port=5432;Database=csweet;Username=csweet;Password=change-me-in-production}
       CSweet__SourceControl__GitHostBaseUrl: http://csweet-githost:8080
       CSweet__SourceControl__TrustedServiceKeyId: core
@@ -204,6 +228,9 @@ services:
       retries: 5
 
 volumes:
+  csweet-searxng-cache:
+    name: csweet-searxng-cache
+    driver: local
   csweet-git-data:
     driver: local
   csweet-git-trust:

@@ -15,13 +15,28 @@ public sealed class InternalGitLfsStore(IOptions<InternalGitStorageOptions> opti
     private IAmazonS3? _client;
     private InternalGitObjectStorageOptions Settings => _storage.Lfs;
 
+    public async Task DeleteBusinessAsync(Guid business, CancellationToken token = default)
+    {
+        var prefix = BusinessObjectStorageCleanup.Prefix(Settings, business);
+        if (Settings.Provider == "s3")
+            await BusinessObjectStorageCleanup.DeleteAsync(Client, Settings.BucketName!, prefix, token);
+        else
+        {
+            var path = FilePath(prefix.TrimEnd('/'));
+            var root = Settings.RootPath ?? Path.GetFullPath(Path.Combine(_storage.RepositoryRoot, "..", "lfs"));
+            OwnedStorage.DeleteDirectory(root, path, token);
+        }
+    }
+
     public async Task PutAsync(Guid business, Guid repository, string oid, long size, Stream content, CancellationToken ct = default)
     {
         var key = Key(business, repository, oid);
         if (size < 0 || size > Settings.MaximumObjectBytes) throw new ArgumentException("LFS object exceeds the configured limit.");
         InternalGitStorageOptions.ValidatePath(_storage.TemporaryRoot);
         Directory.CreateDirectory(_storage.TemporaryRoot);
-        var temporary = Path.Combine(_storage.TemporaryRoot, "lfs-" + Guid.NewGuid().ToString("N"));
+        var businessTemporary = OwnedStorage.Child(_storage.TemporaryRoot, "businesses", business.ToString("N"));
+        Directory.CreateDirectory(businessTemporary);
+        var temporary = Path.Combine(businessTemporary, "lfs-" + Guid.NewGuid().ToString("N"));
         try
         {
             await using var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920, FileOptions.Asynchronous);

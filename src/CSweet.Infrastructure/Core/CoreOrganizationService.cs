@@ -42,7 +42,9 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
             .Select(x => x.ToResponse())
             .ToListAsync(cancellationToken);
         var assigned = await _dbContext.LeadershipAssignments.AsNoTracking()
-            .Where(x => x.PositionKey == "chief-of-staff" && x.EndsAt == null)
+            .Where(x => x.PositionKey == "chief-of-staff" && x.EndsAt == null &&
+                _dbContext.CoreOrganizationUsers.Any(employee => employee.Id == x.OrganizationUserId &&
+                    employee.OrganizationId == x.OrganizationId && employee.IsActive && employee.ArchivedAt == null))
             .Select(x => x.OrganizationId)
             .ToHashSetAsync(cancellationToken);
         return organizations.Select(x => x with { NeedsChiefSetup = !assigned.Contains(x.Id) }).ToList();
@@ -55,7 +57,9 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
 
         if (org is null) return null;
         var hasChief = await _dbContext.LeadershipAssignments.AsNoTracking().AnyAsync(
-            x => x.OrganizationId == id && x.PositionKey == "chief-of-staff" && x.EndsAt == null, cancellationToken);
+            x => x.OrganizationId == id && x.PositionKey == "chief-of-staff" && x.EndsAt == null &&
+                _dbContext.CoreOrganizationUsers.Any(employee => employee.Id == x.OrganizationUserId &&
+                    employee.OrganizationId == id && employee.IsActive && employee.ArchivedAt == null), cancellationToken);
         return org.ToResponse() with { NeedsChiefSetup = !hasChief };
     }
 
@@ -165,6 +169,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
 
     private async Task<CoreActionResponse> DeleteCoreAsync(Guid id, CancellationToken cancellationToken, bool retryStalledComputeCleanup = false)
     {
+        await using var storageWriters = await BusinessStorageAdmission.EnterAsync(_dbContext, id, cancellationToken, deleting: true);
         var org = await _dbContext.CoreOrganizations
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 
@@ -191,7 +196,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
         }
         catch (OrganizationDeletionException exception)
         {
-            if (exception.ErrorCode is not ("compute_cleanup_pending" or "agent_cleanup_pending"))
+            if (exception.ErrorCode is not ("compute_cleanup_pending" or "agent_cleanup_pending" or "storage_cleanup_pending"))
                 await MarkDeletionFailedAsync(id, cancellationToken);
             return Failure(exception.ErrorCode, exception.Message);
         }

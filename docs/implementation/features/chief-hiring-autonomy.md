@@ -19,6 +19,14 @@ network entries. Empty permission lists authorize none. Broad delegation allows 
 packages' requested grants for the Chief's own leadership recommendations and approved
 team roles, subject to the existing platform restrictions.
 Unknown cost, missing required configuration, or insufficient authority requires owner review.
+`HiringService.ConfigureDelegatedHireAsync` resolves non-secret manifest defaults and saved
+definition settings into the hire snapshot before confirmation. When both live and bound
+authority allow broad delegation, a package with no provider/model defaults can reuse the
+Chief's effective configured provider/model pair. It never copies unrelated settings or
+credentials. `ValidateDelegatedConfigurationAsync` checks required visible fields, types,
+dependencies, budgets and enabled providers again at deferred commit; real missing input
+names the fields instead of requiring a redundant hiring approval. Frozen settings do not
+follow later shared-default edits while a package builds.
 Publisher preference is independent: first-party only, prefer first-party, or best fit.
 Catalog provenance is platform-controlled. `AgentCatalogService.DeduplicationKey` keeps
 identical manifest IDs from different repositories separate; publisher names do not confer trust.
@@ -67,6 +75,14 @@ An ambiguous automatic request prompts for the level; incomplete setup executes 
 recommendation mode. An explicit skip completes setup with the defaults and resumes focus.
 Decision keys bind installation, stage, revision, and retry; replayed answers do not increment
 policy revision again.
+
+Chief 2.13.5 reads the live policy into model instructions before each assistant generation.
+Automatic delegation does not require a Marketplace readiness or selected-candidate
+confirmation question. `HiringTurnTools` guards native tool persistence: one response may
+change staffing or ask one essential question, and cannot do both in either call order.
+`PrepareHiringCandidateAsync` remains responsible for executing the platform-authorized
+hire and retaining shared review only for an actual exception. Install the published agent
+update through Installed Agents; a local agent build does not update installed payloads.
 
 `ChiefOfStaffAgent.HandleConfigurationChoiceAnsweredAsync` resumes hiring setup before company
 focus, matching the initial onboarding path. `BeginFocusOnboardingAsync` shares conversation-scoped
@@ -134,6 +150,14 @@ board refresh hints with their state changes. Tracking cards are non-executable 
 another hiring callback. See [Chief work cards](employee-audit-timeline.md#chief-of-staff-work-cards).
 
 ## Shared hiring UI and marketplace context
+
+`EmployeeWorkspaceHeader` exposes Agent Marketplace beside Org chart, Teams, Directory and
+Hiring. `Marketplace` owns `/organizations/{OrganizationId}/employees/marketplace` and retains
+`/organizations/{OrganizationId}/marketplace` as an alias for existing hiring/onboarding links.
+Both routes render the Employees workspace and bind the same `role` and `recommendationId`
+query parameters. The active marketplace tab preserves the query, so reselecting it retains
+the recommendation's team and role. `BusinessNavigation` highlights Employees for both routes;
+switching businesses keeps the marketplace tab but drops the previous business's context.
 
 `Components/Hiring/AgentHireDialog.razor` owns marketplace preview, configuration controls,
 grant review, confirmation, cancellation, and operation status. Both `Marketplace.razor` and

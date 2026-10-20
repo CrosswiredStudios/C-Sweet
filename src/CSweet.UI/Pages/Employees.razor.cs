@@ -699,8 +699,6 @@ public partial class Employees
         }
     }
 
-    private string ViewUrl(EmployeeViewKind view) => $"/organizations/{OrganizationId}/employees?tab={view.ToString().ToLowerInvariant()}";
-
     private Task OpenEmployeeDetailsAsync(Guid employeeId)
     {
         if (_employees.Any(x => x.Id == employeeId))

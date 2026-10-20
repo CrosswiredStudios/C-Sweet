@@ -1,3 +1,6 @@
+.aurora-page.employee-workspace.employees-page { gap:14px; padding:24px 28px 36px; }
+@media(max-width:600px) { .aurora-page.employee-workspace.employees-page { padding:18px 14px 28px; } }
+
 .marketplace-agent-grid {
     display: grid;
     /* Keep empty tracks so a short result set doesn't stretch the portraits. */

@@ -77,7 +77,8 @@ public sealed partial class ExecutionWorkloadOrchestrator(
                 .SingleOrDefaultAsync(x => x.Id == request.AgentRuntimeInstanceId, cancellationToken);
         if (runtime is null || runtime.Status != AgentRuntimeStatus.Starting || runtime.MemoryResetRequestedAt is not null ||
             !await dbContext.AgentInstallations.AsNoTracking().AnyAsync(x => x.Id == runtime.AgentInstallationId &&
-                x.BusinessId == request.BusinessId, cancellationToken))
+                x.BusinessId == request.BusinessId && x.IsEnabled && !dbContext.ResourceCleanupRequests.Any(r =>
+                    r.Kind == ResourceCleanupQueue.Runtime && r.ResourceId == x.Id && r.CompletedAt == null), cancellationToken))
             throw new AgentWorkloadException("The runtime no longer permits a startup assignment.");
         if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, request.SpecificationJson, cancellationToken))
             throw new AgentWorkloadException("The runtime internet grant changed before assignment admission.");

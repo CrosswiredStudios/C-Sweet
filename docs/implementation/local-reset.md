@@ -12,8 +12,11 @@ live installation. A stopped VM or an old folder is not proof that its contents 
 `AgentRuntimeStartupCleanupService.CleanupAsync` discovers old workload handles through
 `CSweetDbContext.AgentRuntimeInstances`. Deleting the database removes that discovery
 source; it does not uninstall Windows services or remove Hyper-V VMs and their disks.
-`AgentRuntimeCleanupService.CleanupWorkspaces` and `CleanupBuildLogs` clear stored locators;
-they do not recursively delete the corresponding filesystem stores.
+Normal employee/business deletion now uses the durable cleanup flow described in
+[business deletion](features/business-deletion.md). Runtime retention retains unconfirmed
+provider handles; build-log retention deletes owned files before clearing their locators.
+Unknown broker locators, unsafe paths and failed deletions remain recorded for retry.
+This does not recover locators lost by manually clearing the database or historical resets.
 
 Other independent stores are established by `AgentRuntimeManagerOptions`,
 `DependencyInjection.ResolveAgentRuntimePath`, `InternalGitStorageOptions`,
@@ -44,7 +47,7 @@ trust an old saved plan. No UAC prompt is launched by the script itself.
 
 | Scope | What is selected |
 | --- | --- |
-| Default | Known `%ProgramData%\CSweet` runtime, Compute/ComputeBusinesses, setup, diagnostics and Office folders; default Office installation folders; user agent archives, snapshots, logs, setup and crash caches; associated local services and VMs |
+| Default | Known `%ProgramData%\CSweet` runtime, Compute/ComputeBusinesses/ComputeRetirement, setup, diagnostics and Office folders; default Office installation folders; user agent archives, snapshots, logs, setup and crash caches; associated local services, VMs and verified provider-retirement tasks |
 | `-IncludeBuildOutputs` | `artifacts`, project `bin`/`obj`/`TestResults`, and root `TestResults` in this checkout and sibling `CSweet.*` / `CSweetAgentSdk` Git checkouts; includes generated Office/Isolation base images and recognized temporary image-build VMs/disks |
 | `-IncludeUserData` | The entire current user's `%LOCALAPPDATA%\CSweet`, including internal Git repositories, media, provider secrets, certificates stored as files and enrollment state; repository `.csweet` fallback and `%TEMP%\csweet-git` workspaces |
 | `-ResetDatabase` | Exactly the local Docker volume `csweet-aspire-postgres` from `CSweet.AppHost/Program.cs`, plus Postgres containers using it |

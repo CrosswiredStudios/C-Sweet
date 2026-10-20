@@ -70,7 +70,12 @@
                             </div>
                         </div>
                     }
-                    @if (!string.IsNullOrWhiteSpace(recommendation.SelectionRationale)) { <p>@recommendation.SelectionRationale</p> }
+                    @if (recommendation.NoSuitableAgentFound)
+                    {
+                        <strong>@L["HiringCandidateSelection.NoSuitableAgent"]</strong>
+                        <p>@L.Format("HiringCandidateSelection.NoSuitableAgentDescription", new { role = recommendation.Title })</p>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(recommendation.SelectionRationale)) { <p>@recommendation.SelectionRationale</p> }
                     <small>Plan proposed by @(recommendation.RequestingEmployee ?? recommendation.SuggestedBy ?? "Unknown employee")</small>
                 }
                 <div class="hiring-suggestion-tile-action">
@@ -103,11 +108,11 @@
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                        OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">@L["HiringSuggestionCarousel.Hire"]</MudButton>
                         }
-                        <MudButton Href="@action.NavigationUri"
+                        <MudButton Href="@BrowseUrl(action)"
                                    Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    EndIcon="@Icons.Material.Outlined.ArrowForward">
-                            @L["HiringSuggestionCarousel.BrowseCandidates"]
+                            @L[NoSuitableAgent(action) ? "HiringCandidateSelection.OpenMarketplace" : "HiringSuggestionCarousel.BrowseCandidates"]
                         </MudButton>
                     }
                     else
@@ -148,6 +153,11 @@
     private static AvailableAgent? SelectedAgent(HiringRecommendationResponse? value) =>
         string.IsNullOrWhiteSpace(value?.SelectedCatalogAgentJson) ? null :
             JsonSerializer.Deserialize<AvailableAgent>(value.SelectedCatalogAgentJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+    private bool NoSuitableAgent(SuggestedUserActionResponse action) => action.HiringRecommendationId is { } id &&
+        _recommendations.GetValueOrDefault(id)?.NoSuitableAgentFound == true;
+    private string BrowseUrl(SuggestedUserActionResponse action) => NoSuitableAgent(action)
+        ? _recommendations[action.HiringRecommendationId!.Value].HiringUrl : action.NavigationUri;
 
     private readonly string _titleId = $"hiring-suggestions-{Guid.NewGuid():N}";
     private ElementReference _rail;

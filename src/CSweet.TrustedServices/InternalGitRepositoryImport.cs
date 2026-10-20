@@ -12,6 +12,7 @@ public sealed partial class InternalGitRepositoryStore
         if (request.ArchiveSha256.Length != 64 || request.ArchiveSha256.Any(c => !Uri.IsHexDigit(c)))
             throw new ArgumentException("A content-addressed archive is required.");
         VerifyRoot();
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         Directory.CreateDirectory(Path.GetDirectoryName(repository)!);
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -28,7 +29,7 @@ public sealed partial class InternalGitRepositoryStore
         }
         var references = await RefsAsync(repository, token);
         if (references.Count > 0) throw new InvalidOperationException("An import cannot replace an existing repository.");
-        var temp = Path.Combine(Path.GetFullPath(_options.TemporaryRoot), "import-" + Guid.NewGuid().ToString("N"));
+        var temp = Path.Combine(BusinessTemporaryRoot(request.OrganizationId), "import-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         try
         {

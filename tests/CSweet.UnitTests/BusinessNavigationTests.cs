@@ -31,6 +31,8 @@ public sealed class BusinessNavigationTests
     [Theory]
     [InlineData("organizations/{0}/command-center", "command-center")]
     [InlineData("organizations/{0}/employees", "employees")]
+    [InlineData("organizations/{0}/employees/marketplace?role=Producer&recommendationId=00000000-0000-0000-0000-000000000001", "employees/marketplace")]
+    [InlineData("organizations/{0}/marketplace?role=Producer&recommendationId=00000000-0000-0000-0000-000000000001", "employees/marketplace")]
     [InlineData("organizations/{0}/employees/00000000-0000-0000-0000-000000000001/memory", "employees")]
     [InlineData("organizations/{0}/communications/00000000-0000-0000-0000-000000000001", "communications")]
     [InlineData("organizations/{0}/analytics", "analytics")]
@@ -52,6 +54,8 @@ public sealed class BusinessNavigationTests
     {
         var id = Guid.NewGuid();
         Assert.Equal(id, BusinessNavigation.OrganizationIdFromPath($"/organizations/{id}/employees?view=graph#team"));
+        Assert.True(BusinessNavigation.IsEmployeePath($"/organizations/{id}/employees/marketplace?role=Producer"));
+        Assert.True(BusinessNavigation.IsEmployeePath($"/organizations/{id}/marketplace?role=Producer"));
         Assert.False(BusinessNavigation.IsEmployeePath($"organizations/{id}/communications/{Guid.NewGuid()}"));
         Assert.False(BusinessNavigation.IsEmployeePath($"organizations/{id}/command-center"));
     }
@@ -65,6 +69,8 @@ public sealed class BusinessNavigationTests
         Assert.Contains("/settings/llm-providers", RoutesFor<CSweet.UI.Pages.LlmProviders>());
         Assert.Contains("/settings/agents", RoutesFor<CSweet.UI.Pages.Agents>());
         Assert.Contains("/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());
+        Assert.Contains("/organizations/{OrganizationId:guid}/employees/marketplace", RoutesFor<CSweet.UI.Pages.Marketplace>());
+        Assert.Contains("/organizations/{OrganizationId:guid}/marketplace", RoutesFor<CSweet.UI.Pages.Marketplace>());
         Assert.DoesNotContain("/settings/agents/marketplace", RoutesFor<CSweet.UI.Pages.AgentMarketplace>());
         Assert.Contains("/settings/agents/runtime", RoutesFor<CSweet.UI.Pages.AgentRuntimeSettings>());
         Assert.Contains("/settings/security", RoutesFor<CSweet.UI.Pages.AccountSecurity>());

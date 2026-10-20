@@ -29,7 +29,7 @@ The recommended source-development path is **Windows + .NET + Docker Desktop**. 
 | Requirement | What it is for |
 |---|---|
 | **.NET 10 SDK** | Build and run the source. Follow the SDK and roll-forward policy in [`global.json`](global.json). |
-| **Docker Desktop, Linux engine running** | Run PostgreSQL for the development stack. `docker info` must succeed. |
+| **Docker Desktop, Linux engine running** | Run PostgreSQL and SearXNG for the development stack. `docker info` must succeed. |
 | **Git** | Clone the source and support repository workflows. |
 | **An OpenAI-compatible model endpoint** | Configure AI features during setup. Use a compatible local server or hosted provider; LM Studio is the default local preset. |
 | **C-Sweet Office, for agent execution** | Install and enroll an [Office](https://github.com/CrosswiredStudios/CSweet.Office) with a supported hardware-isolation provider. Local Hyper-V execution requires Windows Professional, Enterprise, or Education and hardware virtualization. |
@@ -55,7 +55,7 @@ Run AppHost after Docker's Linux engine is ready:
 dotnet run --project src/CSweet.AppHost/CSweet.AppHost.csproj --launch-profile https
 ```
 
-AppHost starts the trusted Headquarters services and PostgreSQL. It does not start Office. The Aspire dashboard provides service health and logs; its URL appears in the console. See the [debug and local development guide](docs/implementation/debug-guide.md) for IDE startup and port conflicts.
+AppHost starts the trusted Headquarters services, PostgreSQL, and SearXNG search automatically. No separate search installation, API key, or instance URL is required. The first launch downloads the pinned search image. This currently provisions search infrastructure; agent search tools will be connected separately. AppHost does not start Office. The Aspire dashboard provides service health and logs; its URL appears in the console. See the [debug and local development guide](docs/implementation/debug-guide.md) for IDE startup and port conflicts.
 
 </details>
 

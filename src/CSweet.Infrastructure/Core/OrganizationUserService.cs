@@ -81,6 +81,7 @@ public sealed class OrganizationUserService : IOrganizationUserService
         {
             return Failure("organization_not_found", "Organization was not found.");
         }
+        await using var businessAdmission = await BusinessStorageAdmission.EnterAsync(_dbContext, organizationId, cancellationToken);
 
         if (string.IsNullOrWhiteSpace(request.DisplayName))
         {
@@ -141,6 +142,9 @@ public sealed class OrganizationUserService : IOrganizationUserService
             {
                 return Failure("invalid_agent_instance", "The selected agent installation is not available.");
             }
+            if (await _dbContext.ResourceCleanupRequests.AnyAsync(x => x.Kind == CSweet.Infrastructure.Setup.ResourceCleanupQueue.Runtime &&
+                    x.ResourceId == installation.Id && x.CompletedAt == null, cancellationToken))
+                return Failure("runtime_cleanup_pending", "The previous employee runtime is still being removed. Retry after teardown completes.");
 
             if (await _dbContext.CoreOrganizationUsers.AnyAsync(
                 x => x.AgentInstallationId == request.AgentInstallationId,
@@ -507,6 +511,10 @@ public sealed class OrganizationUserService : IOrganizationUserService
         var now = DateTimeOffset.UtcNow;
         await EmployeeActionExpiration.ExpireAsync(_dbContext, user.OrganizationId, user.Id,
             installationId, now, cancellationToken);
+        var leadershipAssignments = await _dbContext.LeadershipAssignments.Where(x =>
+            x.OrganizationId == user.OrganizationId && x.OrganizationUserId == user.Id && x.EndsAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var assignment in leadershipAssignments) assignment.EndsAt = now;
         var memberships = await _dbContext.TeamMemberships
             .Where(x => x.OrganizationId == user.OrganizationId &&
                         x.OrganizationUserId == user.Id &&
@@ -544,6 +552,9 @@ public sealed class OrganizationUserService : IOrganizationUserService
         {
             installation.IsEnabled = false;
             installation.UpdatedAt = now;
+            _dbContext.Entry(installation).Property(x => x.IsEnabled).IsModified = true;
+            await CSweet.Infrastructure.Setup.ResourceCleanupQueue.EnqueueAsync(_dbContext,
+                CSweet.Infrastructure.Setup.ResourceCleanupQueue.Runtime, installation.Id, user.OrganizationId, now, cancellationToken);
             if (installation.Schedule is { } schedule)
             {
                 schedule.IsEnabled = false;

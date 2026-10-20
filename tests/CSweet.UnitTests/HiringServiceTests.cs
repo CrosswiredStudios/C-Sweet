@@ -1343,14 +1343,14 @@ public sealed partial class HiringServiceTests
         }
     }
 
-    private sealed class RecordingAgentCatalog(CSweet.Agent.SDK.AvailableAgent agent)
+    private sealed class RecordingAgentCatalog(CSweet.Agent.SDK.AvailableAgent agent, bool empty = false)
         : CSweet.Application.Agents.IAgentCatalogService
     {
         public Task<CSweet.Agent.SDK.AvailableAgentSearchResult> GetAvailableAgentsAsync(
             Guid? organizationId,
             CSweet.Agent.SDK.AvailableAgentSearchQuery query,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(new CSweet.Agent.SDK.AvailableAgentSearchResult([agent], []));
+            Task.FromResult(new CSweet.Agent.SDK.AvailableAgentSearchResult(empty ? [] : [agent], []));
 
         public Task<CSweet.Agent.SDK.AvailableAgent?> ResolveAsync(
             Guid? organizationId,

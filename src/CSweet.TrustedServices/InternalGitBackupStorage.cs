@@ -18,6 +18,18 @@ internal sealed class InternalGitBackupStorage(InternalGitStorageOptions storage
     private InternalGitObjectStorageOptions Settings => storage.Backup;
     private IAmazonS3? _client;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    public async Task DeleteBusinessAsync(Guid business, CancellationToken token = default)
+    {
+        var prefix = BusinessObjectStorageCleanup.Prefix(Settings, business);
+        if (Settings.Provider == "s3")
+            await BusinessObjectStorageCleanup.DeleteAsync(Client, Settings.BucketName!, prefix, token);
+        else
+        {
+            var path = FilePath(prefix.TrimEnd('/'));
+            var root = Settings.RootPath ?? Path.GetFullPath(Path.Combine(storage.RepositoryRoot, "..", "backups"));
+            OwnedStorage.DeleteDirectory(root, path, token);
+        }
+    }
     private string Prefix(Guid business, Guid? repository = null, Guid? backup = null)
     {
         Settings.Validate();

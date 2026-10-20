@@ -14,6 +14,7 @@ public sealed partial class InternalGitRepositoryStore
         if (request.WorkspaceId == Guid.Empty || string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160)
             throw new ArgumentException("Workspace identity and idempotency key are required.");
         if (request.ExpectedSha is not null) ValidateSha(request.ExpectedSha);
+        using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
@@ -32,7 +33,7 @@ public sealed partial class InternalGitRepositoryStore
         var verified = (await RunAsync(repository, ["rev-parse", "--verify", sha + "^{commit}"], ct)).Trim();
         if (!string.Equals(sha, verified, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Source commit mismatch.");
         Directory.CreateDirectory(_options.TemporaryRoot);
-        var temporary = Path.Combine(Path.GetFullPath(_options.TemporaryRoot), Guid.NewGuid().ToString("N"));
+        var temporary = Path.Combine(BusinessTemporaryRoot(request.OrganizationId), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporary);
         try
         {

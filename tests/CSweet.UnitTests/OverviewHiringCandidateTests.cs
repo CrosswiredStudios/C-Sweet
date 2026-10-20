@@ -205,6 +205,17 @@ public sealed class OverviewHiringCandidateTests
         Assert.Contains("Interviewing agents", interviewing);
         Assert.DoesNotContain("Hire Naomi Chen", interviewing);
 
+        var unmatched = recommendation with { NoSuitableAgentFound = true,
+            SelectionRationale = "No eligible candidate is available under your publisher preference." };
+        await renderer.Dispatcher.InvokeAsync(() => ((IComponent)activator.CandidateCard!).SetParametersAsync(Parameters(unmatched)));
+        var noMatch = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("No suitable agent found", noMatch);
+        Assert.Contains("suitable agent for Creative Director within your hiring preferences", noMatch);
+        Assert.Contains("Open Agent Marketplace", noMatch);
+        Assert.DoesNotContain("Interviewing agents", noMatch);
+        Assert.DoesNotContain("mud-progress-circular", noMatch);
+        Assert.Equal(recommendation.HiringUrl, activator.Buttons.Last(x => x.Href is not null).Href);
+
         var selected = recommendation with
         {
             SelectedCatalogAgentJson = """{"agentReference":"catalog:naomi","name":"Naomi Chen","publisher":"C-Sweet"}""",

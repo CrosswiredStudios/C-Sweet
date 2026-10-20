@@ -55,6 +55,7 @@ public sealed record HiringRecommendationResponse(
     public string HiringUrl { get; init; } = string.Empty;
     public string? SelectedCatalogAgentJson { get; init; }
     public string? SelectionRationale { get; init; }
+    public bool NoSuitableAgentFound { get; init; }
     public string? SuggestedBy { get; init; }
     public string? RoleKey { get; init; }
     public int Headcount { get; init; } = 1;

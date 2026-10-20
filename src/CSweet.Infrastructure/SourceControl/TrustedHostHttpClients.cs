@@ -10,6 +10,12 @@ public sealed class TrustedSourceControlHostClient(
     HttpClient http,
     IOptions<TrustedServiceAuthenticationOptions> authentication) : ITrustedSourceControlHostClient
 {
+    public async Task DeleteBusinessStorageAsync(Guid business, CancellationToken token = default)
+    {
+        if (business == Guid.Empty) throw new ArgumentException("A business identity is required.");
+        using var response = await http.DeleteAsync($"internal/v3/business-storage/{business:D}", token);
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "GitHost", "business-storage", token);
+    }
     public async Task<IReadOnlyList<TrustedInstallationDescriptor>> ListInstallationsAsync(CancellationToken ct = default)
     {
         using var response = await http.GetAsync("internal/v2/installations", ct);

@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><IsPackable>false</IsPackable><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="Retire-ComputeBusiness.ps1" /></ItemGroup>
   <ItemGroup><ProjectReference Include="../CSweet.Compute.Runtime/CSweet.Compute.Runtime.csproj" /></ItemGroup>
 <ItemGroup>
   <PackageReference Include="CSweet.Isolation.HyperV" Condition="'$(UseLocalIsolation)' != 'true'" />

@@ -53,7 +53,6 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         return ToResponse(installation);
     }
 
-    private static readonly TimeSpan RuntimeWorkloadCleanupTimeout = TimeSpan.FromSeconds(30);
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -117,8 +116,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         InstallAgentRequest request,
         CancellationToken cancellationToken)
     {
+        await using var businessAdmission = Guid.TryParse(request.BusinessId, out var installBusiness)
+            ? await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(_dbContext, installBusiness, cancellationToken, allowMissing: true) : null;
         ValidateBusinessId(request.BusinessId);
-        var businessId = request.BusinessId.Trim();
+        var businessId = Guid.TryParse(request.BusinessId, out var parsedBusiness)
+            ? parsedBusiness.ToString("D") : request.BusinessId.Trim();
         var settings = await GetSettingsAsync(cancellationToken);
 
         var bundled = await _dbContext.AgentPackageSources.AsNoTracking().AnyAsync(x => x.Id == packageVersion.PackageSourceId && x.IsBundled, cancellationToken);
@@ -298,6 +300,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     public async Task QuiesceAsync(Guid organizationId, CancellationToken cancellationToken = default)
     {
         var businessId = organizationId.ToString("D");
+        var businessKeys = new[] { businessId, organizationId.ToString("N"), businessId.ToUpperInvariant(), organizationId.ToString("N").ToUpperInvariant() };
         List<AgentInstallation> installations;
         for (var attempt = 0; ; attempt++)
         {
@@ -305,8 +308,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             // tokens and may change between this read and the disabling commit.
             installations = await _dbContext.AgentInstallations
                 .Include(x => x.Schedule).Include(x => x.RuntimeInstances)
-                .Where(x => x.BusinessId == businessId).ToListAsync(cancellationToken);
-            if (installations.Count == 0) return;
+                .Where(x => businessKeys.Contains(x.BusinessId)).ToListAsync(cancellationToken);
+            if (installations.Count == 0) break;
             try
             {
                 var now = DateTimeOffset.UtcNow;
@@ -334,6 +337,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
 
         foreach (var installation in installations)
             await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);
+        if (!await new InstallationRuntimeCleanup(_dbContext, _workloads).TryCleanupBusinessAssignmentsAsync(organizationId, cancellationToken))
+            throw new AgentCleanupPendingException();
     }
 
     async Task<IReadOnlyList<AgentInstallationResponse>> IPluginInstallationService.ListAsync(
@@ -609,6 +614,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             cancellationToken);
 
         var previous = await GetInstallationAsync(staged.SupersedesInstallationId.Value, cancellationToken);
+        previous.IsEnabled = false;
+        previous.Schedule!.IsEnabled = false;
+        await ResourceCleanupQueue.EnqueueAsync(_dbContext, ResourceCleanupQueue.Runtime, previous.Id,
+            Guid.TryParse(previous.BusinessId, out var previousBusiness) ? previousBusiness : Guid.Empty, DateTimeOffset.UtcNow, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
         await RemoveRuntimeWorkloadsAsync(previous, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         previous.IsEnabled = false;
@@ -940,7 +950,22 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         Guid installationId,
         CancellationToken cancellationToken = default)
     {
+        var installationBusiness = await _dbContext.AgentInstallations.AsNoTracking().Where(x => x.Id == installationId)
+            .Select(x => x.BusinessId).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new AgentInstallationException("The agent installation was not found.");
+        // Acquire business admission before installation row locks, matching business deletion's lock order.
+        await using var businessAdmission = Guid.TryParse(installationBusiness, out var enableBusiness)
+            ? await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(_dbContext, enableBusiness, cancellationToken, allowMissing: true) : null;
+        await using var activation = _dbContext.Database.IsNpgsql() && _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (_dbContext.Database.IsNpgsql())
+            await _dbContext.AgentInstallations.FromSqlInterpolated(
+                $"SELECT * FROM \"AgentInstallations\" WHERE \"Id\" = {installationId} FOR UPDATE")
+                .AsNoTracking().ToListAsync(cancellationToken);
         var installation = await GetInstallationAsync(installationId, cancellationToken);
+        if (await _dbContext.ResourceCleanupRequests.AnyAsync(x => x.Kind == ResourceCleanupQueue.Runtime &&
+            x.ResourceId == installationId && x.CompletedAt == null, cancellationToken))
+            throw new AgentInstallationException("Runtime deletion must complete before this installation can be enabled.");
         var settings = await GetSettingsAsync(cancellationToken);
         if (!settings.EnableImportedAgents)
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
@@ -962,6 +987,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             now);
         installation.UpdatedAt = now;
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (activation is not null) await activation.CommitAsync(cancellationToken);
         await InvalidateAffectedManagersAsync(installation.Id, "installation.enabled", cancellationToken);
         await WriteScheduleAuditAsync(installation, "agent-installation.enabled", cancellationToken);
         return ToResponse(installation);
@@ -1006,9 +1032,6 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 "The agent is currently building. Wait for the build to finish before removing it.");
         }
 
-        await using var transaction = _dbContext.Database.IsRelational()
-            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
-            : null;
         installation.IsEnabled = false;
         if (installation.Schedule is not null)
         {
@@ -1023,9 +1046,15 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             "The installation was removed.",
             installation.UpdatedAt,
             cancellationToken);
+        await ResourceCleanupQueue.EnqueueAsync(_dbContext, ResourceCleanupQueue.Runtime, installation.Id,
+            Guid.TryParse(installation.BusinessId, out var removalBusiness) ? removalBusiness : Guid.Empty,
+            installation.UpdatedAt, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await RemoveRuntimeWorkloadsAsync(installation, cancellationToken);
+        await using var transaction = _dbContext.Database.IsRelational()
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var setupObligations = await _dbContext.PluginSetupObligations.Where(x =>
             x.InstallationId == installation.Id && x.CancelledAt == null).ToListAsync(cancellationToken);
         foreach (var obligation in setupObligations) obligation.CancelledAt = DateTimeOffset.UtcNow;
@@ -1254,33 +1283,15 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         AgentInstallation installation,
         CancellationToken cancellationToken)
     {
-        using var cleanupCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cleanupCancellation.CancelAfter(RuntimeWorkloadCleanupTimeout);
-
-        foreach (var runtime in installation.RuntimeInstances)
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(30));
+        try
         {
-            if (string.IsNullOrWhiteSpace(runtime.IsolationProviderId) ||
-                string.IsNullOrWhiteSpace(runtime.ProviderInstanceId))
-                continue;
-            var handle = RuntimeHandle(runtime);
-            try
-            {
-                if (await _workloads.InspectAsync(handle, cleanupCancellation.Token) is not null)
-                {
-                    await _workloads.DestroyAsync(handle, cleanupCancellation.Token);
-                }
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new AgentInstallationException(
-                    "Timed out while destroying an isolated agent workload. Check RuntimeHost and try again.");
-            }
-            catch (AgentWorkloadException exception)
-            {
-                throw new AgentInstallationException(
-                    $"The isolated runtime workload could not be destroyed. The installation was disabled and can be removed again: {exception.Message}");
-            }
+            if (!await new InstallationRuntimeCleanup(_dbContext, _workloads).TryCleanupAsync(installation.Id, budget.Token))
+                throw new AgentCleanupPendingException();
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new AgentCleanupPendingException(); }
+        catch (AgentWorkloadException) { throw new AgentCleanupPendingException(); }
     }
 
     private async Task RemoveAgentWorkHistoryAsync(

@@ -7,6 +7,8 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task DeleteBusinessStorageAsync(Guid business, CancellationToken token = default) =>
+        throw new NotSupportedException("GitHost must support confirmed business storage deletion.");
     Task<TrustedWorkspaceSnapshot> PrepareOnboardingSnapshotAsync(TrustedWorkspaceSnapshotRequest request, CancellationToken token = default) =>
         throw new NotSupportedException("Read-only onboarding snapshots are unavailable.");
     Task<InternalRepositoryImportResult> ImportInternalArchiveAsync(InternalRepositoryImportRequest request, Stream archive, CancellationToken token = default) =>

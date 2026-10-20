@@ -17,6 +17,24 @@ namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityTests
 {
+    [Theory]
+    [InlineData(false, "Waiting")]
+    [InlineData(true, "Recovering")]
+    public async Task PersonalFollowUpDoesNotClaimAnExpiredExecutionLease(bool claimed, string expectedState)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        (await f.Db.WorkBoards.SingleAsync()).Kind = WorkBoardKind.Personal;
+        var work = await f.Db.AgentWorkItems.SingleAsync();
+        work.Status = AgentWorkStatus.Completed;
+        f.Attempt.FinishedAt = DateTimeOffset.UtcNow;
+        f.Ticket.ClaimEventId = claimed ? Guid.NewGuid() : null;
+        f.Ticket.ClaimExpiresAt = claimed ? DateTimeOffset.UtcNow.AddMinutes(-1) : null;
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal(expectedState, row.State);
+        Assert.Equal(claimed ? "Execution lease expired; awaiting recovery" : "Waiting for follow-up", row.CurrentAction);
+    }
+
     [Fact]
     public async Task Workspace_progress_survives_content_free_audits_and_newer_model_chatter()
     {

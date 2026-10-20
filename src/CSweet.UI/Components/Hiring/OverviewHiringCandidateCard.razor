@@ -65,7 +65,7 @@
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="IsHireDisabled" OnClick="OpenHireAsync">@(PendingOperation is not null ? "Hiring in progress…" : _openingReview ? "Preparing review…" : $"Hire {_candidate.Name}")</MudButton>
             }
-            <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L["OverviewHiringCandidateCard.BrowseCandidates"]</MudButton>
+            <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L[Recommendation.NoSuitableAgentFound ? "HiringCandidateSelection.OpenMarketplace" : "OverviewHiringCandidateCard.BrowseCandidates"]</MudButton>
         </div>
     </ChildContent>
 </AttentionRequestCard>
@@ -92,11 +92,14 @@
     protected override void OnInitialized() => HireOperations.Changed += OnHireOperationsChanged;
     private void OnHireOperationsChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => HireOperations.Changed -= OnHireOperationsChanged;
-    private bool IsInterviewing => _candidate is null && string.IsNullOrWhiteSpace(_candidateJson) &&
+    private bool IsInterviewing => !Recommendation.NoSuitableAgentFound && _candidate is null && string.IsNullOrWhiteSpace(_candidateJson) &&
         string.IsNullOrWhiteSpace(Recommendation.SelectionRationale);
-    private string PreparationTitle => IsInterviewing ? "Interviewing agents"
+    private string PreparationTitle => Recommendation.NoSuitableAgentFound ? L["HiringCandidateSelection.NoSuitableAgent"]
+        : IsInterviewing ? "Interviewing agents"
         : !string.IsNullOrWhiteSpace(_candidateJson) ? "Recommendation unavailable" : "Candidate review";
-    private string PreparationDescription => IsInterviewing
+    private string PreparationDescription => Recommendation.NoSuitableAgentFound
+        ? L.Format("HiringCandidateSelection.NoSuitableAgentDescription", new { role = Recommendation.Title })
+        : IsInterviewing
         ? "We're reviewing candidates for this role. A recommendation will appear here when it's ready."
         : !string.IsNullOrWhiteSpace(_candidateJson)
             ? "The recommended agent could not be displayed. Browse candidates to review available agents."

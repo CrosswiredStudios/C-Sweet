@@ -30,6 +30,23 @@ var postgresServer = builder.AddPostgres("postgres", userName: postgresUserName,
 var postgres = postgresServer.AddDatabase("csweet", postgresDatabaseName);
 
 var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+
+// Trusted search infrastructure. Keep the upstream image pin and configuration in
+// sync with docker-compose.yml; agent access will be added through the broker.
+var searxng = builder.AddContainer("searxng", "searxng/searxng", "2026.10.19-81371861f")
+    .WithImageRegistry("docker.io")
+    .WithImageSHA256("5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271")
+    .WithBindMount(Path.Combine(repositoryRoot, "docker", "searxng", "settings.yml"),
+        "/etc/searxng/settings.yml", isReadOnly: true)
+    .WithBindMount(Path.Combine(repositoryRoot, "docker", "searxng", "start.sh"),
+        "/usr/local/bin/csweet-searxng-start.sh", isReadOnly: true)
+    .WithEnvironment("FORCE_OWNERSHIP", "false")
+    .WithEntrypoint("/bin/sh")
+    .WithArgs("/usr/local/bin/csweet-searxng-start.sh")
+    .WithVolume("csweet-searxng-cache", "/var/cache/searxng")
+    .WithHttpEndpoint(targetPort: 8080, name: "http")
+    .WithHttpHealthCheck("/healthz");
+
 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 var localStateDirectory = string.IsNullOrWhiteSpace(localAppData)
     ? Path.Combine(repositoryRoot, ".csweet")
@@ -69,6 +86,8 @@ var migrator = builder.AddProject<Projects.CSweet_Migrator>("migrator")
 var agentHost = builder.AddProject<Projects.CSweet_AgentHost>("agenthost")
     .WithHttpEndpoint(name: "http")
     .WithHttpEndpoint(name: "mcp")
+    .WithReference(searxng.GetEndpoint("http"))
+    .WithEnvironment("CSweet__Search__Searxng__BaseUrl", searxng.GetEndpoint("http"))
     .WithEnvironment("CSweet__Secrets__FilePath", Path.Combine(localStateDirectory, "provider-secrets.json"))
     .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)

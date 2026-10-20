@@ -235,7 +235,10 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         var action = state switch
         {
             "Waiting" => (c.Coordination is null && c.Delivery is null ? Safe(c.Ticket?.WaitingReason) : null) ??
-                (c.Coordination is null && c.Delivery is null && c.Ticket?.Status == WorkTaskStatus.WaitingForApproval ? "Waiting for review or approval" : run?.Status == "Queued" ? "Waiting for model capacity" : "Waiting for an agent claim"),
+                (c.Coordination is null && c.Delivery is null && c.Ticket?.Status == WorkTaskStatus.WaitingForApproval ? "Waiting for review or approval" :
+                    c.Work is null && c.StandaloneRun is null && c.Ticket?.Status == WorkTaskStatus.Running &&
+                    c.Ticket.Board?.Kind == WorkBoardKind.Personal && c.Ticket.ClaimEventId is null && c.Ticket.ClaimExpiresAt is null
+                        ? "Waiting for follow-up" : run?.Status == "Queued" ? "Waiting for model capacity" : "Waiting for an agent claim"),
             "Needs attention" => Safe(c.Ticket?.BlockReason) ?? "Work is blocked",
             "Recovering" => "Execution lease expired; awaiting recovery",
             "Unconfirmed" => "No task progress reported in the last five minutes",
@@ -320,6 +323,8 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         c.Work?.Status == AgentWorkStatus.Pending ? "Waiting" : c.Attempt is { FinishedAt: null } && c.Attempt.LeaseExpiresAt > now ? "Executing" : "Recovering" :
         c.Ticket?.Status == WorkTaskStatus.Blocked ? "Needs attention" :
         c.Ticket?.Status == WorkTaskStatus.WaitingForApproval || c.Ticket?.WaitingReason is not null || c.Ticket?.NextReviewAt is not null ? "Waiting" :
+        c.Work is null && c.StandaloneRun is null && c.Ticket?.Status == WorkTaskStatus.Running &&
+            c.Ticket.Board?.Kind == WorkBoardKind.Personal && c.Ticket.ClaimEventId is null && c.Ticket.ClaimExpiresAt is null ? "Waiting" :
         c.Work?.Status == AgentWorkStatus.Pending || c.StandaloneRun?.Status == "Queued" ? "Waiting" :
         c.StandaloneRun is not null ? "Executing" :
         c.Attempt is { FinishedAt: null } && c.Attempt.LeaseExpiresAt > now ? "Executing" : "Recovering";

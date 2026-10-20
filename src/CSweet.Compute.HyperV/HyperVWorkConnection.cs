@@ -22,8 +22,13 @@ internal sealed class HyperVWorkConnection(
     public Task<ComputeProviderWakeHint?> WaitForWakeAsync(CancellationToken token) =>
         UseAsync((client, cancellation) => client.WaitForWakeAsync(cancellation), token);
 
-    public Task<ComputeProviderWorkPage> DiscoverAsync(Guid? afterOperationId, CancellationToken token) =>
-        UseAsync((client, cancellation) => client.DiscoverAsync(afterOperationId, cancellation), token);
+    public async Task<ComputeProviderWorkPage> DiscoverAsync(Guid? afterOperationId, CancellationToken token)
+    {
+        var page = await UseAsync((client, cancellation) => client.DiscoverAsync(afterOperationId, cancellation), token);
+        if (page.Retirement is { } retirement)
+            await ComputeLocalRetirement.ScheduleAsync(configuration, retirement, token);
+        return page;
+    }
 
     public Task<ComputeDispatchPacket?> ClaimAsync(Guid operationId, CancellationToken token) =>
         UseAsync((client, cancellation) => client.ClaimAsync(operationId, cancellation), token);

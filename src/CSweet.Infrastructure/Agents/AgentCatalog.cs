@@ -298,6 +298,11 @@ public sealed class InstalledAgentCatalogProvider(CSweetDbContext db) : IAgentCa
             .Include(x => x.PackageVersion)!.ThenInclude(x => x!.PackageSource)
             .Include(x => x.Grant)
             .Where(x => x.BusinessId == businessId && x.RevisionStatus == PluginRevisionStatus.Active)
+            // Dismissed instances remain disabled for audit and stale-reference checks. They
+            // must not shadow the catalog listing used to create a fresh employee lifecycle.
+            .Where(x => x.IsEnabled || db.CoreOrganizationUsers.Any(employee =>
+                employee.OrganizationId == organizationId.Value && employee.AgentInstallationId == x.Id &&
+                employee.IsActive && employee.ArchivedAt == null))
             .ToListAsync(cancellationToken);
         var agents = installations
             .Where(x => x.PackageVersion is { PluginKind: PluginKind.Agent })

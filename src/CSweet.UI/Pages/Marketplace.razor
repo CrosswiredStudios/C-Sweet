@@ -1,5 +1,6 @@
 @using HiringRecommendationResponse = CSweet.Contracts.Core.HiringRecommendationResponse
 @page "/organizations/{OrganizationId:guid}/marketplace"
+@page "/organizations/{OrganizationId:guid}/employees/marketplace"
 @using System.Net.Http.Json
 @using System.Text.Json
 @using CSweet.Agent.SDK
@@ -17,11 +18,10 @@
 
 <PageTitle>@L["Marketplace.PageTitle"]</PageTitle>
 
-<div class="aurora-page business-workspace marketplace-page">
+<div class="aurora-page business-workspace employee-workspace employees-page marketplace-page">
+    <EmployeeWorkspaceHeader OrganizationId="OrganizationId" ActiveTab="marketplace" />
     <MudPaper Elevation="0" Class="page-header">
         <div>
-            <MudText Typo="Typo.overline">@L["Marketplace.Overline"]</MudText>
-            <MudText Typo="Typo.h3">@L["Marketplace.Title"]</MudText>
             <MudText Color="Color.Secondary">
                 @L["Marketplace.Lead"]
             </MudText>
@@ -43,7 +43,7 @@
                 <MudLink Href="@($"/organizations/{OrganizationId:D}/employees?tab=hiring&recommendation={RecommendationId:D}")">@L["Marketplace.HiringContext.ReviewPlan"]</MudLink>
             }
             else { <MudAlert Severity="Severity.Warning">@L["Marketplace.HiringContext.Unavailable"]</MudAlert> }
-            <MudButton Variant="Variant.Text" Href="@($"/organizations/{OrganizationId:D}/marketplace")">@L["Marketplace.HiringContext.BrowseOutside"]</MudButton>
+            <MudButton Variant="Variant.Text" Href="@($"/organizations/{OrganizationId:D}/employees/marketplace")">@L["Marketplace.HiringContext.BrowseOutside"]</MudButton>
         </MudPaper>
     }
 

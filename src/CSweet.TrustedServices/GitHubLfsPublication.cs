@@ -7,7 +7,7 @@ public sealed partial class InternalGitRepositoryStore
     private async Task UploadGitHubLfsAsync(string cache, GitHubRepositoryDescriptor remote, string token, string sha,
         Guid business, Guid repositoryId, WorkspaceArtifactValidator artifacts, IGitHubRepositoryTransport transport, CancellationToken ct)
     {
-        var temporary = Path.Combine(Path.GetFullPath(_options.TemporaryRoot), "github-lfs-" + Guid.NewGuid().ToString("N"));
+        var temporary = Path.Combine(BusinessTemporaryRoot(business), "github-lfs-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporary);
         try
         {

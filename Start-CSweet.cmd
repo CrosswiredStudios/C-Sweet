@@ -53,7 +53,8 @@ echo You can repair certificate trust later with: dotnet dev-certs https --trust
 set "launch_profile=http"
 
 :certificate_ready
-echo Starting C-Sweet...
+echo Starting C-Sweet, including PostgreSQL and SearXNG search...
+echo The first launch may take longer while Docker downloads the infrastructure images.
 echo The browser will open automatically when the application is ready.
 echo Keep this window open while using C-Sweet.
 echo.

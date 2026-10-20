@@ -67,7 +67,7 @@
                                 @if (!IsDeleting(org.Id) && org.Status != "DeletionFailed")
                                 {
                                     @if (IsChiefOnboarding(org.Id)) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.PersonAdd">@L["Organizations.ChiefOfStaffInstalling"]</MudChip> }
-                                    else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">@L["Organizations.HireAChiefOfStaff"]</MudButton> }
+                                    else if (org.NeedsChiefSetup) { <MudButton Href="@($"/organizations/{org.Id}/employees/marketplace?role=Chief%20of%20Staff")" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Outlined.PersonAdd">@L["Organizations.HireAChiefOfStaff"]</MudButton> }
                                 }
                             </div>
                         </div>
@@ -308,7 +308,7 @@
             _showForm = false;
             var destination = operation.ActionUri;
             if (string.IsNullOrWhiteSpace(destination) && operation.OrganizationId.HasValue)
-                destination = $"/organizations/{operation.OrganizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}";
+                destination = $"/organizations/{operation.OrganizationId:D}/employees/marketplace?role={Uri.EscapeDataString("Chief of Staff")}";
             if (!string.IsNullOrWhiteSpace(destination))
                 Navigation.NavigateTo(destination);
             else if (CreateRequested)
@@ -374,9 +374,9 @@
             _deleteSucceeded = true;
             _deleteMessage = $"'{organization.Name}' was deleted.";
         }
-        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending" or "compute_cleanup_failed" or "deletion_failed")
+        catch (ApiClientException exception) when (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending" or "storage_cleanup_pending" or "compute_cleanup_failed" or "deletion_failed")
         {
-            if (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending")
+            if (exception.ErrorCode is "compute_cleanup_pending" or "agent_cleanup_pending" or "storage_cleanup_pending")
             {
                 _organizations = _organizations.Select(x => x.Id == organization.Id ? x with { Status = "Deleting" } : x).ToList();
                 StartDeletionRefresh();

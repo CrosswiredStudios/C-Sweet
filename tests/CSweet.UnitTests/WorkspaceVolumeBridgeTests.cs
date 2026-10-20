@@ -110,6 +110,7 @@ public sealed class WorkspaceVolumeBridgeTests : IDisposable
         SourceControlWorkspaceStatus status)
     {
         var organizationId = Guid.NewGuid();
+        db.CoreOrganizations.Add(new Organization { Id = organizationId, Name = "Workspace fixture", Status = OrganizationStatus.Active });
         var workItemId = Guid.NewGuid();
         var installationId = Guid.NewGuid();
         var installationKey = Guid.NewGuid();
