@@ -38,6 +38,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: memory-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contracts:
     name: memory-contracts (${{ matrix.suite }})
@@ -56,9 +60,9 @@ jobs:
           - suite: memory-service-rest
             filter: 'FullyQualifiedName~AgentMemoryServiceTests&FullyQualifiedName!~Erasure&FullyQualifiedName!~AgentMemoryServiceTests.A&FullyQualifiedName!~AgentMemoryServiceTests.B&FullyQualifiedName!~AgentMemoryServiceTests.C&FullyQualifiedName!~AgentMemoryServiceTests.D&FullyQualifiedName!~AgentMemoryServiceTests.E&FullyQualifiedName!~AgentMemoryServiceTests.F&FullyQualifiedName!~AgentMemoryServiceTests.G&FullyQualifiedName!~AgentMemoryServiceTests.H&FullyQualifiedName!~AgentMemoryServiceTests.I&FullyQualifiedName!~AgentMemoryServiceTests.J&FullyQualifiedName!~AgentMemoryServiceTests.K&FullyQualifiedName!~AgentMemoryServiceTests.L&FullyQualifiedName!~AgentMemoryServiceTests.M'
           - suite: runtime-and-model
-            filter: '(FullyQualifiedName~Audit|FullyQualifiedName~AgentRuntime|FullyQualifiedName~ChatPromptPolicyTests|FullyQualifiedName~OpenAiCompatibleLlmProviderFactoryTests|FullyQualifiedName~ProviderDispatchTests|FullyQualifiedName~PlatformLlmCapabilityHandlerTests|FullyQualifiedName~AgentWorkInboxTests|FullyQualifiedName~ExecutionWorkload|FullyQualifiedName~OfficeGateway|FullyQualifiedName~OfficeConnectionIdentityTests|FullyQualifiedName~PlatformLlmQueueTests|FullyQualifiedName~PlatformLlmPagingTests|FullyQualifiedName~LlmProviderFailureMessageTests|FullyQualifiedName~ProviderResponseContractChatClientTests|FullyQualifiedName~ReasoningContentChatClientTests|FullyQualifiedName~OrganizationDeletionTests)&FullyQualifiedName!~Memory'
+            filter: '(FullyQualifiedName~Audit|FullyQualifiedName~AgentRuntime|FullyQualifiedName~ChatPromptPolicyTests|FullyQualifiedName~OpenAiCompatibleLlmProviderFactoryTests|FullyQualifiedName~ProviderDispatchTests|FullyQualifiedName~PlatformLlmCapabilityHandlerTests|FullyQualifiedName~AgentWorkInboxTests|FullyQualifiedName~ExecutionWorkload|FullyQualifiedName~OfficeGateway|FullyQualifiedName~OfficeConnectionIdentityTests|FullyQualifiedName~PlatformLlmQueueTests|FullyQualifiedName~PlatformLlmPagingTests|FullyQualifiedName~LlmProviderFailureMessageTests|FullyQualifiedName~ProviderResponseContractChatClientTests|FullyQualifiedName~ReasoningContentChatClientTests|FullyQualifiedName~OrganizationDeletionTests|FullyQualifiedName~DeveloperBriefAuthorityTests|FullyQualifiedName~DeveloperAssignmentSelectionTests|FullyQualifiedName~WorkBoardItemCreationTests|FullyQualifiedName~InternalGitRepositoryStoreTests|FullyQualifiedName~SourceControlWorkspaceRenderingTests|FullyQualifiedName~ResearchCapabilityTests|FullyQualifiedName~ResearchAndCheckpointSchemaTests|FullyQualifiedName~ExecutionCheckpointStoreTests|FullyQualifiedName~WorkItemDiscussionTests|FullyQualifiedName~WorkManagementCapabilityHandlerDiscussionTests|FullyQualifiedName~PendingAgentQuestionsTests|FullyQualifiedName~OverviewQuestionAnswerTests)&FullyQualifiedName!~Memory'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17-alpine

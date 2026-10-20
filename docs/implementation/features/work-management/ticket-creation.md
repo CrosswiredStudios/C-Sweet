@@ -18,3 +18,13 @@ candidate or authorize source execution. Server validation failures remain visib
 
 `WorkBoardItemCreationTests` exercises exact principal selection, switching/clearing,
 invalid selections and the actual request's parent and assignment fields.
+
+The ticket drawer exposes the existing software-developer repository brief action to
+board members with update authority. `SoftwareDevelopmentWorkService` loads the current
+development-stage principal before binding a brief. A governed assignment must match that
+exact agent and provide `work.execution.run`; it requires and grants only the workspace
+read/comment/Git operations. It does not add legacy item start/complete authority.
+Assignments without a development stage retain their legacy lifecycle requirements.
+Both paths still require the confined development runtime, serialized jobs, current team
+repository policy and the existing platform authorization checks. `DeveloperBriefAuthorityTests`
+covers incompatible principals, missing capabilities, runtime restrictions and legacy behavior.

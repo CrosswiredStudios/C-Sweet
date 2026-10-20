@@ -25,19 +25,16 @@ public sealed class SoftwareDevelopmentWorkService(
     IAgentRuntimeManager runtimeManager) : ISoftwareDevelopmentWorkService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly IReadOnlySet<string> RequiredAgentCapabilities = new HashSet<string>(
+    private static readonly string[] WorkspaceCapabilities =
         [
             WorkItemCapabilities.Read,
-            WorkItemCapabilities.Start,
             WorkItemCapabilities.Comment,
-            WorkItemCapabilities.Complete,
             GitWorkspaceCapabilities.Prepare,
             GitWorkspaceCapabilities.Refresh,
             GitWorkspaceCapabilities.Inspect,
             GitWorkspaceCapabilities.Publish,
             GitWorkspaceCapabilities.Cleanup
-        ],
-        StringComparer.Ordinal);
+        ];
 
     public async Task<IReadOnlyList<SourceControlRepositoryOptionResponse>> ListRepositoriesAsync(
         Guid organizationId,
@@ -97,7 +94,7 @@ public sealed class SoftwareDevelopmentWorkService(
             organizationId, boardId, applicationUserId, cancellationToken);
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var item = await db.CoreWorkTasks.SingleOrDefaultAsync(x =>
+        var item = await db.CoreWorkTasks.Include(x => x.StageAssignments).SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.BoardId == boardId && x.Id == itemId,
             cancellationToken) ?? throw new KeyNotFoundException("The work item was not found.");
         if (item.Revision != request.ExpectedRevision)
@@ -116,7 +113,8 @@ public sealed class SoftwareDevelopmentWorkService(
 
         var installation = await RequireInstallationAsync(
             organizationId, request.AssignedInstallationId, cancellationToken);
-        await ValidateAgentPackageAsync(installation, cancellationToken);
+        var governedStage = UsesGovernedDevelopmentStage(item, installation.Id);
+        var assignmentCapabilities = await ValidateAgentPackageAsync(installation, governedStage, cancellationToken);
         var employee = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId &&
             x.AgentInstallationId == installation.Id && x.IsActive,
@@ -160,18 +158,7 @@ public sealed class SoftwareDevelopmentWorkService(
         item.Revision++;
         item.UpdatedAt = now;
 
-        foreach (var action in new[]
-                 {
-                     WorkItemActions.Read,
-                     WorkItemActions.Start,
-                     WorkItemActions.Comment,
-                     WorkItemActions.Complete,
-                     GitWorkspaceCapabilities.Prepare,
-                     GitWorkspaceCapabilities.Refresh,
-                     GitWorkspaceCapabilities.Inspect,
-                     GitWorkspaceCapabilities.Publish,
-                     GitWorkspaceCapabilities.Cleanup
-                 })
+        foreach (var action in assignmentCapabilities)
         {
             db.ScopedActionGrants.Add(new ScopedActionGrant
             {
@@ -318,16 +305,36 @@ public sealed class SoftwareDevelopmentWorkService(
         }
     }
 
-    private async Task ValidateAgentPackageAsync(
+    private async Task<IReadOnlyList<string>> ValidateAgentPackageAsync(
         AgentInstallation installation,
+        bool governedStage,
         CancellationToken cancellationToken)
     {
         var package = await db.AgentPackageVersions.AsNoTracking()
             .SingleAsync(x => x.Id == installation.PackageVersionId, cancellationToken);
         var manifest = JsonSerializer.Deserialize<AgentManifest>(package.ManifestJson, JsonOptions)
             ?? throw new InvalidOperationException("The developer package manifest is invalid.");
+        return ValidatePackageForAssignment(manifest, governedStage);
+    }
+
+    internal static bool UsesGovernedDevelopmentStage(WorkTask item, Guid installationId)
+    {
+        var stages = item.StageAssignments.Where(x => x.StageKey == "development").ToArray();
+        if (stages.Length == 0) return false;
+        if (stages.Length != 1 || stages[0].PrincipalKind != WorkOrchestrationPrincipalKind.AgentInstallation ||
+            stages[0].AgentInstallationId != installationId)
+            throw new InvalidOperationException("Bind the repository to the current development-stage assignee. Change that assignment explicitly before selecting another developer.");
+        return true;
+    }
+
+    internal static IReadOnlyList<string> ValidatePackageForAssignment(AgentManifest manifest, bool governedStage)
+    {
+        if (governedStage && !manifest.Provides.Any(x => x.Name == WorkManagementCapabilityNames.ExecutionRun))
+            throw new InvalidOperationException("The assigned developer must provide governed stage execution.");
+        IReadOnlyList<string> required = governedStage ? WorkspaceCapabilities :
+            [.. WorkspaceCapabilities, WorkItemCapabilities.Start, WorkItemCapabilities.Complete];
         var requested = manifest.Requires.Select(x => x.Name).ToHashSet(StringComparer.Ordinal);
-        var missing = RequiredAgentCapabilities.Where(x => !requested.Contains(x)).ToArray();
+        var missing = required.Where(x => !requested.Contains(x)).ToArray();
         if (missing.Length > 0)
             throw new InvalidOperationException(
                 $"The developer package is missing required capabilities: {string.Join(", ", missing)}.");
@@ -341,6 +348,7 @@ public sealed class SoftwareDevelopmentWorkService(
         if (manifest.Runtime.MaximumConcurrentJobs != 1)
             throw new InvalidOperationException(
                 "Software Developer installations must execute tickets sequentially.");
+        return required;
     }
 
     private async Task<OrganizationUser> RequireBoardUpdateAsync(
