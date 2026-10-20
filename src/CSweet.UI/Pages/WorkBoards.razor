@@ -369,6 +369,11 @@
                     }
                 </AttentionContent>
                 <DeliveryContent>
+                    @if (_detail.Board.AllowedActions.Contains(WorkItemActions.Update) && !_detail.Board.IsArchived &&
+                         detailItem.Kind is "Task" or "Bug" && detailItem.Status != "Running")
+                    {
+                        <MudButton Variant="Variant.Outlined" OnClick="@(() => OpenDeveloperAssignmentAsync(detailItem))">@L["WorkBoards.AssignSoftwareDeveloper"]</MudButton>
+                    }
                     @if (CanManageSprintScope)
                     {
                         <MudSelect T="Guid?" Label="@L["WorkBoards.Sprint"]" Value="detailItem.SprintId" ValueChanged="@(id => SetItemSprintAsync(detailItem, id))" Disabled="_saving" Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="@L["WorkBoards.ChooseASprintOrReturn"]">
