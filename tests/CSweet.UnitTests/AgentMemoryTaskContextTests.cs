@@ -107,7 +107,8 @@ public sealed partial class AgentMemoryServiceTests
         Assert.Equal(old.EvidenceJson, after.EvidenceJson); Assert.Equal(old.ReceiptHash, after.ReceiptHash);
         Assert.Equal(3, (await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryReadEvidenceVersion);
         Assert.False(db.Database.HasPendingModelChanges());
-        Assert.Equal("20261009174500_TaskScopedMemoryReadEvidence", db.Database.GetMigrations().Last());
+        // This upgrade must remain discoverable when later unrelated migrations are added.
+        Assert.Contains("20261009174500_TaskScopedMemoryReadEvidence", db.Database.GetMigrations());
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(session, work.Id, default, 1));
         Assert.Equal(MemoryRuntimeResetRequiredException.LegacyEvidence, (await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetReasonCode);
     }
