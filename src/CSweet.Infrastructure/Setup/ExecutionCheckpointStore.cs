@@ -261,7 +261,14 @@ public sealed class ExecutionCheckpointStore(CSweetDbContext db, IOptions<AgentR
                 if(!await db.AgentInstallations.AnyAsync(x=>x.Id==installation&&x.BusinessId==organization.ToString(),token))
                 {
                     if(Directory.GetLastWriteTimeUtc(owned)<now.AddDays(-1).UtcDateTime)
+                    {
                         OwnedStorage.DeleteDirectory(parent,owned,token);
+                        var abandoned=await db.PluginOperationalStates.Where(x=>x.OrganizationId==organization &&
+                            x.AgentInstallationId==installation && x.Kind==StateKind).ToListAsync(token);
+                        db.PluginOperationalStates.RemoveRange(abandoned);
+                        await db.SaveChangesAsync(token);
+                        await transaction.CommitAsync(token);
+                    }
                     continue;
                 }
                 var heads=await db.PluginOperationalStates.AsNoTracking().Where(x=>x.OrganizationId==organization&&

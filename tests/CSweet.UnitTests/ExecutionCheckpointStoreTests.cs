@@ -98,6 +98,23 @@ public sealed class ExecutionCheckpointStoreTests : IDisposable
         Assert.Empty(f.Db.PluginOperationalStates);
     }
 
+    [Fact]
+    public async Task RemovedInstallationReclaimsItsPrivateBlobsAndMetadataAfterTheGracePeriod()
+    {
+        await using var f=await CreateAsync();
+        await f.Store.WriteAsync(f.Organization,f.Installation,f.Runtime,7,new("work","engine-1",0,1,Archive("event.json","private"),"write"),default);
+        var directory=f.Store.DirectoryPath(f.Organization,f.Installation);
+        f.Db.AgentWorkAttempts.RemoveRange(f.Db.AgentWorkAttempts);
+        await f.Db.SaveChangesAsync();
+        f.Db.AgentRuntimeInstances.RemoveRange(f.Db.AgentRuntimeInstances);
+        f.Db.AgentWorkItems.RemoveRange(f.Db.AgentWorkItems);
+        await f.Db.SaveChangesAsync();
+        f.Db.AgentInstallations.Remove(await f.Db.AgentInstallations.SingleAsync());
+        await f.Db.SaveChangesAsync();
+        await f.Store.CollectOrphansAsync(DateTimeOffset.UtcNow.AddDays(2),default);
+        Assert.False(Directory.Exists(directory)); Assert.Empty(f.Db.PluginOperationalStates);
+    }
+
     private async Task<Fixture> CreateAsync()
     {
         var db=new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString())
