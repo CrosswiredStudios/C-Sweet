@@ -151,6 +151,27 @@ another hiring callback. See [Chief work cards](employee-audit-timeline.md#chief
 
 ## Shared hiring UI and marketplace context
 
+`HiringRecommendationResponse.AutomaticHiringEnabled` reflects both the live owner policy
+and the role's approved-plan delegation. Automatic cards show **Automatic hiring** and
+`AutomaticHiringControl` instead of **Hire** or **Browse Candidates**. A no-suitable-agent
+exception retains its Marketplace fallback.
+
+**Choose this role manually** POSTs to `HiringEndpoints`' recommendation-scoped
+`choose-manually` route and updates the card in place; it never navigates. After the
+server confirms cancellation, **Browse Candidates** is available, so owners can stop
+several roles without leaving the overview or Communications. Errors leave the automatic
+card visible. A hire that already committed cannot be undone by this button.
+
+`HiringService.ChooseRoleManuallyAsync` requires a current owner, stores the requesting
+owner and timestamp on `WorkforcePlan`, and cancels only that role's unfinished delegated
+workflows and hire operations. It settles the automatic-hiring audit card, preserves the
+unfilled recommendation and completed seats, and commits realtime outbox hints with the
+change. The organization's hiring lock serializes the switch with candidate selection,
+hire commits and deferred recovery. `SubmitDelegatedAsync`, `BoundPolicyAsync` and
+`ValidateDelegationAsync` enforce the saved override after reconnect and policy edits;
+an explicit manual Marketplace hire remains possible. Other roles and the Chief policy
+are unchanged. `RoleScopedManualHiring` adds the two nullable tracking columns.
+
 `EmployeeWorkspaceHeader` exposes Agent Marketplace beside Org chart, Teams, Directory and
 Hiring. `Marketplace` owns `/organizations/{OrganizationId}/employees/marketplace` and retains
 `/organizations/{OrganizationId}/marketplace` as an alias for existing hiring/onboarding links.

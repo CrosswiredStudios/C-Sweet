@@ -17,6 +17,7 @@ public static class AppRealtimeEvents
     public const string AgentHireOperationChanged = "com.csweet.app.agent-hire-operation.changed.v1";
     public const string BusinessOnboardingOperationChanged = "com.csweet.app.business-onboarding-operation.changed.v1";
     public const string EmployeeDirectoryChanged = "com.csweet.app.employee-directory.changed.v1";
+    public const string AgentPresenceChanged = "com.csweet.app.agent-presence.changed.v1";
     public const string DocumentChanged = "com.csweet.app.document.changed.v1";
     public const string ComputeChanged = "com.csweet.app.compute.changed.v1";
 }

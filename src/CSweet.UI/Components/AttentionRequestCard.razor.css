@@ -1,5 +1,6 @@
 .attention-request { padding: 18px 20px; border: 1px solid var(--mud-palette-divider); border-left: 4px solid var(--mud-palette-primary); border-radius: 13px; background: var(--mud-palette-surface); overflow-wrap: anywhere; }
 .attention-request.approval { border-left-color: var(--mud-palette-warning); }
+.attention-request.issue { border-left-color: var(--mud-palette-warning); }
 .attention-request.hiring { border-left-color: var(--mud-palette-success); }
 .request-person { display: flex; align-items: center; gap: 12px; }
 .request-avatar { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; overflow: hidden; background: var(--mud-palette-primary-hover); color: var(--mud-palette-primary); }

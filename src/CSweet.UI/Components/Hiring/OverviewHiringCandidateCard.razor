@@ -50,6 +50,14 @@
         }
     </BodyContent>
     <ChildContent>
+        @if (IsAutomatic)
+        {
+            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="Recommendation.Id" Name="@Recommender" Stopped="OnManualSelection" />
+        }
+        else if (IsManualSelection)
+        {
+            <p role="status">@L["AutomaticHiringControl.ManualSelection"]</p>
+        }
         @if (PendingOperation is { } operation)
         {
             <div class="candidate-hiring-status" role="status" aria-live="polite" aria-atomic="true">
@@ -61,11 +69,14 @@
             </div>
         }
         <div class="candidate-actions">
-            @if (_candidate is not null)
+            @if (!IsAutomatic && !IsManualSelection && _candidate is not null)
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="IsHireDisabled" OnClick="OpenHireAsync">@(PendingOperation is not null ? "Hiring in progress…" : _openingReview ? "Preparing review…" : $"Hire {_candidate.Name}")</MudButton>
             }
-            <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L[Recommendation.NoSuitableAgentFound ? "HiringCandidateSelection.OpenMarketplace" : "OverviewHiringCandidateCard.BrowseCandidates"]</MudButton>
+            @if (!IsAutomatic || NoSuitableAgent)
+            {
+                <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L[NoSuitableAgent ? "HiringCandidateSelection.OpenMarketplace" : "OverviewHiringCandidateCard.BrowseCandidates"]</MudButton>
+            }
         </div>
     </ChildContent>
 </AttentionRequestCard>
@@ -84,7 +95,11 @@
     private string? _candidateJson;
     private bool _imageFailed;
     private bool _openingReview;
-    private AgentHireOperationResponse? PendingOperation => HireOperations.Operations
+    private Guid? _manualRoleId;
+    private bool IsManualSelection => _manualRoleId == Recommendation.Id || Recommendation.ManualSelectionRequested;
+    private bool IsAutomatic => Recommendation.AutomaticHiringEnabled && !IsManualSelection;
+    private bool NoSuitableAgent => Recommendation.NoSuitableAgentFound && !IsManualSelection;
+    private AgentHireOperationResponse? PendingOperation => IsManualSelection ? null : HireOperations.Operations
         .Where(x => x.OrganizationId == OrganizationId && x.RecommendationId == Recommendation.Id &&
             (AgentHireOperationStatuses.IsActive(x.Status) || x.Status is AgentHireOperationState.UnconfirmedStatus or AgentHireOperationStatuses.AwaitingConfirmation))
         .OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
@@ -92,12 +107,12 @@
     protected override void OnInitialized() => HireOperations.Changed += OnHireOperationsChanged;
     private void OnHireOperationsChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => HireOperations.Changed -= OnHireOperationsChanged;
-    private bool IsInterviewing => !Recommendation.NoSuitableAgentFound && _candidate is null && string.IsNullOrWhiteSpace(_candidateJson) &&
+    private bool IsInterviewing => !IsManualSelection && !NoSuitableAgent && _candidate is null && string.IsNullOrWhiteSpace(_candidateJson) &&
         string.IsNullOrWhiteSpace(Recommendation.SelectionRationale);
-    private string PreparationTitle => Recommendation.NoSuitableAgentFound ? L["HiringCandidateSelection.NoSuitableAgent"]
+    private string PreparationTitle => NoSuitableAgent ? L["HiringCandidateSelection.NoSuitableAgent"]
         : IsInterviewing ? "Interviewing agents"
         : !string.IsNullOrWhiteSpace(_candidateJson) ? "Recommendation unavailable" : "Candidate review";
-    private string PreparationDescription => Recommendation.NoSuitableAgentFound
+    private string PreparationDescription => IsManualSelection ? L["AutomaticHiringControl.ManualSelection"] : NoSuitableAgent
         ? L.Format("HiringCandidateSelection.NoSuitableAgentDescription", new { role = Recommendation.Title })
         : IsInterviewing
         ? "We're reviewing candidates for this role. A recommendation will appear here when it's ready."
@@ -115,8 +130,9 @@
         ? _candidate!.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
     protected override void OnParametersSet()
     {
-        if (_candidateJson == Recommendation.SelectedCatalogAgentJson) return;
-        _candidateJson = Recommendation.SelectedCatalogAgentJson;
+        var candidateJson = IsManualSelection ? null : Recommendation.SelectedCatalogAgentJson;
+        if (_candidateJson == candidateJson) return;
+        _candidateJson = candidateJson;
         _candidate = null; _imageFailed = false;
         if (string.IsNullOrWhiteSpace(_candidateJson)) return;
         try
@@ -125,6 +141,11 @@
             if (!string.IsNullOrWhiteSpace(candidate?.AgentReference) && !string.IsNullOrWhiteSpace(candidate.Name)) _candidate = candidate;
         }
         catch (JsonException) { }
+    }
+    private void OnManualSelection(HiringRecommendationResponse updated)
+    {
+        _manualRoleId = updated.Id;
+        _candidateJson = null; _candidate = null;
     }
     private async Task OpenHireAsync()
     {

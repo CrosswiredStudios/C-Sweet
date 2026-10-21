@@ -369,6 +369,8 @@
   "ProjectReleaseEvidence.TestAvailability": "Available on the compute host · expires {expires}",
   "ProjectReleaseEvidence.TestExpired": "The test link has expired.",
 
+  "ProjectIncidentAttentionCard.TechnicalDetails": "Technical details",
+  "ProjectIncidentAttentionCard.RelatedReports": "{count} related reports · one planning failure",
   "ProjectIncidentAttentionCard.Preparing": "Response options are being prepared. You can review the affected work now.",
   "ProjectIncidentAttentionCard.Retrying": "Retrying…",
   "ProjectIncidentAttentionCard.RetryQueued": "Retry queued",

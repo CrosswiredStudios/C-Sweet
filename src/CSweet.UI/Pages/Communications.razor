@@ -1966,7 +1966,8 @@
         if (envelope.OrganizationId != OrganizationId ||
             (!envelope.EventType.StartsWith("com.csweet.communication.", StringComparison.Ordinal) &&
              !envelope.EventType.StartsWith("com.csweet.app.notification.", StringComparison.Ordinal) &&
-             envelope.EventType != CSweet.Contracts.Realtime.AppRealtimeEvents.EmployeeDirectoryChanged)) return;
+             envelope.EventType != CSweet.Contracts.Realtime.AppRealtimeEvents.EmployeeDirectoryChanged &&
+             envelope.EventType != CSweet.Contracts.Realtime.AppRealtimeEvents.AgentPresenceChanged)) return;
         _realtimeRefreshPending = true;
         _ = InvokeAsync(RefreshFromRealtimeAsync);
     }

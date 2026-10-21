@@ -7740,6 +7740,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<DateTimeOffset?>("ManualSelectionRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ManualSelectionRequestedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Objective")
                         .IsRequired()
                         .HasMaxLength(2048)

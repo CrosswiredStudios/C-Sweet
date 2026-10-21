@@ -210,6 +210,7 @@ public sealed partial class WorkOrchestrationService(
         sprint.Status = WorkSprintStatus.Active; sprint.StartedAt = now; sprint.UpdatedAt = now; sprint.Revision++;
         AddEvent(organizationId, boardId, execution.Id, null, null, null,
             "sprint.execution.started", new { sprintId, policyRevisionId = policy.Id, member.Id, request.IdempotencyKey });
+        await WorkOrchestrationBoardState.QueueSprintChangedAsync(db, sprint, "sprint.started", now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ToResponse(execution);
@@ -270,6 +271,8 @@ public sealed partial class WorkOrchestrationService(
         execution.Revision++; execution.UpdatedAt = now; sprint.Revision++; sprint.UpdatedAt = now;
         AddEvent(organizationId, boardId, execution.Id, null, null, null,
             $"sprint.execution.{action.ToLowerInvariant()}", new { member.Id, request.Reason, request.IdempotencyKey });
+        await WorkOrchestrationBoardState.QueueSprintChangedAsync(db, sprint,
+            $"sprint.execution.{action.ToLowerInvariant()}", now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return ToResponse(execution);
     }

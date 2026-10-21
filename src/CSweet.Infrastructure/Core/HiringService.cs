@@ -469,7 +469,7 @@ public sealed partial class HiringService(
             .Select(x => x.TeamId!.Value).Distinct().ToList();
         var sourceTeams = await db.OrganizationTeams.AsNoTracking()
             .Where(x => sourceTeamIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
-        return plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
+        return await WithHiringModesAsync(plans, plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
             .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList(),
             suggestedBy.GetValueOrDefault(plan.RequestingInstallationId),
             plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out var source)
@@ -479,7 +479,7 @@ public sealed partial class HiringService(
             plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out source)
                 ? people.GetValueOrDefault(source.ManagerOrganizationUserId) : null,
             plan.SourceResourceChangeRequestId.HasValue && sourceRequests.TryGetValue(plan.SourceResourceChangeRequestId.Value, out source) && source.DecidedByOrganizationUserId.HasValue
-                ? people.GetValueOrDefault(source.DecidedByOrganizationUserId.Value) : null)).ToList();
+                ? people.GetValueOrDefault(source.DecidedByOrganizationUserId.Value) : null)).ToList(), cancellationToken);
     }
 
     public async Task<IReadOnlyList<HiringRecommendationResponse>> ListRecommendationsForInstallationAsync(
@@ -500,8 +500,8 @@ public sealed partial class HiringService(
                         x.AgentInstallationId == requestingInstallationId)
             .Select(x => x.DisplayName)
             .FirstOrDefaultAsync(cancellationToken);
-        return plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
-            .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList(), suggestedBy)).ToList();
+        return await WithHiringModesAsync(plans, plans.Select(plan => ToRecommendation(plan, ReadIds(plan.AssignmentsJson)
+            .Where(candidates.ContainsKey).Select(id => candidates[id]).ToList(), suggestedBy)).ToList(), cancellationToken);
     }
 
     public async Task<HiringDashboardResponse> GetDashboardAsync(Guid organizationId, CancellationToken cancellationToken = default)
@@ -2096,6 +2096,7 @@ CompleteWorkflow:
             HiringUrl = $"/organizations/{plan.OrganizationId:D}/marketplace?role={Uri.EscapeDataString(plan.Title)}&recommendationId={plan.Id:D}",
             SelectedCatalogAgentJson = plan.SelectedCatalogAgentJson,
             SelectionRationale = plan.SelectionRationale,
+            ManualSelectionRequested = plan.ManualSelectionRequestedAt.HasValue,
             // Preserve the existing durable selection outcome, including older recommendations.
             // An unstarted search or an explicit owner-selection mode is not a failed match.
             NoSuitableAgentFound = string.IsNullOrWhiteSpace(plan.SelectedCatalogAgentJson) &&

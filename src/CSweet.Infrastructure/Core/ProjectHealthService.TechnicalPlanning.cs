@@ -18,21 +18,26 @@ public sealed partial class ProjectHealthService
          text.Contains("Technical planning could not produce a valid proposal after ", StringComparison.Ordinal) ||
          text.Contains("Technical planning returned invalid JSON; revise the proposal.", StringComparison.Ordinal));
 
-    private async Task<string?> TechnicalPlanningDiagnosticAsync(ProjectIncident incident, CancellationToken token)
+    private async Task<string?> TechnicalPlanningDiagnosticAsync(ProjectIncident incident, CancellationToken token) =>
+        (await TechnicalPlanningFailureAsync(incident, token))?.Diagnostic;
+
+    private sealed record PlanningFailure(string Diagnostic, Guid? SessionId);
+
+    private async Task<PlanningFailure?> TechnicalPlanningFailureAsync(ProjectIncident incident, CancellationToken token)
     {
         if (IncidentSource(incident.Fingerprint, "coordination") is { } id)
         {
             var session = await db.AgentCoordinationSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id &&
                 x.OrganizationId == incident.OrganizationId && x.WorkstreamId == incident.WorkstreamId, token);
             return session?.Status == AgentCoordinationStatus.Blocked && IsPlanningGeneratorDiagnostic(session.FinalSummary)
-                ? session.FinalSummary : null;
+                ? new(session.FinalSummary!, session.Id) : null;
         }
         var ticketId = incident.AffectedWorkItemId ?? IncidentSource(incident.Fingerprint, "ticket");
         if (ticketId is not { } taskId) return null;
         var task = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x => x.Id == taskId &&
             x.OrganizationId == incident.OrganizationId, token);
         if (task is null || db.HealthProjectForTask(task) != incident.WorkstreamId || task.Status != WorkTaskStatus.Blocked) return null;
-        if (IsPlanningGeneratorDiagnostic(task.BlockReason)) return task.BlockReason;
+        var direct = IsPlanningGeneratorDiagnostic(task.BlockReason) ? new PlanningFailure(task.BlockReason!, null) : null;
         // Recover the old Producer's misleading conflict description only for its exact
         // planning cycle, project, board and initiating employee. Unrelated failures cannot classify it.
         string? fingerprint = null;
@@ -42,16 +47,17 @@ public sealed partial class ProjectHealthService
             if (context.RootElement.ValueKind == JsonValueKind.Object && context.RootElement.TryGetProperty("sourceFingerprint", out var value) &&
                 value.ValueKind == JsonValueKind.String) fingerprint = value.GetString();
         }
-        catch (JsonException) { return null; }
+        catch (JsonException) { return direct; }
         var boardId = CSweetDbContext.ReadGuidProperty(task.PersonalWorkContextJson, "boardId");
-        if (fingerprint is null || boardId is null || task.AssignedEmployeeId is null) return null;
+        if (fingerprint is null || boardId is null || task.AssignedEmployeeId is null) return direct;
         var matches = await db.AgentCoordinationSessions.AsNoTracking().Where(x => x.OrganizationId == incident.OrganizationId &&
             x.WorkstreamId == incident.WorkstreamId && x.SourceKind == "Board" && x.SourceBoardId == boardId &&
             x.InitiatorOrganizationUserId == task.AssignedEmployeeId && x.Status == AgentCoordinationStatus.Blocked &&
             x.Turns.Any(t => t.SpeakerOrganizationUserId == x.InitiatorOrganizationUserId && t.ArtifactKey == fingerprint &&
                 t.ArtifactType == "video-game.production.planning-cycle.v1"))
             .OrderByDescending(x => x.UpdatedAt).Take(2).ToArrayAsync(token);
-        return matches.Length == 1 && IsPlanningGeneratorDiagnostic(matches[0].FinalSummary) ? matches[0].FinalSummary : null;
+        return matches.Length == 1 && IsPlanningGeneratorDiagnostic(matches[0].FinalSummary)
+            ? new(matches[0].FinalSummary!, matches[0].Id) : direct;
     }
 
     private static IncidentOwnerReport TechnicalPlanningReport(IncidentOwnerReport report) => report with {

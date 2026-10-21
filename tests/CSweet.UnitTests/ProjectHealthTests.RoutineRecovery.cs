@@ -42,7 +42,8 @@ public sealed partial class ProjectHealthTests
         var request = new UpdateManagementIncidentPresentation(incident.Id, incident.Revision, "routine-recovery", routine);
         await f.Service.UpdatePresentationAsync(f.Org, f.Chief.Id, request, default);
         await f.Service.UpdatePresentationAsync(f.Org, f.Chief.Id, request, default);
-        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        var card = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.True(card.IsStatusReport); Assert.Null(card.ResolutionDecision);
         Assert.Equal(f.Ceo.Id, incident.CurrentRecipientId);
         Assert.Equal("Open", incident.Status);
         Assert.Equal(IncidentDispositions.Escalate, incident.Disposition);

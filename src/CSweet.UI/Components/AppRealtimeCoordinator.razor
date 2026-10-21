@@ -101,7 +101,7 @@
     {
         if (_resolvedNotifications.Contains(notification.NotificationId) || !_shownNotifications.Add(notification.NotificationId)) return;
         // Overview and the notification inbox already surface these durable requests and updates.
-        if (notification.Category is "ResourceChangeApproval" or "ProjectHealth") return;
+        if (notification.Category is "ResourceChangeApproval" or "ProjectHealth" or "ProjectHealthStatus") return;
         var message = $"{notification.Title}: {notification.Body}";
         Snackbar.Add(message, severity, options =>
         {

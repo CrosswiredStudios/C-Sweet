@@ -33,5 +33,11 @@ public sealed class SprintCompletionWakeTests
         var data = JsonSerializer.Deserialize<Shared.GenericResourceEvent>(wake.DataJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.Equal(project, data.Context.WorkstreamId); Assert.Equal(board.Id, data.Context.BoardId); Assert.Equal(sprint.Id, data.AggregateId);
         Assert.Equal(sprint.Revision, data.Revision);
+        var refresh = Assert.Single(db.ApplicationRealtimeOutbox.Where(x =>
+            x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.WorkBoardChanged));
+        using var refreshData = JsonDocument.Parse(refresh.DataJson);
+        Assert.Equal(board.Id, refreshData.RootElement.GetProperty("boardId").GetGuid());
+        Assert.Equal(sprint.Id, refreshData.RootElement.GetProperty("sprintId").GetGuid());
+        Assert.Equal("sprint.completed", refreshData.RootElement.GetProperty("changeType").GetString());
     }
 }

@@ -191,6 +191,19 @@ grants. Durable scope/status metric points now drive per-sprint burndown history
 and a conservative active-sprint forecast based on completed-sprint velocity;
 both are available through the human and agent report surfaces.
 
+`WorkOrchestrationService.StartAsync`/`ControlAsync` and sprint completion in
+`WorkOrchestrator.PulseAsync` enqueue a grant-filtered `WorkBoardChanged` refresh
+hint through `WorkOrchestrationBoardState.QueueSprintChangedAsync` in the same
+save as the lifecycle change. Sprint-only changes notify readers even when no
+ticket changes. `WorkBoards.OnRealtimeEvent` accepts board changes and
+`SprintChangedV1` hints scoped to its organization and board, and reloads current
+board, sprint and execution data; connection recovery also reloads current state.
+`WorkBoardWorkspace.OnParametersSetAsync` follows the active (or paused) sprint
+unless a dropdown/history choice or `sprint` deep link explicitly selects one.
+The Active sprint tab clears that explicit choice and resumes following. Coverage
+lives in `WorkSprintRealtimeTests`, `SprintCompletionWakeTests`,
+`WorkBoardPageTests` and `WorkBoardWorkspaceTests`.
+
 Implemented automation status: the `AddBoardWorkOrchestration` migration dropped
 the `WorkAutomationRules` and `WorkAutomationExecutions` tables in favor of
 policy-pinned board orchestration (see `Documentation/Architecture/CSWEET_BOARD_ORCHESTRATION_SPEC.md`).

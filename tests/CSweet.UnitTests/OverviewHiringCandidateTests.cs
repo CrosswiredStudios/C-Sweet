@@ -20,6 +20,51 @@ namespace CSweet.UnitTests;
 public sealed class OverviewHiringCandidateTests
 {
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StopAutomaticHiringRevealsBrowseInPlaceWithoutNavigating(bool succeeds)
+    {
+        var organization = Guid.NewGuid();
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Creative Director", "Own creative direction", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        { AutomaticHiringEnabled = true, SuggestedBy = "Evelyn Brooks", RemainingHeadcount = 1, HiringUrl = "/marketplace?role=Creative%20Director&recommendationId=this-role" };
+        var api = new ManualSelectionHandler(recommendation with { AutomaticHiringEnabled = false, ManualSelectionRequested = true }, succeeds);
+        var activator = new CapturingActivator();
+        var navigation = new TestNavigation();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
+        services.AddSingleton<IComponentActivator>(activator);
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager>(navigation);
+        services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<OverviewHiringCandidateCard>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { ["OrganizationId"] = organization, ["Recommendation"] = recommendation })));
+        var automatic = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("Automatic hiring", automatic);
+        Assert.Contains("Evelyn Brooks is handling this role", automatic);
+        Assert.Contains("Choose this role manually", automatic);
+        Assert.DoesNotContain("Browse Candidates", automatic);
+        var stopButton = Assert.Single(activator.Buttons, x => x.OnClick.HasDelegate);
+        await renderer.Dispatcher.InvokeAsync(() => stopButton.OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs()));
+        var manual = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        if (succeeds)
+        {
+            Assert.Contains("Automatic hiring is stopped for this role", manual);
+            Assert.Contains("Browse Candidates", manual);
+            Assert.DoesNotContain("Choose this role manually", manual);
+            Assert.DoesNotContain("Interviewing agents", manual);
+        }
+        else
+        {
+            Assert.Contains("Choose this role manually", manual);
+            Assert.Contains("Could not stop automatic hiring", manual);
+            Assert.DoesNotContain("Browse Candidates", manual);
+        }
+        Assert.Equal($"/api/core/organizations/{organization:D}/hiring/recommendations/{recommendation.Id:D}/choose-manually", api.PostedPath);
+        Assert.Equal(0, navigation.NavigationCalls);
+    }
+
+    [Theory]
     [InlineData(AgentHireOperationStatuses.Starting, true)]
     [InlineData(AgentHireOperationStatuses.Queued, true)]
     [InlineData(AgentHireOperationStatuses.Building, true)]
@@ -270,8 +315,18 @@ public sealed class OverviewHiringCandidateTests
     }
     private sealed class TestNavigation : NavigationManager
     {
+        public int NavigationCalls { get; private set; }
         public TestNavigation() => Initialize("http://localhost/", "http://localhost/");
-        protected override void NavigateToCore(string uri, bool forceLoad) { }
+        protected override void NavigateToCore(string uri, bool forceLoad) { NavigationCalls++; }
+    }
+    private sealed class ManualSelectionHandler(HiringRecommendationResponse updated, bool succeeds) : HttpMessageHandler
+    {
+        public string? PostedPath { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            PostedPath = request.RequestUri!.AbsolutePath;
+            return Task.FromResult(new HttpResponseMessage(succeeds ? HttpStatusCode.OK : HttpStatusCode.Forbidden) { Content = JsonContent.Create(updated) });
+        }
     }
     private sealed class NoJavaScript : IJSRuntime
     {

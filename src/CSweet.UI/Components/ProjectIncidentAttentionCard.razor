@@ -3,11 +3,23 @@
 @inject HttpClient Http
 @inject IAppLocalizer L
 
-<AttentionRequestCard Kind="Input needed"
+<AttentionRequestCard Kind="@(Incident.IsStatusReport ? "Issue" : "Input needed")"
     EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
-    Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@(_notice ?? (Incident.ReportDeliveryPending ? L["ProjectIncidentAttentionCard.Preparing"] : null))">
+    Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@(_notice ?? Incident.RecoveryStatus ?? (Incident.ReportDeliveryPending ? L["ProjectIncidentAttentionCard.Preparing"] : null))">
     <BodyContent>
+        @if (!string.IsNullOrWhiteSpace(Incident.RecoveryStatus))
+        {
+            <p class="incident-next-step">@Incident.RecommendedAction</p>
+        }
+        @if (Incident.RelatedIncidentCount > 1)
+        {
+            <p>@L.Format("ProjectIncidentAttentionCard.RelatedReports", new { count = Incident.RelatedIncidentCount })</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(Incident.DiagnosticDetails))
+        {
+            <details class="incident-diagnostics"><summary>@L["ProjectIncidentAttentionCard.TechnicalDetails"]</summary><pre>@Incident.DiagnosticDetails</pre></details>
+        }
         @if (Incident.ResolutionDecision is { } decision && Incident.ReportConversationId is { } chat)
         {
             <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="chat" Decision="decision" Answered="RefreshRequested" />

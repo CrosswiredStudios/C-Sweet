@@ -245,6 +245,7 @@
     private WorkBoardDetailResponse? _loadedDetail;
     private Guid? _loadedSprintId;
     private Guid? _requestedSprintId;
+    private Guid? _explicitSprintId;
     private int _executionRequest;
     private IReadOnlyDictionary<Guid, Wire.WorkItemExecutionResponse> _executionItems = new Dictionary<Guid, Wire.WorkItemExecutionResponse>();
     private bool CanPlan(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status is "Planned" or "Active" && Detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope);
@@ -273,12 +274,12 @@
         {
             _boardId = Detail.Board.Id;
             _requestedSprintId = InitialSprintId;
-            _sprintId = InitialSprintId;
+            _explicitSprintId = InitialSprintId;
             _view = CanReadSprints ? WorkBoardView.Sprint : WorkBoardView.All;
             ClearFilters();
         }
         if (!CanReadSprints && _view is WorkBoardView.Sprint or WorkBoardView.Sprints) _view = WorkBoardView.All;
-        _sprintId = CanReadSprints ? Present.SelectSprint(Sprints, _sprintId) : null;
+        _sprintId = CanReadSprints ? Present.SelectSprint(Sprints, _explicitSprintId) : null;
         if (!ReferenceEquals(_loadedDetail, Detail) || _loadedSprintId != _sprintId)
             await LoadExecutionAsync();
     }
@@ -311,9 +312,19 @@
     }
 
     public async Task ShowBacklogAsync() { await SelectViewAsync(WorkBoardView.Backlog); await InvokeAsync(StateHasChanged); }
-    private async Task SelectViewAsync(WorkBoardView view) { _view = view; ClearFilters(); await LoadExecutionAsync(); }
+    private async Task SelectViewAsync(WorkBoardView view)
+    {
+        _view = view;
+        if (view == WorkBoardView.Sprint)
+        {
+            _explicitSprintId = null;
+            _sprintId = Present.SelectSprint(Sprints, null);
+        }
+        ClearFilters();
+        await LoadExecutionAsync();
+    }
     private Task SelectSprintAsync(ChangeEventArgs args) => Guid.TryParse(args.Value?.ToString(), out var id) ? OpenSprintAsync(id) : Task.CompletedTask;
-    private async Task OpenSprintAsync(Guid id) { _sprintId = id; _view = WorkBoardView.Sprint; ClearFilters(); await LoadExecutionAsync(); }
+    private async Task OpenSprintAsync(Guid id) { _explicitSprintId = _sprintId = id; _view = WorkBoardView.Sprint; ClearFilters(); await LoadExecutionAsync(); }
     private void ClearFilters() { _search = ""; _attentionOnly = false; }
     private string? Attention(WorkBoardItemResponse item) => Present.AttentionReason(item, _executionItems.GetValueOrDefault(item.Id));
     private string ColumnName(WorkBoardItemResponse item) => Detail.Columns.FirstOrDefault(x => x.Id == item.ColumnId)?.Name ?? item.Status;

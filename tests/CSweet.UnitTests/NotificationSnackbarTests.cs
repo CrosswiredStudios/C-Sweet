@@ -60,8 +60,10 @@ public sealed class NotificationSnackbarTests
         typeof(AppRealtimeCoordinator).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(target, arguments);
 
-    [Fact]
-    public void AllProjectHealthUpdatesStayQuietAndIndependentWarningsStillAppear()
+    [Theory]
+    [InlineData("ProjectHealth")]
+    [InlineData("ProjectHealthStatus")]
+    public void AllProjectHealthUpdatesStayQuietAndIndependentWarningsStillAppear(string category)
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
@@ -69,7 +71,7 @@ public sealed class NotificationSnackbarTests
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
-            "Important", "ProjectHealth", "Project needs management attention", "Quality is blocked", null,
+            "Important", category, "Project needs management attention", "Quality is blocked", null,
             DateTimeOffset.UtcNow, null, null);
         Invoke(component, "ShowNotification", notification, Severity.Warning);
         Assert.Empty(snackbar.ShownSnackbars);

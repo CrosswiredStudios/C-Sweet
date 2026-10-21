@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using CSweet.Contracts.WorkManagement;
 using CSweet.UI.Components.WorkBoards;
 using Microsoft.AspNetCore.Components;
@@ -78,6 +79,75 @@ public sealed class WorkBoardWorkspaceTests
         Assert.Equal(past.Id, WorkBoardWorkspacePresentation.SelectSprint([active, past], past.Id));
         Assert.Equal(active.Id, WorkBoardWorkspacePresentation.SelectSprint([active], Guid.NewGuid()));
         Assert.Null(WorkBoardWorkspacePresentation.SelectSprint([planned, past], null));
+    }
+
+    [Theory]
+    [InlineData("automatic")]
+    [InlineData("deep-link")]
+    [InlineData("dropdown")]
+    [InlineData("history")]
+    public async Task RefreshFollowsActiveSprintUnlessUserExplicitlySelectedOne(string selection)
+    {
+        var first = Sprint("Planned") with { Name = "First" };
+        var next = Sprint("Planned") with { Name = "Next" };
+        var board = Detail([Item("First sprint ticket", first.Id), Item("Next sprint ticket", next.Id)], [WorkSprintActions.Read]);
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton(new HttpClient { BaseAddress = new Uri("http://localhost/") });
+        var activator = new WorkspaceActivator();
+        services.AddSingleton<IComponentActivator>(activator);
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var rendered = await renderer.RenderComponentAsync<WorkBoardWorkspace>(Parameters([first, next]));
+            if (selection == "deep-link") Assert.Contains("First sprint ticket", rendered.ToHtmlString());
+            else Assert.Contains("No active sprint", rendered.ToHtmlString());
+            first = first with { Status = "Active" };
+            await activator.Workspace!.SetParametersAsync(Parameters([first, next]));
+            Assert.Contains("First sprint ticket", rendered.ToHtmlString());
+            if (selection == "dropdown")
+                await InvokeAsync("SelectSprintAsync", new ChangeEventArgs { Value = first.Id.ToString() });
+            if (selection == "history") await InvokeAsync("OpenSprintAsync", first.Id);
+
+            first = first with { Status = "Completed" };
+            next = next with { Status = "Active" };
+            await activator.Workspace.SetParametersAsync(Parameters([first, next]));
+            Assert.Contains(selection == "automatic" ? "Next sprint ticket" : "First sprint ticket", rendered.ToHtmlString());
+            Assert.DoesNotContain(selection == "automatic" ? "First sprint ticket" : "Next sprint ticket", rendered.ToHtmlString());
+
+            // The Active sprint tab explicitly resumes following, including after a deep link.
+            await InvokeAsync("SelectViewAsync", WorkBoardView.Sprint);
+            await activator.Workspace.SetParametersAsync(Parameters([first, next]));
+            Assert.Contains("Next sprint ticket", rendered.ToHtmlString());
+            next = next with { Status = "Paused" };
+            await activator.Workspace.SetParametersAsync(Parameters([first, next]));
+            Assert.Contains("Next sprint ticket", rendered.ToHtmlString());
+            next = next with { Status = "Completed" };
+            await activator.Workspace.SetParametersAsync(Parameters([first, next]));
+            Assert.Contains("No active sprint", rendered.ToHtmlString());
+            Assert.DoesNotContain("Next sprint ticket", rendered.ToHtmlString());
+        });
+
+        ParameterView Parameters(IReadOnlyList<WorkSprintResponse> sprints) => ParameterView.FromDictionary(new Dictionary<string, object?>
+        {
+            [nameof(WorkBoardWorkspace.Detail)] = board,
+            [nameof(WorkBoardWorkspace.Sprints)] = sprints,
+            [nameof(WorkBoardWorkspace.InitialSprintId)] = selection == "deep-link" ? first.Id : null
+        });
+        Task InvokeAsync(string method, object argument) => (Task)typeof(WorkBoardWorkspace)
+            .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(activator.Workspace, [argument])!;
+    }
+
+    private sealed class WorkspaceActivator : IComponentActivator
+    {
+        public WorkBoardWorkspace? Workspace { get; private set; }
+        public IComponent CreateInstance(Type type)
+        {
+            var component = (IComponent)Activator.CreateInstance(type)!;
+            if (component is WorkBoardWorkspace workspace) Workspace = workspace;
+            return component;
+        }
     }
 
     [Fact]

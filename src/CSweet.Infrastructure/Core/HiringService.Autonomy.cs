@@ -294,9 +294,22 @@ public sealed partial class HiringService
     public async Task<HiringCandidateSelectionResponse> SelectCandidateAsync(Guid organizationId, Guid installationId,
         Guid recommendationId, CancellationToken token = default)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(token) : null;
+        await LockHiringOrganizationAsync(organizationId, token);
+        var result = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+        return result;
+    }
+
+    private async Task<HiringCandidateSelectionResponse> SelectCandidateCoreAsync(Guid organizationId, Guid installationId,
+        Guid recommendationId, CancellationToken token)
+    {
         var plan = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
+        if (db.Database.IsRelational()) await db.Entry(plan).ReloadAsync(token);
         var policy = await ReadPolicyAsync(organizationId, installationId, token);
-        var mode = policy.SetupComplete ? policy.Settings.Mode : HiringSelectionMode.RecommendCandidates;
+        var mode = plan.ManualSelectionRequestedAt.HasValue ? HiringSelectionMode.ChooseCandidates :
+            policy.SetupComplete ? policy.Settings.Mode : HiringSelectionMode.RecommendCandidates;
         if (mode == HiringSelectionMode.ChooseCandidates)
         {
             plan.SelectedCatalogAgentJson = null;
@@ -376,8 +389,9 @@ public sealed partial class HiringService
         }
     }
 
-    private async Task<HiringPolicySettings> BoundPolicyAsync(WorkforcePlan plan, CancellationToken token)
+    private async Task<HiringPolicySettings> BoundPolicyAsync(WorkforcePlan plan, CancellationToken token, bool persist = true)
     {
+        if (plan.ManualSelectionRequestedAt.HasValue) return new(Mode: HiringSelectionMode.ChooseCandidates);
         if (plan.SourceResourceChangeRequestId is not Guid requestId)
         {
             // The Chief's own company leadership suggestions use the owner's live policy.
@@ -395,10 +409,13 @@ public sealed partial class HiringService
             .Where(x => x.OrganizationId == plan.OrganizationId && x.InstallationId == plan.RequestingInstallationId && x.EffectiveAt <= at)
             .OrderByDescending(x => x.Revision).FirstOrDefaultAsync(token) : null;
         var settings = revision is null ? new HiringPolicySettings() : Policy(revision.SettingsJson);
-        db.HiringPlanDelegations.Add(new HiringPlanDelegation { Id = Guid.NewGuid(), OrganizationId = plan.OrganizationId,
-            InstallationId = plan.RequestingInstallationId, ResourceChangeRequestId = requestId,
-            SettingsJson = JsonSerializer.Serialize(settings, JsonOptions), CreatedAt = DateTimeOffset.UtcNow });
-        await db.SaveChangesAsync(token);
+        if (persist)
+        {
+            db.HiringPlanDelegations.Add(new HiringPlanDelegation { Id = Guid.NewGuid(), OrganizationId = plan.OrganizationId,
+                InstallationId = plan.RequestingInstallationId, ResourceChangeRequestId = requestId,
+                SettingsJson = JsonSerializer.Serialize(settings, JsonOptions), CreatedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync(token);
+        }
         return settings;
     }
 
@@ -418,6 +435,12 @@ public sealed partial class HiringService
             return new(recommendationId, null, "Succeeded", "The approved role is already filled.");
         }
         var recommendation = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
+        if (db.Database.IsRelational()) await db.Entry(recommendation).ReloadAsync(token);
+        if (recommendation.ManualSelectionRequestedAt.HasValue)
+        {
+            if (transaction is not null) await transaction.CommitAsync(token);
+            return new(recommendationId, null, "NeedsReview", "The owner is choosing this role manually.");
+        }
         var auditCard = await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.ActionAsync(db, organizationId, installationId,
             $"hire:{recommendationId:N}", $"Hire {recommendation.Title}", token);
         DelegatedHireResponse result;
@@ -490,6 +513,7 @@ public sealed partial class HiringService
     {
         if (workflow.DelegatedInstallationId is not Guid installationId) return;
         var plan = await RequireRecommendationAsync(workflow.OrganizationId, installationId, workflow.WorkforcePlanId, token);
+        if (db.Database.IsRelational()) await db.Entry(plan).ReloadAsync(token);
         var current = await ReadPolicyAsync(workflow.OrganizationId, installationId, token);
         var bound = await BoundPolicyAsync(plan, token);
         if (!current.SetupComplete || current.Settings.Mode != HiringSelectionMode.Automatic || bound.Mode != HiringSelectionMode.Automatic)

@@ -174,20 +174,7 @@ internal static partial class WorkOrchestrationBoardState
             .Select(x => x.Entity).ToList();
         if (changed.Count > 0)
         {
-
-            var grants = await db.ScopedActionGrants.AsNoTracking().Where(x =>
-                x.OrganizationId == execution.OrganizationId && x.SubjectKind == GrantSubjectKind.OrganizationUser &&
-                x.RevokedAt == null &&
-                (x.ScopeKind == GrantScopeKind.Organization ||
-                 (x.ScopeKind == GrantScopeKind.Board && x.ScopeId == execution.BoardId)) &&
-                (x.Action == WorkBoardActions.Read || x.Action == WorkItemActions.Read))
-                .Select(x => new { x.SubjectId, x.Action, x.ExpiresAt }).ToListAsync(token);
-            grants = grants.Where(x => !x.ExpiresAt.HasValue || x.ExpiresAt > now).ToList();
-            var readers = grants.Where(x => x.Action == WorkBoardActions.Read).Select(x => x.SubjectId)
-                .Intersect(grants.Where(x => x.Action == WorkItemActions.Read).Select(x => x.SubjectId)).ToList();
-            var recipients = await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
-                readers.Contains(x.Id) && x.OrganizationId == execution.OrganizationId &&
-                x.EmployeeType == EmployeeType.Human && x.IsActive).Select(x => x.Id).ToListAsync(token);
+            var recipients = await ResolveRealtimeRecipientsAsync(db, execution.OrganizationId, execution.BoardId, now, token);
             foreach (var item in changed)
                 db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
                 {
@@ -201,5 +188,41 @@ internal static partial class WorkOrchestrationBoardState
                 });
         }
         await db.SaveChangesAsync(token);
+    }
+
+    // Enqueue before the caller saves, so lifecycle state and its refresh hint commit together.
+    internal static async Task QueueSprintChangedAsync(CSweetDbContext db, WorkSprint sprint,
+        string changeType, DateTimeOffset now, CancellationToken token)
+    {
+        var recipients = await ResolveRealtimeRecipientsAsync(db, sprint.OrganizationId, sprint.BoardId, now, token, includeSprintReaders: true);
+        db.ApplicationRealtimeOutbox.Add(new ApplicationRealtimeOutboxItem
+        {
+            Id = Guid.NewGuid(), OrganizationId = sprint.OrganizationId,
+            RecipientOrganizationUserIdsJson = JsonSerializer.Serialize(recipients, JsonOptions),
+            EventType = AppRealtimeEvents.WorkBoardChanged,
+            Subject = $"organizations/{sprint.OrganizationId:D}/work/boards/{sprint.BoardId:D}",
+            DataJson = JsonSerializer.Serialize(new { boardId = sprint.BoardId, sprintId = sprint.Id,
+                changeType, revision = sprint.Revision }, JsonOptions),
+            Status = ApplicationRealtimeOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
+        });
+    }
+
+    private static async Task<List<Guid>> ResolveRealtimeRecipientsAsync(CSweetDbContext db,
+        Guid organizationId, Guid boardId, DateTimeOffset now, CancellationToken token, bool includeSprintReaders = false)
+    {
+        var grants = await db.ScopedActionGrants.AsNoTracking().Where(x =>
+            x.OrganizationId == organizationId && x.SubjectKind == GrantSubjectKind.OrganizationUser &&
+            x.RevokedAt == null &&
+            (x.ScopeKind == GrantScopeKind.Organization || (x.ScopeKind == GrantScopeKind.Board && x.ScopeId == boardId)) &&
+            (x.Action == WorkBoardActions.Read || x.Action == WorkItemActions.Read ||
+             (includeSprintReaders && x.Action == WorkSprintActions.Read)))
+            .Select(x => new { x.SubjectId, x.Action, x.ExpiresAt }).ToListAsync(token);
+        grants = grants.Where(x => !x.ExpiresAt.HasValue || x.ExpiresAt > now).ToList();
+        var readers = grants.Where(x => x.Action == WorkBoardActions.Read).Select(x => x.SubjectId)
+            .Intersect(grants.Where(x => x.Action == WorkItemActions.Read ||
+                (includeSprintReaders && x.Action == WorkSprintActions.Read)).Select(x => x.SubjectId)).ToList();
+        return await db.CoreOrganizationUsers.AsNoTracking().Where(x =>
+            readers.Contains(x.Id) && x.OrganizationId == organizationId &&
+            x.EmployeeType == EmployeeType.Human && x.IsActive).Select(x => x.Id).ToListAsync(token);
     }
 }

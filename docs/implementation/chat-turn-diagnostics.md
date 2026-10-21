@@ -276,6 +276,41 @@ and zero Failed events after recovery. No direct live database mutations or hiri
 were used. Test and deployed assembly hashes plus rollback files are retained under the
 local `artifacts/event-delivery` verification directory.
 
+## Overlapping onboarding review interrupts Naomi's first reply (October 20)
+
+Nemotron Games conversation `a83d43ed-309c-4c49-885f-4f56951c5b18`, turn
+`4a1a072b-9791-4f1f-83be-9ce614c16097`, failed at 19:24 Pacific with
+`memory.runtime_reset`. Read-only diagnostics showed an attention-review lease
+overlapping the chat lease on runtime `59a9315a-019c-471d-9392-bd34b3d70f95`.
+The reset event recorded `validation=receipt.work-binding`. Recall selected no
+memories, but ordinary chat delivery still correctly recorded its input receipt.
+`PlatformMemoryReadEvidence.AuthorizeDispatchCoreAsync` resolved the exact chat
+attempt, then called `BeginAsync`, whose runtime-wide single-lease requirement
+rejected the two live callbacks and incorrectly requested a retained-evidence reset.
+Both delivered items were settled without replay. No artifact, artifact revision
+or approval existed in the organization. The `milestone-review` decision was
+answered, but Naomi's operating state remained `InvolvementConfirmation` with no
+explicit involvement evidence or discovery inputs; her agent had not saved the answer.
+
+`PlatformMemoryReadEvidence.BeginCoreAsync` now validates provider dispatch against
+the already authenticated work and attempt at every recheck. Public `BeginAsync`
+still rejects ambiguous unattributed memory reads. Identity, grant, source,
+audience, receipt-budget and current-attempt checks remain in place. This is a
+platform AgentHost correction; Creative Director 2.1.5 requires no package edit.
+Rebuild/restart AgentHost before explicitly retrying the failed turn through
+Communications. Preserve the original answered decision and failed attempt history;
+do not edit operating state or replay delivered work through database updates.
+The resumed answer may request initial game direction before drafting the pitch.
+
+Local verification: the package-only `MemoryOverlapVerified` build succeeded;
+all **155 affected tests passed**, with zero failures/skips, including three new
+overlap cases. `AgentMemoryOverlappingDispatchTests` covers empty/populated queued
+recall, an explicit read, unrelated live work, stale attempts, unattributed read
+denial, and genuine source invalidation. Existing authority and actual HTTP retry
+cases also ran. Results: `artifacts/memory-overlap/memory-overlap-regression.trx`.
+The live application was inspected read-only; no restart, retry or state repair
+was applied. This verifies the local correction, not live pitch recovery.
+
 ## Employee timeline
 
 The employee details **Timeline** tab correlates chat traces with messages, work attempts, tool/model calls, and runtime events using the shared audit ledger. See [Employee audit timeline](features/employee-audit-timeline.md) for capture coverage, privileged diagnostic access, and historical limitations.

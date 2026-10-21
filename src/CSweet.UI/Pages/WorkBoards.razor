@@ -3170,9 +3170,16 @@
 
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
-        if (envelope.OrganizationId != OrganizationId ||
-            envelope.EventType != AppRealtimeEvents.WorkBoardChanged ||
-            !envelope.Data.TryGetProperty("boardId", out var boardIdElement) ||
+        if (envelope.OrganizationId != OrganizationId) return;
+        var data = envelope.Data;
+        if (envelope.EventType == CSweet.WorkManagement.Contracts.WorkstreamEventNames.SprintChangedV1)
+        {
+            if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("context", out data)) return;
+        }
+        else if (envelope.EventType != AppRealtimeEvents.WorkBoardChanged) return;
+        if (data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("boardId", out var boardIdElement) ||
+            boardIdElement.ValueKind != JsonValueKind.String ||
             !boardIdElement.TryGetGuid(out var boardId)) return;
         var personalBoard = _personalTodos?.Boards.Any(x => x.BoardId == boardId) == true;
         if (boardId != _detail?.Board.Id && !personalBoard) return;

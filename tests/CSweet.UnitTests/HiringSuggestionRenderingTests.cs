@@ -20,11 +20,14 @@ namespace CSweet.UnitTests;
 public sealed class HiringSuggestionRenderingTests
 {
     [Theory]
-    [InlineData(true, "Pending", false)]
-    [InlineData(false, "Pending", false)]
-    [InlineData(true, "Completed", false)]
-    [InlineData(false, "Pending", true)]
-    public async Task CardShowsSelectedAgentAndContextWithSharedHireReview(bool selected, string status, bool noSuitableAgent)
+    [InlineData(true, "Pending", false, false)]
+    [InlineData(false, "Pending", false, false)]
+    [InlineData(true, "Completed", false, false)]
+    [InlineData(false, "Pending", true, false)]
+    [InlineData(true, "Pending", false, true)]
+    [InlineData(false, "Pending", false, true)]
+    [InlineData(false, "Pending", true, true)]
+    public async Task CardShowsSelectedAgentAndContextWithSharedHireReview(bool selected, string status, bool noSuitableAgent, bool automatic)
     {
         var id = Guid.NewGuid();
         var agent = new AvailableAgent("creative", "creative", AgentCatalogSource.FirstPartyCatalog, [],
@@ -37,6 +40,7 @@ public sealed class HiringSuggestionRenderingTests
             SelectedCatalogAgentJson = selected ? JsonSerializer.Serialize(agent, new JsonSerializerOptions(JsonSerializerDefaults.Web)) : null,
             SelectionRationale = "Specializes in game creative direction.", RequestingEmployee = "Evelyn Brooks",
             NoSuitableAgentFound = noSuitableAgent,
+            AutomaticHiringEnabled = automatic,
             HiringUrl = $"/marketplace?role=Creative%20Director&recommendationId={id:D}"
         };
         var action = new ActionResponse(Guid.NewGuid(), "hiring.marketplace.browse.v1", "Browse candidates",
@@ -76,9 +80,18 @@ public sealed class HiringSuggestionRenderingTests
         }
         if (status == "Pending")
         {
-            Assert.Contains(noSuitableAgent ? "Open Agent Marketplace" : "Browse Candidates", html);
-            Assert.Contains($"recommendationId={id:D}", html);
-            Assert.Equal(selected, html.Contains(">Hire</span>", StringComparison.Ordinal));
+            if (automatic)
+            {
+                Assert.Contains("Automatic hiring", html);
+                Assert.Contains("Choose this role manually", html);
+                Assert.DoesNotContain("Browse Candidates", html);
+            }
+            if (!automatic || noSuitableAgent)
+            {
+                Assert.Contains(noSuitableAgent ? "Open Agent Marketplace" : "Browse Candidates", html);
+                Assert.Contains($"recommendationId={id:D}", html);
+            }
+            Assert.Equal(selected && !automatic, html.Contains(">Hire</span>", StringComparison.Ordinal));
         }
         else Assert.DoesNotContain("Browse Candidates", html);
     }

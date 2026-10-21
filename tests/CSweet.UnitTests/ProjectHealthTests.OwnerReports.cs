@@ -206,7 +206,9 @@ public sealed partial class ProjectHealthTests
         var service = new ExecutiveDecisionService(f.Db, new ChatTurnService(f.Db));
         var response = await service.AnswerAsync(f.Org, attention.ReportConversationId!.Value, attention.ResolutionDecision!.Id, f.Ceo.Id, new("reconcile", null, "answer"));
         Assert.False(response.Succeeded); Assert.Empty(f.Db.ChatTurns);
-        Assert.Equal("Pending", f.Db.ExecutiveDecisions.Single().Status.ToString());
+        // AnswerAsync already cancels requests from inactive employees before checking the
+        // incident binding. Other freshness/authority failures preserve the pending record.
+        Assert.Equal(change == "reporter-deactivated" ? "Cancelled" : "Pending", f.Db.ExecutiveDecisions.Single().Status.ToString());
     }
 
     [Fact]

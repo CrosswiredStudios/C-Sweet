@@ -186,7 +186,7 @@ public sealed partial class ProjectHealthService
         if (await TechnicalPlanningDiagnosticAsync(incident, token) is { } technicalDiagnostic)
             return new($"{projectName}: C-Sweet technical issue",
                 "Sprint planning is blocked because C-Sweet could not generate or validate its planning output. " +
-                "This requires a technical correction. Specialist diagnostic: " + ProjectHealthReader.Safe(technicalDiagnostic),
+                "The planning generator failed. Approved scope and saved planning pages are retained.",
                 (await CurrentIncidentExecutionAsync(incident, token)).Summary, TechnicalPlanningAction, link, label);
         if (OwnerReport(incident) is { } ownerReport)
         {

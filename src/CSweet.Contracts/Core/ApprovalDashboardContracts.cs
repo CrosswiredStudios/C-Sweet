@@ -113,6 +113,10 @@ public sealed record ApprovalDashboardResponse(
 public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId, string ProjectName,
     string ReporterName, string Reason, string Facts, string RecommendedAction, string ActionUri, DateTimeOffset DetectedAt)
 {
+    public bool IsStatusReport { get; init; }
+    public string? RecoveryStatus { get; init; }
+    public string? DiagnosticDetails { get; init; }
+    public int RelatedIncidentCount { get; init; } = 1;
     public Guid? ReporterEmployeeId { get; init; }
     public Guid? ReporterOrganizationUserId { get; init; }
     public string? OwnerReport { get; init; }

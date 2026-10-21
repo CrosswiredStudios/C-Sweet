@@ -97,6 +97,7 @@ public sealed partial class WorkOrchestrator(
             var sprint = await db.WorkSprints.SingleAsync(x => x.Id == execution.SprintId, cancellationToken);
             sprint.Status = WorkSprintStatus.Completed; sprint.CompletedAt = now; sprint.UpdatedAt = now; sprint.Revision++;
             AddEvent(execution, null, null, null, "sprint.execution.completed", new { execution.SprintId });
+            await WorkOrchestrationBoardState.QueueSprintChangedAsync(db, sprint, "sprint.completed", now, cancellationToken);
             // Persist the wake hint with the completed sprint; reconnect recovery reads current state.
             var board = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == execution.BoardId && x.OrganizationId == execution.OrganizationId, cancellationToken);
             if (board.WorkstreamId is { } projectId)

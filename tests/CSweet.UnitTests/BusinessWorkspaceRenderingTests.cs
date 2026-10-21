@@ -20,7 +20,7 @@ using CSweet.UI.Localization;
 
 namespace CSweet.UnitTests;
 
-public sealed class BusinessWorkspaceRenderingTests
+public sealed partial class BusinessWorkspaceRenderingTests
 {
     [Theory]
     [InlineData("marketplace")]
@@ -281,6 +281,8 @@ public sealed class BusinessWorkspaceRenderingTests
     }
     private sealed class BusinessApi : HttpMessageHandler
     {
+        public CommunicationHubResponse? Hub { get; set; }
+        public int HubReads { get; private set; }
         public List<string> MarketplaceQueries { get; } = [];
         public List<PreviewMarketplaceHireRequest> HirePreviews { get; } = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -302,6 +304,8 @@ public sealed class BusinessWorkspaceRenderingTests
                 var body = await request.Content!.ReadFromJsonAsync<System.Text.Json.JsonElement>(cancellationToken);
                 Assert.Equal("list",body.GetProperty("operation").GetString());
             }
+            if (Hub is not null && path.Contains("/communications/hub/chats/"))
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) };
             string? json = null;
             if (path.EndsWith("/source-control/dashboard")) json = """{"canManageSourceControl":true,"repositories":[],"connections":[],"platformReadiness":{"existingGitHubAvailable":true}}""";
             else if (path.EndsWith("/internal/repositories")) json = "[]";
@@ -323,7 +327,12 @@ public sealed class BusinessWorkspaceRenderingTests
                 json = "{\"agents\":[],\"sources\":[]}";
             }
             else if (path.Contains("/hiring/recommendations/")) json = """{"id":"20000000-0000-0000-0000-000000000001","title":"Video Game Producer","objective":"Produce the game","status":"Pending","candidates":[],"remainingHeadcount":1,"requestingTeam":"Video Game Team","requestingEmployee":"Naomi Chen","actualDecisionMaker":"Matt"}""";
-            else if (path.EndsWith("/communications/hub")) json = """{"canManageChats":true,"chats":[],"people":[],"audiences":[]}""";
+            else if (path.EndsWith("/communications/hub"))
+            {
+                HubReads++;
+                json = Hub is null ? """{"canManageChats":true,"chats":[],"people":[],"audiences":[]}"""
+                    : System.Text.Json.JsonSerializer.Serialize(Hub, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            }
             else if (path.Contains("/notifications")) json = "[]";
             else if (path.EndsWith("/security/events")) json = """{"items":[{"id":"10000000-0000-0000-0000-000000000001","occurredAt":"2026-10-11T15:00:00Z","summary":"Review completed","eventType":"document.review","category":"DocumentAccess","actorDisplayName":"Naomi Chen","actorKind":"Agent","outcome":"Completed","integrityStatus":"Verified"}]}""";
             else if (path.EndsWith("/executive-briefings/settings")) json = """{"cadence":"Daily","weeklyDay":"Monday","localTime":"09:00","timeZone":"UTC"}""";

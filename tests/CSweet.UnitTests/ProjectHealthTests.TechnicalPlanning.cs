@@ -8,6 +8,45 @@ namespace CSweet.UnitTests;
 
 public sealed partial class ProjectHealthTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Planning_cards_group_only_an_unambiguous_authorized_cycle(bool ambiguous)
+    {
+        await using var f = await Fixture.Create(); var (incident, ticket) = await PrepareOwnerReport(f);
+        const string diagnostic = "[csweet.planning.generator] scope coverage page 1 exceeds 128000 characters.";
+        ticket.Status = CSweet.Domain.Core.WorkTaskStatus.Blocked; ticket.BlockReason = diagnostic;
+        ticket.AssignedEmployeeId = f.Producer.Id;
+        ticket.PersonalWorkContextJson = JsonSerializer.Serialize(new { boardId = f.Board.Id, sourceFingerprint = "exact-cycle" });
+        AgentCoordinationSession Session() => new() { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+            ConversationId = Guid.NewGuid(), SourceKind = "Board", SourceBoardId = f.Board.Id,
+            InitiatorOrganizationUserId = f.Producer.Id, InitiatorInstallationId = f.Producer.AgentInstallationId!.Value,
+            Status = AgentCoordinationStatus.Blocked, FinalSummary = diagnostic, CreatedAt = f.Clock.Now, UpdatedAt = f.Clock.Now,
+            Turns = [new() { Id = Guid.NewGuid(), SpeakerOrganizationUserId = f.Producer.Id,
+                ArtifactKey = "exact-cycle", ArtifactType = "video-game.production.planning-cycle.v1" }] };
+        var session = Session(); f.Db.Add(session);
+        if (ambiguous) f.Db.Add(Session());
+        var collaborationIncident = (CSweet.Domain.Core.ProjectIncident)f.Db.Entry(incident).CurrentValues.ToObject();
+        collaborationIncident.Id = Guid.NewGuid(); collaborationIncident.AffectedWorkItemId = null;
+        collaborationIncident.Fingerprint = $"coordination:{session.Id:N}";
+        f.Db.Add(collaborationIncident);
+        var delivery = (CSweet.Domain.Core.ProjectIncidentDelivery)f.Db.Entry(f.Db.ProjectIncidentDeliveries.Single(x => x.DeliveredAt != null)).CurrentValues.ToObject();
+        delivery.Id = Guid.NewGuid(); delivery.IncidentId = collaborationIncident.Id; f.Db.Add(delivery);
+        await f.Db.SaveChangesAsync();
+        var cards = await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default);
+        Assert.Equal(ambiguous ? 2 : 1, cards.Count);
+        Assert.All(cards, card => { Assert.True(card.IsStatusReport); Assert.Null(card.ResolutionDecision); });
+        if (!ambiguous)
+        {
+            Assert.Equal(2, cards[0].RelatedIncidentCount); Assert.Equal(session.Id, cards[0].Collaboration!.SessionId);
+            Assert.False(cards[0].Collaboration!.CanRetry);
+        }
+        Assert.Empty(await f.Service.ReadAttentionAsync(Guid.NewGuid(), f.Ceo.Id, default));
+        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Director.Id, default));
+        session.Status = AgentCoordinationStatus.Completed; ticket.Status = CSweet.Domain.Core.WorkTaskStatus.Completed;
+        if (!ambiguous) { await f.Db.SaveChangesAsync(); Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)); }
+    }
+
     [Fact]
     public async Task Repeated_legacy_digest_reports_cannot_request_CEO_input_or_repeat_the_same_status_report()
     {
@@ -29,7 +68,8 @@ public sealed partial class ProjectHealthTests
             Assert.False(ProjectHealthService.OwnerReport(incident)!.RequiresOwnerInput);
             ManagerIncidentCoordinator.ValidateReport(ProjectHealthService.OwnerReport(incident)!);
             Assert.Null(incident.EscalateAt); Assert.Equal(f.Ceo.Id,incident.CurrentRecipientId);
-            Assert.Empty(await f.Service.ReadAttentionAsync(f.Org,f.Ceo.Id,default));
+            var card = Assert.Single(await f.Service.ReadAttentionAsync(f.Org,f.Ceo.Id,default));
+            Assert.True(card.IsStatusReport); Assert.Null(card.ResolutionDecision);
             f.Clock.Now+=TimeSpan.FromMinutes(5);
         }
         Assert.Equal(2,f.Db.CoreConversationMessages.Count());
@@ -68,15 +108,18 @@ public sealed partial class ProjectHealthTests
             Assert.Contains("C-Sweet technical issue", ProjectHealthService.OwnerReport(incident)!.Title);
             var presentation = await f.Service.PresentAsync(incident, default);
             Assert.Contains("C-Sweet technical issue", presentation.Title);
-            Assert.Contains(diagnostic, presentation.Summary);
+            Assert.DoesNotContain(diagnostic, presentation.Summary);
+            Assert.Contains("saved planning pages", presentation.Summary);
             Assert.DoesNotContain("designers disagree", presentation.Summary);
             Assert.Contains("No correlated retry", presentation.Recovery);
         }
         Assert.Equal(f.Ceo.Id, incident.CurrentRecipientId);
         await f.Service.DeliverAsync(default);
-        Assert.Contains(f.Db.CoreConversationMessages, x => x.Content.Contains("C-Sweet technical issue") && x.Content.Contains(diagnostic));
+        Assert.Contains(f.Db.CoreConversationMessages, x => x.Content.Contains("C-Sweet technical issue"));
         Assert.Empty(f.Db.ExecutiveDecisions);
-        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        var card = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.True(card.IsStatusReport); Assert.Null(card.ResolutionDecision);
+        Assert.Equal(diagnostic, card.DiagnosticDetails); Assert.False(card.Collaboration!.CanRetry);
     }
 
     [Fact]
@@ -101,7 +144,7 @@ public sealed partial class ProjectHealthTests
         Assert.Single(f.Db.CoreConversationMessages, x => x.Content.Contains("C-Sweet technical issue"));
         Assert.Equal(f.Ceo.Id, incident.CurrentRecipientId);
         Assert.Contains(diagnostic, incident.LikelyCause);
-        Assert.Empty(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        Assert.True(Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default)).IsStatusReport);
     }
 
     [Fact]

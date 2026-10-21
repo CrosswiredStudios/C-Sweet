@@ -91,6 +91,19 @@ Authenticated browser sessions connect to `/hubs/app-events`. Communication chan
 
 The Direct Messages roster combines existing direct conversations with every active employee in the organization. Contacts without a conversation are directory entries rather than persisted empty chats; opening one from the signed-in user's perspective creates or reuses the durable direct conversation. Read-only agent perspectives show only the agent's existing conversations and never create a chat on the agent's behalf. `com.csweet.app.employee-directory.changed.v1` causes open Communications workspaces to reconcile the roster after hires, activation changes, deactivation, renames, and role or employee-type changes.
 
+Agent dots and the direct-chat availability banner use `CommunicationHubService.ResolvePresence`.
+`CSweetDbContext.CaptureAgentPresenceEvents` captures runtime status/reason, installation
+readiness, and schedule changes into the transactional application outbox as
+`AppRealtimeEvents.AgentPresenceChanged`. Heartbeats, runtime logs and timestamp-only
+updates do not emit presence events. Notifications contain no runtime diagnostics and
+are scoped to active organization members. `Communications.OnRealtimeEvent` reconciles
+the hub from REST, updating both directory people and selected-chat participants;
+connection/reconnection also reconciles current state. Events are wake hints, so late
+or duplicate events cannot restore an old runtime state. A running runtime is available
+(green); a queued chat turn alone does not establish runtime readiness.
+`AgentPresenceRealtimeTests` and `BusinessWorkspaceRenderingTests.Presence` cover
+state transitions, recipient isolation, refresh and reconnect recovery.
+
 ### Notification sounds
 
 `CommunicationUnreadState.UnreadMessagesArrived` fires when a `com.csweet.communication.message.created.v1` event raises the signed-in user's unread total, so self-authored messages and agent-perspective traffic stay silent. `AppRealtimeCoordinator` answers it with `NotificationSoundPlayer.PlayAsync(NotificationSoundEvents.CommunicationMessageReceived)`, which plays through `wwwroot/js/notificationSounds.js` and throttles bursts per event type.

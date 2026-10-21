@@ -276,6 +276,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureHiringPlanDelegations();
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
+        CaptureAgentPresenceEvents();
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
         CaptureApprovalEvents();
@@ -305,6 +306,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureHiringPlanDelegations();
         CaptureCommunicationEvents();
         CaptureEmployeeDirectoryEvents();
+        CaptureAgentPresenceEvents();
         CaptureApplicationNotificationEvents();
         CaptureArtifactEvents();
         CaptureApprovalEvents();

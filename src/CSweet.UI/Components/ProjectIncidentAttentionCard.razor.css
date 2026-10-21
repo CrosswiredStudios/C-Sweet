@@ -1,0 +1,4 @@
+.incident-next-step { margin: 0 0 14px; font-size: .875rem; }
+.incident-diagnostics { margin: 0 0 16px; font-size: .875rem; }
+.incident-diagnostics summary { cursor: pointer; color: var(--mud-palette-primary); }
+.incident-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 18rem; overflow: auto; padding: 12px; background: var(--mud-palette-background-grey); border-radius: 8px; }

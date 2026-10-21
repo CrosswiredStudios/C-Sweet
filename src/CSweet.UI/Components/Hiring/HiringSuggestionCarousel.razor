@@ -103,17 +103,24 @@
                     }
                     else if (!ReadOnly)
                     {
-                        @if (action.HiringRecommendationId is Guid selectedId && _recommendations.GetValueOrDefault(selectedId) is { } selectedRecommendation && SelectedAgent(selectedRecommendation) is { } selectedAgent)
+                        @if (IsAutomatic(action))
+                        {
+                            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="action.HiringRecommendationId!.Value" Name="@(_recommendations[action.HiringRecommendationId.Value].SuggestedBy ?? "Your Chief of Staff")" Stopped="OnManualSelection" />
+                        }
+                        @if (!IsAutomatic(action) && !IsManual(action) && action.HiringRecommendationId is Guid selectedId && _recommendations.GetValueOrDefault(selectedId) is { } selectedRecommendation && SelectedAgent(selectedRecommendation) is { } selectedAgent)
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                        OnClick="@(() => _hireDialog!.OpenAsync(selectedAgent, selectedRecommendation.Title, selectedId))">@L["HiringSuggestionCarousel.Hire"]</MudButton>
                         }
+                        @if (!IsAutomatic(action) || NoSuitableAgent(action))
+                        {
                         <MudButton Href="@BrowseUrl(action)"
                                    Variant="Variant.Outlined"
                                    Color="Color.Primary"
                                    EndIcon="@Icons.Material.Outlined.ArrowForward">
                             @L[NoSuitableAgent(action) ? "HiringCandidateSelection.OpenMarketplace" : "HiringSuggestionCarousel.BrowseCandidates"]
                         </MudButton>
+                        }
                     }
                     else
                     {
@@ -134,6 +141,16 @@
     private AgentHireDialog? _hireDialog;
     private readonly Dictionary<Guid, HiringRecommendationResponse> _recommendations = [];
     private readonly HashSet<string> _failedImages = [];
+    private readonly HashSet<Guid> _manualRoles = [];
+    private bool IsManual(SuggestedUserActionResponse action) => action.HiringRecommendationId is { } id &&
+        (_manualRoles.Contains(id) || _recommendations.GetValueOrDefault(id)?.ManualSelectionRequested == true);
+    private bool IsAutomatic(SuggestedUserActionResponse action) => action.HiringRecommendationId is { } id &&
+        !_manualRoles.Contains(id) && _recommendations.GetValueOrDefault(id) is { AutomaticHiringEnabled: true, ManualSelectionRequested: false };
+    private void OnManualSelection(HiringRecommendationResponse updated)
+    {
+        _manualRoles.Add(updated.Id);
+        _recommendations[updated.Id] = updated;
+    }
     private string CandidateImage(AvailableAgent agent) =>
         !_failedImages.Contains(agent.AgentReference) && MarketplaceAgentPresentation.IsAgentImageUrl(agent.ImageUrl)
             ? agent.ImageUrl! : MarketplaceAgentPresentation.DefaultImageUrl;
@@ -154,7 +171,7 @@
         string.IsNullOrWhiteSpace(value?.SelectedCatalogAgentJson) ? null :
             JsonSerializer.Deserialize<AvailableAgent>(value.SelectedCatalogAgentJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
-    private bool NoSuitableAgent(SuggestedUserActionResponse action) => action.HiringRecommendationId is { } id &&
+    private bool NoSuitableAgent(SuggestedUserActionResponse action) => !IsManual(action) && action.HiringRecommendationId is { } id &&
         _recommendations.GetValueOrDefault(id)?.NoSuitableAgentFound == true;
     private string BrowseUrl(SuggestedUserActionResponse action) => NoSuitableAgent(action)
         ? _recommendations[action.HiringRecommendationId!.Value].HiringUrl : action.NavigationUri;

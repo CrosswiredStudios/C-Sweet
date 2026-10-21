@@ -28,7 +28,11 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static UnauthorizedAccessException Denied() => new("The memory read no longer has an authorized work context.");
 
-    public async Task<MemoryReadInvocation> BeginAsync(AgentSession session, string capability, CancellationToken token)
+    public Task<MemoryReadInvocation> BeginAsync(AgentSession session, string capability, CancellationToken token) =>
+        BeginCoreAsync(session, capability, null, null, token);
+
+    private async Task<MemoryReadInvocation> BeginCoreAsync(AgentSession session, string capability,
+        Guid? expectedWork, int? expectedAttempt, CancellationToken token)
     {
         if (!Guid.TryParse(session.InstallationId, out var installation) || !Guid.TryParse(session.RuntimeInstanceId, out var runtime) ||
             !Guid.TryParse(session.TickId, out var tick) || !Guid.TryParse(session.BusinessId, out var organization) ||
@@ -45,7 +49,8 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
         var leases = await (from attempt in db.AgentWorkAttempts.AsNoTracking()
             join work in db.AgentWorkItems.AsNoTracking() on attempt.AgentWorkItemId equals work.Id
             where attempt.RuntimeInstanceId == runtime && attempt.FinishedAt == null && attempt.LeaseExpiresAt > now &&
-                work.Status == AgentWorkStatus.Leased && work.DeadlineAt > now && work.AgentInstallationId == installation && work.OrganizationId == session.BusinessId
+                work.Status == AgentWorkStatus.Leased && work.DeadlineAt > now && work.AgentInstallationId == installation && work.OrganizationId == session.BusinessId &&
+                (expectedWork == null || work.Id == expectedWork) && (expectedAttempt == null || attempt.Attempt == expectedAttempt)
             select new { work.Id, attempt.Attempt }).Take(2).ToListAsync(token);
         if (leases.Count != 1) throw Denied();
         var employee = Guid.Parse(identity.EmployeeId);
@@ -162,7 +167,10 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
             try
             {
                 // Identity/grant/source invalidation in a live context still requires fencing.
-                current = await BeginAsync(session, capability, token);
+                // Provider dispatch already resolved the authenticated work attempt. Other
+                // live callbacks do not make that binding ambiguous or invalidate its memory.
+                // Unattributed memory reads still require a single runtime lease in BeginAsync.
+                current = await BeginCoreAsync(session, capability, execution.WorkId, execution.Attempt, token);
                 if (current.WorkId != execution.WorkId || current.Attempt != execution.Attempt) throw Denied();
                 validation = "receipt.binding";
                 if (current.EmployeeId != receipt.EmployeeId || receipt.OrganizationId.ToString("D") != session.BusinessId ||
@@ -172,7 +180,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
                     validation = "queued-recall.retained-delivery";
                     var work = await db.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == current.WorkId, token);
                     await validator.AuthorizeRetainedDeliveryAsync(receipt, work, token);
-                    if (current != await BeginAsync(session, capability, token)) throw Denied();
+                    if (current != await BeginCoreAsync(session, capability, execution.WorkId, execution.Attempt, token)) throw Denied();
                     continue;
                 }
                 validation = "read.evidence";
@@ -196,7 +204,7 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
                 validation = "read.authority-changed";
                 if (receipt.AuthorityHash != await AuthorityHashAsync(receipt.OrganizationId, receipt.EmployeeId, current.WorkId, partitions, token)) throw Denied();
                 validation = "read.lease-changed";
-                if (current != await BeginAsync(session, receipt.Capability, token)) throw Denied();
+                if (current != await BeginCoreAsync(session, receipt.Capability, execution.WorkId, execution.Attempt, token)) throw Denied();
             }
             catch (Exception error) when (error is ProviderDispatchDeniedException or UnauthorizedAccessException or
                 JsonException or FormatException or NullReferenceException or KeyNotFoundException or ArgumentException)

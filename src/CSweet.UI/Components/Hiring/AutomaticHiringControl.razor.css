@@ -1,0 +1,4 @@
+.automatic-hiring-control { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 0; }
+.automatic-hiring-copy { display: flex; flex-direction: column; gap: 3px; }
+.automatic-hiring-copy strong { color: var(--mud-palette-primary); font-size: .85rem; }
+.automatic-hiring-copy span { color: var(--mud-palette-text-secondary); font-size: .8rem; }
