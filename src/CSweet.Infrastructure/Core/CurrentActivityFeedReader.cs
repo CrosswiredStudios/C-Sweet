@@ -129,7 +129,7 @@ public sealed class CurrentActivityFeedReader(CSweetDbContext db, IDataProtectio
         return taskId.HasValue ? id.ValueKind == JsonValueKind.String && id.TryGetGuid(out var value) && value == taskId : id.ValueKind == JsonValueKind.Undefined;
     }
     private static string? ProgressText(JsonElement root) => Text(root, "message") ??
-        (Text(root, "kind") is "progress" or "activity" ? Text(root, "delta") : null);
+        (Text(root, "kind") is "progress" or "activity" or "activity.started" or "activity.completed" ? Text(root, "delta") : null);
     private static string ProgressKind(JsonElement root) => Text(root, "kind") == "workspace-tool" ? "Workspace" : "Progress";
     private static string Bound(string text, int length)
     {

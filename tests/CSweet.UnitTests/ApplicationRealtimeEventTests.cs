@@ -18,6 +18,32 @@ public sealed class ApplicationRealtimeEventTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    [Theory]
+    [InlineData(AppRealtimeEvents.AuditChanged)]
+    [InlineData(AppRealtimeEvents.CurrentActivityChanged)]
+    public async Task EmployeeActivityHintsRecheckDiagnosticAccessAndOrganizationAtDispatch(string eventType)
+    {
+        await using var db = CreateDb();
+        var org = Guid.NewGuid(); var employee = Guid.NewGuid();
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true };
+        var contributor = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Contributor, IsActive = true };
+        var outsider = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = Guid.NewGuid(), EmployeeType = EmployeeType.Human,
+            PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true };
+        db.AddRange(owner, contributor, outsider, new OrganizationUser { Id = employee, OrganizationId = org,
+            EmployeeType = EmployeeType.Agent, IsActive = true });
+        db.ApplicationRealtimeOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = org, EventType = eventType,
+            DataJson = JsonSerializer.Serialize(new { employeeIds = new[] { employee } }), NextAttemptAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var publisher = new RecordingPublisher();
+        await new ApplicationRealtimeOutboxDispatcher(db).DispatchBatchAsync(publisher);
+        var publication = Assert.Single(publisher.Publications, x => x.Envelope.EventType == eventType);
+        Assert.Contains(owner.Id, publication.RecipientOrganizationUserIds);
+        Assert.DoesNotContain(contributor.Id, publication.RecipientOrganizationUserIds);
+        Assert.DoesNotContain(outsider.Id, publication.RecipientOrganizationUserIds);
+    }
+
     [Fact]
     public async Task ComputeStateChangesNotifyOnlyCurrentHumanMembersAndIgnoreTimestampOnlyUpdates()
     {

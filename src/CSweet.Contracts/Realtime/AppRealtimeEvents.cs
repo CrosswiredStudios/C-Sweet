@@ -7,6 +7,7 @@ public static class AppRealtimeEvents
     public const string PersonalAssistantChanged = "com.csweet.app.personal-assistant.changed.v1";
     public const string RepositoryOnboardingChanged = "com.csweet.app.repository-onboarding.changed.v1";
     public const string AuditChanged = "com.csweet.app.audit.changed.v1";
+    public const string CurrentActivityChanged = "com.csweet.app.current-activity.changed.v1";
     public const string ProjectIncidentChanged = "com.csweet.app.project-incident.changed.v1";
     public const string ApprovalChanged = "com.csweet.app.approval.changed.v1";
     public const string HiringRecommendationsChanged = "com.csweet.app.hiring-recommendations.changed.v1";

@@ -70,6 +70,12 @@ only retirement authorization/acknowledgement; no caller-selected deletion paths
 execution grants are accepted. A lost callback retries from the persistent machine task.
 Core then removes this setup's user staging. Durable receipts/tombstones are platform
 recovery metadata, not retained business payloads.
+`Retire-ComputeBusiness.ps1` exposes its pinned-TLS validator as an actual
+`RemoteCertificateValidationCallback` created in C#. Windows PowerShell 5.1 cannot
+assign the static method group directly to `ServicePointManager`, which otherwise
+fails before the first retirement authorization read. The Pester retirement suite
+runs the pinned path, including receipt replay, and verifies pin, hostname and
+certificate lifetime checks without changing certificate-validation policy.
 `Reset-CSweetLocal.ps1` inventories `ComputeRetirement` and validates the exact scheduled
 task name/action before stopping and unregistering retirement tasks during an explicit reset.
 

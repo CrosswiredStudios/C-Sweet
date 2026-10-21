@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Realtime;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
@@ -15,6 +16,7 @@ namespace CSweet.Infrastructure.Persistence;
 public sealed partial class CSweetDbContext
 {
     private readonly Dictionary<string, Guid> pendingAuditMutations = new();
+    private readonly Dictionary<Guid, DateTimeOffset> activityStreamWakes = new();
 
     private Guid AuditMutationId(string key)
     {
@@ -40,6 +42,28 @@ public sealed partial class CSweetDbContext
             Id = id, CreatedAt = DateTimeOffset.UtcNow, SourceEntityType = request.EntityType, SourceEntityId = request.EntityId,
             RequestJson = AuditProtection is null ? Encoding.UTF8.GetString(bytes) : "{}",
             ProtectedRequest = AuditProtection?.CreateProtector("CSweet.AuditOutbox.v1").Protect(bytes)
+        });
+        QueueCurrentActivityWake(request);
+    }
+
+    private void QueueCurrentActivityWake(AuditEventWriteRequest request)
+    {
+        if (request.OrganizationId is not { } organization || request.Employees is not { Count: > 0 } ||
+            request.EventType is not ("model.response.chunk" or "model.call.started" or "model.call.completed" or
+                "agent.work.progress" or "agent.work.attempt.started" or "agent.work.attempt.stopped")) return;
+        var now = DateTimeOffset.UtcNow;
+        // The streaming context is long lived. Bound wake hints independently of token
+        // rate, while lifecycle/progress transitions always wake the authorized reader.
+        if (request.EventType == "model.response.chunk")
+        {
+            if (activityStreamWakes.TryGetValue(organization, out var previous) && now - previous < TimeSpan.FromSeconds(5)) return;
+            activityStreamWakes[organization] = now;
+        }
+        ApplicationRealtimeOutbox.Add(new()
+        {
+            Id = Guid.NewGuid(), OrganizationId = organization, EventType = AppRealtimeEvents.CurrentActivityChanged,
+            Subject = $"organizations/{organization:D}/current-activity", OccurredAt = now, NextAttemptAt = now,
+            DataJson = JsonSerializer.Serialize(new { employeeIds = request.Employees.Select(x => x.EmployeeId).Distinct().ToArray() })
         });
     }
 

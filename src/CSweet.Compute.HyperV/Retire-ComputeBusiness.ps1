@@ -42,13 +42,15 @@ if ($request.coreCertificateSha256) {
     $pin = [string]$request.coreCertificateSha256
     if ($pin -notmatch '^[0-9A-Fa-f]{64}$') { throw 'Invalid Core TLS pin.' }
     # TLS callbacks run on framework threads; avoid a PowerShell script-block callback requiring a runspace.
-    Add-Type -TypeDefinition @'
+    if (-not ('CSweetRetirementTls' -as [type])) {
+        Add-Type -TypeDefinition @'
 using System;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 public static class CSweetRetirementTls {
     public static string Pin;
+    public static readonly RemoteCertificateValidationCallback Callback = new RemoteCertificateValidationCallback(Validate);
     public static bool Validate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
         if (cert == null || (errors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0) return false;
         using (var sha = SHA256.Create()) {
@@ -60,8 +62,9 @@ public static class CSweetRetirementTls {
     }
 }
 '@
+    }
     [CSweetRetirementTls]::Pin = $pin
-    [Net.ServicePointManager]::ServerCertificateValidationCallback = [CSweetRetirementTls]::Validate
+    [Net.ServicePointManager]::ServerCertificateValidationCallback = [CSweetRetirementTls]::Callback
 }
 $body = @{cleanupId=$request.cleanupId; receiptToken=$request.receiptToken} | ConvertTo-Json -Compress
 $authorization = Invoke-WebRequest -UseBasicParsing -Method Post -Uri ([uri]::new($origin,'api/compute/provider/retirement-authorize')) -ContentType 'application/json' -Body $body -MaximumRedirection 0 -TimeoutSec 30

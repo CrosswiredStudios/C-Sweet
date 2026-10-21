@@ -12,6 +12,7 @@ function Register-ScheduledTask { param($TaskName,$Action,$Trigger,$Settings,$Us
 Describe 'Business provider retirement' {
     BeforeEach {
         $script:oldProgramData = $env:ProgramData
+        $script:oldCertificateCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
         $env:ProgramData = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $script:business = [guid]::NewGuid()
         $script:node = [guid]::NewGuid()
@@ -24,17 +25,42 @@ Describe 'Business provider retirement' {
         @{ enrollment = @{ organizationId=$business; nodeId=$node } } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $owned 'provider.json')
         Set-Content -LiteralPath (Join-Path $owned 'private.vhdx') -Value 'owned private bytes'
         @{cleanupId=[guid]::NewGuid(); businessId=$business; nodeId=$node; receiptToken=('a' * 64);
-            coreOrigin='https://core.example/'; coreCertificateSha256=$null; certificateThumbprint=('b' * 40);
+            coreOrigin='https://core.example/'; coreCertificateSha256=('c' * 64); certificateThumbprint=('b' * 40);
             preserveSharedProvider=$true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskDirectory 'request.json')
         Mock Import-Module { } -ParameterFilter { $Name -eq 'Hyper-V' }
         Mock Get-VM { if ($env:CSWEET_RETIRE_TEST_VM_ROOT) { @([pscustomobject]@{Path=$env:CSWEET_RETIRE_TEST_VM_ROOT; ConfigurationLocation=$env:CSWEET_RETIRE_TEST_VM_ROOT; SnapshotFileLocation=$env:CSWEET_RETIRE_TEST_VM_ROOT; SmartPagingFilePath=$env:CSWEET_RETIRE_TEST_VM_ROOT}) } else { @() } }
         Mock Get-CimInstance { $null }
         Mock Get-Service { $null }
         Mock Get-Item { $null } -ParameterFilter { $LiteralPath -like 'Cert:*' }
-        Mock Invoke-WebRequest { if ($env:CSWEET_RETIRE_TEST_DENY -and $Uri.ToString().EndsWith('/retirement-authorize')) { return @{StatusCode=409} }; if ($env:CSWEET_RETIRE_TEST_FAIL_RECEIPT -and $Uri.ToString().EndsWith('/retirement-receipt')) { throw 'Core unavailable' }; @{StatusCode=204} }
+        Mock Invoke-WebRequest { if ([Net.ServicePointManager]::ServerCertificateValidationCallback -isnot [Net.Security.RemoteCertificateValidationCallback]) { throw 'Pinned TLS callback was not installed.' }; if ($env:CSWEET_RETIRE_TEST_DENY -and $Uri.ToString().EndsWith('/retirement-authorize')) { return @{StatusCode=409} }; if ($env:CSWEET_RETIRE_TEST_FAIL_RECEIPT -and $Uri.ToString().EndsWith('/retirement-receipt')) { throw 'Core unavailable' }; @{StatusCode=204} }
         Mock Unregister-ScheduledTask { }
     }
-    AfterEach { $env:ProgramData = $script:oldProgramData; Remove-Item Env:CSWEET_RETIRE_TEST_VM_ROOT, Env:CSWEET_RETIRE_TEST_FAIL_RECEIPT, Env:CSWEET_RETIRE_TEST_DENY -ErrorAction SilentlyContinue }
+    AfterEach { $env:ProgramData = $script:oldProgramData; [Net.ServicePointManager]::ServerCertificateValidationCallback = $script:oldCertificateCallback; Remove-Item Env:CSWEET_RETIRE_TEST_VM_ROOT, Env:CSWEET_RETIRE_TEST_FAIL_RECEIPT, Env:CSWEET_RETIRE_TEST_DENY -ErrorAction SilentlyContinue }
+
+    It 'uses a framework delegate and validates the exact pin, host and certificate lifetime' {
+        & $taskScript
+        $callback = [Net.ServicePointManager]::ServerCertificateValidationCallback
+        ($callback -is [Net.Security.RemoteCertificateValidationCallback]) | Should Be $true
+        $key = [Security.Cryptography.RSACng]::new(2048)
+        $certificate = $null; $expired = $null; $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $request = [Security.Cryptography.X509Certificates.CertificateRequest]::new('CN=core.example', $key,
+                [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+            $certificate = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddHours(-1), [DateTimeOffset]::UtcNow.AddHours(1))
+            [CSweetRetirementTls]::Pin = [BitConverter]::ToString($sha.ComputeHash($certificate.RawData)).Replace('-', '')
+            $callback.Invoke($null, $certificate, $null, [Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors) | Should Be $true
+            $callback.Invoke($null, $certificate, $null, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch) | Should Be $false
+            [CSweetRetirementTls]::Pin = '0' * 64
+            $callback.Invoke($null, $certificate, $null, [Net.Security.SslPolicyErrors]::None) | Should Be $false
+            $expired = $request.CreateSelfSigned([DateTimeOffset]::UtcNow.AddDays(-2), [DateTimeOffset]::UtcNow.AddDays(-1))
+            [CSweetRetirementTls]::Pin = [BitConverter]::ToString($sha.ComputeHash($expired.RawData)).Replace('-', '')
+            $callback.Invoke($null, $expired, $null, [Net.Security.SslPolicyErrors]::None) | Should Be $false
+            $callback.Invoke($null, $null, $null, [Net.Security.SslPolicyErrors]::None) | Should Be $false
+        } finally {
+            if ($certificate) { $certificate.Dispose() }; if ($expired) { $expired.Dispose() }
+            $sha.Dispose(); $key.Dispose()
+        }
+    }
 
     It 'removes the exact business root and acknowledges after checking absence' {
         $other = Join-Path $env:ProgramData ('CSweet\ComputeBusinesses\' + [guid]::NewGuid().ToString('N'))

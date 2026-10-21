@@ -211,10 +211,22 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 steps.Add(new($"model:{r.Id}", "Model", r.CompletedAt.HasValue ? $"Model call {r.Status.ToLowerInvariant()}" : "Waiting for model response", r.CompletedAt ?? r.StartedAt));
         if (run is not null)
         {
+            // Provider lifecycle transitions are progress even before the first streamed
+            // chunk. A later call must not inherit the original callback's age.
+            var modelTime = runs.Max(x => x.CompletedAt ?? x.ProviderStartedAt ?? x.StartedAt);
+            if (lastProgress is null || modelTime > lastProgress) lastProgress = modelTime;
             var ids = runs.Select(x => x.Id).ToArray();
+            var initialReceipts = ids.Select(id => CSweetDbContext.AuditSourceId($"source:AgentRunLog:{id:D}")).ToArray();
             var chunkTime = await db.AuditEvents.AsNoTracking().Where(x => x.OrganizationId == actor.OrganizationId && x.EntityType == "AgentRunLog" &&
                 x.EntityId.HasValue && ids.Contains(x.EntityId.Value) && x.EventType == "model.response.chunk").MaxAsync(x => (DateTimeOffset?)x.OccurredAt, token);
             if (chunkTime > lastProgress || lastProgress is null) lastProgress = chunkTime ?? lastProgress;
+            // Source receipts commit with each fragment. Ledger delivery can lag under
+            // load; use only timestamps from these exactly bound receipts, never their
+            // protected content, to establish freshness before sealing catches up.
+            var pendingTime = await db.AuditOutbox.AsNoTracking().Where(x => x.SourceEntityType == nameof(AgentRunLog) &&
+                x.SourceEntityId.HasValue && ids.Contains(x.SourceEntityId.Value) && x.DeliveredAt == null && !initialReceipts.Contains(x.Id))
+                .MaxAsync(x => (DateTimeOffset?)x.CreatedAt, token);
+            if (pendingTime > lastProgress) lastProgress = pendingTime;
         }
         var state = BaseState(c, now);
         if (state == "Executing" && run?.Status == "Queued" && run.CompletedAt is null) state = "Waiting";

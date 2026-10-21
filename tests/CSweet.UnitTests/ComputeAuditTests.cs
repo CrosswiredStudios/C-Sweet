@@ -1,16 +1,65 @@
 using System.Text.Json;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Realtime;
 using CSweet.Infrastructure.Compute;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.UnitTests;
 
 public sealed class ComputeAuditTests
 {
+    [Fact]
+    public async Task FullAuditBatchesDrainWithoutAnIdleDelayBetweenEveryHundredReceipts()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        var writer = new CountingWriter();
+        await using var services = new ServiceCollection()
+            .AddScoped(_ => new CSweetDbContext(options))
+            .AddSingleton<IAuditEventWriter>(writer).AddSingleton(TimeProvider.System)
+            .AddScoped<AuditOutboxDispatcher>().BuildServiceProvider();
+        await using (var db = new CSweetDbContext(options))
+        {
+            for (var i = 0; i < 205; i++) db.QueueAudit(new("test.audit"));
+            await db.SaveChangesAsync();
+        }
+        var worker = new AuditOutboxWorker(services.GetRequiredService<IServiceScopeFactory>(), NullLogger<AuditOutboxWorker>.Instance);
+        await worker.DrainAsync(default);
+        await using var verify = new CSweetDbContext(options);
+        Assert.Equal(205, writer.Count);
+        Assert.Equal(205, await verify.AuditOutbox.CountAsync(x => x.DeliveredAt != null));
+    }
+
+    [Fact]
+    public async Task ActivityWakesCommitWithSourceReceiptsAndCoalesceStreamBurstsWithoutPayloads()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        var protection = new EphemeralDataProtectionProvider();
+        var org = Guid.NewGuid(); var employee = Guid.NewGuid(); var run = Guid.NewGuid();
+        await using var db = new CSweetDbContext(options, protection);
+        for (var i = 0; i < 10; i++)
+            db.QueueAudit(new("model.response.chunk", OrganizationId: org, EntityType: "AgentRunLog", EntityId: run,
+                Employees: [new(employee)], ContentType: "application/json", Payload: JsonSerializer.SerializeToUtf8Bytes(new { text = "private response" })));
+        db.QueueAudit(new("model.call.completed", OrganizationId: org, EntityType: "AgentRunLog", EntityId: run, Employees: [new(employee)]));
+        db.QueueAudit(new("model.response.chunk", OrganizationId: Guid.NewGuid(), EntityType: "AgentRunLog", EntityId: Guid.NewGuid()));
+        await db.SaveChangesAsync();
+        await using var verify = new CSweetDbContext(options, protection);
+        Assert.Equal(12, await verify.AuditOutbox.CountAsync(x => x.DeliveredAt == null));
+        var wakes = await verify.ApplicationRealtimeOutbox.Where(x => x.EventType == AppRealtimeEvents.CurrentActivityChanged).ToListAsync();
+        Assert.Equal(2, wakes.Count); // First chunk plus completion, regardless of stream volume.
+        Assert.All(wakes, wake =>
+        {
+            Assert.Equal(org, wake.OrganizationId);
+            Assert.DoesNotContain("private response", wake.DataJson);
+            Assert.Contains(employee.ToString(), wake.DataJson);
+        });
+        Assert.Empty(await verify.AuditEvents.ToListAsync()); // Hints do not wait for sealed ledger delivery.
+    }
+
     [Fact]
     public async Task Admission_evidence_contains_authority_and_omits_caller_keys()
     {
@@ -84,5 +133,14 @@ public sealed class ComputeAuditTests
             await inner.AppendAsync(request, cancellationToken);
             throw new IOException("Simulated lost acknowledgement after ledger commit.");
         }
+    }
+
+    private sealed class CountingWriter : IAuditEventWriter
+    {
+        public int Count { get; private set; }
+        public Task WriteAsync(string eventType, string entityType, Guid? entityId, string? summary, string? metadataJson = null,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<Guid> AppendAsync(AuditEventWriteRequest request, CancellationToken cancellationToken = default)
+        { Count++; return Task.FromResult(request.EventId!.Value); }
     }
 }

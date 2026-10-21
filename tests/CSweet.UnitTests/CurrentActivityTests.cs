@@ -18,6 +18,63 @@ namespace CSweet.UnitTests;
 public sealed class CurrentActivityTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FreshModelLifecycleKeepsAnOlderCallbackActiveWithoutStreamChunks(bool completed)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        f.Attempt.ClaimedAt = DateTimeOffset.UtcNow.AddMinutes(-20);
+        var runId = await f.RunAsync(f.Attempt.Id, f.Ticket.Id);
+        var run = await f.Db.AgentRunLogs.SingleAsync(x => x.Id == runId);
+        run.StartedAt = DateTimeOffset.UtcNow.AddMinutes(completed ? -10 : -1);
+        if (completed) { run.CompletedAt = DateTimeOffset.UtcNow; run.Status = "Completed"; }
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal("Executing", row.State);
+        Assert.True(row.LastProgressAt >= DateTimeOffset.UtcNow.AddMinutes(-2));
+        f.Attempt.LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        await f.Db.SaveChangesAsync();
+        Assert.Equal("Recovering", Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items).State);
+    }
+
+    [Fact]
+    public async Task PendingStreamReceiptsConfirmOnlyTheirExactAttemptAndTaskBeforeLedgerDelivery()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        f.Attempt.ClaimedAt = DateTimeOffset.UtcNow.AddMinutes(-20);
+        var runId = await f.RunAsync(f.Attempt.Id, f.Ticket.Id);
+        (await f.Db.AgentRunLogs.SingleAsync(x => x.Id == runId)).StartedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await f.Db.SaveChangesAsync();
+        // Remove initial lifecycle receipts to isolate delayed streaming evidence.
+        f.Db.AuditOutbox.RemoveRange(await f.Db.AuditOutbox.ToListAsync()); await f.Db.SaveChangesAsync();
+        Assert.Equal("Unconfirmed", Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items).State);
+        var unrelated = await f.RunAsync(Guid.NewGuid(), f.Ticket.Id);
+        f.Db.QueueAudit(new("model.response.chunk", OrganizationId: f.Org, EntityType: "AgentRunLog", EntityId: unrelated));
+        await f.Db.SaveChangesAsync();
+        Assert.Equal("Unconfirmed", Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items).State);
+        f.Db.QueueAudit(new("model.response.chunk", OrganizationId: f.Org, EntityType: "AgentRunLog", EntityId: runId));
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal("Executing", row.State);
+        Assert.True(row.LastProgressAt > DateTimeOffset.UtcNow.AddMinutes(-1));
+        Assert.Empty((await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default)).Entries);
+        f.Grants.Allow = false;
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+    }
+
+    [Theory]
+    [InlineData("activity.started")]
+    [InlineData("activity.completed")]
+    public async Task SdkActivityDeltasAppearInCurrentActionAndAttemptFeed(string kind)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.ProgressAsync(f.Ticket.Id, "LLM provider is processing the request", kind, useDelta: true);
+        Assert.Equal("LLM provider is processing the request", Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items).CurrentAction);
+        var page = await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default);
+        Assert.Equal("LLM provider is processing the request", Assert.Single(page.Entries).Text);
+    }
+
+    [Theory]
     [InlineData(false, "Waiting")]
     [InlineData(true, "Recovering")]
     public async Task PersonalFollowUpDoesNotClaimAnExpiredExecutionLease(bool claimed, string expectedState)
@@ -512,12 +569,12 @@ public sealed class CurrentActivityTests
             Db.AddRange(plan, execution, stage, attempt); await Db.SaveChangesAsync();
             return execution;
         }
-        public async Task<Guid> ProgressAsync(Guid task, string? message, string kind = "workspace-tool")
+        public async Task<Guid> ProgressAsync(Guid task, string? message, string kind = "workspace-tool", bool useDelta = false)
         {
             var record = new AgentWorkProgress { Id = Guid.NewGuid(), AgentWorkItemId = Attempt.AgentWorkItemId,
                 AgentWorkAttemptId = Attempt.Id, Sequence = await Db.AgentWorkProgress.CountAsync() + 1,
                 OccurredAt = DateTimeOffset.UtcNow, ProtectedValue = protection.CreateProtector("CSweet.AgentWorkInbox.v1").Protect(
-                    JsonSerializer.SerializeToUtf8Bytes(new { itemId = task, kind, message })) };
+                    JsonSerializer.SerializeToUtf8Bytes(new { itemId = task, kind, message = useDelta ? null : message, delta = useDelta ? message : null })) };
             Db.Add(record); await Db.SaveChangesAsync();
             await Writer.AppendAsync(new("agent.work.progress", "AgentWork", OrganizationId: Org,
                 EntityType: "AgentWorkProgress", EntityId: record.Id, ContentType: "application/json",

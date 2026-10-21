@@ -100,6 +100,13 @@ execution. Expired leases are `Recovering`; five minutes without task progress
 is `Unconfirmed`. Heartbeat renewal does not prove task progress. Display ages
 and lease expiry update locally without network polling.
 
+`ReadExecutionAsync` includes the exact attempt/task's provider start and completion
+timestamps in freshness. It also considers timestamp-only pending model audit receipts
+(excluding the initial source snapshot), so delayed ledger sealing cannot hide an
+actively streaming call. It never reads another attempt or task's receipts or exposes
+pending protected content. `CurrentActivityFeedReader.ProgressText` accepts SDK
+`activity.started` and `activity.completed` deltas, including inference-state reports.
+
 ## Reasoning and actions
 
 `CurrentActivityFeedReader` projects existing audit evidence into timestamped
@@ -147,6 +154,25 @@ reconciles on connect/reconnect. Empty employee audit hints, including the
 widget's own diagnostic-access audit, do not cause a refresh loop. Denied or
 missing feed reads clear previously shown evidence. Switching organizations,
 filters, or attempts cancels stale requests.
+
+`CSweetDbContext.QueueCurrentActivityWake` commits content-free
+`AppRealtimeEvents.CurrentActivityChanged` hints with model lifecycle, progress and
+stream audit source receipts. Streaming hints are coalesced to at most one per five
+seconds per organization in the streaming context; lifecycle transitions remain
+immediate. `ApplicationRealtimeOutboxDispatcher.ResolveRecipientsAsync` rechecks
+employee diagnostic access for these hints just as for sealed audit notifications.
+The widget rereads authorized state; a hint is neither sealed evidence nor an
+execution grant. `AuditOutboxWorker.DrainAsync` drains full 100-record batches with
+fresh scopes before returning to its idle timer, preserving retry backoff and all
+receipts instead of limiting throughput to 100 records per ten seconds.
+
+October 20 diagnosis: Victor Lin's technical-planning provider call completed at
+21:18:26 Pacific and another began at 21:18:41 in the same live Gabriel/Victor
+collaboration. Model receipts were present, but over 108,000 model audit receipts
+were awaiting delivery. Missing SDK activity-delta recognition and ignoring provider
+lifecycle/pending receipt timestamps allowed the older callback to appear unconfirmed.
+The platform and frontend require rebuilding/restarting to activate these changes;
+no agent package update or database migration is required.
 
 ## Code and verification
 

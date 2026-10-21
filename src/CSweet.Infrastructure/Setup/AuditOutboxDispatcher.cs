@@ -51,12 +51,24 @@ internal sealed class AuditOutboxWorker(IServiceScopeFactory scopes, ILogger<Aud
         {
             try
             {
+                await DrainAsync(stoppingToken);
                 using var scope = scopes.CreateScope();
-                await scope.ServiceProvider.GetRequiredService<AuditOutboxDispatcher>().DispatchAsync(stoppingToken);
                 await scope.ServiceProvider.GetRequiredService<CSweet.Infrastructure.Setup.AuditHistoryImporter>().ImportBatchAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception error) { logger.LogError(error, "Audit delivery failed; durable evidence remains pending."); }
         }
+    }
+
+    internal async Task DrainAsync(CancellationToken token)
+    {
+        int count;
+        do
+        {
+            // Fresh tracking per bounded batch; a full batch means more durable work
+            // may be ready. Do not impose another ten-second delay on every 100 chunks.
+            using var scope = scopes.CreateScope();
+            count = await scope.ServiceProvider.GetRequiredService<AuditOutboxDispatcher>().DispatchAsync(token);
+        } while (count == 100 && !token.IsCancellationRequested);
     }
 }

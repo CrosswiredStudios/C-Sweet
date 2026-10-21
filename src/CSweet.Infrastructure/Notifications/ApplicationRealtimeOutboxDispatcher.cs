@@ -52,7 +52,7 @@ public sealed class ApplicationRealtimeOutboxDispatcher(CSweetDbContext db) : IA
     private async Task<IReadOnlyList<Guid>> ResolveRecipientsAsync(ApplicationRealtimeOutboxItem item,
         CancellationToken cancellationToken)
     {
-        if (item.EventType == AppRealtimeEvents.AuditChanged && item.OrganizationId is Guid org)
+        if (item.EventType is AppRealtimeEvents.AuditChanged or AppRealtimeEvents.CurrentActivityChanged && item.OrganizationId is Guid org)
         {
             using var payload = JsonDocument.Parse(item.DataJson);
             var employees = payload.RootElement.GetProperty("employeeIds").EnumerateArray().Select(x => x.GetGuid()).ToArray();

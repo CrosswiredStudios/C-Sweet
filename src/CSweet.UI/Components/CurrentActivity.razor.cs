@@ -175,7 +175,7 @@ public partial class CurrentActivity
         if (e.OrganizationId != OrganizationId || _disposed) return;
         if (e.EventType == AppRealtimeEvents.AuditChanged && (e.Data.ValueKind != JsonValueKind.Object ||
             !e.Data.TryGetProperty("employeeIds", out var employees) || employees.ValueKind != JsonValueKind.Array || employees.GetArrayLength() == 0)) return;
-        if (e.EventType is AppRealtimeEvents.AuditChanged or AppRealtimeEvents.WorkBoardChanged or AppRealtimeEvents.EmployeeDirectoryChanged)
+        if (e.EventType is AppRealtimeEvents.CurrentActivityChanged or AppRealtimeEvents.AuditChanged or AppRealtimeEvents.WorkBoardChanged or AppRealtimeEvents.EmployeeDirectoryChanged)
             QueueRefresh();
     }
     private void OnConnect() { _connected = true; QueueRefresh(); }

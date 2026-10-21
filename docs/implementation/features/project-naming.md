@@ -1,5 +1,27 @@
 # Project names and continuity
 
+## Initial game project identity
+
+Creative Director `InferProjectIdentityAsync` (`ProjectIdentityInference.cs`) is a required step in
+`EnsureProjectFoundationAsync` before starting new Producer project-foundation coordination. It
+infers the actual game title and a player-facing marketing blurb from the exact accepted vision.
+The blurb conveys the hook, gameplay and appeal within accepted scope, rather than summarizing the
+pitch or describing delivery work. Heading labels such as “Game Pitch” do not become game names.
+Bounded plain-text validation permits one correction; invalid output blocks setup. Results are saved
+before coordination under the accepted document/revision/hash and content identity, so duplicate
+wakes, restarts and interrupted handoffs reuse the same result. Failed attempts are retained per
+model configuration; configuration correction permits another bounded attempt.
+
+`ProjectFoundationPayload` includes `projectIdentity` alongside the template name and outcome.
+Producer `ProposeProjectFoundationAsync` verifies that binding and preserves the inferred fields
+for the initial submission while refining delivery planning. Legacy handoffs and explicit manager
+revision feedback retain their previous behavior. Approved projects and existing proposals are not
+renamed automatically. Regression coverage lives in `ProjectIdentityInferenceTests` and Producer
+`ProjectFoundationTests`. Deploy Creative Director 2.1.7 and Producer 4.0.8 through published releases
+and Installed Agents updates.
+
+## Renames and continuity
+
 `Projects.razor` shows `ProjectNameEditor` beside the project heading for an authorized human manager. The editor supports save/cancel, submits the revision captured when editing starts, and reloads inspection after a conflict. A rename is a display-name change; the project brief remains separate.
 
 `ProjectSetupEndpoints` exposes `PUT /api/core/organizations/{organizationId}/project-setup/projects/{projectId}/name`. `ProjectSetupService.RenameAsync` requires an active human organization manager or the project's accountable human manager, validates a trimmed name of 1–512 characters, and rejects stale revisions. A same-name retry produces no additional effects. Legacy projects can be renamed without provisioning a board or delivery binding.
