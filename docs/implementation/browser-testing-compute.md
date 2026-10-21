@@ -70,6 +70,22 @@ acceptance. Browser observations alone never satisfy unrelated criteria.
 
 ## Verification and rollout
 
+`ComputeMcpTools.WorkloadSchema` accepts command arguments up to the existing
+`ComputeGuestCommand.MaximumTextBytes` limit. The broker and guest still enforce the combined
+32 KiB UTF-8 budget for executable, working directory and all arguments. A browser archive part
+contains 18,000 bytes, or 24,000 base64 characters, plus the fixed upload script. The previous
+24,000-character schema limit rejected that script before dispatch. `ComputeSdkContractTests`
+reproduces this full-sized SDK upload through MCP validation and verifies the combined guest
+budget remains enforced. Resume the retained request after updating AgentHost; do not alter its
+build bytes, command, idempotency key or operating-state checkpoint.
+
+QA 5.1.1 `GameQaBrowserTesting.AdvanceAsync` refreshes the environment after submitting a retained
+request without an operation ID. Acceptance advances the generation, so validating against the
+pre-submission snapshot falsely reported a different operation identity. The refreshed read still
+enforces the original expected-generation and environment fences. `BrowserRecoveryTests` covers
+lost requests before acceptance as well as replies lost after acceptance. Publish/install the agent
+normally; do not patch installed payloads or retained browser state to apply this source fix.
+
 Run `node --test tests/browserComputeRunner.test.cjs`,
 `python -B -m unittest discover -s tests -p test_browser_compute.py`, the compute/QA wait regressions,
 and QA's full suite/self-test. `scripts/Test-BrowserCompute.py` exercises real Chromium at both widths
@@ -90,3 +106,25 @@ passed against the final locked image, including screenshots/traces at 375 and 1
 package-only build/pack used SDK 5.0.2 with sibling references disabled; the `.nupkg` metadata was
 inspected as `CSweet.Agent.QA.VideoGame` 5.1.0. The installed Hyper-V browser workload and live
 end-to-end QA callback remain rollout acceptance, not established by these fixture results.
+
+## Operational UI gaps
+
+The October 21 live recovery used Installed agents to verify QA 5.1.0, Compute to observe Linux
+preparation, and the project board's Retry action to resume only the stopped quality stage.
+Engineering, technical review and task integration remained completed. The following checks
+still required source inspection or read-only database diagnostics rather than clear user controls:
+
+- `Compute` shows Linux readiness but not certified image features such as `browser-testing-v1`.
+  Add feature/version visibility and a safe image-upgrade/drain action for already-Ready setups.
+- Employee Agent operations shows provided capabilities; Installed agents shows definition-level
+  required capabilities. Expose the employee's actual approved required capabilities and project
+  compute scope together, including missing approvals or preparation.
+- A generic ticket Retry does not explain that it preserves completed stages. Show the stage to
+  resume and its exact source identity, prerequisites and pending browser operation before retry.
+- Expose browser transfer/test progress, exact source/build hashes, receipts and retained screenshot/
+  trace downloads on the ticket. Schema/tooling failures should be distinguished from product defects.
+- Source control displays platform-generated `Implement ...` commits, while the scaffold planning
+  requires conventional commits. Expose a planning/workflow compatibility decision and authorized
+  history evidence to QA; never silently waive that criterion or rewrite accepted history.
+- Applying a broker fix required Aspire's AgentHost Rebuild action, not an in-product C-Sweet control.
+  Surface platform update/restart requirements separately from agent package updates.

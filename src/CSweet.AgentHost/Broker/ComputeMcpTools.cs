@@ -40,7 +40,7 @@ internal static class ComputeMcpTools
             "publishPort":{"type":"integer","minimum":1024,"maximum":65535},
             "command":{"type":"object","additionalProperties":false,"required":["requestId","executable","workingDirectory","arguments","timeoutSeconds","maximumOutputBytes"],"properties":{
               "requestId":{"type":"string","format":"uuid"},"executable":{"type":"string","maxLength":1024},"workingDirectory":{"type":"string","maxLength":1024},
-              "arguments":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":24000}},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":30},"maximumOutputBytes":{"type":"integer","minimum":1,"maximum":8192}
+              "arguments":{"type":"array","maxItems":64,"items":{"type":"string","maxLength":32768}},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":30},"maximumOutputBytes":{"type":"integer","minimum":1,"maximum":8192}
             }}
           }}
         }}

@@ -8,6 +8,35 @@ namespace CSweet.UnitTests;
 
 public sealed class ComputeSdkContractTests
 {
+    [Fact]
+    public async Task Browser_archive_upload_matches_MCP_schema_and_retains_guest_text_budget()
+    {
+        var root = "/var/lib/csweet-compute/work/browser-" + new string('a', 64);
+        var part = Convert.ToBase64String(new byte[18000]);
+        var script = $"set -eu\nprintf '%s' '{part}' | base64 -d | dd of={root}/build.zip bs=1 seek=18000 conv=notrunc status=none";
+        Assert.True(script.Length > 24000);
+        var schema = ComputeMcpTools.All.Single(tool => tool.Capability == Sdk.ComputeCapabilities.Execute).InputSchema;
+        Assert.Equal(ComputeGuestCommand.MaximumTextBytes, schema.GetProperty("properties").GetProperty("workload")
+            .GetProperty("properties").GetProperty("command").GetProperty("properties").GetProperty("arguments")
+            .GetProperty("items").GetProperty("maxLength").GetInt32());
+        var runtime = new AgentTestRuntime();
+        runtime.RegisterCapability<JsonElement, JsonElement>(Sdk.ComputeCapabilities.Execute, (input, _) =>
+        {
+            JsonSchemaValidator.Validate(input, schema);
+            var request = input.Deserialize<CSweet.Application.Compute.RequestComputeWorkload>(ComputeProtocol.Json)!;
+            var command = request.Workload.Validate("linux").Command!;
+            Assert.Equal(script, command.Arguments[1]);
+            Assert.Throws<ArgumentException>(() => (command with
+            {
+                Arguments = [new string('a', ComputeGuestCommand.MaximumTextBytes)]
+            }).ValidateAndSnapshot("linux"));
+            return Task.FromResult(JsonSerializer.SerializeToElement(new CSweet.Application.Compute.ComputeOperationView(
+                Guid.NewGuid(), request.EnvironmentId, request.ExpectedGeneration + 1, "Pending", null, null), ComputeProtocol.Json));
+        });
+        await runtime.CreateContext().Platform.Compute.ExecuteAsync(new(Guid.NewGuid(), 1, "browser-upload",
+            new(Guid.NewGuid(), "/bin/sh", "/var/lib/csweet-compute/work", ["-c", script], 30, 8192)));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(600)]
