@@ -40,7 +40,7 @@ try {
         & $existingExecutable @validationArguments
         if ($LASTEXITCODE -ne 0) { throw 'The existing compute service did not pass validation.' }
         $installedCatalog = Get-Content -LiteralPath (Join-Path $protectedRoot 'catalog.json') -Raw | ConvertFrom-Json
-        if (@($installedCatalog.templates | Where-Object { $_.template.features -contains 'docker-apps-v1' }).Count -gt 0) {
+        if (@($installedCatalog.templates | Where-Object { $_.template.features -contains 'browser-testing-v1' }).Count -gt 0) {
             & (Join-Path $repositoryRoot 'scripts\Set-ComputeServiceRecovery.ps1') -ServiceName $serviceName
             if ($existingService.Status -ne 'Running') { Start-Service -Name $serviceName }
             (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))

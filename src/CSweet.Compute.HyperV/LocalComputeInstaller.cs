@@ -34,7 +34,7 @@ internal static class LocalComputeInstaller
         var now = DateTimeOffset.UtcNow;
         var digest = "sha256:" + await HashFileAsync(imagePath, token);
         var template = new ComputeTemplate("linux-local-" + digest[7..31], "linux", "x64", digest,
-            handoff is null ? ["guest-execution", "python"] : ["guest-execution", "python", "docker", "node", "docker-apps-v1"]);
+            handoff is null ? ["guest-execution", "python"] : ["guest-execution", "python", "docker", "node", "docker-apps-v1", ComputeBrowserTest.Feature]);
         ComputeProviderConfiguration configuration;
         if (File.Exists(configurationPath))
         {

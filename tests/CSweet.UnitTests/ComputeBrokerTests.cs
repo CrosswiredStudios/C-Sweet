@@ -58,9 +58,10 @@ public sealed class ComputeBrokerTests
     internal sealed class Catalog : IComputeTemplateCatalog
     {
         public bool Enabled { get; set; } = true;
+        public HashSet<string> Features { get; set; } = [];
         public Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, string templateId, CancellationToken token) =>
             Task.FromResult<RegisteredComputeTemplate?>(Enabled ? new(new("ubuntu-clean", "linux", "x64",
-                "sha256:" + new string('a', 64), []), "test-provider", Guid.Parse("f78f34e8-1b0f-428a-ad24-4c31d5a87781")) : null);
+                "sha256:" + new string('a', 64), Features), "test-provider", Guid.Parse("f78f34e8-1b0f-428a-ad24-4c31d5a87781")) : null);
     }
 
     internal sealed class Audit : IAuditEventWriter

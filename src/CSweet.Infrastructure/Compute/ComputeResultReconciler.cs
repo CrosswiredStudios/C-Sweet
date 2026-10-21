@@ -71,7 +71,7 @@ public sealed class ComputeResultReconciler(CSweetDbContext db, ComputeProviderR
                 if (output.ErrorCode is null && operation.Action == InfrastructureActions.Execute)
                 {
                     var command = output.Command;
-                    if (workload?.Command is not { } requested || command is null || command.RequestId != requested.RequestId ||
+                    if (workload?.EffectiveCommand is not { } requested || command is null || command.RequestId != requested.RequestId ||
                         command.StandardOutput is null || command.StandardError is null ||
                         (long)command.StandardOutput.Length + command.StandardError.Length > requested.MaximumOutputBytes ||
                         output.Url is not null || output.UrlExpiresAt is not null)
@@ -98,6 +98,23 @@ public sealed class ComputeResultReconciler(CSweetDbContext db, ComputeProviderR
             operation.NextAttemptAt = now.AddSeconds(30);
             environment.NextAttemptAt = completed ? null : operation.NextAttemptAt;
             if (completed) operation.CompletedAt = now;
+            if (completed)
+            {
+                var waiting = await db.WorkStageExecutions.Include(stage => stage.Attempts).Where(stage =>
+                    stage.AgentInstallationId == environment.InstallationId && stage.ItemExecution != null &&
+                    stage.ItemExecution.SprintExecution!.OrganizationId == environment.OrganizationId &&
+                    stage.Status == CSweet.Domain.WorkManagement.WorkStageExecutionStatus.Backoff && stage.LastOutcomeCode == "awaiting-compute")
+                    .Take(100).ToListAsync(token);
+                foreach (var stage in waiting)
+                {
+                    var retained = stage.Attempts.MaxBy(attempt => attempt.Attempt)?.ResultJson;
+                    if (retained is null) continue;
+                    var outcome = JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkExecutionOutcomeV1>(retained, ComputeBroker.Json);
+                    if (outcome?.Output.TryGetProperty("environmentId", out var identity) == true &&
+                        identity.TryGetGuid(out var waitingEnvironment) && waitingEnvironment == environment.Id)
+                        stage.RetryAt = now;
+                }
+            }
             // Only explicit evidence from the current destroy operation releases physical capacity.
             if (result.TeardownConfirmed) environment.TeardownConfirmedAt = now;
             var id = Guid.NewGuid();

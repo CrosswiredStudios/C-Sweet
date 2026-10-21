@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Browser testing compute](browser-testing-compute.md) maps the reusable offline Playwright/Chromium
+workload, exact-build QA binding, durable completion recovery, retained evidence and rollout.
+
 [OpenHands developer pilot](openhands-developer-pilot.md) maps the independent execution adapter,
 SDK 5.1.0 research/checkpoints, protected storage, verification and opt-in rollout.
 

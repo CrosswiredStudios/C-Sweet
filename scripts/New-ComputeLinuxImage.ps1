@@ -20,6 +20,7 @@ $prepare = {
         throw 'The self-contained Linux compute guest publish failed.'
     }
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'scripts\Install-ComputeGuestLinux.sh') -Destination $payload
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'build\compute-linux\browser') -Destination $payload -Recurse
 }.GetNewClosure()
 $result = New-CSweetLinuxHyperVImage -ProfileDirectory (Join-Path $repositoryRoot 'build\compute-linux') `
     -PreparePayload $prepare -GuestServiceName 'csweet-compute-guest.service' `

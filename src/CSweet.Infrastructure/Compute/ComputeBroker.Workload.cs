@@ -23,7 +23,16 @@ public sealed partial class ComputeBroker
                 ?? throw new UnauthorizedAccessException("Environment unavailable.");
             var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)!;
             var workload = request.Workload.Validate(spec.OperatingSystem);
-            var action = workload.Command is null ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
+            var action = workload.EffectiveCommand is null ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
+            if (workload.BrowserTest is not null)
+            {
+                var provision = await db.ComputeOperations.AsNoTracking().SingleOrDefaultAsync(operation => operation.EnvironmentId == environment.Id &&
+                    operation.OrganizationId == organizationId && operation.InstallationId == installationId &&
+                    operation.Action == InfrastructureActions.Provision && operation.Status == "Completed", token);
+                var template = provision is null ? null : JsonSerializer.Deserialize<ComputeTemplate>(provision.TemplateJson, Json);
+                if (template?.Matches(spec) != true || !template.Enabled || !template.Features.Contains(ComputeBrowserTest.Feature))
+                    throw new InvalidOperationException("This compute image has no verified browser-testing workload.");
+            }
             var actions = workload.RequiredActions.Concat(spec.NetworkPolicy.AllowOutbound ? [InfrastructureActions.Outbound] : Array.Empty<string>()).Distinct().ToArray();
             if (action == InfrastructureActions.PublishPort)
             {

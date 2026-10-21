@@ -80,9 +80,12 @@ internal sealed class HyperVComputeExecutor
                     try
                     {
                         var vm = observation.Id.Value;
-                        if (dispatch.Workload!.Command is { } command)
+                        if (dispatch.Workload!.EffectiveCommand is { } command)
                         {
-                            if (dispatch.Workload.NodeDependencies is { } dependencies)
+                            if (dispatch.Workload.BrowserTest is { } browser)
+                                result = new(Command: await ComputeBrowserTestExecutor.ExecuteAsync(browser,
+                                    (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct), cancellation));
+                            else if (dispatch.Workload.NodeDependencies is { } dependencies)
                                 result = await ComputeNodeDependencyInstaller.ExecuteAsync(dependencies, command, claim.OperationId,
                                     ct => connectGuest(vm, ct), ct => AuthorizeDependencies is null ? Task.FromResult(false) : AuthorizeDependencies(claim.OperationId, ct), cancellation);
                             else result = new(Command: await ComputeGuestCommandClient.ExecuteAsync(ct => connectGuest(vm, ct), command,

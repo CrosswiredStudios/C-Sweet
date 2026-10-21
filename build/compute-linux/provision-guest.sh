@@ -14,5 +14,7 @@ docker pull node@sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481
 docker tag node@sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96 csweet/node:22
 docker run --rm --network=none csweet/python:3.12 python --version
 docker run --rm --network=none csweet/node:22 node --version
+docker build --pull=false -t csweet/browser-tests:1.64.0 "$payload/browser"
+docker run --rm --network=none --entrypoint node csweet/browser-tests:1.64.0 -e "require('/opt/browser/node_modules/playwright').chromium.launch({headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']}).then(async browser=>{const page=await browser.newPage();await page.setContent('<canvas></canvas>');if(!await page.evaluate(()=>!!document.querySelector('canvas').getContext('webgl')))throw Error('WebGL unavailable');await browser.close()}).catch(error=>{console.error(error);process.exit(1)})"
 install -d /etc/csweet
-printf '%s\n' 'docker-apps-v1' > /etc/csweet/compute-profile
+printf '%s\n' 'docker-apps-v1' 'browser-testing-v1' > /etc/csweet/compute-profile

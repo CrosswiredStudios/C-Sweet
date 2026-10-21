@@ -277,7 +277,13 @@ public sealed partial class WorkOrchestrator(
             await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
             await RecordInvalidResultAsync(stage, attempt, attempt.ErrorMessage, now, cancellationToken); return;
         }
-        var error = ValidateOutcome(policy, stage, attempt, outcome);
+        string? error;
+        if (outcome?.OutcomeCode == "awaiting-compute")
+        {
+            error = await AcceptComputeWaitAsync(execution, stage, attempt, outcome, now, cancellationToken);
+            if (error is null) return;
+        }
+        else error = ValidateOutcome(policy, stage, attempt, outcome);
         if (error is null)
             error = await RecordQualityValidationAsync(
                 execution, stage, outcome!, now, cancellationToken);
@@ -488,6 +494,8 @@ public sealed partial class WorkOrchestrator(
                 ?? "";
         if (!string.Equals(testedCommit, commitEvidence[0], StringComparison.OrdinalIgnoreCase))
             return "QA evidence does not match the exact current publication SHA.";
+        var browserError = await ValidateBrowserEvidenceAsync(execution, stage, outcome, testedCommit, cancellationToken);
+        if (browserError is not null) return browserError;
         if (taskDelivery?.DeliveryPlanId.HasValue == true)
         {
             var authors = stage.ItemExecution.Stages.Where(x => x.StageKey is "development" or "specialist-execution").ToArray();
@@ -880,11 +888,12 @@ public sealed partial class WorkOrchestrator(
             return;
         }
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
-        if (stage.Attempts.Count >= definition.MaximumAttempts)
+        var retryAttempts = RetryAttemptCount(stage);
+        if (retryAttempts >= definition.MaximumAttempts)
         {
             FailStage(stage, error, now); return;
         }
-        var exponent = Math.Max(0, stage.Attempts.Count - 1);
+        var exponent = Math.Max(0, retryAttempts - 1);
         var seconds = Math.Min(definition.InitialRetryDelaySeconds * Math.Pow(2, exponent), definition.MaximumRetryDelaySeconds);
         var jitter = Math.Abs(stage.Id.GetHashCode()) % Math.Max(1, (int)Math.Ceiling(seconds * .2));
         stage.Status = WorkStageExecutionStatus.Backoff; stage.RetryAt = now.AddSeconds(seconds + jitter);
@@ -970,7 +979,7 @@ public sealed partial class WorkOrchestrator(
         return null;
     }
 
-    private async Task<bool> HasCapacityAsync(
+    internal async Task<bool> HasCapacityAsync(
         WorkSprintExecution execution, WorkOrchestrationPolicyRevision policy,
         WorkStageExecution stage, CancellationToken cancellationToken)
     {
@@ -1007,7 +1016,9 @@ public sealed partial class WorkOrchestrator(
             stage.AgentInstallationId.Value, cancellationToken);
         var assigneeLimit = Math.Min(policy.DefaultAssigneeConcurrencyLimit, installationLimit);
         return await db.WorkStageExecutions.CountAsync(x =>
-            active.Contains(x.Status) && x.AgentInstallationId == stage.AgentInstallationId,
+            x.Id != stage.Id && x.AgentInstallationId == stage.AgentInstallationId &&
+            (active.Contains(x.Status) || x.LastOutcomeCode == "awaiting-compute" &&
+                (x.Status == WorkStageExecutionStatus.Backoff || x.Status == WorkStageExecutionStatus.Pending)),
             cancellationToken) < assigneeLimit;
     }
 
