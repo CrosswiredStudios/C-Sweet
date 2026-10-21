@@ -9,6 +9,7 @@ using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using CSweet.WorkManagement.Contracts;
@@ -28,6 +29,82 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
 
     private sealed record DeliveryActivity(Guid WorkId, Guid StageId, Guid? InstallationId, Guid? EmployeeId,
         Guid BoardId, Guid? WorkItemId, Guid ProjectId, string Name, string Scope, string Stage, string ScopesJson);
+
+    private sealed record TicketSource(AgentWorkItem Work, Guid BoardId, Guid ItemId, Guid? OwnerId = null,
+        long? AssignmentRevision = null, bool RequireAssignment = true);
+
+    private static bool IsTicketEvent(string name) => name is PersonalTodoEvents.Available or WorkItemEvents.Assigned or WorkItemDiscussion.Changed;
+
+    // These are source associations, not execution contexts or grants. A queued
+    // delivery can name its ticket before the first attempt exists.
+    private async Task<Dictionary<Guid, Guid>> ReadSourceTicketsAsync(Guid organizationId, IReadOnlyList<AgentWorkItem> works,
+        IReadOnlyList<OrganizationUser> employees, CancellationToken token)
+    {
+        var result = new Dictionary<Guid, Guid>();
+        var keys = works.Select(ChiefWorkCards.Key).ToArray();
+        var cards = await db.CoreWorkTasks.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+            !x.IsExecutable && x.Board != null && x.Board.OrganizationId == organizationId &&
+            x.CreationIdempotencyKey != null && keys.Contains(x.CreationIdempotencyKey))
+            .Select(x => new { x.Id, x.CreationIdempotencyKey, x.AssignedEmployeeId, x.AssignedAgentInstallationId,
+                x.CreatedByOrganizationUserId, x.Board!.Kind, x.Board.OwnerOrganizationUserId }).ToListAsync(token);
+        foreach (var work in works)
+        {
+            var employee = employees.FirstOrDefault(x => x.AgentInstallationId == work.AgentInstallationId);
+            var card = cards.SingleOrDefault(x => x.CreationIdempotencyKey == ChiefWorkCards.Key(work) &&
+                x.AssignedAgentInstallationId == work.AgentInstallationId && x.AssignedEmployeeId == employee?.Id &&
+                x.CreatedByOrganizationUserId == employee?.Id && x.Kind == WorkBoardKind.Personal && x.OwnerOrganizationUserId == employee?.Id);
+            if (card is not null) result[work.Id] = card.Id;
+        }
+        var eventWorks = works.Where(x => x.SourceType == "platform-event" && IsTicketEvent(x.Name) &&
+            Guid.TryParse(x.SourceId, out _)).ToArray();
+        var eventIds = eventWorks.Select(x => Guid.Parse(x.SourceId!)).ToArray();
+        var events = await db.AgentPlatformEventOutbox.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+            eventIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.EventType, x.TargetInstallationId, x.DataJson }).ToListAsync(token);
+        var bindings = new List<TicketSource>();
+        foreach (var work in eventWorks)
+        {
+            var source = events.SingleOrDefault(x => x.Id == Guid.Parse(work.SourceId!) && x.EventType == work.Name && x.TargetInstallationId == work.AgentInstallationId);
+            if (source is null) continue;
+            try
+            {
+                var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+                if (work.Name == PersonalTodoEvents.Available)
+                {
+                    var payload = JsonSerializer.Deserialize<PersonalTodoAvailableEvent>(source.DataJson, json);
+                    if (payload is not null && employees.Any(x => x.Id == payload.OwnerOrganizationUserId && x.AgentInstallationId == work.AgentInstallationId))
+                        bindings.Add(new(work, payload.BoardId, payload.TriggerItemId, payload.OwnerOrganizationUserId));
+                }
+                else if (work.Name == WorkItemEvents.Assigned)
+                {
+                    var payload = JsonSerializer.Deserialize<WorkItemAssignedEvent>(source.DataJson, json);
+                    if (payload?.AssignedInstallationId == work.AgentInstallationId)
+                        bindings.Add(new(work, payload.BoardId, payload.ItemId, AssignmentRevision: payload.AssignmentRevision));
+                }
+                else
+                {
+                    using var document = JsonDocument.Parse(source.DataJson);
+                    var root = document.RootElement;
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("boardId", out var board) && board.TryGetGuid(out var boardId) &&
+                        root.TryGetProperty("itemId", out var item) && item.TryGetGuid(out var itemId) &&
+                        root.TryGetProperty("recipientEmployeeId", out var recipient) && recipient.TryGetGuid(out var employeeId) &&
+                        employees.Any(x => x.Id == employeeId && x.AgentInstallationId == work.AgentInstallationId))
+                        bindings.Add(new(work, boardId, itemId, RequireAssignment: false));
+                }
+            }
+            catch (Exception error) when (error is JsonException or InvalidOperationException) { }
+        }
+        var itemIds = bindings.Select(x => x.ItemId).ToArray();
+        var items = await db.CoreWorkTasks.AsNoTracking().Where(x => x.OrganizationId == organizationId && itemIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.BoardId, x.AssignedEmployeeId, x.AssignedAgentInstallationId, x.AssignmentRevision }).ToListAsync(token);
+        foreach (var binding in bindings)
+            if (items.Any(x => x.Id == binding.ItemId && x.BoardId == binding.BoardId &&
+                (!binding.OwnerId.HasValue || x.AssignedEmployeeId == binding.OwnerId) &&
+                (!binding.AssignmentRevision.HasValue || x.AssignmentRevision == binding.AssignmentRevision) &&
+                (!binding.RequireAssignment || x.AssignedAgentInstallationId == binding.Work.AgentInstallationId)))
+                result[binding.Work.Id] = binding.ItemId;
+        return result;
+    }
 
     // The canonical execution attempt binds a delivery to its review stage. Never
     // inspect the protected assignment or guess a release from the employee's role.
@@ -66,6 +143,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 SourceType = x.SourceType, SourceId = x.SourceId, Name = x.Name, AttemptCount = x.AttemptCount,
                 CreatedAt = x.CreatedAt, AvailableAt = x.AvailableAt }).ToListAsync(token);
         var workIds = works.Select(x => x.Id).ToArray();
+        var sourceTickets = await ReadSourceTicketsAsync(organizationId, works, employees, token);
         var deliveries = await ReadDeliveriesAsync(organizationId, works.Where(x => x.SourceType == "WorkDeliveryStage").Select(x => x.Id).ToArray(), token);
         // The session's current delivery is the exact binding. Never infer a partner
         // or task from an employee's latest conversation or from protected payloads.
@@ -98,6 +176,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
         var stageTasks = await db.WorkStageExecutions.AsNoTracking().Where(x => stageIds.Contains(x.Id) && x.ItemExecution!.SprintExecution!.OrganizationId == organizationId)
             .Select(x => new { x.Id, x.ItemExecution!.WorkItemId }).ToDictionaryAsync(x => x.Id, x => x.WorkItemId, token);
         var missingIds = stageTasks.Values.Concat(standaloneRuns.Where(x => x.WorkItemId.HasValue).Select(x => x.WorkItemId!.Value))
+            .Concat(sourceTickets.Values)
             .Concat(deliveries.Where(x => x.WorkItemId.HasValue).Select(x => x.WorkItemId!.Value))
             .Concat(collaborations.Where(x => x.SourceWorkItemId.HasValue).Select(x => x.SourceWorkItemId!.Value))
             .Except(tickets.Select(x => x.Id)).ToArray();
@@ -137,6 +216,8 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 ticketId = stageTasks.GetValueOrDefault(stageId) is var mapped && mapped != Guid.Empty ? mapped : null;
             if (ticketId is null && Guid.TryParse(work.SourceId, out var eventId))
                 ticketId = tickets.FirstOrDefault(x => x.ClaimEventId == eventId && x.AssignedAgentInstallationId == work.AgentInstallationId)?.Id;
+            ticketId ??= sourceTickets.TryGetValue(work.Id, out var sourceTicket) ? sourceTicket : null;
+            if (ticketId is null && work.SourceType == "platform-event" && IsTicketEvent(work.Name)) continue;
             var ticket = tickets.FirstOrDefault(x => x.Id == ticketId);
             // Never relabel inaccessible or unresolved ticket work as unrestricted background work.
             if (ticketId.HasValue && (ticket is null || !boardsAllowed.GetValueOrDefault(ticket.BoardId!.Value))) continue;
@@ -295,7 +376,8 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
             recent.Where(x => x.Text != action).OrderByDescending(x => x.Kind == "Workspace").Take(2).Reverse().ToArray(), c.StandaloneRun?.Id,
             kind, c.Employee.Role?.Name, collaborator, inspect ? c.Work?.Name : null,
             c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null,
-            c.Delivery?.ProjectId ?? c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null, label);
+            c.Delivery?.ProjectId ?? c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null, label,
+            Safe(c.Ticket?.Description));
     }
 
     private static (string Kind, string? Label) DescribeActivity(Candidate c)
@@ -374,10 +456,12 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 (x.InitiatorOrganizationUserId == employeeId && x.InitiatorInstallationId == employee.AgentInstallationId ||
                  x.TargetOrganizationUserId == employeeId && x.TargetInstallationId == employee.AgentInstallationId))
             .Select(x => x.SourceWorkItemId).SingleOrDefaultAsync(token) : null;
+        var sourceTickets = await ReadSourceTicketsAsync(organizationId, [attempt.AgentWorkItem], [employee], token);
+        Guid? sourceTicket = sourceTickets.TryGetValue(attempt.AgentWorkItemId, out var boundTicket) ? boundTicket : null;
         // A task must be explicitly linked to this attempt, now or in an immutable effort interval.
         if (workItemId.HasValue)
         {
-            if (context?.WorkItemId != workItemId && context?.RootWorkItemId != workItemId && collaborationTask != workItemId && delivery?.WorkItemId != workItemId && !await db.WorkExecutionIntervals.AnyAsync(x =>
+            if (context?.WorkItemId != workItemId && context?.RootWorkItemId != workItemId && collaborationTask != workItemId && delivery?.WorkItemId != workItemId && sourceTicket != workItemId && !await db.WorkExecutionIntervals.AnyAsync(x =>
                 x.OrganizationId == organizationId && x.AgentWorkAttemptId == attemptId && x.WorkItemId == workItemId, token)) throw new KeyNotFoundException();
             var task = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).SingleOrDefaultAsync(x => x.Id == workItemId && x.OrganizationId == organizationId && x.ArchivedAt == null, token);
             if (task?.Board is not { ArchivedAt: null } board) throw new KeyNotFoundException();
@@ -385,7 +469,7 @@ public sealed class CurrentActivityService(CSweetDbContext db, IScopedActionAuth
                 board.Kind == WorkBoardKind.Personal ? PersonalTodoActions.Read : WorkBoardActions.Read, GrantScopeKind.Board, board.Id, token)).Allowed)
                 throw new UnauthorizedAccessException();
         }
-        else if (context?.RootWorkItemId is not null || context?.WorkItemId is not null || collaborationTask is not null || delivery?.WorkItemId is not null || attempt.AgentWorkItem!.SourceType == "WorkStageExecution")
+        else if (context?.RootWorkItemId is not null || context?.WorkItemId is not null || collaborationTask is not null || delivery?.WorkItemId is not null || sourceTicket is not null || attempt.AgentWorkItem!.SourceType == "WorkStageExecution")
             throw new UnauthorizedAccessException();
         return await feed.ReadAsync(organizationId, employeeId, attempt, workItemId, Math.Max(0, afterSequence), token);
     }

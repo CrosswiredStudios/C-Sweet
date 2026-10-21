@@ -18,6 +18,23 @@ public sealed class ApplicationRealtimeEventTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    [Fact]
+    public async Task ModelEvidenceAndActivityWakeRollbackTogether()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseSqlite("Data Source=:memory:").AddInterceptors(new SqliteRealtimeSequenceInterceptor()).Options);
+        await db.Database.OpenConnectionAsync(); await db.Database.EnsureCreatedAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        db.QueueAudit(new("model.response.chunk", OrganizationId: Guid.NewGuid(), EntityType: "AgentRunLog", EntityId: Guid.NewGuid(),
+            Employees: [new(Guid.NewGuid())]));
+        await db.SaveChangesAsync();
+        Assert.Single(await db.AuditOutbox.ToListAsync());
+        Assert.Single(await db.ApplicationRealtimeOutbox.Where(x => x.EventType == AppRealtimeEvents.CurrentActivityChanged).ToListAsync());
+        await transaction.RollbackAsync(); db.ChangeTracker.Clear();
+        Assert.Empty(await db.AuditOutbox.ToListAsync());
+        Assert.Empty(await db.ApplicationRealtimeOutbox.ToListAsync());
+    }
+
     [Theory]
     [InlineData(AppRealtimeEvents.AuditChanged)]
     [InlineData(AppRealtimeEvents.CurrentActivityChanged)]

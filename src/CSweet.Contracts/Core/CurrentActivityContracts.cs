@@ -12,7 +12,7 @@ public sealed record CurrentActivityItem(string Key, Guid? WorkItemId, Guid? Boa
     bool CanInspect, IReadOnlyList<CurrentActivityStep> PreviousSteps, Guid? ModelRunId = null,
     string ActivityKind = "Work", string? EmployeeRole = null, CurrentActivityParticipant? Collaborator = null,
     string? TechnicalName = null, Guid? PersonalBoardOwnerId = null, Guid? ProjectId = null,
-    string? CollaborationName = null, string? ActivityLabel = null);
+    string? CollaborationName = null, string? ActivityLabel = null, string? Description = null);
 
 public sealed record CurrentActivityParticipant(Guid EmployeeId, string EmployeeName, string? Role);
 

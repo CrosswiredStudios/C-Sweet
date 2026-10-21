@@ -12,11 +12,123 @@ using CSweet.Infrastructure.Setup;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityTests
 {
+    [Theory]
+    [InlineData("chief-review")]
+    [InlineData("chief-chat")]
+    [InlineData("personal")]
+    [InlineData("assigned")]
+    [InlineData("discussion")]
+    public async Task QueuedTicketsExposeTheirOwnDetailsBeforeTheFirstAttempt(string source)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var work = await f.QueueTicketAsync(source);
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal(f.Ticket.Id, row.WorkItemId);
+        Assert.Equal(f.Ticket.BoardId, row.BoardId);
+        Assert.Equal(f.Ticket.Title, row.Title);
+        Assert.Equal(f.Ticket.Description, row.Description);
+        Assert.Equal("Waiting", row.State);
+        Assert.Null(row.AttemptId);
+        Assert.Null(row.ModelRunId);
+        Assert.Equal(work.Id, row.AgentWorkItemId);
+        Assert.Equal(source is "assigned" or "discussion" ? null : (Guid?)f.Agent.Id, row.PersonalBoardOwnerId);
+        Assert.Empty(await f.Db.WorkExecutionContexts.ToListAsync()); // Reads create no execution authority.
+        f.Owner.PermissionLevel = OrganizationPermissionLevel.Contributor;
+        await f.Db.SaveChangesAsync();
+        row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.False(row.CanInspect);
+        Assert.Equal(f.Ticket.Description, row.Description); // The board grant controls ticket details.
+        f.Grants.Allow = false;
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+    }
+
+    [Theory]
+    [InlineData("foreign-event")]
+    [InlineData("wrong-target")]
+    [InlineData("wrong-owner")]
+    [InlineData("wrong-board")]
+    [InlineData("reassigned-ticket")]
+    [InlineData("invalid-json")]
+    [InlineData("archived-ticket")]
+    [InlineData("archived-board")]
+    public async Task QueuedPersonalWakeCannotExposeAnInvalidTicketAssociation(string invalid)
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.QueueTicketAsync("personal");
+        var source = await f.Db.AgentPlatformEventOutbox.SingleAsync();
+        switch (invalid)
+        {
+            case "foreign-event": source.OrganizationId = Guid.NewGuid(); break;
+            case "wrong-target": source.TargetInstallationId = Guid.NewGuid(); break;
+            case "wrong-owner": source.DataJson = JsonSerializer.Serialize(new Wire.PersonalTodoAvailableEvent(Guid.NewGuid(), f.Ticket.BoardId!.Value, f.Ticket.Id)); break;
+            case "wrong-board": source.DataJson = JsonSerializer.Serialize(new Wire.PersonalTodoAvailableEvent(f.Agent.Id, Guid.NewGuid(), f.Ticket.Id)); break;
+            case "reassigned-ticket": f.Ticket.AssignedAgentInstallationId = Guid.NewGuid(); break;
+            case "invalid-json": source.DataJson = "{"; break;
+            case "archived-ticket": f.Ticket.ArchivedAt = DateTimeOffset.UtcNow; break;
+            case "archived-board": (await f.Db.WorkBoards.SingleAsync()).ArchivedAt = DateTimeOffset.UtcNow; break;
+        }
+        await f.Db.SaveChangesAsync();
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+    }
+
+    [Fact]
+    public async Task QueuedAssignmentRejectsAnOutdatedAssignmentRevision()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.QueueTicketAsync("assigned");
+        f.Ticket.AssignmentRevision++;
+        await f.Db.SaveChangesAsync();
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+    }
+
+    [Fact]
+    public async Task QueuedDiscussionUsesItsRecipientRatherThanTheTicketAssignee()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        await f.QueueTicketAsync("discussion");
+        f.Ticket.AssignedEmployeeId = Guid.NewGuid(); f.Ticket.AssignedAgentInstallationId = Guid.NewGuid();
+        await f.Db.SaveChangesAsync();
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.Equal(f.Agent.Id, row.EmployeeId); Assert.Equal(f.Ticket.Id, row.WorkItemId);
+        (await f.Db.AgentPlatformEventOutbox.SingleAsync()).DataJson = JsonSerializer.Serialize(new
+        { boardId = f.Ticket.BoardId, itemId = f.Ticket.Id, recipientEmployeeId = Guid.NewGuid() });
+        await f.Db.SaveChangesAsync();
+        Assert.Empty((await f.Service.ReadAsync(f.Org, f.User)).Items);
+    }
+
+    [Fact]
+    public async Task SourceTicketFeedRechecksBoardAccessAndRejectsAnOmittedTicket()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        var work = await f.QueueTicketAsync("chief-review");
+        work.Status = AgentWorkStatus.Leased; work.AttemptCount = 1;
+        f.Db.AgentWorkAttempts.Add(f.Attempt); await f.Db.SaveChangesAsync();
+        await f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, null, 0, default));
+        f.Grants.Allow = false;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.FeedAsync(f.Org, f.User, f.Agent.Id, f.Attempt.Id, f.Ticket.Id, 0, default));
+    }
+
+    [Fact]
+    public async Task TicketDescriptionIsRedactedBoundedAndIndependentOfExecutionProgress()
+    {
+        await using var f = new Fixture(); await f.SeedAsync();
+        f.Ticket.Description = "password=secret123 " + new string('x', 1000);
+        await f.Db.SaveChangesAsync();
+        await f.ProgressAsync(f.Ticket.Id, "Running validation");
+        var row = Assert.Single((await f.Service.ReadAsync(f.Org, f.User)).Items);
+        Assert.DoesNotContain("secret123", row.Description);
+        Assert.Equal(501, row.Description!.Length);
+        Assert.EndsWith("…", row.Description);
+        Assert.Equal("Running validation", row.CurrentAction);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -551,6 +663,39 @@ public sealed class CurrentActivityTests
             var run = new AgentRunLog { Id = Guid.NewGuid(), OrganizationId = Org, EmployeeId = Agent.Id, AgentInstallationId = Agent.AgentInstallationId,
                 AgentWorkAttemptId = attempt, WorkItemId = task, StartedAt = DateTimeOffset.UtcNow, Status = "Running" };
             Db.Add(run); await Db.SaveChangesAsync(); return run.Id;
+        }
+        public async Task<AgentWorkItem> QueueTicketAsync(string source)
+        {
+            Db.WorkExecutionContexts.RemoveRange(await Db.WorkExecutionContexts.ToListAsync());
+            Db.AgentWorkAttempts.Remove(Attempt); await Db.SaveChangesAsync();
+            var board = await Db.WorkBoards.SingleAsync();
+            board.Kind = WorkBoardKind.Personal; board.OwnerOrganizationUserId = Agent.Id;
+            Ticket.Status = WorkTaskStatus.Ready; Ticket.ClaimEventId = null;
+            Ticket.Description = "Check the proposed team against the project's staffing requirements.";
+            var work = await Db.AgentWorkItems.SingleAsync();
+            work.Status = AgentWorkStatus.Pending; work.AttemptCount = 0;
+            work.SourceType = source == "chief-chat" ? "chat-turn" : "platform-event";
+            work.SourceId = Guid.NewGuid().ToString("D");
+            if (source is "personal" or "assigned" or "discussion")
+            {
+                work.Name = source == "personal" ? Wire.PersonalTodoEvents.Available : source == "assigned" ? Wire.WorkItemEvents.Assigned : "com.csweet.work.item.discussion.changed.v1";
+                if (source != "personal") { board.Kind = WorkBoardKind.Standard; board.OwnerOrganizationUserId = null; }
+                object payload = source == "personal" ? new Wire.PersonalTodoAvailableEvent(Agent.Id, board.Id, Ticket.Id) :
+                    source == "assigned" ? new Wire.WorkItemAssignedEvent(board.Id, Ticket.Id, Ticket.AssignmentRevision, Agent.AgentInstallationId!.Value) :
+                    new { boardId = board.Id, itemId = Ticket.Id, recipientEmployeeId = Agent.Id };
+                Db.AgentPlatformEventOutbox.Add(new() { Id = Guid.Parse(work.SourceId), OrganizationId = Org,
+                    TargetInstallationId = Agent.AgentInstallationId, EventType = work.Name,
+                    DataJson = JsonSerializer.Serialize(payload,
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web)) });
+            }
+            else
+            {
+                work.Name = "com.csweet.agent.attention.review-due.v1";
+                Ticket.IsExecutable = false; Ticket.CreatedByOrganizationUserId = Agent.Id;
+                Ticket.CreationIdempotencyKey = source == "chief-chat" ? $"chief-work:chat:{Guid.Parse(work.SourceId):N}" : $"chief-work:delivery:{work.Id:N}";
+            }
+            await Db.SaveChangesAsync();
+            return work;
         }
         public async Task<WorkDeliveryExecution> DeliveryAsync(string stageKey, Guid? taskId = null)
         {

@@ -30,6 +30,18 @@ Current stage assignees take precedence over a ticket's accountable/direct owner
 Unlinked model calls are labelled background activity, never guessed onto an
 agent's most recently edited ticket. Parallel executors remain separate rows.
 
+`ReadSourceTicketsAsync` resolves pre-claim associations from the exact
+`ChiefWorkCards.Key` tracking card and ticket-scoped platform events. Tracking
+cards must match the delivery's installation, employee and personal-board owner.
+Availability events must match the organization, source event, target installation,
+owner, board and trigger ticket assignment.
+Assignment events additionally match the current assignment revision and installation;
+discussion events match their explicit recipient and ticket board without assuming the
+recipient is the ticket assignee. These links supply display context only;
+they create no attempt, claim or execution authority. An attempt's recorded task
+focus takes precedence after claim. Archived and inaccessible tickets stay hidden,
+and malformed or mismatched personal-task wakes never become background cards.
+
 `CurrentActivityService.ReadDeliveriesAsync` also resolves `WorkDeliveryStage`
 inbox deliveries through the exact `WorkExecutionAttempt.AgentWorkItemId` binding,
 stage source ID, and assigned employee/installation. Aggregate epic and release
@@ -59,8 +71,13 @@ reapplies execution priority across the full list as leases and progress age.
 to the end and deduplicates row keys before replacing the displayed list. Filters,
 organization changes, and disposal cancel stale page reads. The full list is always
 available by scrolling, with no Show all, Show fewer, or Load more work action.
-`ActivityCard` uses readable headings for
-collaboration, review, Communications, model calls, and task work. Linked task titles
+`ActivityCard` uses the linked ticket's title as its clickable heading, including
+queued work before its first attempt. `CurrentActivityItem.Description` supplies
+the ticket's redacted, plain-text description preview, bounded to 500 characters
+with an ellipsis when shortened. Description and title come directly from the
+authorized ticket; execution state and recorded current-step progress remain
+separate. Activities without a ticket retain readable fallback headings for
+collaboration, review, Communications and model calls. Linked task titles
 open the project's Work tab with `board` and `item` query parameters when linked
 to a project, or the standalone board otherwise. Personal tasks use the authorized board owner's
 employee page with `tab=personal-board&item=...`, including the diagnostic panel's

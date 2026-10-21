@@ -16,6 +16,26 @@ namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityRenderingTests
 {
+    [Theory]
+    [InlineData("Waiting", "Waiting for an agent claim")]
+    [InlineData("Executing", "Comparing proposed roles")]
+    public async Task TicketTitleAndDescriptionLeadTheCardWhileStateAndProgressRemainSeparate(string state, string action)
+    {
+        await using var f = new Fixture();
+        f.Handler.Item = f.Handler.Item with { Title = "Review staffing <plan>",
+            Description = "Compare engineering and QA coverage. <script>alert(1)</script>",
+            ActivityKind = "Review", ActivityLabel = "Reviewing work", State = state, CurrentAction = action };
+        var html = await f.RenderAsync();
+        Assert.Contains("activity-title-link", html);
+        Assert.Contains("Review staffing &lt;plan&gt;", html);
+        Assert.Contains("Compare engineering and QA coverage. &lt;script&gt;", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.DoesNotContain("<strong>Reviewing work</strong>", html);
+        Assert.Contains(action, html);
+        Assert.Equal(0, f.Handler.FeedRequests);
+        Assert.Equal(state == "Executing", html.Contains("activity-agent-avatar active", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Workspace_history_is_visible_without_opening_stream_and_is_html_encoded()
     {

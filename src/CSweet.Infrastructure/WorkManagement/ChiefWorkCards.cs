@@ -17,7 +17,7 @@ public static class ChiefWorkCards
                 a.OrganizationId == organization && a.OrganizationUserId == x.Id &&
                 a.PositionKey == LeadershipPositionKeys.ChiefOfStaff && a.EndsAt == null), ct);
 
-    private static string Key(AgentWorkItem work) => work.SourceType == "chat-turn" && Guid.TryParse(work.SourceId, out var turn)
+    internal static string Key(AgentWorkItem work) => work.SourceType == "chat-turn" && Guid.TryParse(work.SourceId, out var turn)
         ? $"{Prefix}chat:{turn:N}" : $"{Prefix}delivery:{work.Id:N}";
 
     public static async Task<WorkTask?> PrepareAsync(CSweetDbContext db, AgentWorkItem work, TimeProvider clock, CancellationToken ct)

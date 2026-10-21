@@ -3,7 +3,13 @@
 
 <article class="activity-card" data-activity-kind="@Item.ActivityKind">
     <header class="activity-card-header">
-        <div class="activity-card-title"><MudIcon Icon="@HeadingIcon" Size="Size.Small" /><strong>@Heading</strong></div>
+        <div class="activity-card-title"><MudIcon Icon="@HeadingIcon" Size="Size.Small" /><strong>
+            @if (Item.WorkItemId.HasValue && Item.BoardId.HasValue)
+            {
+                <a class="activity-title-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)">@Item.Title<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
+            }
+            else { @Heading }
+        </strong></div>
         <div class="activity-card-controls">
             <span class="activity-card-status @StateClass">@FriendlyState <span aria-hidden="true">·</span> <time title="@Item.StartedAt.ToLocalTime().ToString("g")">@Age</time></span>
         </div>
@@ -14,8 +20,15 @@
     }
     @if (Item.WorkItemId.HasValue && Item.BoardId.HasValue)
     {
-        <a class="activity-task-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)"><MudIcon Icon="@Icons.Material.Outlined.CheckBox" Size="Size.Small" />@Item.Title<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
         <div class="activity-card-context">@if (Item.Identifier is not null) { <span>@Item.Identifier · </span> }@Item.Context</div>
+        @if (Item.ActivityKind == "Collaboration" && !string.IsNullOrWhiteSpace(Item.CollaborationName) && Item.CollaborationName != Item.Title)
+        {
+            <div class="activity-card-context">Collaboration: @Item.CollaborationName</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(Item.Description))
+        {
+            <p class="activity-ticket-description">@Item.Description</p>
+        }
     }
     else if (Item.ProjectId.HasValue && Item.Title != Item.ActivityLabel)
     {

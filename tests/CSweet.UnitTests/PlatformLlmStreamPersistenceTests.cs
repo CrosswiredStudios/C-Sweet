@@ -70,6 +70,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         Assert.Equal(fragments, run.ReportedOutputTokens);
         // This is the regression assertion; elapsed timings are evidence, not a flaky gate.
         Assert.True(probe.PeakAuditRows < 32, $"Stream retained {probe.PeakAuditRows} audit rows.");
+        Assert.True(probe.PeakActivityWakes < 4, $"Stream retained {probe.PeakActivityWakes} activity hints.");
     }
 
     private sealed record ObservedStreamChunk(string? Text, IReadOnlyList<ObservedStreamContent>? Contents, string? FinishReason);
@@ -78,6 +79,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
     private sealed class StreamPersistenceProbe(ITestOutputHelper output, bool failOnce = false) : SaveChangesInterceptor
     {
         public int PeakAuditRows { get; private set; }
+        public int PeakActivityWakes { get; private set; }
         public bool FailureInjected { get; private set; }
         private int saves;
         private readonly Stopwatch block = Stopwatch.StartNew();
@@ -86,6 +88,9 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         {
             var count = eventData.Context!.ChangeTracker.Entries<ComputeAuditOutbox>().Count();
             PeakAuditRows = Math.Max(PeakAuditRows, count);
+            PeakActivityWakes = Math.Max(PeakActivityWakes, eventData.Context.ChangeTracker
+                .Entries<CSweet.Domain.Notifications.ApplicationRealtimeOutboxItem>()
+                .Count(x => x.Entity.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.CurrentActivityChanged));
             if (++saves % 512 == 0)
             {
                 output.WriteLine($"Saves {saves}: block {block.ElapsedMilliseconds} ms; tracked audit rows {count}");

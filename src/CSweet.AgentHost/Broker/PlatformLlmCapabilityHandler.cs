@@ -687,6 +687,11 @@ public sealed partial class PlatformLlmCapabilityHandler
                      .Where(x => x.State == EntityState.Unchanged &&
                          x.Entity.SourceEntityType == nameof(AgentRunLog) && x.Entity.SourceEntityId == runId).ToArray())
             entry.State = EntityState.Detached;
+        var organization = _dbContext.AgentRunLogs.Local.FirstOrDefault(x => x.Id == runId)?.OrganizationId;
+        foreach (var entry in _dbContext.ChangeTracker.Entries<CSweet.Domain.Notifications.ApplicationRealtimeOutboxItem>()
+                     .Where(x => x.State == EntityState.Unchanged && x.Entity.OrganizationId == organization &&
+                         x.Entity.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.CurrentActivityChanged).ToArray())
+            entry.State = EntityState.Detached;
     }
 
     private static int? ToNullableInt(long? value) => value switch
