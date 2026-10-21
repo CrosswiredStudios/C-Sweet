@@ -103,7 +103,15 @@ public static class WorkspaceSnapshotHeaders
 public sealed record AgentBrokerWorkspaceOperationRequest(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     Guid WorkItemId, long AssignmentRevision, string WorkspaceKey, string IdempotencyKey, string Operation,
     string? CommitMessage = null, bool RetainOnFailure = true, string? ProposedChangeTitle = null, string? ProposedChangeBody = null,
-    byte[]? Archive = null);
+    byte[]? Archive = null)
+{
+    public bool IncludeHistory { get; init; }
+    public int HistoryOffset { get; init; }
+    public int HistoryLimit { get; init; } = 20;
+}
 public sealed record AgentBrokerWorkspaceOperationResult(string Status, string BaseSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? CommitSha = null, string? Branch = null,
-    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null, string Provider = "InternalGit", byte[]? Archive = null);
+    string? ReviewUrl = null, bool Removed = false, DateTimeOffset? RetainUntil = null, string Provider = "InternalGit", byte[]? Archive = null)
+{
+    public CSweet.Contracts.SourceControl.GitHistoryPage? History { get; init; }
+}

@@ -9,6 +9,21 @@ public sealed class GitReviewSdkSchemaTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    [Fact]
+    public void Assignment_history_request_matches_inspection_schema_and_rejects_arbitrary_refs()
+    {
+        var tool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { GitWorkspaceCapabilities.Inspect }));
+        var request = new InspectGitWorkspaceRequest(Guid.NewGuid(), 3) { IncludeHistory = true, HistoryOffset = 20, HistoryLimit = 20 };
+        var payload = JsonSerializer.SerializeToNode(request, Json)!.AsObject();
+        Assert.Null(McpGatewayEndpoints.ValidateToolInput("history", JsonSerializer.SerializeToElement(payload, Json), tool.InputSchema));
+        payload["commitSha"] = new string('a', 40);
+        Assert.NotNull(McpGatewayEndpoints.ValidateToolInput("history", JsonSerializer.SerializeToElement(payload, Json), tool.InputSchema));
+        payload.Remove("commitSha"); payload["historyLimit"] = 101;
+        Assert.NotNull(McpGatewayEndpoints.ValidateToolInput("history", JsonSerializer.SerializeToElement(payload, Json), tool.InputSchema));
+        payload["historyLimit"] = 20; payload["historyOffset"] = -1;
+        Assert.NotNull(McpGatewayEndpoints.ValidateToolInput("history", JsonSerializer.SerializeToElement(payload, Json), tool.InputSchema));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

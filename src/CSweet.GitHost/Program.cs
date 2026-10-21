@@ -206,6 +206,18 @@ app.MapPost("/internal/v3/workspaces/prepare", async (InternalGitWorkspaceReques
     catch (KeyNotFoundException) { return Results.NotFound(); }
     catch (Exception ex) when (ex is IOException or InvalidOperationException) { return Results.Conflict(); }
 });
+app.MapPost("/internal/v3/workspaces/history", async (GitHistoryReadRequest request, InternalGitRepositoryStore store,
+    ILogger<InternalGitRepositoryStore> logger, CancellationToken ct) =>
+{
+    try { return Results.Ok(await store.ReadHistoryAsync(request, ct)); }
+    catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error)) { return WorkspaceOperationErrors.Result(error, logger); }
+});
+app.MapPost("/internal/v3/github/workspaces/history", async (GitHubHistoryReadRequest request, GitHubWorkspaceOperationsService service,
+    ILogger<GitHubWorkspaceOperationsService> logger, CancellationToken ct) =>
+{
+    try { return Results.Ok(await service.ReadHistoryAsync(request, ct)); }
+    catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error)) { return WorkspaceOperationErrors.Result(error, logger); }
+});
 app.MapPost("/internal/v3/github/workspaces/apply", async (GitHubSnapshotOperation request, GitHubWorkspaceOperationsService service, CancellationToken ct) =>
 {
     try { return Results.Ok(await service.ApplyAsync(request, ct)); }

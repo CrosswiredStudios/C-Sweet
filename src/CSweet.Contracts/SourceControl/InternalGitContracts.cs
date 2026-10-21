@@ -1,5 +1,14 @@
 namespace CSweet.Contracts.SourceControl;
 
+public sealed record GitHistoryReadRequest(Guid OrganizationId, Guid RepositoryId, string AssignedCommitSha,
+    string PublicationCommitSha, string DefaultBranch, int Offset = 0, int Limit = 20);
+public sealed record GitHubHistoryReadRequest(long InstallationId, long ExternalRepositoryId, string Owner,
+    string Repository, GitHistoryReadRequest History);
+public sealed record GitHistoryCommit(string Sha, IReadOnlyList<string> ParentShas, string Subject, bool SubjectTruncated);
+public sealed record GitHistoryPage(Guid RepositoryId, string AssignedCommitSha, string PublicationCommitSha,
+    string PublicationBaseCommitSha, string PublicationBranch, string DefaultBranch, string? DefaultBranchHeadSha,
+    bool DefaultBranchHeadIsAncestorOfPublicationBase, IReadOnlyList<GitHistoryCommit> Commits, int? NextOffset);
+
 public sealed record InternalRepositoryImportRequest(Guid OrganizationId, Guid RepositoryId, string ArchiveSha256, string DefaultBranch = "main");
 public sealed record InternalRepositoryImportResult(string CommitSha, bool Resumed);
 

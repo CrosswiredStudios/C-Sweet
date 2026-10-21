@@ -532,11 +532,17 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         CancellationToken cancellationToken)
     {
         ValidateAssignmentRevision(input.AssignmentRevision);
+        if (input.HistoryOffset is < 0 or > 10000 || input.HistoryLimit is < 1 or > 100 ||
+            !input.IncludeHistory && input.HistoryOffset != 0)
+            throw new ArgumentException("Invalid Git history page bounds.");
         var context = await RequireWorkspaceContextAsync(
             organizationId, installationId, input.WorkspaceId,
             input.AssignmentRevision, GitWorkspaceCapabilities.Inspect, cancellationToken);
         return await gitHost.InspectAsync(
-            Operation(context, $"inspect:{context.Workspace.Revision}"), cancellationToken);
+            Operation(context, $"inspect:{context.Workspace.Revision}") with
+            {
+                IncludeHistory = input.IncludeHistory, HistoryOffset = input.HistoryOffset, HistoryLimit = input.HistoryLimit
+            }, cancellationToken);
     }
 
     private async Task<GitWorkspacePublication> PublishAsync(

@@ -45,6 +45,69 @@ public sealed class InternalGitPublicationTests : IDisposable
     }
 
     [Fact]
+    public async Task History_reads_only_assigned_ancestors_with_bounded_pages_and_never_changes_refs()
+    {
+        var initial = await InitializeAsync();
+        var first = await _store.ApplySnapshotAsync((await RequestAsync(initial, "publish", "work/one", "history-first", ("one.txt", "first")))
+            with { CommitMessage = "feat(task): first" }, _artifacts);
+        var second = await _store.ApplySnapshotAsync((await RequestAsync(first.CommitSha!, "publish", "work/one", "history-second", ("one.txt", "second")))
+            with { CommitMessage = "fix(task): second" }, _artifacts);
+        var unrelated = await _store.ApplySnapshotAsync((await RequestAsync(initial, "publish", "work/other", "history-other", ("other.txt", "private other branch")))
+            with { CommitMessage = "feat(other): unrelated" }, _artifacts);
+        var before = (await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Refs.ToArray();
+        var request = new GitHistoryReadRequest(_business, _repository, second.CommitSha!, second.CommitSha!, "main", Limit: 1);
+        var page = await _store.ReadHistoryAsync(request);
+        Assert.Equal(second.CommitSha, Assert.Single(page.Commits).Sha);
+        Assert.Equal("fix(task): second", page.Commits[0].Subject);
+        Assert.Equal(first.CommitSha, page.PublicationBaseCommitSha);
+        Assert.True(page.DefaultBranchHeadIsAncestorOfPublicationBase);
+        Assert.Equal(initial, page.DefaultBranchHeadSha);
+        var seen = new List<GitHistoryCommit>(page.Commits);
+        while (page.NextOffset is { } offset)
+        {
+            page = await _store.ReadHistoryAsync(request with { Offset = offset });
+            seen.AddRange(page.Commits);
+        }
+        Assert.Equal([second.CommitSha!, first.CommitSha!, initial], seen.Select(commit => commit.Sha).ToArray());
+        Assert.DoesNotContain(seen, commit => commit.Sha == unrelated.CommitSha);
+        Assert.Equal(before, (await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Refs);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => _store.ReadHistoryAsync(request with { PublicationCommitSha = unrelated.CommitSha! }));
+        await Assert.ThrowsAsync<ArgumentException>(() => _store.ReadHistoryAsync(request with { AssignedCommitSha = "HEAD" }));
+        await Assert.ThrowsAsync<ArgumentException>(() => _store.ReadHistoryAsync(request with { Offset = -1 }));
+        await Assert.ThrowsAsync<ArgumentException>(() => _store.ReadHistoryAsync(request with { Offset = 10001 }));
+        await Assert.ThrowsAsync<ArgumentException>(() => _store.ReadHistoryAsync(request with { Limit = 101 }));
+        await Assert.ThrowsAsync<ArgumentException>(() => _store.ReadHistoryAsync(request with { DefaultBranch = "main..write" }));
+    }
+
+    [Fact]
+    public async Task History_marks_truncated_subjects_instead_of_silently_claiming_complete_evidence()
+    {
+        var initial = await InitializeAsync();
+        var tree = (await Git("rev-parse", initial + "^{tree}")).Trim();
+        var publication = (await Git("commit-tree", tree, "-p", initial, "-m", "feat(task): " + new string('x', 1000))).Trim();
+        await Git("update-ref", "refs/heads/work/long", publication);
+        var page = await _store.ReadHistoryAsync(new(_business, _repository, publication, publication, "main", Limit: 1));
+        Assert.True(Assert.Single(page.Commits).SubjectTruncated);
+        Assert.Equal(512, page.Commits[0].Subject.Length);
+        Assert.NotNull(page.NextOffset);
+    }
+
+    [Fact]
+    public async Task Generated_initialization_and_merge_subjects_are_conventional_and_receipts_remain_stable()
+    {
+        var initial = await InitializeAsync();
+        Assert.Equal("chore(repo): initialize repository", (await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Commits[0].Subject);
+        var publication = await _store.ApplySnapshotAsync((await RequestAsync(initial, "publish", "work/one", "conventional", ("one.txt", "first")))
+            with { CommitMessage = "feat(task): first" }, _artifacts);
+        var request = new InternalGitMergeRequest(_business, _repository, Guid.NewGuid(), "work/one", "main", publication.CommitSha!, "conventional-merge");
+        var merge = await _store.MergeInternalAsync(request);
+        Assert.True(merge.Merged);
+        var inspection = await _store.ExecuteAsync(new(_business, _repository, "inspect"));
+        Assert.StartsWith("chore(delivery): merge publication ", inspection.Commits[0].Subject);
+        Assert.Equal(merge.MergeCommitSha, (await _store.MergeInternalAsync(request)).MergeCommitSha);
+    }
+
+    [Fact]
     public async Task LocksBlockAgentPublicationMergeAndRefChangesButPreserveCompletedRetries()
     {
         var initial = await InitializeAsync(); var owner = Guid.NewGuid();
@@ -66,6 +129,26 @@ public sealed class InternalGitPublicationTests : IDisposable
         var merged = await _store.MergeInternalAsync(merge); Assert.True(merged.Merged);
         await _store.LocksAsync(new(_business, _repository, owner, "Artist", "create", "asset.bin"));
         Assert.Equal(merged.MergeCommitSha, (await _store.MergeInternalAsync(merge)).MergeCommitSha);
+    }
+
+    [Fact]
+    public async Task Legacy_merge_receipt_replays_only_the_exact_original_request_without_rewriting_history()
+    {
+        var initial = await InitializeAsync();
+        var publication = await _store.ApplySnapshotAsync(await RequestAsync(initial, "publish", "work/one", "legacy", ("one.txt", "first")), _artifacts);
+        var request = new InternalGitMergeRequest(_business, _repository, Guid.NewGuid(), "work/one", "main", publication.CommitSha!, "legacy-merge");
+        var identity = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(request))));
+        var tree = (await Git("rev-parse", publication.CommitSha! + "^{tree}")).Trim();
+        var legacy = (await Git("commit-tree", tree, "-p", initial, "-p", publication.CommitSha!, "-m",
+            $"Merge C-Sweet publication {request.PublicationId:D}\n\nC-Sweet-Merge-Identity: {identity}")).Trim();
+        await Git("update-ref", "refs/heads/main", legacy, initial);
+        await Git("update-ref", "refs/csweet/merges/" + request.PublicationId.ToString("N"), legacy);
+        var replay = await _store.MergeInternalAsync(request);
+        Assert.Equal(legacy, replay.MergeCommitSha);
+        Assert.StartsWith("Merge C-Sweet publication ", (await _store.ExecuteAsync(new(_business, _repository, "inspect"))).Commits[0].Subject);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _store.MergeInternalAsync(request with { IdempotencyKey = "changed" }));
+
     }
 
     [Fact]
@@ -243,6 +326,22 @@ public sealed class InternalGitPublicationTests : IDisposable
         Assert.Contains("src/main.ts", result.ChangedFiles);
         Assert.Contains("package-lock.json", result.ChangedFiles);
         Assert.DoesNotContain("library", result.DiffSummary);
+    }
+
+    private async Task<string> Git(params string[] arguments)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+        foreach (var key in start.Environment.Keys.Where(key => key.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase)).ToArray()) start.Environment.Remove(key);
+        start.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
+        start.Environment["GIT_CONFIG_GLOBAL"] = OperatingSystem.IsWindows() ? "NUL" : "/dev/null";
+        foreach (var argument in new[] { "-c", "user.name=Tests", "-c", "user.email=test@example.invalid", "--git-dir",
+            Path.Combine(_root, "repositories", _business.ToString("N"), _repository.ToString("N") + ".git") }.Concat(arguments)) start.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await process.WaitForExitAsync(timeout.Token); } catch { process.Kill(true); throw; }
+        Assert.True(process.ExitCode == 0, await error);
+        return await output;
     }
 
     public void Dispose()

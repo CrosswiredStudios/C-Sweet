@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Assignment-scoped QA Git history](internal-git-hosting.md#assignment-scoped-qa-history) maps the
+read-only inspection boundary, conventional generated subjects, release rollout and remaining UI gaps.
+
 [Browser testing compute](browser-testing-compute.md) maps the reusable offline Playwright/Chromium
 workload, exact-build QA binding, durable completion recovery, retained evidence and rollout.
 

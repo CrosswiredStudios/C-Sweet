@@ -7,6 +7,19 @@ namespace CSweet.UnitTests;
 public sealed class GitWorkspaceCapabilityHandlerTests
 {
     [Fact]
+    public async Task Assigned_history_requires_the_inspection_grant_before_database_or_host_access()
+    {
+        var handler = new GitWorkspaceCapabilityHandler(null!, new UnavailableTrustedGitHostClient(), null!, null!, WorkspaceSyncTestOptions.Value);
+        var session = new AgentSession("session", "qa", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "runtime", "tick",
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), 1));
+        var request = new RequestCapability { RequestId = "history", Capability = GitWorkspaceCapabilities.Inspect,
+            Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new InspectGitWorkspaceRequest(Guid.NewGuid(), 1) { IncludeHistory = true })) };
+        var results = new List<CapabilityResult>();
+        await foreach (var result in handler.HandleAsync(session, request, default)) results.Add(result);
+        Assert.False(Assert.Single(results).Succeeded);
+    }
+
+    [Fact]
     public async Task ReferenceOnlyDiffReadStillRequiresTheMergeReviewGrant()
     {
         var handler = new GitWorkspaceCapabilityHandler(null!, new UnavailableTrustedGitHostClient(), null!, null!, WorkspaceSyncTestOptions.Value);

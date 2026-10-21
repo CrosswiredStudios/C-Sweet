@@ -5,7 +5,7 @@ using CSweet.Contracts.SourceControl;
 
 namespace CSweet.TrustedServices;
 
-public sealed class GitHubWorkspaceOperationsService(GitHubAppClient github, InternalGitRepositoryStore store,
+public sealed partial class GitHubWorkspaceOperationsService(GitHubAppClient github, InternalGitRepositoryStore store,
     WorkspaceArtifactValidator artifacts, IGitHubRepositoryTransport transport)
 {
     public async Task<GitHubSnapshotResult> ApplyAsync(GitHubSnapshotOperation request, CancellationToken ct = default)

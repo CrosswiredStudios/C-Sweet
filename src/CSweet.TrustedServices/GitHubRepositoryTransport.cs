@@ -8,6 +8,7 @@ public interface IGitHubRepositoryTransport
     Task UploadLfsAsync(string cache, GitHubRepositoryDescriptor repository, string token, string storage, IReadOnlyList<GitHubLfsObject> objects, CancellationToken ct) => throw new InvalidOperationException("GitHub LFS upload is unavailable.");
     Task<IReadOnlyDictionary<string, string>> RefsAsync(GitHubRepositoryDescriptor repository, string token, CancellationToken ct);
     Task FetchAsync(string cache, GitHubRepositoryDescriptor repository, string token, string sha, CancellationToken ct);
+    Task FetchHistoryAsync(string cache, GitHubRepositoryDescriptor repository, string token, string sha, CancellationToken ct) => throw new InvalidOperationException("GitHub history fetch is unavailable.");
     Task PushAsync(string cache, GitHubRepositoryDescriptor repository, string token, string branch, string sha, string? expected, CancellationToken ct);
 }
 
@@ -36,6 +37,9 @@ public sealed class GitHubRepositoryTransport(InternalGitRepositoryStore store) 
     }
     public Task FetchAsync(string cache, GitHubRepositoryDescriptor repository, string token, string sha, CancellationToken ct) =>
         store.RunGitHubNetworkAsync(cache, repository, token, ["fetch", "--no-tags", "--no-recurse-submodules", "--depth=1", Url(repository), sha], ct);
+    public Task FetchHistoryAsync(string cache, GitHubRepositoryDescriptor repository, string token, string sha, CancellationToken ct) =>
+        store.RunGitHubNetworkAsync(cache, repository, token,
+            ["fetch", "--no-tags", "--no-recurse-submodules", .. (File.Exists(Path.Combine(cache, "shallow")) ? new[] { "--unshallow" } : []), Url(repository), sha], ct);
     public Task PushAsync(string cache, GitHubRepositoryDescriptor repository, string token, string branch, string sha, string? expected, CancellationToken ct) =>
         store.RunGitHubNetworkAsync(cache, repository, token, ["push", "--porcelain", "--force-with-lease=refs/heads/" + branch + ":" + (expected ?? ""), Url(repository), sha + ":refs/heads/" + branch], ct);
     private static string Url(GitHubRepositoryDescriptor repository)

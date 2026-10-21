@@ -37,6 +37,26 @@ public sealed class GitHubWorkspaceOperationTests : IDisposable
     private Task<InternalGitSnapshotResult> Apply(GitHubSnapshotOperation request) => store.ApplyGitHubSnapshotAsync(request, Remote, "secret", artifacts, transport);
 
     [Fact]
+    public async Task Read_history_unshallows_the_assigned_graph_without_pushing_or_changing_remote_refs()
+    {
+        var request = await RequestAsync(("code.txt", "feature"));
+        var published = await Apply(request);
+        var refs = await Git(transport.Path, "show-ref");
+        var pushes = transport.Pushes;
+        var read = new GitHistoryReadRequest(business, repository, published.CommitSha!, published.CommitSha!, "main", Limit: 1);
+        var first = await store.ReadGitHubHistoryAsync(read, Remote, "secret", transport, default);
+        Assert.Equal(published.CommitSha, Assert.Single(first.Commits).Sha);
+        Assert.Equal(request.Workspace.BaseSha, first.PublicationBaseCommitSha);
+        Assert.True(first.DefaultBranchHeadIsAncestorOfPublicationBase);
+        Assert.Equal(1, first.NextOffset);
+        var last = await store.ReadGitHubHistoryAsync(read with { Offset = 1 }, Remote, "secret", transport, default);
+        Assert.Equal(request.Workspace.BaseSha, Assert.Single(last.Commits).Sha);
+        Assert.Null(last.NextOffset);
+        Assert.Equal(pushes, transport.Pushes); Assert.Equal(refs, await Git(transport.Path, "show-ref"));
+        await Assert.ThrowsAsync<IOException>(() => store.ReadGitHubHistoryAsync(read, Remote with { RepositoryId = 43 }, "secret", transport, default));
+    }
+
+    [Fact]
     public async Task LostPushResponseReplaysExactCommitWithoutChangingMain()
     {
         var request = await RequestAsync(("code.txt", "feature")); transport.LoseResponse = true;
@@ -134,6 +154,8 @@ public sealed class GitHubWorkspaceOperationTests : IDisposable
                 .Select(line => line.Trim().Split(' ', 2)).ToDictionary(parts => parts[1], parts => parts[0]);
         public Task FetchAsync(string cache, GitHubRepositoryDescriptor repo, string token, string sha, CancellationToken ct) =>
             Git(cache, "fetch", "--depth=1", "--no-tags", path, sha);
+        public Task FetchHistoryAsync(string cache, GitHubRepositoryDescriptor repo, string token, string sha, CancellationToken ct) =>
+            Git(cache, ["fetch", "--no-tags", .. (File.Exists(System.IO.Path.Combine(cache, "shallow")) ? new[] { "--unshallow" } : []), path, sha]);
         public async Task PushAsync(string cache, GitHubRepositoryDescriptor repo, string token, string branch, string sha, string? expected, CancellationToken ct)
         {
             Pushes++;

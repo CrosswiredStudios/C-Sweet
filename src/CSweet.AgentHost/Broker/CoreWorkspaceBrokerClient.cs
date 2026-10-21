@@ -95,7 +95,14 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
     {
         var result = await ExecuteAsync(request, "inspect", ct);
         return new(request.WorkspaceId, result.Status, result.ChangedFiles.Count > 0, result.ChangedFiles, [])
-        { HasTrackedChanges = result.ChangedFiles.Count > 0, TrackedChangedFiles = result.ChangedFiles, DiffSummary = result.DiffSummary };
+        {
+            HasTrackedChanges = result.ChangedFiles.Count > 0, TrackedChangedFiles = result.ChangedFiles, DiffSummary = result.DiffSummary,
+            History = result.History is { } history ? new(history.RepositoryId, history.AssignedCommitSha,
+                history.PublicationCommitSha, history.PublicationBaseCommitSha, history.PublicationBranch,
+                history.DefaultBranch, history.DefaultBranchHeadSha, history.DefaultBranchHeadIsAncestorOfPublicationBase,
+                history.Commits.Select(commit => new CSweet.Agent.SDK.GitHistoryCommit(commit.Sha, commit.ParentShas,
+                    commit.Subject, commit.SubjectTruncated)).ToArray(), history.NextOffset) : null
+        };
     }
 
     public async Task<TrustedWorkspacePublication> PublishAsync(TrustedWorkspacePublishRequest request, CancellationToken ct)
@@ -117,7 +124,10 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
     {
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
             new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
-                request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, operation, message, retain, title, body), ct);
+                request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, operation, message, retain, title, body)
+            {
+                IncludeHistory = request.IncludeHistory, HistoryOffset = request.HistoryOffset, HistoryLimit = request.HistoryLimit
+            }, ct);
         await WorkspaceOperationErrors.EnsureSuccessAsync(response, "Core", operation, ct);
         return await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceOperationResult>(ct)
             ?? throw new InvalidOperationException("Core returned an empty workspace operation response.");

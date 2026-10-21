@@ -59,7 +59,12 @@ public sealed record TrustedWorkspaceOperationRequest(
     string WorkspaceKey,
     Guid WorkItemId,
     long AssignmentRevision,
-    string IdempotencyKey);
+    string IdempotencyKey)
+{
+    public bool IncludeHistory { get; init; }
+    public int HistoryOffset { get; init; }
+    public int HistoryLimit { get; init; } = 20;
+}
 
 public sealed record TrustedWorkspaceRefresh(
     string Status,

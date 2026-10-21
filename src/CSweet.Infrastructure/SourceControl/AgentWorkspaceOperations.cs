@@ -14,6 +14,9 @@ public sealed partial class AgentWorkspaceBroker
             string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160)
             throw new ArgumentException("Invalid workspace operation.");
         var workspace = await AuthorizeWorkspaceOperationAsync(request, cancellationToken);
+        if (request.HistoryOffset is < 0 or > 10000 || request.HistoryLimit is < 1 or > 100 ||
+            request.IncludeHistory && request.Operation != "inspect" || !request.IncludeHistory && request.HistoryOffset != 0)
+            throw new ArgumentException("Invalid history inspection bounds.");
         var repository = workspace.Repository!;
         var lockOwner = await db.CoreOrganizationUsers.AsNoTracking().Where(u => u.OrganizationId == workspace.OrganizationId &&
             u.AgentInstallationId == workspace.AgentInstallationId && u.IsActive).Select(u => u.Id).SingleAsync(cancellationToken);
@@ -93,7 +96,41 @@ public sealed partial class AgentWorkspaceBroker
         var url = request.Operation == "publish" && result.Status == "Published"
             ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control/{repository.Id:D}?reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
             : null;
-        return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, githubReviewUrl ?? url, Provider: repository.Connection!.Provider.ToString());
+        return new(result.Status, result.BaseSha, result.ChangedFiles, result.DiffSummary, result.CommitSha, workspace.BranchName, githubReviewUrl ?? url, Provider: repository.Connection!.Provider.ToString())
+        {
+            History = request.IncludeHistory ? await ReadAssignmentHistoryAsync(workspace, request, cancellationToken) : null
+        };
+    }
+
+    private async Task<GitHistoryPage> ReadAssignmentHistoryAsync(SourceControlWorkspace workspace,
+        AgentBrokerWorkspaceOperationRequest request, CancellationToken token)
+    {
+        if (!await db.CoreWorkTasks.AsNoTracking().AnyAsync(work => work.Id == workspace.WorkItemId &&
+                work.OrganizationId == workspace.OrganizationId && work.AssignmentRevision == workspace.AssignmentRevision &&
+                work.ArchivedAt == null && work.Status != CSweet.Domain.Core.WorkTaskStatus.Completed &&
+                work.Status != CSweet.Domain.Core.WorkTaskStatus.Cancelled, token))
+            throw new UnauthorizedAccessException("History requires the current active ticket assignment.");
+        var publication = await (from candidate in db.SourceControlPublications.AsNoTracking()
+            join origin in db.SourceControlWorkspaces.AsNoTracking() on candidate.WorkspaceId equals origin.Id
+            where candidate.OrganizationId == workspace.OrganizationId && candidate.RepositoryId == workspace.RepositoryId &&
+                origin.OrganizationId == workspace.OrganizationId && origin.WorkItemId == workspace.WorkItemId &&
+                origin.AssignmentRevision == workspace.AssignmentRevision && candidate.Status != SourceControlPublicationStatus.Superseded
+            orderby candidate.CreatedAt descending select candidate).FirstOrDefaultAsync(token)
+            ?? throw new InvalidOperationException("The assigned ticket has no published source history.");
+        var repository = workspace.Repository!;
+        if (repository.Connection!.Provider == SourceControlProvider.GitHub &&
+            (repository.Connection.SourceAccessInstallationId is not > 0 || !long.TryParse(repository.ExternalRepositoryId, out var externalId) || externalId <= 0))
+            throw new InvalidOperationException("The GitHub source access identity is unavailable.");
+        var read = new GitHistoryReadRequest(workspace.OrganizationId, workspace.RepositoryId, workspace.BaseCommitSha,
+            publication.CommitSha, repository.DefaultBranch, request.HistoryOffset, request.HistoryLimit);
+        var page = repository.Connection!.Provider == SourceControlProvider.InternalGit
+            ? await gitHost.ReadInternalHistoryAsync(read, token)
+            : await gitHost.ReadGitHubHistoryAsync(new(repository.Connection.SourceAccessInstallationId!.Value,
+                long.Parse(repository.ExternalRepositoryId!), repository.Owner, repository.Name, read), token);
+        if (page.RepositoryId != read.RepositoryId || page.AssignedCommitSha != read.AssignedCommitSha ||
+            page.PublicationCommitSha != read.PublicationCommitSha || page.DefaultBranch != read.DefaultBranch || page.Commits.Count > read.Limit)
+            throw new InvalidDataException("GitHost returned history for a different assignment.");
+        return page with { PublicationBranch = publication.TicketBranch };
     }
     private async Task<SourceControlWorkspace> AuthorizeWorkspaceOperationAsync(AgentBrokerWorkspaceOperationRequest request, CancellationToken cancellationToken, string? action = null)
     {

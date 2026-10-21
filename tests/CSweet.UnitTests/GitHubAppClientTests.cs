@@ -80,6 +80,23 @@ public sealed class GitHubAppClientTests
     }
 
     [Theory]
+    [InlineData(99, "owner", true, false)]
+    [InlineData(42, "other", true, false)]
+    [InlineData(42, "owner", false, false)]
+    [InlineData(42, "owner", true, true)]
+    public async Task History_reauthorizes_private_repository_identity_before_any_git_transfer(long identity, string owner, bool isPrivate, bool archived)
+    {
+        var payload = JsonSerializer.Serialize(new { total_count = 1, repositories = new[] {
+            new { id = identity, owner = new { login = owner }, name = "repo", full_name = owner + "/repo",
+                clone_url = "https://github.com/owner/repo.git", default_branch = "main", @private = isPrivate, archived, is_template = false } } });
+        var handler = new SequenceHandler(Json(HttpStatusCode.Created, "{\"token\":\"installation-secret\"}"), Json(HttpStatusCode.OK, payload));
+        var service = new GitHubWorkspaceOperationsService(CreateClient(handler), null!, null!, null!);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.ReadHistoryAsync(new(12, 42, "owner", "repo",
+            new(Guid.NewGuid(), Guid.NewGuid(), new('a', 40), new('a', 40), "main"))));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task WorkspacePullRequestCreatesOrReusesExactHead(bool existing)
@@ -162,6 +179,7 @@ public sealed class GitHubAppClientTests
         using var body = JsonDocument.Parse(request.Body);
         Assert.Equal(sha, body.RootElement.GetProperty("sha").GetString());
         Assert.Equal("squash", body.RootElement.GetProperty("merge_method").GetString());
+        Assert.Equal("chore(delivery): merge pull request #4", body.RootElement.GetProperty("commit_title").GetString());
         Assert.DoesNotContain("installation-secret", JsonSerializer.Serialize(result));
     }
 

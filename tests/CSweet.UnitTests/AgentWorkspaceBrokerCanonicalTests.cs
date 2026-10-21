@@ -27,6 +27,14 @@ public sealed partial class AgentWorkspaceBrokerTests
     [InlineData("publish", "revoked-grant")]
     [InlineData("publish", "quality")]
     [InlineData("inspect", "missing-participant")]
+    [InlineData("history", "valid")]
+    [InlineData("history", "revoked-grant")]
+    [InlineData("history", "wrong-agent")]
+    [InlineData("history", "stale-traversal")]
+    [InlineData("history", "wrong-repository")]
+    [InlineData("history", "wrong-commit")]
+    [InlineData("history", "archived-ticket")]
+    [InlineData("history", "missing-participant")]
     public async Task Canonical_stage_workspace_requires_current_attempt_repository_and_action(string operation, string scenario)
     {
         await using var db = CreateDb(); var seed = await SeedAsync(db); var request = seed.Request;
@@ -45,7 +53,7 @@ public sealed partial class AgentWorkspaceBrokerTests
         var sprint = new WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId, BoardId = board.Id,
             Status = scenario == "cancelled" ? WorkSprintExecutionStatus.Cancelled : WorkSprintExecutionStatus.Active };
         var item = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = ticket.Id, SprintExecutionId = sprint.Id,
-            CurrentStageKey = scenario == "quality" ? "quality" : "specialist-execution", Status = WorkItemExecutionStatus.Running };
+            CurrentStageKey = scenario == "quality" || operation == "history" ? "quality" : "specialist-execution", Status = WorkItemExecutionStatus.Running };
         var stage = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = item.Id, StageKey = item.CurrentStageKey,
             Status = WorkStageExecutionStatus.Running, StageType = WorkOrchestrationStageType.AgentExecution,
             PrincipalKind = WorkOrchestrationPrincipalKind.AgentInstallation, OrganizationUserId = employee.Id,
@@ -63,6 +71,8 @@ public sealed partial class AgentWorkspaceBrokerTests
         if (scenario == "archived-ticket") ticket.ArchivedAt = DateTimeOffset.UtcNow;
         if (scenario == "missing-participant") (await db.ProjectParticipants.SingleAsync(x => x.OrganizationUserId == employee.Id)).RemovedAt = DateTimeOffset.UtcNow;
         if (operation is not ("prepare" or "snapshot")) { workspace.Status = SourceControlWorkspaceStatus.Ready; workspace.WorkspaceKey = "opaque"; workspace.BaseCommitSha = new string('a',40); }
+        if (operation == "history") db.SourceControlPublications.Add(new() { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId,
+            RepositoryId = request.RepositoryId, WorkspaceId = workspace.Id, TicketBranch = "work/assigned", CommitSha = new string(scenario == "wrong-commit" ? 'c' : 'a', 40) });
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         if (operation == "snapshot")
         {
@@ -94,8 +104,16 @@ public sealed partial class AgentWorkspaceBrokerTests
         var host = new FakeHost(); var volumes = new FakeVolumes(); var broker = new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value);
         Func<Task> act = operation == "prepare" ? async () => { await broker.PrepareAsync(request); }
             : async () => { await broker.ExecuteAsync(new(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
-                request.WorkItemId, request.AssignmentRevision, "opaque", "op", operation), "http://localhost"); };
-        if (scenario == "valid") { await act(); Assert.True(host.Request is not null || host.GitHubOperation is not null); }
-        else { await Assert.ThrowsAnyAsync<Exception>(act); Assert.Null(host.Request); Assert.Null(host.GitHubOperation); Assert.Null(volumes.Lease); }
+                request.WorkItemId, request.AssignmentRevision, "opaque", "op", operation == "history" ? "inspect" : operation) { IncludeHistory = operation == "history", HistoryOffset = 0, HistoryLimit = 5 }, "http://localhost"); };
+        if (scenario == "valid") {
+            await act(); Assert.True(host.Request is not null || host.GitHubOperation is not null);
+            if (operation == "history") {
+                Assert.Equal(request.RepositoryId, host.HistoryRequest!.RepositoryId);
+                Assert.Equal(new string('a', 40), host.HistoryRequest.AssignedCommitSha);
+                Assert.Equal(new string('a', 40), host.HistoryRequest.PublicationCommitSha);
+                Assert.Equal("main", host.HistoryRequest.DefaultBranch); Assert.Equal(5, host.HistoryRequest.Limit);
+            }
+        }
+        else { await Assert.ThrowsAnyAsync<Exception>(act); Assert.Null(host.Request); Assert.Null(host.GitHubOperation); Assert.Null(host.HistoryRequest); Assert.Null(volumes.Lease); }
     }
 }

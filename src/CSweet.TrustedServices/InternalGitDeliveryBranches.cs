@@ -20,7 +20,7 @@ public sealed partial class InternalGitRepositoryStore
         if (ensure && refs.Count == 0)
         {
             var tree = (await RunAsync(repository, ["mktree"], ct)).Trim();
-            var initial = (await RunAsync(repository, ["commit-tree", tree, "-m", "Initialize delivery repository"], ct)).Trim();
+            var initial = (await RunAsync(repository, ["commit-tree", tree, "-m", "chore(repo): initialize delivery repository"], ct)).Trim();
             await RunAsync(repository, ["update-ref", "refs/heads/" + request.TargetBranch, initial, new string('0', initial.Length)], ct);
             refs = await RefsAsync(repository, ct);
         }
@@ -82,7 +82,7 @@ public sealed partial class InternalGitRepositoryStore
                     { ErrorCode = "integration_conflicts", ConflictPaths = merge.Paths };
             var tree = merge.Tree;
             var candidate = (await RunAsync(repository, ["commit-tree", tree, "-p", target, "-p", source,
-                "-m", "C-Sweet delivery candidate " + key], ct)).Trim();
+                "-m", "chore(delivery): create candidate " + key], ct)).Trim();
             await RunAsync(repository, ["update-ref", candidateRef, candidate, new string('0', candidate.Length)], ct);
             return new(source, target, candidate);
         }

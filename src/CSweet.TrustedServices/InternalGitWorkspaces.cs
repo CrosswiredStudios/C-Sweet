@@ -22,7 +22,7 @@ public sealed partial class InternalGitRepositoryStore
         if (refs.Count == 0 && request.ExpectedSha is null)
         {
             var tree = (await RunAsync(repository, ["mktree"], ct)).Trim();
-            var initial = (await RunAsync(repository, ["commit-tree", tree, "-m", "Initialize repository"], ct)).Trim();
+            var initial = (await RunAsync(repository, ["commit-tree", tree, "-m", "chore(repo): initialize repository"], ct)).Trim();
             await RunAsync(repository, ["update-ref", $"refs/heads/{request.DefaultBranch}", initial, new string('0', 40)], ct);
             refs = await RefsAsync(repository, ct);
         }

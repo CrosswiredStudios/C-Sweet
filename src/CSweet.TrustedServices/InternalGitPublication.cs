@@ -155,14 +155,15 @@ public sealed partial class InternalGitRepositoryStore
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
         await using var lease = new FileStream(repository + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request)))).ToLowerInvariant();
-        var message = $"Merge C-Sweet publication {request.PublicationId:D}\n\nC-Sweet-Merge-Identity: {identity}";
+        var message = $"chore(delivery): merge publication {request.PublicationId:D}\n\nC-Sweet-Merge-Identity: {identity}";
         var receiptRef = "refs/csweet/merges/" + request.PublicationId.ToString("N");
         var receipt = (await RunAsync(repository, ["for-each-ref", "--format=%(objectname)", receiptRef], ct)).Trim();
         if (receipt.Length > 0)
         {
             var parents = (await RunAsync(repository, ["show", "-s", "--format=%P", receipt], ct)).Trim().Split(' ');
             var receiptMessage = (await RunAsync(repository, ["log", "-1", "--format=%B", receipt], ct)).TrimEnd();
-            if (parents.Length != 2 || parents[^1] != request.ExpectedHeadSha || receiptMessage != message)
+            var legacyMessage = $"Merge C-Sweet publication {request.PublicationId:D}\n\nC-Sweet-Merge-Identity: {identity}";
+            if (parents.Length != 2 || parents[^1] != request.ExpectedHeadSha || receiptMessage != message && receiptMessage != legacyMessage)
                 throw new InvalidOperationException("Publication merge receipt belongs to a different merge request.");
             return new(true, true, receipt);
         }

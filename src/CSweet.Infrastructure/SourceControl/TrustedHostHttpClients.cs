@@ -10,6 +10,10 @@ public sealed class TrustedSourceControlHostClient(
     HttpClient http,
     IOptions<TrustedServiceAuthenticationOptions> authentication) : ITrustedSourceControlHostClient
 {
+    public Task<GitHistoryPage> ReadInternalHistoryAsync(GitHistoryReadRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<GitHistoryReadRequest, GitHistoryPage>("internal/v3/workspaces/history", request, ct);
+    public Task<GitHistoryPage> ReadGitHubHistoryAsync(GitHubHistoryReadRequest request, CancellationToken ct = default) =>
+        SendInternalAsync<GitHubHistoryReadRequest, GitHistoryPage>("internal/v3/github/workspaces/history", request, ct);
     public async Task DeleteBusinessStorageAsync(Guid business, CancellationToken token = default)
     {
         if (business == Guid.Empty) throw new ArgumentException("A business identity is required.");

@@ -57,7 +57,7 @@ public sealed partial class GitHubAppClient
             {
                 await Send(HttpMethod.Post, "/git/refs", new { @ref = "refs/heads/" + candidateBranch, sha = target });
                 await Send(HttpMethod.Post, "/merges", new { @base = candidateBranch, head = source,
-                    commit_message = "C-Sweet delivery candidate " + key });
+                    commit_message = "chore(delivery): create candidate " + key });
             }
             return new(source, target, await Ref(candidateBranch));
         }

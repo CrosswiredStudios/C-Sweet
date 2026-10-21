@@ -367,7 +367,7 @@ public sealed class McpToolCatalog(
         Write(GitWorkspaceCapabilities.Refresh, "refresh_git_workspace",
             "Refresh an assigned credential-free snapshot against its authorized base and return bounded conflicts."),
         Read(GitWorkspaceCapabilities.Inspect, "inspect_git_workspace",
-            "Inspect bounded changes in an assigned credential-free ticket workspace."),
+            "Inspect bounded changes and optionally paged ancestor history for the exact assigned credential-free ticket workspace. No arbitrary repository, ref or commit selection."),
         Write(GitWorkspaceCapabilities.Publish, "publish_git_workspace",
             "Ask trusted GitHost to reconstruct, commit, and publish the assigned change artifact."),
         Write(GitWorkspaceCapabilities.Cleanup, "cleanup_git_workspace",
@@ -986,7 +986,7 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["workspaceId","assignmentRevision","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Inspect => Schema("""
-            {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1}},"additionalProperties":false}
+            {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"includeHistory":{"type":"boolean"},"historyOffset":{"type":"integer","minimum":0,"maximum":10000},"historyLimit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Publish => Schema("""
             {"type":"object","required":["workspaceId","assignmentRevision","commitMessage","proposedChangeTitle","proposedChangeBody","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"commitMessage":{"type":"string","minLength":1,"maxLength":512},"proposedChangeTitle":{"type":"string","minLength":1,"maxLength":256},"proposedChangeBody":{"type":"string","maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"validations":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["command","succeeded","exitCode"],"properties":{"command":{"type":"string","minLength":1},"succeeded":{"type":"boolean"},"exitCode":{"type":"integer"},"diagnosticExcerpt":{"type":["string","null"]}},"additionalProperties":false}}},"additionalProperties":false}

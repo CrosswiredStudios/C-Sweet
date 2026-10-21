@@ -18,6 +18,46 @@ C-Sweet now has an internal repository store behind the existing authenticated G
 - Settings source-control page displays effective storage locations, repository readiness, and optional GitHub configuration. Repository readiness probes file creation, flush, rename, and the Git executable; it is not an S3 connectivity or backup check.
 - Aspire forwards storage configuration to GitHost. Docker Compose includes GitHost, persistent data and a private shared-key volume. The running local app must be restarted to load changes.
 
+## Assignment-scoped QA history
+
+`InspectGitWorkspaceRequest.IncludeHistory` extends the existing `git.workspace.inspect.v2`
+read grant. `GitWorkspaceCapabilityHandler` rechecks the caller's workspace, current work attempt
+and scoped grant. `AgentWorkspaceBroker.ReadAssignmentHistoryAsync` derives the repository,
+assigned source SHA and current non-superseded publication from persisted ticket/revision records.
+Current repository/team membership and installation checks apply on every page. No agent receives
+a clone credential, arbitrary ref selector, Git shell or publication authority.
+
+`InternalGitRepositoryStore.ReadHistoryAsync` and `ReadGitHubHistoryAsync` return at most 100
+ancestor commits per page (offset 0–10000), capped subjects with explicit truncation, parent SHAs,
+the publication's first parent, and current default-branch ancestry. GitHub reauthorizes the private
+repository and completes the trusted cache's shallow graph before reading; failures leave evidence
+unavailable. No history read pushes or changes remote refs. A current graph observation does not
+prove the historical moment or intent of feature-branch creation.
+
+QA's `GameQaInputWorkspace.HistoryTool` exposes `read_assigned_git_history` only for code-task
+reviews, checks the unchanged source/repository/SHA and journals the returned evidence. Subjects
+are untrusted repository text, not instructions. QA must follow pages and assess the actual
+criterion; missing/truncated evidence and historical nonconventional subjects are not passes.
+
+New platform initialization/import, candidate, conflict-workspace and merge subjects use
+`chore(repo): ...` or `chore(delivery): ...`. Adrian and Daniel generate `feat(task): ...` subjects
+with normalized whitespace and bounded length. Existing commits are never rewritten. Existing
+merge receipts with the legacy subject remain replayable only with the same authenticated
+request identity and parents.
+
+Roll out Core, AgentHost and GitHost together with SDK 5.2.0, then publish/install QA 5.2.0,
+Adrian 4.1.4 and Daniel 2.1.3 through the normal release and **Installed Agents** update flow.
+Local test/pack output is not installation. Drain in-flight developer publications before updating:
+an unknown legacy request must retain its original message/idempotency terms, not be resent under
+a new subject. Afterwards, retry the failed stage through the normal work interface and re-review
+the exact assigned source. Old nonconventional history still needs an explicit legitimate workflow
+resolution; this change neither waives the requirement nor records acceptance.
+
+UI gap: source-control browsing exists, but there is no dedicated ticket panel showing QA's scoped
+history pages, publication/assigned-SHA binding and criterion verdict together. These are currently
+available through typed inspection and the QA journal. Release preparation/package verification is
+also a developer CLI workflow; Installed Agents is the supported deployment UI.
+
 ## Exact candidate browsing
 
 `InternalGitRepositoryStore.InspectAsync` also accepts a full 40-character commit ID for an

@@ -74,12 +74,16 @@ public sealed class HierarchicalGitDeliveryTests : IDisposable
     {
         await store.ExecuteAsync(new(org, repository, "create", "main"));
         await Ensure("csweet/release/initial", "main");
+        Assert.Equal("chore(repo): initialize delivery repository",
+            (await store.ExecuteAsync(new(org, repository, "inspect", Ref: "refs/heads/main"))).Commits[0].Subject);
         var target = epicIsolation ? "csweet/epic/one" : "csweet/release/initial";
         if (epicIsolation) await Ensure(target, "csweet/release/initial");
         await Ensure("csweet/story/one", target);
         var initial = await Head("main");
         var task = await Publish("csweet/task/one/r1", "csweet/story/one", "first.txt", "first task");
         var integrated = await Promote("csweet/task/one/r1", "csweet/story/one", "task-one");
+        Assert.StartsWith("chore(delivery): create candidate ",
+            (await store.ExecuteAsync(new(org, repository, "inspect", Ref: "refs/heads/csweet/story/one"))).Commits[0].Subject);
         Assert.NotEqual(task.CommitSha, integrated.CandidateCommitSha); Assert.Equal(initial, await Head("main"));
         Assert.Equal("first task", await Content("csweet/story/one", "first.txt"));
         // A QA failure is repaired through a NEW branch based on the integrated story.

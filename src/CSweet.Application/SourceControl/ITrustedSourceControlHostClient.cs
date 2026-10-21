@@ -7,6 +7,10 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface ITrustedSourceControlHostClient
 {
+    Task<GitHistoryPage> ReadInternalHistoryAsync(GitHistoryReadRequest request, CancellationToken ct = default) =>
+        throw new NotSupportedException("Assignment-scoped Git history is unavailable.");
+    Task<GitHistoryPage> ReadGitHubHistoryAsync(GitHubHistoryReadRequest request, CancellationToken ct = default) =>
+        throw new NotSupportedException("Assignment-scoped GitHub history is unavailable.");
     Task DeleteBusinessStorageAsync(Guid business, CancellationToken token = default) =>
         throw new NotSupportedException("GitHost must support confirmed business storage deletion.");
     Task<TrustedWorkspaceSnapshot> PrepareOnboardingSnapshotAsync(TrustedWorkspaceSnapshotRequest request, CancellationToken token = default) =>

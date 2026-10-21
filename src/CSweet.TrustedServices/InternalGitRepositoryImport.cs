@@ -74,7 +74,7 @@ public sealed partial class InternalGitRepositoryStore
             }
             await RunAsync(repository, ["update-index", "-z", "--index-info"], token, environment, index.ToString());
             var tree = (await RunAsync(repository, ["write-tree"], token, environment)).Trim();ValidateSha(tree);
-            var commit = (await RunAsync(repository, ["commit-tree", tree, "-m", "Import reviewed repository archive"], token, environment)).Trim();ValidateSha(commit);
+            var commit = (await RunAsync(repository, ["commit-tree", tree, "-m", "chore(repo): import reviewed repository archive"], token, environment)).Trim();ValidateSha(commit);
             await RunAsync(repository, ["update-ref", "--stdin"], token, environment,
                 $"start\ncreate refs/heads/{request.DefaultBranch} {commit}\ncreate {receipt} {commit}\nprepare\ncommit\n");
             return new(commit, false);

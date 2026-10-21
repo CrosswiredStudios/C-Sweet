@@ -37,7 +37,7 @@ public sealed partial class InternalGitRepositoryStore
         if (prior.Length == 0)
         {
             prior = (await RunAsync(repository, ["commit-tree", merge.Tree, "-p", target, "-p", source,
-                "-m", "C-Sweet unapproved integration conflict workspace " + key], ct)).Trim();
+                "-m", "chore(delivery): prepare unapproved conflict workspace " + key], ct)).Trim();
             await RunAsync(repository, ["update-ref", "--stdin"], ct, input:
                 $"start\nverify refs/heads/{request.SourceBranch} {source}\nverify refs/heads/{request.TargetBranch} {target}\ncreate {reference} {prior}\nprepare\ncommit\n");
         }

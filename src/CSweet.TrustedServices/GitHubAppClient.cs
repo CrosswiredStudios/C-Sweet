@@ -176,7 +176,8 @@ public sealed partial class GitHubAppClient(
         mergeRequest.Content = JsonContent.Create(new
         {
             sha = request.ExpectedHeadSha,
-            merge_method = "squash"
+            merge_method = "squash",
+            commit_title = $"chore(delivery): merge pull request #{request.PullRequestNumber}"
         });
         using var mergeResponse = await http.SendAsync(mergeRequest, cancellationToken);
         var result = await mergeResponse.Content.ReadFromJsonAsync<MergePayload>(cancellationToken);

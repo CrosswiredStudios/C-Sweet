@@ -368,6 +368,16 @@ public sealed partial class AgentWorkspaceBrokerTests
 
     private sealed class FakeHost : ITrustedSourceControlHostClient
     {
+        public GitHistoryReadRequest? HistoryRequest { get; private set; }
+        public Task<GitHistoryPage> ReadInternalHistoryAsync(GitHistoryReadRequest request, CancellationToken cancellationToken = default)
+        {
+            HistoryRequest = request;
+            return Task.FromResult(new GitHistoryPage(request.RepositoryId, request.AssignedCommitSha, request.PublicationCommitSha,
+                new string('b', 40), "", request.DefaultBranch, new string('b', 40), true,
+                [new(request.AssignedCommitSha, [new string('b', 40)], "feat(task): assigned", false)], null));
+        }
+        public Task<GitHistoryPage> ReadGitHubHistoryAsync(GitHubHistoryReadRequest request, CancellationToken cancellationToken = default) =>
+            ReadInternalHistoryAsync(request.History, cancellationToken);
         public InternalGitRepositoryStore? NativeStore { get; set; }
         public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken cancellationToken = default) => NativeStore!.LocksAsync(request, cancellationToken);
         public async Task<TrustedWorkspaceSnapshot> PrepareInternalWorkspaceAsync(InternalGitWorkspaceRequest request, CancellationToken cancellationToken = default)
