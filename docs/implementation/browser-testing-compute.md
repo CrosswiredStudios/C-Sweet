@@ -269,6 +269,13 @@ alone does not establish resumed or passing independent QA.
 At 18:53 UTC Adrian explicitly reported no source edits and reused the sole original publication
 `a44d755e36ff3edcf2ae310567f6c8177cd9905b`. A fresh technical review began at 18:54 UTC. Its completion,
 task integration and the new independent QA attempt must still be verified separately.
+At 19:08:15 UTC Rohan `5.2.2` claimed fresh quality attempt
+`4e13480b-441c-42d4-8537-f034e3718a70` in the new item execution. Its integration-stage output
+binds `f36a9de600429432644766aca9ae4a1f9d268299`; the sole source publication remains the original
+`a44d755e36ff3edcf2ae310567f6c8177cd9905b`. The project UI shows Production Sprint 2 Active, #11
+Running under Rohan, Current stage Quality, and the Chromium-only outcome at planning revision 3.
+This verifies QA resumed, not that it passed. Explicit reconciliation also rejects a Pending
+promotion; all seven reconciliation regressions passed after adding the in-flight promotion case.
 
 ## Earlier operational UI gaps
 

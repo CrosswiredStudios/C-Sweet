@@ -61,6 +61,7 @@ public sealed class DeliveryPlanningReconciliationTests
     [InlineData("structure")]
     [InlineData("writer")]
     [InlineData("authority")]
+    [InlineData("promotion")]
     public async Task ReconciliationRejectsUnsafeOrUnapprovedChanges(string failure)
     {
         await using var f = await HierarchicalDeliveryServiceTests.Fixture.Create(true);
@@ -78,6 +79,12 @@ public sealed class DeliveryPlanningReconciliationTests
             var stage = new WorkStageExecution { Id = Guid.NewGuid(), DeliveryExecutionId = execution.Id, StageKey = "quality", Status = WorkStageExecutionStatus.Running,
                 Attempts = [new() { Id = Guid.NewGuid(), Status = WorkExecutionAttemptStatus.Running }] };
             execution.Stages.Add(stage); f.Db.WorkStageExecutions.Add(stage);
+        }
+        if (failure == "promotion")
+        {
+            var execution = f.Db.WorkDeliveryExecutions.First(e => e.PlanId == plan.Id);
+            var promotion = new WorkDeliveryPromotion { Id = Guid.NewGuid(), ExecutionId = execution.Id, Status = "Pending" };
+            execution.Promotions.Add(promotion); f.Db.Add(promotion);
         }
         await f.Db.SaveChangesAsync();
         await Assert.ThrowsAnyAsync<Exception>(() => f.Service.ControlAsync(f.Org,

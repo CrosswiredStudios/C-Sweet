@@ -11,7 +11,7 @@ public sealed partial class WorkDeliveryService
     // automatic retry. Old executions remain immutable evidence; acceptance must run again.
     private async Task ReconcileCurrentPlanningAsync(WorkDeliveryPlan plan, CancellationToken ct)
     {
-        if (plan.Executions.Any(e => e.Promotions.Any(p => p.Status == "Completed")) ||
+        if (plan.Executions.Any(e => e.Promotions.Any(p => p.Status is not ("Failed" or "Cancelled"))) ||
             plan.Executions.SelectMany(e => e.Stages).SelectMany(s => s.Attempts)
                 .Any(a => a.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running))
             throw new InvalidOperationException("Drain active delivery work before reconciling unpromoted scope.");
