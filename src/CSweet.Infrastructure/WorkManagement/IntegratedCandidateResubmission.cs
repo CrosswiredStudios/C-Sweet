@@ -22,6 +22,7 @@ public static class IntegratedCandidateResubmission
         var current = author.ItemExecution!;
         var item = current.WorkItem!;
         if (author.StageKey is not ("development" or "specialist-execution") ||
+            current.Traversal != 0 || author.Attempts.Count != 0 ||
             string.IsNullOrWhiteSpace(item.MergeCommitSha)) return false;
         var prior = await db.WorkItemExecutions.AsNoTracking().Where(e => e.WorkItemId == item.Id &&
             e.Id != current.Id && e.Status == WorkItemExecutionStatus.Cancelled && e.CurrentStageKey == "quality" &&

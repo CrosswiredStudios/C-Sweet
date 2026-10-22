@@ -16,10 +16,42 @@ public sealed class IntegratedCandidateResubmissionTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    [Fact]
+    public async Task InitialQueueCarriesStoppedCandidateToQaWithoutDispatchingAnAuthor()
+    {
+        var (f, original, _) = await Seed(); await using var cleanup = f;
+        var prior = original.ItemExecution!;
+        prior.Status = WorkItemExecutionStatus.Cancelled; prior.CurrentStageKey = "quality";
+        prior.SprintExecution!.Status = WorkSprintExecutionStatus.Cancelled;
+        var policy = await f.Db.WorkOrchestrationPolicyRevisions.Include(p => p.Stages).Include(p => p.Transitions)
+            .SingleAsync(p => p.Id == prior.SprintExecution.PolicyRevisionId);
+        policy.Stages.Add(new() { Id = Guid.NewGuid(), PolicyRevisionId = policy.Id, Key = "ready", Type = WorkOrchestrationStageType.Queue });
+        policy.Transitions.Add(new() { Id = Guid.NewGuid(), PolicyRevisionId = policy.Id, FromStageKey = "ready", OutcomeCode = "ready", ToStageKey = "development" });
+        f.Db.Add(policy.Stages.Single(s => s.Key == "ready"));
+        f.Db.Add(policy.Transitions.Single(t => t.FromStageKey == "ready"));
+        var sprint = new WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id,
+            StartedByOrganizationUserId = f.Manager.Id, Status = WorkSprintExecutionStatus.Active,
+            PolicyRevisionId = policy.Id, AssignmentSnapshotJson = prior.SprintExecution.AssignmentSnapshotJson };
+        var current = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = f.Task.Id, WorkItem = f.Task,
+            SprintExecutionId = sprint.Id, SprintExecution = sprint, CurrentStageKey = "ready" };
+        WorkOrchestrationService.CreateStageExecution(current, policy.Stages.Single(s => s.Key == "ready"), [], f.Manager.Id, DateTimeOffset.UtcNow);
+        sprint.Items.Add(current); f.Db.Add(sprint); await f.Db.SaveChangesAsync();
+        var runtime = new WorkOrchestrator(f.Db, null!, null!, null!, [], TimeProvider.System,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<WorkOrchestrator>.Instance, f.Client);
+        await (Task)typeof(WorkOrchestrator).GetMethod("ReconcileExecutionAsync",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(runtime, [sprint.Id, CancellationToken.None])!;
+        Assert.Equal("quality", current.CurrentStageKey);
+        Assert.Empty(current.Stages.Single(s => s.StageKey == "development").Attempts);
+        Assert.Equal("integrated-candidate-resubmitted", current.Stages.Single(s => s.StageKey == "development").LastOutcomeCode);
+        Assert.Single(await f.Db.WorkTaskIntegrationReceipts.ToListAsync());
+    }
+
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task CarriedStoppedQaRetainsIntegrationAndRechecksTheCurrentBranch(bool advanced)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task CarriedStoppedQaRetainsIntegrationAndRechecksTheCurrentBranch(bool advanced, bool rework)
     {
         var (f, original, candidate) = await Seed(); await using var cleanup = f;
         var prior = original.ItemExecution!;
@@ -36,6 +68,14 @@ public sealed class IntegratedCandidateResubmissionTests
             f.Task.StageAssignments, f.Manager.Id, DateTimeOffset.UtcNow);
         Assert.Same(current, author.ItemExecution);
         sprint.Items.Add(current); f.Db.Add(sprint);
+        if (rework)
+        {
+            current.Traversal = 1;
+            Assert.False(await IntegratedCandidateResubmission.ResumeCarriedCandidateAsync(f.Db, f.Client, author,
+                f.Manager.Id, DateTimeOffset.UtcNow, default));
+            Assert.DoesNotContain(current.Stages, s => s.StageKey == "quality");
+            return;
+        }
         if (advanced) f.Host.AdvanceStory(f.Repositories[0], "csweet/story/one");
         if (advanced)
         {

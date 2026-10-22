@@ -246,12 +246,21 @@ neither earlier QA nor a planning amendment counts as a passing verdict.
 `CreateStageExecution` assigns its `ItemExecution` navigation immediately, so candidate recovery
 can validate the newly constructed graph before persistence. The carryover regression now uses
 this factory instead of manually supplying that relationship; all 15 candidate recovery tests pass.
+`WorkOrchestrator.AdvanceAsync` also checks carryover at the initial queue-to-author transition,
+before dispatch, because the game profile begins at `ready`. Carryover is restricted to traversal
+zero with no author attempt; real QA-requested rework remains executable. The initial-queue,
+exact-candidate and hierarchical runtime regressions passed 36 tests.
 
 The owner explicitly approved pause/reconcile/resume. The normal Delivery controls completed
 that sequence against scope revision 2 at 18:21 UTC. The active plan then displayed zero current
 blockers, three historical checks, and remaining scoped work awaiting independent acceptance.
 The focused platform recovery suite passed 53 tests; the earlier broader delivery suite passed
 120 with two skipped. This plan recovery alone does not establish a running sprint or passing QA.
+Gabriel completed readiness and preflight and started Production Sprint 2 at 18:36 UTC. Its
+first task execution is `6b2281de-119f-4e5c-aa3b-d3f377013e1e`. The initial queue dispatched an
+author attempt before the queue-transition fix; the owner direction was posted on #11 to preserve
+`f36a9de600429432644766aca9ae4a1f9d268299` and return it unchanged for fresh QA. That author attempt
+alone does not establish resumed or passing independent QA.
 
 ## Earlier operational UI gaps
 

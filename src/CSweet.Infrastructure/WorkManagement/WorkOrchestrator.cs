@@ -877,6 +877,16 @@ public sealed partial class WorkOrchestrator(
         var nextExecution = WorkOrchestrationService.CreateStageExecution(
             item, next, assignments, execution.StartedByOrganizationUserId, now);
         db.WorkStageExecutions.Add(nextExecution);
+        try
+        {
+            if (await IntegratedCandidateResubmission.ResumeCarriedCandidateAsync(db, repositoryInputs,
+                nextExecution, execution.StartedByOrganizationUserId, now, cancellationToken)) return;
+        }
+        catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException)
+        {
+            FailStage(nextExecution, "The retained integrated candidate needs reconciliation before fresh QA: " + error.Message, now);
+            return;
+        }
         await TaskIntegrationRework.SeedWorkspaceAsync(db, stage, nextExecution, outputJson, now, cancellationToken);
         if (next.ColumnId.HasValue) item.WorkItem!.BoardColumnId = next.ColumnId;
         item.WorkItem!.Status = item.Status == WorkItemExecutionStatus.Blocked
