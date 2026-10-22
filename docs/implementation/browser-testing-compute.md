@@ -276,6 +276,9 @@ binds `f36a9de600429432644766aca9ae4a1f9d268299`; the sole source publication re
 Running under Rohan, Current stage Quality, and the Chromium-only outcome at planning revision 3.
 This verifies QA resumed, not that it passed. Explicit reconciliation also rejects a Pending
 promotion; all seven reconciliation regressions passed after adding the in-flight promotion case.
+The final API Rebuild started the updated process at 19:11:33 UTC. The same QA attempt remained
+Running afterward, the current task's obsolete `BlockReason` was null, its planning revision stayed
+3 with Chromium-only criteria, and scope revision 2 retained zero current delivery blockers.
 
 ## Earlier operational UI gaps
 
