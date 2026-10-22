@@ -763,7 +763,7 @@ public sealed partial class WorkOrchestrationService(
         };
         var execution = new WorkStageExecution
         {
-            Id = Guid.NewGuid(), ItemExecutionId = item.Id, StageKey = stage.Key,
+            Id = Guid.NewGuid(), ItemExecutionId = item.Id, ItemExecution = item, StageKey = stage.Key,
             StageType = stage.Type, Traversal = item.Traversal, Status = status,
             PrincipalKind = principal,
             OrganizationUserId = stage.Type == WorkOrchestrationStageType.ManagerApproval ? managerId : assignment?.OrganizationUserId,

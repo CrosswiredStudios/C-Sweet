@@ -31,9 +31,11 @@ public sealed class IntegratedCandidateResubmissionTests
             AssignmentSnapshotJson = prior.SprintExecution.AssignmentSnapshotJson };
         var current = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = f.Task.Id, WorkItem = f.Task,
             SprintExecutionId = sprint.Id, SprintExecution = sprint, CurrentStageKey = "development" };
-        var author = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = current.Id, ItemExecution = current,
-            StageKey = "development", OrganizationUserId = f.Author.Id, Status = WorkStageExecutionStatus.Pending };
-        current.Stages.Add(author); sprint.Items.Add(current); f.Db.Add(sprint);
+        var author = WorkOrchestrationService.CreateStageExecution(current,
+            new WorkOrchestrationStage { Key = "development", Name = "Development", Type = WorkOrchestrationStageType.AgentExecution },
+            f.Task.StageAssignments, f.Manager.Id, DateTimeOffset.UtcNow);
+        Assert.Same(current, author.ItemExecution);
+        sprint.Items.Add(current); f.Db.Add(sprint);
         if (advanced) f.Host.AdvanceStory(f.Repositories[0], "csweet/story/one");
         if (advanced)
         {

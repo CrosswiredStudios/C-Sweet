@@ -243,6 +243,9 @@ passed 86 tests after adding the scheduling regression.
 It revalidates the exact integrated branch, receipt, publication, current plan and independent QA
 assignment before queueing fresh QA. An advanced branch or invalid binding stops recovery;
 neither earlier QA nor a planning amendment counts as a passing verdict.
+`CreateStageExecution` assigns its `ItemExecution` navigation immediately, so candidate recovery
+can validate the newly constructed graph before persistence. The carryover regression now uses
+this factory instead of manually supplying that relationship; all 15 candidate recovery tests pass.
 
 The owner explicitly approved pause/reconcile/resume. The normal Delivery controls completed
 that sequence against scope revision 2 at 18:21 UTC. The active plan then displayed zero current
