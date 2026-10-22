@@ -303,21 +303,34 @@ public sealed partial class ExecutionWorkloadOrchestrator(
         long fencingEpoch,
         CancellationToken cancellationToken = default)
     {
-        var now = timeProvider.GetUtcNow();
-        var assignment = await dbContext.ExecutionWorkloadAssignments
-            .Include(x => x.ExecutionNode)
-            .SingleOrDefaultAsync(x => x.Id == assignmentId && x.ExecutionNodeId == nodeId, cancellationToken);
-        if (assignment is null || assignment.FencingEpoch != fencingEpoch ||
-            !ActiveStatuses.Contains(assignment.Status) || assignment.LeaseExpiresAt <= now ||
-            assignment.ExecutionNode?.Status != ExecutionNodeStatus.Ready ||
-            assignment.ExecutionNode.ApprovedAt is null || assignment.ExecutionNode.DrainingAt is not null ||
-            assignment.ExecutionNode.RevokedAt is not null ||
-            assignment.ExecutionNode.LastHeartbeatAt < now.Subtract(HeartbeatFreshness))
-            return false;
-        if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, assignment.SpecificationJson, cancellationToken)) return false;
-        assignment.LeaseExpiresAt = now.Add(AssignmentLease);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return true;
+        for (var retry = 0; retry < 3; retry++)
+        {
+            var now = timeProvider.GetUtcNow();
+            var assignment = await dbContext.ExecutionWorkloadAssignments
+                .Include(x => x.ExecutionNode)
+                .SingleOrDefaultAsync(x => x.Id == assignmentId && x.ExecutionNodeId == nodeId, cancellationToken);
+            if (assignment is null || assignment.FencingEpoch != fencingEpoch ||
+                !ActiveStatuses.Contains(assignment.Status) || assignment.LeaseExpiresAt <= now ||
+                assignment.ExecutionNode?.Status != ExecutionNodeStatus.Ready ||
+                assignment.ExecutionNode.ApprovedAt is null || assignment.ExecutionNode.DrainingAt is not null ||
+                assignment.ExecutionNode.RevokedAt is not null ||
+                assignment.ExecutionNode.LastHeartbeatAt < now.Subtract(HeartbeatFreshness))
+                return false;
+            if (!await RuntimeInternetGrant.IsCurrentAsync(dbContext, assignment.SpecificationJson, cancellationToken)) return false;
+            assignment.LeaseExpiresAt = now.Add(AssignmentLease);
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Security-token rotations and fencing can race renewal. Re-read all authority
+                // before retrying; a conflict on one assignment must not break the Office stream.
+                dbContext.ChangeTracker.Clear();
+            }
+        }
+        return false;
     }
 
     public async Task<bool> ReportStatusAsync(
@@ -416,8 +429,13 @@ public sealed partial class ExecutionWorkloadOrchestrator(
                 ? await dbContext.DeliveryBuilds.SingleOrDefaultAsync(
                     x => x.Id == assignment.DeliveryBuildId.Value, cancellationToken)
                 : null;
-            var exhausted = assignment.Attempt >= MaximumAssignmentAttempts ||
-                deliveryBuild is not null && deliveryBuild.Attempt >= deliveryBuild.MaximumAttempts;
+            // Runtime boot credentials and MCP identity belong to one VM lifetime. Requeueing
+            // this assignment would create another VM under an already-running runtime record.
+            // Retire it instead; the runtime manager and durable work recovery create a fresh
+            // runtime/boot grant after confirmed teardown. Builders retain their bounded retry.
+            var runtimeLost = assignment.WorkloadKind == ExecutionWorkloadKind.Runtime;
+            var exhausted = runtimeLost || assignment.Attempt >= MaximumAssignmentAttempts ||
+                deliveryBuild is not null && deliveryBuild.Attempt - deliveryBuild.MaintenanceInterruptionCount >= deliveryBuild.MaximumAttempts;
             if (exhausted)
             {
                 var expiredStatus = assignment.Status;
@@ -429,12 +447,13 @@ public sealed partial class ExecutionWorkloadOrchestrator(
                 assignment.CompletedAt = now;
                 assignment.LeaseExpiresAt = null;
                 assignment.FencingEpoch++;
-                assignment.FailureCode = expiredStatus == ExecutionAssignmentStatus.Assigned
+                assignment.FailureCode = runtimeLost ? "runtime-assignment-lease-expired" : expiredStatus == ExecutionAssignmentStatus.Assigned
                     ? "assignment-not-acknowledged"
                     : "assignment-recovery-exhausted";
-                assignment.SanitizedFailure =
-                    $"Office {nodeDescription} did not complete signed assignment {assignment.Id:D} " +
-                    $"after {assignment.Attempt} execution attempts. Check the CSweet.Office.Node and guest logs.";
+                assignment.SanitizedFailure = runtimeLost
+                    ? "The runtime assignment lease expired. The runtime must be replaced with a fresh identity before durable work can resume."
+                    : $"Office {nodeDescription} did not complete signed assignment {assignment.Id:D} " +
+                      $"after {assignment.Attempt} execution attempts. Check the CSweet.Office.Node and guest logs.";
                 ExhaustToolchainBuild(deliveryBuild, now, assignment.FailureCode, assignment.SanitizedFailure);
                 continue;
             }
@@ -476,7 +495,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
         }
 
         if (reportedStatus == ExecutionAssignmentStatus.Failed &&
-            assignment.Attempt < MaximumAssignmentAttempts && build.Attempt < build.MaximumAttempts)
+            assignment.Attempt < MaximumAssignmentAttempts && build.Attempt - build.MaintenanceInterruptionCount < build.MaximumAttempts)
         {
             ResetAssignmentForRetry(assignment, now);
             RequeueToolchainBuild(build, now,

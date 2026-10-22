@@ -19,9 +19,9 @@ public static class ExecutionFleetEndpoints
         if (node.Status is ExecutionNodeStatus.Revoked or ExecutionNodeStatus.PendingApproval)
             return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_unavailable", "Approve this Office before changing its settings."));
         var now = clock.GetUtcNow();
-        if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId && x.ExpiresAt > now &&
+        if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId && (x.AutomaticUpdate && x.WorkRestoredAt == null && x.UpdatePhase != "superseded" || x.ExpiresAt > now &&
             (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed ||
-             x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress), cancellationToken))
+             x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress)), cancellationToken))
             return Results.BadRequest(new ExecutionFleetMutationResponse(false, "maintenance_in_progress", "Finish Office maintenance before changing its settings."));
         if (!await db.ExecutionPools.AnyAsync(x => x.Id == request.ExecutionPoolId && x.IsEnabled, cancellationToken))
             return Results.BadRequest(new ExecutionFleetMutationResponse(false, "pool_unavailable", "Choose an enabled workload group."));
@@ -113,14 +113,18 @@ public static class ExecutionFleetEndpoints
                 return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_not_draining",
                     "Only an approved, deliberately drained Office can be resumed."));
             if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId &&
+                ((x.AutomaticUpdate && x.WorkRestoredAt == null && x.UpdatePhase != "superseded") ||
                 (x.RecoveryAction == "upgrade" || x.RecoveryAction == "repair") && x.ExpiresAt > clock.GetUtcNow() &&
-                (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed), cancellationToken))
+                (x.Status == LocalOfficeSetupSessionStatus.Created || x.Status == LocalOfficeSetupSessionStatus.Redeemed)), cancellationToken))
                 return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_upgrade_in_progress",
                     "Wait for the Office upgrade to finish before resuming work."));
             node.DrainingAt = null;
+            node.WorkPauseReason = null;
             node.Status = node.LastHeartbeatAt >= clock.GetUtcNow().AddSeconds(-30)
                 ? ExecutionNodeStatus.Ready : ExecutionNodeStatus.Offline;
             node.UpdatedAt = clock.GetUtcNow();
+            db.QueueAudit(new("office.work.resumed", EntityType: nameof(ExecutionNode), EntityId: node.Id,
+                Summary: "Resumed Office work through its administration control.", UseAmbientOrganization: false));
             await db.SaveChangesAsync(cancellationToken);
             var message = node.Status == ExecutionNodeStatus.Ready
                 ? $"{node.Name} resumed and is ready for work."
@@ -186,9 +190,15 @@ public static class ExecutionFleetEndpoints
         if (!drain || node.Status != ExecutionNodeStatus.Ready ||
             node.ApprovedAt is null || node.RevokedAt is not null)
             return Results.BadRequest();
+        if (await db.LocalOfficeSetupSessions.AnyAsync(x => x.UpgradeOfficeId == nodeId && x.AutomaticUpdate &&
+            x.WorkRestoredAt == null && x.UpdatePhase != "superseded", cancellationToken))
+            return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_update_in_progress", "The update is already managing this Office's work setting."));
         node.Status = drain ? ExecutionNodeStatus.Draining : node.Status;
         node.DrainingAt = drain ? DateTimeOffset.UtcNow : null;
+        node.WorkPauseReason = drain ? OfficeWorkPauseReason.User : null;
         node.UpdatedAt = DateTimeOffset.UtcNow;
+        db.QueueAudit(new("office.work.paused", EntityType: nameof(ExecutionNode), EntityId: node.Id,
+            Summary: "Deliberately paused Office work through its administration control.", UseAmbientOrganization: false));
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }
@@ -324,5 +334,6 @@ public static class ExecutionFleetEndpoints
             provider.IsAvailable, provider.UnavailableReason) { SupportsPublicInternet = provider.SupportsPublicInternet }).ToArray(),
         DeserializeDictionary(node.LabelsJson),
         string.Equals(node.MachineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(node.OperatingSystem, OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : "macos", StringComparison.OrdinalIgnoreCase));
+        string.Equals(node.OperatingSystem, OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : "macos", StringComparison.OrdinalIgnoreCase),
+        node.WorkPauseReason?.ToString().ToLowerInvariant());
 }

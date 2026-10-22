@@ -172,7 +172,11 @@ A restarted C-Sweet run still needs to verify installation, enrollment, approval
 readiness together. Clearing the database does not remove Office services or their former identity;
 retain the explicit reconnect/remove recovery flow.
 
-## Update dialog completion (2026-09-28)
+## Automatic updates (2026-10-21)
+
+The focused `OfficeUpdateDialog` and durable coordinator replace the manual pause/install/resume sequence for updates. See [automatic Office updates](office-automatic-updates.md) for preparation receipts, confirmed teardown, reconnection/version checks, interrupted-job recovery, deployment requirements, and the code map. Connection repair retains its independent recovery flow.
+
+## Update dialog completion (2026-09-28, historical manual flow)
 
 `LocalOfficeUpgrade.BeginUpdate` suppresses a previous completed session while the user prepares
 a new update. `LocalOfficeUpgrade.Accept` clears that suppression when it accepts the new session,

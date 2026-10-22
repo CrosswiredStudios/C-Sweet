@@ -309,7 +309,7 @@ public sealed partial class AgentWorkInbox(
             expiredAttempt.FinishedAt = now;
             expiredAttempt.Error = "lease_expired";
             var work = expiredAttempt.AgentWorkItem!;
-            work.Status = work.AttemptCount - work.ResourceReplacementCount >= work.MaximumAttempts
+            work.Status = work.AttemptCount - work.ResourceReplacementCount - work.MaintenanceInterruptionCount >= work.MaximumAttempts
                 ? AgentWorkStatus.DeadLetter
                 : AgentWorkStatus.Pending;
             work.AvailableAt = now;
@@ -737,7 +737,7 @@ public sealed partial class AgentWorkInbox(
         attempt.FinishedAt = now;
         attempt.Error = Truncate(error, 2048);
         item.LastError = attempt.Error;
-        item.Status = AgentWorkFailure.IsNonRetryable(error) || item.AttemptCount - item.ResourceReplacementCount >= item.MaximumAttempts || item.DeadlineAt <= now
+        item.Status = AgentWorkFailure.IsNonRetryable(error) || item.AttemptCount - item.ResourceReplacementCount - item.MaintenanceInterruptionCount >= item.MaximumAttempts || item.DeadlineAt <= now
             ? AgentWorkStatus.DeadLetter
             : AgentWorkStatus.Pending;
         item.AvailableAt = now.AddSeconds(Math.Min(60, Math.Pow(2, attemptNumber)));

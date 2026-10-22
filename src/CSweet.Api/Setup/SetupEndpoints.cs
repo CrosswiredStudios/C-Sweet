@@ -39,6 +39,14 @@ public static class SetupEndpoints
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         }).RequireAuthorization("HostAdministration");
 
+        group.MapPost("/execution-capacity/local-sessions/{sessionId:guid}/cancel-update", async (
+            Guid sessionId, ClaimsPrincipal principal, IExecutionFleetService service, CancellationToken ct) =>
+        {
+            var userId = principal.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            var result = await service.CancelOfficeUpdateAsync(sessionId, userId.Value, ct);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
         group.MapPost("/execution-capacity/local-sessions/{sessionId:guid}/launch", async (
             Guid sessionId,
             LaunchLocalOfficeSetupRequest request,
@@ -251,6 +259,18 @@ public static class SetupEndpoints
             CancellationToken cancellationToken) =>
         {
             var result = await service.ClaimNodeAsync(request, cancellationToken);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+        group.MapPost("/local-sessions/update-prepare", async (
+            BeginOfficeUpdatePreparationRequest request, IExecutionFleetService service, CancellationToken ct) =>
+        {
+            var result = await service.BeginOfficeUpdatePreparationAsync(request, ct);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+        group.MapPost("/local-sessions/update-progress", async (
+            OfficeUpdatePreparationRequest request, IExecutionFleetService service, CancellationToken ct) =>
+        {
+            var result = await service.AdvanceOfficeUpdatePreparationAsync(request, ct);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         });
         group.MapPost("/local-sessions/redeem", async (

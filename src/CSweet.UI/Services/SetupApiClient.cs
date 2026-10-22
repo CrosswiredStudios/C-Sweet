@@ -7,6 +7,11 @@ namespace CSweet.UI.Services;
 
 public sealed class SetupApiClient : ISetupApiClient
 {
+    public async Task<LocalOfficeSetupActionResponse> CancelOfficeUpdateAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync($"api/setup/execution-capacity/local-sessions/{sessionId:D}/cancel-update", null, cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
+    }
     private readonly HttpClient _httpClient;
 
     public SetupApiClient(HttpClient httpClient)

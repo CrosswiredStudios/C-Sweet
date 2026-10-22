@@ -3,6 +3,9 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Setup;
+using CSweet.Contracts.Realtime;
+using System.Text.Json;
 using CSweet.UI.Components;
 using CSweet.UI.Localization;
 using CSweet.UI.Layout;
@@ -49,7 +52,7 @@ public sealed class SettingsWorkspaceRenderingTests
     }
 
     [Theory]
-    [InlineData(0, "Office care")]
+    [InlineData(0, "Software &amp; connection")]
     [InlineData(1, "Recent work")]
     [InlineData(2, "Office settings")]
     public async Task OfficeDetailTabsRetainTheirManagementSections(int tab, string expected)
@@ -96,6 +99,38 @@ public sealed class SettingsWorkspaceRenderingTests
         Assert.Contains("Black &amp; Gold", html);
     }
 
+    [Theory]
+    [InlineData("review", "Start update")]
+    [InlineData("stopping", "Stopping 3 jobs")]
+    [InlineData("installing", "Installing the update")]
+    [InlineData("reconnecting", "Reconnecting your Office")]
+    [InlineData("ready", "Office updated")]
+    [InlineData("failed", "Update needs attention")]
+    public async Task FocusedUpdateDialogShowsTheAuthoritativeStepWithoutExtraInstallOrResumeClicks(string scenario, string expected)
+    {
+        var api = new SettingsApi(scenario);
+        var html = await RenderAsync(typeof(ExecutionFleet), api, officeTab: 0, openMethod: "OpenUpdateAsync");
+        Assert.Contains("mud-dialog", html);
+        Assert.Contains(expected, WebUtility.HtmlDecode(html));
+        Assert.DoesNotContain("Install update</", html);
+        Assert.DoesNotContain("Resume work</", html);
+        Assert.DoesNotContain(api.Methods, x => x != HttpMethod.Get);
+        if (Environment.GetEnvironmentVariable("CSWEET_SETTINGS_PREVIEWS") is string path)
+            await File.WriteAllTextAsync(Path.Combine(path, $"office-update-{scenario}.html"), html);
+    }
+
+    [Fact]
+    public async Task PausedOfficeHasAProminentResumeWorkAction()
+    {
+        var api = new SettingsApi("review", paused: true);
+        var html = await RenderAsync(typeof(ExecutionFleet), api);
+        Assert.Contains("Work is paused", html);
+        Assert.Matches("(?s)<button\\b[^>]*class=\"[^\"]*mud-button-filled-primary[^\"]*\"[^>]*>(?:(?!</button>).)*Resume work(?:(?!</button>).)*</button>", html);
+        Assert.DoesNotContain(api.Methods, x => x != HttpMethod.Get);
+        if (Environment.GetEnvironmentVariable("CSWEET_SETTINGS_PREVIEWS") is string path)
+            await File.WriteAllTextAsync(Path.Combine(path, "office-paused.html"), html);
+    }
+
     private static readonly OrganizationResponse Business = new(Guid.Parse("ab2184e9-9ac3-441d-9194-3cd65fe60052"), "Super Awesome Games", null, null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
 
     private static async Task<string> RenderAsync(Type page, SettingsApi api, string theme = "aurora", int? officeTab = null, string? openMethod = null)
@@ -106,6 +141,7 @@ public sealed class SettingsWorkspaceRenderingTests
         var activator = new TrackingActivator();
         services.AddSingleton<IComponentActivator>(activator);
         services.AddCSweetApiClients();
+        services.AddSingleton<IAppRealtimeConnection, QuietRealtime>();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<NavigationManager>(new TestNavigation(page));
         services.AddSingleton(new HttpClient(api) { BaseAddress = new Uri("http://localhost/") });
@@ -145,7 +181,7 @@ public sealed class SettingsWorkspaceRenderingTests
         });
     }
 
-    private sealed class SettingsApi : HttpMessageHandler
+    private sealed class SettingsApi(string? updateScenario = null, bool paused = false) : HttpMessageHandler
     {
         public static readonly Guid OfficeId = Guid.Parse("10000000-0000-0000-0000-000000000001");
         public List<HttpMethod> Methods { get; } = [];
@@ -167,6 +203,25 @@ public sealed class SettingsWorkspaceRenderingTests
                 _ => null
             };
             if (path.EndsWith("/activity")) json = "{\"activeAssignmentCount\":0,\"recentAssignments\":[]}";
+            if (path == "/api/setup/execution-capacity/local-sessions/active")
+            {
+                LocalOfficeSetupSessionResponse? session = updateScenario is null or "review" ? null : new(Guid.Parse("20000000-0000-0000-0000-000000000001"),
+                    updateScenario, updateScenario == "ready" ? "complete" : updateScenario,
+                    updateScenario switch { "stopping" => "Stopping 3 jobs", "installing" => "Installing the update", "reconnecting" => "Reconnecting your Office", "ready" => "Office updated", _ => "Update needs attention" },
+                    "Work availability is restored automatically after the selected version and connection are verified.", 0, DateTimeOffset.UtcNow.AddHours(2),
+                    4, 8192, 20480, 4, null, null, ErrorCode: updateScenario == "failed" ? "package_preparation_failed" : null,
+                    RecoveryAction: "upgrade", UpgradeOfficeId: OfficeId, AutomaticUpdate: true, TargetVersion: "0.13.0", ResumeAfterUpdate: true,
+                    StopStartedAt: DateTimeOffset.UtcNow.AddMinutes(-3), UpdateJobs: [new(Guid.NewGuid(), "Daniel Kim", "Runtime", "Stopped"),
+                        new(Guid.NewGuid(), "Adrian", "Runtime", "Stopped"), new(Guid.NewGuid(), "Browser validation", "Builder", "Stopping")],
+                    CanCancelUpdate: updateScenario == "stopping");
+                json = JsonSerializer.Serialize(new { succeeded = true, session });
+            }
+            if (updateScenario is not null && path == "/api/execution-fleet") json = $$"""
+                {"pools":[],"nodes":[{"id":"{{OfficeId}}","name":"Studio Office","machineName":"studio-desktop","operatingSystem":"windows","architecture":"x64","nodeVersion":"0.12.0","status":"{{(paused ? "draining" : "ready")}}","workPauseReason":{{(paused ? "\"user\"" : "null")}},"certificateExpiresAt":"{{DateTimeOffset.UtcNow.AddDays(1):O}}","lastHeartbeatAt":"{{DateTimeOffset.UtcNow:O}}","providers":[],"labels":{},"allocatableCpuCount":8,"allocatableMemoryMb":16000,"maximumConcurrentWorkloads":4}],"recentAssignments":[],"installationOverrides":[]}
+                """;
+            if (updateScenario is not null && path == "/api/execution-fleet/updates") json = $$"""
+                {"latestVersion":"0.13.0","checkedAt":"{{DateTimeOffset.UtcNow:O}}","packages":[{"officeId":"{{OfficeId}}","version":"0.13.0","source":"github"}]}
+                """;
             return Task.FromResult(json is null ? new HttpResponseMessage(HttpStatusCode.NotFound) : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
         }
     }
@@ -189,6 +244,12 @@ public sealed class SettingsWorkspaceRenderingTests
     {
         public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) => ValueTask.FromResult(default(T)!);
         public ValueTask<T> InvokeAsync<T>(string identifier, CancellationToken token, object?[]? args) => ValueTask.FromResult(default(T)!);
+    }
+    private sealed class QuietRealtime : IAppRealtimeConnection
+    {
+        public event Action<AppRealtimeEventEnvelope>? EventReceived { add { } remove { } }
+        public event Action? Reconnected { add { } remove { } }
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
     private sealed class TestBusinessContext : IBusinessContext
     {

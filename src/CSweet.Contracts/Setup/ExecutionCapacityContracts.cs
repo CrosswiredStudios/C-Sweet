@@ -49,7 +49,10 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
     int AllocatableMemoryMb,
     int AllocatableDiskMb,
     Guid? UpgradeOfficeId = null,
-    bool Repair = false);
+    bool Repair = false,
+    bool AutomaticUpdate = false,
+    string? TargetVersion = null,
+    bool UseLocalSource = false);
 
 public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
 
@@ -78,7 +81,15 @@ public sealed record LocalOfficeSetupSessionResponse(
     string RecoveryAction = "none",
     bool RecoveryCanReconnect = false,
     Guid? UpgradeOfficeId = null,
-    Guid? ConnectedOfficeId = null);
+    Guid? ConnectedOfficeId = null,
+    bool AutomaticUpdate = false,
+    string? TargetVersion = null,
+    bool ResumeAfterUpdate = false,
+    DateTimeOffset? StopStartedAt = null,
+    IReadOnlyList<OfficeUpdateJobResponse>? UpdateJobs = null,
+    bool CanCancelUpdate = false);
+
+public sealed record OfficeUpdateJobResponse(Guid AssignmentId, string Name, string Kind, string State);
 
 public sealed record LocalOfficeSetupActionResponse(
     bool Succeeded,
@@ -139,7 +150,8 @@ public sealed record ExecutionNodeSummaryResponse(
     DateTimeOffset? LastHeartbeatAt,
     IReadOnlyList<ExecutionNodeProviderResponse> Providers,
     IReadOnlyDictionary<string, string> Labels,
-    bool IsLocalMachine = false);
+    bool IsLocalMachine = false,
+    string? WorkPauseReason = null);
 
 public sealed record ExecutionNodeProviderResponse(
     string ProviderId,

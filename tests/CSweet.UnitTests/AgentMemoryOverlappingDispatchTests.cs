@@ -33,6 +33,18 @@ public sealed partial class AgentMemoryServiceTests
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => evidence.AuthorizeDispatchAsync(session, chat.Id, default, claim.Attempt + 1));
         await Assert.ThrowsAsync<ProviderDispatchDeniedException>(() => evidence.AuthorizeDispatchAsync(session, null, default));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => evidence.BeginAsync(session, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, default));
+        using (new InferenceExecutionAttribution(chat.Id, Guid.NewGuid(), claim.Attempt).Enter())
+        {
+            var instruction = await evidence.BeginAsync(session, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, default);
+            Assert.Equal(chat.Id, instruction.WorkId);
+            Assert.Equal(claim.Attempt, instruction.Attempt);
+            await evidence.RecordAsync(session, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, instruction,
+                Array.Empty<CSweet.Memory.MemoryEpisode>(), null, default);
+        }
+        using (new InferenceExecutionAttribution(chat.Id, Guid.NewGuid(), claim.Attempt + 1).Enter())
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => evidence.BeginAsync(session, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, default));
+        using (new InferenceExecutionAttribution(Guid.NewGuid(), Guid.NewGuid(), claim.Attempt).Enter())
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => evidence.BeginAsync(session, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, default));
         Assert.Null((await reconnect.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
         Assert.Empty(await reconnect.AgentRuntimeEvents.ToListAsync());
         Assert.Single(await reconnect.AgentMemoryReadReceipts.ToListAsync());

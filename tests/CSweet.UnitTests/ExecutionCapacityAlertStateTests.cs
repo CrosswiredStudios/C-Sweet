@@ -95,6 +95,31 @@ public sealed class ExecutionCapacityAlertStateTests
         Assert.Equal(ExecutionCapacityAlertStatus.Unavailable, state.Status);
     }
 
+    [Fact]
+    public void PlannedUpdateUsesMaintenanceMessagingAndFailureStillNeedsAttention()
+    {
+        var capacity = Capacity("draining");
+        var update = new LocalOfficeSetupSessionResponse(Guid.NewGuid(), "stopping", "stopping", "Stopping jobs", "", 0,
+            Now.AddHours(2), 4, 8192, 16384, 2, null, null, AutomaticUpdate: true, UpgradeOfficeId: capacity.Nodes[0].Id);
+        var state = new ExecutionCapacityAlertState();
+        state.Update(capacity with { LocalSetupSession = update }, Now);
+        Assert.Equal(ExecutionCapacityAlertStatus.Maintenance, state.Status);
+        state.Update(capacity with { LocalSetupSession = update with { State = "failed" } }, Now);
+        Assert.Equal(ExecutionCapacityAlertStatus.Unavailable, state.Status);
+    }
+
+    [Fact]
+    public void HealthyPausedCapacityUsesAPauseNoticeAndClearsWhenResumed()
+    {
+        var capacity = Capacity("draining");
+        capacity = capacity with { Checks = capacity.Checks.Append(new("work-paused", "Paused", "passed", "Healthy but paused")).ToArray() };
+        var state = new ExecutionCapacityAlertState();
+        state.Update(capacity, Now);
+        Assert.Equal(ExecutionCapacityAlertStatus.Paused, state.Status);
+        state.Update(capacity with { IsReady = true }, Now.AddSeconds(15));
+        Assert.Equal(ExecutionCapacityAlertStatus.Hidden, state.Status);
+    }
+
     private static ExecutionCapacityOnboardingResponse Capacity(string nodeStatus = "offline") => new(
         "remote", false, 0, 0, false, "windows", "x64", "Waiting for Office", null,
         [new ExecutionNodeSummaryResponse(

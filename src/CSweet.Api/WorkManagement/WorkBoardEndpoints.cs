@@ -662,6 +662,8 @@ public static class WorkBoardEndpoints
             }
         });
 
+        IntegratedCandidateEndpoints.Map(group);
+
         group.MapPost("/{boardId:guid}/items/{itemId:guid}/retry", async (
             Guid organizationId, Guid boardId, Guid itemId, RetryBoardWorkItemRequest request,
             HttpContext http, IWorkBoardService service, CancellationToken cancellationToken) =>

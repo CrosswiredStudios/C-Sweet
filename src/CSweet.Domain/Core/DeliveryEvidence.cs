@@ -70,6 +70,7 @@ public sealed class DeliveryBuildRecord
     public string Status { get; set; } = "Queued";
     public int Attempt { get; set; }
     public int MaximumAttempts { get; set; } = 3;
+    public int MaintenanceInterruptionCount { get; set; }
     public Guid? ClaimId { get; set; }
     public Guid? ExecutionNodeId { get; set; }
     public DateTimeOffset? LeaseExpiresAt { get; set; }

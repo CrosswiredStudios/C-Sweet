@@ -115,8 +115,15 @@ public sealed partial class AgentWorkspaceBroker
             where candidate.OrganizationId == workspace.OrganizationId && candidate.RepositoryId == workspace.RepositoryId &&
                 origin.OrganizationId == workspace.OrganizationId && origin.WorkItemId == workspace.WorkItemId &&
                 origin.AssignmentRevision == workspace.AssignmentRevision && candidate.Status != SourceControlPublicationStatus.Superseded
-            orderby candidate.CreatedAt descending select candidate).FirstOrDefaultAsync(token)
-            ?? throw new InvalidOperationException("The assigned ticket has no published source history.");
+            orderby candidate.CreatedAt descending select candidate).FirstOrDefaultAsync(token);
+        if (publication is null)
+        {
+            var item = await db.CoreWorkTasks.AsNoTracking().SingleAsync(work => work.Id == workspace.WorkItemId &&
+                work.OrganizationId == workspace.OrganizationId && work.AssignmentRevision == workspace.AssignmentRevision, token);
+            publication = await CSweet.Infrastructure.WorkManagement.IntegratedCandidateResubmission.CurrentPublicationAsync(db, item, token);
+        }
+        if (publication is null || publication.RepositoryId != workspace.RepositoryId)
+            throw new InvalidOperationException("The assigned ticket has no published source history.");
         var repository = workspace.Repository!;
         if (repository.Connection!.Provider == SourceControlProvider.GitHub &&
             (repository.Connection.SourceAccessInstallationId is not > 0 || !long.TryParse(repository.ExternalRepositoryId, out var externalId) || externalId <= 0))

@@ -29,7 +29,7 @@ public sealed class QualityPublicationOutcomeTests
             ItemExecution = new WorkItemExecution { WorkItem = item } };
         var execution = new WorkSprintExecution { OrganizationId = org };
         var outcome = new Shared.WorkExecutionOutcomeV1(Guid.NewGuid(), Guid.NewGuid(), Shared.WorkExecutionDispositions.Completed,
-            code, "Executed game tests", JsonSerializer.SerializeToElement(new { passed }),
+            code, new string('q', 3415), JsonSerializer.SerializeToElement(new { passed }),
             [new Shared.WorkExecutionEvidence("commit", "Candidate", sha)], []);
         var orchestrator = new WorkOrchestrator(db, null!, null!, null!, [], TimeProvider.System, null!);
         var wrongCandidate = outcome with { Evidence = [new Shared.WorkExecutionEvidence("commit", "Wrong", new string('b', 40))] };
@@ -40,6 +40,7 @@ public sealed class QualityPublicationOutcomeTests
         db.ChangeTracker.Clear();
         var validation = Assert.Single(db.SourceControlValidations);
         Assert.Equal(sha, validation.CommitSha);
+        Assert.Equal(passed ? null : outcome.Summary, validation.FailureMessage);
         Assert.Equal(passed ? SourceControlValidationStatus.Passed : SourceControlValidationStatus.Failed, validation.Status);
         Assert.Equal(passed ? SourceControlPublicationStatus.AwaitingLeadAuthorization : SourceControlPublicationStatus.AwaitingValidation, (await db.SourceControlPublications.SingleAsync()).Status);
     }

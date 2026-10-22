@@ -253,8 +253,10 @@ public sealed class OrganizationDeletionTests
         Assert.True(await db.ComputeEnvironments.AnyAsync(x => x.OrganizationId == organization.Id));
     }
 
-    [Fact]
-    public async Task DeleteAsync_RequestsComputeCleanupOnceAndWaitsForSignedTeardownBeforePurging()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeleteAsync_RequestsComputeCleanupOnceAndWaitsForSignedTeardownBeforePurging(bool removeEmployeeAuthority)
     {
         await using var f = new ComputeResultTests.Fixture();
         await f.InitializeAsync();
@@ -263,6 +265,7 @@ public sealed class OrganizationDeletionTests
         var environment = await db.ComputeEnvironments.SingleAsync();
         environment.LeaseExpiresAt = DateTimeOffset.MaxValue;
         await db.SaveChangesAsync();
+        if (removeEmployeeAuthority) await BusinessDeletionComputeTests.RemoveEmployeeAuthorityAsync(db);
         var cleanup = new CountingAgentCleanup();
         var audit = new TestAuditEventWriter();
         var purge = new OrganizationDataPurgeService(db, cleanup,

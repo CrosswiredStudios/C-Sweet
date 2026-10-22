@@ -13,6 +13,13 @@
 
 <PageTitle>@(SelectedOffice is { } selected ? $"{selected.Name} - Offices - C-Sweet" : "Offices - C-Sweet")</PageTitle>
 
+@if (_fleet?.Nodes.FirstOrDefault(x => x.Id == _updateOfficeId) is { } updateOffice)
+{
+    <OfficeUpdateDialog @key="updateOffice.Id" Office="updateOffice" TargetVersion="@UpdateTarget(updateOffice)"
+        UseLocalSource="@CanBuildLocally(updateOffice)" ActiveWork="@ActiveWork(updateOffice.Id)"
+        @bind-Visible="_showUpdate" SessionChanged="UpdateSessionChanged" OnChanged="LoadAsync" OnRepair="OpenRepairAsync" />
+}
+
 <div class="setup-shell configuration-page offices-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
@@ -61,29 +68,27 @@
     }
     else if (_fleet is not null && OfficeId is null)
     {
-        <div class="office-summary" aria-label="@L["ExecutionFleet.OfficeSummary"]">
-            <div><strong>@_fleet.Nodes.Count</strong><span>@L["ExecutionFleet.TotalOffices"]</span></div>
-            <div><strong>@_fleet.Nodes.Count(x => Status(x) == "Ready")</strong><span>@L["ExecutionFleet.Ready"]</span></div>
-            <div><strong>@_fleet.Nodes.Count(x => Status(x) is "Offline" or "Awaiting approval" or "Needs attention")</strong><span>@L["ExecutionFleet.NeedAttention"]</span></div>
-            <div><strong>@_fleet.Nodes.Count(x => Status(x) == "Draining")</strong><span>@L["ExecutionFleet.Draining"]</span></div>
-        </div>
+        <div class="office-directory-summary">@_fleet.Nodes.Count Office@(_fleet.Nodes.Count == 1 ? "" : "s") · @_fleet.Nodes.Count(HasUpdate) update@(_fleet.Nodes.Count(HasUpdate) == 1 ? "" : "s") available</div>
         @if (_showSetup)
         {
             <MudPaper Elevation="1" Class="surface-panel command-section-wide">
                 <AgentExecutionSetupStep ShowNavigation="false" OnStatusChanged="_ => LoadAsync()" />
             </MudPaper>
         }
-        <MudPaper Elevation="1" Class="surface-panel command-section-wide">
+        <section class="office-directory">
+            @if (_fleet.Nodes.Count > 4 || _search.Length > 0 || _statusFilter != "all")
+            {
             <div class="office-toolbar">
                 <MudTextField T="string" Label="@L["ExecutionFleet.FindAnOffice"]" Placeholder="@L["ExecutionFleet.NameMachineOrPool"]" Immediate="true" @bind-Value="_search" />
                 <MudSelect T="string" Label="@L["ExecutionFleet.Status"]" @bind-Value="_statusFilter">
                     <MudSelectItem T="string" Value='@("all")'>@L["ExecutionFleet.AllStatuses"]</MudSelectItem>
                     <MudSelectItem T="string" Value='@("Ready")'>@L["ExecutionFleet.Ready"]</MudSelectItem>
                     <MudSelectItem T="string" Value='@("attention")'>@L["ExecutionFleet.NeedsAttention"]</MudSelectItem>
-                    <MudSelectItem T="string" Value='@("Draining")'>@L["ExecutionFleet.Draining"]</MudSelectItem>
+                    <MudSelectItem T="string" Value='@("Paused")'>Paused</MudSelectItem>
                     <MudSelectItem T="string" Value='@("Revoked")'>@L["ExecutionFleet.Revoked"]</MudSelectItem>
                 </MudSelect>
             </div>
+            }
             @if (_fleet.Nodes.Count == 0)
             {
                 <div class="office-empty"><MudText Typo="Typo.h6">@L["ExecutionFleet.NoOfficesYet"]</MudText><MudText>@L["ExecutionFleet.AddAnOfficeToRun"]</MudText></div>
@@ -94,47 +99,36 @@
             }
             else
             {
-                <div class="office-table-scroll">
-                    <table class="office-table">
-                        <caption class="office-sr-only">@L["ExecutionFleet.AllOfficesAssociatedWithThis"]</caption>
-                        <thead><tr><th scope="col">@L["ExecutionFleet.Office"]</th><th scope="col">@L["ExecutionFleet.Status"]</th><th scope="col">@L["ExecutionFleet.Version"]</th><th scope="col">@L["ExecutionFleet.ActiveWork"]</th><th scope="col">@L["ExecutionFleet.LastSeen"]</th><th scope="col">@L["ExecutionFleet.Actions"]</th></tr></thead>
-                        <tbody>
+                <div class="office-directory-grid">
                             @foreach (var node in VisibleOffices)
                             {
-                                <tr @key="node.Id">
-                                    <td><a class="office-name" href="@OfficeUrl(node.Id)">@node.Name</a><span class="office-meta">@node.MachineName · @node.OperatingSystem</span><span class="office-meta">@PoolName(node.ExecutionPoolId)</span></td>
-                                    <td><MudChip T="string" Size="Size.Small" Color="@StatusColor(node)">@Status(node)</MudChip></td>
-                                    <td><span title="@L["ExecutionFleet.LastVersionReportedByThis"]">@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</span>
-                                    @if (_updates is not null && node.Status != "revoked") { <span class="office-meta">@OfficeUpdatePresentation.Status(node, _updates)</span> }
-                                    </td>
-                                    <td>@ActiveWorkLabel(node.Id)</td>
-                                    <td>@Heartbeat(node.LastHeartbeatAt)</td>
-                                    <td><div class="office-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">@L["ExecutionFleet.Details"]</MudButton>
+                                <article class="office-directory-card" @key="node.Id">
+                                    <div class="office-card-heading"><div class="office-card-icon"><MudIcon Icon="@Icons.Material.Outlined.Computer" /></div><div class="office-card-name"><a class="office-name" href="@OfficeUrl(node.Id)">@node.Name</a><span class="office-meta">@node.MachineName · @node.OperatingSystem · @PoolName(node.ExecutionPoolId)</span></div><MudChip T="string" Size="Size.Small" Color="@(OfficeUpdateRunning(node.Id) ? Color.Primary : StatusColor(node))">@(OfficeUpdateRunning(node.Id) ? "Updating" : Status(node))</MudChip></div>
+                                    <div class="office-card-facts"><span>Office <strong>@(string.IsNullOrWhiteSpace(node.NodeVersion) ? "Unknown" : node.NodeVersion)</strong></span><span><strong>@ActiveWorkLabel(node.Id)</strong> running jobs</span><span>Last seen @Heartbeat(node.LastHeartbeatAt)</span></div>
+                                    @if (node.Status == "draining" && !OfficeUpdateRunning(node.Id))
+                                    {
+                                        <div class="office-card-pause"><div><strong>Work is paused</strong><p>This Office is not accepting new work. Resume work to let agents and builds run again.</p></div><MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Resume work</MudButton></div>
+                                    }
+                                    @if (_updateSession?.UpgradeOfficeId == node.Id && (_updateSession.AutomaticUpdate && (OfficeUpdateRunning(node.Id) || _updateSession.State == "failed" || _updateSession.State == "ready" && !HasUpdate(node))))
+                                    {
+                                        <div class="office-card-update"><div><strong>@_updateSession.PhaseDisplayName</strong><p>@_updateSession.Message</p></div><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => OpenOfficeUpdateAsync(node)">@(OfficeUpdateRunning(node.Id) ? "View progress" : "View result")</MudButton></div>
+                                    }
+                                    else if (HasUpdate(node))
+                                    {
+                                        <div class="office-card-update"><div><strong>Office @UpdateTarget(node) is available</strong><p>Update this Office and get back to work automatically.</p></div><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="() => OpenOfficeUpdateAsync(node)">Review update</MudButton></div>
+                                    }
+                                    <div class="office-card-actions"><MudButton Href="@OfficeUrl(node.Id)" Size="Size.Small">Office details</MudButton>
                                     @if (node.Status != "revoked" && node.Status != "pendingapproval")
                                     {
-                                        @if (HasUpdate(node) || CanBuildLocally(node))
-                                        {
-                                            <MudButton Href="@(OfficeUrl(node.Id) + "#update")" Size="Size.Small" Color="Color.Primary" Variant="Variant.Filled" Disabled="@ActionsDisabled">@L["ExecutionFleet.Update"]</MudButton>
-                                        }
-                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">@L["ExecutionFleet.Repair"]</MudButton>
+                                        <MudButton Href="@(OfficeUrl(node.Id) + "#upgrade")" Size="Size.Small">Connection help</MudButton>
                                     }
-                                    @if (node.Status == "ready")
-                                    {
-                                        <MudButton Size="Size.Small" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>@L["ExecutionFleet.Drain"]</MudButton>
-                                    }
-                                    else if (node.Status == "draining")
-                                    {
-                                        <MudButton Size="Size.Small" Disabled="@(!CanAct(node))" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>@L["ExecutionFleet.Resume"]</MudButton>
-                                    }
-                                    </div></td>
-                                </tr>
+                                    </div>
+                                </article>
                             }
-                        </tbody>
-                    </table>
                 </div>
             }
-            <MudText Typo="Typo.caption" Class="mt-3">Server-wide list · Updated @Heartbeat(_lastUpdated) · Refreshes every 15 seconds</MudText>
-        </MudPaper>
+            <div class="office-directory-footer">Server-wide list · Office status updates automatically · Last checked @Heartbeat(_lastUpdated)</div>
+        </section>
         <MudExpansionPanels>
             <MudExpansionPanel Text="@L["ExecutionFleet.AdvancedWorkloadPoolsAndRouting"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
@@ -225,7 +219,7 @@
         <LocalOfficeUpgrade @key="node.Id" @ref="_officeCare" Office="node" Disabled="ActionsDisabled" PackageUrl="@PackageUrl(node)"
             ShowSummary="false" DevelopmentBuild="@CanBuildLocally(node)" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
             OnSessionChanged="session => _careSession = session" ActionMessage="@_message" ActionSucceeded="_messageSucceeded"
-            OnChanged="LoadAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
+            OnChanged="LoadAsync" OnUpdateRequested="OpenUpdateAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
         <MudTabs @bind-ActivePanelIndex="_activeTab" KeepPanelsAlive="true" Elevation="0" Rounded="true" Class="office-tabs">
         <MudTabPanel Text="@L["ExecutionFleet.Overview"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
@@ -233,11 +227,11 @@
                 <div class="office-actions">
                     @if (node.Status == "ready")
                     {
-                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>@L["ExecutionFleet.PauseNewWork"]</MudButton>
+                        <MudButton Variant="Variant.Outlined" Disabled="@(!CanAct(node) || _careInProgress || OfficeUpdateRunning(node.Id))" OnClick='@(() => NodeActionAsync(node.Id, "drain"))'>@L["ExecutionFleet.PauseNewWork"]</MudButton>
                     }
                     else if (node.Status == "draining")
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanAct(node) || _careInProgress)" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>@L["ExecutionFleet.AllowNewWork"]</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" Disabled="@(!CanAct(node) || _careInProgress || OfficeUpdateRunning(node.Id))" OnClick='@(() => NodeActionAsync(node.Id, "resume"))'>Resume work</MudButton>
                     }
                     @if (node.Status == "pendingapproval")
                     {
@@ -267,18 +261,22 @@
             }
         </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel command-section-wide" id="upgrade">
-            <MudText Typo="Typo.h5">@(_careInProgress ? "Maintenance in progress" : "Office care")</MudText>
-            @if ((HasUpdate(node) || CanBuildLocally(node)) && !_careInProgress)
+            <MudText Typo="Typo.h5">@(OfficeUpdateRunning(node.Id) ? "Update in progress" : "Software & connection")</MudText>
+            @if (OfficeUpdateRunning(node.Id))
+            {
+                <MudText Class="mt-2">@_updateSession!.PhaseDisplayName</MudText><MudText Typo="Typo.body2">@_updateSession!.Message</MudText><MudButton Class="mt-3" Color="Color.Primary" Variant="Variant.Filled" OnClick="OpenUpdateAsync">View update progress</MudButton>
+            }
+            else if (HasUpdate(node) && !_careInProgress)
             {
                 <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "A local source fallback is available. C-Sweet will prefer the latest verified prebuilt Office bundle." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
                 <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">@L["ExecutionFleet.UpdateOffice"]</MudButton>
             }
-            <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Repair the connection or update the Office software with step-by-step help.")</MudText>
+            @if (!OfficeUpdateRunning(node.Id)) { <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Connection help and recovery are available separately from software updates.")</MudText> }
             @if (node.Status is "revoked" or "pendingapproval")
             {
                 <MudAlert Severity="Severity.Warning">@(node.Status == "revoked" ? "This Office's access was removed. Add it again to restore access." : "Approve this Office before managing it.")</MudAlert>
             }
-            <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenCareAsync">@(_careInProgress ? "View progress" : "Open Office care")</MudButton>
+            @if (!OfficeUpdateRunning(node.Id)) { <MudButton Class="mt-4" Variant="Variant.Text" Color="Color.Primary" OnClick="OpenCareAsync">@(_careInProgress ? "View repair progress" : "Connection help")</MudButton> }
         </MudPaper>
         <MudExpansionPanels><MudExpansionPanel Text="@L["ExecutionFleet.ConnectionDetailsAndDiagnostics"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
@@ -386,8 +384,22 @@
     private Guid? _settingsOffice;
     private string _officeName = "";
     private Guid _officePool;
-    private Task OpenUpdateAsync() => _officeCare?.OpenUpdateAsync() ?? Task.CompletedTask;
-    private Task OpenCareAsync() => _officeCare?.OpenAsync() ?? Task.CompletedTask;
+    private Guid? _updateOfficeId;
+    private bool _showUpdate;
+    private LocalOfficeSetupSessionResponse? _updateSession;
+    private string? UpdateTarget(ExecutionNodeSummaryResponse office) => _updates is null ? _updateSession?.TargetVersion : OfficeUpdatePresentation.TargetVersion(office, _updates);
+    private bool OfficeUpdateRunning(Guid officeId) => _updateSession?.UpgradeOfficeId == officeId && OfficeCareState.IsInProgress(_updateSession.State);
+    private Task OpenOfficeUpdateAsync(ExecutionNodeSummaryResponse office) { _updateOfficeId = office.Id; _showUpdate = true; return Task.CompletedTask; }
+    private Task OpenUpdateAsync() => SelectedOffice is { } office ? OpenOfficeUpdateAsync(office) : Task.CompletedTask;
+    private Task OpenCareAsync() => SelectedOffice is { } office && OfficeUpdateRunning(office.Id) ? OpenOfficeUpdateAsync(office) : OpenRepairAsync();
+    private Task OpenRepairAsync()
+    {
+        _showUpdate = false;
+        if (_officeCare is not null) return _officeCare.OpenAsync();
+        if (_updateOfficeId is { } id) Navigation.NavigateTo(OfficeUrl(id) + "#upgrade");
+        return Task.CompletedTask;
+    }
+    private void UpdateSessionChanged(LocalOfficeSetupSessionResponse session) => _updateSession = session;
     private static string WorkName(string kind) => kind.ToLowerInvariant() switch { "builder" => "Agent build", "runtime" => "Agent run", "toolchainbuild" => "Application build", _ => kind };
     private void CareProgressChanged(bool inProgress) => _careInProgress = inProgress;
     private Task SaveOfficeAsync() => MutateAsync(HttpMethod.Put, $"api/execution-fleet/nodes/{OfficeId:D}/settings", new UpdateOfficeSettingsRequest(_officeName, _officePool));
@@ -530,6 +542,16 @@
             var fleet = await Http.GetFromJsonAsync<ExecutionFleetAdministrationResponse>("api/execution-fleet", _lifetime.Token);
             if (fleet is null) throw new InvalidDataException("The server returned no Office status.");
             _fleet = fleet;
+            try
+            {
+                var operation = (await SetupApi.GetActiveLocalOfficeSetupSessionAsync(_lifetime.Token)).Session;
+                if (operation?.AutomaticUpdate == true)
+                {
+                    _updateSession = operation;
+                    _updateOfficeId ??= operation.UpgradeOfficeId;
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or ApiClientException) { /* Keep the last confirmed update status. */ }
             if (SelectedOffice is { } selectedOffice && _settingsOffice != selectedOffice.Id)
             {
                 _settingsOffice = selectedOffice.Id;

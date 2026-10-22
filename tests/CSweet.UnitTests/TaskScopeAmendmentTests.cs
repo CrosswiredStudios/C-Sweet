@@ -14,6 +14,18 @@ public sealed class TaskScopeAmendmentTests
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task CriterionAmendmentPreservesLongAcceptedRequirementWithoutTruncation()
+    {
+        await using var fixture = await Fixture.Create(false);
+        var (request, _) = await Prepare(fixture);
+        var requirement = new string('r', 4308);
+        request = request with { Planning = request.Planning with { Requirements = [requirement] } };
+        await fixture.Service.AmendTaskAsync(fixture.Org, fixture.Manager.Id, request);
+        Assert.Equal(requirement, JsonSerializer.Deserialize<WorkItemPlanningSpecification>(fixture.Task.PlanningSpecificationJson!, Json)!.Requirements.Single());
+        Assert.Equal(requirement, JsonSerializer.Deserialize<WorkItemDeliverySpecification>(fixture.Task.DeliverySpecificationJson!, Json)!.Requirements.Single());
+    }
+
+    [Fact]
     public async Task AmendmentRepinsScopePreservesCandidateAndWaitsForExplicitRetry()
     {
         await using var f = await Fixture.Create(false);
@@ -44,7 +56,7 @@ public sealed class TaskScopeAmendmentTests
 
     [Theory]
     [InlineData("actor")][InlineData("plan")][InlineData("item")][InlineData("planning")]
-    [InlineData("dependencies")][InlineData("active-attempt")][InlineData("preview-stage")][InlineData("architecture")][InlineData("empty-criterion")]
+    [InlineData("dependencies")][InlineData("active-attempt")][InlineData("preview-stage")][InlineData("architecture")][InlineData("empty-criterion")][InlineData("long-entry")]
     public async Task ChangedAuthorityOrActiveWorkCannotAmendScope(string fault)
     {
         await using var f=await Fixture.Create(false);
@@ -57,6 +69,7 @@ public sealed class TaskScopeAmendmentTests
             "dependencies"=>request with {Planning=request.Planning with {DependencyItemIds=[Guid.NewGuid()]}},
             "architecture"=>request with {Planning=request.Planning with {ArchitectureArtifactDigest=new string('a',64)}},
             "empty-criterion"=>request with {Planning=request.Planning with {AcceptanceCriteria=[""]}},
+            "long-entry"=>request with {Planning=request.Planning with {Requirements=[new string('r',8193)]}},
             "preview-stage"=>request with {UsePlatformPreview=true},
             _=>request
         };

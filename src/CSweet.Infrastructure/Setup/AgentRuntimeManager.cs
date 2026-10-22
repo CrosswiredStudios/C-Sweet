@@ -586,9 +586,10 @@ public sealed partial class AgentRuntimeManager(
 
         var idleRelease = instance.Reason == OnDemandIdleTimeoutReason;
         var resourceHandoff = instance.Reason?.StartsWith("runtime.resources.handoff:", StringComparison.Ordinal) == true;
-        var recoveryReason = resourceHandoff ? "runtime.resources.handoff: old VM stopped; checkpointed operation is queued for replacement." : idleRelease ? OnDemandIdleTimeoutReason :
+        var officeUpdate = instance.Reason == "office-update-interrupted";
+        var recoveryReason = officeUpdate ? "office-update-interrupted" : resourceHandoff ? "runtime.resources.handoff: old VM stopped; checkpointed operation is queued for replacement." : idleRelease ? OnDemandIdleTimeoutReason :
             "Recovered a runtime interrupted while stopping; a fresh attempt can now start.";
-        var outcome = instance.MemoryResetRequestedAt is not null || idleRelease || resourceHandoff ? AgentRuntimeStatus.Cancelled :
+        var outcome = instance.MemoryResetRequestedAt is not null || idleRelease || resourceHandoff || officeUpdate ? AgentRuntimeStatus.Cancelled :
             instance.Reason?.StartsWith(StartupCleanupReasonPrefix, StringComparison.Ordinal) == true
                 ? AgentRuntimeStatus.StartFailed : AgentRuntimeStatus.Failed;
         Transition(instance, outcome, now, recoveryReason);

@@ -20,6 +20,19 @@ public sealed class ExecutionCapacityAlertState
             Status = ExecutionCapacityAlertStatus.Hidden;
             return;
         }
+        if (capacity.LocalSetupSession is { AutomaticUpdate: true } update &&
+            CSweet.UI.Setup.OfficeCareState.IsInProgress(update.State) &&
+            capacity.Nodes.All(x => x.Id == update.UpgradeOfficeId || x.Status == "revoked"))
+        {
+            Status = ExecutionCapacityAlertStatus.Maintenance;
+            return;
+        }
+        if (capacity.LocalSetupSession?.State != "failed" &&
+            capacity.Checks.Any(x => x.Key == "work-paused" && x.Status == "passed"))
+        {
+            Status = ExecutionCapacityAlertStatus.Paused;
+            return;
+        }
 
         // Only an existing, approved Office can be reconnecting. Configuration and
         // enrollment problems need attention immediately, even during the first check.
@@ -46,5 +59,7 @@ public enum ExecutionCapacityAlertStatus
 {
     Hidden,
     Connecting,
+    Maintenance,
+    Paused,
     Unavailable
 }

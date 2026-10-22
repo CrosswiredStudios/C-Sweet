@@ -205,14 +205,16 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             throw new UnauthorizedAccessException("A current scoped infrastructure action grant is required.");
     }
 
-    private void QueueAudit(ComputeEnvironment environment, string outcome, IReadOnlyList<ComputeActionAuthorization> authority, string action = InfrastructureActions.Provision)
+    private void QueueAudit(ComputeEnvironment environment, string outcome, IReadOnlyList<ComputeActionAuthorization> authority,
+        string action = InfrastructureActions.Provision, bool businessDeletion = false)
     {
         var id = Guid.NewGuid();
         var request = new AuditEventWriteRequest(action == InfrastructureActions.Provision ? "compute.admission.v1" : "compute.lifecycle.v1", Category: "Infrastructure", Outcome: outcome,
             OrganizationId: environment.OrganizationId, EntityType: "ComputeEnvironment", EntityId: environment.Id,
-            Actor: new("Agent", InstallationId: environment.InstallationId), OccurredAt: clock.GetUtcNow(),
+            Actor: businessDeletion ? new("Platform") : new("Agent", InstallationId: environment.InstallationId), OccurredAt: clock.GetUtcNow(),
             MetadataJson: JsonSerializer.Serialize(new { action,
-                workstreamId = environment.WorkstreamId, environment.Generation, environment.RequestDigest, grants = authority }),
+                workstreamId = environment.WorkstreamId, environment.Generation, environment.RequestDigest, grants = authority,
+                authoritySource = businessDeletion ? "business-deletion" : "agent-grants" }),
             UseAmbientOrganization: false, EventId: id);
         db.AuditOutbox.Add(new() { Id = id, CreatedAt = clock.GetUtcNow(), RequestJson = JsonSerializer.Serialize(request) });
     }

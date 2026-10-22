@@ -5,6 +5,13 @@ namespace CSweet.Application.Setup;
 
 public interface IExecutionFleetService
 {
+    Task<OfficeUpdatePreparationResponse> BeginOfficeUpdatePreparationAsync(
+        BeginOfficeUpdatePreparationRequest request, CancellationToken cancellationToken = default);
+    Task<OfficeUpdatePreparationResponse> AdvanceOfficeUpdatePreparationAsync(
+        OfficeUpdatePreparationRequest request, CancellationToken cancellationToken = default);
+    Task<LocalOfficeSetupActionResponse> CancelOfficeUpdateAsync(
+        Guid sessionId, Guid userId, CancellationToken cancellationToken = default);
+    Task ReconcileOfficeUpdatesAsync(CancellationToken cancellationToken = default);
     Task<bool> RefreshLocalSetupEnrollmentAsync(RefreshLocalOfficeEnrollmentRequest request,
         CancellationToken cancellationToken = default);
 

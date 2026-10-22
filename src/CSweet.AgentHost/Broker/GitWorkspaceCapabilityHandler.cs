@@ -945,8 +945,9 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                 orderby publication.CreatedAt descending
                 select publication.CommitSha)
                 .FirstOrDefaultAsync(cancellationToken)
-                ?? throw new InvalidOperationException(
-                    "QA cannot prepare a workspace until an exact source publication exists.");
+                ?? (deliverySpec?.DeliveryPlanId.HasValue == true
+                    ? (await CSweet.Infrastructure.WorkManagement.IntegratedCandidateResubmission.CurrentPublicationAsync(db, item, cancellationToken))?.CommitSha : null)
+                ?? throw new InvalidOperationException("QA cannot prepare a workspace until an exact source publication exists.");
             expectedCommitSha = ValidateCommitSha(expectedCommitSha);
             if (deliverySpec?.DeliveryPlanId.HasValue == true)
                 expectedCommitSha = await db.WorkTaskIntegrationReceipts.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.WorkItemId == item.Id &&

@@ -8,6 +8,15 @@ namespace CSweet.UnitTests;
 public sealed class SourceControlModelTests
 {
     [Fact]
+    public void QualityFailureMessageRetainsFullReviewSummaryWithoutAStorageLimit()
+    {
+        using var db = CreateDbContext();
+        var message = RequireEntity<SourceControlValidation>(db).FindProperty(nameof(SourceControlValidation.FailureMessage))!;
+        Assert.Null(message.GetMaxLength());
+        Assert.Equal("text", message.FindAnnotation(RelationalAnnotationNames.ColumnType)?.Value);
+    }
+
+    [Fact]
     public void RepositoryConnectionForeignKeyIncludesOrganizationBoundary()
     {
         using var db = CreateDbContext();

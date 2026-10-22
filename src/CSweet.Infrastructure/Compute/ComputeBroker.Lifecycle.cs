@@ -39,10 +39,13 @@ public sealed partial class ComputeBroker
             var environment = await db.ComputeEnvironments.SingleOrDefaultAsync(x => x.Id == request.EnvironmentId &&
                 x.OrganizationId == organizationId && x.InstallationId == installationId, token)
                 ?? throw new UnauthorizedAccessException("The compute environment is unavailable.");
-            await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, request.Action, token, environment.Id);
-            var grants = await GrantsAsync(organizationId, installationId, environment.WorkstreamId, token);
+            var deletionAuthority = await BusinessDeletionAuthorityAsync(organizationId, request.Action, token);
+            if (deletionAuthority is null)
+                await RequireActorAsync(organizationId, installationId, environment.WorkstreamId, request.Action, token, environment.Id);
+            var grants = deletionAuthority is null
+                ? await GrantsAsync(organizationId, installationId, environment.WorkstreamId, token) : [];
             var now = clock.GetUtcNow();
-            RequireAction(grants, request.Action, now);
+            if (deletionAuthority is null) RequireAction(grants, request.Action, now);
             var receipt = await db.ComputeOperations.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
                 x.InstallationId == installationId && x.IdempotencyKey == request.IdempotencyKey, token);
             if (receipt is not null)
@@ -57,7 +60,11 @@ public sealed partial class ComputeBroker
 
             var energizing = request.Action is InfrastructureActions.Start or InfrastructureActions.Restart;
             var authority = new List<ComputeActionAuthorization>();
-            if (energizing)
+            if (deletionAuthority is not null)
+            {
+                authority.Add(deletionAuthority);
+            }
+            else if (energizing)
             {
                 if (environment.LeaseExpiresAt <= now) throw new UnauthorizedAccessException("The compute lease has expired.");
                 var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)
@@ -110,7 +117,7 @@ public sealed partial class ComputeBroker
                 IdempotencyKey = request.IdempotencyKey, RequestDigest = digest,
                 AuthorityJson = JsonSerializer.Serialize(authority, Json), CreatedAt = now, NextAttemptAt = now
             });
-            QueueAudit(environment, "Accepted", authority, request.Action);
+            QueueAudit(environment, "Accepted", authority, request.Action, businessDeletion: deletionAuthority is not null);
             await db.SaveChangesAsync(token);
             if (transaction is not null) await transaction.CommitAsync(token);
             return View(environment);

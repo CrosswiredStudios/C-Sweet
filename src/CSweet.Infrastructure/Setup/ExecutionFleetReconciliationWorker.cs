@@ -42,6 +42,7 @@ public sealed class ExecutionFleetReconciliationWorker(
                 if (changed > 0) await db.SaveChangesAsync(stoppingToken);
 
                 var orchestrator = scope.ServiceProvider.GetRequiredService<IExecutionWorkloadOrchestrator>();
+                await scope.ServiceProvider.GetRequiredService<IExecutionFleetService>().ReconcileOfficeUpdatesAsync(stoppingToken);
                 await orchestrator.FenceExpiredAsync(stoppingToken);
                 await orchestrator.AssignPendingAsync(stoppingToken);
             }

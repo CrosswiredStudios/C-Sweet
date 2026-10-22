@@ -1120,6 +1120,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.NodeVersion).HasMaxLength(64).IsRequired();
             entity.Property(x => x.ProtocolVersion).HasMaxLength(32).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(x => x.WorkPauseReason).HasConversion<string>().HasMaxLength(16);
             entity.Property(x => x.CertificateThumbprint).HasMaxLength(256).IsRequired();
             entity.Property(x => x.CertificateSerialNumber).HasMaxLength(256).IsRequired();
             entity.Property(x => x.CertificateSigningRequestPem).HasMaxLength(16 * 1024).IsRequired();
@@ -1181,6 +1182,11 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.PresetKey).HasMaxLength(32).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired().IsConcurrencyToken();
             entity.Property(x => x.ErrorCode).HasMaxLength(128);
+            entity.Property(x => x.TargetVersion).HasMaxLength(64);
+            entity.Property(x => x.UpdatePhase).HasMaxLength(32).IsConcurrencyToken();
+            entity.Property(x => x.PreparationReceiptHash).HasMaxLength(64).IsConcurrencyToken();
+            entity.Property(x => x.CancellationRequestedAt).IsConcurrencyToken();
+            entity.Property(x => x.WorkRestoredAt).IsConcurrencyToken();
             entity.Property(x => x.ErrorMessage).HasMaxLength(2048);
             entity.Property(x => x.RecoveryAction).HasMaxLength(16).IsRequired();
             entity.Property(x => x.SetupReceiptHash).HasMaxLength(64);
@@ -1212,6 +1218,17 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ExecutionNode>().WithMany().HasForeignKey(x => x.ExecutionNodeId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<OfficeUpdateJob>(entity =>
+        {
+            entity.HasKey(x => new { x.SessionId, x.AssignmentId });
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(16);
+            entity.Property(x => x.RecoveredAt).IsConcurrencyToken();
+            entity.Property(x => x.RecoveryError).HasMaxLength(512);
+            entity.HasOne(x => x.Session).WithMany(x => x.UpdateJobs).HasForeignKey(x => x.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ExecutionWorkloadAssignment>(entity =>

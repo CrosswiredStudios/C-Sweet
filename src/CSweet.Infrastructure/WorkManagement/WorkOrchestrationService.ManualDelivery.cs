@@ -55,7 +55,9 @@ public sealed partial class WorkOrchestrationService
         }
         var publication = await (from p in db.SourceControlPublications join w in db.SourceControlWorkspaces on p.WorkspaceId equals w.Id
             where w.WorkItemId == item.Id && w.AssignmentRevision == item.AssignmentRevision && p.Status != SourceControlPublicationStatus.Superseded
-            orderby p.CreatedAt descending select p).FirstOrDefaultAsync(ct) ?? throw new InvalidOperationException("Review requires the current publication.");
+            orderby p.CreatedAt descending select p).FirstOrDefaultAsync(ct)
+            ?? (stage.StageKey == "quality" ? await IntegratedCandidateResubmission.CurrentPublicationAsync(db, item, ct) : null)
+            ?? throw new InvalidOperationException("Review requires the current publication.");
         var commit = request.Evidence.SingleOrDefault(x => x.Kind == "commit")?.Value;
         if (stage.StageKey == "technical-review")
         {

@@ -50,6 +50,7 @@ public sealed class AgentWorkItem
     public string? LastError { get; set; }
     public int RequestedMemoryMb { get; set; }
     public int ResourceReplacementCount { get; set; }
+    public int MaintenanceInterruptionCount { get; set; }
     public string? ResourceProfileKey { get; set; }
     public string? ResourceRecoveryState { get; set; }
     public string? ResourceCheckpointDigest { get; set; }

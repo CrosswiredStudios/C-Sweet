@@ -365,6 +365,24 @@
                                 { <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="_retryPending" StartIcon="@Icons.Material.Outlined.Replay" OnClick="@(() => RetryItemAsync(detailItem))">@L["Common.Retry"]</MudButton> }
                             </MudStack>
                             @if (!string.IsNullOrWhiteSpace(_retryError)) { <MudText Typo="Typo.caption" Color="Color.Error">@_retryError</MudText> }
+                            @if (detailItem.Delivery?.DeliveryPlanId.HasValue == true && detailItem.Delivery.DeliveryKind == "Code" &&
+                                WorkBoardWorkspacePresentation.CanRetry(detailItem, _detail.Board.AllowedActions))
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_retryPending" OnClick="@(() => InspectIntegratedCandidateAsync(detailItem))">Resubmit existing candidate…</MudButton>
+                                @if (_resubmitItemId == detailItem.Id && _resubmitCandidate is { } candidate)
+                                {
+                                    <MudStack Spacing="2" Class="mt-3">
+                                        <MudText Typo="Typo.body2">Published source: <code>@candidate.PublishedCommitSha</code></MudText>
+                                        <MudText Typo="Typo.body2">Integrated candidate for fresh QA: <code>@candidate.IntegratedCommitSha</code></MudText>
+                                        <MudText Typo="Typo.caption">No new commit, merge or approval is created. Existing findings and workspace edits are retained. Independent QA must verify this exact commit against the current criteria.</MudText>
+                                        <MudTextField T="string" Label="Why no code change is required" @bind-Value="_resubmitReason" Immediate="true" Lines="3" />
+                                        <MudStack Row="true">
+                                            <MudButton Color="Color.Warning" Variant="Variant.Filled" Disabled="@(_retryPending || string.IsNullOrWhiteSpace(_resubmitReason))" OnClick="@(() => ResubmitIntegratedCandidateAsync(detailItem))">Confirm resubmit to QA</MudButton>
+                                            <MudButton Disabled="_retryPending" OnClick="@(() => _resubmitCandidate = null)">Cancel</MudButton>
+                                        </MudStack>
+                                    </MudStack>
+                                }
+                            }
                         </MudAlert>
                     }
                 </AttentionContent>
@@ -2444,6 +2462,43 @@
 
     private bool _retryPending;
     private string? _retryError;
+    private IntegratedCandidateResponse? _resubmitCandidate;
+    private Guid _resubmitItemId;
+    private string _resubmitReason = "No code change is needed under the current approved criteria. Rerun independent QA on the exact integrated candidate.";
+    private string _resubmitKey = "";
+
+    private async Task InspectIntegratedCandidateAsync(WorkBoardItemResponse item)
+    {
+        if (_detail is null || _retryPending) return;
+        _retryPending = true; _retryError = null; _resubmitCandidate = null;
+        try
+        {
+            var response = await Http.GetAsync($"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/integrated-candidate");
+            if (!response.IsSuccessStatusCode) { _retryError = await ApiErrorAsync(response); return; }
+            _resubmitCandidate = await response.Content.ReadFromJsonAsync<IntegratedCandidateResponse>();
+            _resubmitItemId = item.Id; _resubmitKey = Guid.NewGuid().ToString("N");
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException) { _retryError = error.Message; }
+        finally { _retryPending = false; }
+    }
+
+    private async Task ResubmitIntegratedCandidateAsync(WorkBoardItemResponse item)
+    {
+        if (_detail is null || _retryPending || _resubmitItemId != item.Id || _resubmitCandidate is not { } candidate) return;
+        _retryPending = true; _retryError = null;
+        try
+        {
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/resubmit-integrated-candidate",
+                new ResubmitIntegratedCandidateRequest(candidate.ItemRevision, candidate.IntegratedCommitSha, _resubmitKey, _resubmitReason));
+            if (!response.IsSuccessStatusCode) { _retryError = await ApiErrorAsync(response); return; }
+            _resubmitCandidate = null;
+            await RefreshDetailAsync();
+            if (_detail is not null) _detailItem = _detail.Items.FirstOrDefault(entry => entry.Id == item.Id) ?? _detailItem;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException) { _retryError = error.Message; }
+        finally { _retryPending = false; }
+    }
 
     private async Task RetryItemAsync(WorkBoardItemResponse item)
     {

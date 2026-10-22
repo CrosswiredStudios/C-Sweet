@@ -28,8 +28,11 @@ public sealed class PlatformMemoryReadEvidence(CSweetDbContext db) : IPlatformMe
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static UnauthorizedAccessException Denied() => new("The memory read no longer has an authorized work context.");
 
-    public Task<MemoryReadInvocation> BeginAsync(AgentSession session, string capability, CancellationToken token) =>
-        BeginCoreAsync(session, capability, null, null, token);
+    public Task<MemoryReadInvocation> BeginAsync(AgentSession session, string capability, CancellationToken token)
+    {
+        var dispatch = capability == PlatformChatCapabilities.ChatStream ? InferenceExecutionAttribution.Current : null;
+        return BeginCoreAsync(session, capability, dispatch?.WorkId, dispatch?.Attempt, token);
+    }
 
     private async Task<MemoryReadInvocation> BeginCoreAsync(AgentSession session, string capability,
         Guid? expectedWork, int? expectedAttempt, CancellationToken token)

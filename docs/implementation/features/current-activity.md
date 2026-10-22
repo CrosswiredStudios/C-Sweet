@@ -71,12 +71,13 @@ reapplies execution priority across the full list as leases and progress age.
 to the end and deduplicates row keys before replacing the displayed list. Filters,
 organization changes, and disposal cancel stale page reads. The full list is always
 available by scrolling, with no Show all, Show fewer, or Load more work action.
-`ActivityCard` uses the linked ticket's title as its clickable heading, including
-queued work before its first attempt. `CurrentActivityItem.Description` supplies
-the ticket's redacted, plain-text description preview, bounded to 500 characters
-with an ellipsis when shortened. Description and title come directly from the
-authorized ticket; execution state and recorded current-step progress remain
-separate. Activities without a ticket retain readable fallback headings for
+`ActivityCard` places the agent identity and runtime status in a compact top row,
+followed by a single-line, ellipsized ticket-title link, one project/context and
+ticket-identifier row, and the current step. The full title remains in the link's
+accessible text and native tooltip. Ticket descriptions are omitted from the card;
+the linked board ticket provides the full description. `CurrentActivityItem.Description`
+remains an authorized, redacted plain-text API field, bounded to 500 characters.
+Activities without a ticket retain readable fallback headings for
 collaboration, review, Communications and model calls. Linked task titles
 open the project's Work tab with `board` and `item` query parameters when linked
 to a project, or the standalone board otherwise. Personal tasks use the authorized board owner's
@@ -91,9 +92,11 @@ or “Agent coordination.” Project links use the authorized task board's Works
 missing associations never produce guessed project links. The active participant
 has a pulsing circle behind their portrait; reduced motion and Pause animation
 retain a static highlight. Waiting, recovering and unconfirmed rows do not pulse.
-`ActivityCard` places the current action or “What's needed” beside the agent identity
-in a compact summary row; needs-attention rows retain their attention label. Narrow
-cards stack the summary using container queries, including collaboration layouts.
+`ActivityCard` places the current action or “What's needed” below the ticket metadata;
+needs-attention rows retain their attention label. Agent portraits retain their active
+highlight, and the runtime status's accessible label includes the specific active role
+(for example, “Reviewing now”). Narrow collaboration headers stack the two agents
+using container queries while keeping runtime status in the top row.
 Waiting cards emphasize the reported dependency or queue reason. Cards show recent
 workspace operations with timestamps; generic model-call chatter stays out of this
 compact history. Technical details disclosures have been removed. Peek at provider
@@ -123,6 +126,55 @@ timestamps in freshness. It also considers timestamp-only pending model audit re
 actively streaming call. It never reads another attempt or task's receipts or exposes
 pending protected content. `CurrentActivityFeedReader.ProgressText` accepts SDK
 `activity.started` and `activity.completed` deltas, including inference-state reports.
+
+## Asynchronous compute waits
+
+`CurrentActivityService.ReadComputeAsync` keeps the canonical ticket and its current
+stage assignee visible after an accepted `awaiting-compute` callback releases its
+inbox lease, including tickets whose coarse status is Ready. It reads the current
+traversal's completed wait receipts and their explicitly named compute operations;
+it does not create personal-board work, execution grants, or another progress store.
+The same projection supports quality and specialist compute waits using the existing
+source/build/environment/operation binding. It does not discover unrelated work by
+the employee's most recent environment or command text.
+
+`CurrentActivityCompute` exposes allowlisted phase/status, assigned commit, actual
+operation timestamps, a distinct successful-operation count from the most recent
+128 stage attempts, and the persisted automatic-resume eligibility time. Duplicate
+wakes do not inflate counts. These are operation counts, not transfer bytes,
+percentage completion, or a QA verdict. Exact upload byte counters are not available
+in the current platform receipt contract; the projection does not inspect private
+agent operating state, shell commands, output, or build contents to invent them.
+Typed browser-test workloads identify the testing phase; subsequent transfers are
+labelled evidence collection after a successful browser operation receipt.
+
+Waiting for dispatch, running external compute, waiting for result confirmation,
+and completed compute awaiting agent continuation remain **Waiting**, not agent
+execution or expired-lease recovery. Failures, unknown command outcomes and changed
+generations explicitly need recovery. Paused workflows do not promise automatic
+continuation. The resume timestamp is eligibility, not a guaranteed countdown.
+The card displays the last confirmed update so an old observation is not presented
+as fresh. Actual claimed agent execution takes over when its next callback starts.
+
+Ticket/board authorization and current stage employee/installation attribution remain
+mandatory. Source assignment, organization, project and compute owner bindings are
+rechecked. Missing or invalid bindings retain only the canonical stage's generic
+wait, explicitly stating that confirmed progress is unavailable. Detailed compute
+receipts require employee diagnostic access; other authorized board readers see
+only the allowlisted dependency wait without receipt details. Completed, cancelled,
+archived and superseded work never gains visibility through an old compute receipt.
+
+`CSweetDbContext.CaptureComputeEvents` commits content-free `ComputeChanged` hints
+for operation status/completion changes as well as environment transitions.
+`QueueCurrentActivityWake` also covers the accepted `qa.compute.waiting` transition.
+`CurrentActivity.OnEvent` rereads on these existing realtime hints and reconnect;
+there is no added polling loop. No migration, SDK change or agent release is needed.
+Rebuild/restart the platform and frontend to activate this projection.
+
+`CurrentActivityComputeTests` covers lifecycle visibility, exact binding and grants,
+duplicate receipts, unknown outcomes, generic specialist compute, paused/overdue
+continuation and atomic realtime hints. `CurrentActivityRenderingTests` covers the
+waiting card's real counters/timestamps without an executing portrait or fake progress bar.
 
 ## Reasoning and actions
 

@@ -1,6 +1,9 @@
 using CSweet.Application.Core;
 using CSweet.Contracts.Core;
 using CSweet.Api.Auth;
+using CSweet.Domain.Core;
+using CSweet.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace CSweet.Api.Core;
@@ -58,8 +61,11 @@ public static class CoreOrganizationEndpoints
                 : Results.BadRequest(result);
         });
 
-        group.MapDelete("/{id:guid}", async (Guid id, ICoreOrganizationService service, CancellationToken cancellationToken) =>
+        group.MapDelete("/{id:guid}", async (Guid id, ClaimsPrincipal principal, CSweetDbContext db,
+            ICoreOrganizationService service, CancellationToken cancellationToken) =>
         {
+            if (principal.GetApplicationUserId() is not { } userId) return Results.Unauthorized();
+            if (!await IsDeletionOwnerAsync(db, id, userId, cancellationToken)) return Results.Forbid();
             var result = await service.DeleteAsync(id, cancellationToken);
             if (result.Succeeded) return Results.NoContent();
             return result.ErrorCode == "not_found"
@@ -69,4 +75,9 @@ public static class CoreOrganizationEndpoints
 
         return endpoints;
     }
+
+    internal static Task<bool> IsDeletionOwnerAsync(CSweetDbContext db, Guid organizationId, Guid userId, CancellationToken token) =>
+        db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
+            x.ApplicationUserId == userId && x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null &&
+            x.PermissionLevel == OrganizationPermissionLevel.Owner, token);
 }

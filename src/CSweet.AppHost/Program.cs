@@ -160,6 +160,20 @@ var workerHost = builder.AddProject<Projects.CSweet_WorkerHost>("workerhost")
     .WaitFor(agentHost)
     .WaitFor(api);
 
+// Automatic updates are durable worker-owned operations. Use the same approved local
+// launcher and gateway binding as the API; never fall back to an older installed payload.
+workerHost.WithEnvironment("CSweet__ExecutionGateway__PublicUrl", executionGatewayEndpoint)
+    .WithEnvironment("CSweet__ExecutionGateway__BootstrapUrl", executionGatewayBootstrapEndpoint)
+    .WithEnvironment("CSweet__ExecutionGateway__PublicCertificateSha256", executionGatewayCertificate.Sha256);
+if (OperatingSystem.IsWindows())
+{
+    var updateLauncher = Path.Combine(repositoryRoot, "src", "CSweet.Api", "Setup", "Start-CSweetDevelopmentOfficeSetup.ps1");
+    var officeParent = Directory.GetParent(repositoryRoot)?.FullName;
+    var updateBootstrap = officeParent is null ? null : Path.Combine(officeParent, "CSweet.Office", "scripts", "windows", "Initialize-CSweetWindowsIsolationTest.ps1");
+    if (File.Exists(updateLauncher)) workerHost.WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentLauncherScript", updateLauncher);
+    if (updateBootstrap is not null && File.Exists(updateBootstrap)) workerHost.WithEnvironment("CSweet__ExecutionFleet__WindowsDevelopmentOfficeBootstrapScript", updateBootstrap);
+}
+
 var gitHost = builder.AddProject<Projects.CSweet_GitHost>("githost")
     .WithEnvironment("TrustedServiceAuthentication__KeyId", "core")
     .WithEnvironment("TrustedServiceAuthentication__SharedKeyBase64", trustedServiceKey);

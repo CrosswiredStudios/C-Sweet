@@ -311,7 +311,7 @@ internal static class SourceControlModelConfiguration
             entity.Property(x => x.CommitSha).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.ResultsJson).HasColumnType("jsonb").IsRequired();
-            entity.Property(x => x.FailureMessage).HasMaxLength(2048);
+            entity.Property(x => x.FailureMessage).HasColumnType("text");
             entity.HasIndex(x => new
             {
                 x.OrganizationId,

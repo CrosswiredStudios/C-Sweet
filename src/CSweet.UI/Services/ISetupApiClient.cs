@@ -4,6 +4,8 @@ namespace CSweet.UI.Services;
 
 public interface ISetupApiClient
 {
+    Task<LocalOfficeSetupActionResponse> CancelOfficeUpdateAsync(Guid sessionId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
     Task<SetupStatusResponse> GetStatusAsync(CancellationToken cancellationToken = default);
     Task<ExecutionCapacityOnboardingResponse> GetExecutionCapacityStatusAsync(CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> SelectExecutionModeAsync(string mode, CancellationToken cancellationToken = default);

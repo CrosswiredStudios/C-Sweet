@@ -287,6 +287,15 @@ public sealed partial class WorkOrchestrator(
         if (error is null)
             error = await RecordQualityValidationAsync(
                 execution, stage, outcome!, now, cancellationToken);
+        IntegratedCandidateResponse? resubmission = null;
+        if (error is null && outcome!.Output.ValueKind == JsonValueKind.Object &&
+            (outcome.Output.TryGetProperty("resubmitsIntegratedCandidate", out var resubmitFlag) ||
+             outcome.Output.TryGetProperty("ResubmitsIntegratedCandidate", out resubmitFlag)) && resubmitFlag.ValueKind == JsonValueKind.True)
+        {
+            try { resubmission = await ValidateIntegratedResubmissionAsync(stage, outcome, cancellationToken); }
+            catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException or ArgumentException or JsonException)
+            { error = exception.Message; }
+        }
         if (error is not null)
         {
             attempt.Status = WorkExecutionAttemptStatus.Failed;
@@ -329,8 +338,22 @@ public sealed partial class WorkOrchestrator(
             case Shared.WorkExecutionDispositions.Failed:
                 FailStage(stage, outcome.Summary, now); break;
             default:
-                await AdvanceAsync(execution, policy, stage, outcome.OutcomeCode, outcome.Summary,
-                    outcome.Output.GetRawText(), now, cancellationToken); break;
+                if (resubmission is not null)
+                {
+                    try
+                    {
+                        await IntegratedCandidateResubmission.QueueQaAsync(db, stage, resubmission,
+                            stage.OrganizationUserId ?? stage.AgentInstallationId ?? execution.StartedByOrganizationUserId, $"resubmit:{attempt.Id:N}", outcome.Summary, now, cancellationToken);
+                    }
+                    catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException)
+                    {
+                        attempt.Status = WorkExecutionAttemptStatus.Failed; attempt.ErrorCategory = "validation"; attempt.ErrorMessage = exception.Message;
+                        await RecordInvalidResultAsync(stage, attempt, exception.Message, now, cancellationToken); return;
+                    }
+                }
+                else await AdvanceAsync(execution, policy, stage, outcome.OutcomeCode, outcome.Summary,
+                    outcome.Output.GetRawText(), now, cancellationToken);
+                break;
         }
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id,
             "attempt.result.accepted", new { outcome.Disposition, outcome.OutcomeCode, outcome.Summary });
@@ -485,6 +508,8 @@ public sealed partial class WorkOrchestrator(
             select candidate)
             .AsTracking()
             .FirstOrDefaultAsync(cancellationToken);
+        publication ??= taskDelivery?.DeliveryPlanId.HasValue == true
+            ? await IntegratedCandidateResubmission.CurrentPublicationAsync(db, item, cancellationToken) : null;
         if (publication is null)
             return "QA evidence has no current source publication for this assignment revision.";
         var testedCommit = publication.CommitSha;
@@ -676,6 +701,7 @@ public sealed partial class WorkOrchestrator(
                     db, repositoryInputs, item, assignment, cancellationToken) };
         }
         assignment = assignment with { Evidence = assignment.Evidence.Concat(await QaRecoveryEvidenceAsync(assignment, board, cancellationToken)).ToArray() };
+        assignment = assignment with { Evidence = assignment.Evidence.Concat(await IntegratedCandidateResubmission.QaEvidenceAsync(db, stage, cancellationToken)).ToArray() };
         var payload = JsonSerializer.SerializeToElement(assignment, JsonOptions);
         var work = await inbox.EnqueueAsync(
             execution.OrganizationId.ToString(), installationId, AgentWorkKind.Capability,

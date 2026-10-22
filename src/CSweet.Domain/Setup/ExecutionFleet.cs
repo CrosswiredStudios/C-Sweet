@@ -25,6 +25,12 @@ public enum ExecutionEnrollmentStatus
     Expired = 4
 }
 
+public enum OfficeWorkPauseReason
+{
+    User = 0,
+    Maintenance = 1
+}
+
 public enum LocalOfficeSetupSessionStatus
 {
     Created = 0,
@@ -101,6 +107,7 @@ public sealed class ExecutionNode
     public DateTimeOffset? LastAssignedAt { get; set; }
     public DateTimeOffset? ApprovedAt { get; set; }
     public DateTimeOffset? DrainingAt { get; set; }
+    public OfficeWorkPauseReason? WorkPauseReason { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -173,6 +180,19 @@ public sealed class LocalOfficeSetupSession
     public string? ErrorCode { get; set; }
     public string? ErrorMessage { get; set; }
     public string RecoveryAction { get; set; } = "none";
+    public bool AutomaticUpdate { get; set; }
+    public bool ResumeAfterUpdate { get; set; }
+    public bool UseLocalUpdateSource { get; set; }
+    public string? TargetVersion { get; set; }
+    public string? UpdatePhase { get; set; }
+    public string? PreparationReceiptHash { get; set; }
+    public DateTimeOffset? PreparationStartedAt { get; set; }
+    public DateTimeOffset? PreparationReadyAt { get; set; }
+    public DateTimeOffset? StopStartedAt { get; set; }
+    public DateTimeOffset? CancellationRequestedAt { get; set; }
+    public DateTimeOffset? WorkRestoredAt { get; set; }
+    public DateTimeOffset? LastUpdateCheckAt { get; set; }
+    public ICollection<OfficeUpdateJob> UpdateJobs { get; set; } = [];
     public bool RecoveryCanReconnect { get; set; }
     public string? SetupReceiptHash { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
@@ -185,6 +205,22 @@ public sealed class LocalOfficeSetupSession
 
     public ExecutionNodeEnrollment? ExecutionNodeEnrollment { get; set; }
     public ExecutionNode? ExecutionNode { get; set; }
+}
+
+/// <summary>Durable recovery intent for an assignment interrupted by one Office update.</summary>
+public sealed class OfficeUpdateJob
+{
+    public Guid SessionId { get; set; }
+    public Guid AssignmentId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public ExecutionWorkloadKind Kind { get; set; }
+    public Guid? AgentBuildJobId { get; set; }
+    public Guid? AgentRuntimeInstanceId { get; set; }
+    public Guid? DeliveryBuildId { get; set; }
+    public DateTimeOffset? RecoveredAt { get; set; }
+    public bool NeedsRecovery { get; set; }
+    public string? RecoveryError { get; set; }
+    public LocalOfficeSetupSession? Session { get; set; }
 }
 
 public sealed class ExecutionWorkloadAssignment

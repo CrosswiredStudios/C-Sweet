@@ -2,56 +2,74 @@
 @inject IAppLocalizer L
 
 <article class="activity-card" data-activity-kind="@Item.ActivityKind">
-    <header class="activity-card-header">
-        <div class="activity-card-title"><MudIcon Icon="@HeadingIcon" Size="Size.Small" /><strong>
-            @if (Item.WorkItemId.HasValue && Item.BoardId.HasValue)
+    <header class="activity-card-header @(Item.Collaborator is not null ? "collaborating" : "")">
+        <div class="activity-card-agents @(Item.Collaborator is not null ? "collaborating" : "")">
+            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" />
+            @if (Item.Collaborator is { } other)
             {
-                <a class="activity-title-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)">@Item.Title<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
+                <span class="activity-card-connector" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.CompareArrows" Size="Size.Small" /></span>
+                <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" />
             }
-            else { @Heading }
-        </strong></div>
-        <div class="activity-card-controls">
+        </div>
+        <div class="activity-card-controls" role="group" aria-label="@AgentStatus">
             <span class="activity-card-status @StateClass">@FriendlyState <span aria-hidden="true">·</span> <time title="@Item.StartedAt.ToLocalTime().ToString("g")">@Age</time></span>
         </div>
     </header>
-    @if (Item.ProjectId is Guid projectId)
+    <div class="activity-card-title"><MudIcon Icon="@HeadingIcon" Size="Size.Small" /><strong>
+        @if (HasLinkedTicket)
+        {
+            <a class="activity-title-link" href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, Item)" title="@Item.Title"><span class="activity-title-text">@Item.Title</span><MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
+        }
+        else { <span class="activity-title-text" title="@Heading">@Heading</span> }
+    </strong></div>
+    @if (Item.ProjectId.HasValue || HasLinkedTicket)
     {
-        <a class="activity-project-link" href="@($"/organizations/{OrganizationId}/projects/{projectId}")">@Item.Context<MudIcon Icon="@Icons.Material.Outlined.NorthEast" Size="Size.Small" /></a>
+        <div class="activity-card-metadata">
+            @if (Item.ProjectId is Guid projectId)
+            {
+                <a class="activity-project-link" href="@($"/organizations/{OrganizationId}/projects/{projectId}")" title="@Item.Context">@Item.Context</a>
+            }
+            else { <span class="activity-card-context" title="@Item.Context">@Item.Context</span> }
+            @if (HasLinkedTicket && Item.Identifier is not null)
+            {
+                <span aria-hidden="true">·</span><span class="activity-card-identifier" title="@Item.Identifier">@Item.Identifier</span>
+            }
+        </div>
     }
-    @if (Item.WorkItemId.HasValue && Item.BoardId.HasValue)
+    @if (HasLinkedTicket)
     {
-        <div class="activity-card-context">@if (Item.Identifier is not null) { <span>@Item.Identifier · </span> }@Item.Context</div>
         @if (Item.ActivityKind == "Collaboration" && !string.IsNullOrWhiteSpace(Item.CollaborationName) && Item.CollaborationName != Item.Title)
         {
-            <div class="activity-card-context">Collaboration: @Item.CollaborationName</div>
-        }
-        @if (!string.IsNullOrWhiteSpace(Item.Description))
-        {
-            <p class="activity-ticket-description">@Item.Description</p>
+            <div class="activity-card-context activity-card-scope" title="@Item.CollaborationName">Collaboration: @Item.CollaborationName</div>
         }
     }
     else if (Item.ProjectId.HasValue && Item.Title != Item.ActivityLabel)
     {
-        <div class="activity-card-context">@Item.Title</div>
+        <div class="activity-card-context activity-card-scope" title="@Item.Title">@Item.Title</div>
     }
-    <div class="activity-card-summary @(Item.Collaborator is not null ? "collaborating" : "")">
-        <div class="activity-card-agents @(Item.Collaborator is not null ? "collaborating" : "")">
-            <ActivityAgent OrganizationId="OrganizationId" EmployeeId="Item.EmployeeId" Name="@Item.EmployeeName" Role="@Item.EmployeeRole" IsActive="@(State == "Executing")" Status="@AgentStatus" Centered="@(Item.Collaborator is not null)" />
-            @if (Item.Collaborator is { } other)
-            {
-                <span class="activity-card-connector" aria-hidden="true"><MudIcon Icon="@Icons.Material.Outlined.CompareArrows" Size="Size.Small" /></span>
-                <ActivityAgent OrganizationId="OrganizationId" EmployeeId="other.EmployeeId" Name="@other.EmployeeName" Role="@other.Role" Status="@(State == "Executing" ? $"Awaiting {Item.EmployeeName}" : "Collaborator")" Centered="true" />
-            }
-        </div>
+    <div class="activity-card-summary">
         @if (State is "Waiting" or "Needs attention")
         {
-            <div class="activity-card-reason"><span>@(State == "Needs attention" ? "What needs attention" : "What's needed")</span><p>@Action</p></div>
+            <div class="activity-card-reason"><span>@(State == "Needs attention" ? "What needs attention" : Item.Compute is not null ? "Compute / workflow status" : "What's needed")</span><p>@Action</p></div>
         }
         else
         {
             <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
         }
     </div>
+    @if (Item.CanInspect && Item.Compute is { } compute)
+    {
+        <div class="activity-card-context activity-compute-progress" aria-label="Compute progress">
+            <div>@compute.Phase · @compute.Status</div>
+            <div>@compute.RecentCompletedOperations recent compute operations completed · not a QA verdict</div>
+            <div>Assigned commit <code>@compute.SourceCommitSha[..8]</code></div>
+            <div>Last confirmed update: <time datetime="@compute.ObservedAt.ToString("O")">@compute.ObservedAt.ToLocalTime().ToString("g")</time></div>
+            @if (compute.ResumeAt is { } resume)
+            {
+                <div>Automatic resume eligible from <time datetime="@resume.ToString("O")">@resume.ToLocalTime().ToString("T")</time></div>
+            }
+        </div>
+    }
     @if (Item.CanInspect && Item.PreviousSteps.Any(x => x.Kind == "Workspace"))
     {
         <ul class="activity-workspace-progress" aria-label="@L["ActivityCard.WorkspaceAriaLabel"]">
@@ -61,10 +79,13 @@
             }
         </ul>
     }
+    @if (Item.Compute is null || Item.AttemptId.HasValue || Item.ModelRunId.HasValue)
+    {
     <button type="button" class="activity-stream-toggle" data-current-activity-open="@Item.Key" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)">
         <MudIcon Icon="@(IsSelected ? Icons.Material.Outlined.ExpandLess : Icons.Material.Outlined.ExpandMore)" Size="Size.Small" />
         @(IsSelected ? "Close provider stream" : "Peek at provider stream")
     </button>
+    }
     @if (IsSelected)
     {
         @ChildContent
@@ -80,6 +101,7 @@
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public EventCallback<CurrentActivityItem> Inspect { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    private bool HasLinkedTicket => Item.WorkItemId.HasValue && Item.BoardId.HasValue;
     private bool IsQueued => State == "Waiting" && (Action.StartsWith("Queued", StringComparison.Ordinal) || Action == "Waiting for an agent claim");
     private string FriendlyState => State == "Executing" ? "Working" : IsQueued ? "Queued" : State;
     private string StateClass => State == "Executing" ? "working" : State is "Needs attention" or "Recovering" or "Unconfirmed" ? "attention" : "waiting";

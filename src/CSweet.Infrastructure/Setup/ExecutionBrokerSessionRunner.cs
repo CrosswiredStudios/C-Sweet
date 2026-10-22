@@ -67,17 +67,7 @@ public sealed class ExecutionBrokerSessionRunner(
             throw new UnauthorizedAccessException("The runtime internet grant is no longer current.");
         // The node opens its tunnel before the WorkerHost call that submitted the assignment
         // returns. Do not permit the guest MCP handshake to race the durable runtime transition.
-        while (true)
-        {
-            var status = await dbContext.AgentRuntimeInstances.AsNoTracking()
-                .Where(x => x.Id == workload.WorkloadId)
-                .Select(x => x.Status)
-                .SingleAsync(cancellationToken);
-            if (status == AgentRuntimeStatus.WaitingForMcpSession) break;
-            if (AgentRuntimeInstance.IsTerminal(status))
-                throw new InvalidOperationException("The runtime ended before its broker session could start.");
-            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
-        }
+        await WaitForRuntimeStartupAsync(workload.WorkloadId, cancellationToken);
         var grant = new AgentBrokerGrant(
             workload.WorkloadId,
             workload.BrokerLease.ChannelId,
@@ -152,6 +142,23 @@ public sealed class ExecutionBrokerSessionRunner(
             diagnostics.CaptureExitDetail(session.WorkloadExit?.Detail);
             await PersistRuntimeDiagnosticsAsync(
                 assignment, workload.WorkloadId, diagnostics.Latest);
+        }
+    }
+
+    internal async Task WaitForRuntimeStartupAsync(Guid runtimeId, CancellationToken cancellationToken)
+    {
+        var startupDeadline = timeProvider.GetUtcNow().AddSeconds(30);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var status = await dbContext.AgentRuntimeInstances.AsNoTracking()
+                .Where(x => x.Id == runtimeId).Select(x => x.Status).SingleAsync(cancellationToken);
+            if (status == AgentRuntimeStatus.WaitingForMcpSession) return;
+            if (status != AgentRuntimeStatus.Starting)
+                throw new InvalidOperationException("The runtime no longer permits a new guest broker session. Replace it with a fresh runtime identity.");
+            if (timeProvider.GetUtcNow() >= startupDeadline)
+                throw new InvalidOperationException("The runtime did not become ready for its guest broker session within the startup window.");
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
     }
 

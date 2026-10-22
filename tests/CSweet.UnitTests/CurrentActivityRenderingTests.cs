@@ -16,10 +16,29 @@ namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityRenderingTests
 {
+    [Fact]
+    public async Task ComputeWaitShowsConfirmedProgressWithoutAnimatingTheWaitingAgent()
+    {
+        await using var fixture = new Fixture();
+        fixture.Handler.Item = fixture.Handler.Item with { State = "Waiting", CurrentAction = "Compute is running; the agent is waiting for its result",
+            AttemptId = null, LeaseExpiresAt = null, Compute = new("Browser testing", "Dispatching", 26,
+                DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(4), new('a', 40)) };
+        var html = await fixture.RenderAsync();
+        Assert.Contains("Compute progress", html);
+        Assert.Contains("26 recent compute operations completed", html);
+        Assert.Contains("not a QA verdict", html);
+        Assert.Contains("Automatic resume eligible from", html);
+        Assert.Contains("Last confirmed update", html);
+        Assert.Contains("aaaaaaaa", html);
+        Assert.DoesNotContain("activity-agent-avatar active", html);
+        Assert.DoesNotContain("role=\"progressbar\"", html);
+        Assert.Equal(0, fixture.Handler.FeedRequests);
+    }
+
     [Theory]
     [InlineData("Waiting", "Waiting for an agent claim")]
     [InlineData("Executing", "Comparing proposed roles")]
-    public async Task TicketTitleAndDescriptionLeadTheCardWhileStateAndProgressRemainSeparate(string state, string action)
+    public async Task AgentAndStatusLeadTheCardWithLinkedTitleAndCurrentStepButNoDescription(string state, string action)
     {
         await using var f = new Fixture();
         f.Handler.Item = f.Handler.Item with { Title = "Review staffing <plan>",
@@ -28,10 +47,20 @@ public sealed class CurrentActivityRenderingTests
         var html = await f.RenderAsync();
         Assert.Contains("activity-title-link", html);
         Assert.Contains("Review staffing &lt;plan&gt;", html);
-        Assert.Contains("Compare engineering and QA coverage. &lt;script&gt;", html);
+        Assert.DoesNotContain("Compare engineering and QA coverage.", html);
+        Assert.DoesNotContain("activity-ticket-description", html);
         Assert.DoesNotContain("<script>", html);
         Assert.DoesNotContain("<strong>Reviewing work</strong>", html);
         Assert.Contains(action, html);
+        var agent = html.IndexOf("activity-card-agents", StringComparison.Ordinal);
+        var status = html.IndexOf("activity-card-status", StringComparison.Ordinal);
+        var title = html.IndexOf("activity-title-link", StringComparison.Ordinal);
+        var step = html.IndexOf("activity-card-summary", StringComparison.Ordinal);
+        Assert.True(agent >= 0 && agent < status && status < title && title < step);
+        Assert.Contains("title=\"Review staffing &lt;plan&gt;\"", html);
+        Assert.Contains("activity-title-text", html);
+        Assert.Contains($"/projects/boards/{f.Handler.Item.BoardId}?item={f.Handler.Item.WorkItemId}", html);
+        Assert.Equal(1, html.Split(">Customer portal<").Length - 1);
         Assert.Equal(0, f.Handler.FeedRequests);
         Assert.Equal(state == "Executing", html.Contains("activity-agent-avatar active", StringComparison.Ordinal));
     }
@@ -228,6 +257,8 @@ public sealed class CurrentActivityRenderingTests
     [InlineData("Waiting", "Queued while this employee handles another request")]
     [InlineData("Recovering", "Execution lease expired; awaiting recovery")]
     [InlineData("Unconfirmed", "No task progress reported in the last five minutes")]
+    [InlineData("Finalizing", "Agent finished; awaiting workflow result processing")]
+    [InlineData("Needs attention", "Agent finished; workflow result processing is delayed")]
     public async Task SpecificActivityNeverImpliesExecutionWhenWaitingOrStale(string state, string action)
     {
         await using var f = new Fixture();

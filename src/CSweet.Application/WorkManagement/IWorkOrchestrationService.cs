@@ -5,6 +5,12 @@ namespace CSweet.Application.WorkManagement;
 
 public interface IWorkOrchestrationService
 {
+    Task<IntegratedCandidateResponse> GetIntegratedCandidateAsync(Guid organizationId, Guid boardId,
+        Guid itemId, Guid applicationUserId, CancellationToken cancellationToken = default);
+
+    Task ResubmitIntegratedCandidateAsync(Guid organizationId, Guid boardId, Guid itemId,
+        Guid applicationUserId, ResubmitIntegratedCandidateRequest request, CancellationToken cancellationToken = default);
+
     Task<WorkOrchestrationPolicyResponse?> GetPolicyAsync(
         Guid organizationId, Guid boardId, Guid applicationUserId,
         CancellationToken cancellationToken = default);

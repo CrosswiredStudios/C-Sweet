@@ -98,6 +98,21 @@ share a process gate and PostgreSQL session advisory lock, allowing the purge to
 its existing transaction boundary. Compute lifecycle intent, audit and provider wakes
 continue to commit together through the compute broker. This adds no agent polling loop.
 
+`ComputeBroker.BusinessDeletionAuthorityAsync` derives destroy-only platform authority
+from the exact business's persisted `Deleting` or `DeletionFailed` intent. Both
+`ChangeLifecycleCoreAsync` and `ComputeDispatchAuthorizer.ClaimCoreAsync` re-read that
+intent, so missing employee destroy capabilities, expired/revoked grants, disabled
+installations and archived employees cannot prevent owner-requested cleanup. Lifecycle
+audits identify this source as `business-deletion` with a Platform actor. The signed
+provider packet retains its exact business, environment, node and generation binding
+and short expiry; its authorization evidence identifies the business deletion intent
+rather than an employee grant. No employee permissions are added. Normal agent actions
+retain their existing authorization checks, and another business's deletion intent
+cannot authorize cleanup. Provider-confirmed VM/disk teardown still gates data purge.
+`CoreOrganizationEndpoints.IsDeletionOwnerAsync` checks the current human owner before
+the DELETE route persists intent. Stop/destroy dispatch claims retain their short lease
+even after the resource lease expires, preventing overlapping cleanup dispatches.
+
 The purge retains business data until **all** compute environments have confirmed VM
 and disk teardown. Discovery advances batches of cleanup requests without duplicating
 queued destroy operations. Current failed or blocked destroy operations stop recovery
@@ -147,7 +162,7 @@ otherwise stop intake after VM removal and leave the private VHDX behind. This
 exception applies only to teardown; runtime, journal and payload ownership rules
 remain enforced by `WindowsComputeProtectedPaths` and `HyperVWorkloadProtection`.
 
-Regression coverage lives in `OrganizationDeletionTests`, `EnterpriseWorkspaceTests`,
+Regression coverage lives in `BusinessDeletionComputeTests`, `OrganizationDeletionTests`, `EnterpriseWorkspaceTests`,
 `BusinessDeletionUiStateTests`, `AgentInstallationServiceTests` and `ComputeBrokerTests`,
 including signed teardown, duplicate discovery, schedule conflicts, admission fencing,
 failed-cleanup recovery, tile progress, reload and focused-business removal.

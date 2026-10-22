@@ -1,0 +1,212 @@
+@using CSweet.Contracts.Setup
+@using CSweet.Contracts.Realtime
+@using CSweet.UI.Services
+@inject ISetupApiClient SetupApi
+@inject IAppRealtimeConnection Realtime
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<MudDialog Visible="Visible" VisibleChanged="VisibleChanged" Options="DialogOptions" Class="office-update-dialog">
+    <TitleContent>
+        <div class="update-dialog-identity"><span>@Office.Name · Office update</span><MudIconButton Icon="@Icons.Material.Outlined.Close" aria-label="Close update progress" OnClick="CloseAsync" /></div>
+    </TitleContent>
+    <DialogContent>
+        <div class="update-dialog-content">
+        @if (_initializing)
+        {
+            <MudProgressLinear Indeterminate="true" aria-label="Checking for an existing Office update" />
+            <p class="update-secondary">Checking for an update already in progress…</p>
+        }
+        else if (_session is null)
+        {
+            <div class="update-eyebrow">Office software</div>
+            <h2>Update this Office</h2><p class="update-secondary">One update. We’ll take care of each step.</p>
+            <div class="update-versions"><span>@Office.NodeVersion</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /><strong>@TargetVersion</strong><span class="update-source">@(UseLocalSource ? "Development source" : "Published release")</span></div>
+            <div class="update-impact"><MudIcon Icon="@Icons.Material.Outlined.Inventory2" /><div><strong>Prepare the update first</strong><p>We’ll download and verify the package before interrupting work.</p></div></div>
+            <div class="update-impact"><MudIcon Icon="@Icons.Material.Outlined.PauseCircle" /><div><strong>@(ActiveWork is 0 ? "No jobs need to stop" : ActiveWork is { } count ? $"Stop {count} running job{(count == 1 ? "" : "s")}" : "Stop running jobs")</strong><p>New work will pause. Running jobs will receive stop requests. Interrupted work restarts from its last saved progress.</p></div></div>
+            <div class="update-impact"><MudIcon Icon="@Icons.Material.Outlined.Sync" /><div><strong>Install, reconnect, and @(PreviouslyPaused ? "keep work paused" : "resume work")</strong><p>Your Office identity and settings stay in place. @(PreviouslyPaused ? "This Office is already paused, so it will stay paused." : "Work resumes after the selected version and connection are verified.")</p></div></div>
+            @if (UseLocalSource)
+            {
+                <div class="update-notice"><MudIcon Icon="@Icons.Material.Outlined.Code" Size="Size.Small" /><div><strong>Build from the configured development source</strong><p>Published releases are unavailable. This update will prepare version @TargetVersion from the configured local checkout before stopping jobs.</p></div></div>
+            }
+            <div class="update-notice"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /><div><strong>Keep @Office.MachineName on</strong><p>Allow the Windows administrator prompt if one appears. You can leave this page once the update starts.</p></div></div>
+            @if (!CanStart)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">@UnavailableReason</MudAlert>
+            }
+        }
+        else
+        {
+            @if (_session.State == "ready") { <div class="update-success-mark"><MudIcon Icon="@Icons.Material.Outlined.Check" /></div> }
+            <div class="update-eyebrow">@(_session.State == "failed" ? "Needs attention" : _session.State == "ready" ? "Update complete" : "Office software")</div>
+            <h2>@(_session.State == "ready" ? "Office updated" : _session.PhaseKey == "cancelled" ? "Update cancelled" : "Updating your Office")</h2>
+            <p class="update-secondary">@Office.MachineName · @Office.NodeVersion → @_session.TargetVersion</p>
+            <ol class="update-timeline" aria-label="Update stages">
+                @for (var i = 0; i < Phases.Length; i++)
+                {
+                    var index = i;
+                    <li class="@(index < PhaseIndex ? "complete" : index == PhaseIndex ? "current" : "")" aria-current="@(index == PhaseIndex ? "step" : null)"><span>@if (index < PhaseIndex) { <MudIcon Icon="@Icons.Material.Outlined.Check" Size="Size.Small" /> } else { @(index + 1) }</span>@(index == 4 && !_session.ResumeAfterUpdate ? "Keep paused" : Phases[index])</li>
+                }
+            </ol>
+            <div class="update-current" role="status" aria-live="polite"><h3>@_session.PhaseDisplayName</h3><p>@_session.Message</p></div>
+            @if (_session.PhaseKey is "stopping" or "cancelling" && _session.UpdateJobs is { Count: > 0 } jobs)
+            {
+                <div class="update-job-count"><span>Running jobs</span><span>@jobs.Count(x => x.State != "Stopping") of @jobs.Count stopped</span></div>
+                <ul class="update-jobs">@foreach (var job in jobs) { <li @key="job.AssignmentId"><div><strong>@job.Name</strong><small>@WorkKind(job.Kind)</small></div><span class="@(job.State == "Stopping" ? "update-job-stopping" : "update-job-stopped")"><MudIcon Icon="@(job.State == "Stopping" ? Icons.Material.Outlined.Pause : Icons.Material.Outlined.Check)" Size="Size.Small" />@job.State</span></li> }</ul>
+                @if (_session.StopStartedAt is { } stop && DateTimeOffset.UtcNow - stop > TimeSpan.FromMinutes(2))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-4">A job is taking longer to stop. Installation has not started. We’ll continue automatically after every job confirms teardown, or you can cancel this update.</MudAlert>
+                }
+            }
+            @if (_session.PhaseKey == "reconnecting" && Office.LastHeartbeatAt < DateTimeOffset.UtcNow.AddSeconds(-30))
+            {
+                <div class="update-notice"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /><div><strong>We’re still checking the connection</strong><p>Work stays paused until the new version and healthy capacity are confirmed. Keep the Office computer on and connected.</p></div></div>
+            }
+            @if (_session.State == "failed")
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-4">@(_session.ErrorMessage ?? "The update needs attention. Review the details before retrying.")</MudAlert>
+            }
+            @if (_session.UpdateJobs?.Any(x => x.State == "Needs attention") == true)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-4">Some interrupted jobs could not restart. Check their configuration in Installed agents.</MudAlert>
+                <ul class="update-jobs">@foreach (var job in _session.UpdateJobs.Where(x => x.State == "Needs attention")) { <li><strong>@job.Name</strong><span>Needs attention</span></li> }</ul>
+            }
+            <details class="update-details"><summary>Update details &amp; help</summary><div><p>Computer: @Office.MachineName</p><p>Target version: @_session.TargetVersion</p><p>Last confirmed step: @_session.PhaseDisplayName</p><p>@_session.ErrorCode</p><MudButton Size="Size.Small" OnClick="CopyDetailsAsync">Copy diagnostic summary</MudButton>@if (_session.State == "failed") { <MudButton Size="Size.Small" OnClick="OnRepair">Connection help &amp; recovery</MudButton> }</div></details>
+        }
+        @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true" role="alert" Class="mt-3">@_error</MudAlert> }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <div class="update-dialog-footer"><span>@(_session is null ? PreviouslyPaused ? "Already paused · will stay paused" : "Temporary interruption" : InProgress ? "You can leave this page. Progress is saved." : "Your Office settings and identity are kept.")</span><div>
+        @if (_session is null)
+        {
+            <MudButton OnClick="CloseAsync">Not now</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _initializing || !CanStart)" OnClick="StartAsync">@(_busy ? "Starting…" : "Start update")</MudButton>
+        }
+        else
+        {
+            @if (_session.CanCancelUpdate) { <MudButton Disabled="@_busy" OnClick="CancelAsync">Cancel update</MudButton> }
+            @if (_session.State == "failed" && OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow)) { <MudButton Disabled="@_busy" OnClick="ReviewRetry">Review retry</MudButton> }
+            <MudButton Variant="@(InProgress ? Variant.Text : Variant.Filled)" Color="Color.Primary" OnClick="CloseAsync">@(InProgress ? "Run in background" : "Done")</MudButton>
+        }
+        </div></div>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter, EditorRequired] public ExecutionNodeSummaryResponse Office { get; set; } = default!;
+    [Parameter] public string? TargetVersion { get; set; }
+    [Parameter] public bool UseLocalSource { get; set; }
+    [Parameter] public int? ActiveWork { get; set; }
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback<LocalOfficeSetupSessionResponse> SessionChanged { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnRepair { get; set; }
+    private static readonly DialogOptions DialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = true };
+    private static readonly string[] Phases = ["Prepare", "Stop jobs", "Install", "Reconnect", "Resume"];
+    private readonly CancellationTokenSource _lifetime = new();
+    private LocalOfficeSetupSessionResponse? _session;
+    private Task? _recovery;
+    private bool _initializing = true, _busy, _refreshing;
+    private string? _error;
+    private Guid? _reviewedRetrySession;
+    private bool? _retryResumeAfterUpdate;
+    private bool PreviouslyPaused => _retryResumeAfterUpdate.HasValue ? !_retryResumeAfterUpdate.Value :
+        Office.Status == "draining" && Office.WorkPauseReason != "maintenance";
+    private bool InProgress => _busy || OfficeCareState.IsInProgress(_session?.State);
+    private bool CanStart => Office.OperatingSystem == "windows" && Office.Status is "ready" or "draining" &&
+        OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow) && OfficeUpdatePresentation.NeedsUpdate(Office.NodeVersion, TargetVersion ?? "") &&
+        (UseLocalSource || Version.TryParse(Office.NodeVersion, out var installed) && installed >= new Version(0, 12, 0) || Office.IsLocalMachine);
+    private string UnavailableReason => !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow)
+        ? $"Connect {Office.MachineName} before updating. Its current state is unknown."
+        : string.IsNullOrWhiteSpace(TargetVersion) ? "Check for an available update first."
+        : !OfficeUpdatePresentation.NeedsUpdate(Office.NodeVersion, TargetVersion) ? "This Office already reports the selected version. Use connection help to verify recovery if an earlier update failed."
+        : "Automatic remote updates require Office 0.12.0 or later. Use the current Office installer on that computer to enable future automatic updates.";
+    private int PhaseIndex => _session?.State == "ready" ? 5 : _session?.PhaseKey switch
+        { "stopping" or "cancelling" => 1, "installing" => 2, "reconnecting" => 3, "resuming" => 4, _ => 0 };
+    private static string WorkKind(string kind) => kind == "Runtime" ? "Agent runtime" : kind == "Builder" ? "Agent build" : "Build job";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Realtime.EventReceived += EventReceived;
+        Realtime.Reconnected += Reconnected;
+        try { await Realtime.StartAsync(_lifetime.Token); } catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException or System.Net.WebSockets.WebSocketException) { }
+        await RefreshAsync();
+        _initializing = false;
+        _recovery = RecoverStatusAsync();
+    }
+    private void EventReceived(AppRealtimeEventEnvelope envelope)
+    {
+        if (envelope.EventType == AppRealtimeEvents.OfficeUpdateChanged && envelope.Subject == $"offices/{Office.Id:D}/update")
+            _ = InvokeAsync(RefreshAsync);
+    }
+    private void Reconnected() => _ = InvokeAsync(RefreshAsync);
+    private async Task RefreshAsync()
+    {
+        if (_refreshing || _busy || _lifetime.IsCancellationRequested) return;
+        _refreshing = true;
+        try
+        {
+            var result = _session is null ? await SetupApi.GetActiveLocalOfficeSetupSessionAsync(_lifetime.Token)
+                : await SetupApi.GetLocalOfficeSetupSessionAsync(_session.Id, _lifetime.Token);
+            if (!result.Succeeded) { _error = result.Message; return; }
+            if (result.Session is { AutomaticUpdate: true } session && session.UpgradeOfficeId == Office.Id &&
+                session.Id != _reviewedRetrySession &&
+                !(session.State == "ready" && session.TargetVersion != TargetVersion && OfficeUpdatePresentation.NeedsUpdate(Office.NodeVersion, TargetVersion ?? "")))
+            { _session = session; await SessionChanged.InvokeAsync(session); }
+            _error = null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
+        { if (!_lifetime.IsCancellationRequested) _error = "Connection interrupted. We’ll check the saved update status again automatically."; }
+        finally { _refreshing = false; StateHasChanged(); }
+    }
+    private async Task StartAsync()
+    {
+        if (_busy || !CanStart) return;
+        _busy = true; _error = null;
+        try
+        {
+            var result = await SetupApi.CreateLocalOfficeSetupSessionAsync(new("custom", Office.AllocatableCpuCount,
+                Office.AllocatableMemoryMb, Office.AllocatableDiskMb, Office.Id, AutomaticUpdate: true,
+                TargetVersion: TargetVersion, UseLocalSource: UseLocalSource), _lifetime.Token);
+            if (result is { Succeeded: true, Session.AutomaticUpdate: true })
+            { _session = result.Session; await SessionChanged.InvokeAsync(_session); await OnChanged.InvokeAsync(); }
+            else _error = result.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
+        { _error = "We couldn’t confirm the update request. We’ll check for an existing operation before you retry."; }
+        finally { _busy = false; }
+    }
+    private async Task CancelAsync()
+    {
+        if (_busy || _session?.CanCancelUpdate != true) return;
+        _busy = true;
+        try
+        {
+            var result = await SetupApi.CancelOfficeUpdateAsync(_session.Id, _lifetime.Token);
+            if (result.Succeeded && result.Session is { } session) { _session = session; await SessionChanged.InvokeAsync(session); }
+            else _error = result.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException)
+        { _error = "We couldn’t confirm cancellation. The saved update operation is still authoritative."; }
+        finally { _busy = false; }
+    }
+    private void ReviewRetry() { _reviewedRetrySession = _session?.Id; _retryResumeAfterUpdate = _session?.ResumeAfterUpdate; _session = null; _error = null; }
+    private Task CloseAsync() => VisibleChanged.InvokeAsync(false);
+    private async Task CopyDetailsAsync()
+    {
+        var module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
+        await using (module) await module.InvokeVoidAsync("copyText", $"Office: {Office.Name}\nComputer: {Office.MachineName}\nTarget: {_session?.TargetVersion}\nPhase: {_session?.PhaseKey}\nError: {_session?.ErrorCode}");
+    }
+    private async Task RecoverStatusAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try { while (await timer.WaitForNextTickAsync(_lifetime.Token)) await InvokeAsync(RefreshAsync); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        Realtime.EventReceived -= EventReceived; Realtime.Reconnected -= Reconnected;
+        _lifetime.Cancel(); if (_recovery is not null) await _recovery; _lifetime.Dispose();
+    }
+}

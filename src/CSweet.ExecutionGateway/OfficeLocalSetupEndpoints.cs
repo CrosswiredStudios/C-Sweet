@@ -8,6 +8,18 @@ public static class OfficeLocalSetupEndpoints
 {
     public static void MapOfficeLocalSetupEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapPost("/api/offices/local-sessions/update-prepare", async (
+            BeginOfficeUpdatePreparationRequest request, IExecutionFleetService fleet, CancellationToken ct) =>
+        {
+            var result = await fleet.BeginOfficeUpdatePreparationAsync(request, ct);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
+        app.MapPost("/api/offices/local-sessions/update-progress", async (
+            OfficeUpdatePreparationRequest request, IExecutionFleetService fleet, CancellationToken ct) =>
+        {
+            var result = await fleet.AdvanceOfficeUpdatePreparationAsync(request, ct);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        });
         app.MapPost("/api/offices/local-sessions/redeem", async (
             RedeemAssistedOfficeSetupRequest request,
             IExecutionFleetService fleet,

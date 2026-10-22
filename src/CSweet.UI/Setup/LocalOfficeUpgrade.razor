@@ -71,7 +71,7 @@ else
         <MudButton Variant="@(_session is null ? Variant.Filled : Variant.Text)" Color="Color.Primary" Disabled="@CannotStart" OnClick="StartAsync" StartIcon="@Icons.Material.Outlined.SystemUpdateAlt">@(_busy ? "Starting…" : _operation == "upgrade" ? "Install update" : _session is null ? "Repair connection" : "Try repair again")</MudButton>
         @if (_session is null && _operation == "repair" && OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow))
         {
-            <MudButton Disabled="@CannotStart" OnClick="BeginUpdate">@L["LocalOfficeUpgrade.UpdateOffice"]</MudButton>
+            <MudButton Disabled="@CannotStart" OnClick="RequestUpdateAsync">@L["LocalOfficeUpgrade.UpdateOffice"]</MudButton>
         }
         <MudText Typo="Typo.caption" Class="mt-2 d-block">Your Office settings and identity will be kept. Work must finish before @(_operation == "upgrade" ? "the update" : "repair") can continue.</MudText>
         @if (_session?.ErrorCode == "recovery_app_update_required")
@@ -117,7 +117,7 @@ else
             <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || Disabled)" OnClick="OnResume">@L["LocalOfficeUpgrade.ResumeWork"]</MudButton>
         }
         @if (_session.ConnectedOfficeId is null || _session.ConnectedOfficeId == Office.Id)
-        { <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="BeginUpdate">@L["LocalOfficeUpgrade.UpdateOffice"]</MudButton> }
+        { <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="RequestUpdateAsync">@L["LocalOfficeUpgrade.UpdateOffice"]</MudButton> }
     }
     else
     {
@@ -149,6 +149,8 @@ else
     [Parameter] public EventCallback OnChanged { get; set; }
     [Parameter] public EventCallback OnResume { get; set; }
     [Parameter] public EventCallback OnPause { get; set; }
+    [Parameter] public EventCallback OnUpdateRequested { get; set; }
+    private Task RequestUpdateAsync() => OnUpdateRequested.InvokeAsync();
     [Parameter] public EventCallback<bool> InProgressChanged { get; set; }
     [Parameter] public bool DevelopmentBuild { get; set; }
     [Parameter] public bool ShowSummary { get; set; } = true;
@@ -223,6 +225,7 @@ else
         // Polling an unrelated onboarding session must not erase this repair's error.
         if (result.Session is { } session && session.UpgradeOfficeId == Office.Id)
         {
+            if (session.AutomaticUpdate) return;
             if (_ignoreCompleted && session.State == "ready") return;
             // Only hide the previous completion while choosing a new update. Once
             // its session is accepted, its eventual completion must reach the UI.

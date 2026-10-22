@@ -4000,6 +4000,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("LeaseExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("MaintenanceInterruptionCount")
+                        .HasColumnType("integer");
+
                     b.Property<int>("MaximumAttempts")
                         .HasColumnType("integer");
 
@@ -10167,6 +10170,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<int>("MaintenanceInterruptionCount")
+                        .HasColumnType("integer");
+
                     b.Property<int>("MaximumAttempts")
                         .HasColumnType("integer");
 
@@ -10793,6 +10799,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WorkPauseReason")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.HasKey("Id");
 
@@ -11490,6 +11500,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<bool>("AutomaticUpdate")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("CancellationRequestedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -11534,6 +11551,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTimeOffset?>("LastUpdateCheckAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("MachineBindingHash")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -11546,6 +11566,17 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("PreparationReadyAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PreparationReceiptHash")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("PreparationStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PresetKey")
                         .IsRequired()
@@ -11563,6 +11594,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("RedeemedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("ResumeAfterUpdate")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("SetupReceiptHash")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -11573,11 +11607,30 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<DateTimeOffset?>("StopStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TargetVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("UpdatePhase")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("UpgradeOfficeId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("UseLocalUpdateSource")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("WorkRestoredAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -11878,6 +11931,49 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProviderProfileId");
 
                     b.ToTable("ModelCapabilityTests");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.OfficeUpdateJob", b =>
+                {
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AgentBuildJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AgentRuntimeInstanceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DeliveryBuildId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("NeedsRecovery")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("RecoveredAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecoveryError")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("SessionId", "AssignmentId");
+
+                    b.ToTable("OfficeUpdateJob");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.OnboardingStep", b =>
@@ -13387,8 +13483,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FailureMessage")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
+                        .HasColumnType("text");
 
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid");
@@ -17799,6 +17894,17 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("ProviderProfile");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.OfficeUpdateJob", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.LocalOfficeSetupSession", "Session")
+                        .WithMany("UpdateJobs")
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Session");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.PluginConnection", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
@@ -18649,6 +18755,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CSweet.Domain.Setup.ExecutionPool", b =>
                 {
                     b.Navigation("Nodes");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.LocalOfficeSetupSession", b =>
+                {
+                    b.Navigation("UpdateJobs");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.SourceControlConnection", b =>

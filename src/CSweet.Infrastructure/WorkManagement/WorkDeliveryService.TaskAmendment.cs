@@ -26,11 +26,11 @@ public sealed partial class WorkDeliveryService
         if (plan.Status != "Paused" || plan.Revision != request.ExpectedPlanRevision)
             throw new DbUpdateConcurrencyException("Pause the current delivery plan and review its latest revision before amending task scope.");
         static bool InvalidText(IReadOnlyList<string>? values, bool required) => values is null ? required :
-            values.Count > 100 || required && values.Count == 0 || values.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 4000);
+            values.Count > 100 || required && values.Count == 0 || values.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 8192);
         if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > 2000 || request.Planning is null ||
             InvalidText(request.Planning.Requirements,true) || InvalidText(request.Planning.AcceptanceCriteria,true) ||
             InvalidText(request.Planning.Constraints,false))
-            throw new ArgumentException("Provide the exact approved requirements, acceptance criteria and amendment reason.");
+            throw new ArgumentException("Provide the exact approved requirements, acceptance criteria and amendment reason. Planning entries are limited to 8192 characters and the reason to 2000 characters.");
         if (plan.Executions.Any(e => e.Promotions.Any(p => p.Status == "Completed")))
             throw new InvalidOperationException("Promoted release scope is immutable; create a follow-up release.");
         if (plan.Executions.SelectMany(e => e.Stages).SelectMany(s => s.Attempts)

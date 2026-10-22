@@ -1,5 +1,11 @@
 # Universal work management
 
+See [unchanged integrated-candidate resubmission](integrated-candidate-resubmission.md)
+for exact-commit recovery, the governed board action and paired developer releases.
+
+See [QA result persistence](qa-result-persistence.md) for unlimited failure-summary
+storage, completed-result activity states and ticket 23's audited legacy-history exception.
+
 See [forecast-driven planning](../forecast-driven-planning.md) for optional external dates, completion ranges derived from elapsed delivery history, and manager-owned decision pauses.
 
 See [ticket-defined workflows](ticket-defined-workflows.md) for the current delivery model: agents declare visible workflow tickets, dependencies, criteria and assigned steps. Source-scope labels do not impose aggregate review gates. Clean-start plans replace the former implicit delivery sequence.

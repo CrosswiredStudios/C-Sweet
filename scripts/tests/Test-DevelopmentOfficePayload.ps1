@@ -10,12 +10,13 @@ foreach ($name in @('Get-OptionalObjectProperty', 'Assert-DevelopmentOfficePaylo
     }.GetNewClosure(), $true)
     Invoke-Expression $definition.Extent.Text
 }
-foreach ($suite in @('csweet-hardware-vm-smoke-v15', 'csweet-hardware-vm-smoke-v15-ipv4')) {
+foreach ($suite in @('csweet-hardware-vm-smoke-v16', 'csweet-hardware-vm-smoke-v16-ipv4')) {
     Assert-DevelopmentOfficePayload ([pscustomobject]@{ brokerProtocolVersion = '1.1'; certificationSuiteVersion = $suite })
 }
 foreach ($payload in @(
     [pscustomobject]@{ officeVersion = '0.9.0'; brokerProtocolVersion = '1.0'; certificationSuiteVersion = 'csweet-hardware-vm-smoke-v14' },
-    [pscustomobject]@{ brokerProtocolVersion = '1.0'; certificationSuiteVersion = 'csweet-hardware-vm-smoke-v15' },
+    [pscustomobject]@{ brokerProtocolVersion = '1.0'; certificationSuiteVersion = 'csweet-hardware-vm-smoke-v16' },
+    [pscustomobject]@{ brokerProtocolVersion = '1.1'; certificationSuiteVersion = 'csweet-hardware-vm-smoke-v15' },
     [pscustomobject]@{ brokerProtocolVersion = '1.1'; certificationSuiteVersion = 'csweet-hardware-vm-smoke-v14' },
     [pscustomobject]@{}
 )) {
@@ -23,4 +24,4 @@ foreach ($payload in @(
     try { Assert-DevelopmentOfficePayload $payload } catch { $rejected = $true }
     if (-not $rejected) { throw 'Invalid development payload was admitted.' }
 }
-Write-Output 'Installer syntax and six development payload cases passed.'
+Write-Output 'Installer syntax and seven development payload cases passed.'

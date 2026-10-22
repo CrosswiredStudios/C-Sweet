@@ -12,7 +12,7 @@ public static class OfficePresentation
         "revoked" => "Revoked",
         "pendingapproval" => "Awaiting approval",
         "ready" or "draining" or "offline" when !IsConnected(office, now) => "Offline",
-        "draining" => "Draining",
+        "draining" => "Paused",
         "ready" => "Ready",
         _ => "Needs attention"
     };

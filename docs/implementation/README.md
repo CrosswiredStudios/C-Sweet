@@ -91,6 +91,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
   durable incidents, management escalation and rollout.
 - [Adrian CI timeout](./adrian-ci-timeout-2026-10-16.md) - retained evidence, bounded command cleanup,
   runtime fencing, checkpoint recovery and informational CEO escalation.
+- [Adrian heartbeat interruption](./adrian-heartbeat-interruption-2026-10-21.md) - shared Office
+  connection failure, contained renewal conflicts, workload-preserving reconnects and fresh runtime recovery.
 - [Prism Break runtime build interruption](./prism-break-runtime-build-2026-10-16.md) -
   VGAEBFF008A8-33 evidence, guest reproduction and the retained workflow improvement register.
 
@@ -110,6 +112,7 @@ Cross-cutting features are documented as a phased series in their own folder:
 - [Office assisted installation](./features/office-assisted-installation.md) -
   provide a guided signed-package installation and one-use local enrollment handoff for **This
   machine**, while retaining portable instructions for **Another machine**.
+- [Automatic Office updates](./features/office-automatic-updates.md) - focused dialog, verified preparation, confirmed job teardown, automatic reconnection/resume, and durable recovery.
 - [Game production reliability](./features/game-production-reliability/README.md) - add
   deterministic game-production evaluations, criterion coverage, persistent review remediation,
   generated effective assignment contracts, curated playbooks, and safe proactive programs.

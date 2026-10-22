@@ -16,7 +16,7 @@ using Wire = CSweet.WorkManagement.Contracts;
 
 namespace CSweet.UnitTests;
 
-public sealed class CurrentActivityTests
+public sealed partial class CurrentActivityTests
 {
     [Theory]
     [InlineData("chief-review")]

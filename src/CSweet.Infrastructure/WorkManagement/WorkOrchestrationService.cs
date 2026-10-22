@@ -16,7 +16,8 @@ namespace CSweet.Infrastructure.WorkManagement;
 public sealed partial class WorkOrchestrationService(
     CSweetDbContext db,
     TimeProvider timeProvider,
-    IScopedActionAuthorizationService? authorization = null) : IWorkOrchestrationService
+    IScopedActionAuthorizationService? authorization = null,
+    CSweet.Application.SourceControl.ITrustedSourceControlHostClient? sourceControlHost = null) : IWorkOrchestrationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -1037,7 +1038,7 @@ public sealed partial class WorkOrchestrationService(
             throw new ArgumentException("Idempotency key is required and cannot exceed 160 characters.");
     }
 
-    private sealed record AssignmentSnapshot(
+    internal sealed record AssignmentSnapshot(
         Guid WorkItemId, string StageKey, WorkOrchestrationPrincipalKind PrincipalKind,
         Guid? OrganizationUserId, Guid? AgentInstallationId, string? PlatformAction,
         string? RequirementsJson, string? SelectionEvidenceJson);

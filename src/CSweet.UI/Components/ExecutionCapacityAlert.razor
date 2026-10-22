@@ -6,10 +6,18 @@
 
 @if (CapacityState.Status != ExecutionCapacityAlertStatus.Hidden)
 {
-    <MudAlert Severity="@(IsConnecting ? Severity.Info : Severity.Error)" Variant="Variant.Filled" Class="execution-capacity-alert" aria-live="polite">
+    <MudAlert Severity="@(IsConnecting || IsMaintenance || IsPaused ? Severity.Info : Severity.Error)" Variant="Variant.Filled" Class="execution-capacity-alert" aria-live="polite">
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="width: 100%; gap: 1rem; flex-wrap: wrap">
             <div>
-                @if (IsConnecting)
+                @if (IsMaintenance)
+                {
+                    <strong>Office update in progress</strong><div>Work is temporarily paused while this Office updates. It will reconnect and restore its previous work setting automatically.</div>
+                }
+                else if (IsPaused)
+                {
+                    <strong>Office work is paused</strong><div>Your Office is connected and healthy. Resume work from Offices when you’re ready.</div>
+                }
+                else if (IsConnecting)
                 {
                     <strong>@L["ExecutionCapacityAlert.Connecting.Title"]</strong>
                     <div>@L["ExecutionCapacityAlert.Connecting.Body"]</div>
@@ -30,6 +38,8 @@
 @code {
     private readonly CancellationTokenSource _lifetime = new();
     private bool IsConnecting => CapacityState.Status == ExecutionCapacityAlertStatus.Connecting;
+    private bool IsMaintenance => CapacityState.Status == ExecutionCapacityAlertStatus.Maintenance;
+    private bool IsPaused => CapacityState.Status == ExecutionCapacityAlertStatus.Paused;
 
     protected override async Task OnInitializedAsync()
     {

@@ -50,7 +50,7 @@ public sealed partial class CSweetDbContext
     {
         if (request.OrganizationId is not { } organization || request.Employees is not { Count: > 0 } ||
             request.EventType is not ("model.response.chunk" or "model.call.started" or "model.call.completed" or
-                "agent.work.progress" or "agent.work.attempt.started" or "agent.work.attempt.stopped")) return;
+                "agent.work.progress" or "agent.work.attempt.started" or "agent.work.attempt.stopped" or "qa.compute.waiting")) return;
         var now = DateTimeOffset.UtcNow;
         // The streaming context is long lived. Bound wake hints independently of token
         // rate, while lifecycle/progress transitions always wake the authorized reader.

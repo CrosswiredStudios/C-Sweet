@@ -106,13 +106,15 @@ function Assert-CSweetOfficeAsset([object] $Asset, [string] $Version, [string] $
     if ($total -ne $Asset.size) { throw 'Office multipart sizes do not match the complete archive.' }
 }
 
-function Resolve-CSweetOfficeRelease([string] $Architecture) {
+function Resolve-CSweetOfficeRelease([string] $Architecture, [string] $TargetVersion) {
     if ($Architecture -cne 'x64') { return $null }
+    if ($TargetVersion -and $TargetVersion -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid target Office version.' }
     $releases = Get-CSweetReleaseJson "https://api.github.com/repos/$script:OfficeReleaseRepository/releases?per_page=20"
     if ($null -eq $releases) { return $null }
     $candidates = @($releases | Where-Object { -not $_.draft -and -not $_.prerelease -and $_.tag_name -cmatch '^v[0-9]+\.[0-9]+\.[0-9]+$' } |
         Sort-Object { [version]$_.tag_name.Substring(1) } -Descending)
     foreach ($release in $candidates) {
+        if ($TargetVersion -and $release.tag_name -cne "v$TargetVersion") { continue }
         if (@($release.assets | Where-Object name -CEQ 'office-bootstrap.json').Count -ne 1) { continue }
         $version = $release.tag_name.Substring(1)
         $base = "https://github.com/$script:OfficeReleaseRepository/releases/download/v$version"

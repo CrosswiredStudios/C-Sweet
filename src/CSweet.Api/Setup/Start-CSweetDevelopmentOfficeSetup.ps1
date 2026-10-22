@@ -45,7 +45,7 @@ function Assert-DevelopmentOfficePayload([object] $Manifest) {
     $protocol = [string](Get-OptionalObjectProperty $Manifest 'brokerProtocolVersion')
     $suite = [string](Get-OptionalObjectProperty $Manifest 'certificationSuiteVersion')
     if ($protocol -cne '1.1' -or $suite -cnotin @('csweet-hardware-vm-smoke-v16', 'csweet-hardware-vm-smoke-v16-ipv4')) {
-        throw 'The prepared Office payload cannot run development agents. Setup requires protocol 1.1 and v15 development certification. No services were replaced; update the Office bundle and retry preparation.'
+        throw 'The prepared Office payload cannot run development agents. Setup requires protocol 1.1 and v16 development certification. No services were replaced; update the Office bundle and retry preparation.'
     }
 }
 
@@ -125,6 +125,10 @@ $expectedControlPlaneCertificateSha256 = $null
 $controlPlaneRequestFailed = $false
 $release = $null
 $prebuiltRoot = $null
+$automaticUpdate = $false
+$preparationReceipt = $null
+$preparedPayloadRoot = $null
+$preparationControlPlaneUrl = $null
 try {
     $handoff = [IO.File]::ReadAllText($HandoffInputPath, [Text.Encoding]::UTF8).Trim()
     Remove-TransientFile $HandoffInputPath
@@ -134,6 +138,12 @@ try {
     }
     $sessionId = [guid](Get-QueryValue $uri 'session')
     $origin = Get-QueryValue $uri 'origin'
+    $automaticUpdate = (Get-QueryValue $uri 'automatic') -ceq 'true'
+    $targetVersion = Get-QueryValue $uri 'version'
+    if ($automaticUpdate) {
+        if ($targetVersion -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'The Office update has no valid target version.' }
+        $UseLocalSource = (Get-QueryValue $uri 'localSource') -ceq 'true'
+    }
     $handoffCertificateSha256 = Get-QueryValue $uri 'certificate'
     $fragment = $uri.Fragment.TrimStart('#')
     if (-not $fragment.StartsWith('handoff=', [StringComparison]::Ordinal)) {
@@ -159,7 +169,7 @@ try {
         "*$($identity.User.Value):(OI)(CI)R" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'The Office download directory could not be protected.' }
     . (Join-Path $PSScriptRoot 'CSweet.OfficeRelease.ps1')
-    if (-not $UseLocalSource) { $release = Resolve-CSweetOfficeRelease -Architecture $architecture }
+    if (-not $UseLocalSource) { $release = Resolve-CSweetOfficeRelease -Architecture $architecture -TargetVersion $(if ($automaticUpdate) { $targetVersion } else { $null }) }
     if ($null -ne $release) {
         # This small support asset supplies the preflight scripts. The large image is fetched only AFTER
         # redemption, so a slow image download cannot consume the five-minute one-use handoff lifetime.
@@ -167,7 +177,7 @@ try {
             -Destination (Join-Path $setupRoot "office-support-$([guid]::NewGuid().ToString('N'))")
         $officeScriptRoot = Join-Path $supportRoot 'scripts\windows'
         $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
-    } elseif ($OfficeBootstrapScript -and (Test-Path -LiteralPath $OfficeBootstrapScript -PathType Leaf)) {
+    } elseif ((-not $automaticUpdate -or $UseLocalSource) -and $OfficeBootstrapScript -and (Test-Path -LiteralPath $OfficeBootstrapScript -PathType Leaf)) {
         $officeScriptRoot = Split-Path -Parent $OfficeBootstrapScript
         Write-Host 'No compatible published Office bundle is available. Using the configured local Office source.'
     } else {
@@ -201,6 +211,67 @@ try {
         if ([guid]$installedState.OfficeId -ne $expectedOfficeId) { throw 'The installed Office does not match the Office selected in Headquarters.' }
     }
 
+    if ($automaticUpdate) {
+        # Exchange the five-minute handoff before the large download/certification. No service
+        # or workload is stopped until this exact payload has been fully prepared.
+        $beginRequest = @{ handoffSecret = $handoffSecret; machineName = [Environment]::MachineName;
+            operatingSystem = 'windows'; architecture = $architecture } | ConvertTo-Json -Compress
+        $preparation = Invoke-CSweetPinnedRestMethod -Method Post `
+            -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/update-prepare') -Body $beginRequest
+        if (-not $preparation.succeeded -or [string]$preparation.targetVersion -cne $targetVersion -or
+            [String]::IsNullOrWhiteSpace([string]$preparation.receipt)) { throw 'C-Sweet could not authorize update preparation.' }
+        $preparationReceipt = [string]$preparation.receipt
+        $preparationControlPlaneUrl = [string]$preparation.controlPlaneUrl
+        Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+            -State running -PhaseKey prepare-update -PhaseDisplayName 'Preparing your update' `
+            -Message 'Downloading and verifying the update. Current jobs are still running.' -PercentComplete 0
+        if ($null -ne $release) {
+            $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
+                -Destination (Join-Path $setupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+            $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
+            $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
+        }
+        $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
+        $certificationRoot = Join-Path $officeRepositoryRoot 'artifacts\windows-test'
+        $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
+        Remove-TransientFile $payloadResultPath
+        $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
+        if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
+        & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
+            -ControlPlaneUrl $preparationControlPlaneUrl -ProgressPath $progressPath -ProgressJobId $sessionId `
+            -NoElevation -SkipInstall -PayloadResultPath $payloadResultPath
+        if ($LASTEXITCODE -ne 0) { throw 'Office update preparation failed. Current jobs were not stopped.' }
+        if (-not (Test-Path -LiteralPath $payloadResultPath -PathType Leaf)) { throw 'Update preparation did not produce a payload.' }
+        $preparedPayloadRoot = [IO.Path]::GetFullPath([IO.File]::ReadAllText($payloadResultPath).Trim())
+        $allowedRoot = [IO.Path]::GetFullPath($certificationRoot).TrimEnd('\') + '\'
+        if (-not $preparedPayloadRoot.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'The prepared update path is invalid.' }
+        $preparedManifest = Get-Content -LiteralPath (Join-Path $preparedPayloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json
+        Assert-DevelopmentOfficePayload $preparedManifest
+        $preparedExe = [IO.Path]::GetFullPath((Join-Path $preparedPayloadRoot ([string]$preparedManifest.officeExecutable)))
+        if (-not $preparedExe.StartsWith($preparedPayloadRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            ([version](Get-Item -LiteralPath $preparedExe).VersionInfo.FileVersion).ToString(3) -cne $targetVersion) {
+            throw 'The prepared Office payload does not match the selected update version.'
+        }
+        $stopDeadline = [DateTimeOffset]::UtcNow.AddMinutes(30)
+        do {
+            $readyRequest = @{ sessionId = $sessionId; receipt = $preparationReceipt; machineName = [Environment]::MachineName;
+                operatingSystem = 'windows'; architecture = $architecture; packagePrepared = $true } | ConvertTo-Json -Compress
+            $ready = Invoke-CSweetPinnedRestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/update-progress') -Body $readyRequest
+            if (-not $ready.succeeded) { throw 'The Office update was cancelled or can no longer continue.' }
+            if ($ready.state -ceq 'installing') { break }
+            Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                -State running -PhaseKey stopping-jobs -PhaseDisplayName 'Stopping running jobs' `
+                -Message 'C-Sweet is stopping jobs and waiting for confirmed teardown before installation.' -PercentComplete 0
+            Start-Sleep -Seconds 2
+        } while ([DateTimeOffset]::UtcNow -lt $stopDeadline)
+        if ($ready.state -cne 'installing' -or [String]::IsNullOrWhiteSpace([string]$ready.launchUri)) {
+            throw 'Jobs have not confirmed that they stopped. No Office services were replaced.'
+        }
+        $uri = [uri]$ready.launchUri
+        $handoffSecret = [Uri]::UnescapeDataString($uri.Fragment.TrimStart('#').Substring('handoff='.Length))
+    }
+
     $recoveryProbe = Join-Path $officeScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
     $existingInstallationState = if (Test-Path -LiteralPath $recoveryProbe -PathType Leaf) {
         [string](& $recoveryProbe -ForUpgrade:($isUpgrade -and $operation -eq 'upgrade'))
@@ -213,7 +284,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = if ($null -ne $release) { $release.Version } else {
+        officeVersion = if ($automaticUpdate) { $targetVersion } elseif ($null -ne $release) { $release.Version } else {
             $localBuild = [xml](Get-Content -LiteralPath (Join-Path $officeScriptRoot '../../Directory.Build.props') -Raw)
             [string]$localBuild.Project.PropertyGroup.VersionPrefix
         }
@@ -325,7 +396,7 @@ try {
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = if ($null -ne $release) { $release.Version } else { '0.5.0' }
+        officeVersion = if ($automaticUpdate) { $targetVersion } elseif ($null -ne $release) { $release.Version } else { '0.5.0' }
     } | ConvertTo-Json -Compress
     $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
         -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request
@@ -375,7 +446,7 @@ try {
         -Message 'Administrator approval was received. C-Sweet is starting the Windows and Hyper-V checks.' `
         -PercentComplete 1 -EstimatedRemainingMinimumSeconds 1200 -EstimatedRemainingMaximumSeconds 3000
     try {
-        if ($null -ne $release) {
+        if ($null -ne $release -and -not $preparedPayloadRoot) {
             Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
                 -State running -PhaseKey download-office -PhaseDisplayName 'Downloading Office' `
                 -Message "Downloading prebuilt Office $($release.Version). The downloaded image will be checked on this machine." `
@@ -396,6 +467,7 @@ try {
         # Reviewed per-agent internet grants still govern workload network access.
         $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
         if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
+        if (-not $preparedPayloadRoot) {
         & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
             -ProgressPath $progressPath -ProgressJobId $sessionId -NoElevation -SkipInstall -PayloadResultPath $payloadResultPath
@@ -414,6 +486,7 @@ try {
             throw 'The Office build returned an invalid completed payload.'
         }
         Assert-DevelopmentOfficePayload (Get-Content -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json)
+        } else { $payloadRoot = $preparedPayloadRoot }
         # Reuse this setup session's UAC approval and progress channel. Image preparation
         # is an application step, never a command the user has to run.
         # Compute has its own on-demand preparation in Install-ComputeLocalProvider.ps1.
@@ -515,6 +588,14 @@ try {
 }
 catch {
     $failureMessage = $_.Exception.Message
+    if ($automaticUpdate -and $preparationReceipt -and $null -eq $redemption) {
+        try {
+            $failureRequest = @{ sessionId = $sessionId; receipt = $preparationReceipt; machineName = [Environment]::MachineName;
+                operatingSystem = 'windows'; architecture = $architecture; errorCode = 'package_preparation_failed' } | ConvertTo-Json -Compress
+            Invoke-CSweetPinnedRestMethod -Method Post `
+                -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/update-progress') -Body $failureRequest | Out-Null
+        } catch { }
+    }
     if (-not $progressHelperLoaded -and $progressPath -and $sessionId -ne [guid]::Empty) {
         @{ schemaVersion = 1; jobId = $sessionId; workflow = 'developer-bootstrap'; state = 'failed';
             phaseKey = 'resolve-office'; phaseDisplayName = 'Office download needs attention';
