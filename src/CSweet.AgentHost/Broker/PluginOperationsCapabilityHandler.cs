@@ -87,7 +87,7 @@ public sealed class PluginOperationsCapabilityHandler(
     {
         var input = JsonSerializer.Deserialize<AgentOperatingStateReadRequest>(request.Payload.Span, JsonOptions)
             ?? throw new JsonException("The operating-state read payload is empty.");
-        ValidateStateKey(input.StateKey);
+        AgentOperatingStateValidation.Validate(input);
         var state = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
             x.Kind == "agent-operating-state" && x.ExternalKey == input.StateKey, cancellationToken);
@@ -113,7 +113,7 @@ public sealed class PluginOperationsCapabilityHandler(
     {
         var input = JsonSerializer.Deserialize<AgentOperatingStateWriteRequest>(request.Payload.Span, JsonOptions)
             ?? throw new JsonException("The operating-state write payload is empty.");
-        ValidateOperatingState(input);
+        AgentOperatingStateValidation.Validate(input);
         var state = await db.PluginOperationalStates.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
             x.Kind == "agent-operating-state" && x.ExternalKey == input.StateKey, cancellationToken);
@@ -178,30 +178,6 @@ public sealed class PluginOperationsCapabilityHandler(
             stored.SourceRevisions, stored.ConditionCodes, stored.DecisionFingerprint,
             stored.OpenCommitmentCorrelations, stored.AttentionReviewId, stored.Payload,
             state.Revision, state.CreatedAt, state.UpdatedAt);
-    }
-
-    private static void ValidateOperatingState(AgentOperatingStateWriteRequest input)
-    {
-        ValidateStateKey(input.StateKey);
-        if (string.IsNullOrWhiteSpace(input.SchemaId) || input.SchemaId.Length > 160 || input.SchemaVersion < 1)
-            throw new InvalidOperationException("Operating state requires a bounded schema ID and positive schema version.");
-        if (string.IsNullOrWhiteSpace(input.Status) || input.Status.Length > 80 ||
-            string.IsNullOrWhiteSpace(input.DecisionFingerprint) || input.DecisionFingerprint.Length > 128 ||
-            string.IsNullOrWhiteSpace(input.IdempotencyKey) || input.IdempotencyKey.Length > 160)
-            throw new InvalidOperationException("Operating-state status, fingerprint, and idempotency key are required and bounded.");
-        if (input.SourceRevisions.Count > 32 || input.SourceRevisions.Any(x =>
-                string.IsNullOrWhiteSpace(x.Key) || x.Key.Length > 80 || x.Value.Length > 160) ||
-            input.ConditionCodes.Count > 32 || input.ConditionCodes.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 80) ||
-            input.OpenCommitmentCorrelations.Count > 32 || input.OpenCommitmentCorrelations.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 200) ||
-            input.Payload.GetRawText().Length > 128_000)
-            throw new InvalidOperationException("Operating-state revisions, conditions, commitments, or payload exceed platform bounds.");
-    }
-
-    private static void ValidateStateKey(string stateKey)
-    {
-        if (string.IsNullOrWhiteSpace(stateKey) || stateKey.Length > 160 ||
-            stateKey.Any(x => !(char.IsLetterOrDigit(x) || x is '.' or '-' or '_' or '/' or ':')))
-            throw new InvalidOperationException("Operating-state key is invalid.");
     }
 
     private async Task<CapabilityResult> HandleManagedActionDecisionAsync(RequestCapability request,

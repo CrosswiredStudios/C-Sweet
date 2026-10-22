@@ -827,12 +827,8 @@ public sealed class McpToolCatalog(
         PlatformCapabilities.ConnectorActionCancel => Schema("""
             {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"required":["actionId","idempotencyKey"],"additionalProperties":false}
             """),
-        PlatformCapabilities.AgentOperatingStateRead => Schema("""
-            {"type":"object","required":["stateKey"],"properties":{"stateKey":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[A-Za-z0-9._/:\\-]+$"}},"additionalProperties":false}
-            """),
-        PlatformCapabilities.AgentOperatingStateWrite => Schema("""
-            {"type":"object","required":["stateKey","schemaId","schemaVersion","status","sourceRevisions","conditionCodes","decisionFingerprint","openCommitmentCorrelations","attentionReviewId","payload","idempotencyKey"],"properties":{"stateKey":{"type":"string","minLength":1,"maxLength":160},"schemaId":{"type":"string","minLength":1,"maxLength":160},"schemaVersion":{"type":"integer","minimum":1},"status":{"type":"string","minLength":1,"maxLength":80},"sourceRevisions":{"type":"object","maxProperties":32,"additionalProperties":true},"conditionCodes":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":80}},"decisionFingerprint":{"type":"string","minLength":1,"maxLength":128},"openCommitmentCorrelations":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":200}},"attentionReviewId":{"type":"string","format":"uuid"},"payload":{"type":"object"},"expectedRevision":{"type":["integer","null"],"minimum":0},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
-            """),
+        PlatformCapabilities.AgentOperatingStateRead => AgentOperatingStateValidation.ReadInputSchema,
+        PlatformCapabilities.AgentOperatingStateWrite => AgentOperatingStateValidation.WriteInputSchema,
         HiringCapabilities.StageWorkflow => Schema("""
             {"type":"object","required":["recommendationId","candidateReference","roleTitle","conversationId","chatTurnId","idempotencyKey"],"properties":{"recommendationId":{"type":"string","format":"uuid"},"candidateReference":{"type":"string"},"roleTitle":{"type":"string","minLength":1,"maxLength":160},"reportsToOrganizationUserId":{"type":["string","null"],"format":"uuid"},"requiredGrants":{"type":["array","null"],"items":{"type":"string"}},"conversationId":{"type":"string","format":"uuid"},"chatTurnId":{"type":"string","format":"uuid"},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),

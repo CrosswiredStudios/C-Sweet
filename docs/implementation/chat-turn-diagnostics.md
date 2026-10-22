@@ -1,5 +1,22 @@
 # Chat turn diagnostics
 
+## Operating-state key validation
+
+The October 21 Naomi documentation handoff failed at `ProjectIdentityInference.InferProjectIdentityAsync`:
+concatenating the accepted-evidence key and a provider/model digest produced a 162-character
+attempt key, exceeding the 160-character contract. This happened for every model; changing models
+changed the digest, not its length. `PitchProtocol.CachedAsync` also reused keys as decision
+fingerprints, whose bound is 128 characters.
+
+SDK 5.3.0 adds `AgentOperatingStateKey.Create` and `AgentOperatingStateValidation`. The client,
+`AgentTestRuntime`, `McpToolCatalog` schemas and `PluginOperationsCapabilityHandler` use that shared
+contract. Creative Director 2.1.8 preserves accepted identity keys, hashes a structured attempt
+identity into a separate bounded key, and hashes decision fingerprints separately. Update through
+the published agent release; existing platform key bounds already accept the corrected requests.
+`AgentOperatingStateKeyContractTests` exercises the real schema/handler and SDK fake path together.
+Generic “execution stopped unexpectedly” ticket feedback can obscure this nonretryable capability
+validation failure; inspect `agent.capability.executed` audit error details for the actual field.
+
 How to find out why a Communications answer failed. The user-visible text is deliberately generic
 ("The agent couldn't complete that request. Please try again."); the cause is persisted on the turn,
 its trace, and agent-side records.
