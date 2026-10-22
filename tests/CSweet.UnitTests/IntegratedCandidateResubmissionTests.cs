@@ -16,6 +16,45 @@ public sealed class IntegratedCandidateResubmissionTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CarriedStoppedQaRetainsIntegrationAndRechecksTheCurrentBranch(bool advanced)
+    {
+        var (f, original, candidate) = await Seed(); await using var cleanup = f;
+        var prior = original.ItemExecution!;
+        prior.Status = WorkItemExecutionStatus.Cancelled; prior.CurrentStageKey = "quality";
+        prior.SprintExecution!.Status = WorkSprintExecutionStatus.Cancelled;
+        await f.Db.SaveChangesAsync();
+        var sprint = new WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id,
+            Status = WorkSprintExecutionStatus.Active, PolicyRevisionId = prior.SprintExecution.PolicyRevisionId,
+            AssignmentSnapshotJson = prior.SprintExecution.AssignmentSnapshotJson };
+        var current = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = f.Task.Id, WorkItem = f.Task,
+            SprintExecutionId = sprint.Id, SprintExecution = sprint, CurrentStageKey = "development" };
+        var author = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = current.Id, ItemExecution = current,
+            StageKey = "development", OrganizationUserId = f.Author.Id, Status = WorkStageExecutionStatus.Pending };
+        current.Stages.Add(author); sprint.Items.Add(current); f.Db.Add(sprint);
+        if (advanced) f.Host.AdvanceStory(f.Repositories[0], "csweet/story/one");
+        if (advanced)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => IntegratedCandidateResubmission.ResumeCarriedCandidateAsync(
+                f.Db, f.Client, author, f.Manager.Id, DateTimeOffset.UtcNow, default));
+            Assert.DoesNotContain(current.Stages, s => s.StageKey == "quality");
+        }
+        else
+        {
+            Assert.True(await IntegratedCandidateResubmission.ResumeCarriedCandidateAsync(f.Db, f.Client, author,
+                f.Manager.Id, DateTimeOffset.UtcNow, default));
+            await f.Db.SaveChangesAsync();
+            Assert.Equal("quality", current.CurrentStageKey);
+            Assert.Equal(WorkStageExecutionStatus.WaitingForHuman, current.Stages.Single(s => s.StageKey == "quality").Status);
+            Assert.Contains(candidate, current.Stages.Single(s => s.StageKey == "task-integration").Attempts.Single().ResultJson);
+            Assert.Single(await f.Db.WorkTaskIntegrationReceipts.ToListAsync());
+            Assert.Single(await f.Db.SourceControlPublications.ToListAsync());
+            Assert.Equal(WorkItemExecutionStatus.Cancelled, prior.Status);
+        }
+    }
+
     [Fact]
     public async Task Resubmission_reuses_exact_receipt_and_queues_fresh_QA_without_new_publication_or_pass()
     {

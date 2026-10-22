@@ -134,7 +134,7 @@ the actual missing browser environment. Previously delivered chat history remain
 
 Regression coverage: `DecisionRequiredTests`, `ImplementationBriefTests`,
 `CreativeDirectorLifecycleTests`, `WorkBoardWorkspaceTests`, `WorkBoardServiceTests`, and
-`ProjectHealthTests.Dependencies`. Deploy the platform and publish/install the three agent
+`ProjectHealthTests.Dependencies`. Deploy the platform and publish/install the four agent
 releases through Installed Agents. Local tests and `.nupkg` files do not update installations.
 
 Producer 4.0.9 `TryReadRetryDirection`, `RetainScopeAmendmentAsync` and `ScopeExpectedItems`
@@ -154,6 +154,101 @@ The Chromium-only owner decision was recorded through Communications and relayed
 as tracked work for Gabriel. Gabriel acknowledged it and the retained scope-amendment
 commitment was observed Running. The scaffold still carried its old criterion at that check;
 acknowledgement or a running amendment is not evidence that QA has resumed.
+
+Release rollout on October 22, 2026: the four repositories published their normal GitHub
+releases (`v2.1.9` Creative Director, `v5.0.2` Technical Director, `v5.2.2` QA and `v4.0.9`
+Producer), each with a Linux `.csab` bundle and SHA-256 file. Installed Agents fetched and
+installed each release through its normal update action. All four employee installations
+reported `ConfigurationSyncStatus.Current` without a configuration error. Gabriel's new
+retained-amendment task ran with package version `4.0.9`; Naomi's relay ran with `2.1.9`.
+The earlier `4.0.8` amendment stopped at `NeedsReview` before changing canonical criteria.
+The fresh authenticated manager relay created commitment `21c7c197-73d3-409f-be55-f3b4091edc7c`.
+It completed exact replacement preparation and queued correction commitment
+`fae51e46-1761-444d-bb1f-3ace83cfcca4`; Technical Director `5.0.2` and Producer `4.0.9`
+then began the correlated planning proposals. This handoff alone does not establish applied
+canonical criteria or resumed QA.
+The retained request contains 25 exact replacements totaling 48,710 serialized characters,
+exceeding the removed 24,000-character gate. Technical planning retained its 16-item scope
+outline and began saving validated three-task implementation-brief pages.
+
+The subsequent correction failed locally after the paginated proposal completed. A read-only
+replay against Producer `4.0.9` found generated `work.workflow-ticket.v1` titles being treated
+as proposal keys, plus exact-text transcription discrepancies. The 50,846-character amendment
+context and 15,630-character correction findings exceeded `BoundPlanningHandoff`'s artifact
+bound. Neither canonical criteria nor the QA execution had advanced.
+
+Producer `4.0.10` `RoleRepairArtifact` carries exact replacements and source planning hashes in
+`scopeAmendment`; `RoleRepairContext` references that complete artifact instead of duplicating
+it. `ProposalKey` excludes generated workflow tickets, and `RefreshAmendedWorkflowPlanningAsync`
+applies their explicitly authorized replacements with current revisions and replay checks.
+Technical Director `5.0.3` `ReadScopeAmendmentInstruction` and `BuildScopeAmendmentPlanning`
+validate the authenticated current-cycle manager handoff and every source planning digest,
+then transform canonical planning without model transcription. Completed work, roles, parent
+and dependency identities, unrelated criteria, and complete requirement text remain preserved.
+No result claims independent QA has passed merely because scope was amended.
+
+The two package-consumer suites passed 424 Producer and 167 Technical Director tests, both
+published-output self-tests passed, and `.nupkg`/manifest/release-note versions were checked.
+Replaying the live 25 replacements through Producer's 52,228-character artifact, Director's
+actual proposal finalization, and Producer's exact coverage validator passed. Both releases
+were published and installed normally, Director first. The existing correction commitment
+was reopened from Blocked to Ready in Gabriel's Personal Board; no retained state was edited.
+
+Director `5.0.3` then correctly rejected a stale source: ordinary progressive reconciliation
+had changed the eight container constraints during the earlier generation. Producer `4.0.11`
+permits a fresh authenticated same-direction request to renew a blocked correction using a new
+source-turn-specific `ScopeRepairKey`. `RenewableScopeRepairAsync` requires a matching blocked
+commitment; `ScopeExpectedItems` must still match each old entry against the fresh board before
+reusing edits. The prior snapshots remain immutable. `ReconcilePlanningAsync` holds ordinary
+planning while the amendment is Pending/Queued, and `MarkScopeAppliedAsync` records Applied
+only after canonical planning and delivery refresh. Five new regressions cover renewal, active
+correction refusal, revoked authority, changed originals, planning ownership and idempotent state.
+All 429 Producer tests passed, as did the published-output self-test and the current-source replay
+through Director finalization and Producer coverage validation. Producer `4.0.11` was published
+and installed normally; the identical Chromium direction was relayed anew through Naomi.
+
+The first renewed relay was rejected as `memory.recall_stale` before command application;
+a fresh manager relay created a current Pending amendment. Its application then exposed a
+contract failure: source-turn-specific snapshot keys exceeded the 128-character
+`decisionFingerprint` field when copied verbatim. Producer `4.0.12` hashes those fingerprints
+and bounds planning-state mutation keys, preserving full amendment text. The deferred amendment
+fixture now enforces host state-key/fingerprint bounds, and a planning-cycle regression includes
+the revision-safe merge attempt suffix. All 430 Producer tests, the published-output self-test,
+and package version checks passed. The release was published and installed normally; requeueing
+the retained commitment successfully persisted fresh snapshots and queued the new correction.
+
+Producer `4.0.12` applied the amendment to canonical task #11 at 17:50 UTC. Its planning
+and delivery criterion now requires Chromium alone. Recovery cancelled the stopped first
+sprint and created a planned successor, but ordinary planning then replaced the amendment's
+planning evidence. Producer `4.0.13` keeps ownership of applied amendment planning until its
+anchor finishes and creates an idempotent continuation when the handoff fingerprint drifts.
+All 430 Producer tests and the published-output self-test passed; the published release was
+installed through Installed Agents and reported Current. Its continuation restored the
+planning handoff and requeued readiness without changing the completed implementation.
+
+`WorkDeliveryService.ReconcileCurrentPlanningAsync` adds the explicit paused-plan
+`reconcile-planning` control for an authorized manager or owner. It retains graph, assignments,
+branches and source identities, rejects active writers and promoted scope, validates canonical
+task/delivery text, and creates a new scope revision with fresh acceptance executions. Historical
+checks remain superseded evidence. `ProjectReleases` exposes this recovery alongside owner
+pause/resume controls. `WorkDeliveryService.Stop` is idempotent for unchanged blockers: repeated
+worker pulses must not churn plan revisions and prevent optimistic-concurrency controls.
+`AgentWorkInbox.ClaimAsync` orders actionable continuations before delivery-change wake hints,
+so an existing notification backlog cannot hold coordination replies behind repeated attention
+reviews. Hints remain queued for eventual current-state discovery. The inbox and recovery suite
+passed 86 tests after adding the scheduling regression.
+
+`IntegratedCandidateResubmission.ResumeCarriedCandidateAsync`, called from
+`WorkOrchestrationService.StartAsync`, recognizes a cancelled sprint's stopped quality candidate.
+It revalidates the exact integrated branch, receipt, publication, current plan and independent QA
+assignment before queueing fresh QA. An advanced branch or invalid binding stops recovery;
+neither earlier QA nor a planning amendment counts as a passing verdict.
+
+The owner explicitly approved pause/reconcile/resume. The normal Delivery controls completed
+that sequence against scope revision 2 at 18:21 UTC. The active plan then displayed zero current
+blockers, three historical checks, and remaining scoped work awaiting independent acceptance.
+The focused platform recovery suite passed 53 tests; the earlier broader delivery suite passed
+120 with two skipped. This plan recovery alone does not establish a running sprint or passing QA.
 
 ## Earlier operational UI gaps
 

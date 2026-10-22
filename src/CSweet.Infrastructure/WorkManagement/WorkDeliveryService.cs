@@ -56,7 +56,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         var plan = await GetAuthorizedAsync(org, actorId, request.PlanId, WorkDeliveryCapabilities.Control, ct);
         var actor = await MemberAsync(org, actorId, ct);
         var ownerAmendmentControl = actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
-            request.Action is "pause" or "resume" or "retry-validation";
+            request.Action is "pause" or "resume" or "retry-validation" or "reconcile-planning";
         if (actor.Id != plan.ManagerOrganizationUserId && !ownerAmendmentControl)
             throw new UnauthorizedAccessException("Only the assigned release manager controls the plan; an authorized organization owner may pause or resume it for scope amendment.");
         var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "control", request, ct);
@@ -81,6 +81,8 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
                 }
                 plan.Status = "Active"; break;
             case "pause" when plan.Status is "Active" or "Promoting": plan.Status = "Paused"; break;
+            case "reconcile-planning" when plan.Status == "Paused":
+                await ReconcileCurrentPlanningAsync(plan, ct); break;
             case "resume" when plan.Status == "Paused": await ValidateCurrentScopeAsync(plan, ct); plan.Status = "Active"; break;
             case "retry-validation" when plan.Status == "Active":
                 await ValidateCurrentScopeAsync(plan,ct);

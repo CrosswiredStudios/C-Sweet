@@ -30,12 +30,13 @@
                 <div><dt>@L["ProjectReleases.WorkflowTickets"]</dt><dd>@L.Format("ProjectReleases.TicketsCompleted", new { completed = plan.Executions.Count(x => x.Status == "Completed"), total = plan.Scopes.Count })</dd></div>
             </dl>
             <p class="release-next"><strong>@L["ProjectReleases.NextAction"]</strong> @PlanNextAction(plan)</p>
-            @if (_currentUser == plan.ManagerOrganizationUserId)
+            @if (_currentUser == plan.ManagerOrganizationUserId || _canManageProjects)
             {
                 <div class="delivery-toolbar">
-                    @if (plan.Status == "Draft") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "activate"))">@L["ProjectReleases.Activate"]</button> }
+                    @if (plan.Status == "Draft" && _currentUser == plan.ManagerOrganizationUserId) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "activate"))">@L["ProjectReleases.Activate"]</button> }
                     @if (plan.Status == "Active") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "pause"))">@L["ProjectReleases.Pause"]</button> }
                     @if (plan.Status == "Active" && current.Any(x => x.Status == "Blocked")) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "retry-validation"))">@L["ProjectReleases.RetryValidation"]</button> }
+                    @if (plan.Status == "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "reconcile-planning"))">@L["ProjectReleases.ReconcilePlanning"]</button> }
                     @if (plan.Status == "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "resume"))">@L["ProjectReleases.Resume"]</button> }
                 </div>
             }
@@ -173,7 +174,7 @@
     private IReadOnlyList<ProjectSetupPerson> _people = [];
     private Guid? _currentUser;
     private (Guid, Guid)? _loadedScope;
-    private bool _loading, _busy;
+    private bool _loading, _busy, _canManageProjects;
     private string? _error;
     private string _recoveryReason = "", _summary = "", _findings = "";
     private WorkDeliveryPlanResponse? _decisionPlan;
@@ -201,7 +202,7 @@
             await RequireSuccess(response);
             _plans = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkDeliveryPlanResponse>>() ?? [];
             var options = await Http.GetFromJsonAsync<ProjectSetupOptions>($"api/core/organizations/{OrganizationId:D}/project-setup/options");
-            _people = options?.People ?? []; _currentUser = options?.CurrentUserId;
+            _people = options?.People ?? []; _currentUser = options?.CurrentUserId; _canManageProjects = options?.CanCreate == true;
         }
         catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { _error = error.Message; }
         finally { _loading = false; }

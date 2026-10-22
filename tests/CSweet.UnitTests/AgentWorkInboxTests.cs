@@ -12,6 +12,24 @@ namespace CSweet.UnitTests;
 public sealed partial class AgentWorkInboxTests
 {
     [Fact]
+    public async Task DeliveryWakeBacklogDoesNotCrowdOutCoordinationContinuation()
+    {
+        await using var db = CreateDb(); var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var installation = Installation(clock.GetUtcNow()); var runtime = Runtime(installation, clock.GetUtcNow());
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), clock);
+        var hint = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Changed, Json("{}"), "delivery-hint", clock.GetUtcNow().AddHours(1), sourceId: Guid.NewGuid().ToString("D"));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var continuation = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Event,
+            "com.csweet.agent.coordination.turn-requested.v1", Json("{}"), "coordination-continuation", clock.GetUtcNow().AddHours(1), sourceId: Guid.NewGuid().ToString("D"));
+        var session = Session(installation, runtime); var claim = (await inbox.ClaimAsync(session, default))!;
+        Assert.Equal(continuation.Id, claim.WorkId);
+        await inbox.CompleteAsync(session, claim.WorkId, claim.Attempt, claim.LeaseToken, new(true, Json("{}"), null), default);
+        Assert.Equal(hint.Id, (await inbox.ClaimAsync(session, default))!.WorkId);
+    }
+
+    [Fact]
     public async Task InformationalOwnerReportsDoNotCrowdOutDueDeliveryAndPersonalContinuation()
     {
         await using var db = CreateDb(); var clock = new MutableTimeProvider(DateTimeOffset.UtcNow);

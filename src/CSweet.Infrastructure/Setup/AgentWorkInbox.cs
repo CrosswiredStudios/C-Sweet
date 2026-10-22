@@ -331,6 +331,9 @@ public sealed partial class AgentWorkInbox(
                         x.DeadlineAt > now)
             .OrderBy(x => x.Kind == AgentWorkKind.ConfigurationUpdate ? 0 : 1)
             .ThenBy(x => x.Name == CSweet.Agent.SDK.ProjectHealthEvents.OwnerReportRequested ? 1 : 0)
+            // Delivery changes are wake hints. A burst of duplicate state notifications
+            // must not delay the coordination replies or personal work that resolve it.
+            .ThenBy(x => x.Name == CSweet.WorkManagement.Contracts.WorkDeliveryCapabilities.Changed ? 1 : 0)
             .ThenBy(x => x.AvailableAt)
             .ThenBy(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);

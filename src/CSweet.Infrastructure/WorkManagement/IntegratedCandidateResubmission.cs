@@ -15,6 +15,29 @@ public static class IntegratedCandidateResubmission
     public const string EventType = "candidate.resubmitted";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    internal static async Task<bool> ResumeCarriedCandidateAsync(CSweetDbContext db,
+        ITrustedSourceControlHostClient? host, WorkStageExecution author, Guid manager,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var current = author.ItemExecution!;
+        var item = current.WorkItem!;
+        if (author.StageKey is not ("development" or "specialist-execution") ||
+            string.IsNullOrWhiteSpace(item.MergeCommitSha)) return false;
+        var prior = await db.WorkItemExecutions.AsNoTracking().Where(e => e.WorkItemId == item.Id &&
+            e.Id != current.Id && e.Status == WorkItemExecutionStatus.Cancelled && e.CurrentStageKey == "quality" &&
+            e.SprintExecution!.Status == WorkSprintExecutionStatus.Cancelled &&
+            e.SprintExecution.BoardId == current.SprintExecution!.BoardId)
+            .OrderByDescending(e => e.UpdatedAt).FirstOrDefaultAsync(ct);
+        if (prior is null || !await db.WorkTaskIntegrationReceipts.AnyAsync(r => r.ItemExecutionId == prior.Id &&
+            r.WorkItemId == item.Id && r.Status == "Completed" && r.CandidateCommitSha == item.MergeCommitSha, ct)) return false;
+        // The current branch, publication, plan, team grants and independent QA assignment
+        // are all checked again. Prior QA is never carried forward as a verdict.
+        var candidate = await RequireAsync(db, host, item, ct);
+        await QueueQaAsync(db, author, candidate, manager, $"carryover-qa:{current.Id:N}",
+            "Scope was amended while QA was stopped. Preserve the exact integrated candidate and evaluate all current criteria in fresh independent QA.", now, ct);
+        return true;
+    }
+
     public static async Task<SourceControlPublication?> CurrentPublicationAsync(CSweetDbContext db, WorkTask item, CancellationToken ct)
     {
         var latest = await (from publication in db.SourceControlPublications

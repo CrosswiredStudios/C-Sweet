@@ -201,11 +201,23 @@ public sealed partial class WorkOrchestrationService(
             var itemExecution = new WorkItemExecution
             {
                 Id = Guid.NewGuid(), SprintExecutionId = execution.Id, WorkItemId = item.Id,
+                SprintExecution = execution, WorkItem = item,
                 ItemIdentifier = item.Identifier!, CurrentStageKey = policy.InitialStageKey,
                 Status = WorkItemExecutionStatus.Pending, CreatedAt = now, UpdatedAt = now
             };
             execution.Items.Add(itemExecution);
-            CreateStageExecution(itemExecution, policy.Stages.Single(x => x.Key == policy.InitialStageKey), item.StageAssignments, board.ManagerOrganizationUserId!.Value, now);
+            var initial = CreateStageExecution(itemExecution, policy.Stages.Single(x => x.Key == policy.InitialStageKey), item.StageAssignments, board.ManagerOrganizationUserId!.Value, now);
+            try
+            {
+                await IntegratedCandidateResubmission.ResumeCarriedCandidateAsync(db, sourceControlHost, initial, member.Id, now, cancellationToken);
+            }
+            catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException)
+            {
+                initial.Status = WorkStageExecutionStatus.Blocked;
+                initial.LastError = "The retained integrated candidate needs reconciliation before fresh QA: " + error.Message;
+                itemExecution.Status = WorkItemExecutionStatus.Blocked; itemExecution.BlockedReason = initial.LastError;
+                item.BlockReason = initial.LastError; item.Status = WorkTaskStatus.Blocked;
+            }
         }
         db.WorkSprintExecutions.Add(execution);
         sprint.Status = WorkSprintStatus.Active; sprint.StartedAt = now; sprint.UpdatedAt = now; sprint.Revision++;

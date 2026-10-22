@@ -365,8 +365,11 @@ public sealed partial class WorkDeliveryService
 
     private void Stop(WorkDeliveryExecution execution, string reason)
     {
-        execution.Status = execution.Promotions.Any(x => x.Status == "Completed") ? "PartiallyPromoted" : "Blocked";
-        execution.BlockedReason = reason.Length > 4096 ? reason[..4096] : reason; execution.Revision++; execution.UpdatedAt = clock.GetUtcNow();
+        var status = execution.Promotions.Any(x => x.Status == "Completed") ? "PartiallyPromoted" : "Blocked";
+        var blockedReason = reason.Length > 4096 ? reason[..4096] : reason;
+        if (execution.Status == status && execution.BlockedReason == blockedReason) return;
+        execution.Status = status;
+        execution.BlockedReason = blockedReason; execution.Revision++; execution.UpdatedAt = clock.GetUtcNow();
     }
     private async Task RevokeDeliveryGrantsAsync(WorkDeliveryExecution execution, WorkStageExecution stage, CancellationToken ct)
     {

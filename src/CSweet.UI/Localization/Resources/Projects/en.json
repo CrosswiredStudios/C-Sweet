@@ -256,6 +256,7 @@
   "ProjectReleases.Activate": "Activate approved scope",
   "ProjectReleases.Pause": "Pause delivery",
   "ProjectReleases.RetryValidation": "Retry validation",
+  "ProjectReleases.ReconcilePlanning": "Reconcile current planning",
   "ProjectReleases.Resume": "Resume delivery",
   "ProjectReleases.CurrentBlockers": "Current blockers",
   "ProjectReleases.NoBlockers": "No current blockers recorded. Remaining checks and acceptance still apply.",
