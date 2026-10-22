@@ -1,5 +1,11 @@
 # README artwork
 
+## Animated explainer (October 22, 2026)
+
+`explainer/` contains the finished 112-second 1920×1080 film, a separately composed 30-second 1080×1920 marketing cut, a 12-second README GIF, poster, chapter track, transcript and storyboard. Both MP4s have original stereo music. The README embeds `final-teaser.gif` and links to `from-idea-to-play.mp4`. Source, reproduction instructions and provenance are in [`tools/csweet-explainer`](../../tools/csweet-explainer/README.md).
+
+The film uses actual Razor components from `CSweet.UI`, captured through the in-memory `CSweet.Promo.Demo` fixture. `explainer/captures/sequence-provenance.json` records the revised sequence’s selectors, dimensions, portrait landmarks and capture hashes; `provenance.json` retains earlier capture provenance. Component styles, the original `icon.svg` and `icon_dark.svg` and agent portraits remain unchanged; editorial typography, camera movement and framing sit outside the product captures. The approved story follows Chief of Staff, Creative Director, Producer, Engineer, Technical Director and QA. Prism Break is an authored playable browser game using the same renderer and physics in the film and demo page; it is illustrative output, not a captured agent run. Music direction B is original synthesized arcade pop at 116 BPM, with no third-party recordings or samples. `delivery.json` records encoded dimensions, audio, duration and measured loudness. Earlier animatic and music studies are retained as source history. No media has been published externally.
+
 ## Aurora presentation (October 14, 2026)
 
 The current README uses actual app components and editable vector diagrams. It does not use a generated product mockup. The palette follows `src/CSweet.UI/wwwroot/css/app.css`'s Aurora tokens: plum text `#30263f`, muted text `#72667d`, accent `#735090`, raised paper `#fbfaff`, lavender `#c5c1f2`, blush `#eac2dd`, and soft teal `#c6e8ea`.

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "a-warm-electronica",
+    "name": "Warm cinematic electronica",
+    "bpm": 100,
+    "notes": "Soft keys, rounded bass, spacious pads and a restrained beat. Recommended for the C-Sweet brand.",
+    "durationSeconds": 21.5,
+    "file": "a-warm-electronica.mp3",
+    "originalSynthesizedSketch": true,
+    "vocals": false,
+    "encodedLUFS": "-18.27",
+    "encodedTruePeakDb": "-5.09"
+  },
+  {
+    "id": "b-playful-arcade",
+    "name": "Playful arcade pop",
+    "bpm": 116,
+    "notes": "Bright plucks, syncopated bass, crisp drums and a touch of chiptune. More game-forward.",
+    "durationSeconds": 18.85,
+    "file": "b-playful-arcade.mp3",
+    "originalSynthesizedSketch": true,
+    "vocals": false,
+    "encodedLUFS": "-18.26",
+    "encodedTruePeakDb": "-4.10"
+  },
+  {
+    "id": "c-cinematic-lift",
+    "name": "Cinematic lift",
+    "bpm": 88,
+    "notes": "Piano-like keys, swelling synth strings and broad percussion. More emotional and expansive.",
+    "durationSeconds": 24.12,
+    "file": "c-cinematic-lift.mp3",
+    "originalSynthesizedSketch": true,
+    "vocals": false,
+    "encodedLUFS": "-18.27",
+    "encodedTruePeakDb": "-4.63"
+  }
+]

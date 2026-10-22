@@ -1,0 +1,1569 @@
+{
+  "realComponents": true,
+  "simplifiedOverviewLayout": true,
+  "fixtureFailures": [],
+  "browserErrors": [],
+  "records": [
+    {
+      "file": "chief.png",
+      "scene": "/explainer/chief",
+      "selector": ".hire-profile",
+      "bounds": {
+        "x": 491,
+        "y": 395.015625,
+        "width": 618,
+        "height": 641.953125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 28,
+          "y": 82,
+          "w": 100,
+          "h": 124
+        }
+      ],
+      "scale": 2,
+      "sha256": "b8873484ff6bf59bdd107f86792bafb0ad8302a1c55f6c6684bbc9f92f1effc0"
+    },
+    {
+      "file": "overview.png",
+      "scene": "/explainer/overview",
+      "selector": ".film-overview",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 733.65625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 69,
+          "y": 251.53125,
+          "w": 30,
+          "h": 30
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 69,
+          "y": 487.171875,
+          "w": 30,
+          "h": 30
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 592.90625,
+          "y": 250.375,
+          "w": 44,
+          "h": 44
+        }
+      ],
+      "scale": 2,
+      "sha256": "e02043b9bbfca8229053767d6c967f490f8070f207d4c7216046d91226a504bd"
+    },
+    {
+      "file": "overview-open.png",
+      "scene": "/explainer/overview",
+      "selector": ".film-overview",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 733.65625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 69,
+          "y": 251.53125,
+          "w": 30,
+          "h": 30
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 69,
+          "y": 487.171875,
+          "w": 30,
+          "h": 30
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 592.90625,
+          "y": 250.375,
+          "w": 44,
+          "h": 44
+        }
+      ],
+      "scale": 2,
+      "sha256": "4a8ba2fa229a664cb3451dc5b8f5ee38b2c57d01a3ecd0dd029181c87d1132af"
+    },
+    {
+      "file": "chat-director.png",
+      "scene": "/explainer/chat-director",
+      "selector": ".hub-main",
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 723.109375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg",
+          "x": 29,
+          "y": 153.515625,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 122,
+          "y": 349.46875,
+          "w": 64,
+          "h": 76
+        }
+      ],
+      "scale": 2,
+      "sha256": "8a4457dc53c43704c00b1bc78c6667de6ee0f2874c73022994ddeae23aa1fac0"
+    },
+    {
+      "file": "director-card.png",
+      "scene": "/explainer/director",
+      "selector": ".hiring-suggestion-tile",
+      "bounds": {
+        "x": 384,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 27,
+          "y": 78.953125,
+          "w": 64,
+          "h": 76
+        }
+      ],
+      "scale": 2,
+      "sha256": "17d944d278ae40b8e5f33bb63d3411d95cc72328990d7145530a62170239f077"
+    },
+    {
+      "file": "director-review.png",
+      "scene": "/explainer/director",
+      "selector": ".hire-profile",
+      "bounds": {
+        "x": 491,
+        "y": 392.359375,
+        "width": 618,
+        "height": 647.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 28,
+          "y": 82,
+          "w": 100,
+          "h": 124
+        }
+      ],
+      "scale": 2,
+      "sha256": "11847e7df12e11af02f1d0c25d0bcbd6099ad46a282358309018c8072d50ebec"
+    },
+    {
+      "file": "chat-brief.png",
+      "scene": "/explainer/chat-brief",
+      "selector": ".hub-main",
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 714.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 29,
+          "y": 153.515625,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 29,
+          "y": 395.46875,
+          "w": 36,
+          "h": 36
+        }
+      ],
+      "scale": 2,
+      "sha256": "641a27792391134c7e43227a4893eadb0b81d943bbfe6f6bee6c8beef06f17a5"
+    },
+    {
+      "file": "chat-producer.png",
+      "scene": "/explainer/chat-producer",
+      "selector": ".hub-main",
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 723.109375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 29,
+          "y": 153.515625,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 122,
+          "y": 349.46875,
+          "w": 64,
+          "h": 76
+        }
+      ],
+      "scale": 2,
+      "sha256": "43f1c1d871c108c3f51a5d71e8b5786f01bc156b3ddf6607dc3acda37f315c6f"
+    },
+    {
+      "file": "producer-card.png",
+      "scene": "/explainer/producer",
+      "selector": ".hiring-suggestion-tile",
+      "bounds": {
+        "x": 384,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 27,
+          "y": 78.953125,
+          "w": 64,
+          "h": 76
+        }
+      ],
+      "scale": 2,
+      "sha256": "9245dd159dbfff93f8c2d7976c8c4b1e6ab0c47d1cd7671155f9561ee82f097f"
+    },
+    {
+      "file": "producer-review.png",
+      "scene": "/explainer/producer",
+      "selector": ".hire-profile",
+      "bounds": {
+        "x": 491,
+        "y": 392.359375,
+        "width": 618,
+        "height": 647.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 28,
+          "y": 82,
+          "w": 100,
+          "h": 124
+        }
+      ],
+      "scale": 2,
+      "sha256": "3d8258f81a567b384451e5e28a77c1ae26ec3726fbc1e4ee6747a8390a5f19c3"
+    },
+    {
+      "file": "chat-team.png",
+      "scene": "/explainer/chat-team",
+      "selector": ".hub-main",
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 844.03125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 29,
+          "y": 153.515625,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 29,
+          "y": 274.4375,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 122,
+          "y": 470.390625,
+          "w": 64,
+          "h": 76
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-technical-director-v1.jpg",
+          "x": 518,
+          "y": 470.390625,
+          "w": 64,
+          "h": 76
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-qa-v1.jpg",
+          "x": 914,
+          "y": 470.390625,
+          "w": 64,
+          "h": 76
+        }
+      ],
+      "scale": 2,
+      "sha256": "15c4034b38785ad01b725ac546c76d11567ae08e09b7746680ea0e584695a201"
+    },
+    {
+      "file": "chat-planning.png",
+      "scene": "/explainer/chat-planning",
+      "selector": ".hub-main",
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 714.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 29,
+          "y": 153.515625,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-technical-director-v1.jpg",
+          "x": 29,
+          "y": 274.4375,
+          "w": 36,
+          "h": 36
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 29,
+          "y": 374.953125,
+          "w": 36,
+          "h": 36
+        }
+      ],
+      "scale": 2,
+      "sha256": "0177bef55fac4b20db1a8f782d0d723fa61efffdbe46d4c218559c16696c86e2"
+    },
+    {
+      "file": "board-empty.png",
+      "scene": "/explainer/board-empty",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 533
+      },
+      "landmarks": [],
+      "scale": 2,
+      "sha256": "5dd1d687d432230b0cabade3fefec31c9f36ac7f9b3754dfa5a640c636b89e13"
+    },
+    {
+      "file": "board-epic.png",
+      "scene": "/explainer/board-epic",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 533
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 46,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "2f1e596c9e7d647f0726b30acfb3e67885285ab1f6b870fd9a14cdaaa0f15bae"
+    },
+    {
+      "file": "board-stories.png",
+      "scene": "/explainer/board-stories",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 723.703125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 46,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 46,
+          "y": 422.125,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 46,
+          "y": 599.40625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "86cf95cd7bc35d6211e7fbf1492376f59bee3158148d6816e33ad34dd5e4d87a"
+    },
+    {
+      "file": "board-tasks.png",
+      "scene": "/explainer/board-tasks",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 0,
+        "width": 1240,
+        "height": 1450.375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 46,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 46,
+          "y": 422.125,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 46,
+          "y": 599.40625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 46,
+          "y": 776.6875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 46,
+          "y": 953.96875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 46,
+          "y": 1131.25,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 46,
+          "y": 1326.078125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "a1a28a35412540c6a8360848bed50ddda2a9d18e669e9ec9f54696c00d89c96b"
+    },
+    {
+      "file": "task-01.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"01\"]",
+      "bounds": {
+        "x": 341,
+        "y": 168.578125,
+        "width": 218,
+        "height": 145.5625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 76.265625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "b50c9c4f9e174322f437471a0f0f012575718ee94820bad8a3e92b12c1f0a331"
+    },
+    {
+      "file": "task-02.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"02\"]",
+      "bounds": {
+        "x": 341,
+        "y": 322.140625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "2cc62e7f96f4542df5a914f89146d2319cf166c8cd20a060baaebabe70c190a5"
+    },
+    {
+      "file": "task-03.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"03\"]",
+      "bounds": {
+        "x": 341,
+        "y": 499.421875,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "e491cf49fdc033bb27888ef332e516eedb2de047723d31ef7a65c7c310f9db22"
+    },
+    {
+      "file": "task-04.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"04\"]",
+      "bounds": {
+        "x": 341,
+        "y": 676.703125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "3a0f300ae946900e25d39c241b72221c01c0a22a2cd3551da58d1d086daf6cfe"
+    },
+    {
+      "file": "task-05.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"05\"]",
+      "bounds": {
+        "x": 341,
+        "y": 853.984375,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "2cf6ce8ff5f4ad300cf648922d446434feaf8670291e7015ef6531c38d1421d0"
+    },
+    {
+      "file": "task-06.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"06\"]",
+      "bounds": {
+        "x": 341,
+        "y": 1031.265625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "64c1fad8dd984ba08ca43e0d22304d463fd73e0232fcc15e100ef6ec48aeae14"
+    },
+    {
+      "file": "task-07.png",
+      "scene": "/explainer/board-tasks",
+      "selector": "[data-film-ticket=\"07\"]",
+      "bounds": {
+        "x": 341,
+        "y": 1208.546875,
+        "width": 218,
+        "height": 186.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 117.53125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "597087767717695916538e4c325545b9febe72109c4c19948136821f6a7ebb18"
+    },
+    {
+      "file": "board-progress1.png",
+      "scene": "/explainer/board-progress1",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 900.984375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 46,
+          "y": 268.5625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 46,
+          "y": 445.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 46,
+          "y": 640.671875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 286,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 286,
+          "y": 422.125,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 286,
+          "y": 599.40625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 286,
+          "y": 776.6875,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "c1d7befb33d73afc02eeac9dfc4413718ca462f5500a0d24e1c49413667577e1"
+    },
+    {
+      "file": "progress1-05.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"05\"]",
+      "bounds": {
+        "x": 341,
+        "y": 284.578125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "65350281bb118b2bac459614d8c9492ab045f82ae69b1cf4694d3cfd3fabedc4"
+    },
+    {
+      "file": "progress1-06.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"06\"]",
+      "bounds": {
+        "x": 341,
+        "y": 461.859375,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "74053ecbb6f471be89adc9d9d3ddc48716cb40a9ed012b1a5f665c930cfba74f"
+    },
+    {
+      "file": "progress1-07.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"07\"]",
+      "bounds": {
+        "x": 341,
+        "y": 639.140625,
+        "width": 218,
+        "height": 186.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 117.53125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "94b456cc461b2d18e778bd55adb0833dd56db93267c6bfb77a0f79b866174121"
+    },
+    {
+      "file": "progress1-01.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"01\"]",
+      "bounds": {
+        "x": 581,
+        "y": 284.578125,
+        "width": 218,
+        "height": 145.5625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 76.265625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "adee5781a9be5480dcf9117729ac45f5a112701767c9bd0046c449edbd24ad49"
+    },
+    {
+      "file": "progress1-02.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"02\"]",
+      "bounds": {
+        "x": 581,
+        "y": 438.140625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "bd66a1115030efbebd6c8a62c61393dd1c97b54d96b1d1471ddcbf9c3105bd9d"
+    },
+    {
+      "file": "progress1-03.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"03\"]",
+      "bounds": {
+        "x": 581,
+        "y": 615.421875,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "6c7aff54df1c3cae1dffce9b84f26a57402bf0fb4545ecd53a896d4390a3a81c"
+    },
+    {
+      "file": "progress1-04.png",
+      "scene": "/explainer/board-progress1",
+      "selector": "[data-film-ticket=\"04\"]",
+      "bounds": {
+        "x": 581,
+        "y": 792.703125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "d874f763c7773651a2522e0230cc1731ed4d39cebb99c42b5e45ff0570a26b8f"
+    },
+    {
+      "file": "board-progress2.png",
+      "scene": "/explainer/board-progress2",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 1078.265625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 46,
+          "y": 286.109375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 286,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 286,
+          "y": 422.125,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 286,
+          "y": 599.40625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 286,
+          "y": 776.6875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 286,
+          "y": 953.96875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 526,
+          "y": 268.5625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "f4fbdbdd31d025175e2dcfdd2071ed316461eaaac7fe0eecbd7b72d534d27a8a"
+    },
+    {
+      "file": "progress2-07.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"07\"]",
+      "bounds": {
+        "x": 341,
+        "y": 284.578125,
+        "width": 218,
+        "height": 186.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 117.53125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "028c672eb237d8efc7f01969e54e2b3df6008f890f71fc90bdad3c66b07c3b41"
+    },
+    {
+      "file": "progress2-01.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"01\"]",
+      "bounds": {
+        "x": 581,
+        "y": 284.578125,
+        "width": 218,
+        "height": 145.5625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 76.265625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "adee5781a9be5480dcf9117729ac45f5a112701767c9bd0046c449edbd24ad49"
+    },
+    {
+      "file": "progress2-02.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"02\"]",
+      "bounds": {
+        "x": 581,
+        "y": 438.140625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "bd66a1115030efbebd6c8a62c61393dd1c97b54d96b1d1471ddcbf9c3105bd9d"
+    },
+    {
+      "file": "progress2-03.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"03\"]",
+      "bounds": {
+        "x": 581,
+        "y": 615.421875,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "6c7aff54df1c3cae1dffce9b84f26a57402bf0fb4545ecd53a896d4390a3a81c"
+    },
+    {
+      "file": "progress2-05.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"05\"]",
+      "bounds": {
+        "x": 581,
+        "y": 792.703125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "4f756f817b0a3dfd8f5df0f1e42f0fc5108920d24e578149eecfc46dcf2e524a"
+    },
+    {
+      "file": "progress2-06.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"06\"]",
+      "bounds": {
+        "x": 581,
+        "y": 969.984375,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "e167c482fb0df20d8ead83205c81fe8abe466789a08eb6cd5cfe4d5dfb96e69e"
+    },
+    {
+      "file": "progress2-04.png",
+      "scene": "/explainer/board-progress2",
+      "selector": "[data-film-ticket=\"04\"]",
+      "bounds": {
+        "x": 821,
+        "y": 284.578125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "25cc9829c6f6b03adb19735739eaf9089a73bef3a9a7163162015d159dae0274"
+    },
+    {
+      "file": "board-progress3.png",
+      "scene": "/explainer/board-progress3",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 918.53125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 286,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 286,
+          "y": 422.125,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 286,
+          "y": 599.40625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 286,
+          "y": 794.234375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 526,
+          "y": 268.5625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 766,
+          "y": 268.5625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 766,
+          "y": 445.84375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "c8fbb51b70ec2c8b90b0479680d79bc204b1cc28c2276267e218749877409862"
+    },
+    {
+      "file": "progress3-01.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"01\"]",
+      "bounds": {
+        "x": 581,
+        "y": 284.578125,
+        "width": 218,
+        "height": 145.5625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 76.265625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "adee5781a9be5480dcf9117729ac45f5a112701767c9bd0046c449edbd24ad49"
+    },
+    {
+      "file": "progress3-02.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"02\"]",
+      "bounds": {
+        "x": 581,
+        "y": 438.140625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "bd66a1115030efbebd6c8a62c61393dd1c97b54d96b1d1471ddcbf9c3105bd9d"
+    },
+    {
+      "file": "progress3-03.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"03\"]",
+      "bounds": {
+        "x": 581,
+        "y": 615.421875,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "6c7aff54df1c3cae1dffce9b84f26a57402bf0fb4545ecd53a896d4390a3a81c"
+    },
+    {
+      "file": "progress3-07.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"07\"]",
+      "bounds": {
+        "x": 581,
+        "y": 792.703125,
+        "width": 218,
+        "height": 186.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 117.53125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "1d47b68d6da93e3d9041782694b4ecf90fa093aa84946d9fa6b5c35f88209d9b"
+    },
+    {
+      "file": "progress3-05.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"05\"]",
+      "bounds": {
+        "x": 821,
+        "y": 284.578125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "9072d05eff2ba6f83ddecd2f38d304add6559260877330fd5ac17c32591c43ff"
+    },
+    {
+      "file": "progress3-04.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"04\"]",
+      "bounds": {
+        "x": 1061,
+        "y": 284.578125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "cd457bb244e13909222db03399e95d7490fb8d8d9ecb28e233e057003b054e3d"
+    },
+    {
+      "file": "progress3-06.png",
+      "scene": "/explainer/board-progress3",
+      "selector": "[data-film-ticket=\"06\"]",
+      "bounds": {
+        "x": 1061,
+        "y": 461.859375,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "d101d51bc964eaa1b2e22fc527f06d2cb869a5f7f6f918bc238e0cb8439f8ce0"
+    },
+    {
+      "file": "board-complete.png",
+      "scene": "/explainer/board-complete",
+      "selector": ".work-board",
+      "bounds": {
+        "x": 310,
+        "y": 0,
+        "width": 1240,
+        "height": 1450.375
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 1006,
+          "y": 244.84375,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 1006,
+          "y": 422.125,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 1006,
+          "y": 599.40625,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 1006,
+          "y": 776.6875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 1006,
+          "y": 953.96875,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 1006,
+          "y": 1131.25,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 1006,
+          "y": 1326.078125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "89a8c3203d5849a1deae34ef91d4dd2454769e692d670fef77e13cc058f9c967"
+    },
+    {
+      "file": "done-01.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"01\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 168.578125,
+        "width": 218,
+        "height": 145.5625
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 76.265625,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "d8cd8e26fb653383a1998d73648f4e4ad4f85127aa25bee8257402f98e59c83d"
+    },
+    {
+      "file": "done-02.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"02\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 322.140625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-producer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "957e297c711588d13f991f678ccad140af3bf282ef76eac36306f90edaf69157"
+    },
+    {
+      "file": "done-03.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"03\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 499.421875,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "ca431e3fc023764ee2018ca29a751f21ecc044cc9845c8e161d7df0c7422371a"
+    },
+    {
+      "file": "done-04.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"04\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 676.703125,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "a5284d0519c132e8fa7eb66adf13d7e397e54f5c10db0b58ab0af6c405583a39"
+    },
+    {
+      "file": "done-05.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"05\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 853.984375,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "04095013f7db4fb5761333aa312ea0ceaeaab83172ae3ccdbc7696eb1e8446dd"
+    },
+    {
+      "file": "done-06.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"06\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 1031.265625,
+        "width": 218,
+        "height": 169.28125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-engineer-v1.jpg",
+          "x": 15,
+          "y": 99.984375,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "c1cabd530a17fda44c3a7f02ea194aa8d7984e3c1bfb95979bb22ce2e78d08ce"
+    },
+    {
+      "file": "done-07.png",
+      "scene": "/explainer/board-complete",
+      "selector": "[data-film-ticket=\"07\"]",
+      "bounds": {
+        "x": 1301,
+        "y": 1208.546875,
+        "width": 218,
+        "height": 186.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 15,
+          "y": 117.53125,
+          "w": 20,
+          "h": 20
+        }
+      ],
+      "scale": 2,
+      "sha256": "bc56328a0816cd064fd2c1ec84d1649bcd4019737d078d0a530c829124a5daa6"
+    },
+    {
+      "file": "chat-ready.png",
+      "scene": "/explainer/chat-ready",
+      "selector": ".hub-main",
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 714.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 29,
+          "y": 232.765625,
+          "w": 36,
+          "h": 36
+        }
+      ],
+      "scale": 2,
+      "sha256": "fbe42b2a1b8d8659be44e81fef5f18371ebc886b06d81ecbaf3fe8fa09c3e10c"
+    },
+    {
+      "file": "ready-messages.png",
+      "scene": "/explainer/chat-ready",
+      "selector": ".hub-message-list",
+      "bounds": {
+        "x": 574,
+        "y": 101,
+        "width": 976,
+        "height": 547.828125
+      },
+      "landmarks": [
+        {
+          "src": "_content/CSweet.UI/images/agents/video-game-creative-director-v1.jpg",
+          "x": 29,
+          "y": 159.765625,
+          "w": 36,
+          "h": 36
+        }
+      ],
+      "scale": 2,
+      "sha256": "72d412a5a453d62f62531169f1d636f0613b88e14d954238a922dd4bfce7d804"
+    }
+  ]
+}

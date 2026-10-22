@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prism Break · C-Sweet demo</title><style>
+*{box-sizing:border-box}body{margin:0;background:#0a0d1d;color:#e8e0f8;font-family:'Segoe UI',sans-serif}main{max-width:1280px;margin:auto;padding:24px}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}a{color:#beadf7}canvas{display:block;width:100%;aspect-ratio:16/9;border-radius:18px;box-shadow:0 0 80px #9e57ff18;touch-action:none}button{background:#c5b0fa;color:#211835;border:0;padding:12px 22px;border-radius:8px;font:600 16px 'Segoe UI';cursor:pointer}button:focus-visible{outline:3px solid #75e6df;outline-offset:3px}nav{display:flex;align-items:center;gap:16px;margin-top:20px}p{color:#aea5bf;font-size:14px;line-height:1.6}.muted{font-size:12px;color:#aea5bf}@media(max-width:600px){main{padding:12px}header{font-size:12px}nav{flex-wrap:wrap}}</style></head><body><main>
+<header><b>C-Sweet / Prism Break</b><a href="index.html">Watch the film</a></header>
+<canvas width="1280" height="720" tabindex="0" aria-label="Prism Break. Move the paddle with arrow keys, A and D, mouse or touch. Break all the bricks. Three lives."></canvas>
+<nav><button id="start">Play</button><button id="pause">Pause</button><button id="restart">Restart</button><span id="status" role="status">Ready · keyboard, mouse or touch</span></nav>
+<p>Original playable demo created for the C-Sweet explainer. Illustrative output, not a recorded autonomous agent delivery.</p>
+<script type="module">
+import {PrismGame,drawGame} from './game.mjs';
+const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d'),game=new PrismGame();let playing=false,last=0,acc=0;const keys=new Set();
+const status=document.querySelector('#status');
+document.querySelector('#start').onclick=()=>{playing=true;document.querySelector('#pause').textContent='Pause';canvas.focus();};document.querySelector('#pause').onclick=()=>{playing=!playing;document.querySelector('#pause').textContent=playing?'Pause':'Resume';};
+document.querySelector('#restart').onclick=()=>{game.reset();playing=true;acc=0;document.querySelector('#pause').textContent='Pause';canvas.focus();};
+addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','a','d','A','D'].includes(e.key)){e.preventDefault();keys.add(e.key.toLowerCase());}});addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));addEventListener('blur',()=>{keys.clear();playing=false;});
+canvas.addEventListener('pointermove',e=>{const r=canvas.getBoundingClientRect();game.target=Math.max(88,Math.min(1192,(e.clientX-r.left)/r.width*1280));});canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);playing=true;canvas.focus();});
+function tick(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(playing){acc+=dt;while(acc>=1/120){game.update(1/120,(keys.has('arrowright')||keys.has('d')?1:0)-(keys.has('arrowleft')||keys.has('a')?1:0));acc-=1/120;}}drawGame(ctx,game.snapshot());status.textContent=`${playing?'Playing':'Paused'} · Score ${game.score} · ${game.lives} lives${game.status==='won'?' · Spectrum cleared!':game.status==='over'?' · Game over':''}`;requestAnimationFrame(tick);}requestAnimationFrame(tick);
+window.gameTest={game,setPlaying:v=>playing=v};
+</script></main></body></html>

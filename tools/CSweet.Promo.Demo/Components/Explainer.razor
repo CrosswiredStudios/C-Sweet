@@ -1,0 +1,85 @@
+@page "/explainer/{Scene}"
+@using CSweet.UI.Components.Hiring
+@inject DemoData Data
+@inject AppearanceState Appearance
+
+@if (_ready)
+{
+<LayoutView Layout="typeof(MainLayout)">
+    <div class="demo-label">Sample data · condensed workflow</div>
+    <EmployeePortraitScope OrganizationId="Data.OrganizationId">
+    <div id="capture" class="explainer-capture" data-scene="@Scene">
+    @switch (Scene)
+    {
+        case "chief":
+            <MudButton OnClick="OpenChief">Review Evelyn</MudButton>
+            <AgentHireDialog @ref="_hire" OrganizationId="Data.OrganizationId" />
+            break;
+        case "focus":
+            <AgentQuestionCard OrganizationId="Data.OrganizationId" Question="Data.FilmQuestion" />
+            break;
+        case "overview":
+            <div class="film-overview">
+                <header><span>COMPANY OVERVIEW</span><h1>Orbit Arcade</h1><p>Decisions, company health, and the work moving forward.</p></header>
+                <div class="film-overview-grid"><section><h2>Current Activity</h2>
+                    @foreach(var item in Data.FilmActivities.Take(2)) { <ActivityCard Item="item" OrganizationId="Data.OrganizationId" State="Waiting" Action="@item.CurrentAction" Age="Just now" /> }
+                </section><section><h2>Needs your attention</h2><AgentQuestionCard Overview="true" OrganizationId="Data.OrganizationId" Question="Data.FilmQuestion" /></section></div>
+            </div>
+            break;
+        case "director":
+        case "staffing":
+        case "hired":
+        case "producer":
+            <HiringSuggestionCarousel OrganizationId="Data.OrganizationId" Actions="Data.FilmSuggestions" />
+            break;
+        case "team":
+            <div class="employee-directory">@foreach(var employee in Data.FilmEmployees.Skip(2)) { <EmployeeDirectoryCard Employee="employee" /> }</div>
+            break;
+        case "board-ready":
+        case "board-work":
+        case "board-review":
+        case "board-qa":
+        case "board-done":
+        case "board-epic":
+        case "board-stories":
+        case "board-tasks":
+        case "board-empty":
+        case "board-progress1":
+        case "board-progress2":
+        case "board-progress3":
+        case "board-complete":
+            <WorkBoardWorkspace Detail="Data.Board" Sprints="@(Scene is "board-empty" or "board-epic" or "board-stories" or "board-tasks" or "board-progress1" or "board-progress2" or "board-progress3" or "board-complete" ? Data.SequenceSprints : Data.FilmSprints)" Embedded="true" />
+            break;
+        case "ticket":
+            <WorkItemDetailsContent Board="Data.Board" Item="Data.Board.Items[0]" Open="false" />
+            break;
+        case "chat":
+        case "chat-director":
+        case "chat-brief":
+        case "chat-producer":
+        case "chat-team":
+        case "chat-planning":
+        case "chat-ready":
+            <CSweet.UI.Pages.Communications OrganizationId="Data.OrganizationId" ChatId="Data.ChatId" />
+            break;
+        case "plan":
+        case "implementation":
+        case "technical":
+        case "quality":
+            <div class="demo-document"><ArtifactWorkspace OrganizationId="Data.OrganizationId" ArtifactId="Data.DocumentId" /></div>
+            break;
+        default:
+            <p role="alert">Unknown explainer scene</p>
+            break;
+    }
+    </div>
+    </EmployeePortraitScope>
+</LayoutView>
+}
+@code {
+    [Parameter] public string Scene { get; set; } = "focus";
+    private bool _ready;
+    private AgentHireDialog? _hire;
+    protected override async Task OnParametersSetAsync() { Data.Select("cinematic",Scene); await Appearance.SetThemeAsync("aurora"); _ready=true; }
+    private Task OpenChief() => _hire!.OpenAsync(Data.FilmAgent(0), "Chief of Staff");
+}

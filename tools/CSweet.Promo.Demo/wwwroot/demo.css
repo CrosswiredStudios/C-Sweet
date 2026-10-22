@@ -8,3 +8,7 @@ html,body { margin:0; }
 .demo-approval { padding:36px; min-height:850px; }
 .demo-approval > .mud-paper { max-width:900px; }
 .mud-layout[data-appearance=gold] .demo-label { color:#b3aea4; }
+.explainer-capture { max-width:1240px; margin:28px auto; }
+.explainer-capture .employee-directory { grid-template-columns:repeat(2,minmax(0,1fr)); }
+
+.film-overview { padding:28px; background:#f8f6fb; border-radius:24px; } .film-overview header { margin-bottom:28px; } .film-overview header>span { color:#735090; font-size:13px; letter-spacing:.12em; font-weight:700; } .film-overview h1 { font-size:38px; margin:4px 0; } .film-overview header>p { color:#72667d; } .film-overview-grid { display:grid; grid-template-columns:1fr 1.35fr; gap:28px; } .film-overview-grid section { padding:20px; background:white; border:1px solid #e2dbe9; border-radius:20px; } .film-overview h2 { font-size:22px; margin:0 0 20px; } .film-overview .activity-card + .activity-card { margin-top:18px; }

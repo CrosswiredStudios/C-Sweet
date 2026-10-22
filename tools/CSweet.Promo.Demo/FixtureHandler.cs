@@ -11,7 +11,7 @@ namespace CSweet.Promo.Demo;
 public sealed class FixtureHandler(DemoData data) : HttpMessageHandler
 {
     public static ConcurrentQueue<string> Failures { get; } = new();
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var path = request.RequestUri!.AbsolutePath.TrimEnd('/');
         var org = data.OrganizationId.ToString();
@@ -25,6 +25,9 @@ public sealed class FixtureHandler(DemoData data) : HttpMessageHandler
             else if (path == "/api/core/organizations") payload = new[] { data.Organization };
             else if (path == core) payload = data.Organization;
             else if (path == $"{core}/users") payload = data.People;
+            else if (data.Campaign == "cinematic" && path == $"{core}/teams") payload = data.FilmTeams;
+            else if (data.Campaign == "cinematic" && path == $"{root}/work/tracking/{data.Id(140)}") payload = new CSweet.WorkManagement.Contracts.WorkTrackingSnapshot(data.Id(140),false,false,null,[]);
+            else if (data.Campaign == "cinematic" && path.StartsWith($"{core}/hiring/recommendations/", StringComparison.Ordinal)) payload = data.FilmRecommendation(Guid.Parse(path.Split('/')[^1]));
             else if (path == "/api/agents/installations") payload = data.Installations;
             else if (path == $"{core}/approvals") payload = new ApprovalDashboardResponse(data.OwnerId,0,[]);
             else if (path == $"{core}/dashboard/hiring") payload = new HiringBacklogResponse([]);
@@ -41,12 +44,15 @@ public sealed class FixtureHandler(DemoData data) : HttpMessageHandler
             else if (path == $"{root}/calendar") payload = data.Calendar;
             else if (path == $"{root}/calendar/reminders") payload = Array.Empty<object>();
         }
-        // Mark-read is the only UI write accepted, and changes no persisted state.
+        // Hire preview is a typed, in-memory fixture. Confirmation never reaches a live service.
+        else if (data.Campaign == "cinematic" && request.Method == HttpMethod.Post && path == $"{core}/hiring/marketplace/preview")
+            payload = data.FilmHirePreview((await request.Content!.ReadFromJsonAsync<PreviewMarketplaceHireRequest>(cancellationToken))!);
+        // Mark-read changes no persisted state.
         else if (request.Method == HttpMethod.Post && path == $"{hub}/chats/{data.ChatId}/read") payload = new CommunicationUnreadSummaryResponse(0,new Dictionary<Guid,int>());
-        if (payload is not null) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(payload,payload.GetType()) });
+        if (payload is not null) return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(payload,payload.GetType()) };
         var failure = $"Unmapped demo request: {request.Method} {path}";
         Failures.Enqueue(failure);
         Console.Error.WriteLine(failure);
-        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotImplemented) { Content = new StringContent(failure) });
+        return new HttpResponseMessage(HttpStatusCode.NotImplemented) { Content = new StringContent(failure) };
     }
 }

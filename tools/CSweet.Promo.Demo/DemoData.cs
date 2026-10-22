@@ -9,7 +9,7 @@ using Wire = CSweet.WorkManagement.Contracts;
 namespace CSweet.Promo.Demo;
 
 // Entirely fictional states. This is not agent-execution or provider acceptance evidence.
-public sealed class DemoData
+public sealed partial class DemoData
 {
     public static readonly DateTimeOffset Epoch = new(2026, 10, 11, 16, 0, 0, TimeSpan.Zero);
     public string Campaign { get; private set; } = "software";
@@ -21,8 +21,8 @@ public sealed class DemoData
     public Guid ProjectId => Id(5);
     public Guid BoardId => Id(6);
     public Guid SprintId => Id(7);
-    public string CompanyName => Campaign switch { "youtube" => "Signal Studio", "game" => "Orbit Arcade", _ => "Northstar Software" };
-    public string ProjectName => Campaign switch { "youtube" => "The first season", "game" => "Orbit Breaker", _ => "Client portal" };
+    public string CompanyName => Campaign switch { "youtube" => "Signal Studio", "game" or "cinematic" => "Orbit Arcade", _ => "Northstar Software" };
+    public string ProjectName => Campaign switch { "youtube" => "The first season", "game" => "Orbit Breaker", "cinematic" => "Prism Break", _ => "Client portal" };
     public string Brief => Campaign switch {
         "youtube" => "Build a thoughtful technology channel. Plan the first season, coordinate the calendar, review community replies, and use official channel reports to guide the next decision.",
         "game" => "Create a focused arcade game: responsive controls, readable action, and a distinctive visual identity. Start with a creative brief, assign each discipline, and review the first design milestone.",
@@ -30,13 +30,14 @@ public sealed class DemoData
     };
     public void Select(string campaign, string scene)
     {
-        if (campaign is not ("software" or "youtube" or "game")) throw new ArgumentException("Unknown campaign.");
-        if (scene is not ("chat" or "team" or "plan" or "board" or "document" or "report" or "approval" or "calendar" or "evidence")) throw new ArgumentException("Unknown scene.");
+        if (campaign is not ("software" or "youtube" or "game" or "cinematic")) throw new ArgumentException("Unknown campaign.");
+        if (campaign != "cinematic" && scene is not ("chat" or "team" or "plan" or "board" or "document" or "report" or "approval" or "calendar" or "evidence")) throw new ArgumentException("Unknown scene.");
         Campaign = campaign; Scene = scene;
     }
     public Guid Id(int number) => Guid.Parse($"{(Campaign == "game" ? 3 : Campaign == "youtube" ? 2 : 1):D8}-1111-4111-8111-{number:D12}");
     public OrganizationResponse Organization => new(OrganizationId, CompanyName, Campaign, Brief, "Early stage", Brief, null, Epoch, Epoch);
     private (string Name, string Role, string Portrait)[] Cast => Campaign switch {
+        "cinematic" => FilmCast,
         "youtube" => [("Evelyn Brooks", "Chief of Staff", "chief-of-staff"), ("Morgan Vale", "YouTube Account Manager", "youtube-account-manager")],
         "game" => [("Naomi Chen", "Creative Director", "video-game-creative-director"), ("Alex Rivera", "Producer", "video-game-producer"), ("Marcus Reed", "Engineer", "video-game-engineer"), ("Priya Shah", "QA", "video-game-qa")],
         _ => [("Jordan Ellis", "Software Product Manager", "product-manager"), ("Adrian Cole", "Software Architect", "software-architect"), ("Sam Rivera", "Software Developer", "software-developer"), ("Priya Shah", "Software QA", "software-qa")]
@@ -46,16 +47,17 @@ public sealed class DemoData
         new AgentScheduleResponse(Id(90+i), "OnDemand", 60, null, null, null, null, 300, 1, 0, null, "Skip", true), Epoch, Epoch) { ImageUrl = $"_content/CSweet.UI/images/agents/{p.Portrait}-v1.jpg", RoleName = p.Role, AccentColor = Campaign == "game" ? "#D8B976" : "#735090" }).ToArray();
     public IReadOnlyList<EmployeeViewModel> Employees => Cast.Select((p,i) => new EmployeeViewModel(People[i+1], p.Name, string.Concat(p.Name.Split(' ').Select(x=>x[0])), p.Role, p.Role, "You", true, false, EmployeeRuntimeStatus.Online, 0, [], false, false, false, [EmployeeAction.OpenChat, EmployeeAction.OpenMemory]) { Teams = [new EmployeeTeamViewModel(Id(100), Campaign == "game" ? "Game production" : Campaign == "youtube" ? "Content operations" : "Product team", null, i==0, false, "#735090")] }).ToArray();
     public CommunicationHubResponse Hub => new(OwnerId, OwnerId, false, true,
-        [new CommunicationChatResponse(ChatId, Cast[0].Name, "Your direction, connected to the work.", true, true, true, false, Epoch,
-            [new CommunicationParticipantResponse(OwnerId,"You","Human","Owner"), new CommunicationParticipantResponse(Id(20),Cast[0].Name,"Agent",Cast[0].Role)], "The plan is ready for your review.", Epoch, 0)],
+        [new CommunicationChatResponse(ChatId, Campaign=="cinematic"?FilmChatTitle:Cast[0].Name, "Your direction, connected to the work.", true, true, true, false, Epoch,
+            [new CommunicationParticipantResponse(OwnerId,"You","Human","Owner"), new CommunicationParticipantResponse(Id(20+(Campaign=="cinematic"?FilmSpeaker:0)),Cast[Campaign=="cinematic"?FilmSpeaker:0].Name,"Agent",Cast[Campaign=="cinematic"?FilmSpeaker:0].Role)], "The plan is ready for your review.", Epoch, 0)],
         People.Select((p,i)=>new CommunicationPersonResponse(p.Id,p.DisplayName,i==0?"Human":"Agent",p.RoleId,i==0?"Owner":Cast[i-1].Role,ReportsToOrganizationUserId:p.ReportsToOrganizationUserId)).ToArray(), []);
-    public IReadOnlyList<CommunicationHubMessageResponse> Messages => [
+    public IReadOnlyList<CommunicationHubMessageResponse> Messages => Campaign == "cinematic" ? FilmMessages : [
         new(Id(110),1,ChatId,OwnerId,"You","Human",Campaign switch { "youtube"=>"I want to build a technology content business. Help me organize the first season.", "game"=>"Let's build a distinctive arcade game. Start with the creative direction and the team we need.", _=>"Let's create a client portal. Help me turn the idea into a plan and assemble the right team." }, Epoch),
         new(Id(111),2,ChatId,Id(20),Cast[0].Name,"Agent",Campaign switch { "youtube"=>"We'll connect your content plan, calendar, and channel operations. You can review community replies and use channel reports to shape the next step.", "game"=>"We'll begin with a focused creative brief, bring production and specialist roles together, and review the design milestone before expanding the scope.", _=>"We'll define the first milestone, assign product, architecture, development, and QA, and keep review evidence connected to the project." }, Epoch.AddMinutes(1)),
         new CommunicationHubMessageResponse(Id(112),3,ChatId,Id(20),Cast[0].Name,"Agent","The project brief is ready. Review the direction, then follow the team and the work in Projects.", Epoch.AddMinutes(2)) { Artifacts = [new CommunicationMessageArtifactResponse(Id(113),Id(112),DocumentId,Id(114)) { Title = DocumentTitle, Status = "Draft" }] }
     ];
-    public string DocumentTitle => Campaign switch { "youtube" when Scene=="report"=>"Channel pulse · sample report", "youtube"=>"The first season · content plan", "game"=>"Orbit Breaker · creative brief", _=>"Client portal · milestone review" };
+    public string DocumentTitle => Campaign switch { "cinematic" => FilmDocumentTitle, "youtube" when Scene=="report"=>"Channel pulse · sample report", "youtube"=>"The first season · content plan", "game"=>"Orbit Breaker · creative brief", _=>"Client portal · milestone review" };
     private string DocumentContent => Campaign switch {
+        "cinematic" => FilmDocumentContent,
         "youtube" when Scene=="report" => "# Channel pulse\n\n**Signal Studio · illustrative report**\n\n## A clear view of the channel\n\n| Metric | Sample value |\n| --- | --- |\n| Views | 12,480 |\n| Watch time | 624 hours |\n| Average view duration | 3:00 |\n\nThese fictional values demonstrate the report format, not measured channel performance.\n\n## What to review next\n\n- Compare topics across the first season.\n- Review questions appearing in the community.\n- Use the evidence to guide the next content plan.",
         "youtube" => "# The first season\n\n**Signal Studio · content plan**\n\n## The direction\n\nThoughtful technology stories for curious builders. One clear idea per episode, with a repeatable review process.\n\n## The first three episodes\n\n1. The tools behind a one-person business.\n2. From an idea to a working plan.\n3. Building with a small, focused team.\n\n## Connected operations\n\nCoordinate the calendar, review community replies, and inspect official channel reports.\n\n## Your next decision\n\nReview the plan and agree on the first production milestone.",
         "game" => "# Orbit Breaker\n\n**Creative brief · design milestone**\n\n## The vision\n\nA focused arcade experience with responsive controls, readable action, and a distinctive cosmic identity.\n\n## Three design pillars\n\n- **Immediate feel.** Every input has a clear response.\n- **Readable play.** The player understands what changed.\n- **A coherent world.** Art and audio support the same direction.\n\n## Team handoff\n\nProduction coordinates the milestone. Engineering defines the prototype work. Independent review checks the design criteria.\n\n## Review before expansion\n\nConfirm the brief and the next sprint scope. This sample does not represent a completed playable build.",
@@ -75,6 +77,7 @@ public sealed class DemoData
     public IReadOnlyList<ProjectInspectionResource> Evidence => [Resource(180,"DocumentReview","First milestone · review packet","Pending",new { Disposition="Awaiting independent review" }),Resource(181,"Validation","Acceptance criteria","InReview",new { Disposition="Review the exact revision" }),Resource(182,"Document",DocumentTitle,"Draft",new { ContentType="Project document" })];
     public WorkBoardDetailResponse Board {
         get {
+            if (Campaign == "cinematic") return FilmBoard;
             var names=new[] {"Ready","In progress","Review","Done"};
             var columns=names.Select((n,i)=>new WorkBoardColumnResponse(Id(130+i),n,i==0?"ToDo":i==3?"Done":"InProgress",i,"None",null)).ToArray();
             var titles=Campaign switch { "youtube"=>new[]{"Outline the first season","Coordinate the content calendar","Review a community reply","Prepare the channel report","Review episode topics","Record the content direction"}, "game"=>new[]{"Define the first game loop","Implement input response","Review the creative brief","Align the design pillars","Plan the prototype scope","Record the visual direction"}, _=>new[]{"Define client request criteria","Implement the request workflow","Review access boundaries","Document the portal journey","Plan the first milestone","Record the product direction"}};

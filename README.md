@@ -3,6 +3,7 @@
   <p><strong>Your idea. Your company. Your workforce.</strong></p>
   <p>A self-hostable workspace for leading a company with people and AI agents.</p>
   <p>
+    <a href="#from-an-idea-to-play">Watch the explainer</a> ·
     <a href="#run-c-sweet-locally">Run locally</a> ·
     <a href="#your-first-session">Your first session</a> ·
     <a href="#what-you-can-do">Explore the workspace</a> ·
@@ -19,6 +20,16 @@
 You set the direction. C-Sweet connects that direction to conversations, plans, a team, assigned work, and reviewable deliverables. Your Personal Assistant helps you get oriented; a business's Chief of Staff coordinates its work. You remain in charge of the objectives, permissions, and important decisions.
 
 **Start small:** one business, one clear outcome, one assignment you can inspect. C-Sweet is an active developer preview. Agent execution needs configured models, installed agents, and a ready C-Sweet Office; creating a workspace does not automatically give you a running workforce.
+
+## From an idea to play
+
+[![Watch C-Sweet: From an idea to play. An idea becomes a game-studio team and a playable browser arcade game. What will you build?](assets/readme/explainer/final-teaser.gif)](assets/readme/explainer/from-idea-to-play.mp4)
+
+**[Watch the full film with music](assets/readme/explainer/from-idea-to-play.mp4)** · [30-second vertical cut](assets/readme/explainer/from-idea-to-play.vertical.mp4) · [Transcript](assets/readme/explainer/transcript.txt) · [Player, playable demo and source](tools/csweet-explainer/README.md)
+
+Hire your Chief of Staff. Choose **Creative & Product**. Bring in a Creative Director, Producer and specialists. Follow a game idea through planning, a Kanban sprint, implementation, technical review, integration and QA—then see the browser game come to life. **What will you build?**
+
+*112 seconds · 1080p · Original arcade-pop soundtrack. Real app components with fictional sample data illustrate a condensed workflow. Prism Break is a playable example authored for the film, not a recording of an autonomous agent delivery. The embedded animation is a 12-second preview; the linked MP4 contains the full film and music.*
 
 ## Run C-Sweet locally
 

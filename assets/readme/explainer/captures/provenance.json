@@ -1,0 +1,416 @@
+{
+  "fixture": "tools/CSweet.Promo.Demo/DemoData.Explainer.cs",
+  "theme": "Aurora",
+  "sampleData": true,
+  "componentStylesUnmodified": true,
+  "browserErrors": [],
+  "fixtureFailures": [],
+  "records": [
+    {
+      "file": "chief.png",
+      "scene": "/explainer/chief",
+      "selector": ".hire-profile",
+      "index": 0,
+      "bounds": {
+        "x": 491,
+        "y": 295.015625,
+        "width": 618,
+        "height": 641.953125
+      },
+      "scale": 2,
+      "sha256": "b8873484ff6bf59bdd107f86792bafb0ad8302a1c55f6c6684bbc9f92f1effc0"
+    },
+    {
+      "file": "focus.png",
+      "scene": "/explainer/focus",
+      "selector": ".question-card",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 340.375
+      },
+      "scale": 2,
+      "sha256": "cbab957d8af434a5915096baa26f946943de73824a883c299bb7e683262e0306"
+    },
+    {
+      "file": "focus-selected.png",
+      "scene": "/explainer/focus",
+      "selector": ".question-card",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 340.375
+      },
+      "scale": 2,
+      "sha256": "b159b6010a9cc22fdd21a9eec0e58347b731de3e50dccfb3daa5bbfcef6e2d0b"
+    },
+    {
+      "file": "chat.png",
+      "scene": "/explainer/chat",
+      "selector": ".hub-main",
+      "index": 0,
+      "bounds": {
+        "x": 574,
+        "y": 28,
+        "width": 976,
+        "height": 714.828125
+      },
+      "scale": 2,
+      "sha256": "2070100a658e27e3ed4d477792bbd7cd3af2e1c3ddf44dfb2dee730333addf15"
+    },
+    {
+      "file": "director.png",
+      "scene": "/explainer/director",
+      "selector": ".hiring-suggestion-carousel",
+      "index": 0,
+      "bounds": {
+        "x": 367,
+        "y": 116,
+        "width": 1120,
+        "height": 390.59375
+      },
+      "scale": 2,
+      "sha256": "d2a3d76232f61f1c206471bd0e6a2927163a952c08b27f2b820634bd48d6252f"
+    },
+    {
+      "file": "director-card.png",
+      "scene": "/explainer/director",
+      "selector": ".hiring-suggestion-tile",
+      "index": 0,
+      "bounds": {
+        "x": 384,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "scale": 2,
+      "sha256": "17d944d278ae40b8e5f33bb63d3411d95cc72328990d7145530a62170239f077"
+    },
+    {
+      "file": "director-review.png",
+      "scene": "/explainer/director",
+      "selector": ".hire-profile",
+      "index": 0,
+      "bounds": {
+        "x": 491,
+        "y": 292.359375,
+        "width": 618,
+        "height": 647.28125
+      },
+      "scale": 2,
+      "sha256": "11847e7df12e11af02f1d0c25d0bcbd6099ad46a282358309018c8072d50ebec"
+    },
+    {
+      "file": "hired.png",
+      "scene": "/explainer/hired",
+      "selector": ".hiring-suggestion-carousel",
+      "index": 0,
+      "bounds": {
+        "x": 367,
+        "y": 116,
+        "width": 1120,
+        "height": 384.203125
+      },
+      "scale": 2,
+      "sha256": "ac1ca5f231b8000deffe4921725ee4f062fa6e8b8aac8be425d7f0ca15dffa9c"
+    },
+    {
+      "file": "staffing.png",
+      "scene": "/explainer/staffing",
+      "selector": ".hiring-suggestion-carousel",
+      "index": 0,
+      "bounds": {
+        "x": 367,
+        "y": 116,
+        "width": 1120,
+        "height": 390.59375
+      },
+      "scale": 2,
+      "sha256": "ba1dbefc232afdcbeb92985e67fd5be4fff5df9fed93922c30499034a3cf0004"
+    },
+    {
+      "file": "suggestion-0.png",
+      "scene": "/explainer/staffing",
+      "selector": ".hiring-suggestion-tile",
+      "index": 0,
+      "bounds": {
+        "x": 384,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "scale": 2,
+      "sha256": "9245dd159dbfff93f8c2d7976c8c4b1e6ab0c47d1cd7671155f9561ee82f097f"
+    },
+    {
+      "file": "suggestion-1.png",
+      "scene": "/explainer/staffing",
+      "selector": ".hiring-suggestion-tile",
+      "index": 1,
+      "bounds": {
+        "x": 780,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "scale": 2,
+      "sha256": "7fa439d8748a569f1112730d35f3f3e0df313af45522e58dd435600632a7cfed"
+    },
+    {
+      "file": "suggestion-2.png",
+      "scene": "/explainer/staffing",
+      "selector": ".hiring-suggestion-tile",
+      "index": 2,
+      "bounds": {
+        "x": 1176,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "scale": 2,
+      "sha256": "e2ede2ae5cd3ceb966c5440915b30960b953841e90ac1913b7d99b227d9a49bf"
+    },
+    {
+      "file": "suggestion-3.png",
+      "scene": "/explainer/staffing",
+      "selector": ".hiring-suggestion-tile",
+      "index": 3,
+      "bounds": {
+        "x": 1086,
+        "y": 185,
+        "width": 384,
+        "height": 305.59375
+      },
+      "scale": 2,
+      "sha256": "f47b01ba32a6d6cf79820bb71985748f9eee1deba1771609962a41475b911227"
+    },
+    {
+      "file": "team.png",
+      "scene": "/explainer/team",
+      "selector": ".employee-directory",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 487.875
+      },
+      "scale": 2,
+      "sha256": "8fe8833caaf08a3e74350b8d090f37dd5fd1ad7726cb690e33dba0d509c84766"
+    },
+    {
+      "file": "employee-0.png",
+      "scene": "/explainer/team",
+      "selector": ".employee-directory-card",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 609,
+        "height": 232.9375
+      },
+      "scale": 2,
+      "sha256": "91fd3171ba8225d9e6681f32abaa69a9e396c72baaa10efa1c8dd6476182b1c3"
+    },
+    {
+      "file": "employee-1.png",
+      "scene": "/explainer/team",
+      "selector": ".employee-directory-card",
+      "index": 1,
+      "bounds": {
+        "x": 941,
+        "y": 116,
+        "width": 609,
+        "height": 232.9375
+      },
+      "scale": 2,
+      "sha256": "b9a98e44eea84fe439a2c2864b44d26d4eaa590f7d0bbe9ce913040157cec1c5"
+    },
+    {
+      "file": "employee-2.png",
+      "scene": "/explainer/team",
+      "selector": ".employee-directory-card",
+      "index": 2,
+      "bounds": {
+        "x": 310,
+        "y": 370.9375,
+        "width": 609,
+        "height": 232.9375
+      },
+      "scale": 2,
+      "sha256": "48203fccf273da402355a557561af95a76aa83308de70dfdb48aa5d156ef11b5"
+    },
+    {
+      "file": "employee-3.png",
+      "scene": "/explainer/team",
+      "selector": ".employee-directory-card",
+      "index": 3,
+      "bounds": {
+        "x": 941,
+        "y": 370.9375,
+        "width": 609,
+        "height": 232.9375
+      },
+      "scale": 2,
+      "sha256": "5699b9c1483bdc0fe0d7acdb6c6d4d78bde6f989661e709c30cd217a240a86e3"
+    },
+    {
+      "file": "plan.png",
+      "scene": "/explainer/plan",
+      "selector": ".artifact-preview-shell",
+      "index": 0,
+      "bounds": {
+        "x": 412.59375,
+        "y": 371.953125,
+        "width": 1034.8125,
+        "height": 574
+      },
+      "scale": 2,
+      "sha256": "3bd8edb34d0fc1337f84a432d489e27213a4bdb87d9614ef229bb767622e84f5"
+    },
+    {
+      "file": "board-ready.png",
+      "scene": "/explainer/board-ready",
+      "selector": ".work-board",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 676.265625
+      },
+      "scale": 2,
+      "sha256": "b5e6d6ef718fc62353b36a62638fc257e228c8baa2149f36d125331e6f27c662"
+    },
+    {
+      "file": "board-work.png",
+      "scene": "/explainer/board-work",
+      "selector": ".work-board",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 533
+      },
+      "scale": 2,
+      "sha256": "f3ee33275442351fd0955b139609bf26e4035c01c45d554b1abec452eea26e51"
+    },
+    {
+      "file": "ticket-card.png",
+      "scene": "/explainer/board-work",
+      "selector": ".work-ticket",
+      "index": 0,
+      "bounds": {
+        "x": 341,
+        "y": 284.578125,
+        "width": 218,
+        "height": 145.5625
+      },
+      "scale": 2,
+      "sha256": "a55a539bf77d053b00fcae7b8c4e240044930adffcb75a7d2580cc35bf1769ba"
+    },
+    {
+      "file": "board-review.png",
+      "scene": "/explainer/board-review",
+      "selector": ".work-board",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 533
+      },
+      "scale": 2,
+      "sha256": "55da126b692116bad381e09a7b0374abf6ffcb209e3674a63b4521906bb461d2"
+    },
+    {
+      "file": "board-qa.png",
+      "scene": "/explainer/board-qa",
+      "selector": ".work-board",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 533
+      },
+      "scale": 2,
+      "sha256": "9aa4eb5227a02164c4a1fd363f04beff47cb5585bbe94e4960c28eac59a84cfb"
+    },
+    {
+      "file": "board-done.png",
+      "scene": "/explainer/board-done",
+      "selector": ".work-board",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 847.375
+      },
+      "scale": 2,
+      "sha256": "98612c9e029d63c70aeae885b263dd0105d2c476c9021fe307afe8836201ca4c"
+    },
+    {
+      "file": "ticket.png",
+      "scene": "/explainer/ticket",
+      "selector": ".editorial-ticket",
+      "index": 0,
+      "bounds": {
+        "x": 310,
+        "y": 116,
+        "width": 1240,
+        "height": 846.125
+      },
+      "scale": 2,
+      "sha256": "d2fd656092f049c917cbebf37962f6ef1b4d16eeacdef5be1c19b14d959f4bf9"
+    },
+    {
+      "file": "implementation.png",
+      "scene": "/explainer/implementation",
+      "selector": ".artifact-preview-shell",
+      "index": 0,
+      "bounds": {
+        "x": 412.59375,
+        "y": 371.953125,
+        "width": 1034.8125,
+        "height": 494.6875
+      },
+      "scale": 2,
+      "sha256": "800b7c53fd39c356254c03bd0fca3768c58742bd08a2e64471a8f13c0809da10"
+    },
+    {
+      "file": "technical.png",
+      "scene": "/explainer/technical",
+      "selector": ".artifact-preview-shell",
+      "index": 0,
+      "bounds": {
+        "x": 412.59375,
+        "y": 371.953125,
+        "width": 1034.8125,
+        "height": 397.1875
+      },
+      "scale": 2,
+      "sha256": "8ef38b2ccea7337da1bac1f5c9ad5ddea454daeb766c26c79d6b9c0f9efe8db2"
+    },
+    {
+      "file": "quality.png",
+      "scene": "/explainer/quality",
+      "selector": ".artifact-preview-shell",
+      "index": 0,
+      "bounds": {
+        "x": 412.59375,
+        "y": 371.953125,
+        "width": 1034.8125,
+        "height": 465.71875
+      },
+      "scale": 2,
+      "sha256": "59c67768ca40fd7a9bc434e28616f9c2c036983e89b09ee113cf028bc7a4168f"
+    }
+  ]
+}

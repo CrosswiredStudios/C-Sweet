@@ -1,0 +1,48 @@
+C-Sweet — From an idea to play
+112 seconds · Original instrumental score; no spoken dialogue.
+Real app components with fictional project data. Condensed illustrative workflow.
+Prism Break is a playable example authored for this film, not a recorded autonomous delivery.
+
+00:00:00.000 – 00:00:10.000
+It starts with an idea.
+Creates a team to bring it to life. The camera pans down from Evelyn through a named org graph: Naomi, Gabriel and the implementation team.
+
+00:00:10.000 – 00:00:17.000
+Your first hire.
+Evelyn’s portrait travels from the org graph into the real Chief of Staff hire review. Review access, then approve and hire.
+
+00:00:17.000 – 00:00:31.000
+Choose where to begin.
+Evelyn travels into the Overview attention card. Open Choose an answer and choose Creative & Product. In chat, Evelyn recommends Naomi as Creative Director.
+
+00:00:31.000 – 00:00:39.000
+Give the idea a creative lead.
+Naomi’s portrait travels from the chat suggestion into her hiring card, then the hire review.
+
+00:00:39.000 – 00:00:49.000
+Shape the game together.
+Naomi asks about the game, platform and first prototype. The owner describes Prism Break. Naomi recommends Gabriel as Producer.
+
+00:00:49.000 – 00:01:01.000
+Bring the studio together.
+Review and hire Gabriel. Naomi and Gabriel plan the first milestone, then recommend Engineer Adrian, Technical Director Victor and QA Rohan. A connected org graph grows around them.
+
+00:01:01.000 – 00:01:12.000
+A shared plan. Clear owners.
+Gabriel and Victor discuss architecture and delivery. The board is populated with one epic, two stories and four owned tasks.
+
+00:01:12.000 – 00:01:28.000
+Watch the team move it forward.
+The native tickets move through Ready, In progress, Technical Review, QA and Done. Engineering builds, Victor reviews, the platform integrates, QA checks, and creative and production accept all seven items.
+
+00:01:28.000 – 00:01:36.000
+Your prototype is ready.
+Naomi’s portrait travels from her completed acceptance ticket into chat. She announces that the prototype is ready for testing and supplies a clickable local preview URL.
+
+00:01:36.000 – 00:01:45.000
+An idea becomes play.
+The cursor clicks the preview URL. The browser opens Prism Break: responsive controls, glowing bricks, combos and a replay loop.
+
+00:01:45.000 – 00:01:52.000
+What will you build?
+The game contracts into an orbit of color around the centered dark-mode C-Sweet logo. Your idea. Your company. Your AI workforce.

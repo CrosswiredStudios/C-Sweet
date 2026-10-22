@@ -1,0 +1,34 @@
+{
+  "exports": [
+    {
+      "file": "from-idea-to-play.mp4",
+      "width": 1920,
+      "height": 1080,
+      "duration": 112,
+      "frames": 3360,
+      "audio": "AAC stereo 48 kHz",
+      "lufs": "-16.02",
+      "truePeakDb": "-1.81",
+      "bytes": 25691620,
+      "fullDecodeErrors": 0,
+      "faststart": true
+    },
+    {
+      "file": "from-idea-to-play.vertical.mp4",
+      "width": 1080,
+      "height": 1920,
+      "duration": 30,
+      "frames": 900,
+      "audio": "AAC stereo 48 kHz",
+      "lufs": "-15.87",
+      "truePeakDb": "-1.81",
+      "bytes": 6682830,
+      "fullDecodeErrors": 0,
+      "faststart": true
+    }
+  ],
+  "music": "Original B \u00b7 Playful arcade pop \u00b7 116 BPM",
+  "sampleWorkflow": true,
+  "realAppComponents": true,
+  "teaserBytes": 4632296
+}
