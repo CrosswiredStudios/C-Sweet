@@ -87,9 +87,10 @@ internal static partial class WorkOrchestrationBoardState
             .OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => x.ColumnId).FirstOrDefault();
         var column = (running ? definition.ColumnId : queueColumn ?? definition.ColumnId) ?? item.BoardColumnId;
         var status = running ? WorkTaskStatus.Running : WorkTaskStatus.Ready;
-        if (item.BoardColumnId == column && item.Status == status) return;
+        if (item.BoardColumnId == column && item.Status == status && item.BlockReason is null) return;
         item.BoardColumnId = column;
         item.Status = status;
+        item.BlockReason = null;
         item.UpdatedAt = now;
         item.Revision++;
     }

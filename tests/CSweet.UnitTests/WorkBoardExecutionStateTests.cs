@@ -12,6 +12,27 @@ namespace CSweet.UnitTests;
 
 public sealed partial class WorkDispatchRecoveryTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Current_execution_clears_historical_blocker_even_when_card_position_is_current(bool running)
+    {
+        await using var db = CreateDb();
+        var state = await Seed(db, 1);
+        var (ready, active) = await AddColumns(db, state);
+        var item = state.Stage.ItemExecution!.WorkItem!;
+        state.Stage.Status = running ? WorkStageExecutionStatus.Running : WorkStageExecutionStatus.Pending;
+        item.Status = running ? WorkTaskStatus.Running : WorkTaskStatus.Ready;
+        item.BoardColumnId = running ? active : ready;
+        item.BlockReason = "Historical criterion has been amended.";
+        var before = item.Revision;
+        WorkOrchestrationBoardState.SynchronizeAgentCard(state.Policy, state.Stage, DateTimeOffset.UtcNow);
+        Assert.Null(item.BlockReason);
+        Assert.Equal(before + 1, item.Revision);
+        WorkOrchestrationBoardState.SynchronizeAgentCard(state.Policy, state.Stage, DateTimeOffset.UtcNow);
+        Assert.Equal(before + 1, item.Revision);
+    }
+
     [Fact]
     public async Task Waiting_card_is_repaired_then_moves_only_when_inbox_is_claimed()
     {
@@ -44,12 +65,14 @@ public sealed partial class WorkDispatchRecoveryTests
         Assert.Equal(WorkStageExecutionStatus.Dispatching, state.Stage.Status);
         var work = Assert.Single(db.AgentWorkItems);
         state.Stage.ItemExecution.CurrentStageKey = state.Stage.StageKey;
+        var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), AgentInstallationId = state.Installation.Id };
+        db.AgentRuntimeInstances.Add(runtime);
         await db.SaveChangesAsync();
         var claimed = await inbox.ClaimAsync(new McpAgentSession
         {
             AgentInstallationId = state.Installation.Id,
             OrganizationId = state.Execution.OrganizationId.ToString(),
-            RuntimeInstanceId = Guid.NewGuid()
+            RuntimeInstanceId = runtime.Id
         }, CancellationToken.None);
         Assert.NotNull(claimed);
         Assert.Equal(active, item.BoardColumnId); // Immediately, before the scheduler runs.

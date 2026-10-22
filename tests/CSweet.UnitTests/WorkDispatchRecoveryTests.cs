@@ -268,7 +268,7 @@ public sealed partial class WorkDispatchRecoveryTests
         dependent.Dependencies.Add(new WorkItemDependency { WorkItemId = dependent.Id,
             DependsOnWorkItemId = state.Stage.ItemExecution!.WorkItemId });
         var next = new WorkItemExecution { Id = Guid.NewGuid(), SprintExecutionId = state.Execution.Id,
-            WorkItemId = dependent.Id, WorkItem = dependent, Status = WorkItemExecutionStatus.Pending };
+            WorkItemId = dependent.Id, WorkItem = dependent, CurrentStageKey = definition.Key, Status = WorkItemExecutionStatus.Pending };
         next.Stages.Add(new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = next.Id,
             StageKey = definition.Key, StageType = definition.Type, Status = WorkStageExecutionStatus.Pending });
         state.Execution.Items.Add(next); db.Add(next); db.Add(dependent);
@@ -317,7 +317,7 @@ public sealed partial class WorkDispatchRecoveryTests
         policy.Stages.Add(definition);
         var task = new WorkTask { Id = Guid.NewGuid(), OrganizationId = org, BoardId = board.Id, Identifier = "GAME-1", AssignmentRevision = assignmentRevision };
         var execution = new WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = org, BoardId = board.Id, SprintId = Guid.NewGuid(), PolicyRevisionId = policy.Id, Status = WorkSprintExecutionStatus.Active };
-        var item = new WorkItemExecution { Id = Guid.NewGuid(), SprintExecutionId = execution.Id, WorkItemId = task.Id, WorkItem = task, Status = WorkItemExecutionStatus.Pending };
+        var item = new WorkItemExecution { Id = Guid.NewGuid(), SprintExecutionId = execution.Id, WorkItemId = task.Id, WorkItem = task, CurrentStageKey = definition.Key, Status = WorkItemExecutionStatus.Pending };
         var stage = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = item.Id, ItemExecution = item, StageKey = definition.Key, StageType = definition.Type, Status = WorkStageExecutionStatus.Pending, AgentInstallationId = installation.Id, PrincipalKind = WorkOrchestrationPrincipalKind.AgentInstallation };
         item.Stages.Add(stage); execution.Items.Add(item);
         execution.AssignmentSnapshotJson = JsonSerializer.Serialize(new[] { new { workItemId = task.Id, stageKey = stage.StageKey, principalKind = 1, agentInstallationId = installation.Id } });

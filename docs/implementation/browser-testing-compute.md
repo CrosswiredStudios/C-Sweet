@@ -250,6 +250,11 @@ this factory instead of manually supplying that relationship; all 15 candidate r
 before dispatch, because the game profile begins at `ready`. Carryover is restricted to traversal
 zero with no author attempt; real QA-requested rework remains executable. The initial-queue,
 exact-candidate and hierarchical runtime regressions passed 36 tests.
+`WorkOrchestrationBoardState.SynchronizeAgentCard` clears obsolete `BlockReason` text when the
+current stage is queued or running, including cards already in the correct column/status. This
+prevents the old six-browser decision from appearing as a current blocker after recovery. The
+combined dispatch, candidate and hierarchical runtime suite passed 60 tests; its legacy fixtures
+now supply the authoritative stage cursor and a persisted runtime for inbox claims.
 
 The owner explicitly approved pause/reconcile/resume. The normal Delivery controls completed
 that sequence against scope revision 2 at 18:21 UTC. The active plan then displayed zero current
@@ -261,6 +266,9 @@ first task execution is `6b2281de-119f-4e5c-aa3b-d3f377013e1e`. The initial queu
 author attempt before the queue-transition fix; the owner direction was posted on #11 to preserve
 `f36a9de600429432644766aca9ae4a1f9d268299` and return it unchanged for fresh QA. That author attempt
 alone does not establish resumed or passing independent QA.
+At 18:53 UTC Adrian explicitly reported no source edits and reused the sole original publication
+`a44d755e36ff3edcf2ae310567f6c8177cd9905b`. A fresh technical review began at 18:54 UTC. Its completion,
+task integration and the new independent QA attempt must still be verified separately.
 
 ## Earlier operational UI gaps
 
