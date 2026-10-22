@@ -19,6 +19,33 @@ public sealed class WorkBoardWorkspaceTests
     private static readonly Guid BoardId = Guid.NewGuid(), ColumnId = Guid.NewGuid();
 
     [Fact]
+    public async Task ReadyCardsShowTheTransitiveBlockedPrerequisiteAndRefreshAfterCompletion()
+    {
+        var sprint = Sprint("Active");
+        var root = Item("Scaffold", sprint.Id) with { Identifier = "GAME-11", Status = "Blocked" };
+        var middle = Item("Scene graph", sprint.Id) with { Identifier = "GAME-14", Status = "Ready", DependencyItemIds = [root.Id] };
+        var child = Item("Layout", sprint.Id) with { Identifier = "GAME-15", Status = "Ready", DependencyItemIds = [middle.Id] };
+        var (html, _) = await Render(Detail([root, middle, child], [WorkSprintActions.Read]), [sprint]);
+        Assert.Contains("Waiting for GAME-11 (Blocked)", html);
+        Assert.Contains("Waiting for prerequisites", html);
+        Assert.Equal("Waiting for GAME-14 (Ready)", WorkBoardWorkspacePresentation.DependencyWait(child, [root with { Status = "Completed" }, middle, child]));
+        Assert.Null(WorkBoardWorkspacePresentation.DependencyWait(child, [root with { Status = "Completed" }, middle with { Status = "Completed" }, child]));
+        Assert.Null(WorkBoardWorkspacePresentation.DependencyWait(child with { Status = "Completed" }, [root, middle, child]));
+    }
+
+    [Fact]
+    public void UnknownCancelledAndCyclicPrerequisitesNeverLookRunnable()
+    {
+        var item = Item("Work") with { Status = "Ready", DependencyItemIds = [Guid.NewGuid()] };
+        Assert.Contains("outside this view", WorkBoardWorkspacePresentation.DependencyWait(item, [item]));
+        var cancelled = Item("Cancelled") with { Status = "Cancelled" };
+        item = item with { DependencyItemIds = [cancelled.Id] };
+        Assert.Contains("Cancelled", WorkBoardWorkspacePresentation.DependencyWait(item, [item, cancelled]));
+        var cycle = cancelled with { Status = "Ready", DependencyItemIds = [item.Id] };
+        Assert.Contains("cycle", WorkBoardWorkspacePresentation.DependencyWait(item, [item, cycle]));
+    }
+
+    [Fact]
     public void CardTextCapsIncludeEllipsisAndPreserveUnicodeTextElements()
     {
         Assert.Equal("Short title", WorkBoardWorkspacePresentation.CardText("Short title", 11));

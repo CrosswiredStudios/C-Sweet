@@ -6,6 +6,16 @@ namespace CSweet.UI.Components.WorkBoards;
 
 public static class WorkBoardWorkspacePresentation
 {
+    public static string? DependencyWait(WorkBoardItemResponse item, IReadOnlyList<WorkBoardItemResponse> items)
+        => DependencyWait(item, items.ToDictionary(x => x.Id, x => new WorkDependencyState(x.Id, x.Identifier ?? x.Title, x.Status, x.DependencyItemIds)));
+
+    public static string? DependencyWait(WorkBoardItemResponse item, IReadOnlyDictionary<Guid, WorkDependencyState> states)
+    {
+        if (item.Status is not ("Ready" or "Backlog")) return null;
+        var roots = WorkDependencyStatus.UnmetRoots(item.Id, states);
+        return roots.Count == 0 ? null : "Waiting for " + string.Join(", ", roots.Take(3).Select(x => $"{x.Label} ({x.Status})")) +
+            (roots.Count > 3 ? $" and {roots.Count - 3} more prerequisites" : "");
+    }
     /// <summary>Caps card display text without changing stored content or splitting a text element.</summary>
     public static string CardText(string? value, int maximumLength = 80)
     {

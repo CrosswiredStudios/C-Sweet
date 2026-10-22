@@ -615,7 +615,7 @@ public sealed partial class WorkBoardService(
                 x.Id == boardId && x.OrganizationId == organizationId && x.Kind == WorkBoardKind.Standard,
                 cancellationToken))
             return null;
-        var item = await db.CoreWorkTasks.SingleOrDefaultAsync(x =>
+        var item = await db.CoreWorkTasks.Include(x => x.Dependencies).SingleOrDefaultAsync(x =>
             x.Id == itemId && x.OrganizationId == organizationId && x.BoardId == boardId,
             cancellationToken);
         if (item is null) return null;
@@ -812,6 +812,7 @@ public sealed partial class WorkBoardService(
             : CSweet.WorkManagement.Contracts.WorkItemExecutionModes.Container,
         PlanningRevision = item.PlanningRevision,
         Identifier = item.Identifier,
+        DependencyItemIds = item.Dependencies.Select(x => x.DependsOnWorkItemId).ToArray(),
         AccountableOrganizationUserId = item.AccountableOrganizationUserId,
         StageAssignments = item.StageAssignments.Select(ToAssignmentContract).ToList(),
         Mentions = WorkItemMentionCodec.Deserialize(item.StructuredMentionsJson),
@@ -1165,6 +1166,7 @@ public sealed partial class WorkBoardService(
         var itemRows = canReadItems
             ? await db.CoreWorkTasks.AsNoTracking()
                 .Include(x => x.Approvals)
+                .Include(x => x.Dependencies)
                 .Include(x => x.StageAssignments)
                 .Where(x => x.BoardId == board.Id && x.BoardColumnId != null)
                 .OrderBy(x => x.BoardColumnId)

@@ -15,6 +15,27 @@ namespace CSweet.UnitTests;
 public sealed class WorkBoardServiceTests
 {
     [Fact]
+    public async Task BoardReadsAndMovesReturnCanonicalDependenciesWithoutPlanningJson()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOrganization(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var boardId = Assert.Single((await service.ListDirectoryAsync(setup.OrganizationId, setup.ApplicationUserId, new())).Boards).Id;
+        var column = await db.WorkBoardColumns.Where(x => x.BoardId == boardId).OrderBy(x => x.Position).FirstAsync();
+        WorkTask Item(string name) => new() { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            BoardId = boardId, BoardColumnId = column.Id, Title = name, Status = WorkTaskStatus.Ready };
+        var prerequisite = Item("Scaffold"); var child = Item("Scene graph");
+        db.AddRange(prerequisite, child, new CSweet.Domain.WorkManagement.WorkItemDependency { WorkItemId = child.Id, DependsOnWorkItemId = prerequisite.Id });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        var detail = (await service.GetAsync(setup.OrganizationId, boardId, setup.ApplicationUserId))!;
+        Assert.Equal(prerequisite.Id, Assert.Single(detail.Items.Single(x => x.Id == child.Id).DependencyItemIds));
+        db.ChangeTracker.Clear();
+        var moved = await service.MoveItemAsync(setup.OrganizationId, boardId, child.Id, setup.ApplicationUserId, new(column.Id, null, child.Revision));
+        Assert.Equal(prerequisite.Id, Assert.Single(moved!.DependencyItemIds));
+    }
+
+    [Fact]
     public void WorkTaskStringEnumConstraints_AreInTheModelAndMigrationSet()
     {
         using var db = new CSweetDbContext(

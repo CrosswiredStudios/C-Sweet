@@ -178,6 +178,7 @@
                                     @if (Detail.Items.FirstOrDefault(x => x.Id == item.ParentItemId) is { } parent)
                                     { <span class="ticket-sprint" title="@($"{parent.Kind} {parent.Identifier ?? parent.Title} · {parent.Status}")">@Present.CardText($"{parent.Kind} {parent.Identifier ?? parent.Title} · {parent.Status}")</span> }
                                     @if (_showDescriptions && !string.IsNullOrWhiteSpace(item.Description)) { <span class="ticket-description">@WorkBoardPresentation.DescriptionPreview(item.Description)</span> }
+                                    @if (DependencyWait(item) is { } dependencyWait) { <span class="ticket-attention" title="@dependencyWait">@dependencyWait</span> }
                                     @if (_view == WorkBoardView.All && Sprints.FirstOrDefault(x => x.Id == item.SprintId) is { } sprint) { <span class="ticket-sprint" title="@sprint.Name">@Present.CardText(sprint.Name)</span> }
                                     @if (Attention(item) is { } attention) { <span class="ticket-attention" title="@attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" /><span>@Present.CardText(attention, 120)</span></span> }
                                     <span class="ticket-footer"><span class="ticket-owner"><span class="owner-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="item.AssignedEmployeeId" IsAgent="@(item.AssignedInstallationId.HasValue)" Initials="@Initials(item.AssignedDisplayName)" /></span><span class="ticket-owner-name" title="@(item.AssignedDisplayName ?? "Unassigned")">@Present.CardText(item.AssignedDisplayName ?? "Unassigned", 48)</span></span><span class="ticket-priority">@item.Priority</span></span>
@@ -187,7 +188,7 @@
                                     {
                                         <WorkEvidenceLinks OrganizationId="Detail.Board.OrganizationId" Evidence="@(execution.Stages.SelectMany(x => x.LatestOutcome?.Evidence ?? []))" />
                                     }
-                                    <span class="ticket-column-status" title="@ColumnName(item)">@Present.CardText(ColumnName(item), 24)</span>
+                                    <span class="ticket-column-status" title="@(DependencyWait(item) ?? ColumnName(item))">@(DependencyWait(item) is null ? Present.CardText(ColumnName(item), 24) : "Waiting for prerequisites")</span>
                                 </div>
                                 @if (CanRetry(item)) { <button type="button" class="ticket-retry" disabled="@Busy" @onclick="@(() => OnRetryItem.InvokeAsync(item))" aria-label="Retry @item.Identifier"><MudIcon Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" />@L["Common.Retry"]</button> }
                                 @if (CanDrag(item)) { <button type="button" class="ticket-drag" draggable="true" @ondragstart="@(() => _draggedItem = item)" @ondragend="EndDrag" aria-label="Drag @item.Identifier; open item for Move or assign actions"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button> }
@@ -248,6 +249,7 @@
     private Guid? _explicitSprintId;
     private int _executionRequest;
     private IReadOnlyDictionary<Guid, Wire.WorkItemExecutionResponse> _executionItems = new Dictionary<Guid, Wire.WorkItemExecutionResponse>();
+    private IReadOnlyDictionary<Guid, WorkDependencyState> _dependencyStates = new Dictionary<Guid, WorkDependencyState>();
     private bool CanPlan(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status is "Planned" or "Active" && Detail.Board.AllowedActions.Contains(WorkSprintActions.ManageScope);
     private bool CanStart(WorkSprintResponse sprint) => !Detail.Board.IsArchived && sprint.Status == "Planned" && !Sprints.Any(x => x.Status is "Active" or "Paused") && Detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Start);
     private bool CanReadSprints => Detail.Board.AllowedActions.Contains(WorkSprintActions.Read);
@@ -270,6 +272,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        _dependencyStates = Detail.Items.ToDictionary(x => x.Id, x => new WorkDependencyState(x.Id, x.Identifier ?? x.Title, x.Status, x.DependencyItemIds));
         if (_boardId != Detail.Board.Id || _requestedSprintId != InitialSprintId)
         {
             _boardId = Detail.Board.Id;
@@ -326,7 +329,8 @@
     private Task SelectSprintAsync(ChangeEventArgs args) => Guid.TryParse(args.Value?.ToString(), out var id) ? OpenSprintAsync(id) : Task.CompletedTask;
     private async Task OpenSprintAsync(Guid id) { _explicitSprintId = _sprintId = id; _view = WorkBoardView.Sprint; ClearFilters(); await LoadExecutionAsync(); }
     private void ClearFilters() { _search = ""; _attentionOnly = false; }
-    private string? Attention(WorkBoardItemResponse item) => Present.AttentionReason(item, _executionItems.GetValueOrDefault(item.Id));
+    private string? Attention(WorkBoardItemResponse item) => Present.AttentionReason(item, _executionItems.GetValueOrDefault(item.Id)) ?? DependencyWait(item);
+    private string? DependencyWait(WorkBoardItemResponse item) => Present.DependencyWait(item, _dependencyStates);
     private string ColumnName(WorkBoardItemResponse item) => Detail.Columns.FirstOrDefault(x => x.Id == item.ColumnId)?.Name ?? item.Status;
     private string TabClass(WorkBoardView view) => _view == view ? "is-active" : "";
     private string? Current(WorkBoardView view) => _view == view ? "page" : null;

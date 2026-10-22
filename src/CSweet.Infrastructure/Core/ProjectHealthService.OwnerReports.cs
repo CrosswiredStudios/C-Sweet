@@ -78,6 +78,8 @@ public sealed partial class ProjectHealthService
     {
         var project = await db.Workstreams.AsNoTracking().SingleAsync(x => x.Id == incident.WorkstreamId && x.OrganizationId == incident.OrganizationId, token);
         var facts = new List<ProjectDiagnosticEvidence>();
+        var dependencyStatus = await DeliveryDependencyStatusAsync(incident, token);
+        if (dependencyStatus is not null) facts.Add(dependencyStatus);
         var technicalDiagnostic = await TechnicalPlanningDiagnosticAsync(incident, token);
         if (technicalDiagnostic is not null)
             facts.Add(new("CurrentPlatformTechnicalIssue", incident.Id, incident.DetectedAt,
@@ -146,7 +148,7 @@ public sealed partial class ProjectHealthService
         // owner decision. Exact operation incidents do bind their current execution.
         var operationExecution = new[] { "chat", "coordination", "stage", "work" }.Any(kind =>
             IncidentSource(incident.Fingerprint, kind) is not null) ? executionEvidence : null;
-        var serialized = JsonSerializer.SerializeToUtf8Bytes(new { ownerInputPolicy = 4, technicalDiagnostic, project.Id, project.Revision, incident.Fingerprint,
+        var serialized = JsonSerializer.SerializeToUtf8Bytes(new { ownerInputPolicy = 5, dependencyStatus = dependencyStatus?.Detail, technicalDiagnostic, project.Id, project.Revision, incident.Fingerprint,
             incident.Reason, incident.EvidenceJson, ticket = ticket is null ? null : new { ticket.Id, ticket.Revision, ticket.Status, ticket.BlockReason,
                 ticket.WaitingReason, ticket.ResultSummary, ticket.AssignedEmployeeId, ticket.AccountableOrganizationUserId },
             decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation, operationExecution }, Json);
@@ -168,6 +170,9 @@ public sealed partial class ProjectHealthService
         if (report.SourceHash != (await CurrentIncidentStateAsync(incident, token)).Hash)
             throw new ProjectHealthStateException("project-health.stale_evidence", "The report's source evidence changed.");
         if (await TechnicalPlanningDiagnosticAsync(incident, token) is not null) report = TechnicalPlanningReport(report);
+        if (IncidentSource(incident.Fingerprint, "stage") is { } stageId &&
+            await DeliveryDependencyStatusAsync(incident, token) is { } dependencyStatus)
+            report = report with { Summary = DependencyOwnerSummary(await StageBlockerTextAsync(stageId, incident.Reason, token), dependencyStatus.Detail) };
         // Sanitization and bounds also apply to model-generated presentation text.
         report = report with { Title = ValidateText(report.Title), Summary = ValidateText(report.Summary),
             Recovery = ValidateText(report.Recovery), NextStep = ValidateText(report.NextStep),

@@ -78,7 +78,9 @@ public sealed partial class ProjectHealthService
             if (stage?.ItemExecution?.WorkItem is { } ticket && db.HealthProjectForTask(ticket) == project.Id)
             {
                 summary = $"{Display(ticket.Identifier ?? ticket.Title)}: {Display(stage.StageKey)} is {stage.Status.ToString().ToLowerInvariant()}. " +
-                    Display(ProjectHealthReader.Safe(stage.LastError ?? stage.LastSummary ?? "The stage has not completed."));
+                    await StageBlockerTextAsync(stage.Id, stage.LastError ?? stage.LastSummary ?? "The stage has not completed.", token);
+                if (await DeliveryDependencyStatusAsync(incident, token) is { } dependencyStatus)
+                    summary += " " + dependencyStatus.Detail;
                 next = stage.LastError == "The author has not delivered an exact artifact revision."
                     ? "The accountable manager needs the author to deliver the exact document revision, then retry its quality review. Approving unrelated work does not clear this blocker."
                     : "Have the accountable manager address the recorded stage blocker, then retry the affected ticket.";

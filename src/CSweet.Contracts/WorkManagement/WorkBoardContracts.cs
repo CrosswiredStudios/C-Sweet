@@ -244,6 +244,7 @@ public sealed record WorkBoardItemResponse(
     public string ExecutionMode { get; init; } = CSweet.WorkManagement.Contracts.WorkItemExecutionModes.Executable;
     public long PlanningRevision { get; init; }
     public string? Identifier { get; init; }
+    public IReadOnlyList<Guid> DependencyItemIds { get; init; } = [];
     public Guid? AccountableOrganizationUserId { get; init; }
     public IReadOnlyList<WorkStageAssignment> StageAssignments { get; init; } = [];
     public IReadOnlyList<WorkItemMentionSpan> Mentions { get; init; } = [];

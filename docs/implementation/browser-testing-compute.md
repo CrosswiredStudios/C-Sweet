@@ -107,7 +107,55 @@ package-only build/pack used SDK 5.0.2 with sibling references disabled; the `.n
 inspected as `CSweet.Agent.QA.VideoGame` 5.1.0. The installed Hyper-V browser workload and live
 end-to-end QA callback remain rollout acceptance, not established by these fixture results.
 
-## Operational UI gaps
+## Chromium-only planning and dependency reporting (October 22, 2026)
+
+Creative Director 2.1.9 `VideoGameCreativeDirectorAgent.SystemPrompt` and `PitchRefinement`,
+and Technical Director 5.0.2 `PlanningConstructionGuidance` / `ImplementationBrief.Guidance`
+suggest Chromium-only verification for web games. This includes paginated and lightweight
+planning. Responsive and input requirements remain; viewport emulation does not establish
+real-device certification. Explicit accepted owner requirements still need an authorized
+amendment before they can be changed.
+
+QA 5.2.2 `GameQaCriterion.MissingEvidence` separates unavailable checks from passing evidence.
+`GameQaExecution.DecisionOutcome` puts those gaps first, retains full report evidence, and
+reserves summary space for recovery options. Older reports without the new field prefer
+gap sentences over long successful-build prefixes. No result claims other browsers/devices
+passed merely because Chromium did.
+
+`WorkBoardService.ToDetailAsync` and `ToItemResponse` return canonical dependency IDs.
+`WorkDependencyStatus.UnmetRoots` resolves direct/transitive waits, including missing or
+cyclic prerequisites. `WorkBoardWorkspacePresentation.DependencyWait` labels waiting cards
+and includes them in attention filtering without changing their workflow or execution state.
+`ProjectHealthService.DeliveryDependencyStatusAsync` supplies active-sprint task counts,
+excluding managerial personal work. Its current facts participate in owner-report freshness;
+stage reports use those counts rather than unverified claims that other delivery continues.
+`StageBlockerTextAsync` reads retained QA output so older truncated blocker text can also show
+the actual missing browser environment. Previously delivered chat history remains intact.
+
+Regression coverage: `DecisionRequiredTests`, `ImplementationBriefTests`,
+`CreativeDirectorLifecycleTests`, `WorkBoardWorkspaceTests`, `WorkBoardServiceTests`, and
+`ProjectHealthTests.Dependencies`. Deploy the platform and publish/install the three agent
+releases through Installed Agents. Local tests and `.nupkg` files do not update installations.
+
+Producer 4.0.9 `TryReadRetryDirection`, `RetainScopeAmendmentAsync` and `ScopeExpectedItems`
+remove amendment-specific text-length gates from command parsing, retained owner direction
+and exact replacement descriptions. Concision is prompt guidance; complete source-bound
+direction and replacement text remain intact through durable recovery. Empty direction,
+untrusted sources, stale scope and unrelated replacements are still rejected. Generic
+transport/storage contracts remain unchanged. `DeferredScopeAmendmentTests` exercises a long
+multiline direction through capture, restart, reauthorization and planning handoff;
+`ScopeAmendmentTests` covers long replacement text without altering the original snapshot.
+
+Local verification: 187 platform regressions passed with one existing skipped workflow test;
+agent package-consumer suites passed 118 QA, 155 Technical Director, 213 Creative Director,
+and 421 Producer tests. All four self-tests passed, including Producer's published output.
+The `.nupkg` metadata, packaged manifests and release-note headings match their final versions.
+The Chromium-only owner decision was recorded through Communications and relayed by Naomi
+as tracked work for Gabriel. Gabriel acknowledged it and the retained scope-amendment
+commitment was observed Running. The scaffold still carried its old criterion at that check;
+acknowledgement or a running amendment is not evidence that QA has resumed.
+
+## Earlier operational UI gaps
 
 The October 21 live recovery used Installed agents to verify QA 5.1.0, Compute to observe Linux
 preparation, and the project board's Retry action to resume only the stopped quality stage.
