@@ -3,9 +3,9 @@
 @inject HttpClient Http
 @inject IAppLocalizer L
 
-<AttentionRequestCard Kind="@(Incident.IsStatusReport ? "Issue" : "Input needed")"
+<AttentionRequestCard Kind="@(Incident.IsStatusReport ? "Status" : "Input needed")"
     EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
-    Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@Incident.Reason"
+    Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@(Incident.IsStatusReport ? $"{Incident.ProjectName}: manager recovery status" : Incident.Reason)"
     Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@(_notice ?? Incident.RecoveryStatus ?? (Incident.ReportDeliveryPending ? L["ProjectIncidentAttentionCard.Preparing"] : null))">
     <BodyContent>
         @if (!string.IsNullOrWhiteSpace(Incident.RecoveryStatus))

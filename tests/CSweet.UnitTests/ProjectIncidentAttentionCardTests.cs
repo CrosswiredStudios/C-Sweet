@@ -24,7 +24,8 @@ public sealed class ProjectIncidentAttentionCardTests
             RecoveryStatus = "No retry is currently queued.", RecommendedAction = "Install the planning correction before retrying.",
             DiagnosticDetails = "scope coverage page 1: 274970 characters exceeds 128000" };
         var html = await f.Render();
-        Assert.Contains("Issue", html); Assert.DoesNotContain("Input needed", html);
+        Assert.Contains("Status", html); Assert.DoesNotContain("Input needed", html);
+        Assert.Contains("manager recovery status", html);
         Assert.Contains("<details", html); Assert.DoesNotContain("<details open", html);
         Assert.Contains("Technical details", html); Assert.Contains("274970", html);
         Assert.Contains("2 related reports", html); Assert.Contains("Install the planning correction", html);

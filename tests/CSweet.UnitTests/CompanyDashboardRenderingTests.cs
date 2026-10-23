@@ -16,6 +16,31 @@ namespace CSweet.UnitTests;
 public sealed class CompanyDashboardRenderingTests
 {
     [Fact]
+    public async Task RoutineManagerReportsRemainVisibleWithoutRequestingOwnerAttention()
+    {
+        var routine = new ProjectIncidentAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Prism Break", "Naomi",
+            "Prism Break: help needed", "QA is waiting for an assigned Bug fix.", "The manager will retry QA after integration.", "/report", DateTimeOffset.UtcNow)
+            { IsStatusReport = true };
+        var decision = routine with { Id = Guid.NewGuid(), IsStatusReport = false, Reason = "Approve an external dependency", Facts = "An external dependency needs owner approval." };
+        var html = await Render(false, incidents: [routine, decision]);
+        var attention = html[html.IndexOf("aria-label=\"Pending attention items\"", StringComparison.Ordinal)..];
+        attention = attention[..attention.IndexOf("aria-label=\"Manager recovery reports\"", StringComparison.Ordinal)];
+        Assert.Contains("1 pending", attention);
+        Assert.Contains("Approve an external dependency", attention);
+        Assert.DoesNotContain("QA is waiting", attention);
+        Assert.Contains("Prism Break: manager recovery status", html);
+        Assert.Contains("QA is waiting for an assigned Bug fix.", html);
+        Assert.Contains("No response requested", html);
+        Assert.DoesNotContain("Prism Break: help needed", html);
+        Assert.Equal(1, OverviewAttentionItems.Count(new(Guid.NewGuid(), 0, []) { ProjectIncidents = [routine, decision] }, null, [], null));
+
+        html = await Render(false, incidents: [routine]);
+        Assert.Contains("Nothing needs your attention", html);
+        Assert.Contains("QA is waiting for an assigned Bug fix.", html);
+        Assert.Equal(0, OverviewAttentionItems.Count(new(Guid.NewGuid(), 0, []) { ProjectIncidents = [routine] }, null, [], null));
+    }
+
+    [Fact]
     public async Task FirstRunMergesActionQueuesAndPreservesSavedWidgetOrder()
     {
         var html = await Render(false);
@@ -251,12 +276,13 @@ public sealed class CompanyDashboardRenderingTests
 
     private static async Task<string> Render(bool populated, bool failReports = false,
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals = null, IReadOnlyList<HiringRecommendationResponse>? recommendations = null,
-        bool failApprovals = false, bool failHiring = false, ComputeDashboard? compute = null, bool failCompute = false)
+        bool failApprovals = false, bool failHiring = false, ComputeDashboard? compute = null, bool failCompute = false,
+        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents = null)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
-        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute)) { BaseAddress = new Uri("http://localhost") });
+        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<IAgentApiClient, AgentApiClient>();
         await using var provider = services.BuildServiceProvider();
@@ -269,7 +295,8 @@ public sealed class CompanyDashboardRenderingTests
     }
     private sealed class Handler(bool populated, bool failReports,
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals, IReadOnlyList<HiringRecommendationResponse>? recommendations,
-        bool failApprovals, bool failHiring, ComputeDashboard? compute, bool failCompute) : HttpMessageHandler
+        bool failApprovals, bool failHiring, ComputeDashboard? compute, bool failCompute,
+        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
@@ -299,7 +326,7 @@ public sealed class CompanyDashboardRenderingTests
             else if (path.EndsWith("/approvals"))
             {
                 if (failApprovals) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
-                result = new ApprovalDashboardResponse(Guid.NewGuid(), approvals?.Count ?? 0, approvals ?? []);
+                result = new ApprovalDashboardResponse(Guid.NewGuid(), approvals?.Count ?? 0, approvals ?? []) { ProjectIncidents = incidents ?? [] };
             }
             else if (path.EndsWith("/inspection"))
             {
