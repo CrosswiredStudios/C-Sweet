@@ -80,6 +80,7 @@
                         <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingInitialMemory"]" @bind-Value="_codingInitialMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingMaximumMemory"]" @bind-Value="_codingMaximumMemoryMb" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingMaximumReplacements"]" @bind-Value="_codingMaximumReplacements" Min="0" Max="2" Variant="Variant.Outlined" Disabled="_isBusy" />
+                        <MudNumericField T="int" Label="@L["AgentRuntimeSettings.CodingProcessLimit"]" HelperText="@L["AgentRuntimeSettings.CodingProcessLimitHelper"]" @bind-Value="_codingWorkloadProcessLimit" Min="1" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultCpu"]" @bind-Value="_defaultWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="@L["AgentRuntimeSettings.MaximumCpu"]" @bind-Value="_maximumWorkloadCpuPercent" Variant="Variant.Outlined" Disabled="_isBusy" />
                         <MudNumericField T="int" Label="@L["AgentRuntimeSettings.DefaultProcessLimit"]" @bind-Value="_defaultWorkloadProcessLimit" Variant="Variant.Outlined" Disabled="_isBusy" />
@@ -169,6 +170,7 @@
     {
         _codingInitialMemoryMb = s.CodingInitialMemoryMb; _codingMaximumMemoryMb = s.CodingMaximumMemoryMb;
         _codingMaximumReplacements = s.CodingMaximumReplacements;
+        _codingWorkloadProcessLimit = s.CodingWorkloadProcessLimit;
         _enableImportedAgents = s.EnableImportedAgents; _defaultActivationMode = s.DefaultActivationMode;
         _defaultTickFrequencySeconds = s.DefaultTickFrequencySeconds; _minimumTickFrequencySeconds = s.MinimumTickFrequencySeconds;
         _defaultMaxRuntimeSeconds = s.DefaultMaxRuntimeSeconds; _defaultOverlapPolicy = s.DefaultOverlapPolicy;
@@ -188,7 +190,7 @@
         _removeWorkloadsAfterCompletion = s.RemoveWorkloadsAfterCompletion; _removeWorkspacesAfterCompletion = s.RemoveWorkspacesAfterCompletion;
     }
 
-    private int _codingInitialMemoryMb = 4096, _codingMaximumMemoryMb = 16384, _codingMaximumReplacements = 2;
+    private int _codingInitialMemoryMb = 4096, _codingMaximumMemoryMb = 16384, _codingMaximumReplacements = 2, _codingWorkloadProcessLimit = 512;
 
     private async Task SaveAsync()
     {
@@ -208,7 +210,8 @@
                 _buildLogRetentionDays, _removeWorkloadsAfterCompletion, _removeWorkspacesAfterCompletion)
             {
                 CodingInitialMemoryMb = _codingInitialMemoryMb, CodingMaximumMemoryMb = _codingMaximumMemoryMb,
-                CodingMaximumReplacements = _codingMaximumReplacements
+                CodingMaximumReplacements = _codingMaximumReplacements,
+                CodingWorkloadProcessLimit = _codingWorkloadProcessLimit
             });
             _actionSucceeded = result.Succeeded;
             _actionMessage = result.Message ?? L[result.Succeeded ? "AgentRuntimeSettings.Saved" : "AgentRuntimeSettings.SaveFailed"];

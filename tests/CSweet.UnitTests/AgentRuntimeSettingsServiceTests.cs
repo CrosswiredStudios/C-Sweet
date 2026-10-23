@@ -9,6 +9,23 @@ namespace CSweet.UnitTests;
 public class AgentRuntimeSettingsServiceTests
 {
     [Theory]
+    [InlineData(512, true)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    public async Task ProgrammerProcessAllowanceUsesNormalSettingsValidation(int processes, bool succeeds)
+    {
+        await using var db = CreateDbContext();
+        var settings = CreateSettings();
+        settings.CodingWorkloadProcessLimit = 256;
+        db.AgentRuntimeGlobalSettings.Add(settings);
+        await db.SaveChangesAsync();
+        var result = await new AgentRuntimeSettingsService(db, new TestAuditEventWriter()).UpdateAsync(
+            new UpdateAgentRuntimeSettingsRequest { CodingWorkloadProcessLimit = processes });
+        Assert.Equal(succeeds, result.Succeeded);
+        Assert.Equal(succeeds ? processes : 256, settings.CodingWorkloadProcessLimit);
+        Assert.Equal(100, settings.DefaultWorkloadProcessLimit);
+    }
+    [Theory]
     [InlineData(0, 0, true)]
     [InlineData(-1, 0, false)]
     [InlineData(0, -1, false)]

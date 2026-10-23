@@ -6,6 +6,17 @@ namespace CSweet.UnitTests;
 public sealed class WorkloadResourcePolicyTests
 {
     [Fact]
+    public void Programmer_process_allowance_does_not_expand_other_workloads()
+    {
+        var settings = new AgentRuntimeGlobalSettings();
+        Assert.Equal(512, WorkloadResourcePolicy.Processes(settings, true));
+        Assert.Equal(100, WorkloadResourcePolicy.Processes(settings, false));
+        settings.CodingWorkloadProcessLimit = 768;
+        settings.DefaultWorkloadProcessLimit = 80;
+        Assert.Equal(768, WorkloadResourcePolicy.Processes(settings, true));
+        Assert.Equal(80, WorkloadResourcePolicy.Processes(settings, false));
+    }
+    [Fact]
     public void Coding_default_is_independent_of_legacy_grant_and_package_builder()
     {
         var settings = new AgentRuntimeGlobalSettings { BuildMemoryMb = 2048 };

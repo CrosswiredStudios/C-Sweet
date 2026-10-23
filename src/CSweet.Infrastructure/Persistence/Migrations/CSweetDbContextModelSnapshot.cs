@@ -9767,6 +9767,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("CodingMaximumReplacements")
                         .HasColumnType("integer");
 
+                    b.Property<int>("CodingWorkloadProcessLimit")
+                        .HasColumnType("integer");
+
                     b.Property<int>("CompletedRuntimeRetentionDays")
                         .HasColumnType("integer");
 

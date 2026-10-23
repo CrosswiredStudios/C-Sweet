@@ -42,4 +42,5 @@ public sealed record AgentRuntimeSettingsResponse(
     public int CodingInitialMemoryMb { get; init; } = 4096;
     public int CodingMaximumMemoryMb { get; init; } = 16384;
     public int CodingMaximumReplacements { get; init; } = 2;
+    public int CodingWorkloadProcessLimit { get; init; } = 512;
 }

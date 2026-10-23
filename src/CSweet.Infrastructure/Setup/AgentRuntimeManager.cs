@@ -876,7 +876,7 @@ public sealed partial class AgentRuntimeManager(
                 installation.Grant.CpuPercent,
                 instance.AllocatedMemoryMb,
                 runtimeOptions.RuntimeWritableDiskMb,
-                settings.DefaultWorkloadProcessLimit,
+                WorkloadResourcePolicy.Processes(settings, codingRuntime),
                 checked(settings.DefaultWorkloadLogLimitMb * 1024 * 1024),
                 runtimeLifetime);
             var handle = await workloads.CreateAndStartAsync(

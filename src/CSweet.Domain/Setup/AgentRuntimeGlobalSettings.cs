@@ -24,6 +24,7 @@ public sealed class AgentRuntimeGlobalSettings
     public int CodingInitialMemoryMb { get; set; } = 4096;
     public int CodingMaximumMemoryMb { get; set; } = 16384;
     public int CodingMaximumReplacements { get; set; } = 2;
+    public int CodingWorkloadProcessLimit { get; set; } = 512;
     public int DefaultWorkloadCpuPercent { get; set; } = 50;
     public int MaximumWorkloadCpuPercent { get; set; } = 200;
     public int DefaultWorkloadProcessLimit { get; set; } = 100;

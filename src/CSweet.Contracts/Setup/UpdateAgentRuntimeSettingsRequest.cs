@@ -40,4 +40,5 @@ public sealed record UpdateAgentRuntimeSettingsRequest(
     public int? CodingInitialMemoryMb { get; init; }
     public int? CodingMaximumMemoryMb { get; init; }
     public int? CodingMaximumReplacements { get; init; }
+    public int? CodingWorkloadProcessLimit { get; init; }
 }
