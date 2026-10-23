@@ -78,7 +78,11 @@ internal static partial class WorkOrchestrationBoardState
 
         var item = stage.ItemExecution!.WorkItem!;
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
-        var running = stage.Status == WorkStageExecutionStatus.Running;
+        var computeContinuation = stage.LastOutcomeCode == "awaiting-compute" && stage.LastError is null;
+        var running = stage.Status == WorkStageExecutionStatus.Running || computeContinuation;
+        var waitingReason = computeContinuation && stage.Status != WorkStageExecutionStatus.Running
+            ? stage.Status == WorkStageExecutionStatus.Backoff ? "Waiting for browser compute" : "Continuing QA after browser compute"
+            : null;
         // Queue successors stay queued until claimed. Later review stages retain their
         // own columns, so waiting for QA does not look like new development.
         var queueColumn = policy.Stages
@@ -87,10 +91,11 @@ internal static partial class WorkOrchestrationBoardState
             .OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => x.ColumnId).FirstOrDefault();
         var column = (running ? definition.ColumnId : queueColumn ?? definition.ColumnId) ?? item.BoardColumnId;
         var status = running ? WorkTaskStatus.Running : WorkTaskStatus.Ready;
-        if (item.BoardColumnId == column && item.Status == status && item.BlockReason is null) return;
+        if (item.BoardColumnId == column && item.Status == status && item.BlockReason is null && item.WaitingReason == waitingReason) return;
         item.BoardColumnId = column;
         item.Status = status;
         item.BlockReason = null;
+        item.WaitingReason = waitingReason;
         item.UpdatedAt = now;
         item.Revision++;
     }

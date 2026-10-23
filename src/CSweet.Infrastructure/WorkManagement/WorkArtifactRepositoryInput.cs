@@ -73,6 +73,25 @@ internal static class WorkArtifactRepositoryInput
         return new(InputDigest(assignment, repositories, dependenciesDigest), plan.ScopeRevision, repositories, []);
     }
 
+    // Reused by live snapshot reads and completed asynchronous compute handoffs. The latter
+    // has already relinquished its inbox lease; identity still comes from the protected assignment.
+    internal static async Task<WorkDeliveryCandidate> AuthorizeAssignmentAsync(CSweetDbContext db, WorkTask item,
+        WorkExecutionAssignment assignment, CancellationToken ct)
+    {
+        var (plan, branches, dependenciesDigest) = await RequireAsync(db, item, ct);
+        if (assignment.OrganizationId != item.OrganizationId || assignment.TaskItemId != item.Id || assignment.BoardId != item.BoardId ||
+            assignment.PlanningRevision != item.PlanningRevision || assignment.AssignmentRevision != item.AssignmentRevision ||
+            assignment.DeliveryPlanId != plan.Id || assignment.ScopeRevision != plan.ScopeRevision || assignment.WorkstreamId != plan.WorkstreamId ||
+            assignment.Candidate is not { Documents.Count: 0, Repositories.Count: > 0 } candidate || candidate.ScopeRevision != plan.ScopeRevision ||
+            candidate.Digest != InputDigest(assignment, candidate.Repositories, dependenciesDigest) || candidate.Repositories.Count != branches.Length ||
+            candidate.Repositories.Any(r => !branches.Any(b => b.RepositoryId == r.RepositoryId && b.SourceBranch == r.SourceBranch &&
+                r.SourceBranch == r.TargetBranch && r.SourceCommitSha == r.TargetCommitSha && r.SourceCommitSha == r.CandidateCommitSha)))
+            throw new UnauthorizedAccessException("The saved repository input no longer belongs to the current accepted assignment.");
+        foreach (var repository in candidate.Repositories)
+            await RepositoryAsync(db, item.OrganizationId, assignment.BoardId, assignment.OrganizationUserId, repository.RepositoryId, ct);
+        return candidate;
+    }
+
     internal static string InputDigest(WorkExecutionAssignment assignment, IReadOnlyList<WorkDeliveryRepositoryCandidate> repositories, string dependenciesDigest) =>
         WorkDeliveryService.Digest(new { purpose = "artifact-repository-input-v1", assignment.DeliveryPlanId, assignment.ScopeRevision,
             assignment.ExecutionId, assignment.StageExecutionId, assignment.AttemptId, assignment.TaskItemId,

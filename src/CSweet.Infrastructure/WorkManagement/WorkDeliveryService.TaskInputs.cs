@@ -33,23 +33,15 @@ public sealed partial class WorkDeliveryService
                 throw new UnauthorizedAccessException("Repository input access requires a live assigned work lease.");
             var assignment = inbox.ReadPayload(work).Deserialize<WorkExecutionAssignment>(Json)
                 ?? throw new UnauthorizedAccessException("The durable input assignment is missing.");
-            var (plan, branches, dependenciesDigest) = await WorkArtifactRepositoryInput.RequireAsync(db, item, ct);
             if (assignment.OrganizationId != org || assignment.OrganizationUserId != member.Id || assignment.AgentInstallationId != member.AgentInstallationId ||
                 assignment.ExecutionId != execution.Id || assignment.StageExecutionId != stage.Id || assignment.AttemptId != attempt.Id ||
-                assignment.TaskItemId != item.Id || assignment.BoardId != item.BoardId || assignment.PlanningRevision != item.PlanningRevision ||
-                assignment.AssignmentRevision != item.AssignmentRevision || assignment.DeliveryPlanId != request.PlanId || plan.Id != request.PlanId ||
-                assignment.ScopeRevision != plan.ScopeRevision || assignment.WorkstreamId != plan.WorkstreamId ||
-                assignment.Candidate is not { Documents.Count: 0, Repositories.Count: > 0 } candidate || candidate.ScopeRevision != plan.ScopeRevision ||
-                candidate.Digest != WorkArtifactRepositoryInput.InputDigest(assignment, candidate.Repositories, dependenciesDigest) ||
-                candidate.Repositories.Count != branches.Length || candidate.Repositories.Any(r => !branches.Any(b => b.RepositoryId == r.RepositoryId &&
-                    b.SourceBranch == r.SourceBranch && r.SourceBranch == r.TargetBranch && r.SourceCommitSha == r.TargetCommitSha && r.SourceCommitSha == r.CandidateCommitSha)))
-                throw new UnauthorizedAccessException("The saved repository input no longer belongs to the current accepted assignment.");
+                assignment.TaskItemId != item.Id || assignment.BoardId != item.BoardId || assignment.DeliveryPlanId != request.PlanId)
+                throw new UnauthorizedAccessException("The saved repository input does not belong to this attempt.");
+            var candidate = await WorkArtifactRepositoryInput.AuthorizeAssignmentAsync(db, item, assignment, ct);
             if (!(await authorization.AuthorizeAsync(org, CSweet.Domain.Security.GrantSubjectKind.AgentInstallation,
                 member.AgentInstallationId.Value, CSweet.Contracts.WorkManagement.WorkItemActions.Read,
                 CSweet.Domain.Security.GrantScopeKind.WorkItem, item.Id, ct)).Allowed)
                 throw new UnauthorizedAccessException("Current task read access is required for repository inputs.");
-            foreach (var repository in candidate.Repositories)
-                await WorkArtifactRepositoryInput.RepositoryAsync(db, org, assignment.BoardId, member.Id, repository.RepositoryId, ct);
             return assignment;
         }
         var assignment = await AuthorizeAsync();

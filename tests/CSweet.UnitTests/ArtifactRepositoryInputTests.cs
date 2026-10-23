@@ -29,6 +29,11 @@ public sealed class ArtifactRepositoryInputTests
     [InlineData("connection", false)]
     [InlineData("dependency", false)]
     [InlineData("dependency-reworked", false)]
+    [InlineData("scope", false)]
+    [InlineData("wait-source", true)]
+    [InlineData("wait-attempt", true)]
+    [InlineData("wait-owner", true)]
+    [InlineData("wait-traversal", true)]
     public async Task SavedArtifactInputIsNarrowAndReauthorizedOnEveryRead(string change, bool allowed)
     {
         await using var f = await HierarchicalDeliveryServiceTests.Fixture.Create(false);
@@ -95,6 +100,7 @@ public sealed class ArtifactRepositoryInputTests
         switch(change)
         {
             case "paused": plan.Status="Paused";break;
+            case "scope": plan.ScopeRevision++;break;
             case "lease": work.Attempts.Single().LeaseExpiresAt=DateTimeOffset.UtcNow.AddMinutes(-1);break;
             case "finished": stage.Status=WorkStageExecutionStatus.Completed;break;
             case "reassigned": stage.AgentInstallationId=Guid.NewGuid();break;
@@ -112,6 +118,40 @@ public sealed class ArtifactRepositoryInputTests
         await f.Db.SaveChangesAsync();
         if(allowed) Assert.Equal(assignment.Candidate.Digest,(await service.ReadEvidenceAsync(f.Org,installation,request)).Candidate.Digest);
         else Assert.NotNull(await Record.ExceptionAsync(()=>service.ReadEvidenceAsync(f.Org,installation,request)));
+        // Artifact browser waits must use the same pinned authority without inventing a
+        // writable Git workspace. This is a completed inbox handoff, so no live lease remains.
+        work.Status=AgentWorkStatus.Completed;
+        var environment = new CSweet.Domain.Compute.ComputeEnvironment { Id=Guid.NewGuid(), OrganizationId=f.Org,
+            InstallationId=installation, WorkstreamId=f.Project, State=CSweet.Domain.Compute.ComputeLifecycleState.Busy,
+            Generation=1, ProviderId="test", ProviderNodeId=Guid.NewGuid() };
+        var operation = new CSweet.Domain.Compute.ComputeOperation { Id=Guid.NewGuid(), OrganizationId=f.Org,
+            InstallationId=installation, EnvironmentId=environment.Id, Generation=1, Status="Dispatching" };
+        f.Db.AddRange(environment,operation);await f.Db.SaveChangesAsync();
+        if(change == "wait-attempt")
+        {
+            var otherAssignment = assignment with { AttemptId=Guid.NewGuid() };
+            var other = await inbox.EnqueueAsync(f.Org.ToString(),installation,AgentWorkKind.Capability,"work.execution.run.v1",
+                JsonSerializer.SerializeToElement(otherAssignment,WorkDeliveryService.Json),"other-input",DateTimeOffset.UtcNow.AddHours(1),"","","WorkStageExecution",stage.Id.ToString("D"));
+            other.Status=AgentWorkStatus.Completed; attempt.AgentWorkItemId=other.Id;
+        }
+        if(change == "wait-owner") work.AgentInstallationId=Guid.NewGuid();
+        if(change == "wait-traversal") execution.Traversal++;
+        await f.Db.SaveChangesAsync();
+        var now=DateTimeOffset.UtcNow;
+        var wait = new WorkOrchestrator.QaComputeWait(new string(change == "wait-source" ? 'b' : 'a',40),new string('c',64),environment.Id,[operation.Id],now.AddMinutes(5));
+        var outcome = new WorkExecutionOutcomeV1(stage.Id,attempt.Id,WorkExecutionDispositions.Completed,"awaiting-compute",
+            "Browser testing continues",JsonSerializer.SerializeToElement(wait,WorkDeliveryService.Json),[],[]);
+        var orchestrator = new WorkOrchestrator(f.Db,inbox,null!,null!,[],TimeProvider.System,null!);
+        var error = await orchestrator.AcceptComputeWaitAsync(sprint,stage,attempt,outcome,now,default);
+        Assert.Equal(change is "current" or "lease",error is null);
+        Assert.Empty(f.Db.SourceControlWorkspaces);
+        Assert.Empty(f.Db.SourceControlValidations);
+        if(error is null)
+        {
+            Assert.Equal(WorkStageExecutionStatus.Backoff,stage.Status);
+            Assert.Equal(WorkExecutionAttemptStatus.Completed,attempt.Status);
+            Assert.Equal(now.AddMinutes(5),stage.RetryAt);
+        }
         Assert.Equal(1,host.Inspections);
     }
     public class InputHost : DispatchProxy

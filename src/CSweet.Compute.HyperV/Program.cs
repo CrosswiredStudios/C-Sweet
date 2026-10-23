@@ -13,9 +13,15 @@ internal static class Program
             businessId = id;
             args = [args[0]];
         }
-        if (args.Length == 3 && args[0] == "repair-local")
+        if (args.Length is 3 or 4 && args[0] == "repair-local")
         {
-            try { await LocalComputeInstaller.ConfigureAsync(null, args[1], args[2], default); return 0; }
+            Guid? repairBusiness = null;
+            if (args.Length == 4)
+            {
+                if (!Guid.TryParseExact(args[3], "N", out var id) || id == Guid.Empty) return 2;
+                repairBusiness = id;
+            }
+            try { await LocalComputeInstaller.ConfigureAsync(null, args[1], args[2], default, repairBusiness); return 0; }
             catch (Exception error) { Console.Error.WriteLine("compute-local-repair-failed: " + error.GetType().Name); return 1; }
         }
         if (args.Length == 4 && args[0] == "configure-local")

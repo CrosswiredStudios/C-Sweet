@@ -14,12 +14,12 @@ namespace CSweet.Compute.HyperV;
 /// <summary>Application installer entry point. Never reachable from agent dispatch or guest commands.</summary>
 internal static class LocalComputeInstaller
 {
-    public static async Task ConfigureAsync(string? handoffPath, string imagePath, string acceptancePath, CancellationToken token)
+    public static async Task ConfigureAsync(string? handoffPath, string imagePath, string acceptancePath, CancellationToken token, Guid? businessId = null)
     {
         if (!OperatingSystem.IsWindows() || !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
             throw new UnauthorizedAccessException("Administrator approval is required.");
         var handoff = handoffPath is null ? null : await ReadHandoffAsync(handoffPath, token);
-        var installation = handoff is null ? new ComputeLocalInstallation(BusinessId: null)
+        var installation = handoff is null ? new ComputeLocalInstallation(businessId)
             : await ComputeLocalInstallation.ResolveAsync(handoff.OrganizationId, token);
         var configurationPath = installation.ConfigurationPath;
         var root = installation.Root;
@@ -41,6 +41,8 @@ internal static class LocalComputeInstaller
             configuration = await ComputeProviderConfigurationLoader.ReadAsync(configurationPath, token);
             if (handoff is not null && (configuration.Enrollment.NodeId != handoff.SetupId || configuration.Enrollment.OrganizationId != handoff.OrganizationId))
                 throw new InvalidOperationException("This machine already belongs to another compute installation.");
+            if (businessId is { } expectedBusiness && configuration.Enrollment.OrganizationId != expectedBusiness)
+                throw new UnauthorizedAccessException("Runtime repair must preserve its business enrollment.");
             using var existingCertificate = ComputeProviderConfigurationLoader.OpenSigningCertificate(configuration, TimeProvider.System);
             if (handoff is null)
             {

@@ -33,8 +33,6 @@ foreach($taskName in $taskNames){
 }
 . (Join-Path $PSScriptRoot 'Get-ComputeLocalInstallation.ps1')
 $taskInstallation=Get-ComputeLocalInstallation -OrganizationId $OrganizationId
-# The retained installer's repair-local entry point supports the default installation only.
-if($taskInstallation.ServiceArguments -cne 'service'){throw 'This updater requires the default enrolled installation.'}
 $taskConfigurationPath=Join-Path $taskInstallation.Root 'provider.json'
 $taskConfiguration=Get-Content -LiteralPath $taskConfigurationPath -Raw | ConvertFrom-Json
 $taskConfigurationHash=(Get-FileHash -LiteralPath $taskConfigurationPath).Hash
@@ -67,7 +65,9 @@ try{
         if((Get-FileHash -LiteralPath (Join-Path $taskRuntime $taskName)).Hash -cne $taskManifest.$taskName){throw 'Deployed compute assembly hash differs.'}
     }
     $taskPhase='certify-runtime'
-    & $taskExecutable repair-local $taskImage $taskAcceptance
+    $taskRepairArguments=@('repair-local',$taskImage,$taskAcceptance)
+    if($taskInstallation.ServiceArguments -cne 'service'){$taskRepairArguments += $OrganizationId.ToString('N')}
+    & $taskExecutable @taskRepairArguments
     if($LASTEXITCODE -ne 0){throw 'The updated runtime certification failed.'}
     if((Get-FileHash -LiteralPath $taskConfigurationPath).Hash -cne $taskConfigurationHash){throw 'Runtime certification changed the retained provider configuration.'}
     $taskPhase='updated-preflight'

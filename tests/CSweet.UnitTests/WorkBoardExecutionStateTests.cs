@@ -13,6 +13,29 @@ namespace CSweet.UnitTests;
 public sealed partial class WorkDispatchRecoveryTests
 {
     [Theory]
+    [InlineData(WorkStageExecutionStatus.Backoff,"Waiting for browser compute")]
+    [InlineData(WorkStageExecutionStatus.Pending,"Continuing QA after browser compute")]
+    [InlineData(WorkStageExecutionStatus.Dispatching,"Continuing QA after browser compute")]
+    [InlineData(WorkStageExecutionStatus.Running,null)]
+    public async Task Browser_compute_continuation_stays_in_progress_without_claiming_an_active_agent_runtime(
+        WorkStageExecutionStatus status,string? reason)
+    {
+        await using var db=CreateDb();var state=await Seed(db,1);
+        var (_,active)=await AddColumns(db,state);
+        var item=state.Stage.ItemExecution!.WorkItem!;
+        state.Stage.Status=status;state.Stage.LastOutcomeCode="awaiting-compute";
+        WorkOrchestrationBoardState.SynchronizeAgentCard(state.Policy,state.Stage,DateTimeOffset.UtcNow);
+        Assert.Equal(WorkTaskStatus.Running,item.Status);Assert.Equal(active,item.BoardColumnId);
+        Assert.Equal(reason,item.WaitingReason);Assert.Equal(status,state.Stage.Status);
+        var revision=item.Revision;
+        WorkOrchestrationBoardState.SynchronizeAgentCard(state.Policy,state.Stage,DateTimeOffset.UtcNow);
+        Assert.Equal(revision,item.Revision);
+        state.Stage.Status=WorkStageExecutionStatus.Backoff;state.Stage.LastError="A real transport failure";
+        WorkOrchestrationBoardState.SynchronizeAgentCard(state.Policy,state.Stage,DateTimeOffset.UtcNow);
+        Assert.Equal(WorkTaskStatus.Ready,item.Status);Assert.Null(item.WaitingReason);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Current_execution_clears_historical_blocker_even_when_card_position_is_current(bool running)

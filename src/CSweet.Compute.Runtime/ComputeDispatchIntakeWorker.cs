@@ -3,14 +3,17 @@ using CSweet.Compute.Contracts;
 
 namespace CSweet.Compute.Runtime;
 
-public sealed record ComputeDispatchWorkerPass(ComputeDispatchIntakePass? Intake, int ConsecutiveFailures, TimeSpan NextDelay);
+public sealed record ComputeDispatchWorkerPass(ComputeDispatchIntakePass? Intake, int ConsecutiveFailures, TimeSpan NextDelay)
+{
+    public string? FailureType { get; init; }
+}
 
 /// <summary>Coalesced work hints with bounded startup/reconnect discovery; independent of lease enforcement.</summary>
 public sealed class ComputeDispatchIntakeWorker(ComputeDispatchIntake intake,
     Func<Guid?, CancellationToken, Task<ComputeProviderWorkPage>> discover,
     Func<Guid, CancellationToken, Task<ComputeDispatchPacket?>> claim,
     Func<ComputeDispatchPacket, CancellationToken, Task> execute,
-    TimeProvider clock, Action<ComputeDispatchWorkerPass> report)
+    TimeProvider clock, Action<ComputeDispatchWorkerPass> report, bool recoverUnexpectedFailures = false)
 {
     private readonly Channel<byte> hints = Channel.CreateBounded<byte>(new BoundedChannelOptions(1)
     { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite, AllowSynchronousContinuations = false });
@@ -27,6 +30,7 @@ public sealed class ComputeDispatchIntakeWorker(ComputeDispatchIntake intake,
             token.ThrowIfCancellationRequested();
             while (hints.Reader.TryRead(out _)) { }
             ComputeDispatchIntakePass? pass = null;
+            string? failureType = null;
             try
             {
                 pass = await intake.RunOnceAsync(cursor,
@@ -36,11 +40,17 @@ public sealed class ComputeDispatchIntakeWorker(ComputeDispatchIntake intake,
             }
             catch (TransportUnavailableException) { failures = Math.Min(31, failures + 1); }
             catch (OperationCanceledException) when (!token.IsCancellationRequested) { failures = Math.Min(31, failures + 1); }
-            // Authority and executor/journal faults escape. Never repeatedly issue physical work
-            // merely because its outcome could not be recorded.
+            catch (Exception error) when (recoverUnexpectedFailures && !token.IsCancellationRequested)
+            {
+                failureType = error.GetType().Name;
+                failures = Math.Min(31, failures + 1);
+            }
+            // Recovery rediscovers and reclaims from Core. An already claimed operation receives
+            // Observe authority and the durable journal fence prevents a second physical execution.
+            // Hosts that do not opt into supervised recovery retain the fail-closed behavior.
             var delay = failures > 0 ? TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, failures - 1)))
                 : cursor.HasValue ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(30);
-            report(new(pass, failures, delay));
+            report(new(pass, failures, delay) { FailureType = failureType });
             token.ThrowIfCancellationRequested();
             if (failures > 0 || cursor.HasValue)
             {

@@ -87,10 +87,11 @@ internal static class HyperVMaintenanceHost
             intakeConnection.DiscoverAsync, intakeConnection.ClaimAsync,
             async (packet, cancellation) => { await executor.ExecuteAsync(packet, cancellation); }, clock, pass =>
             {
+                if (pass.FailureType is { } failure) report("dispatch-intake-fault-" + failure);
                 if (pass.ConsecutiveFailures == 1) { intakeRetrying = true; report("dispatch-intake-retrying"); }
                 else if (intakeRetrying && pass.ConsecutiveFailures == 0)
                 { intakeRetrying = false; report("dispatch-intake-recovered"); }
-            });
+            }, recoverUnexpectedFailures: true);
         var notificationRetrying = false;
         var notifications = intake is null ? null : new ComputeProviderNotificationWorker(notificationConnection!.WaitForWakeAsync,
             intake.NotifyWorkAvailable, clock, pass =>

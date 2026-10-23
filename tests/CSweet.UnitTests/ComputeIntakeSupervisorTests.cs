@@ -7,6 +7,40 @@ namespace CSweet.UnitTests;
 public sealed class ComputeIntakeSupervisorTests
 {
     [Fact]
+    public async Task Supervised_intake_recovers_a_fault_through_fresh_claim_without_repeating_physical_execution()
+    {
+        await using var f = new Fixture(); await f.InitializeAsync();
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var faults = new System.Collections.Concurrent.ConcurrentQueue<ComputeDispatchWorkerPass>();
+        var calls = 0; var effects = 0;
+        var intake = new ComputeDispatchIntakeWorker(new(f.Verifier),
+            (_, _) => Task.FromResult(new ComputeProviderWorkPage([f.Claim.OperationId], null)),
+            (_, _) => Task.FromResult<ComputeDispatchPacket?>(f.Packet), async (packet, token) =>
+            {
+                calls++;
+                await f.Journal.Journal().RunAsync(f.Verifier.Verify(packet), (decision, _) =>
+                {
+                    if (decision == ComputeJournalDecision.Execute) effects++;
+                    return Task.FromResult(0);
+                }, token);
+                if(calls == 1) throw new InvalidDataException("Untrusted guest details must not enter diagnostics.");
+                done.TrySetResult();
+            }, TimeProvider.System, pass => faults.Enqueue(pass), recoverUnexpectedFailures:true);
+        var run = intake.RunAsync(stop.Token);
+        try
+        {
+            await done.Task.WaitAsync(stop.Token);
+            Assert.False(run.IsCompleted);
+            Assert.Equal(1,effects);
+            var failure = Assert.Single(faults.ToArray(), pass=>pass.FailureType is not null);
+            Assert.Equal(nameof(InvalidDataException),failure.FailureType);
+            Assert.Equal(TimeSpan.FromSeconds(1),failure.NextDelay);
+        }
+        finally { stop.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>run); }
+    }
+
+    [Fact]
     public async Task Intake_failure_does_not_stop_expired_workload_cleanup()
     {
         await using var f = new Fixture(); await f.InitializeAsync(); var executor = f.Executor();

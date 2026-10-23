@@ -53,8 +53,14 @@ state. After digest verification, screenshots/traces are retained in `GameQaJour
 compressed/64 MiB expanded build, 10,000 files, four widths, 30 seconds per operation and 4 MiB evidence.
 
 `WorkOrchestrator.AcceptComputeWaitAsync` accepts `awaiting-compute` only from the assigned task QA
-attempt, bound to an authorized workspace commit, reviewer-owned project environment, current operation
-generation and bounded recovery time. It retains the current quality stage without recording a pass,
+attempt, bound to an authorized source commit, reviewer-owned project environment, current operation
+generation and bounded recovery time. Code QA uses its source-control workspace. Artifact-report authors
+use the immutable `WorkExecutionAssignment.Candidate` in their protected inbox assignment instead:
+`ValidateArtifactComputeSourceAsync` verifies the current sprint/stage/traversal/attempt, completed inbox
+handoff, assigned active identity and task read access. `WorkArtifactRepositoryInput.AuthorizeAssignmentAsync`
+revalidates active plan/scope, planning/staffing/dependency digests, exact Story branch pins and current
+repository access, shared with `ReadTaskInputAsync`. A completed handoff does not need a live inbox lease;
+archive reads still do. No writable workspace, publication or approval is synthesized. It retains the current quality stage without recording a pass,
 advancing delivery or spending a failure retry. `ComputeResultReconciler` updates the waiting stage's
 retry cursor in the result transaction; existing atomic compute events remain wake hints. Already-arrived
 results are detected on wait admission, and the five-minute current-state recovery covers missed wakes.
@@ -301,3 +307,96 @@ still required source inspection or read-only database diagnostics rather than c
   history evidence to QA; never silently waive that criterion or rewrite accepted history.
 - Applying a broker fix required Aspire's AgentHost Rebuild action, not an in-product C-Sweet control.
   Surface platform update/restart requirements separately from agent package updates.
+
+## Artifact QA browser-wait incident (2026-10-22)
+
+Prism Break #16 failed at `AcceptComputeWaitAsync` after #11–15 completed because the browser
+compute feature only searched `SourceControlWorkspaces`. #16 correctly delivers an Artifact report
+with a pinned read-only Story snapshot and therefore has no writable workspace row. Browser compute
+support (commit `6733188f`) added this code-ticket assumption after artifact repository inputs
+(commit `80d38996`) already existed. Separate snapshot-read and code-browser tests missed their
+asynchronous combination. The source rejection was a platform contract mismatch, not a product defect
+or an agent choosing an unauthorized commit.
+
+`ArtifactRepositoryInputTests.SavedArtifactInputIsNarrowAndReauthorizedOnEveryRead` now also completes
+an inbox handoff and admits the browser wait without any workspace. It rejects wrong source/attempt/
+owner/traversal and changed scope, planning, staffing, repository access or dependency receipts. The
+existing `QaBrowserComputeWaitTests` retain code-ticket, compute generation/ownership and verdict checks.
+Recover existing failures using the board's Retry after rebuilding the API; preserve historical attempts
+and let the assigned QA resume its source/planning-bound journal. Never convert a browser wait into a pass.
+
+Live verification on October 22 at 17:09 Pacific: the API was rebuilt through Aspire and #16 retried
+through its normal board action. Seven new `awaiting-compute` results were accepted, compute operations
+completed and resumed automatically, the original rejected attempt remained in history, and the active
+sprint retained five completed tickets with no current failed/blocked ticket. The final QA verdict was
+still pending. Validation: 30 artifact/browser authorization tests and 140 activity/delivery runtime tests
+passed; no agent packages or installed payloads changed.
+
+## Provider intake failure and Ready-card correction (2026-10-22)
+
+At 17:11 Pacific the Qwen Games provider logged `dispatch-intake-stopped` for #16's build-upload
+operation `c1b1499e-2e41-40c0-9954-b4aec4300c96` (generation 278). The protected journal contained the
+execution claim but no result; Core remained Dispatching. `ComputeProviderMaintenanceSupervisor`
+kept local lease enforcement alive, but discarded the intake exception and never resumed that lane.
+Windows therefore continued to report Running while QA's five-minute bounded recovery kept reading
+the same unfinished operation. The original exception details were lost, so its exact trigger cannot
+be established from retained evidence. This is distinct from the earlier source-snapshot admission bug.
+
+`ComputeDispatchIntakeWorker` now supports host-selected bounded recovery of unexpected failures and
+reports the exception type without raw guest data. `HyperVMaintenanceHost` enables it. Recovery always
+rediscovers and obtains fresh Core authority; previously claimed operations receive Observe authority,
+and the protected journal still forbids duplicate physical execution. Lease enforcement continues.
+`ComputeIntakeSupervisorTests` covers recovery after a fenced effect and verifies one physical claim.
+
+The protected runtime updater now supports an explicitly selected business through `repair-local`,
+validates its existing enrollment, re-certifies the unchanged image/runtime via the installer and
+retains rollback copies. Qwen's update receipt completed at 17:46:14 Pacific with configuration and
+workloads preserved. Observation closed the old operation as `outcome-unknown`, without replay.
+
+QA 5.2.3 (release commit `74295c5`) adds upload-only recovery: a read-only probe hashes the exact
+retained part. Matching bytes allow continuation; a matching incomplete prefix permits a guarded write
+of the same bytes, with the prefix checked again inside that operation. Conflicts stop recovery, two
+probe cycles bound it, and unknown browser tests never take this path. Full QA suite: 122 passing tests,
+self-test and verified Linux CSAB; installed via Installed Agents. The live probe found zero bytes at
+the uncertain upload offset, confirming the chunk was missing before the guarded repair was submitted.
+
+`WorkOrchestrationBoardState.SynchronizeAgentCard` previously mapped every Backoff/Pending stage to
+Ready. A current `awaiting-compute` continuation with no error now retains its execution column and
+Running ticket status, with `WaitingReason` distinguishing compute wait from queued QA continuation.
+This does not mark an idle agent runtime as executing. Real retry failures retain ordinary Ready
+behavior. `WorkDispatchRecoveryTests` and `CurrentActivityTests` cover the distinction; the combined
+board/activity/intake regression run passed 121 tests. The API was rebuilt at 17:49:59 Pacific.
+
+At 17:52:46 Pacific Rohan 5.2.3 entered a fresh Running/Generating QA assessment after the recovered
+Chromium smoke operation `b7df639b-71a3-4e9f-82ee-0b4bd9cb1192` completed with `passed=true` for
+source `92d8bf7004539337b89a05bf8d2848b22f14f2a3` and build
+`2b450143c10104e9c242b6809e9563bfd0517baa207107625aee5c4431d06ba7`. Its 21,939-byte evidence
+archive was retrieved before assessment resumed. The live board showed #16 In Progress, Ready empty,
+Blocked empty, and Sprint 2 still Active with five of six complete. This proves recovery through the
+failed boundary; it is not a final QA verdict. Final browser screenshots from the product UI could not
+be captured because Chrome's capture command timed out; UI accessibility state and authoritative
+execution records both confirmed the corrected status.
+
+## Saved QA report lost behind closing-response failure (2026-10-22)
+
+After the recovered browser test, #16's attempt 42 completed its assessment and durably saved a
+validated report at 18:10:51 Pacific. The harness then requested optional closing prose. That request
+was cancelled during transport, and `GameQaExecution.ExecuteCapabilityCoreAsync` converted the
+resulting `HttpRequestException` into a successful Blocked outcome. The ticket therefore claimed no
+verdict had been accepted although its report checkpoint existed. The attempt deadline had not
+expired. Retained diagnostics establish this ordering; they do not identify the original network
+failure's precise trigger.
+
+QA 5.2.4 (release commit `482bddc`) makes the successful durable report checkpoint terminal for the
+model phase. `GameQaReport.CorrectionBudget` accepts the report only after its checkpoint succeeds;
+source integrity, current planning and artifact submission still execute afterward. Outer shutdown
+cancellation cannot be mistaken for report completion. Transport errors without a completed report
+return classified technical failures for bounded platform recovery instead of a product decision.
+
+`GameQaJournal.ReadResumeReportAsync` also permits recovery from the immediately preceding exact
+stage/attempt's legacy HTTP processing failure. Its existing identity binds the source files,
+planning, scope and assignment revision; ordinary retries, changed authority and product failures
+cannot reuse a report this way. New regressions cover terminal harness behavior, failed checkpoints,
+shutdown, transport classification and the narrowly authorized recovery. All 130 QA tests, self-test,
+Linux publish and CSAB verification passed. Release v5.2.4 was published and installed through
+Installed Agents at 18:33 Pacific before the normal board retry created attempt 43.

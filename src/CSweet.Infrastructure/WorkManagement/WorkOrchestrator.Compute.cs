@@ -3,6 +3,7 @@ using CSweet.Domain.WorkManagement;
 using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
 using CSweet.Compute.Contracts;
+using CSweet.Domain.Setup;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
@@ -30,7 +31,14 @@ public sealed partial class WorkOrchestrator
             wait.RetryAt <= now || wait.RetryAt > now.AddMinutes(10))
             return "QA compute waits must bind exact source, build and bounded recovery time.";
         var item = stage.ItemExecution!.WorkItem!;
-        if (!await db.SourceControlWorkspaces.AsNoTracking().AnyAsync(workspace => workspace.OrganizationId == execution.OrganizationId &&
+        var delivery = string.IsNullOrWhiteSpace(item.DeliverySpecificationJson) ? null :
+            JsonSerializer.Deserialize<WorkItemDeliverySpecification>(item.DeliverySpecificationJson, JsonOptions);
+        if (delivery?.DeliveryKind == "Artifact" && stage.StageKey == "specialist-execution")
+        {
+            var inputError = await ValidateArtifactComputeSourceAsync(execution, stage, attempt, wait.SourceCommitSha, token);
+            if (inputError is not null) return inputError;
+        }
+        else if (!await db.SourceControlWorkspaces.AsNoTracking().AnyAsync(workspace => workspace.OrganizationId == execution.OrganizationId &&
             workspace.AgentInstallationId == stage.AgentInstallationId && workspace.WorkItemId == item.Id &&
             workspace.AssignmentRevision == item.AssignmentRevision && workspace.BaseCommitSha == wait.SourceCommitSha, token))
             return "The browser wait does not identify QA's authorized source snapshot.";
@@ -56,6 +64,42 @@ public sealed partial class WorkOrchestrator
         execution.Revision++; execution.UpdatedAt = now;
         AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id, "qa.compute.waiting", new { wait.EnvironmentId, wait.OperationIds });
         return null;
+    }
+
+    private async Task<string?> ValidateArtifactComputeSourceAsync(WorkSprintExecution execution, WorkStageExecution stage,
+        WorkExecutionAttempt attempt, string commit, CancellationToken ct)
+    {
+        var itemExecution = stage.ItemExecution!;
+        var item = itemExecution.WorkItem!;
+        var work = attempt.AgentWorkItemId is { } workId
+            ? await db.AgentWorkItems.AsNoTracking().SingleOrDefaultAsync(w => w.Id == workId, ct) : null;
+        // A wait is the result of completed work, not a new execution grant or a live-lease read.
+        if (inbox is null || execution.Status != WorkSprintExecutionStatus.Active || itemExecution.CurrentStageKey != stage.StageKey ||
+            itemExecution.Traversal != stage.Traversal || stage.Status is not (WorkStageExecutionStatus.Dispatching or WorkStageExecutionStatus.Running) ||
+            attempt.Status is not (WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running) ||
+            work is null || work.Status != AgentWorkStatus.Completed || work.OrganizationId != execution.OrganizationId.ToString() ||
+            work.AgentInstallationId != stage.AgentInstallationId || work.SourceType != "WorkStageExecution" || work.SourceId != stage.Id.ToString("D"))
+            return "The browser wait has no current completed artifact input assignment.";
+        try
+        {
+            var assignment = inbox.ReadPayload(work).Deserialize<WorkExecutionAssignment>(JsonOptions);
+            if (assignment is null || assignment.ExecutionId != itemExecution.Id || assignment.StageExecutionId != stage.Id ||
+                assignment.AttemptId != attempt.Id || assignment.SprintExecutionId != execution.Id || assignment.StageKey != stage.StageKey ||
+                assignment.AgentInstallationId != stage.AgentInstallationId || assignment.OrganizationUserId != stage.OrganizationUserId)
+                return "The browser wait belongs to a different artifact input attempt.";
+            if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(member => member.Id == stage.OrganizationUserId &&
+                    member.OrganizationId == execution.OrganizationId && member.IsActive && member.AgentInstallationId == stage.AgentInstallationId, ct) ||
+                !(await new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(db).AuthorizeAsync(execution.OrganizationId,
+                    CSweet.Domain.Security.GrantSubjectKind.AgentInstallation, stage.AgentInstallationId!.Value,
+                    CSweet.Contracts.WorkManagement.WorkItemActions.Read, CSweet.Domain.Security.GrantScopeKind.WorkItem, item.Id, ct)).Allowed)
+                return "The browser wait's artifact author no longer has current task access.";
+            var candidate = await WorkArtifactRepositoryInput.AuthorizeAssignmentAsync(db, item, assignment, ct);
+            if (!candidate.Repositories.Any(r => r.CandidateCommitSha == commit))
+                return "The browser wait does not identify the pinned artifact input commit.";
+            return null;
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or UnauthorizedAccessException or ArgumentException)
+        { return "The browser wait's artifact input is no longer authorized: " + error.Message; }
     }
 
     internal sealed record QaComputeWait(string SourceCommitSha, string BuildSha256, Guid EnvironmentId,
