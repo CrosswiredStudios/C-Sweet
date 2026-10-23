@@ -62,6 +62,17 @@ public sealed partial class AgentMemoryService
         attempt.CancelAfter(EnrichmentLeaseDuration - TimeSpan.FromSeconds(30));
         try
         {
+            if (await IsNonPersonalCaptureAsync(messageId, attempt.Token))
+            {
+                await RequireLeaseAsync(item, token, attempt.Token);
+                item.Status = MemoryCaptureStatus.Completed;
+                item.CompletedAt = DateTimeOffset.UtcNow;
+                item.LastError = null;
+                item.LeaseToken = null;
+                item.LeaseExpiresAt = null;
+                await db.SaveChangesAsync(attempt.Token);
+                return true;
+            }
             var (episode, turnId) = await CaptureEpisodeAsync(messageId, attempt.Token);
             AcceptedMemoryExtraction? accepted = null;
             if (episode.Source.Type == "user")

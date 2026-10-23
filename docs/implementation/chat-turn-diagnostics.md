@@ -23,6 +23,33 @@ its trace, and agent-side records.
 
 ## Turn lifecycle
 
+### Agent handoffs are not personal-memory sources
+
+The October 22 Prism Break alert reconciliation exposed a deterministic delivery race. A Naomi
+to Gabriel relay used a legacy `DirectHumanAgent` conversation whose initiator was actually an
+agent. `ChatTurnService` created its ordinary capture outbox, while `ChatTurnWorker` prepared a
+valid prompt without personal recall. `CaptureEpisodeCoreAsync` correctly refused to store the
+agent conversation in a human relationship partition. The enrichment worker then incorrectly
+treated that inapplicability as invalidated evidence and wrote a `MemoryCaptureExclusion`.
+The already queued request was consequently rejected as `memory.recall_stale` before delivery.
+The live exclusion preceded rejection; an acknowledgement was not completed reconciliation.
+
+`AgentMemoryService.IsNonPersonalCaptureAsync` distinguishes current nonpersonal business
+messages from invalidated memory sources. Interactive capture is a no-op; the background worker
+settles an applicable legacy outbox job without an episode, enrichment, error or exclusion.
+Previously captured, accepted, invalidated or excluded sources retain strict validation.
+Prompt/recall receipt authorization, audience checks, erasure and authority-generation fencing
+are unchanged. Old exclusions and failed turns are retained; recovery requires a newly
+authorized source message, not modification or recertification of the rejected receipt.
+`QueuedAgentHandoffSurvivesNonPersonalMemoryCaptureWithoutExcludingItsSource` exercises both
+AgentChannel and legacy DirectHumanAgent routes through real PostgreSQL capture and queue
+delivery. The queued-sender authority suite continues to test revoked and restored access.
+Verification passes 33 distinct focused cases without skips (32 initial cases, then both
+conversation-route cases after expanding the regression). The isolated API build passes;
+the local API was restarted with that build while agent and compute processes remained intact.
+The old rejected source/exclusion was not edited. A fresh owner-authorized relay is the live
+recovery check; acknowledgement alone remains insufficient evidence of execution.
+
 `ChatTurnWorker.PrepareRuntimeAsync` keeps new replies queued while the agent is queued,
 starting, reconnecting or stopping for recovery. `ChatTurnService.DeferForRuntimeAsync`
 persists the next discovery time in `LeaseUntil` and releases the worker so other chats

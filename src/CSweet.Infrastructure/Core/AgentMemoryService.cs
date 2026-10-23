@@ -161,6 +161,7 @@ public sealed partial class AgentMemoryService(
 
     public async Task CaptureMessageAsync(Guid messageId, bool enrich = false, CancellationToken cancellationToken = default)
     {
+        if (await IsNonPersonalCaptureAsync(messageId, cancellationToken)) return;
         if (enrich)
         {
             var (episode, _) = await CaptureEpisodeAsync(messageId, cancellationToken);

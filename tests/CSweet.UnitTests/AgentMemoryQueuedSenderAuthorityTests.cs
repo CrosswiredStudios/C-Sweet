@@ -24,7 +24,40 @@ public sealed partial class AgentMemoryServiceTests
 
     private sealed record SenderQueue(AgentSession Session, AgentWorkInbox Inbox, AgentWorkItem Work, Guid Sender, Guid SenderInstallation);
 
-    private static async Task<SenderQueue> SeedAgentSenderQueueAsync(DurabilityFixture fixture, CSweetDbContext db)
+    [MemoryPostgresTheory]
+    [InlineData(ConversationKind.AgentChannel)]
+    [InlineData(ConversationKind.DirectHumanAgent)]
+    public async Task QueuedAgentHandoffSurvivesNonPersonalMemoryCaptureWithoutExcludingItsSource(ConversationKind kind)
+    {
+        await using var fixture = await DurabilityFixture.CreateAsync(postgres: true);
+        await using var db = fixture.Context();
+        var queued = await SeedAgentSenderQueueAsync(fixture, db, kind);
+        var turn = await db.ChatTurns.SingleAsync(x => x.Id == Guid.Parse(queued.Work.SourceId!));
+        // Model the ordinary chat outbox plus interactive and background capture racing
+        // the already prepared, but not yet delivered, agent-to-agent request.
+        foreach (var prior in await db.MemoryCaptureOutbox.ToListAsync())
+        {
+            prior.Status = MemoryCaptureStatus.Completed;
+            prior.CompletedAt = DateTimeOffset.UtcNow;
+        }
+        db.MemoryCaptureOutbox.Add(new() { Id = Guid.NewGuid(), ConversationMessageId = turn.UserMessageId,
+            Status = MemoryCaptureStatus.Pending, CreatedAt = DateTimeOffset.UtcNow, NextAttemptAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var service = fixture.Service(db, new UsageProviderFactory());
+        await service.CaptureMessageAsync(turn.UserMessageId);
+        Assert.Equal(1, await service.ProcessPendingAsync());
+        var capture = await db.MemoryCaptureOutbox.SingleAsync(x => x.ConversationMessageId == turn.UserMessageId);
+        Assert.Equal(MemoryCaptureStatus.Completed, capture.Status);
+        Assert.Null(capture.EpisodeCapturedAt); Assert.Null(capture.EnrichedAt); Assert.Null(capture.LastError);
+        Assert.Empty(await db.MemoryCaptureExclusions.ToArrayAsync());
+        Assert.Empty(await db.MemorySourceInvalidations.ToArrayAsync());
+        Assert.NotNull(await queued.Inbox.ClaimAsync(DeliverySession(queued.Session), default));
+        await new PlatformMemoryReadEvidence(db).AuthorizeDispatchAsync(queued.Session, queued.Work.Id, default);
+        Assert.Null((await db.AgentRuntimeInstances.AsNoTracking().SingleAsync()).MemoryResetRequestedAt);
+    }
+
+    private static async Task<SenderQueue> SeedAgentSenderQueueAsync(DurabilityFixture fixture, CSweetDbContext db,
+        ConversationKind kind = ConversationKind.AgentChannel)
     {
         var (session, initial) = await SeedBrokerReadLeaseAsync(fixture);
         await db.AgentWorkItems.Where(x => x.Id == initial.Id).ExecuteDeleteAsync();
@@ -34,7 +67,7 @@ public sealed partial class AgentMemoryServiceTests
         var sender = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
             EmployeeType = EmployeeType.Agent, AgentInstallationId = installation.Id, DisplayName = "Sending agent" };
         var conversation = new Conversation { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId,
-            Kind = ConversationKind.AgentChannel, AgentOrganizationUserId = fixture.EmployeeId, InitiatedByOrganizationUserId = sender.Id };
+            Kind = kind, AgentOrganizationUserId = fixture.EmployeeId, InitiatedByOrganizationUserId = sender.Id };
         var message = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = conversation.Id,
             Role = ConversationRole.User, SenderOrganizationUserId = sender.Id, Content = "Please review the production brief." };
         var turn = new ChatTurn { Id = Guid.NewGuid(), OrganizationId = fixture.OrganizationId, ConversationId = conversation.Id,
