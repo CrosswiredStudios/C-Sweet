@@ -417,7 +417,7 @@ public sealed partial class WorkOrchestrator(
         if (managerOrganizationUserId is not { } managerId) return [];
         // Retry events are few (bounded by the attempt budget); order in memory for provider portability.
         var events = (await db.WorkOrchestrationEvents.AsNoTracking()
-                .Where(x => x.StageExecutionId == stageExecutionId && x.EventType == "stage.retry.requested")
+                .Where(x => x.StageExecutionId == stageExecutionId && (x.EventType == "stage.retry.requested" || x.EventType == "item.defect.created"))
                 .Select(x => new { x.OccurredAt, x.DataJson, x.OrganizationId }).ToListAsync(cancellationToken))
             .OrderByDescending(x => x.OccurredAt).Take(3).Reverse().ToList();
         var directions = new List<Shared.WorkExecutionEvidence>();
@@ -440,7 +440,7 @@ public sealed partial class WorkOrchestrator(
                 var text = reason.GetString()!.Trim();
                 if (text.Length == 0) continue;
                 directions.Add(new Shared.WorkExecutionEvidence("manager-direction", "Authorized retry direction",
-                    text.Length <= 2048 ? text : text[..2045] + "..."));
+                    text));
             }
             catch (JsonException) { }
         }

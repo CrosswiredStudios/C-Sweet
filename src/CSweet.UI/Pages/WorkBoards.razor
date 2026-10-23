@@ -356,6 +356,29 @@
         {
             <WorkItemDetailsContent @ref="_drawerDetails" @key="(OrganizationId, detailItem.Id)" Board="_detail" Item="detailItem" Open="_itemDetailsOpen" Closed="@(() => _itemDetailsOpen = false)" OnSelectItem="SelectDetailItem">
                 <AttentionContent>
+                    @if (detailItem.Status == "Completed" && detailItem.Delivery?.DeliveryKind == "Code" &&
+                        detailItem.Delivery.DeliveryPlanId.HasValue && detailItem.SprintId.HasValue &&
+                        _detail.Board.AllowedActions.Contains(WorkOrchestrationActions.Retry))
+                    {
+                        <MudStack Spacing="2" Class="mb-4">
+                            <MudButton Variant="Variant.Outlined" Disabled="_retryPending" OnClick="@(() => { _reopenItemId = detailItem.Id; _reopenReason = ""; _defectTitle = ""; _defectQaItemId = null; _reopenKey = Guid.NewGuid().ToString("N"); _retryError = null; })">Create linked Bug…</MudButton>
+                            @if (_reopenItemId == detailItem.Id)
+                            {
+                                <MudText Typo="Typo.body2">File corrective work under the existing approved criteria. The completed ticket stays Done. QA will depend on the new Bug's reviewed and tested integration.</MudText>
+                                <MudTextField T="string" Label="Bug title" @bind-Value="_defectTitle" Immediate="true" />
+                                <MudSelect T="Guid?" Label="Blocked QA ticket" @bind-Value="_defectQaItemId">
+                                    @foreach (var qaItem in _detail.Items.Where(x => x.Status == "Blocked" && x.Delivery?.DeliveryKind == "Artifact" && x.ParentItemId == detailItem.ParentItemId))
+                                    { <MudSelectItem T="Guid?" Value="@((Guid?)qaItem.Id)">@qaItem.Identifier: @qaItem.Title</MudSelectItem> }
+                                </MudSelect>
+                                <MudTextField T="string" Label="Defect and reproduction steps" @bind-Value="_reopenReason" Immediate="true" Lines="5" />
+                                <MudStack Row="true">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="@(_retryPending || string.IsNullOrWhiteSpace(_reopenReason) || string.IsNullOrWhiteSpace(_defectTitle) || !_defectQaItemId.HasValue)" OnClick="@(() => CreateLinkedDefectAsync(detailItem))">Create Bug and block QA on its fix</MudButton>
+                                    <MudButton Disabled="_retryPending" OnClick="@(() => _reopenItemId = null)">Cancel</MudButton>
+                                </MudStack>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_retryError)) { <MudText Color="Color.Error">@_retryError</MudText> }
+                        </MudStack>
+                    }
                     @if (detailItem.Status is "Blocked" or "Failed")
                     {
                         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
@@ -2461,6 +2484,33 @@
     }
 
     private bool _retryPending;
+    private Guid? _reopenItemId;
+    private string _reopenReason = "";
+    private string _reopenKey = "";
+    private string _defectTitle = "";
+    private Guid? _defectQaItemId;
+
+    private async Task CreateLinkedDefectAsync(WorkBoardItemResponse item)
+    {
+        if (_detail is null || _retryPending || _reopenItemId != item.Id) return;
+        _retryPending = true; _retryError = null;
+        try
+        {
+            var qa = _detail.Items.SingleOrDefault(x => x.Id == _defectQaItemId);
+            if (qa is null) return;
+            var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/items/{item.Id:D}/linked-defect",
+                new CreateLinkedDefectRequest(item.Revision, qa.Id, qa.Revision, _reopenKey, _defectTitle, _reopenReason));
+            if (!response.IsSuccessStatusCode) { _retryError = await ApiErrorAsync(response); return; }
+            _reopenItemId = null;
+            var bugId = await response.Content.ReadFromJsonAsync<Guid>();
+            await RefreshDetailAsync();
+            if (_detail is not null) _detailItem = _detail.Items.FirstOrDefault(entry => entry.Id == bugId) ?? _detailItem;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException) { _retryError = error.Message; }
+        finally { _retryPending = false; }
+    }
+
     private string? _retryError;
     private IntegratedCandidateResponse? _resubmitCandidate;
     private Guid _resubmitItemId;

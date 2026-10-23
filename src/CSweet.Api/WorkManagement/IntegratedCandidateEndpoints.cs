@@ -9,6 +9,21 @@ internal static class IntegratedCandidateEndpoints
 {
     internal static void Map(RouteGroupBuilder group)
     {
+        group.MapPost("/{boardId:guid}/items/{itemId:guid}/linked-defect", async (
+            Guid organizationId, Guid boardId, Guid itemId, CreateLinkedDefectRequest request, HttpContext http,
+            IWorkOrchestrationService service, CancellationToken ct) =>
+        {
+            var userId = http.User.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            try
+            {
+                return Results.Ok(await service.CreateLinkedDefectAsync(organizationId, boardId, itemId, userId.Value, request, ct));
+            }
+            catch (UnauthorizedAccessException error) { return Results.Json(new { message = error.Message }, statusCode: 403); }
+            catch (DbUpdateConcurrencyException error) { return Results.Conflict(new { message = error.Message }); }
+            catch (InvalidOperationException error) { return Results.Conflict(new { message = error.Message }); }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+        });
         group.MapGet("/{boardId:guid}/items/{itemId:guid}/integrated-candidate", async (
             Guid organizationId, Guid boardId, Guid itemId, HttpContext http,
             IWorkOrchestrationService service, CancellationToken ct) =>

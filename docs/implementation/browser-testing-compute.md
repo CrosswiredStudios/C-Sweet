@@ -310,7 +310,7 @@ still required source inspection or read-only database diagnostics rather than c
 
 ## Artifact QA browser-wait incident (2026-10-22)
 
-Prism Break #16 failed at `AcceptComputeWaitAsync` after #11–15 completed because the browser
+Prism Break #16 failed at `AcceptComputeWaitAsync` after #11â€“15 completed because the browser
 compute feature only searched `SourceControlWorkspaces`. #16 correctly delivers an Artifact report
 with a pinned read-only Story snapshot and therefore has no writable workspace row. Browser compute
 support (commit `6733188f`) added this code-ticket assumption after artifact repository inputs
@@ -400,3 +400,104 @@ cannot reuse a report this way. New regressions cover terminal harness behavior,
 shutdown, transport classification and the narrowly authorized recovery. All 130 QA tests, self-test,
 Linux publish and CSAB verification passed. Release v5.2.4 was published and installed through
 Installed Agents at 18:33 Pacific before the normal board retry created attempt 43.
+
+Live recovery at 18:34 Pacific: attempt 43 used the retained report and submitted artifact
+`990d9d35-a028-4b0a-8b67-6ac16c1e0cb6`, revision `4250ab65-10e5-4b48-8f01-781b129d32ee`,
+SHA-256 `0171213ce2c630b284410de365afc641fc42cccddbb659f2aedb1f7e0b31c6df`, in six seconds.
+No new QA assessment model call was made. The platform accepted the exact current author outcome
+and dispatched Gabriel's independent `quality` review at 18:34:37 Pacific. QA installation 5.2.4
+reported configuration Current. This establishes successful recovery through artifact submission;
+independent review and sprint closure remain separate gates.
+
+## Behavioral evidence gap exposed by independent review (2026-10-22)
+
+At 18:44 Pacific Gabriel correctly returned `changes_requested`: the saved report claimed all
+four criteria passed while acknowledging that audio used a mock and scene/layout checks were
+structural. The browser workload proved startup only. Recovering the report fixed finalization,
+but did not establish the missing behavior. The existing prompt warned against that substitution;
+the available browser tool still offered no way to execute the required interactive assertions.
+Independent review prevented that insufficient report from closing the ticket.
+
+QA 5.3.0 `GameQaInteractionTesting` adds `test_web_interactions` after the exact-build smoke test.
+It uses existing approved compute command callbacks and the already certified browser image,
+without a direct Docker connection from the agent runtime or new grants. Fixed container arguments
+retain network isolation, read-only inputs/root, resource limits and a self-terminating budget.
+The authored Playwright script executes against the immutable production archive. Its source,
+build and script hashes, environment, operation generation and literal request survive callbacks;
+lost submission replies reuse identical terms and unknown tests never replay blindly.
+
+`qa-interactions.cjs` records named boolean assertions and browser errors, and rejects an empty
+assertion set as a pass. `qa-interactions.py` reuses the prepared image's safe digest-checked archive
+extractor and packages the exact test, screenshot, trace and result. Transfers verify the evidence
+ZIP digest before resuming assessment. Prompt/tool guidance requires observed browser behavior
+for behavioral claims; missing required checks remain unverifiable rather than nonblocking notes.
+
+The 136-test QA suite includes before/after-acceptance lost replies, multiple focused scripts,
+unknown execution, changed source, confined paths and exact-result identity/consistency checks.
+`scripts/test-browser-interactions.py` passed five real Chromium fixtures: live input, real Web Audio
+and portrait behavior, plus deliberate assertion failure, page error, blocked external request and
+zero assertions. Fixture archives include validated hashes, scripts, screenshots and traces, and
+the containers were confirmed removed. Self-test, Linux publish and CSAB verification passed.
+Release commit `5c254c5` published v5.3.0 and Installed Agents installed it at 18:59 Pacific.
+The ticket discussion relayed the new tool and required re-verification to Rohan at 19:00 Pacific.
+
+At 20:05 Pacific, retained commands showed concrete draft progress rather than identical-command
+polling: audio, scene and viewport scripts were being authored. A shell policy falsely matched
+`shutdown` in heredoc JavaScript; the draft was corrected and written. Independent execution of
+those exact drafts against the retained production archive exposed test-harness mistakes:
+`game.scene.on` is not a Phaser SceneManager API, `page.evaluate` accepts one serialized argument,
+and native OscillatorNode does not supply the assumed `state` property. The audio probe nevertheless
+measured a non-silent waveform (RMS 0.7173). These observations were posted to the ticket as test
+corrections, not game defects or a QA pass.
+
+QA 5.3.1 (commit `228e634`) adds `GameQaBrowserScripts`: a confined content-addressed draft save tool
+and source-bound draft restoration. Small legacy heredoc drafts are recovered as text from the
+integrity-checked command journal, without shell replay or original-source writes. A durable compute
+wait now cancels only the model phase immediately; it grants no verdict. Focused corrections no
+longer hit a four-script stage gate. Journal, workload and workflow bounds still apply.
+
+The first live interaction request exposed an error in 5.3.0: `GameQaInteractionTesting.RunCommand`
+requested 32 KiB of stdout, while `ComputeMcpTools` permits 8 KiB. Guest command validation allows
+more, so the agent-only fake and direct container fixtures missed that narrower callback contract.
+No test operation was admitted. QA 5.3.2 (commit `0eb807f`) returns a compact control receipt and
+transfers the full assertion report inside the hash-verified evidence ZIP. It checks exact identities,
+verdict and assertion/error counts before assessment. Recovery requires the immediately preceding
+exact stage's authoritative schema rejection and no accepted operation; new request identities
+refresh the wrapper files before testing. Accepted and unknown operations cannot use that recovery.
+
+Verification: 143 QA tests, six actual platform SDK/MCP contract tests, self-test, verified Linux
+CSAB and all five real Chromium fixtures passed. Fixture control receipts remain below 8 KiB and
+retain the full report in the archive. Installed Agents installed 5.3.2 at 20:22 Pacific, then the
+board's normal Retry resumed #16. Source, criteria and previously completed tickets were preserved.
+
+That recovery exposed a second rejected request: its derived idempotency key exceeded the callback's
+128-character limit. QA 5.3.3 (`5aaec1d`) hashes structured interaction scope into a fixed 68-character
+key and narrowly replaces the exact unaccepted legacy request. The evidence reader also uses the
+guest-required absolute executable path. Exported production prepare/run/evidence requests, including
+a near-limit script, now pass the actual platform MCP schema and guest validator (seven contract
+tests). All 146 QA tests, self-test and Linux CSAB verification passed; Installed Agents installed
+5.3.3 at 20:45 Pacific. Neither schema rejection admitted a browser test operation.
+
+Independent diagnostics executed the exact retained production archive
+`2b450143c10104e9c242b6809e9563bfd0517baa207107625aee5c4431d06ba7` in Chromium
+156.0.8078.4. Correct native Web Audio sampling passed 14 assertions (1.3-second measured crossfade,
+eight distinct SFX, silence between slots); actual Phaser scene lifecycle passed 12. Layout failed:
+390x844 and 412x915 displayed the portrait overlay and paused the game, but trusted clicks reached
+the Menu scene; landscape resume then entered Gameplay from queued input. The production
+`OrientationGuard._setOverlayVisible` left `pointerEvents = 'none'` while visible. This is a genuine
+implementation defect, reported to Gabriel, not a test-script API error. Diagnostic runs are not a
+replacement for the assigned QA report or its independent producer acceptance.
+
+`WorkOrchestrationService.CreateLinkedDefectAsync` addresses the missing corrective Bug path.
+The release manager/owner needs current board recovery/create and project configuration grants.
+It requires current planning/staffing pins, the exact trusted integration receipt, drained active
+sprint work, stopped artifact QA in the same Story, no accepted downstream items and no aggregate
+candidate/promotion. A serializable transaction preserves the completed implementation and receipts,
+creates a registered Bug with the same criteria/constraints and independent staffing, adds it to
+the Story's canonical evidence/predecessor graph and sprint, and makes the QA task depend on it.
+The QA task gets fresh planning/assignment revisions and a stopped author traversal; old evidence
+cannot pass the new source. Only unstarted aggregate executions are superseded. Replays bind actor,
+source/QA revisions, title and complete reproduction text; current authority is rechecked.
+`WorkOrchestrator.ManagerDirectionsAsync` supplies the authorized defect to the fresh engineer.
+Normal review/integration/QA still apply. `WorkBoards` exposes the linked Bug action. All 92 focused
+defect, recovery, dependency-input, workflow, UI and actual compute-contract regressions passed.

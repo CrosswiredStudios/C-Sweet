@@ -5,6 +5,9 @@ namespace CSweet.Application.WorkManagement;
 
 public interface IWorkOrchestrationService
 {
+    Task<Guid> CreateLinkedDefectAsync(Guid organizationId, Guid boardId, Guid itemId,
+        Guid applicationUserId, CreateLinkedDefectRequest request, CancellationToken cancellationToken = default);
+
     Task<IntegratedCandidateResponse> GetIntegratedCandidateAsync(Guid organizationId, Guid boardId,
         Guid itemId, Guid applicationUserId, CancellationToken cancellationToken = default);
 
