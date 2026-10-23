@@ -501,3 +501,22 @@ source/QA revisions, title and complete reproduction text; current authority is 
 `WorkOrchestrator.ManagerDirectionsAsync` supplies the authorized defect to the fresh engineer.
 Normal review/integration/QA still apply. `WorkBoards` exposes the linked Bug action. All 92 focused
 defect, recovery, dependency-input, workflow, UI and actual compute-contract regressions passed.
+
+The owner filed registered `video-game.bug.v1` **VG8FCF1B614B-20** through the new UI at
+21:16 Pacific. Adrian claimed its author stage; #15 stayed Completed, #16 remained Blocked with
+the explicit #20 dependency, planning revision 4 and assignment revision 3. The active sprint
+correctly changed from 5/6 to 5/7; the delivery plan advanced to scope revision 3. The actual
+failing Chromium script was posted on #20, and native audio/scene reference scripts on #16.
+Those scripts still require execution against the newly integrated source before acceptance.
+
+QA **5.4.0** (`3db18df`) fixes another handoff gap: the execution harness did not expose a current
+discussion reader despite instructions to read dependency comments. `GameQaDiscussion` now offers
+`read_task_discussion`, restricted to the assigned item and declared dependencies, using fresh
+broker authorization and pages of 20 complete comment bodies. It neither truncates bodies nor
+treats discussion as execution authority or validation evidence. All 148 QA tests, self-test,
+Linux publish and CSAB verification passed. The release workflow succeeded and Installed Agents
+installed 5.4.0 at 21:21 Pacific. No new grants or network access were requested.
+
+Post-deployment defect regressions also preserve a 16,000-character reproduction and deny
+idempotent replay after the create grant is revoked. All eight cases passed in the separate
+`Qa16DefectVerified` configuration while the live API and engineering execution continued.
