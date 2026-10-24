@@ -5,7 +5,6 @@ using CSweet.Infrastructure.Communications;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Npgsql;
 using System.Text.Json;
 using CSweet.AgentHost.Broker;
@@ -73,6 +72,58 @@ public sealed partial class UserActionServiceTests
         await Assert.ThrowsAsync<ArgumentException>(() => service.CaptureAsync(f.Organization, f.Installation, new(spoof, 1, "spoof", ExplicitDomainId: "financial")));
         Assert.Single(await db.ChiefFocusRecords.ToListAsync());
         Assert.Empty(await db.WorkforcePlans.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("general", "product", "product-manager")]
+    [InlineData("game-studio", "creative-product", "creative-director")]
+    [InlineData("saas", "product", "product-manager")]
+    [InlineData("ecommerce", "product", "product-manager")]
+    [InlineData("professional-services", "offering", "product-manager")]
+    [InlineData("media-content", "creative", "creative-director")]
+    [InlineData("custom", "product", "product-manager")]
+    public async Task ChiefFocusActivatesForEveryBusinessProfileWithoutRolloutConfiguration(string profile, string domain, string role)
+    {
+        await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
+        var service = Leadership(db);
+        var domains = new[] { new ChiefCoverageDomain(domain, "Primary offering", "Accountable leadership", 1) }.Concat(ChiefDomains.Skip(1)).ToArray();
+        var prompt = await service.PresentAsync(f.Organization, f.Installation,
+            new(profile, 1, f.Conversation, f.Message, domains, 0, "focus"));
+        var answer = await AnswerLeadershipAsync(db, f, prompt.DecisionId, domain);
+        var saved = await service.CaptureAsync(f.Organization, f.Installation, new(answer, 0, "answer", prompt.DecisionId));
+        Assert.True(saved.ProactiveEnabled); Assert.Null(saved.ConfigurationBlock);
+        var row = Assert.Single(saved.Assessments, x => x.ExecutionStatus == "Ready");
+        Assert.Equal(row.Id, saved.NextAssessmentId);
+        db.ChangeTracker.Clear();
+        var resumed = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
+        Assert.True(resumed.ProactiveEnabled); Assert.Null(resumed.ConfigurationBlock);
+        Assert.Equal(row.Id, resumed.NextAssessmentId); Assert.Equal(saved.Focus!.Id, resumed.Focus!.Id);
+        Assert.Single(await db.ChiefFocusRecords.ToListAsync());
+        var card = await db.CoreWorkTasks.SingleAsync(x => x.Id == row.WorkItemId);
+        Assert.Equal(WorkTaskStatus.Ready, card.Status); Assert.Null(card.BlockReason);
+        Assert.Empty(await db.WorkforcePlans.ToListAsync());
+        var current = resumed.Assessments.Single(x => x.Id == row.Id);
+        await Leadership(db).AssessAsync(f.Organization, f.Installation,
+            new(current.Id, current.Revision, resumed.FocusRevision, resumed.InputFingerprint,
+                new("NeedsCoverage", "Unresolved", null, "The primary leadership responsibility has no current accountable manager.", "Hire", [],
+                    RoleKey: role, RoleTitle: "Accountable manager", RoleObjective: "Own primary offering outcomes."), "accepted"));
+        Assert.Equal("WaitingHire", (await db.ChiefCoverageRecords.SingleAsync(x => x.Id == current.Id)).ExecutionStatus);
+        Assert.Equal(role, (await db.WorkforcePlans.SingleAsync()).RoleKey);
+    }
+
+    [Fact]
+    public async Task ChiefOwnerPauseBlocksReadyCardAndResumeClearsOnlyItsExecutionBlock()
+    {
+        await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
+        var state = await SelectedLeadershipAsync(db, f); var row = state.Assessments.Single(x => x.ExecutionStatus == "Ready");
+        var pause = await OwnerLeadershipTurnAsync(db, f, "Pause proactive leadership");
+        await Leadership(db).ControlAsync(f.Organization, f.Installation, new(pause, true, state.FocusRevision, "pause"));
+        var card = await db.CoreWorkTasks.SingleAsync(x => x.Id == row.WorkItemId);
+        Assert.Equal(WorkTaskStatus.Blocked, card.Status); Assert.Contains("paused by the owner", card.BlockReason);
+        var resume = await OwnerLeadershipTurnAsync(db, f, "Resume proactive leadership");
+        await Leadership(db).ControlAsync(f.Organization, f.Installation, new(resume, false, state.FocusRevision, "resume"));
+        Assert.Equal(WorkTaskStatus.Ready, card.Status); Assert.Null(card.BlockReason);
+        Assert.Equal(state.Focus!.Id, (await Leadership(db).ReadAsync(f.Organization, f.Installation, new())).Focus!.Id);
     }
 
     [Fact]
@@ -177,9 +228,9 @@ public sealed partial class UserActionServiceTests
         finally { await db.Database.EnsureDeletedAsync(); }
     }
 
-    private static ChiefLeadershipService Leadership(CSweetDbContext db, bool enabled = true) => new(db, TimeProvider.System,
+    private static ChiefLeadershipService Leadership(CSweetDbContext db) => new(db, TimeProvider.System,
         new ExecutiveDecisionService(db, new ChatTurnService(db)),
-        new CommunicationHubService(db, new TestAuditEventWriter(), new ChatTurnService(db)), Hiring(db), Options.Create(new ChiefLeadershipOptions { Enabled = enabled }));
+        new CommunicationHubService(db, new TestAuditEventWriter(), new ChatTurnService(db)), Hiring(db));
 
     [Fact]
     public async Task ChiefBrokerUsesSessionAuthorityAndRegistersHiddenBoundedSchemas()

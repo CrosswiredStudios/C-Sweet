@@ -29,6 +29,7 @@ public sealed class ChiefLeadershipWorkflowTests
     [InlineData("external")]
     [InlineData("defer")]
     [InlineData("hire")]
+    [InlineData("creative-hire")]
     public Task NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(string outcome) => JourneyAsync(outcome, false);
 
     [ChiefPostgresFact]
@@ -37,8 +38,16 @@ public sealed class ChiefLeadershipWorkflowTests
     [ChiefPostgresFact]
     public Task HiringDeliveryFulfillmentAndContinuationUseRealPostgresTransactions() => JourneyAsync("hire", true);
 
+    [ChiefPostgresFact]
+    public Task CreativeFocusStartsWithoutRolloutConfigurationAndTracksDirectorFulfillment() => JourneyAsync("creative-hire", true);
+
     private static async Task JourneyAsync(string outcome, bool postgres)
     {
+        var creative = outcome == "creative-hire";
+        if (creative) outcome = "hire";
+        var domain = creative ? "creative-product" : "product";
+        var role = creative ? "creative-director" : "product-manager";
+        var title = creative ? "Creative Director" : "Product Manager";
         var builder = new DbContextOptionsBuilder<CSweetDbContext>();
         if (postgres)
         {
@@ -120,18 +129,25 @@ public sealed class ChiefLeadershipWorkflowTests
                 "Current platform assignments do not establish product accountability.", "Question", [], Question: "Who owns product decisions?");
             var model = new Model(question);
             if (outcome == "hire") model.Result = new("NeedsCoverage", "Unresolved", null, "Verified product accountability gap.", "Hire", [],
-                RoleKey: "product-manager", RoleTitle: "Product Manager", RoleObjective: "Own product outcomes.");
+                RoleKey: role, RoleTitle: title, RoleObjective: "Own creative and product outcomes.");
             ChiefOfStaffAgent Agent() => new(model, NullLogger<ChiefOfStaffAgent>.Instance, new Orchestrator());
             Task Wake() => Agent().HandleEventAsync(new(Guid.NewGuid(), Guid.NewGuid(), ChiefLeadershipCapabilities.Changed,
                 JsonSerializer.SerializeToElement(new { }), DateTimeOffset.UtcNow, "acceptance"), context, default);
 
-            var focus = await context.Platform.ChiefLeadership.PresentAsync(new("general", 1, f.Conversation, f.Message,
-                [new("product", "Product", "Product accountability", 1), new("research", "Research", "Validate assumptions", 2)], 0, "present"));
+            var focus = await context.Platform.ChiefLeadership.PresentAsync(new(creative ? "game-studio" : "general", 1, f.Conversation, f.Message,
+                [new(domain, title, "Product accountability", 1), new("research", "Research", "Validate assumptions", 2)], 0, "present"));
             var answer = await new ExecutiveDecisionService(db, new ChatTurnService(db)).AnswerAsync(f.Organization, f.Conversation,
-                focus.DecisionId!.Value, f.Owner, new("product", null, "native-focus"));
+                focus.DecisionId!.Value, f.Owner, new(domain, null, "native-focus"));
             Assert.True(answer.Succeeded, answer.Message);
             await new ChatTurnService(db).CompleteAsync(answer.Turn!.Id, f.Message, false);
             db.ChangeTracker.Clear();
+            if (creative)
+            {
+                var ready = await context.Platform.ChiefLeadership.ReadAsync();
+                Assert.True(ready.ProactiveEnabled); Assert.Null(ready.ConfigurationBlock);
+                Assert.Equal(domain, ready.Focus!.DomainId); Assert.NotNull(ready.NextAssessmentId);
+                Assert.Equal(0, model.Calls); Assert.Empty(await db.WorkforcePlans.ToListAsync());
+            }
             // Miss the callback entirely: the next wake recovers the immutable native answer.
             if (outcome == "hire")
             {
@@ -141,7 +157,7 @@ public sealed class ChiefLeadershipWorkflowTests
             }
             await Wake();
             var waiting = await context.Platform.ChiefLeadership.ReadAsync();
-            var product = waiting.Assessments.Single(x => x.DomainId == "product");
+            var product = waiting.Assessments.Single(x => x.DomainId == domain);
             Assert.Equal(outcome == "hire" ? "WaitingHire" : "WaitingDecision", product.ExecutionStatus);
             Assert.Null(waiting.NextAssessmentId);
             Assert.Equal(outcome == "hire" ? 1 : 0, await db.WorkforcePlans.CountAsync());
@@ -151,9 +167,10 @@ public sealed class ChiefLeadershipWorkflowTests
             if (outcome == "hire")
             {
                 Assert.Single(await db.SuggestedUserActions.ToListAsync());
+                Assert.Equal(role, (await db.WorkforcePlans.SingleAsync()).RoleKey);
                 await hiring.ResolveRecommendationAsync(f.Organization, f.Installation, new(product.RecommendationId!.Value, f.Hire, "fulfill"));
                 db.LeadershipAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, OrganizationUserId = f.Hire,
-                    PositionKey = "product-manager", StartsAt = DateTimeOffset.UtcNow });
+                    PositionKey = role, StartsAt = DateTimeOffset.UtcNow });
                 await db.SaveChangesAsync();
             }
             else
@@ -167,7 +184,7 @@ public sealed class ChiefLeadershipWorkflowTests
             // Interrupt after the owner's commit but before the agent callback.
             if (outcome == "hire")
             {
-                model.Result = new("AdequatelyCovered", "Combined", f.Hire, "The assigned product manager owns product outcomes with capacity for this scope.", "None", [f.Hire]);
+                model.Result = new("AdequatelyCovered", "Combined", f.Hire, "The assigned manager owns product outcomes with capacity for this scope.", "None", [f.Hire]);
                 await Wake();
             }
             model.Result = new("NotApplicable", "Unresolved", null, "No additional research responsibility in the current scope.", "None", []);

@@ -1,8 +1,11 @@
 # Chief of Staff quality improvement
 
-Status: correctness implementation and the Phase 2/3 candidate are ready for installed acceptance.
-Chief 2.14.1-rc.2 and SDK 5.4.0 are published; isolated persistence, broker, package, real PM
-receiver and local target-model checks pass. Installed-candidate/UI acceptance remains open. Broader Phase 4/5 work
+Status: correctness fixes and the Phase 2/3 leadership workflow are implemented in C-Sweet and
+Chief 2.14.1-rc.4, with persistence, broker and package tests. Leadership assessment runs for every
+business and all seven supported operating profiles without a rollout flag or business allowlist.
+The owner explicitly rejected rollout restrictions on October 24; that decision supersedes the
+earlier gated-rollout proposal. Explicit owner pause/resume and existing hiring authority remain.
+Installed published-candidate/target-model/UI acceptance remains open. Broader Phase 4/5 work
 remains behind G3; the focused dependency alignment needed by the leadership candidate is included.
 See [implementation evidence and remaining work](chief-of-staff-quality-improvement-evidence.md).
 
@@ -451,10 +454,10 @@ New public types and capability names must follow the owning repository's conven
 5. Run fresh-install and upgrade journeys in a disposable business with published packages.
    Install agent changes through the Installed Agents update flow. Never patch stored approved
    manifests, digests, package records, or installed runtime payloads to apply source fixes.
-6. Enable new proactive leadership execution deliberately after G3, with a runtime control that
-   pauses new proactive work while preserving state and existing hiring obligations. Revalidate
-   that control at execution boundaries. Keep the rollout cohort bounded and inspect correctness,
-   duplicate effects, blocked-work age, and owner-message volume before expanding it.
+6. Leadership execution is normal onboarding behavior for every business and supported operating
+   profile after the owner selects a focus. Do not require a rollout flag or business allowlist.
+   Preserve explicit owner pause/resume, hiring authority, and authoritative evidence checks.
+   Inspect duplicate effects, blocked-work age, and owner-message volume during verification.
 7. Roll back by pausing the new proactive path or installing a compatible published agent.
    Prefer additive schemas; preserve completed outcomes and unresolved records. If an older
    agent cannot interpret new state, block that downgrade or keep new obligations safely paused
@@ -468,7 +471,7 @@ proposals for review, not descriptions of implemented behavior.
 | Decision | Recommended default | Why |
 |---|---|---|
 | Authoritative leadership state | Platform-owned focus/coverage records; agent-owned assessment policy | Atomic links, cross-installation continuity, authorized discovery, visible recovery |
-| First deep validation profiles | General and Game Studio; preserve other current profiles with proactive execution gated | Covers the primary ownership rules without removing existing configuration |
+| Business/profile availability | All seven supported operating profiles, with no rollout gate or business allowlist | Focus selection must lead to normal assessment and appropriate hiring follow-through |
 | Proactive pacing | One unresolved proactive recommendation per organization | Avoids competing Chiefs/conversations flooding the owner; explicit plans remain distinct |
 | PM refresh ownership | Existing context-update workflow owns review/follow-through; remove the Chief's unused extra request | One supported consumer and fewer repeated effects |
 | SDK sequencing | Minimal required typed contracts early; broader adoption/extraction after G3 | Correctness and complete behavior arrive before abstraction work |

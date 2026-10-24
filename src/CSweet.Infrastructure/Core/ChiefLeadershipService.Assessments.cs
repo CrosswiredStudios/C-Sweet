@@ -50,7 +50,7 @@ public sealed partial class ChiefLeadershipService
         var focus = agenda.FocusId is { } focusId ? db.ChiefFocusRecords.Local.SingleOrDefault(x => x.Id == focusId)
             ?? await db.ChiefFocusRecords.AsNoTracking().SingleAsync(x => x.Id == focusId && x.OrganizationId == agenda.Id, token) : null;
         var rows = await RowsAsync(agenda, token);
-        var executable = focus is not null && options.Value.Enabled && !agenda.Paused && agenda.ProfileKey is "general" or "game-studio";
+        var executable = focus is not null && !agenda.Paused;
         // Active hiring and native decisions take precedence over new proactive work.
         if (rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" or "Blocked")) executable = false;
         var leadershipQuestionIds = await db.ChiefFocusPrompts.Where(x => x.OrganizationId == agenda.Id).Select(x => x.Id).ToListAsync(token);
@@ -69,11 +69,10 @@ public sealed partial class ChiefLeadershipService
             .OrderBy(x => x.Id).Take(request.PageSize).ToArray();
         return new(agenda.FocusRevision, focus is null ? null : new(focus.Id, focus.Revision, focus.DomainId, focus.CustomText, focus.DecisionMakerId,
                 focus.ConversationId, focus.SourceTurnId, focus.SourceDecisionId, focus.EffectiveAt, focus.SupersedesId),
-            page.Select(Map).ToArray(), await AssignmentsAsync(agenda.Id, token), options.Value.Enabled, agenda.Paused,
+            page.Select(Map).ToArray(), await AssignmentsAsync(agenda.Id, token), true, agenda.Paused,
             chief.AgentInstallationId!.Value, executable ? rows.FirstOrDefault(x => x.ExecutionStatus == "Ready")?.Id : null,
             await InputsAsync(agenda.Id, token), answered,
-            options.Value.Enabled ? agenda.ProfileKey is "general" or "game-studio" ? null : "This profile requires its own proactive acceptance fixtures."
-                : "Proactive leadership is paused by the platform rollout control.");
+            null);
     }
 
     public async Task<ChiefCoverageAssessment> AssessAsync(Guid organization, Guid installation, RecordChiefAssessmentRequest request, CancellationToken token = default)
@@ -115,13 +114,19 @@ public sealed partial class ChiefLeadershipService
                 string.IsNullOrWhiteSpace(result.RoleTitle) || result.RoleTitle.Length > 256 ||
                 string.IsNullOrWhiteSpace(result.RoleObjective) || result.RoleObjective.Length > 2048)
                 throw new ArgumentException("Only a verified gap for a supported CEO-direct agent manager can create a recommendation.");
-            if (!(agenda.ProfileKey == "general" && row.DomainId == "product" && result.RoleKey == "product-manager" ||
-                  agenda.ProfileKey == "game-studio" && row.DomainId == "creative-product" && result.RoleKey == "creative-director"))
+            var expectedRole = (agenda.ProfileKey, row.DomainId) switch
+            {
+                ("general" or "saas" or "ecommerce" or "custom", "product") => "product-manager",
+                ("professional-services", "offering") => "product-manager",
+                ("game-studio", "creative-product") or ("media-content", "creative") => "creative-director",
+                _ => null
+            };
+            if (result.RoleKey != expectedRole)
                 throw new ArgumentException("The requested agent role is not supported for this profile and responsibility. Ask for appropriate coverage instead.");
             if (await db.ChiefCoverageRecords.AnyAsync(x => x.OrganizationId == organization && x.Id != row.Id && x.ExecutionStatus == "WaitingHire", token))
                 throw new InvalidOperationException("One unresolved proactive recommendation already exists.");
-            if (agenda.ProfileKey == "game-studio" && snapshot.Assignments.Any(x => x.RoleKeys.Contains("creative-director")))
-                throw new ArgumentException("Existing creative ownership must be assessed before another company-level hire.");
+            if (snapshot.Assignments.Any(x => x.RoleKeys.Contains(result.RoleKey)))
+                throw new ArgumentException("Existing leadership ownership must be assessed before another company-level hire.");
         }
         if (result.NextAction == "Question" && (string.IsNullOrWhiteSpace(result.Question) || result.Question.Length > 2048))
             throw new ArgumentException("A bounded question is required.");

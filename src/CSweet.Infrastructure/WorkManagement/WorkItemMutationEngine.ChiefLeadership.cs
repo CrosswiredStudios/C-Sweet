@@ -6,7 +6,8 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed partial class WorkItemMutationEngine
 {
-    internal async Task ProjectChiefAssessmentAsync(OrganizationUser chief, ChiefCoverageRecord assessment, CancellationToken token)
+    internal async Task ProjectChiefAssessmentAsync(OrganizationUser chief, ChiefCoverageRecord assessment, CancellationToken token,
+        string? executionBlock = null)
     {
         var correlation = $"chief-assessment:{assessment.Id:N}";
         var card = assessment.WorkItemId is { } id ? await db.CoreWorkTasks.Include(x => x.Board).SingleOrDefaultAsync(x =>
@@ -35,13 +36,19 @@ public sealed partial class WorkItemMutationEngine
             "Blocked" => WorkTaskStatus.Blocked,
             _ => WorkTaskStatus.Backlog
         };
+        var blockReason = status == WorkTaskStatus.Blocked ? assessment.BlockCode + ": " + assessment.Rationale : null;
+        if (status == WorkTaskStatus.Ready && executionBlock is not null)
+        {
+            status = WorkTaskStatus.Blocked;
+            blockReason = executionBlock;
+        }
         var reason = assessment.ExecutionStatus is "WaitingHire" or "WaitingDecision" ? assessment.Rationale : null;
-        if (card.Status == status && card.WaitingReason == reason && card.ResultSummary == assessment.Rationale) return;
+        if (card.Status == status && card.WaitingReason == reason && card.ResultSummary == assessment.Rationale && card.BlockReason == blockReason) return;
         await db.Entry(card.Board!).Collection(x => x.Columns).LoadAsync(token);
         card.Status = status; card.BoardColumnId = ColumnForStatus(card.Board!, status).Id;
         card.ClaimEventId = null; card.ClaimExpiresAt = null;
         card.WaitingReason = reason; card.NextReviewAt = null;
-        card.BlockReason = status == WorkTaskStatus.Blocked ? assessment.BlockCode + ": " + assessment.Rationale : null;
+        card.BlockReason = blockReason;
         card.ResultSummary = assessment.Rationale; card.Revision++; card.UpdatedAt = clock.GetUtcNow();
         await QueuePersonalRealtimeAsync(card, token);
     }
