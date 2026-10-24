@@ -97,7 +97,8 @@ public sealed class LinkedDeliveryDefectTests
         var originalScope = plan.ScopeRevision;
         var service = new WorkOrchestrationService(db, TimeProvider.System, new ScopedActionAuthorizationService(db), f.Client);
         var request = new CreateLinkedDefectRequest(condition == "stale" ? -1 : f.Task.Revision, qa.Id,
-            condition == "stale-qa" ? -1 : qa.Revision, "linked-defect", "Block portrait pointer leakage", "Trusted portrait click reached Menu and fired on landscape resume. Fix and verify in Chromium.");
+            condition == "stale-qa" ? -1 : qa.Revision, "linked-defect", "Block portrait pointer leakage",
+            "Trusted portrait click reached Menu and fired on landscape resume. Fix and verify in Chromium.\n" + new string('x', 16000));
         if (condition != "valid")
         {
             await Assert.ThrowsAnyAsync<Exception>(() => service.CreateLinkedDefectAsync(f.Org, f.Board.Id, f.Task.Id, f.Manager.Id, request));
@@ -115,6 +116,10 @@ public sealed class LinkedDeliveryDefectTests
         Assert.True(await db.WorkItemDependencies.AnyAsync(x => x.WorkItemId == bug.Id && x.DependsOnWorkItemId == f.Task.Id));
         Assert.Single(await db.WorkTaskIntegrationReceipts.ToListAsync());
         await f.Service.ValidateCurrentScopeAsync(plan, default);
+        Assert.EndsWith(new string('x', 16000), bug.Description);
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateLinkedDefectAsync(f.Org, f.Board.Id, f.Task.Id, f.Manager.Id, request with { Description = "different" }));
+        (await db.ScopedActionGrants.SingleAsync(x => x.SubjectId == f.Manager.Id && x.Action == WorkItemActions.Create)).RevokedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.CreateLinkedDefectAsync(f.Org, f.Board.Id, f.Task.Id, f.Manager.Id, request));
     }
 }

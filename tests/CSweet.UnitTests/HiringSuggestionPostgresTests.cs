@@ -11,6 +11,71 @@ namespace CSweet.UnitTests;
 public sealed partial class UserActionServiceTests
 {
     [HiringSuggestionPostgresFact]
+    public async Task HiringWithdrawalExecutionCardsAndSuccessor_RollBackTogether()
+    {
+        var connection = TestConnection();
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(connection.ConnectionString).Options);
+        try
+        {
+            await db.Database.EnsureCreatedAsync();
+            var f = await HiringFixtureAsync(db);
+            var first = await AddRecommendationAsync(db, f.Organization, f.Installation);
+            var next = await AddRecommendationAsync(db, f.Organization, f.Installation);
+            var service = new CSweet.Infrastructure.WorkManagement.PersonalTodoService(db, TimeProvider.System);
+            var actor = new CSweet.Application.WorkManagement.PersonalTodoActor(f.Agent, f.Installation);
+            var card = await service.AddAsync(f.Organization, actor, new("First hire", null, "Medium", null, "first-card", CorrelationId: $"hiring-recommendation:{first:N}"));
+            var successor = await service.AddAsync(f.Organization, actor, new("Next hire", null, "Medium", null, "next-card", CorrelationId: $"hiring-recommendation:{next:N}") { StartInBacklog = true });
+            var initialOutbox = await db.ApplicationRealtimeOutbox.CountAsync();
+            var initialWakes = await db.AgentPlatformEventOutbox.CountAsync();
+            await using (var transaction = await db.Database.BeginTransactionAsync())
+            {
+                await Hiring(db).WithdrawRecommendationAsync(f.Organization, f.Installation, new(first, "Replace", "withdraw"));
+                Assert.Equal(WorkTaskStatus.Cancelled, (await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == card.Id)).Status);
+                Assert.Equal(WorkTaskStatus.Ready, (await db.CoreWorkTasks.AsNoTracking().SingleAsync(x => x.Id == successor.Id)).Status);
+                await transaction.RollbackAsync();
+            }
+            db.ChangeTracker.Clear();
+            Assert.Equal(ProposalStatus.Pending, (await db.WorkforcePlans.SingleAsync(x => x.Id == first)).Status);
+            Assert.Equal(WorkTaskStatus.Ready, (await db.CoreWorkTasks.SingleAsync(x => x.Id == card.Id)).Status);
+            Assert.Equal(WorkTaskStatus.Backlog, (await db.CoreWorkTasks.SingleAsync(x => x.Id == successor.Id)).Status);
+            Assert.Equal(initialOutbox, await db.ApplicationRealtimeOutbox.CountAsync());
+            Assert.Equal(initialWakes, await db.AgentPlatformEventOutbox.CountAsync());
+            Assert.Empty(await db.WorkItemActivities.Where(x => x.WorkItemId == card.Id || x.WorkItemId == successor.Id).ToListAsync());
+            // Exercise the actual PostgreSQL source/card join used for legacy orphan recovery.
+            (await db.WorkforcePlans.SingleAsync(x => x.Id == first)).Status = ProposalStatus.Cancelled;
+            await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+            await Hiring(db).ListRecommendationsForInstallationAsync(f.Organization, f.Installation);
+            Assert.Equal(WorkTaskStatus.Cancelled, (await db.CoreWorkTasks.SingleAsync(x => x.Id == card.Id)).Status);
+        }
+        finally { await db.Database.EnsureDeletedAsync(); }
+    }
+
+    [HiringSuggestionPostgresFact]
+    public async Task ConcurrentLateWorkerCannotOverwriteWithdrawnHiringCard()
+    {
+        var connection = TestConnection();
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(connection.ConnectionString).Options;
+        await using var db = new CSweetDbContext(options);
+        try
+        {
+            await db.Database.EnsureCreatedAsync();
+            var f = await HiringFixtureAsync(db);
+            var target = await AddRecommendationAsync(db, f.Organization, f.Installation);
+            var service = new CSweet.Infrastructure.WorkManagement.PersonalTodoService(db, TimeProvider.System);
+            var card = await service.AddAsync(f.Organization, new(f.Agent, f.Installation),
+                new("Hire", null, "Medium", null, "hiring-card", CorrelationId: $"hiring-recommendation:{target:N}"));
+            await using var staleWorker = new CSweetDbContext(options);
+            var stale = await staleWorker.CoreWorkTasks.SingleAsync(x => x.Id == card.Id);
+            await Hiring(db).WithdrawRecommendationAsync(f.Organization, f.Installation, new(target, "Withdraw", "withdraw"));
+            stale.Status = WorkTaskStatus.Completed; stale.Revision++;
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => staleWorker.SaveChangesAsync());
+            db.ChangeTracker.Clear();
+            Assert.Equal(WorkTaskStatus.Cancelled, (await db.CoreWorkTasks.SingleAsync(x => x.Id == card.Id)).Status);
+        }
+        finally { await db.Database.EnsureDeletedAsync(); }
+    }
+
+    [HiringSuggestionPostgresFact]
     public async Task EmployeeDismissalAndActionExpiration_RollBackTogether()
     {
         var connection = TestConnection();

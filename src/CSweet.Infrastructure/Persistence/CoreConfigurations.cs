@@ -610,6 +610,7 @@ internal static class CoreConfigurations
 
     static void ConfigureWorkTask(EntityTypeBuilder<WorkTask> entity)
     {
+        entity.Property(x => x.Revision).IsConcurrencyToken();
         entity.Property<long>("MemoryAudienceRevision").HasDefaultValue(1L).ValueGeneratedOnAddOrUpdate();
         entity.HasKey(x => x.Id);
         entity.ToTable(table =>

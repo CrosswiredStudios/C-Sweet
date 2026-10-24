@@ -69,7 +69,7 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 
 - [Chief hiring autonomy](features/chief-hiring-autonomy.md) - owner policy, conversational setup, approved-plan delegation, shared hire review, and marketplace attribution.
 
-- [Chief of Staff quality improvement](features/chief-of-staff-quality-improvement.md) - proposed phased plan: correctness fixes, durable focus and complete leadership coverage, then follow-through, efficiency, and selective refactoring.
+- [Chief of Staff quality improvement](features/chief-of-staff-quality-improvement.md) - phased implementation in progress: first correctness increment and verification evidence, then durable focus, complete leadership coverage, follow-through, efficiency, and selective refactoring.
 
 - [Project approval review](features/project-approval-review.md) - human-readable project proposals, inline Communications approval tools, exact decision binding and history.
 

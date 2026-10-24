@@ -118,6 +118,19 @@
                 }
                 else if (widget == "projects" && _portfolio is not null)
                 {
+                    @if ((_approvals?.ProjectIncidents ?? []).Any(x => x.IsStatusReport))
+                    {
+                        <section aria-label="Manager recovery reports" class="manager-recovery-reports">
+                            <MudText Typo="Typo.h6">Manager recovery reports</MudText>
+                            <MudText Color="Color.Secondary">No response requested. Managers continue to own these issues; any decision needed from you appears in Needs your attention.</MudText>
+                            @foreach (var incident in (_approvals?.ProjectIncidents ?? []).Where(x => x.IsStatusReport))
+                            {
+                                <EmployeePortraitScope OrganizationId="OrganizationId">
+                                    <ProjectIncidentAttentionCard @key="incident.Id" OrganizationId="OrganizationId" Incident="incident" RefreshRequested="RefreshAsync" />
+                                </EmployeePortraitScope>
+                            }
+                        </section>
+                    }
                     @if (_portfolio.Projects.Count == 0) { <MudText Color="Color.Secondary">@L["CommandCenter.NoProjectsYetYourProjects"]</MudText> }
                     <div class="project-cards">
                         @foreach (var project in _portfolio.Projects)

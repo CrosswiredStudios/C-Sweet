@@ -6,6 +6,8 @@ namespace CSweet.Infrastructure.Setup;
 public static class WorkloadResourcePolicy
 {
     public static readonly IReadOnlyList<int> Tiers = Array.AsReadOnly(new[] { 2048, 4096, 8192, 16384 });
+    public static int Processes(AgentRuntimeGlobalSettings settings, bool codingRuntime) =>
+        codingRuntime ? settings.CodingWorkloadProcessLimit : settings.DefaultWorkloadProcessLimit;
     public static int Initial(AgentRuntimeGlobalSettings settings, int grantMemoryMb) =>
         Tier(Math.Max(settings.CodingInitialMemoryMb, grantMemoryMb), settings.CodingMaximumMemoryMb);
 

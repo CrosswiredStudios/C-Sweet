@@ -1,5 +1,28 @@
 # Progressive game planning
 
+## Victor 5.0.4 planning contracts and saved-page recovery
+
+In `CSweet.Agent.TechnicalDirector.VideoGame`, `ProgressivePlanningPolicy`, `OutlinePageInstructions`
+and `PlanningResponseSchema` provide phase-specific prompts/examples and enumerated response fields.
+`BindOutlinePage` supplies manifest bindings, parents, dependencies and execution capabilities in code.
+`ValidateOutlineItemPage` and `ValidateProgressiveOutline` share `PlanningItemMetadataIssues` so invalid
+roles, skills and capabilities receive field-specific correction before checkpointing.
+
+The Neon Shatter attempt saved ten containers and forty-one source mappings but failed final
+validation because two Epics placed `work.execution.run` in `RequiredSpecializationKeys`.
+`ReadOrRepairOutlinePageAsync` now permits bounded metadata-only correction during an incomplete
+Outline phase. A separate `:metadata-repair:v1` operating-state record binds the corrections to the
+original page digest; the original page is retained. Scope, identities, criteria, graph, coverage,
+already-valid fields and valid skills within partially invalid lists cannot be removed or changed.
+Completed outlines and Story requests cannot initiate corrections. Create-only revision checks
+and authoritative rereads make competing corrections and replay consume the first valid saved repair.
+
+`OutlineMetadataRecoveryTests` reproduces that failure shape and covers bounded failure,
+cancellation, replay, changed-original rejection, concurrent repairs and schema/validation parity.
+Publish and install Victor 5.0.4 through the normal release/Installed Agents flow, then retry the
+existing blocked Producer planning task. Source builds and test fixtures do not repair live state;
+no database edits, new grants, contract package changes or installed-payload patches are needed.
+
 Current size, checkpoint and incident behavior: [October 17 planning output recovery](planning-output-recovery-2026-10-17.md).
 Technical Director 4.2.1 uses a complete identity manifest followed by separately checkpointed
 outline-detail and source-coverage pages. Response/checkpoint payloads allow 128,000 characters;

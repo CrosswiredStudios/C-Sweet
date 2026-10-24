@@ -14,6 +14,8 @@ public static class OverviewAttentionItems
 
     public static bool IsActionable(HiringRecommendationResponse item) => IsPending(item.Status) && item.RemainingHeadcount > 0;
 
+    public static bool IsActionable(ProjectIncidentAttentionResponse item) => !item.IsStatusReport;
+
     public static IReadOnlyList<PendingAgentQuestionResponse> StandaloneQuestions(IReadOnlyList<PendingAgentQuestionResponse>? questions,
         IReadOnlyList<ProjectIncidentAttentionResponse>? incidents) => (questions ?? []).Where(x =>
             x.Decision.IncidentId is not { } id || !(incidents ?? []).Any(i => i.Id == id)).ToArray();
@@ -27,7 +29,7 @@ public static class OverviewAttentionItems
 
     public static int Count(ApprovalDashboardResponse? approvals, HiringBacklogResponse? hiring,
         IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute) =>
-        (approvals?.Items.Count(IsActionable) ?? 0) + (approvals?.ProjectIncidents.Count ?? 0) +
+        (approvals?.Items.Count(IsActionable) ?? 0) + (approvals?.ProjectIncidents.Count(IsActionable) ?? 0) +
         (hiring?.Recommendations.Count(IsActionable) ?? 0) +
         StandaloneQuestions(questions, approvals?.ProjectIncidents).Count(x => IsPending(x.Decision.Status)) + ComputeRequests(compute).Count;
 }

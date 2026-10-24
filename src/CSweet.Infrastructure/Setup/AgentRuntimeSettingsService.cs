@@ -81,6 +81,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         AgentRuntimeGlobalSettings settings)
     {
         var errors = new List<string>();
+        AddPositiveError(request.CodingWorkloadProcessLimit, "Coding process/thread limit", errors);
         var codingInitial = request.CodingInitialMemoryMb ?? settings.CodingInitialMemoryMb;
         var codingMaximum = request.CodingMaximumMemoryMb ?? settings.CodingMaximumMemoryMb;
         if (!WorkloadResourcePolicy.Tiers.Contains(codingInitial) || !WorkloadResourcePolicy.Tiers.Contains(codingMaximum) || codingInitial > codingMaximum)
@@ -190,6 +191,7 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         ApplyInt(request.CodingInitialMemoryMb, v => settings.CodingInitialMemoryMb = v);
         ApplyInt(request.CodingMaximumMemoryMb, v => settings.CodingMaximumMemoryMb = v);
         ApplyInt(request.CodingMaximumReplacements, v => settings.CodingMaximumReplacements = v);
+        ApplyInt(request.CodingWorkloadProcessLimit, v => settings.CodingWorkloadProcessLimit = v);
         ApplyBool(request.EnableImportedAgents, v => settings.EnableImportedAgents = v);
         ApplyString(request.DefaultActivationMode, v => settings.DefaultActivationMode = ParseActivationMode(v));
         ApplyInt(request.DefaultTickFrequencySeconds, v => settings.DefaultTickFrequencySeconds = v);
@@ -292,7 +294,8 @@ public sealed class AgentRuntimeSettingsService : IAgentRuntimeSettingsService
         {
             CodingInitialMemoryMb = settings.CodingInitialMemoryMb,
             CodingMaximumMemoryMb = settings.CodingMaximumMemoryMb,
-            CodingMaximumReplacements = settings.CodingMaximumReplacements
+            CodingMaximumReplacements = settings.CodingMaximumReplacements,
+            CodingWorkloadProcessLimit = settings.CodingWorkloadProcessLimit
         };
     }
 

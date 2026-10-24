@@ -19,6 +19,25 @@ namespace CSweet.UnitTests;
 
 public sealed class OverviewHiringCandidateTests
 {
+    [Fact]
+    public async Task BlockedAutomaticHireShowsItsReasonAndOffersTheSharedReview()
+    {
+        const string reason = "'LLM provider' must reference an enabled LLM provider profile.";
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Creative Director", "Own creative direction", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        { AutomaticHiringEnabled = true, AutomaticHiringBlockReason = reason, SuggestedBy = "Evelyn Brooks",
+            SelectedCatalogAgentJson = """{"agentReference":"catalog:naomi","name":"Naomi Chen"}""" };
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
+        services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
+        services.AddSingleton(new HttpClient(new OperationHandler()) { BaseAddress = new Uri("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<OverviewHiringCandidateCard>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { ["OrganizationId"] = Guid.NewGuid(), ["Recommendation"] = recommendation }))).ToHtmlString());
+        Assert.Contains("Automatic hiring needs attention", html); Assert.Contains("enabled LLM provider profile", html);
+        Assert.Contains("Review hiring", html); Assert.Contains("Choose this role manually", html);
+        Assert.DoesNotContain("is handling this role", html);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

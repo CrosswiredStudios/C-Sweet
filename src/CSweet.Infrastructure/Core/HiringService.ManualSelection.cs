@@ -15,6 +15,11 @@ public sealed partial class HiringService
         var installations = plans.Select(x => x.RequestingInstallationId).Distinct().ToArray();
         var policies = await db.ChiefHiringPolicies.AsNoTracking().Where(x => installations.Contains(x.InstallationId) && x.SetupComplete)
             .ToDictionaryAsync(x => x.InstallationId, token);
+        var actionKeys = plans.Select(x => $"{ChiefWorkCards.Prefix}hire:{x.Id:N}").ToArray();
+        var blockedAttempts = await db.CoreWorkTasks.AsNoTracking().Where(x => !x.IsExecutable &&
+            x.Status == WorkTaskStatus.Blocked && actionKeys.Contains(x.CreationIdempotencyKey) &&
+            x.AssignedAgentInstallationId != null && installations.Contains(x.AssignedAgentInstallationId.Value))
+            .Select(x => new { x.OrganizationId, x.AssignedAgentInstallationId, x.CreationIdempotencyKey, x.ResultSummary }).ToListAsync(token);
         var result = new List<HiringRecommendationResponse>(cards.Count);
         foreach (var card in cards)
         {
@@ -25,7 +30,9 @@ public sealed partial class HiringService
                 (plan.SourceResourceChangeRequestId.HasValue
                     ? (await BoundPolicyAsync(plan, token, persist: false)).Mode == HiringSelectionMode.Automatic
                     : !plan.TeamId.HasValue && !plan.WorkstreamId.HasValue);
-            result.Add(card with { AutomaticHiringEnabled = automatic });
+            var blocked = automatic ? blockedAttempts.SingleOrDefault(x => x.OrganizationId == plan.OrganizationId &&
+                x.AssignedAgentInstallationId == plan.RequestingInstallationId && x.CreationIdempotencyKey == $"{ChiefWorkCards.Prefix}hire:{plan.Id:N}")?.ResultSummary : null;
+            result.Add(card with { AutomaticHiringEnabled = automatic, AutomaticHiringBlockReason = blocked });
         }
         return result;
     }

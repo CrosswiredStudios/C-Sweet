@@ -1,6 +1,10 @@
 # Chief of Staff quality improvement
 
-Status: proposed implementation plan for review; implementation has not started.
+Status: correctness implementation and the Phase 2/3 candidate are ready for installed acceptance.
+Chief 2.14.1-rc.2 and SDK 5.4.0 are published; isolated persistence, broker, package, real PM
+receiver and local target-model checks pass. Installed-candidate/UI acceptance remains open. Broader Phase 4/5 work
+remains behind G3; the focused dependency alignment needed by the leadership candidate is included.
+See [implementation evidence and remaining work](chief-of-staff-quality-improvement-evidence.md).
 
 Prepared: October 21, 2026.
 

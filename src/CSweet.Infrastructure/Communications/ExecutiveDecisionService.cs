@@ -227,6 +227,10 @@ public sealed partial class ExecutiveDecisionService(
         if (!isMember) return Failure("not_authorized", "You are not an active member of this chat.");
 
         var linkedOptions = ReadDecisionOptions(decision.OptionsJson);
+        if (await db.ChiefFocusPrompts.AnyAsync(x => x.Id == decision.Id && x.OrganizationId == organizationId, cancellationToken) &&
+            !await db.CoreOrganizationUsers.AnyAsync(x => x.Id == actorOrganizationUserId && x.OrganizationId == organizationId &&
+                x.IsActive && x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner, cancellationToken))
+            return Failure("not_authorized", "Only a current business owner can answer this leadership decision.");
         if (linkedOptions.WorkstreamDecisionId.HasValue && !await db.CoreOrganizationUsers.AnyAsync(x =>
             x.Id == actorOrganizationUserId && x.OrganizationId == organizationId && x.IsActive &&
             x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner, cancellationToken))
@@ -278,6 +282,20 @@ public sealed partial class ExecutiveDecisionService(
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(cancellationToken)
             : null;
+        await CSweet.Infrastructure.Core.HiringOrganizationLock.AcquireAsync(db, organizationId, cancellationToken);
+        if (db.Database.IsNpgsql())
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ExecutiveDecisions" WHERE "Id" = {decision.Id} FOR UPDATE""", cancellationToken);
+            await db.Entry(decision).ReloadAsync(cancellationToken);
+            if (decision.Status == ExecutiveDecisionStatus.Answered)
+            {
+                if (decision.AnswerIdempotencyKey != answerKey) return Failure("decision_already_answered", "This decision already has an immutable answer.", ToCard(decision));
+                return new(true, null, "The answer was already submitted.", ToCard(decision),
+                    decision.NextChatTurnId is { } next ? await turns.GetAsync(organizationId, next, cancellationToken) : null);
+            }
+            if (decision.Status != ExecutiveDecisionStatus.Pending)
+                return Failure("decision_not_pending", "This decision is no longer pending.", ToCard(decision));
+        }
         if (storedOptions.Incident is { } incidentChoice)
         {
             if (db.Database.IsNpgsql())

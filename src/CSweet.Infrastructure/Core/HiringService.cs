@@ -268,6 +268,8 @@ public sealed partial class HiringService(
             plan.DecidedAt = now;
             plan.UpdatedAt = now;
             await CancelSuggestedHiringActionsAsync(plan, request.Reason, now, cancellationToken);
+            await new WorkManagement.WorkItemMutationEngine(db, TimeProvider.System)
+                .SettleHiringRecommendationAsync(plan, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("hiring.recommendation.withdrawn", nameof(WorkforcePlan), plan.Id,
                 request.Reason, cancellationToken: cancellationToken);
@@ -487,6 +489,13 @@ public sealed partial class HiringService(
         Guid requestingInstallationId,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await LockHiringOrganizationAsync(organizationId, cancellationToken);
+        await new WorkManagement.WorkItemMutationEngine(db, TimeProvider.System)
+            .ReconcileHiringRecommendationsAsync(organizationId, requestingInstallationId, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         var plans = await db.WorkforcePlans.AsNoTracking().Where(x =>
                 x.OrganizationId == organizationId &&
                 x.RequestingInstallationId == requestingInstallationId &&
@@ -1999,6 +2008,8 @@ CompleteWorkflow:
 
         plan.Status = ProposalStatus.Approved;
         plan.DecidedAt = occurredAt;
+        await new WorkManagement.WorkItemMutationEngine(db, TimeProvider.System)
+            .SettleHiringRecommendationAsync(plan, cancellationToken);
         var resultIds = await db.HiringRecommendationFulfillments.AsNoTracking()
             .Where(x => x.WorkforcePlanId == plan.Id)
             .Select(x => x.ResultOrganizationUserId)

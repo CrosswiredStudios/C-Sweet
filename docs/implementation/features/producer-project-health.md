@@ -420,6 +420,26 @@ adds no grants or schema migration.
 
 ## Producer report and pitch convergence limits
 
+### Overview separates owner requests from manager status
+
+`OverviewAttentionItems.IsActionable(ProjectIncidentAttentionResponse)` excludes informational
+`IsStatusReport` records from the shared sidebar count and `PendingAgentQuestions` action queue.
+`CommandCenter` retains those records under **Projects & products → Manager recovery reports**,
+with explicit manager ownership and no requested response. `ProjectIncidentAttentionCard` presents
+their heading as manager recovery status instead of repeating a saved "help needed" heading.
+Actual owner decisions continue to appear in **Needs your attention**. This is a presentation
+correction, not incident resolution, cancellation of old work, or evidence that QA passed.
+
+The October 22 Prism Break inspection found four such reports from an earlier retained scope
+amendment, a blocked correction collaboration, and stale readiness work. All four owner reports
+explicitly classified themselves as requiring no owner input. A fifth report appeared while #16
+waited for the assigned Bug #20 fix. Routine findings and assigned remediation therefore inflated
+the action badge despite having no outstanding owner question. Their underlying blocked records
+remain available for exact, manager-owned reconciliation; the current amendment is Applied.
+The focused Overview, navigation, incident-card and decision-choice suite passes 55 cases.
+Only the local UI was restarted to load this correction; active engineering and API processes
+were preserved.
+
 Producer `SpecialistAgent.GenerateIncidentOwnerReportAsync` in `IncidentReports.cs` overrides the
 shared manager report generator. It makes one tool-free model request with a 1,600-token output
 budget, a 60-second deadline, and bounded current/historical diagnostic excerpts. It neither lists

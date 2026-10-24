@@ -83,7 +83,7 @@
                     </AttentionRequestCard>
                     }
                 }
-                @foreach (var incident in ProjectIncidents.Take(_showAll ? ProjectIncidents.Count : 5))
+                @foreach (var incident in ActionableIncidents.Take(_showAll ? ActionableIncidents.Count : 5))
                 {
                     <ProjectIncidentAttentionCard @key="incident.Id" OrganizationId="OrganizationId" Incident="incident" RefreshRequested="RefreshRequested" />
                 }
@@ -106,7 +106,7 @@
                     <OverviewHiringCandidateCard @key="recommendation.Id" OrganizationId="OrganizationId" Recommendation="recommendation" Hired="RefreshRequested" />
                 }
             </div>
-            @if (ProjectIncidents.Count > 5 || PendingApprovals.Count > 5 || Recommendations.Count > 5 || ComputeResources.Count > 5)
+            @if (ActionableIncidents.Count > 5 || PendingApprovals.Count > 5 || Recommendations.Count > 5 || ComputeResources.Count > 5)
             {
                 <MudButton OnClick="() => _showAll = !_showAll" aria-expanded="@_showAll" Size="Size.Small">@(_showAll ? "Show fewer items" : $"Show all items ({PendingCount})")</MudButton>
             }
@@ -131,7 +131,8 @@
     [Parameter] public EventCallback<DocumentApprovalSelection> DocumentOpened { get; set; }
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
         .Where(x => !_completedApprovals.Contains(x.Id) && OverviewAttentionItems.IsActionable(x)).ToList();
-    private int PendingCount => OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ProjectIncidents.Count + ComputeResources.Count;
+    private IReadOnlyList<ProjectIncidentAttentionResponse> ActionableIncidents => ProjectIncidents.Where(OverviewAttentionItems.IsActionable).ToArray();
+    private int PendingCount => OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ActionableIncidents.Count + ComputeResources.Count;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];
