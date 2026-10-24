@@ -11,6 +11,28 @@ namespace CSweet.UnitTests;
 public sealed class PluginSetupEndpointStartupTests
 {
     [Fact]
+    public async Task PluginBundlePreviewRetainsAdministrationAuthorizationAndBoundedRawUpload()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddScoped<IPluginProviderProfileRegistry>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IPluginImportService>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IPluginArchiveImportService>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IPluginBundleImportService>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IPluginInstallationService>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IAgentInstallationConfigurationService>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IPluginSecretStore>(_ => throw new NotSupportedException());
+        builder.Services.AddScoped<IPluginOrganizationGrantService>(_ => throw new NotSupportedException());
+        await using var app = builder.Build();
+        app.MapPluginManagementEndpoints();
+        var endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>(), e => e.RoutePattern.RawText == "/api/plugins/imports/preview/bundle");
+        Assert.Contains(endpoint.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>(),
+            auth => auth.Policy == "PluginAdministration");
+        Assert.Equal(PluginBundleImportService.MaximumBundleBytes,
+            endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>()!.MaxRequestBodySize);
+    }
+
+    [Fact]
     public async Task ConnectorBindingEndpointBuildsWithoutTreatingServiceMethodAsHttpBinder()
     {
         var builder = WebApplication.CreateBuilder();

@@ -4,6 +4,7 @@ using CSweet.Contracts.Agents;
 using CSweet.Contracts.Plugins;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
+using CSweet.Infrastructure.Llm;
 
 namespace CSweet.Infrastructure.Core;
 
@@ -34,12 +35,29 @@ public sealed partial class HiringService
             foreach (var pair in ReadConfiguration(chief?.Configuration?.SettingsJson)) chiefSettings[pair.Key] = pair.Value;
             var provider = fields.Values.FirstOrDefault(x => AgentConfigurationRules.NormalizeType(x.Type) == AgentConfigurationFieldTypes.LlmProvider);
             var model = fields.Values.FirstOrDefault(x => AgentConfigurationRules.NormalizeType(x.Type) == AgentConfigurationFieldTypes.LlmModel);
-            // Reuse only the Chief's selected model pair, never unrelated settings or secrets.
-            if (provider is not null && model is not null && !settings.ContainsKey(provider.Key) && !settings.ContainsKey(model.Key) &&
-                chiefSettings.TryGetValue("llmProviderId", out var providerValue) && chiefSettings.TryGetValue("llmModel", out var modelValue))
+            // An old approved definition may still name a deleted/disabled provider. A key
+            // being present does not make that pair usable. Under broad delegation only,
+            // reuse the Chief's current pair together; validation below still fails closed.
+            var usablePair = provider is not null && model is not null &&
+                settings.TryGetValue(provider.Key, out var savedProvider) && savedProvider.ValueKind == JsonValueKind.String &&
+                Guid.TryParse(savedProvider.GetString(), out var savedProviderId) &&
+                settings.TryGetValue(model.Key, out var savedModel) && savedModel.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(savedModel.GetString()) &&
+                await db.LlmProviderProfiles.AnyAsync(x => x.Id == savedProviderId && x.IsEnabled, token);
+            if (provider is not null && model is not null && !usablePair)
             {
-                settings[provider.Key] = providerValue.Clone();
-                settings[model.Key] = modelValue.Clone();
+                var defaults = await DefaultLlmSelection.ReadAsync(db, token);
+                if (defaults is not null)
+                {
+                    settings[provider.Key] = JsonSerializer.SerializeToElement(defaults.ProviderId.ToString("D"));
+                    settings[model.Key] = JsonSerializer.SerializeToElement(defaults.Model);
+                }
+                else if (chiefSettings.TryGetValue("llmProviderId", out var providerValue) && chiefSettings.TryGetValue("llmModel", out var modelValue))
+                {
+                    // Compatibility while an older installation has no configured system default.
+                    // Copy the pair only, never unrelated settings or secrets.
+                    settings[provider.Key] = providerValue.Clone();
+                    settings[model.Key] = modelValue.Clone();
+                }
             }
         }
         var configured = embedded with { ConfigurationSettings = settings };

@@ -160,7 +160,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         await PersistToolchainAdapterDefinitionsAsync(manifest, toolchainDefinitions, now, cancellationToken);
 
         var prebuilt = await ResolvePrebuiltReleaseAsync(
-            repository.Owner, repository.Name, cancellationToken);
+            repository.Owner, repository.Name, request.Ref?.Trim(), cancellationToken);
         if (prebuilt is not null &&
             PrebuiltBundleAssets.ParseVersionFromTag(prebuilt.Release.TagName) is { } releaseVersion &&
             SemanticVersionComparer.Compare(releaseVersion, version.Version) == 0)
@@ -368,7 +368,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         }
     }
 
-    private static IReadOnlyList<AgentManifestWarningResponse> CreateWarnings(PluginManifest manifest)
+    internal static IReadOnlyList<AgentManifestWarningResponse> CreateWarnings(PluginManifest manifest)
     {
         var warnings = new List<AgentManifestWarningResponse>();
         if (manifest.Requires.Any(x => x.Name == CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks))
@@ -446,7 +446,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             Connections = manifest.Connections,
             Setup = manifest.Setup,
             DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds,
-            PackageSourceMode = prebuilt ? "PrebuiltRelease" : "SourceBuild",
+            PackageSourceMode = source.SourceType == "PluginBundle" ? "PluginBundle" : prebuilt ? "PrebuiltRelease" : "SourceBuild",
             ReleaseTag = version.ReleaseTag,
             ReleaseAssetName = version.ReleaseAssetName,
             ReleaseAssetUrl = version.ReleaseAssetUrl
@@ -456,13 +456,15 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
     private async Task<PrebuiltReleaseSelection?> ResolvePrebuiltReleaseAsync(
         string repositoryOwner,
         string repositoryName,
+        string? explicitReference,
         CancellationToken cancellationToken)
     {
         GitHubReleaseInfo? release;
         try
         {
-            release = await _repositoryClient.GetLatestReleaseAsync(
-                repositoryOwner, repositoryName, cancellationToken);
+            release = string.IsNullOrWhiteSpace(explicitReference) ? null :
+                await _repositoryClient.GetReleaseByTagAsync(repositoryOwner, repositoryName, explicitReference, cancellationToken);
+            release ??= await _repositoryClient.GetLatestReleaseAsync(repositoryOwner, repositoryName, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -470,7 +472,8 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             return null;
         }
 
-        if (release is null || release.Draft || release.Prerelease)
+        if (release is null || release.Draft || release.Prerelease &&
+            !string.Equals(release.TagName, explicitReference, StringComparison.Ordinal))
             return null;
         var bundle = PrebuiltBundleAssets.SelectBundle(release);
         return bundle is null ? null : new PrebuiltReleaseSelection(release, bundle);
@@ -492,7 +495,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-    private static string CapabilityDescriptorsDigest(PluginManifest manifest)
+    internal static string CapabilityDescriptorsDigest(PluginManifest manifest)
     {
         var canonical = string.Join(
             "\n",
@@ -640,6 +643,28 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 DefinitionJson = definition.DefinitionJson, DefinitionDigest = definition.Digest, CreatedAt = now
             });
         }
+    }
+
+    internal async Task StageBundleContributionsAsync(PluginManifest manifest,
+        Func<string, int, CancellationToken, Task<byte[]>> readResource, CancellationToken token)
+    {
+        var profiles = new List<ValidatedWorkstreamProfileDefinition>();
+        var adapters = new List<ValidatedToolchainAdapterDefinition>();
+        try
+        {
+            foreach (var contribution in manifest.WorkstreamProfiles.Provides)
+                profiles.Add(WorkstreamProfileDefinitionValidator.Validate(contribution,
+                    await readResource(contribution.DefinitionResource, WorkstreamProfileDefinitionValidator.MaximumDefinitionBytes, token)));
+            foreach (var contribution in manifest.ToolchainAdapters.Provides)
+                adapters.Add(ToolchainAdapterDefinitionValidator.Validate(contribution,
+                    await readResource(contribution.DefinitionResource, ToolchainAdapterDefinitionValidator.MaximumDefinitionBytes, token)));
+        }
+        catch (ArgumentException exception)
+        {
+            throw new AgentImportPreviewException($"Bundle contribution is invalid: {exception.Message}", exception);
+        }
+        await PersistWorkstreamProfileDefinitionsAsync(manifest, profiles, DateTimeOffset.UtcNow, token);
+        await PersistToolchainAdapterDefinitionsAsync(manifest, adapters, DateTimeOffset.UtcNow, token);
     }
 
     private static string DescriptorHash(PluginCapabilityDeclaration capability)

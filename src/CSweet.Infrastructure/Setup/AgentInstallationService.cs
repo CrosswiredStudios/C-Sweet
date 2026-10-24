@@ -345,6 +345,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken)
     {
         var installations = await InstallationQuery()
+            .Where(x => x.PackageVersion!.PluginKind != PluginKind.Agent)
             .OrderBy(x => x.PackageVersion!.AgentName)
             .ThenBy(x => x.BusinessId)
             .ToListAsync(cancellationToken);

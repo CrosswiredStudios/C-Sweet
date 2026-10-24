@@ -484,4 +484,75 @@ public sealed partial class HiringServiceTests
         Assert.Single(await db.HiringRecommendationFulfillments.ToListAsync());
     }
 
+    [Theory]
+    [InlineData("deleted", true)]
+    [InlineData("disabled", true)]
+    [InlineData("empty", true)]
+    [InlineData("valid", true)]
+    [InlineData("deleted", false)]
+    public async Task HiringPolicy_StaleCandidateDefaultsUseCurrentChiefPairOnlyUnderBroadDelegation(string defaults, bool broad)
+    {
+        await using var db = CreateDb();
+        var fields = new CSweet.Contracts.Plugins.PluginConfigurationField[] {
+            new() { Key = "llmProviderId", Type = "provider", Label = "LLM provider", Required = true },
+            new() { Key = "llmModel", Type = "model", Label = "Model", Required = true },
+            new() { Key = "privateValue", Type = "text", Label = "Private", Secret = true }
+        };
+        var f = await AutonomyFixtureAsync(db, source: AgentCatalogSource.Installed, staffed: true, fields: fields);
+        var oldProvider = Guid.NewGuid(); var currentProvider = Guid.NewGuid();
+        if (defaults is "disabled" or "valid") db.LlmProviderProfiles.Add(new() { Id = oldProvider, Name = "Old default",
+            IsEnabled = defaults == "valid", DefaultChatModel = "old-model" });
+        db.LlmProviderProfiles.Add(new() { Id = currentProvider, Name = "Current Chief provider", IsEnabled = true, DefaultChatModel = "current-model" });
+        var definition = await db.AgentDefinitions.Include(x => x.PackageVersion).SingleAsync();
+        definition.PackageVersion!.ManifestJson = JsonSerializer.Serialize(new { runtime = new { supportsMultipleInstallations = true }, configuration = fields });
+        db.AgentDefinitionConfigurations.Add(new() { Id = Guid.NewGuid(), AgentDefinitionId = definition.Id,
+            SettingsJson = JsonSerializer.Serialize(new { llmProviderId = defaults == "empty" ? "" : oldProvider.ToString(), llmModel = "old-model", privateValue = "never-copy" }) });
+        db.AgentInstallations.Add(new() { Id = f.Installation, BusinessId = f.Organization.ToString(),
+            Configuration = new AgentInstallationConfiguration { Id = Guid.NewGuid(), AgentInstallationId = f.Installation,
+                SettingsJson = JsonSerializer.Serialize(new { llmProviderId = currentProvider, llmModel = "current-model", privateValue = "never-copy" }) } });
+        await db.SaveChangesAsync();
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application, new(HiringSelectionMode.Automatic,
+            broad ? AutomaticHiringLevel.BroadDelegation : AutomaticHiringLevel.ApprovedPackages), 0, "Automatic hiring");
+        var plan = await AutonomyPlanAsync(db, f.Organization, f.Installation, f.Owner);
+        var result = await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, plan.Id);
+        if (!broad)
+        {
+            Assert.Equal("NeedsReview", result.Status); Assert.Equal(0, plan.FulfilledHeadcount);
+            var card = Assert.Single(await f.Service.ListRecommendationsForInstallationAsync(f.Organization, f.Installation));
+            Assert.True(card.AutomaticHiringEnabled); Assert.Contains("enabled LLM provider", card.AutomaticHiringBlockReason);
+            return;
+        }
+        Assert.True(result.Status == "Succeeded", result.Message);
+        var snapshot = JsonDocument.Parse((await db.StaffingActionProposals.SingleAsync(x => x.WorkforcePlanId == plan.Id)).PayloadJson);
+        var settings = snapshot.RootElement.GetProperty("embeddedAgent").GetProperty("configurationSettings");
+        Assert.Equal((defaults == "valid" ? oldProvider : currentProvider).ToString(), settings.GetProperty("llmProviderId").GetString());
+        Assert.Equal(defaults == "valid" ? "old-model" : "current-model", settings.GetProperty("llmModel").GetString());
+        Assert.False(settings.TryGetProperty("privateValue", out _)); Assert.Equal(1, plan.FulfilledHeadcount);
+    }
+
+    [Fact]
+    public async Task HiringPolicy_UsesExplicitSystemDefaultPairBeforeChiefFallback()
+    {
+        await using var db = CreateDb();
+        var fields = new CSweet.Contracts.Plugins.PluginConfigurationField[] {
+            new() { Key = "llmProviderId", Type = "provider", Label = "Provider", Required = true },
+            new() { Key = "llmModel", Type = "model", Label = "Model", Required = true }
+        };
+        var f = await AutonomyFixtureAsync(db, fields: fields);
+        var provider = Guid.NewGuid();
+        db.LlmProviderProfiles.Add(new() { Id = provider, Name = "Selected system default", IsEnabled = true, DefaultChatModel = "default-model" });
+        db.SystemConfigurations.Add(new() { Id = Guid.NewGuid(), DefaultChatProviderId = provider });
+        // No Chief provider is configured. The selected system pair is sufficient under broad delegation.
+        await db.SaveChangesAsync();
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+            new(HiringSelectionMode.Automatic, AutomaticHiringLevel.BroadDelegation), 0, "Use broad delegation");
+        var plan = await AutonomyPlanAsync(db, f.Organization, f.Installation, f.Owner);
+        var result = await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, plan.Id);
+        Assert.True(result.Status == "Succeeded", result.Message);
+        using var snapshot = JsonDocument.Parse((await db.StaffingActionProposals.SingleAsync(x => x.WorkforcePlanId == plan.Id)).PayloadJson);
+        var settings = snapshot.RootElement.GetProperty("embeddedAgent").GetProperty("configurationSettings");
+        Assert.Equal(provider.ToString(), settings.GetProperty("llmProviderId").GetString());
+        Assert.Equal("default-model", settings.GetProperty("llmModel").GetString());
+    }
+
 }

@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "Der Feed ist nicht verfügbar oder der Zugriff hat sich geändert. Aktualisieren Sie die Seite, um es erneut zu versuchen.",
   "CurrentActivity.OpenWorkItem": "Arbeitselement öffnen",
   "CurrentActivity.EmployeeDetails": "Mitarbeiterdetails",
-  "ActivityCard.WorkspaceAriaLabel": "Letzte Vorgänge im Arbeitsbereich"
+  "ActivityCard.WorkspaceAriaLabel": "Letzte Vorgänge im Arbeitsbereich",
+  "ActivityCard.Speed.Reported": "{rate} Token/s",
+  "ActivityCard.Speed.Estimated": "~{rate} Token/s",
+  "ActivityCard.Speed.ReportedLabel": "Generierungsgeschwindigkeit: {rate} Token pro Sekunde",
+  "ActivityCard.Speed.EstimatedLabel": "Geschätzte Generierungsgeschwindigkeit: {rate} Token pro Sekunde",
+  "ActivityCard.Speed.ReportedTooltip": "Vom Anbieter gemeldete Ausgabetoken pro Sekunde, gemittelt seit Beginn dieser Antwort.",
+  "ActivityCard.Speed.EstimatedTooltip": "Aus dem gestreamten Text mit vier Zeichen pro Token geschätzt. Durchschnitt seit Ausgabebeginn; ohne verborgenes Reasoning und Tool-Daten.",
+  "ActivityCard.Speed.Action": "Antwort wird generiert"
 }

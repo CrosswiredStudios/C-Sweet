@@ -509,6 +509,41 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
             x.Status == AgentPlatformEventOutboxStatus.Pending).ToListAsync());
     }
+    [Fact]
+    public async Task RoutineOwnerWakesCannotReopenRepeatedFailureButManagerCanRetryAfterReview()
+    {
+        await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var manager = new PersonalTodoActor(setup.FirstManager.Id, null);
+        var owner = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
+        var added = await service.AddAsync(setup.Organization.Id, manager, Add("Prepare accepted project", "setup", setup.Agent.Id));
+        var task = await db.CoreWorkTasks.SingleAsync(x => x.Id == added.Id);
+        task.Status = WorkTaskStatus.Running;
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            await CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.RecordFailureAsync(db, task,
+                setup.Agent.AgentInstallationId!.Value, $"setup-attempt-{attempt}",
+                "agent-failure:v1;code=agent.invalid_operation", true, DateTimeOffset.UtcNow.AddSeconds(attempt), default);
+            await db.SaveChangesAsync();
+        }
+        var revision = task.Revision;
+        var wakes = await db.AgentPlatformEventOutbox.CountAsync();
+        for (var wake = 1; wake <= 3; wake++)
+        {
+            var held = await service.RequeueAsync(setup.Organization.Id, owner,
+                new(task.Id, task.Revision, $"routine-wake-{wake}"));
+            Assert.Equal(Wire.PersonalTodoStatuses.Blocked, held.Status);
+        }
+        await service.ReconcileAsync();
+        Assert.Equal(revision, task.Revision);
+        Assert.Equal(wakes, await db.AgentPlatformEventOutbox.CountAsync());
+        Assert.Single(await db.UserNotifications.Where(x => x.Category == "AgentTicketRepeatedFailure").ToListAsync());
+        var retried = await service.RequeueAsync(setup.Organization.Id, manager,
+            new(task.Id, task.Revision, "manager-reviewed-fix"));
+        Assert.Equal(Wire.PersonalTodoStatuses.Ready, retried.Status);
+        Assert.Null(retried.BlockReason);
+    }
+
     private static Wire.AddPersonalTodoItemRequest Add(string title, string key, Guid? target) =>
         new(title, null, Wire.WorkPriorities.Medium, null, key, target);
 

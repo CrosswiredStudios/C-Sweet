@@ -429,7 +429,8 @@ public sealed class AgentCoordinationService(
             session.MaximumTurns.HasValue && request.ExpectedTurnOrdinal >= session.MaximumTurns.Value)
             throw new InvalidOperationException("The technical-support coordination turn limit was reached.");
         if (request.Disposition == AgentCoordinationDispositions.Continue && session.Turns.Any(x =>
-                string.Equals(x.Content.Trim(), request.Content.Trim(), StringComparison.OrdinalIgnoreCase)))
+                string.Equals(x.Content.Trim(), request.Content.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                SameArtifact(x, request.Artifact)))
             throw new InvalidOperationException("A coordination turn cannot repeat an earlier message exactly.");
 
         var now = DateTimeOffset.UtcNow;
@@ -881,7 +882,7 @@ public sealed class AgentCoordinationService(
             SenderOrganizationUserId = session.InitiatorOrganizationUserId,
             Role = ConversationRole.Assistant, Content = summary,
             CorrelationId = session.Id, DeliveryIntent = CommunicationDeliveryIntent.Response,
-            SourceProvider = "InApp", IdempotencyKey = $"coordination:{session.Id:N}:summary",
+            SourceProvider = "InApp", IdempotencyKey = $"coordination:{session.Id:N}:summary:revision:{session.Revision}",
             CreatedAt = DateTimeOffset.UtcNow
         });
     }
@@ -1027,7 +1028,7 @@ public sealed class AgentCoordinationService(
             Body = body.Length <= 8192 ? body : body[..8192], Kind = kind,
             CoordinationSessionId = session.Id, CausationId = session.Id.ToString("D"),
             ArtifactDigest = artifactDigest,
-            IdempotencyKey = $"coordination:{session.Id:N}:{kind}", CreatedAt = DateTimeOffset.UtcNow
+            IdempotencyKey = $"coordination:{session.Id:N}:{kind}:revision:{session.Revision}", CreatedAt = DateTimeOffset.UtcNow
         });
     }
 
@@ -1062,6 +1063,22 @@ public sealed class AgentCoordinationService(
         if (definition is null) return;
         using var profile = JsonDocument.Parse(definition);
         ProfileArtifactMetadata.ValidatePayload(profile.RootElement, artifact.Type, artifact.SchemaVersion, artifact.Payload);
+    }
+
+    private static bool SameArtifact(DomainTurn turn, AgentCoordinationArtifactSubmission? artifact)
+    {
+        // A revised proposal or another page is substantive progress even when its
+        // acknowledgement is unchanged. Formatting alone must not bypass loop detection.
+        if (artifact is null) return turn.ArtifactType is null;
+        return turn.ArtifactType == artifact.Type.Trim() &&
+            turn.ArtifactSchemaVersion == artifact.SchemaVersion.Trim() &&
+            turn.ArtifactKey == artifact.Key.Trim() &&
+            turn.ArtifactPageOrdinal == artifact.PageOrdinal &&
+            turn.ArtifactIsFinalPage == artifact.IsFinalPage &&
+            turn.ArtifactPayloadJson is not null &&
+            System.Text.Json.Nodes.JsonNode.DeepEquals(
+                System.Text.Json.Nodes.JsonNode.Parse(turn.ArtifactPayloadJson),
+                System.Text.Json.Nodes.JsonNode.Parse(artifact.Payload.GetRawText()));
     }
 
     private static void ApplyArtifact(DomainTurn turn, AgentCoordinationArtifactSubmission? artifact)

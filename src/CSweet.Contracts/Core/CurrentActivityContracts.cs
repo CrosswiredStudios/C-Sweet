@@ -13,7 +13,10 @@ public sealed record CurrentActivityItem(string Key, Guid? WorkItemId, Guid? Boa
     string ActivityKind = "Work", string? EmployeeRole = null, CurrentActivityParticipant? Collaborator = null,
     string? TechnicalName = null, Guid? PersonalBoardOwnerId = null, Guid? ProjectId = null,
     string? CollaborationName = null, string? ActivityLabel = null, string? Description = null,
-    CurrentActivityCompute? Compute = null);
+    CurrentActivityCompute? Compute = null, CurrentActivityGeneration? Generation = null);
+
+public sealed record CurrentActivityGeneration(Guid ModelRunId, double TokensPerSecond,
+    bool IsEstimated, DateTimeOffset ObservedAt);
 
 public sealed record CurrentActivityCompute(string Phase, string Status, int RecentCompletedOperations,
     DateTimeOffset ObservedAt, DateTimeOffset? ResumeAt, string SourceCommitSha);

@@ -1,6 +1,10 @@
 # Chief of Staff quality improvement
 
-Status: proposed implementation plan for review; implementation has not started.
+Status: implementation in progress. Correctness fixes and the Phase 2/3 leadership candidate
+are implemented in C-Sweet, Chief 2.14.0 and SDK 5.4.0, with persistence, broker and package tests.
+Installed published-candidate/target-model/UI acceptance remains open. Broader Phase 4/5 work
+remains behind G3; the focused dependency alignment needed by the leadership candidate is included.
+See [implementation evidence and remaining work](chief-of-staff-quality-improvement-evidence.md).
 
 Prepared: October 21, 2026.
 

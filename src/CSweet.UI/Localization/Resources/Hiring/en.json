@@ -62,6 +62,8 @@
   "HiringCandidateSelection.NoSuitableAgentDescription": "We couldn’t find a suitable agent for {role} within your hiring preferences. Open Agent Marketplace to choose an agent to fill this role.",
   "HiringCandidateSelection.OpenMarketplace": "Open Agent Marketplace",
   "AutomaticHiringControl.Mode": "Automatic hiring",
+  "AutomaticHiringControl.Blocked": "Automatic hiring needs attention",
+  "AutomaticHiringControl.Review": "Review hiring",
   "AutomaticHiringControl.Description": "{name} is handling this role using your hiring preferences.",
   "AutomaticHiringControl.ChooseManually": "Choose this role manually",
   "AutomaticHiringControl.Stopping": "Stopping automatic hiring…",

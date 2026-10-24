@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="9641bca5-817d-42d0-a69e-962bb6dbf83a" name="PC@DESKTOP-1LDJV2J 2026-10-23 21:20:02" runUser="DESKTOP-1LDJV2J\PC" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-10-23T21:20:02.2721208-07:00" queuing="2026-10-23T21:20:02.2721212-07:00" start="2026-10-23T21:19:58.8320497-07:00" finish="2026-10-23T21:20:02.2750609-07:00" />
+  <TestSettings name="default" id="b4184f2a-64b8-46a2-83e0-24e81dba9ff9">
+    <Deployment runDeploymentRoot="PC_DESKTOP-1LDJV2J_2026-10-23_21_20_02" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="ebc7bc3c-6d53-4a52-86cb-7ff1e4205c74" testId="075796a0-7c93-a59e-ea58-54568c5d94e8" testName="CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects" computerName="DESKTOP-1LDJV2J" duration="00:00:02.6445257" startTime="2026-10-23T21:19:59.5450595-07:00" endTime="2026-10-23T21:20:02.2037247-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ebc7bc3c-6d53-4a52-86cb-7ff1e4205c74">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.Single() Failure: The collection was empty</Message>
+          <StackTrace>   at CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects() in C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.DeliveryWorkflow.Tests\ChiefProductContextReceiverTests.cs:line 71&#xD;
+   at CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects() in C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.DeliveryWorkflow.Tests\ChiefProductContextReceiverTests.cs:line 72&#xD;
+--- End of stack trace from previous location ---</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="075796a0-7c93-a59e-ea58-54568c5d94e8">
+      <Execution id="ebc7bc3c-6d53-4a52-86cb-7ff1e4205c74" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests" name="RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="075796a0-7c93-a59e-ea58-54568c5d94e8" executionId="ebc7bc3c-6d53-4a52-86cb-7ff1e4205c74" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="1" executed="1" passed="0" failed="1" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.12)&#xD;
+[xUnit.net 00:00:00.10]   Discovering: CSweet.DeliveryWorkflow.Tests&#xD;
+[xUnit.net 00:00:00.15]   Discovered:  CSweet.DeliveryWorkflow.Tests&#xD;
+[xUnit.net 00:00:00.19]   Starting:    CSweet.DeliveryWorkflow.Tests&#xD;
+[xUnit.net 00:00:02.87]       Assert.Single() Failure: The collection was empty&#xD;
+[xUnit.net 00:00:02.87]       Stack Trace:&#xD;
+[xUnit.net 00:00:02.88]         C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.DeliveryWorkflow.Tests\ChiefProductContextReceiverTests.cs(71,0): at CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects()&#xD;
+[xUnit.net 00:00:02.88]         C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.DeliveryWorkflow.Tests\ChiefProductContextReceiverTests.cs(72,0): at CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects()&#xD;
+[xUnit.net 00:00:02.88]         --- End of stack trace from previous location ---&#xD;
+[xUnit.net 00:00:02.88]   Finished:    CSweet.DeliveryWorkflow.Tests&#xD;
+</StdOut>
+    </Output>
+    <RunInfos>
+      <RunInfo computerName="DESKTOP-1LDJV2J" outcome="Error" timestamp="2026-10-23T21:20:02.2056450-07:00">
+        <Text>[xUnit.net 00:00:02.87]     CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects [FAIL]</Text>
+      </RunInfo>
+    </RunInfos>
+  </ResultSummary>
+</TestRun>

@@ -376,7 +376,16 @@ public static class AgentTicketFeedback
                 var recipient = manager.Id;
                 var chatId = owner is not null
                     ? await QueueManagerMessageAsync(db, root, owner, manager, targets[0], deliveryKey, now, ct) : (Guid?)null;
-                db.UserNotifications.Add(new UserNotification
+                var alertKey = $"ticket-repeat:{deliveryKey}:{root.Id:N}";
+                var legacySuffix = $":{root.Id:N}";
+                var existingAlert = await db.UserNotifications.FirstOrDefaultAsync(x =>
+                    x.OrganizationId == root.OrganizationId && x.RecipientOrganizationUserId == recipient &&
+                    x.Category == "AgentTicketRepeatedFailure" && x.DismissedAt == null &&
+                    x.DeduplicationKey != null && (x.DeduplicationKey == alertKey ||
+                        x.DeduplicationKey.StartsWith(RepeatKeyPrefix) && x.DeduplicationKey.EndsWith(legacySuffix)), ct);
+                if (existingAlert is not null && chatId.HasValue)
+                    existingAlert.ActionUri = $"/organizations/{root.OrganizationId:D}/communications/{chatId:D}";
+                if (existingAlert is null) db.UserNotifications.Add(new UserNotification
                 {
                     Id = Guid.NewGuid(), OrganizationId = root.OrganizationId, RecipientOrganizationUserId = recipient,
                     OriginatingAgentOrganizationUserId = owner?.Id, Severity = NotificationSeverity.Important,
@@ -385,7 +394,7 @@ public static class AgentTicketFeedback
                         "The ticket is blocked and automatic retries have stopped. Please review its comments before requeuing it.",
                     ActionUri = chatId.HasValue ? $"/organizations/{root.OrganizationId:D}/communications/{chatId:D}"
                         : $"/organizations/{root.OrganizationId:D}/work", CreatedAt = now,
-                    DeduplicationKey = $"ticket-repeat:{deliveryKey}:{root.Id:N}"
+                    DeduplicationKey = alertKey
                 });
             }
         }

@@ -11,6 +11,24 @@ namespace CSweet.UnitTests;
 public sealed class LlmProviderModelSelectionTests
 {
     [Fact]
+    public async Task DeleteDialogRequiresExplicitReplacementBeforeSendingDelete()
+    {
+        using var http = new HttpClient(new CatalogHandler((_, _) => throw new InvalidOperationException("Deletion must stay blocked.")))
+            { BaseAddress = new Uri("http://localhost/") };
+        var page = CreatePage(http);
+        var first = new LlmProviderProfileResponse(Guid.NewGuid(), "Default", LlmProviderType.Vllm, "http://localhost/v1", null, "chosen-model", null,
+            null, null, true, false, false, false, true, null, default, default);
+        var second = first with { Id = Guid.NewGuid(), Name = "Other" };
+        SetField(page, "_profiles", new[] { first, second }); SetField(page, "_selectedProfile", first);
+        SetField(page, "_status", new CSweet.Contracts.Setup.SetupStatusResponse(true, first.Id, null, []));
+        Invoke(page, "RequestDeleteSelectedProvider");
+        Assert.True((bool)typeof(LlmProviders).GetProperty("RequiresDefaultReplacement", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page)!);
+        Assert.Null(typeof(LlmProviders).GetField("_replacementDefault", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page));
+        await InvokeAsync(page, "DeleteSelectedProviderAsync");
+        Assert.Null(typeof(LlmProviders).GetField("_actionMessage", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page));
+    }
+
+    [Fact]
     public async Task CatalogOffersEveryModelWithoutAutomaticallyChoosingTheFirst()
     {
         using var http = new HttpClient(new CatalogHandler((_, _) => Task.FromResult(Catalog("first", "second", "third"))))

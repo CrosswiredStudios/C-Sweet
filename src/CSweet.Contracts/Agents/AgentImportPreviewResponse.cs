@@ -34,6 +34,7 @@ public sealed record AgentImportPreviewResponse(
     public PluginSetupManifest? Setup { get; init; }
     public int? DefaultTickFrequencySeconds { get; init; }
     public string PackageSourceMode { get; init; } = "SourceBuild";
+    public string? BundleDigest { get; init; }
     public string? ReleaseTag { get; init; }
     public string? ReleaseAssetName { get; init; }
     public string? ReleaseAssetUrl { get; init; }

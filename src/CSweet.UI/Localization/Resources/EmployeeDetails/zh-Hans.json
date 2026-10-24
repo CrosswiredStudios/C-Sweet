@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "动态不可用或访问权限已更改。请刷新后重试。",
   "CurrentActivity.OpenWorkItem": "打开工作项",
   "CurrentActivity.EmployeeDetails": "员工详情",
-  "ActivityCard.WorkspaceAriaLabel": "近期工作区操作"
+  "ActivityCard.WorkspaceAriaLabel": "近期工作区操作",
+  "ActivityCard.Speed.Reported": "{rate} token/秒",
+  "ActivityCard.Speed.Estimated": "约 {rate} token/秒",
+  "ActivityCard.Speed.ReportedLabel": "生成速度：每秒 {rate} 个 token",
+  "ActivityCard.Speed.EstimatedLabel": "估算生成速度：每秒 {rate} 个 token",
+  "ActivityCard.Speed.ReportedTooltip": "提供方报告的每秒输出 token 数，从此响应开始流式输出时计算平均值。",
+  "ActivityCard.Speed.EstimatedTooltip": "按流式文本每四个字符一个 token 估算。从输出开始计算平均值；不含隐藏推理和工具数据。",
+  "ActivityCard.Speed.Action": "正在生成响应"
 }

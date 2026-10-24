@@ -57,6 +57,7 @@ public sealed record HiringRecommendationResponse(
     public string? SelectionRationale { get; init; }
     public bool NoSuitableAgentFound { get; init; }
     public bool AutomaticHiringEnabled { get; init; }
+    public string? AutomaticHiringBlockReason { get; init; }
     public bool ManualSelectionRequested { get; init; }
     public string? SuggestedBy { get; init; }
     public string? RoleKey { get; init; }

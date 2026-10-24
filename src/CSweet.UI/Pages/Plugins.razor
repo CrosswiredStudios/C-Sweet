@@ -1,29 +1,83 @@
 @page "/settings/plugins"
 @layout SettingsLayout
-@using System.Text.Json
 @using CSweet.Contracts.Agents
 @using CSweet.Contracts.Plugins
 @inject IPluginApiClient PluginApi
+@inject IBusinessContext BusinessContext
 @inject IAppLocalizer L
 
 <PageTitle>@L["Plugins.PageTitle"]</PageTitle>
-
-<div class="setup-shell">
+<div class="setup-shell plugins-page">
     <MudPaper Elevation="0" Class="page-header">
         <div>
             <MudText Typo="Typo.overline" Color="Color.Primary">@L["Plugins.Overline"]</MudText>
             <MudText Typo="Typo.h3">@L["Plugins.Title"]</MudText>
             <MudText Color="Color.Secondary">@L["Plugins.Lead"]</MudText>
         </div>
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">@L["Common.Refresh"]</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@(_busy || _loading)">@L["Common.Refresh"]</MudButton>
     </MudPaper>
-
     @if (!string.IsNullOrWhiteSpace(_message))
     {
-        <MudAlert Severity="@(_error ? Severity.Error : Severity.Success)" Variant="Variant.Outlined">@_message</MudAlert>
+        <MudAlert Severity="@(_error ? Severity.Error : Severity.Success)" Variant="Variant.Outlined" role="status">@_message</MudAlert>
     }
-
-    @if (RequiredProviderIds.Count > 0)
+    <MudTabs ActivePanelIndex="_activeTab" ActivePanelIndexChanged="ChangeTab" Elevation="0" Class="plugins-tabs" KeepPanelsAlive="false">
+        <MudTabPanel Text="@L["Plugins.Tabs.Installed"]" BadgeData="@_installations.Count" Disabled="_busy">
+            <section class="plugins-tab-content" aria-label="@L["Plugins.Installed.Title"]">
+                <div class="plugins-toolbar">
+                    <MudTextField T="string" @bind-Value="_installedSearch" Immediate="true" Placeholder="@L["Plugins.Installed.Search"]" aria-label="@L["Plugins.Installed.Search"]" Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" />
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@L.Format("Plugins.Installed.Count", new { count = _installations.Count })</MudText>
+                </div>
+                @if (_loading) { <MudProgressLinear Indeterminate="true" aria-label="@L["Plugins.Installed.Loading"]" /> }
+                else if (_installations.Count == 0)
+                {
+                    <MudPaper Outlined="true" Elevation="0" Class="plugins-empty">
+                        <MudIcon Icon="@Icons.Material.Outlined.Extension" Size="Size.Large" Color="Color.Primary" />
+                        <MudText Typo="Typo.h6">@L["Plugins.Installed.EmptyTitle"]</MudText>
+                        <MudText Color="Color.Secondary">@L["Plugins.Installed.Empty"]</MudText>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => ChangeTab(1))">@L["Plugins.Tabs.Find"]</MudButton>
+                    </MudPaper>
+                }
+                else if (!FilteredInstallations.Any()) { <MudText Class="pa-5" Color="Color.Secondary">@L["Plugins.Installed.NoMatches"]</MudText> }
+                else
+                {
+                    @foreach (var installation in FilteredInstallations)
+                    {
+                        <MudPaper @key="installation.Id" Outlined="true" Elevation="0" Class="plugin-installation">
+                            <div class="plugin-row">
+                                <div class="plugin-icon"><MudIcon Icon="@PluginIcon(installation.AgentId)" /></div>
+                                <div class="plugin-row-body">
+                                    <div class="plugin-title"><MudText Typo="Typo.subtitle1">@installation.AgentName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@($"v{installation.AgentVersion}")</MudText></div>
+                                    @if (!string.IsNullOrWhiteSpace(installation.Summary)) { <MudText Typo="Typo.body2" Color="Color.Secondary">@installation.Summary</MudText> }
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@L.Format("Plugins.Installed.Scope", new { kind = installation.PluginKind, scope = InstallationScope(installation) })</MudText>
+                                </div>
+                                <div class="plugin-row-actions">
+                                    <MudChip T="string" Size="Size.Small" Color="@(installation.IsEnabled ? Color.Success : Color.Default)">@(installation.IsEnabled ? L["Common.Enabled"] : L["Common.Disabled"])</MudChip>
+                                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => Manage(installation))" Disabled="_busy" aria-expanded="@(_managedId == installation.Id)">@L["Plugins.Installed.Manage"]</MudButton>
+                                </div>
+                            </div>
+                            @if (_managedId == installation.Id)
+                            {
+                                <div class="plugin-management">
+                                    <MudText Typo="Typo.body2">@L.Format("Plugins.Installed.Status", new { build = installation.Build?.Status ?? L["Plugins.Installed.Ready"], runtime = installation.LatestRuntime?.Status ?? L["Plugins.Installed.RuntimeNotStarted"] })</MudText>
+                                    @if (!string.IsNullOrWhiteSpace(installation.Build?.FailureMessage)) { <MudAlert Severity="Severity.Error">@installation.Build.FailureMessage</MudAlert> }
+                                    <MudText Typo="Typo.caption">@installation.AgentId · @installation.PublisherName</MudText>
+                                    <MudStack Row="true" Wrap="Wrap.Wrap" Class="mt-3">
+                                        <MudButton Variant="Variant.Outlined" OnClick="@(() => ToggleAsync(installation))" Disabled="_busy">@(installation.IsEnabled ? L["Plugins.Installed.Disable"] : L["Plugins.Installed.Enable"])</MudButton>
+                                        <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => _removePending = installation.Id)" Disabled="_busy">@L["Plugins.Installed.Remove"]</MudButton>
+                                    </MudStack>
+                                    @if (_removePending == installation.Id)
+                                    {
+                                        <MudAlert Severity="Severity.Warning" Class="mt-3">@L.Format("Plugins.Installed.ConfirmRemove", new { name = installation.AgentName })</MudAlert>
+                                        <MudButton Color="Color.Error" OnClick="@(() => RemoveAsync(installation))" Disabled="_busy">@L["Plugins.Installed.Remove"]</MudButton>
+                                        <MudButton OnClick="@(() => _removePending = null)" Disabled="_busy">@L["Common.Cancel"]</MudButton>
+                                    }
+                                </div>
+                            }
+                        </MudPaper>
+                    }
+                }
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-5">@L["Plugins.Installed.AgentsHint"] <MudLink Href="/settings/agents">@L["Plugins.Installed.AgentsLink"]</MudLink></MudText>
+                    @if (RequiredProviderIds.Count > 0)
     {
     <MudPaper Elevation="1" Class="surface-panel">
         <MudText Typo="Typo.h6">@L["Plugins.Providers.Title"]</MudText>
@@ -74,283 +128,106 @@
     </MudPaper>
 
     }
-    <MudPaper Elevation="1" Class="surface-panel">
-        <MudText Typo="Typo.h6">@L["Plugins.Import.Title"]</MudText>
-        <MudText Color="Color.Secondary">@L["Plugins.Import.Intro"]</MudText>
-        <MudTextField @bind-Value="_repositoryUrl" Label="@L["Plugins.Import.RepositoryUrl"]" Variant="Variant.Outlined" Disabled="@_busy" />
-        <MudTextField @bind-Value="_commitSha" Label="@L["Plugins.Import.CommitSha"]" Variant="Variant.Outlined" Disabled="@_busy" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PreviewAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_repositoryUrl) || string.IsNullOrWhiteSpace(_commitSha))">
-            @L["Plugins.Import.PreviewManifest"]
-        </MudButton>
 
-        @if (_preview is not null)
-        {
-            <MudDivider Class="my-4" />
-            <MudText Typo="Typo.subtitle1">@L.Format("Plugins.Import.PreviewHeading", new { name = _preview.AgentName, kind = _preview.PluginKind })</MudText>
-            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.PreviewMeta", new { id = _preview.AgentId, version = _preview.AgentVersion })</MudText>
-            <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Commit", new { sha = _preview.CommitSha })</MudText><br />
-            <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Manifest", new { file = _preview.ManifestFileName, digest = _preview.ManifestDigest })</MudText>
-            <MudText Typo="Typo.body2" Class="mt-3">@L.Format("Plugins.Import.ProvidedCapabilities", new { values = Format(_preview.Capabilities) })</MudText>
-            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.RequestedCapabilities", new { values = Format(_preview.RequestedCapabilities) })</MudText>
-            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.NetworkAccess", new { values = Format(_preview.RequestedNetworkAccess) })</MudText>
-            @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret && IsConfigurationFieldVisible(configField)))
-            {
-                <MudTextField T="string" Label="@FieldLabel(configField)"
-                              Value="@ConfigurationValue(configField.Key)"
-                              ValueChanged="@(value => SetConfigurationValue(configField.Key, value))"
-                              Variant="Variant.Outlined" Disabled="@_busy" />
-            }
-            <MudCheckBox @bind-Value="_approve" Label="@L["Plugins.Import.Approve"]" Color="Color.Primary" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(_busy || !_approve || HasMissingConfiguration)">
-                @L["Plugins.Import.BuildAndInstall"]
-            </MudButton>
-        }
-    </MudPaper>
-
-    <MudPaper Elevation="1" Class="surface-panel">
-        <div class="configuration-section-header">
-            <div>
-                <MudText Typo="Typo.h6">@L["Plugins.Installed.Title"]</MudText>
-                <MudText Color="Color.Secondary">@L["Plugins.Installed.Intro"]</MudText>
-            </div>
-            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined">@_installations.Count</MudChip>
-        </div>
-        @if (_loading)
-        {
-            <MudProgressLinear Indeterminate="true" />
-        }
-        else if (_installations.Count == 0)
-        {
-            <MudText Color="Color.Secondary">@L["Plugins.Installed.Empty"]</MudText>
-        }
-        else
-        {
-            @foreach (var installation in _installations)
-            {
-                <MudPaper Elevation="0" Outlined="true" Class="pa-4 mb-3">
-                    <div class="configuration-section-header">
-                        <div>
-                            <MudText Typo="Typo.subtitle1">@installation.AgentName</MudText>
-                            <MudText Typo="Typo.caption">@L.Format("Plugins.Installed.Meta", new { kind = installation.PluginKind, scope = installation.InstallationScope, sha = installation.CommitSha })</MudText>
+            </section>
+        </MudTabPanel>
+        <MudTabPanel Text="@L["Plugins.Tabs.Find"]" Disabled="_busy">
+            <section class="plugins-tab-content" aria-label="@L["Plugins.Tabs.Find"]">
+                <div class="configuration-section-header">
+                    <div><MudText Typo="Typo.h6">@L["Plugins.Catalog.Title"]</MudText><MudText Color="Color.Secondary">@L["Plugins.Catalog.Intro"]</MudText></div>
+                    <MudButton Variant="Variant.Outlined" OnClick="@(() => ChangeTab(2))">@L["Plugins.Catalog.InstallLink"]</MudButton>
+                </div>
+                <MudTextField T="string" @bind-Value="_catalogSearch" Immediate="true" Placeholder="@L["Plugins.Catalog.Search"]" aria-label="@L["Plugins.Catalog.Search"]" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Search" Class="mt-4" />
+                <div class="plugin-categories">
+                    @foreach (var category in new[] { "All", "Connections", "Development" })
+                    {
+                        <MudButton Variant="@(_catalogCategory == category ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" Size="Size.Small" OnClick="@(() => _catalogCategory = category)" aria-pressed="@(_catalogCategory == category)">@L[$"Plugins.Catalog.Category.{category}"]</MudButton>
+                    }
+                </div>
+                <div class="plugin-catalog-grid">
+                    @foreach (var entry in FilteredCatalog)
+                    {
+                        var installed = _installations.FirstOrDefault(x => x.AgentId == entry.Id);
+                        <MudPaper @key="entry.Id" Outlined="true" Elevation="0" Class="plugin-catalog-card">
+                            <div class="configuration-section-header"><div class="plugin-icon"><MudIcon Icon="@entry.Icon" /></div><MudText Typo="Typo.caption" Color="Color.Secondary">@L[$"Plugins.Catalog.Category.{entry.Category}"]</MudText></div>
+                            <MudText Typo="Typo.h6" Class="mt-4">@entry.Name</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="plugin-catalog-description">@L[entry.DescriptionKey]</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">C-Sweet</MudText>
+                            @if (installed is not null) { <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Check" OnClick="@(() => OpenInstalled(installed))">@L["Plugins.Catalog.Installed"]</MudButton> }
+                            else { <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward" OnClick="@(() => ReviewCatalogAsync(entry))" Disabled="@(_busy || _loading)">@L["Plugins.Catalog.Review"]</MudButton> }
+                        </MudPaper>
+                    }
+                </div>
+                @if (!FilteredCatalog.Any()) { <MudText Color="Color.Secondary" Class="pa-5">@L["Plugins.Catalog.NoMatches"]</MudText> }
+            </section>
+        </MudTabPanel>
+        <MudTabPanel Text="@L["Plugins.Tabs.Install"]" Icon="@Icons.Material.Outlined.Add" Disabled="_busy">
+            <section class="plugins-tab-content" aria-label="@L["Plugins.Tabs.Install"]">
+                <MudPaper Elevation="0" Outlined="true" Class="surface-panel plugin-install-panel">
+                    @if (_preview is null)
+                    {
+                        <MudText Typo="Typo.h6">@L["Plugins.Import.Title"]</MudText>
+                        <MudText Color="Color.Secondary">@L["Plugins.Import.Intro"]</MudText>
+                        <div class="plugin-source-methods">
+                            <MudButton Variant="@(!_uploadBundle ? Variant.Filled : Variant.Text)" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link" OnClick="@(() => SetSource(false))" Disabled="_busy" aria-pressed="@(!_uploadBundle)">@L["Plugins.Import.RepositoryLink"]</MudButton>
+                            <MudButton Variant="@(_uploadBundle ? Variant.Filled : Variant.Text)" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.UploadFile" OnClick="@(() => SetSource(true))" Disabled="_busy" aria-pressed="@_uploadBundle">@L["Plugins.Import.UploadBundle"]</MudButton>
                         </div>
-                        <MudChip T="string" Color="@(installation.IsEnabled ? Color.Success : Color.Default)">@(installation.IsEnabled ? L["Common.Enabled"] : L["Common.Disabled"])</MudChip>
-                    </div>
-                    <MudText Typo="Typo.body2">@L.Format("Plugins.Installed.Status", new { build = installation.Build?.Status ?? L["Plugins.Installed.BuildQueued"], runtime = installation.LatestRuntime?.Status ?? L["Plugins.Installed.RuntimeNotStarted"] })</MudText>
-                    <MudStack Row="true" Class="mt-3">
-                        <MudButton Variant="Variant.Outlined" OnClick="@(() => ToggleAsync(installation))" Disabled="@_busy">
-                            @(installation.IsEnabled ? L["Plugins.Installed.Disable"] : L["Plugins.Installed.Enable"])
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => RemoveAsync(installation))" Disabled="@_busy">@L["Plugins.Installed.Remove"]</MudButton>
-                    </MudStack>
+                        @if (_uploadBundle)
+                        {
+                            <div class="plugin-bundle-upload">
+                                <MudIcon Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Large" Color="Color.Primary" />
+                                <MudText Typo="Typo.subtitle1">@L["Plugins.Import.ChooseBundle"]</MudText>
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">@L["Plugins.Import.BundleHelp"]</MudText>
+                                <InputFile OnChange="BundleSelected" accept=".cspb" disabled="@_busy" aria-label="@L["Plugins.Import.ChooseBundle"]" />
+                            </div>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PreviewAsync" Disabled="@(_busy || _bundle is null)">@L["Plugins.Import.PreviewBundle"]</MudButton>
+                        }
+                        else
+                        {
+                            <MudTextField @bind-Value="_repositoryUrl" Immediate="true" Label="@L["Plugins.Import.RepositoryUrl"]" Variant="Variant.Outlined" Disabled="_busy" />
+                            <MudExpansionPanels Elevation="0" Class="my-3"><MudExpansionPanel Text="@L["Plugins.Import.ChooseVersion"]"><MudTextField @bind-Value="_commitSha" Label="@L["Plugins.Import.CommitSha"]" HelperText="@L["Plugins.Import.RefHelp"]" Variant="Variant.Outlined" Disabled="_busy" /></MudExpansionPanel></MudExpansionPanels>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward" OnClick="PreviewAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_repositoryUrl))">@L["Plugins.Import.PreviewManifest"]</MudButton>
+                        }
+                        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="plugin-review-hint"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" Size="Size.Small" /> @L["Plugins.Import.ReviewHint"]</MudText>
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ArrowBack" OnClick="BackToSource" Disabled="_busy">@L["Plugins.Import.Back"]</MudButton>
+                        <MudText Typo="Typo.h6" Class="mt-3">@_preview.AgentName</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@_preview.PublisherName · @($"v{_preview.AgentVersion}") · @_preview.PluginKind</MudText>
+                        @if (_preview.PluginKind == "Connector")
+                        {
+                            <MudSelect T="Guid?" @bind-Value="_businessId" Label="@L["Plugins.Import.Business"]" Variant="Variant.Outlined" Disabled="_busy" Class="mt-4">
+                                @foreach (var business in BusinessContext.Businesses) { <MudSelectItem T="Guid?" Value="@((Guid?)business.Id)">@business.Name</MudSelectItem> }
+                            </MudSelect>
+                            @if (!_businessId.HasValue) { <MudAlert Severity="Severity.Warning">@L["Plugins.Import.BusinessRequired"]</MudAlert> }
+                        }
+                        else { <MudText Typo="Typo.body2" Class="mt-3">@L["Plugins.Import.SystemScope"]</MudText> }
+                        <MudDivider Class="my-4" />
+                        <MudText Typo="Typo.subtitle1">@L["Plugins.Import.AccessTitle"]</MudText>
+                        <MudText Typo="Typo.body2" Class="mt-2">@L.Format("Plugins.Import.ProvidedCapabilities", new { values = Format(_preview.Capabilities) })</MudText>
+                        <MudText Typo="Typo.body2">@L.Format("Plugins.Import.RequestedCapabilities", new { values = Format(_preview.RequestedCapabilities) })</MudText>
+                        <MudText Typo="Typo.body2">@L.Format("Plugins.Import.NetworkAccess", new { values = Format(_preview.RequestedNetworkAccess) })</MudText>
+                        <MudText Typo="Typo.body2">@L.Format("Plugins.Import.Subscriptions", new { values = Format(_preview.RequestedSubscriptions) })</MudText>
+                        @foreach (var warning in _preview.Warnings) { <MudAlert Severity="Severity.Warning" Class="mt-2">@warning.Message</MudAlert> }
+                        @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret && IsConfigurationFieldVisible(configField)))
+                        {
+                            <MudTextField T="string" Label="@FieldLabel(configField)" Value="@ConfigurationValue(configField.Key)" ValueChanged="@(value => SetConfigurationValue(configField.Key, value))" Immediate="true" Variant="Variant.Outlined" Disabled="_busy" />
+                        }
+                        <MudExpansionPanels Elevation="0" Class="my-3"><MudExpansionPanel Text="@L["Plugins.Import.PackageDetails"]"><div class="plugin-package-details">
+                            <MudText Typo="Typo.body2">@_preview.AgentId</MudText><MudText Typo="Typo.body2">@_preview.RepositoryUrl</MudText>
+                            @if (_preview.BundleDigest is not null) { <MudText Typo="Typo.caption">@L.Format("Plugins.Import.BundleDigest", new { digest = _preview.BundleDigest })</MudText> }
+                            else { <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Commit", new { sha = _preview.CommitSha })</MudText> }
+                            <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Manifest", new { file = _preview.ManifestFileName, digest = _preview.ManifestDigest })</MudText>
+                        </div></MudExpansionPanel></MudExpansionPanels>
+                        @if (_preview.WebAccess.Mode == PluginWebAccessMode.AllPublic) { <MudCheckBox @bind-Value="_acknowledgeAllPublic" Label="@L["Plugins.Import.AllPublic"]" Color="Color.Warning" Disabled="_busy" /> }
+                        <MudCheckBox @bind-Value="_approve" Label="@L["Plugins.Import.Approve"]" Color="Color.Primary" Disabled="_busy" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(!CanInstall)">@L["Plugins.Import.BuildAndInstall"]</MudButton>
+                        @if (RequiredProviderIds.Count > 0) { <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureFromReview" /> }
+                    }
+                    @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-4" aria-label="@L["Plugins.Import.Working"]" /> }
                 </MudPaper>
-            }
-        }
-    </MudPaper>
+            </section>
+        </MudTabPanel>
+    </MudTabs>
 </div>
-
-@code {
-    private readonly List<AgentInstallationResponse> _installations = [];
-    private readonly List<PluginProviderProfileResponse> _providerProfiles = [];
-    private IReadOnlyList<PluginConnectionDeclaration> RequiredConnections => _installations.Where(x => x.PluginKind == "Connector")
-        .SelectMany(x => x.ConnectionDeclarations).Concat(_preview?.PluginKind == "Connector" ? _preview.Connections : [])
-        .ToArray();
-    private HashSet<string> RequiredProviderIds => RequiredConnections
-        .Select(x => x.ProviderProfile).ToHashSet(StringComparer.Ordinal);
-    private AgentImportPreviewResponse? _preview;
-    private string _repositoryUrl = string.Empty;
-    private string _commitSha = string.Empty;
-    private string? _message;
-    private bool _loading = true;
-    private bool _busy;
-    private bool _error;
-    private bool _approve;
-    private readonly Dictionary<string, string> _configurationValues = new(StringComparer.Ordinal);
-    private string _providerId = string.Empty;
-    private string _providerDisplayName = string.Empty;
-    private string _providerAuthorizationEndpoint = string.Empty;
-    private string _providerTokenEndpoint = string.Empty;
-    private string _providerRevocationEndpoint = string.Empty;
-    private string _providerClientId = string.Empty;
-    private string _providerClientSecret = string.Empty;
-    private bool _providerEnabled = true;
-    private bool _editingManagedProfile;
-    private bool _providerProfilesLoaded;
-    private bool HasMissingConfiguration =>
-        _preview?.ConfigurationFields
-            .Where(configField => configField.Required && !configField.Secret && IsConfigurationFieldVisible(configField))
-            .Any(configField => string.IsNullOrWhiteSpace(ConfigurationValue(configField.Key))) == true;
-
-    protected override async Task OnInitializedAsync() => await LoadAsync();
-
-    private async Task LoadAsync()
-    {
-        _loading = true;
-        _providerProfilesLoaded = false;
-        try
-        {
-            _installations.Clear();
-            _installations.AddRange(await PluginApi.ListAsync());
-            _providerProfiles.Clear();
-            if (RequiredProviderIds.Count > 0)
-                _providerProfiles.AddRange(await PluginApi.ListProviderProfilesAsync());
-            _providerProfilesLoaded = true;
-            if (!string.IsNullOrEmpty(_providerId) && !CanEditProvider(_providerId)) ResetProviderForm();
-        }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _loading = false; }
-    }
-
-    private async Task SaveProviderAsync()
-    {
-        _busy = true;
-        try
-        {
-            if (_editingManagedProfile || !CanEditProvider(_providerId))
-                throw new InvalidOperationException(L["Plugins.Providers.Error.SelectDeclared"]);
-            var declared = PluginProviderDeclarations.Collect(RequiredConnections).Single(x => x.Id == _providerId).Provider!;
-            if (_providerAuthorizationEndpoint != declared.AuthorizationEndpoint || _providerTokenEndpoint != declared.TokenEndpoint ||
-                _providerRevocationEndpoint != declared.RevocationEndpoint)
-                throw new InvalidOperationException(L["Plugins.Providers.Error.DeclarationChanged"]);
-            await PluginApi.SaveProviderProfileAsync(_providerId.Trim(), new(
-                _providerDisplayName.Trim(), _providerAuthorizationEndpoint.Trim(), _providerTokenEndpoint.Trim(),
-                string.IsNullOrWhiteSpace(_providerRevocationEndpoint) ? null : _providerRevocationEndpoint.Trim(),
-                _providerClientId.Trim(), string.IsNullOrWhiteSpace(_providerClientSecret) ? null : _providerClientSecret,
-                _providerEnabled));
-            _providerClientSecret = string.Empty;
-            ShowSuccess(L["Plugins.Providers.Saved"]);
-            await LoadAsync();
-        }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _busy = false; }
-    }
-
-    private void EditProvider(PluginProviderProfileResponse profile)
-    {
-        if (!CanEditProvider(profile.Id)) return;
-        _providerId = profile.Id; _providerDisplayName = profile.DisplayName;
-        _providerAuthorizationEndpoint = profile.AuthorizationEndpoint; _providerTokenEndpoint = profile.TokenEndpoint;
-        _providerRevocationEndpoint = profile.RevocationEndpoint ?? string.Empty; _providerClientId = profile.ClientId;
-        _providerClientSecret = string.Empty; _providerEnabled = profile.IsEnabled;
-        _editingManagedProfile = profile.ManagedByDeployment;
-    }
-
-    private bool CanEditProvider(string id)
-    {
-        var requirement = PluginProviderDeclarations.Collect(RequiredConnections).SingleOrDefault(x => x.Id == id);
-        var profile = _providerProfiles.SingleOrDefault(x => x.Id == id);
-        return _providerProfilesLoaded && requirement?.CanConfigure == true && (profile is null || requirement.Matches(profile));
-    }
-
-    private void ConfigureDeclaredProvider(PluginProviderDeclarations.Requirement requested)
-    {
-        // Re-resolve from current declarations; an old UI callback must not configure a removed preview.
-        var requirement = PluginProviderDeclarations.Collect(RequiredConnections).SingleOrDefault(x => x.Id == requested.Id);
-        if (requirement?.CanConfigure != true || !CanEditProvider(requirement.Id)) return;
-        var existing = _providerProfiles.SingleOrDefault(x => x.Id == requirement.Id);
-        if (existing is not null) { EditProvider(existing); return; }
-        ResetProviderForm();
-        _providerId = requirement.Id; _providerDisplayName = requirement.Provider!.DisplayName;
-        _providerAuthorizationEndpoint = requirement.Provider.AuthorizationEndpoint;
-        _providerTokenEndpoint = requirement.Provider.TokenEndpoint;
-        _providerRevocationEndpoint = requirement.Provider.RevocationEndpoint;
-    }
-
-    private async Task DeleteProviderAsync(PluginProviderProfileResponse profile)
-    {
-        _busy = true;
-        try { await PluginApi.DeleteProviderProfileAsync(profile.Id); ResetProviderForm(); ShowSuccess(L["Plugins.Providers.Deleted"]); await LoadAsync(); }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _busy = false; }
-    }
-
-    private void ResetProviderForm()
-    {
-        _providerId = string.Empty; _providerDisplayName = string.Empty;
-        _providerAuthorizationEndpoint = string.Empty;
-        _providerTokenEndpoint = string.Empty;
-        _providerRevocationEndpoint = string.Empty;
-        _providerClientId = string.Empty; _providerClientSecret = string.Empty; _providerEnabled = true;
-        _editingManagedProfile = false;
-    }
-
-    private async Task PreviewAsync()
-    {
-        _busy = true; _message = null; _preview = null; _approve = false; _configurationValues.Clear(); ResetProviderForm();
-        _providerProfilesLoaded = false;
-        try
-        {
-            _preview = await PluginApi.PreviewAsync(new(_repositoryUrl.Trim(), _commitSha.Trim()));
-            _providerProfiles.Clear();
-            if (RequiredProviderIds.Count > 0)
-                _providerProfiles.AddRange(await PluginApi.ListProviderProfilesAsync());
-            _providerProfilesLoaded = true;
-            foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret))
-                _configurationValues[configField.Key] = string.Empty;
-        }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _busy = false; }
-    }
-
-    private async Task InstallAsync()
-    {
-        if (_preview is null) return;
-        _busy = true;
-        try
-        {
-            var communication = string.Equals(_preview.PluginKind, "CommunicationProvider", StringComparison.OrdinalIgnoreCase);
-            var request = new InstallAgentRequest(
-                communication ? "enterprise" : "shared",
-                communication ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
-                communication ? 30 : 300,
-                "Skip",
-                _preview.Capabilities,
-                _preview.RequestedSubscriptions,
-                _preview.RequestedPublications,
-                _preview.RequestedPermissions,
-                _preview.RequestedNetworkAccess,
-                300, 512, 50)
-            {
-                PluginScope = communication ? "System" : "Organization",
-                GrantedRequestedCapabilities = _preview.RequestedCapabilities,
-                ConfigurationSettings = _configurationValues
-                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
-                    .ToDictionary(
-                        pair => pair.Key,
-                        pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
-                        StringComparer.Ordinal)
-            };
-            await PluginApi.InstallAsync(_preview.ImportId, request);
-            _preview = null; _approve = false; _repositoryUrl = string.Empty; _commitSha = string.Empty;
-            ShowSuccess(L["Plugins.Import.Installed"]);
-            await LoadAsync();
-        }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _busy = false; }
-    }
-
-    private async Task ToggleAsync(AgentInstallationResponse installation)
-    {
-        _busy = true;
-        try { await PluginApi.SetEnabledAsync(installation.Id, !installation.IsEnabled); ShowSuccess(L["Plugins.Installed.StateUpdated"]); await LoadAsync(); }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _busy = false; }
-    }
-
-    private async Task RemoveAsync(AgentInstallationResponse installation)
-    {
-        _busy = true;
-        try { await PluginApi.RemoveAsync(installation.Id); ShowSuccess(L["Plugins.Installed.Removed"]); await LoadAsync(); }
-        catch (Exception exception) { ShowError(exception); }
-        finally { _busy = false; }
-    }
-
-    private string Format(IReadOnlyList<string> values) => values.Count == 0 ? L["Common.None"] : string.Join(", ", values.Select(value => CapabilityDisplayNames.For(L, value)));
-    private string FieldLabel(PluginConfigurationField configField) =>
-        configField.Required ? L.Format("Plugins.Import.RequiredField", new { label = configField.Label }) : configField.Label;
-    private string ConfigurationValue(string key) => _configurationValues.GetValueOrDefault(key) ?? string.Empty;
-    private void SetConfigurationValue(string key, string value) => _configurationValues[key] = value;
-    private bool IsConfigurationFieldVisible(PluginConfigurationField field) =>
-        AgentConfigurationVisibility.IsVisible(field, _configurationValues);
-    private void ShowSuccess(string message) { _message = message; _error = false; }
-    private void ShowError(Exception exception) { _message = exception.Message; _error = true; }
-}

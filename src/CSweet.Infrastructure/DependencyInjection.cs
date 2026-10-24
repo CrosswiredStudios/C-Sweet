@@ -193,6 +193,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentImportPreviewService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginImportService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginArchiveImportService, PluginArchiveImportService>();
+        builder.Services.AddScoped<IPluginBundleImportService, PluginBundleImportService>();
         builder.Services.AddSingleton<IPluginManifestReader, PluginManifestReader>();
         builder.Services.AddScoped<IAgentUpdateService, AgentUpdateService>();
         builder.Services.AddScoped<IAgentDefinitionService, AgentDefinitionService>();
@@ -543,6 +544,8 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUserActionWorkflowResolver, PluginSetupUserActionWorkflowResolver>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, ApprovalUserActionWorkflowResolver>();
         builder.Services.AddScoped<IExecutiveDecisionService, ExecutiveDecisionService>();
+        builder.Services.Configure<ChiefLeadershipOptions>(builder.Configuration.GetSection("CSweet:ChiefLeadership"));
+        builder.Services.AddScoped<IChiefLeadershipService, ChiefLeadershipService>();
         builder.Services.AddScoped<IAgentCommunicationOnboardingService, AgentCommunicationOnboardingService>();
         builder.Services.AddScoped<IApplicationRealtimeOutboxDispatcher, ApplicationRealtimeOutboxDispatcher>();
         builder.Services.AddScoped<ICommunicationEventOutboxDispatcher, CommunicationEventOutboxDispatcher>();

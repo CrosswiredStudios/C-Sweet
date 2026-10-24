@@ -193,6 +193,25 @@ public class LlmProviderEndpointTests
     }
 
     [Fact]
+    public async Task DeletingDefaultRequiresExplicitReplacementAndReturnsConflictUntilSelected()
+    {
+        await using var factory = CreateFactory(); var client = factory.CreateClient();
+        var first = await CreateProfileAsync(client); var replacement = await CreateProfileAsync(client);
+        await client.PostAsync($"/api/llm-provider-profiles/{first.Id}/test", null);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/setup/default-chat-provider", new SetDefaultChatProviderRequest(first.Id))).StatusCode);
+        var blocked = await client.DeleteAsync($"/api/llm-provider-profiles/{first.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
+        Assert.Equal("default_provider_replacement_required", (await blocked.Content.ReadFromJsonAsync<LlmProviderProfileActionResponse>())!.ErrorCode);
+        await client.PostAsync($"/api/llm-provider-profiles/{replacement.Id}/test", null);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/setup/default-chat-provider", new SetDefaultChatProviderRequest(replacement.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.DeleteAsync($"/api/llm-provider-profiles/{first.Id}")).StatusCode);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+        Assert.Equal(replacement.Id, (await db.SystemConfigurations.SingleAsync()).DefaultChatProviderId);
+        Assert.Equal(replacement.DefaultChatModel, (await db.LlmProviderProfiles.SingleAsync()).DefaultChatModel);
+    }
+
+    [Fact]
     public async Task DiscoverLocal_AddsReachableProvidersAndIsIdempotent()
     {
         var handler = new SelectiveDiscoveryHandler();

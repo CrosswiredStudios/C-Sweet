@@ -52,7 +52,7 @@
     <ChildContent>
         @if (IsAutomatic)
         {
-            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="Recommendation.Id" Name="@Recommender" Stopped="OnManualSelection" />
+            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="Recommendation.Id" Name="@Recommender" BlockReason="@Recommendation.AutomaticHiringBlockReason" Stopped="OnManualSelection" />
         }
         else if (IsManualSelection)
         {
@@ -69,9 +69,9 @@
             </div>
         }
         <div class="candidate-actions">
-            @if (!IsAutomatic && !IsManualSelection && _candidate is not null)
+            @if ((!IsAutomatic || !string.IsNullOrWhiteSpace(Recommendation.AutomaticHiringBlockReason)) && !IsManualSelection && _candidate is not null)
             {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="IsHireDisabled" OnClick="OpenHireAsync">@(PendingOperation is not null ? "Hiring in progress…" : _openingReview ? "Preparing review…" : $"Hire {_candidate.Name}")</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="IsHireDisabled" OnClick="OpenHireAsync">@(PendingOperation is not null ? "Hiring in progress…" : _openingReview ? "Preparing review…" : IsAutomatic ? L["AutomaticHiringControl.Review"] : $"Hire {_candidate.Name}")</MudButton>
             }
             @if (!IsAutomatic || NoSuitableAgent)
             {

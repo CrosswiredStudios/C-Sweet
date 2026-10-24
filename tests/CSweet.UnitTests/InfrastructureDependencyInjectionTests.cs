@@ -88,6 +88,8 @@ public sealed class InfrastructureDependencyInjectionTests
             Assert.NotNull(scope.ServiceProvider.GetRequiredService<IOrganizationUserService>());
             Assert.NotNull(scope.ServiceProvider.GetRequiredService<IAgentCoordinationService>());
             Assert.NotNull(scope.ServiceProvider.GetRequiredService<IPersonalTodoService>());
+            Assert.NotNull(scope.ServiceProvider.GetRequiredService<IChiefLeadershipService>());
+            Assert.False(scope.ServiceProvider.GetRequiredService<IOptions<CSweet.Infrastructure.Core.ChiefLeadershipOptions>>().Value.Enabled);
         }).WaitAsync(TimeSpan.FromSeconds(10));
     }
 

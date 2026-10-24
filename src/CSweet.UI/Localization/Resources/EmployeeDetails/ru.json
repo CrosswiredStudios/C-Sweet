@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "Лента недоступна, или доступ изменился. Обновите страницу, чтобы повторить попытку.",
   "CurrentActivity.OpenWorkItem": "Открыть рабочий элемент",
   "CurrentActivity.EmployeeDetails": "Сведения о сотруднике",
-  "ActivityCard.WorkspaceAriaLabel": "Последние операции в рабочем пространстве"
+  "ActivityCard.WorkspaceAriaLabel": "Последние операции в рабочем пространстве",
+  "ActivityCard.Speed.Reported": "{rate} токенов/с",
+  "ActivityCard.Speed.Estimated": "~{rate} токенов/с",
+  "ActivityCard.Speed.ReportedLabel": "Скорость генерации: {rate} токенов в секунду",
+  "ActivityCard.Speed.EstimatedLabel": "Оценочная скорость генерации: {rate} токенов в секунду",
+  "ActivityCard.Speed.ReportedTooltip": "Выходные токены в секунду по данным провайдера, в среднем с начала потоковой передачи этого ответа.",
+  "ActivityCard.Speed.EstimatedTooltip": "Оценка по потоковому тексту: четыре символа на токен. Среднее с начала вывода; скрытые рассуждения и данные инструментов исключены.",
+  "ActivityCard.Speed.Action": "Генерация ответа"
 }

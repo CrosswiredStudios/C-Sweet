@@ -103,6 +103,65 @@ compact history. Technical details disclosures have been removed. Peek at provid
 stream opens the existing authorized feed inline and fetches only on demand.
 No synthetic progress or percentage completion is generated.
 
+### Live generation speed
+
+`ModelGenerationTracker` captures content-free output measurements for each brokered
+provider response in `AgentRunLog.GenerationStartedAt`, `GenerationObservedAt`,
+`GenerationOutputTokens`, and `GenerationIsEstimated`. These nullable fields have
+their own additive migration; historical calls retain unknown live measurements.
+They never replace `ReportedOutputTokens` or other inference accounting totals.
+Stream counters commit with the existing audit receipts and notification outbox;
+counter-only updates do not produce additional model lifecycle events.
+
+`CurrentActivityItem.Generation` supplies the exactly correlated, authorized running
+response's model-run ID, average tokens per second, estimate flag and observation
+time. The average begins with first output, excluding queue and initial provider
+latency, and requires at least one second of observations. Current cumulative
+provider counts take precedence; otherwise streamed text and readable, unprotected
+reasoning are estimated at four characters per token. Hidden reasoning, tool
+payloads, and metadata do not contribute to the estimate. Repeated usage and empty
+chunks do not refresh output freshness. The estimate can change when a provider
+supplies counts and is deliberately approximate, especially across languages.
+`CurrentActivityService.MapAsync` checks sample freshness against the clock after
+reading the run, rather than the list request's initial timestamp. A streaming
+sample committed during the awaited list queries is current output, not future
+data; genuinely future-dated and stale samples remain hidden.
+
+`ActivityCard` places the localized `42.3 tok/s` or `~42.3 tok/s` badge beside the
+current **Generating a response** action, with responsive wrapping and an accessible
+measurement label and explanatory tooltip. Earlier workspace steps remain history;
+speed never attaches to a previous tool action or averages across an entire task.
+Tool handoff, a newer workspace observation, completed/failed/cancelled calls,
+waiting/recovery, lost diagnostics, disconnects and observations aged 15 seconds
+hide the badge. Every response starts fresh. Calls without live measurements show
+no badge, and opening the provider stream is unnecessary.
+
+Existing five-second stream wake coalescing and reconnect reads update the list.
+A one-second local display clock expires observations without network polling.
+Deploy `AddLiveGenerationTelemetry` and the rebuilt platform/frontend together;
+no agent, SDK or sibling contract update is needed.
+
+`ModelGenerationTrackerTests`, `CurrentActivityTests` generation scenarios,
+`CurrentActivityRenderingTests`, `PlatformLlmCapabilityHandlerTests` streaming scenarios,
+and `GenerationTelemetryPostgresTests` cover counters, response/action isolation,
+permissions, display lifecycle and transactional rollback. The PostgreSQL test uses
+the existing disposable loopback `CSWEET_COMPUTE_TEST_DATABASE` convention.
+
+October 23 verification: 189 distinct targeted tests passed, including the
+PostgreSQL migration/rollback test, model/DDL consistency, streaming persistence,
+activity projection and rendering; one existing conditional test was skipped.
+AgentHost and frontend builds passed. Localization validation reported zero errors;
+its existing unrelated translation warnings remain.
+
+October 23 live follow-up: a rapidly streaming call could commit its latest sample
+after `ReadAsync` captured the list's initial clock, causing that valid sample to
+fail the future-timestamp check. The task-bound and standalone regression cases
+both reproduced this failure before the projection-clock fix and passed afterward.
+The follow-up suite passed 189 tests with one unconfigured live-provider test skipped.
+The local API was rebuilt and restarted through Aspire while AgentHost stayed
+running; the Overview then displayed real estimated generation speeds beside its
+current actions (including approximately 90.6 tokens/second on Naomi's response).
+
 For coordination deliveries, `CurrentActivityService` binds the two participants and
 source task through `AgentCoordinationSession.CurrentAgentWorkItemId`, the current
 speaker, and the participant installation. Session-source tasks go through the same

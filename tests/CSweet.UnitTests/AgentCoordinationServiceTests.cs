@@ -24,6 +24,80 @@ namespace CSweet.UnitTests;
 public sealed class AgentCoordinationServiceTests
 {
     [Fact]
+    public async Task ResumedBlockedSessionPublishesANewSummaryWithoutReusingTheHistoricalMessageKey()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var stored = await fixture.Db.AgentCoordinationSessions.Include(x => x.Turns).SingleAsync();
+        stored.SourceConversationId = Guid.NewGuid();
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId,
+            new(fixture.SessionId, 1, 1, AgentCoordinationDispositions.Continue, "Please review the exact proposal.", "proposal-before-block"));
+        var blocked = await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+            new(fixture.SessionId, 2, 2, AgentCoordinationDispositions.Blocked, "The state binding needs correction.", "blocked-summary"));
+        var old = await fixture.Db.CoreConversationMessages.SingleAsync(x => x.ConversationId == stored.SourceConversationId);
+        // Simulate a summary produced before revision-scoped summary keys were deployed.
+        old.IdempotencyKey = $"coordination:{fixture.SessionId:N}:summary";
+        await fixture.Db.SaveChangesAsync();
+        var resumed = await fixture.Service.ResumeAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+            new(fixture.SessionId, blocked.Revision, "State routing corrected; review retained evidence.", "reviewed-retry"));
+        var complete = new RespondToAgentCoordinationRequest(fixture.SessionId, resumed.Revision, resumed.NextTurnOrdinal,
+            AgentCoordinationDispositions.Completed, "Exact brief accepted and staffing approved.", "completed-summary");
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId, complete);
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId, complete);
+        var summaries = await fixture.Db.CoreConversationMessages.Where(x => x.ConversationId == stored.SourceConversationId).ToListAsync();
+        Assert.Equal(2, summaries.Count);
+        Assert.Equal(2, summaries.Select(x => x.IdempotencyKey).Distinct().Count());
+        Assert.Contains(summaries, x => x.Content == "The state binding needs correction.");
+        Assert.Contains(summaries, x => x.Content == complete.Content);
+    }
+
+    [Theory]
+    [InlineData("revised-proposal", true)]
+    [InlineData("next-page", true)]
+    [InlineData("unchanged", false)]
+    [InlineData("formatting", false)]
+    [InlineData("text-only", false)]
+    public async Task RepeatedAcknowledgementRequiresChangedStructuredEvidence(string scenario, bool accepted)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var textOnly = scenario == "text-only";
+        AgentCoordinationArtifactSubmission? Artifact(string json, int page = 1) => textOnly ? null :
+            new("video-game.project-foundation.proposal.v1", "1.0", "accepted-direction", page, true,
+                JsonDocument.Parse(json).RootElement.Clone());
+        var initial = Artifact("{\"proposalId\":\"first\",\"revision\":1}");
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId,
+            new(fixture.SessionId, 1, 1, AgentCoordinationDispositions.Continue,
+                "Submitted the project proposal for manager review.", "first-proposal", initial));
+        await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.InitiatorId, fixture.InitiatorInstallationId,
+            new(fixture.SessionId, 2, 2, AgentCoordinationDispositions.Continue,
+                "Please revise the proposal against the accepted direction.", "revision-feedback"));
+        var artifact = scenario switch
+        {
+            "revised-proposal" => Artifact("{\"proposalId\":\"revised\",\"revision\":1}"),
+            "next-page" => Artifact("{\"proposalId\":\"first\",\"revision\":1}", 2),
+            "formatting" => Artifact("{ \"revision\": 1, \"proposalId\": \"first\" }"),
+            _ => initial
+        };
+        var request = new RespondToAgentCoordinationRequest(fixture.SessionId, 3, 3,
+            AgentCoordinationDispositions.Continue, "Submitted the project proposal for manager review.",
+            "revised-proposal", artifact);
+        if (accepted)
+        {
+            var result = await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request);
+            Assert.Equal(4, result.Turns.Count);
+            var replay = await fixture.Service.RespondAsync(fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request);
+            Assert.Equal(4, replay.Turns.Count);
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.RespondAsync(
+                fixture.OrganizationId, fixture.TargetId, fixture.TargetInstallationId, request));
+            Assert.Contains("cannot repeat", error.Message);
+            Assert.Equal(3, await fixture.Db.AgentCoordinationTurns.CountAsync());
+        }
+    }
+
+    [Fact]
     public async Task Coordination_retains_a_128000_character_planning_payload_with_JSON_escaping()
     {
         await using var fixture = await Fixture.CreateAsync();

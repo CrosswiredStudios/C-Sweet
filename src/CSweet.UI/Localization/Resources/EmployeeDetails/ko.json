@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "피드를 사용할 수 없거나 액세스 권한이 변경되었습니다. 새로 고쳐 다시 시도하세요.",
   "CurrentActivity.OpenWorkItem": "작업 항목 열기",
   "CurrentActivity.EmployeeDetails": "직원 세부 정보",
-  "ActivityCard.WorkspaceAriaLabel": "최근 워크스페이스 작업"
+  "ActivityCard.WorkspaceAriaLabel": "최근 워크스페이스 작업",
+  "ActivityCard.Speed.Reported": "{rate} 토큰/초",
+  "ActivityCard.Speed.Estimated": "약 {rate} 토큰/초",
+  "ActivityCard.Speed.ReportedLabel": "생성 속도: 초당 {rate} 토큰",
+  "ActivityCard.Speed.EstimatedLabel": "예상 생성 속도: 초당 {rate} 토큰",
+  "ActivityCard.Speed.ReportedTooltip": "공급자가 보고한 초당 출력 토큰 수로, 이 응답의 스트리밍 시작부터 계산한 평균입니다.",
+  "ActivityCard.Speed.EstimatedTooltip": "스트리밍 텍스트의 문자 4개를 토큰 1개로 추정합니다. 출력 시작부터의 평균이며 숨겨진 추론과 도구 데이터는 제외합니다.",
+  "ActivityCard.Speed.Action": "응답 생성 중"
 }

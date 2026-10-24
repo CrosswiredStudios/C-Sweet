@@ -54,6 +54,29 @@
     }
     else
     {
+        <MudPaper Elevation="1" Class="surface-panel mb-4">
+            <MudText Typo="Typo.h6">@L["LlmProviders.DefaultSelection"]</MudText>
+            <MudText Color="Color.Secondary">@L["LlmProviders.DefaultSelectionDescription"]</MudText>
+            @if (CurrentDefault is { } currentDefault)
+            {
+                <MudText Class="mt-2">@currentDefault.Name · @currentDefault.DefaultChatModel</MudText>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2">@L["LlmProviders.NoDefaultSelection"]</MudAlert>
+            }
+            <MudSelect T="Guid?" Label="@L["LlmProviders.DefaultSelection"]" @bind-Value="_defaultChoice" Variant="Variant.Outlined" Disabled="_isBusy" Class="mt-3">
+                @foreach (var provider in _profiles.Where(x => x.IsEnabled))
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)provider.Id)">@provider.Name · @provider.DefaultChatModel</MudSelectItem>
+                }
+            </MudSelect>
+            <MudStack Row="true" Class="setup-actions">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_isBusy || _defaultChoice is null || _defaultChoice == _status?.DefaultChatProviderId)" OnClick="SaveDefaultChoiceAsync">@L["LlmProviders.UseDefaultSelection"]</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@(_isBusy || _defaultChoice is null)" OnClick="EditDefaultModel">@L["LlmProviders.EditDefaultModel"]</MudButton>
+            </MudStack>
+            @if (_defaultMessage is not null) { <MudAlert Severity="@(_defaultFailed ? Severity.Error : Severity.Success)">@_defaultMessage</MudAlert> }
+        </MudPaper>
         <MudPaper Elevation="1" Class="surface-panel agents-list-panel">
             <div class="configuration-section-header">
                 <div>
@@ -289,9 +312,20 @@
             <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Class="mt-4">
                 @L["LlmProviders.DeletingThisProviderRemovesSaved"]
             </MudAlert>
+            @if (RequiresDefaultReplacement)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-3">@L["LlmProviders.ReplacementRequired"]</MudAlert>
+                <MudSelect T="Guid?" Label="@L["LlmProviders.ReplacementDefault"]" @bind-Value="_replacementDefault" Variant="Variant.Outlined" Disabled="_isBusy">
+                    @foreach (var provider in _profiles.Where(x => x.Id != _selectedProfile.Id && x.IsEnabled))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)provider.Id)">@provider.Name · @provider.DefaultChatModel</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_isBusy || _replacementDefault is null)" OnClick="SaveReplacementDefaultAsync">@L["LlmProviders.UseReplacementDefault"]</MudButton>
+            }
             <MudStack Row="true" Class="setup-actions">
                 <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isBusy" OnClick="@(() => _pendingDeleteId = null)">@L["Common.Cancel"]</MudButton>
-                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@_isBusy" OnClick="DeleteSelectedProviderAsync">
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_isBusy || RequiresDefaultReplacement)" OnClick="DeleteSelectedProviderAsync">
                     @(_isBusy ? "Deleting..." : "Confirm Delete")
                 </MudButton>
             </MudStack>
@@ -334,6 +368,13 @@
     private Guid? _pendingDeleteId;
     private bool _isLoading = true;
     private bool _isBusy;
+    private Guid? _defaultChoice;
+    private Guid? _replacementDefault;
+    private string? _defaultMessage;
+    private bool _defaultFailed;
+    private LlmProviderProfileResponse? CurrentDefault => _profiles.SingleOrDefault(x => x.Id == _status?.DefaultChatProviderId);
+    private bool RequiresDefaultReplacement => _selectedProfile is not null && _selectedProfile.Id == _status?.DefaultChatProviderId &&
+        _profiles.Any(x => x.Id != _selectedProfile.Id);
     private bool _isCheckingModelCatalog;
     private int _modelCatalogVersion;
     private IReadOnlyList<ModelDescriptor> _availableChatModels = [];
@@ -398,6 +439,7 @@
 
             _status = await statusTask;
             _profiles = await profilesTask;
+            _defaultChoice = _status.DefaultChatProviderId;
             _usageSummary = await usageTask;
 
             if (_selectedProfile is not null)
@@ -718,13 +760,52 @@
     private void RequestDeleteSelectedProvider()
     {
         _pendingDeleteId = _selectedProfile?.Id;
+        _replacementDefault = null;
         _actionMessage = null;
         _actionSucceeded = null;
     }
 
+    private void EditDefaultModel()
+    {
+        if (_profiles.SingleOrDefault(x => x.Id == _defaultChoice) is { } profile) OpenDialog(profile);
+    }
+
+    private async Task SaveDefaultChoiceAsync()
+    {
+        if (_defaultChoice is not { } provider || _isBusy) return;
+        _isBusy = true; _defaultMessage = null;
+        try
+        {
+            var result = await LlmProviderApi.SetDefaultChatProviderAsync(provider);
+            _defaultFailed = !result.Succeeded;
+            _defaultMessage = result.Message ?? L[result.Succeeded ? "LlmProviders.DefaultSelectionSaved" : "LlmProviders.DefaultSelectionFailed"];
+            if (result.Succeeded) _status = await SetupApi.GetStatusAsync();
+        }
+        catch (Exception error) { _defaultFailed = true; _defaultMessage = error.Message; }
+        finally { _isBusy = false; }
+    }
+
+    private async Task SaveReplacementDefaultAsync()
+    {
+        if (_replacementDefault is not { } provider || _isBusy) return;
+        _isBusy = true;
+        try
+        {
+            var result = await LlmProviderApi.SetDefaultChatProviderAsync(provider);
+            if (result.Succeeded)
+            {
+                _status = await SetupApi.GetStatusAsync(); _defaultChoice = _status.DefaultChatProviderId;
+                SetActionMessage(L["LlmProviders.DefaultSelectionSaved"], true);
+            }
+            else SetActionMessage(result.Message ?? L["LlmProviders.DefaultSelectionFailed"], false);
+        }
+        catch (Exception error) { SetActionMessage(error.Message, false); }
+        finally { _isBusy = false; }
+    }
+
     private async Task DeleteSelectedProviderAsync()
     {
-        if (_selectedProfile is null)
+        if (_selectedProfile is null || RequiresDefaultReplacement)
         {
             return;
         }

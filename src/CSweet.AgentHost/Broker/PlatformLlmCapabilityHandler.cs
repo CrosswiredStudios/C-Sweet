@@ -337,6 +337,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         long? inputTokenCount = null;
         long? outputTokenCount = null;
         var streamSequence = 0;
+        var generation = new ModelGenerationTracker(runLog);
 
         // Older SDKs still serialize with queued jobs, but need an SDK update for
         // short polling and acknowledged-wait deadline accounting.
@@ -510,6 +511,8 @@ public sealed partial class PlatformLlmCapabilityHandler
                 }
 
                 var usage = update.Contents.OfType<UsageContent>().FirstOrDefault()?.Details;
+                var observedAt = DateTimeOffset.UtcNow;
+                generation.Observe(update, observedAt);
                 if (usage is not null)
                 {
                     inputTokenCount = usage.InputTokenCount ?? inputTokenCount;
@@ -526,7 +529,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                 {
                     _dbContext.QueueAudit(new AuditEventWriteRequest("model.response.chunk", "Model", Outcome: "Running",
                         OrganizationId: hasOrganization ? organizationId : null, EntityType: "AgentRunLog", EntityId: runLog.Id,
-                        OccurredAt: DateTimeOffset.UtcNow, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
+                        OccurredAt: observedAt, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
                         Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json",
                         Payload: omitInstructionEvidence ? JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence,
                             contentPolicy = "memory-content-omitted-v1", inputTokens = usage?.InputTokenCount,

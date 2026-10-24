@@ -1,0 +1,34 @@
+.plugins-tab-content { padding-top: 1.5rem; }
+.plugins-page ::deep .plugins-tabs > .mud-tabs-tabbar { background: transparent; border: 0; border-bottom: 1px solid var(--mud-palette-lines-default); border-radius: 0; }
+.plugins-page ::deep .plugins-tabs > .mud-tabs-panels { padding-top: 0; }
+.plugins-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.plugins-toolbar ::deep .mud-input-control { max-width: 32rem; flex: 1; margin-top: 0; }
+.plugins-page ::deep .plugin-installation { padding: 1.25rem; margin-bottom: .85rem; border-radius: 16px; background: var(--mud-palette-surface); }
+.plugin-row { display: flex; align-items: flex-start; gap: 1rem; }
+.plugin-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: var(--mud-palette-primary-hover); color: var(--mud-palette-primary); }
+.plugin-row-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.plugin-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin-bottom: .3rem; }
+.plugin-row-actions { display: flex; flex-direction: column; align-items: flex-end; gap: .5rem; }
+.plugin-management { border-top: 1px solid var(--mud-palette-lines-default); padding-top: 1rem; margin-top: 1rem; overflow-wrap: anywhere; }
+.plugin-categories { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0 1.5rem; }
+.plugin-catalog-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; }
+.plugins-page ::deep .plugin-catalog-card { display: flex; flex-direction: column; align-items: flex-start; padding: 1.5rem; border-radius: 16px; gap: .5rem; background: var(--mud-palette-surface); }
+.plugin-catalog-card .configuration-section-header { width: 100%; }
+.plugins-page ::deep .plugin-catalog-description { flex: 1; margin-bottom: 1rem; }
+.plugins-page ::deep .plugin-catalog-card .mud-button-root { margin-top: .5rem; }
+.plugins-page ::deep .plugin-install-panel { max-width: 58rem; background: var(--mud-palette-surface); }
+.plugin-source-methods { display: flex; flex-wrap: wrap; gap: .5rem; padding: .35rem; margin: 1.5rem 0; border-radius: 12px; background: var(--mud-palette-background-gray); }
+.plugin-source-methods ::deep .mud-button-root { flex: 1; }
+.plugin-bundle-upload { display: flex; flex-direction: column; align-items: center; gap: .75rem; padding: 2.5rem 1rem; margin-bottom: 1rem; border: 1px dashed var(--mud-palette-primary); border-radius: 12px; background: var(--mud-palette-primary-hover); text-align: center; }
+.plugin-bundle-upload ::deep input { max-width: 100%; }
+.plugins-page ::deep .plugin-review-hint { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--mud-palette-lines-default); }
+.plugin-package-details { overflow-wrap: anywhere; display: flex; flex-direction: column; gap: .5rem; }
+.plugins-page ::deep .plugins-empty { padding: 3rem 1.5rem; display: flex; flex-direction: column; align-items: center; gap: .75rem; text-align: center; background: var(--mud-palette-surface); }
+@media (max-width: 600px) {
+    .plugins-toolbar { flex-wrap: wrap; }
+    .plugins-toolbar ::deep .mud-input-control { min-width: 100%; }
+    .plugins-page ::deep .plugin-installation { padding: 1rem; }
+    .plugin-row { flex-wrap: wrap; gap: .75rem; }
+    .plugin-row-body { flex-basis: calc(100% - 60px); }
+    .plugin-row-actions { flex-direction: row; align-items: center; justify-content: space-between; width: 100%; }
+}

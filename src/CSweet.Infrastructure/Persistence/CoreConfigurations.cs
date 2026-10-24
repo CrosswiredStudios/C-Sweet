@@ -610,6 +610,7 @@ internal static class CoreConfigurations
 
     static void ConfigureWorkTask(EntityTypeBuilder<WorkTask> entity)
     {
+        entity.Property(x => x.Revision).IsConcurrencyToken();
         entity.Property<long>("MemoryAudienceRevision").HasDefaultValue(1L).ValueGeneratedOnAddOrUpdate();
         entity.HasKey(x => x.Id);
         entity.ToTable(table =>
@@ -625,7 +626,7 @@ internal static class CoreConfigurations
                 "\"Priority\" IN ('Low', 'Medium', 'High', 'Critical')");
         });
         entity.Property(x => x.Title).HasMaxLength(512).IsRequired();
-        entity.Property(x => x.Description).HasMaxLength(8192).IsRequired();
+        entity.Property(x => x.Description).HasColumnType("text").IsRequired();
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         entity.Property(x => x.Priority).HasConversion<string>().HasMaxLength(16).IsRequired();
         entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();

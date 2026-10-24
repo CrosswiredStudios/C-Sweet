@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "El historial no está disponible o el acceso cambió. Actualiza para volver a intentarlo.",
   "CurrentActivity.OpenWorkItem": "Abrir elemento de trabajo",
   "CurrentActivity.EmployeeDetails": "Detalles del empleado",
-  "ActivityCard.WorkspaceAriaLabel": "Operaciones recientes del espacio de trabajo"
+  "ActivityCard.WorkspaceAriaLabel": "Operaciones recientes del espacio de trabajo",
+  "ActivityCard.Speed.Reported": "{rate} tokens/s",
+  "ActivityCard.Speed.Estimated": "~{rate} tokens/s",
+  "ActivityCard.Speed.ReportedLabel": "Velocidad de generación: {rate} tokens por segundo",
+  "ActivityCard.Speed.EstimatedLabel": "Velocidad de generación estimada: {rate} tokens por segundo",
+  "ActivityCard.Speed.ReportedTooltip": "Tokens de salida por segundo informados por el proveedor, promediados desde el inicio de esta respuesta.",
+  "ActivityCard.Speed.EstimatedTooltip": "Estimación del texto transmitido a cuatro caracteres por token. Promedio desde el inicio de la salida; excluye el razonamiento oculto y los datos de herramientas.",
+  "ActivityCard.Speed.Action": "Generando una respuesta"
 }

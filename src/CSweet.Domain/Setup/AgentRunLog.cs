@@ -28,6 +28,11 @@ public sealed class AgentRunLog
     public string? InferenceSettingsJson { get; set; }
     public long? ReportedInputTokens { get; set; }
     public long? ReportedOutputTokens { get; set; }
+    // Live response telemetry is separate from provider usage/billing totals.
+    public DateTimeOffset? GenerationStartedAt { get; set; }
+    public DateTimeOffset? GenerationObservedAt { get; set; }
+    public double? GenerationOutputTokens { get; set; }
+    public bool? GenerationIsEstimated { get; set; }
     public Guid? OrganizationId { get; set; }
     public Guid? EmployeeId { get; set; }
     public Guid? AgentInstallationId { get; set; }

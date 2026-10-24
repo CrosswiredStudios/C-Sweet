@@ -212,6 +212,7 @@ public sealed class AgentTicketFeedbackTests
         Assert.Equal(2, await db.ConversationMessageMentions.CountAsync());
         Assert.Equal(2, await db.ConversationParticipants.CountAsync());
         Assert.Equal(agentManager ? 2 : 0, await db.AgentPlatformEventOutbox.CountAsync());
+        Assert.Single(db.UserNotifications);
         Assert.All(db.UserNotifications, notification =>
         {
             Assert.Equal(manager.Id, notification.RecipientOrganizationUserId);
@@ -288,6 +289,7 @@ public sealed class AgentTicketFeedbackTests
         Assert.Equal(2, await db.CoreConversations.CountAsync());
         Assert.Equal(1, await db.CoreConversationMessages.CountAsync(x => x.ConversationId == older.Id));
         Assert.Equal(2, await db.CoreConversationMessages.CountAsync(x => x.ConversationId == newer.Id));
+        Assert.Single(db.UserNotifications);
         Assert.EndsWith(newer.Id.ToString("D"), db.UserNotifications.OrderByDescending(x => x.CreatedAt).First().ActionUri);
     }
 

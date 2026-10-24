@@ -4,6 +4,7 @@ using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using CSweet.Infrastructure.Llm;
 
 namespace CSweet.Infrastructure.Setup;
 
@@ -45,18 +46,8 @@ internal static class AgentInstallationConfigurationDefaults
         if (!configurationKeys.Contains("llmProviderId") || !configurationKeys.Contains("llmModel"))
             return;
 
-        var defaultProviderId = await dbContext.SystemConfigurations.AsNoTracking()
-            .Select(x => x.DefaultChatProviderId)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (!defaultProviderId.HasValue)
-            return;
-
-        var model = await dbContext.LlmProviderProfiles.AsNoTracking()
-            .Where(x => x.Id == defaultProviderId.Value && x.IsEnabled)
-            .Select(x => x.DefaultChatModel)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(model))
-            return;
+        var defaults = await DefaultLlmSelection.ReadAsync(dbContext, cancellationToken);
+        if (defaults is null) return;
 
         var now = DateTimeOffset.UtcNow;
         dbContext.AgentInstallationConfigurations.Add(new AgentInstallationConfiguration
@@ -66,8 +57,8 @@ internal static class AgentInstallationConfigurationDefaults
             SchemaVersion = "1.0",
             SettingsJson = JsonSerializer.Serialize(new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["llmProviderId"] = defaultProviderId.Value.ToString("D"),
-                ["llmModel"] = model
+                ["llmProviderId"] = defaults.ProviderId.ToString("D"),
+                ["llmModel"] = defaults.Model
             }),
             CreatedAt = now,
             UpdatedAt = now

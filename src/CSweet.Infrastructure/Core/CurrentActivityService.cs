@@ -168,7 +168,10 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
             x.CompletedAt == null && (x.Status == "Running" || x.Status == "Queued") &&
             (!x.AgentWorkItemId.HasValue || !workIds.Contains(x.AgentWorkItemId.Value)))
             .Select(x => new AgentRunLog { Id = x.Id, AgentInstallationId = x.AgentInstallationId, EmployeeId = x.EmployeeId,
-                WorkItemId = x.WorkItemId, StartedAt = x.StartedAt, Status = x.Status, ProviderProfileId = x.ProviderProfileId, Model = x.Model }).ToListAsync(token);
+                AgentWorkItemId = x.AgentWorkItemId, WorkItemId = x.WorkItemId, StartedAt = x.StartedAt,
+                ProviderStartedAt = x.ProviderStartedAt, Status = x.Status, ProviderProfileId = x.ProviderProfileId, Model = x.Model,
+                GenerationStartedAt = x.GenerationStartedAt, GenerationObservedAt = x.GenerationObservedAt,
+                GenerationOutputTokens = x.GenerationOutputTokens, GenerationIsEstimated = x.GenerationIsEstimated }).ToListAsync(token);
         var attempts = await db.AgentWorkAttempts.AsNoTracking().Where(x => workIds.Contains(x.AgentWorkItemId) &&
             (x.FinishedAt == null || resultWorkIds.Contains(x.AgentWorkItemId))).ToListAsync(token);
         var contexts = await db.WorkExecutionContexts.AsNoTracking().Where(x => x.OrganizationId == organizationId && workIds.Contains(x.AgentWorkItemId)).ToListAsync(token);
@@ -404,6 +407,13 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
         }
         var title = c.Ticket?.Title ?? (c.Delivery is { } delivery ? Safe($"{delivery.Scope}: {delivery.Name}") : null) ?? label ?? (kind switch { "Collaboration" => "Collaborating", "Review" => "Reviewing work",
             "Chat" => "Responding in Communications", "Model" => "Generating a response", _ => "Background activity" });
+        // Streaming samples can commit during the earlier awaited reads. Compare their
+        // freshness with projection time, not the request-start ordering snapshot.
+        var generation = inspect && state == "Executing" && c.Compute is null && run?.EmployeeId == c.Employee.Id &&
+            (run.AgentWorkItemId == c.Work?.Id || c.StandaloneRun?.Id == run.Id) ? ReadGeneration(run, clock.GetUtcNow()) : null;
+        if (generation is not null && recent.Any(x => x.Kind == "Workspace" && x.OccurredAt > generation.ObservedAt)) generation = null;
+        // A live response is the current action; never attach its speed to a previous tool operation.
+        if (generation is not null) action = "Generating a response";
         return new(c.Key, c.Ticket?.Id, c.Ticket?.BoardId ?? c.Delivery?.BoardId, c.Work?.Id, c.Attempt?.Id, c.Attempt?.Attempt ?? 0,
             c.Employee.Id, c.Employee.DisplayName, title,
             c.Ticket?.Identifier, c.Category, c.Context, state, action, c.Attempt?.ClaimedAt ?? c.StandaloneRun?.StartedAt ?? c.Ticket?.UpdatedAt ?? c.Work!.CreatedAt,
@@ -412,7 +422,7 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
             kind, c.Employee.Role?.Name, collaborator, inspect ? c.Work?.Name : null,
             c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null,
             c.Delivery?.ProjectId ?? c.Ticket?.Board?.WorkstreamId, inspect ? Safe(c.Coordination?.Subject) : null, label,
-            Safe(c.Ticket?.Description), inspect ? c.Compute?.Progress : null);
+            Safe(c.Ticket?.Description), inspect ? c.Compute?.Progress : null, generation);
     }
 
     private static (string Kind, string? Label) DescribeActivity(Candidate c)

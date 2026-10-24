@@ -114,5 +114,12 @@
   "CurrentActivity.Feed.Error": "f94e4dd47b1f",
   "CurrentActivity.OpenWorkItem": "4fa5cd4a53ff",
   "CurrentActivity.EmployeeDetails": "bda0146fcc1d",
-  "ActivityCard.WorkspaceAriaLabel": "3ee9d8216ce2"
+  "ActivityCard.WorkspaceAriaLabel": "3ee9d8216ce2",
+  "ActivityCard.Speed.Reported": "017be2ef2546",
+  "ActivityCard.Speed.Estimated": "1cfe1a673b29",
+  "ActivityCard.Speed.ReportedLabel": "4e17211f6887",
+  "ActivityCard.Speed.EstimatedLabel": "9e60137dfe71",
+  "ActivityCard.Speed.ReportedTooltip": "1ed9e362977b",
+  "ActivityCard.Speed.EstimatedTooltip": "3e098d145ad4",
+  "ActivityCard.Speed.Action": "827a17010a02"
 }

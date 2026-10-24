@@ -43,6 +43,19 @@ blocked-ticket requeue, specialist-update recovery and visible agent discussion.
 
 ## Code map
 
+Work-item descriptions have no fixed character ceiling. `McpToolCatalog` accepts complete
+descriptions for item creation, planning revision, and personal-task creation/editing;
+these tools and board/personal-task reads advertise the configured gateway transport limits
+(16 MiB by default). `CreateBoardWorkItemRequest` and `PersonalTodoService`
+retain the same description behavior for human callers. `ConfigureWorkTask` stores
+`WorkTask.Description` as PostgreSQL `text`; migration `UnlimitWorkItemDescriptions` widens
+the former 8,192-character column without rewriting descriptions. Deploy the migration
+with API and AgentHost before retrying planning blocked by the old limit. Model token
+budgets remain separate: characters, UTF-8 bytes, and tokenizer tokens are different units.
+`WorkItemDescriptionTests`, `WorkBoardServiceTests`, and `PersonalTodoServiceTests`
+cover large descriptions through schemas, HTTP contracts, board/personal operations,
+and migration SQL. The bounded personal MVP-plan envelope and comment limits are separate.
+
 - `src/CSweet.Domain/Core/WorkTask.cs` - canonical work-item entity. Named `WorkTask`
   to avoid conflict with `System.Threading.Tasks.Task`; docs use "work item" for the
   product concept. Carries `BoardId`, `BoardColumnId`, `SprintId`, `ParentWorkTaskId`,

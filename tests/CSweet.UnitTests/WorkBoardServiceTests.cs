@@ -15,6 +15,24 @@ namespace CSweet.UnitTests;
 public sealed class WorkBoardServiceTests
 {
     [Fact]
+    public async Task LargeImplementationBriefSurvivesBoardCreationAndRead()
+    {
+        await using var db = CreateDb();
+        var setup = SeedOrganization(db, OrganizationPermissionLevel.Owner);
+        await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAuditEventWriter());
+        var boardId = Assert.Single((await service.ListDirectoryAsync(
+            setup.OrganizationId, setup.ApplicationUserId, new())).Boards).Id;
+        var description = WorkItemDescriptionTests.LargeBrief.Trim();
+        var created = await service.CreateItemAsync(setup.OrganizationId, boardId, setup.ApplicationUserId,
+            new CreateBoardWorkItemRequest("Large implementation brief", description, Kind: "Epic")
+            { TypeKey = WorkItemTypeKeys.GeneralEpicV1 });
+        db.ChangeTracker.Clear();
+        var board = await service.GetAsync(setup.OrganizationId, boardId, setup.ApplicationUserId);
+        Assert.Equal(description, Assert.Single(board!.Items, x => x.Id == created!.Id).Description);
+    }
+
+    [Fact]
     public async Task BoardReadsAndMovesReturnCanonicalDependenciesWithoutPlanningJson()
     {
         await using var db = CreateDb();

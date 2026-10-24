@@ -559,7 +559,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     {
         var notifications = ChangeTracker.Entries<UserNotification>()
             .Where(x => x.State == EntityState.Added ||
-                (x.State == EntityState.Modified && (x.Property(y => y.ReadAt).IsModified || x.Property(y => y.DismissedAt).IsModified)))
+                (x.State == EntityState.Modified && (x.Property(y => y.ReadAt).IsModified || x.Property(y => y.DismissedAt).IsModified ||
+                    x.Property(y => y.ActionUri).IsModified)))
             .ToList();
         foreach (var entry in notifications)
         {
@@ -806,6 +807,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ConfigureChiefLeadership(modelBuilder);
         ConfigureResourceCleanup(modelBuilder);
         ConfigurePersonalAssistant(modelBuilder);
         modelBuilder.Entity<ChiefHiringPolicy>().HasIndex(x => new { x.OrganizationId, x.InstallationId }).IsUnique();

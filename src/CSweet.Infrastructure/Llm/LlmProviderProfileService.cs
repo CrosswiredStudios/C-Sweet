@@ -3,6 +3,9 @@ using CSweet.Contracts.Llm;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using CSweet.Domain.Core;
+using CSweet.Infrastructure.Setup;
 
 namespace CSweet.Infrastructure.Llm;
 
@@ -26,6 +29,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         CreateLlmProviderProfileRequest request,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await BeginDefaultMutationAsync(cancellationToken);
         var validationFailure = Validate(request.Name, request.BaseUrl, request.MaximumConcurrentRequests);
         if (validationFailure is not null)
         {
@@ -78,6 +82,8 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+
         return new LlmProviderProfileActionResponse(true, null, null, profile.ToResponse());
     }
 
@@ -86,6 +92,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         UpdateLlmProviderProfileRequest request,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await BeginDefaultMutationAsync(cancellationToken);
         var validationFailure = Validate(request.Name, request.BaseUrl, request.MaximumConcurrentRequests);
         if (validationFailure is not null)
         {
@@ -99,6 +106,12 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         {
             return Failure("provider_profile_not_found", "Provider profile was not found.");
         }
+
+        if (!request.IsEnabled && await RequiresReplacementAsync(profile.Id, cancellationToken))
+            return Failure("default_provider_replacement_required", "Select another enabled default provider and model before disabling this provider.");
+        if (profile.IsEnabled && string.IsNullOrWhiteSpace(request.DefaultChatModel) &&
+            await _dbContext.SystemConfigurations.AnyAsync(x => x.DefaultChatProviderId == profile.Id, cancellationToken))
+            return Failure("default_model_required", "Choose a model for the default provider before saving.");
 
         var connectionChanged =
             profile.ProviderType != request.ProviderType ||
@@ -159,6 +172,10 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        if (connectionChanged && await _dbContext.SystemConfigurations.AnyAsync(x => x.DefaultChatProviderId == profile.Id, cancellationToken))
+            await WakePendingHiringAsync(profile.Id, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+
         return new LlmProviderProfileActionResponse(true, null, null, profile.ToResponse());
     }
 
@@ -166,6 +183,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         Guid providerProfileId,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await BeginDefaultMutationAsync(cancellationToken);
         var profile = await _dbContext.LlmProviderProfiles
             .SingleOrDefaultAsync(x => x.Id == providerProfileId, cancellationToken);
 
@@ -173,6 +191,9 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         {
             return Failure("provider_profile_not_found", "Provider profile was not found.");
         }
+
+        if (await RequiresReplacementAsync(profile.Id, cancellationToken))
+            return Failure("default_provider_replacement_required", "Select another enabled default provider and model before deleting this provider.");
 
         var now = DateTimeOffset.UtcNow;
         await ClearDefaultReferencesAsync(profile.Id, cancellationToken);
@@ -199,6 +220,8 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         return new LlmProviderProfileActionResponse(true, null, "Provider profile deleted.");
     }
@@ -233,6 +256,7 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         Guid providerProfileId,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await BeginDefaultMutationAsync(cancellationToken);
         var profile = await _dbContext.LlmProviderProfiles
             .SingleOrDefaultAsync(x => x.Id == providerProfileId, cancellationToken);
 
@@ -245,6 +269,9 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
         {
             return Failure("provider_profile_disabled", "Provider profile must be enabled before it can be selected.");
         }
+
+        if (string.IsNullOrWhiteSpace(profile.DefaultChatModel))
+            return Failure("default_model_required", "Choose a model for this provider before making it the default.");
 
         var hasSuccessfulChatTest = await _dbContext.ModelCapabilityTests
             .AnyAsync(x => x.ProviderProfileId == providerProfileId && x.ChatSucceeded, cancellationToken);
@@ -287,12 +314,44 @@ public sealed class LlmProviderProfileService : ILlmProviderProfileService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        await WakePendingHiringAsync(providerProfileId, cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+
         return new LlmProviderProfileActionResponse(true, null, null, profile.ToResponse());
     }
 
     private static LlmProviderProfileActionResponse Failure(string errorCode, string message)
     {
         return new LlmProviderProfileActionResponse(false, errorCode, message);
+    }
+
+    private async Task<bool> RequiresReplacementAsync(Guid provider, CancellationToken token) =>
+        await _dbContext.SystemConfigurations.AnyAsync(x => x.DefaultChatProviderId == provider, token) &&
+        await _dbContext.LlmProviderProfiles.AnyAsync(x => x.Id != provider, token);
+
+    private async Task WakePendingHiringAsync(Guid provider, CancellationToken token)
+    {
+        // Persist schedule invalidation in the same transaction as the selected pair.
+        // It is a wake hint; the Chief and hiring service must recheck current authority.
+        var installations = await _dbContext.WorkforcePlans.AsNoTracking().Where(plan => plan.Status == ProposalStatus.Pending &&
+                plan.FulfilledHeadcount < plan.Headcount && plan.ManualSelectionRequestedAt == null &&
+                _dbContext.CoreOrganizationUsers.Any(chief => chief.OrganizationId == plan.OrganizationId && chief.IsActive &&
+                    chief.AgentInstallationId == plan.RequestingInstallationId && _dbContext.LeadershipAssignments.Any(role =>
+                        role.OrganizationId == plan.OrganizationId && role.OrganizationUserId == chief.Id && role.EndsAt == null &&
+                        role.PositionKey == LeadershipPositionKeys.ChiefOfStaff)))
+            .Select(x => x.RequestingInstallationId).Distinct().ToListAsync(token);
+        foreach (var page in installations.Chunk(100))
+            await new AgentAttentionInvalidationService(_dbContext, TimeProvider.System).InvalidateAsync(page,
+                "llm.default-selection-changed", provider, token);
+    }
+
+    private async Task<IDbContextTransaction?> BeginDefaultMutationAsync(CancellationToken token)
+    {
+        var transaction = _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(token) : null;
+        if (_dbContext.Database.IsNpgsql())
+            await _dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtextextended('csweet.llm-default-selection', 0))", token);
+        return transaction;
     }
 
     private async Task ClearDefaultReferencesAsync(

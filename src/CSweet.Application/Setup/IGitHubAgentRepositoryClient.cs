@@ -39,6 +39,12 @@ public interface IGitHubAgentRepositoryClient
         string repositoryOwner,
         string repositoryName,
         CancellationToken cancellationToken) => Task.FromResult<GitHubReleaseInfo?>(null);
+
+    Task<GitHubReleaseInfo?> GetReleaseByTagAsync(
+        string repositoryOwner,
+        string repositoryName,
+        string tag,
+        CancellationToken cancellationToken) => Task.FromResult<GitHubReleaseInfo?>(null);
 }
 
 public sealed record PluginManifestSource(string FileName, byte[] Content);

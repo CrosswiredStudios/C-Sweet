@@ -54,7 +54,15 @@
         }
         else
         {
-            <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span>@Action</span></div>
+            <div class="activity-card-now"><MudIcon Icon="@(State == "Executing" ? Icons.Material.Outlined.PlayCircleOutline : Icons.Material.Outlined.Schedule)" Size="Size.Small" /><span class="activity-card-action">@(VisibleGeneration is not null ? L["ActivityCard.Speed.Action"] : Action)</span>
+                @if (VisibleGeneration is { } generation)
+                {
+                    <span class="activity-generation-speed" role="img" aria-label="@SpeedLabel(generation)" title="@L[generation.IsEstimated ? "ActivityCard.Speed.EstimatedTooltip" : "ActivityCard.Speed.ReportedTooltip"]">
+                        <MudIcon Icon="@Icons.Material.Outlined.Speed" Size="Size.Small" />
+                        @L.Format(generation.IsEstimated ? "ActivityCard.Speed.Estimated" : "ActivityCard.Speed.Reported", new { rate = generation.TokensPerSecond.ToString("N1", System.Globalization.CultureInfo.CurrentCulture) })
+                    </span>
+                }
+            </div>
         }
     </div>
     @if (Item.CanInspect && Item.Compute is { } compute)
@@ -99,8 +107,15 @@
     [Parameter] public string Action { get; set; } = "";
     [Parameter] public string Age { get; set; } = "";
     [Parameter] public bool IsSelected { get; set; }
+    [Parameter] public bool IsConnected { get; set; } = true;
     [Parameter] public EventCallback<CurrentActivityItem> Inspect { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    private CurrentActivityGeneration? VisibleGeneration => IsConnected && Item.CanInspect && State == "Executing" && Item.Compute is null &&
+        Item.Generation is { TokensPerSecond: > 0 } generation && double.IsFinite(generation.TokensPerSecond) &&
+        generation.ObservedAt <= DateTimeOffset.UtcNow && DateTimeOffset.UtcNow - generation.ObservedAt < TimeSpan.FromSeconds(15) ? generation : null;
+    private string SpeedLabel(CurrentActivityGeneration generation) => L.Format(
+        generation.IsEstimated ? "ActivityCard.Speed.EstimatedLabel" : "ActivityCard.Speed.ReportedLabel",
+        new { rate = generation.TokensPerSecond.ToString("N1", System.Globalization.CultureInfo.CurrentCulture) });
     private bool HasLinkedTicket => Item.WorkItemId.HasValue && Item.BoardId.HasValue;
     private bool IsQueued => State == "Waiting" && (Action.StartsWith("Queued", StringComparison.Ordinal) || Action == "Waiting for an agent claim");
     private string FriendlyState => State == "Executing" ? "Working" : IsQueued ? "Queued" : State;

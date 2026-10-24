@@ -10,6 +10,18 @@ public sealed class PluginApiClient(HttpClient httpClient) : IPluginApiClient
     public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<AgentImportPreviewResponse>(HttpMethod.Post, "api/plugins/imports/preview", request, cancellationToken);
 
+    public async Task<AgentImportPreviewResponse> PreviewBundleAsync(Stream bundle, string fileName, CancellationToken cancellationToken = default)
+    {
+        using var content = new StreamContent(bundle);
+        content.Headers.ContentType = new("application/octet-stream");
+        using var response = await httpClient.PostAsync($"api/plugins/imports/preview/bundle?fileName={Uri.EscapeDataString(fileName)}", content, cancellationToken);
+        if (response.IsSuccessStatusCode)
+            return await response.Content.ReadFromJsonAsync<AgentImportPreviewResponse>(cancellationToken)
+                ?? throw new ApiClientException(response.StatusCode, "Plugin API response was empty.");
+        var error = await response.Content.ReadFromJsonAsync<PluginApiErrorResponse>(cancellationToken);
+        throw new ApiClientException(response.StatusCode, error?.Error ?? "Plugin bundle preview failed.");
+    }
+
     public Task<AgentInstallationResponse> InstallAsync(Guid importId, InstallAgentRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<AgentInstallationResponse>(HttpMethod.Post, $"api/plugins/imports/{importId}/install", request, cancellationToken);
 

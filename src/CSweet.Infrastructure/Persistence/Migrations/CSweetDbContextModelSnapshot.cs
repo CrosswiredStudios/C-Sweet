@@ -3455,6 +3455,209 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("ChatTurnTraceEvents");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefCoverageRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AcceptedResultJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("AccountableOwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AnswerDecisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlockCode")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("CoverageModel")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("CoverageStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("DecisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("DomainId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("ExecutionStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("InputFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("NextAction")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProfileKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("ProfileVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Rationale")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid?>("RecommendationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ReviewAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("WorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "ExecutionStatus", "Id");
+
+                    b.HasIndex("OrganizationId", "ProfileKey", "ProfileVersion", "DomainId")
+                        .IsUnique();
+
+                    b.ToTable("ChiefCoverageRecords");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefFocusPrompt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssessmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ExpectedFocusRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProfileKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("ProfileVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("ChiefFocusPrompts");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefFocusRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomText")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("DecisionMakerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DomainId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset>("EffectiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SourceDecisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SourceTurnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SupersedesId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Revision")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "SourceDecisionId")
+                        .IsUnique()
+                        .HasFilter("\"SourceDecisionId\" IS NOT NULL");
+
+                    b.ToTable("ChiefFocusRecords");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.ChiefHiringPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3531,6 +3734,77 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ChiefHiringPolicyRevisions");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefLeadershipAgenda", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FocusId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("FocusRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("Paused")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProfileKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("ProfileVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChiefLeadershipAgendas");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefLeadershipReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OperationKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResultJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "InstallationId", "OperationKey")
+                        .IsUnique();
+
+                    b.ToTable("ChiefLeadershipReceipts");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.CompanyDashboardLayout", b =>
@@ -7377,8 +7651,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasMaxLength(8192)
-                        .HasColumnType("character varying(8192)");
+                        .HasColumnType("text");
 
                     b.Property<string>("DevelopmentBriefJson")
                         .HasColumnType("text");
@@ -7489,6 +7762,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(4096)");
 
                     b.Property<long>("Revision")
+                        .IsConcurrencyToken()
                         .HasColumnType("bigint");
 
                     b.Property<Guid?>("SourceConversationId")
@@ -9570,6 +9844,18 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("FailureMessage")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<bool?>("GenerationIsEstimated")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("GenerationObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("GenerationOutputTokens")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTimeOffset?>("GenerationStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("InferenceSettingsJson")
                         .HasColumnType("text");
@@ -16777,6 +17063,51 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("ChatTurn");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefCoverageRecord", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefFocusPrompt", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefFocusRecord", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefLeadershipAgenda", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ChiefLeadershipReceipt", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.CompanyDashboardLayout", b =>
