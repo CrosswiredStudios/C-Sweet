@@ -174,6 +174,33 @@ public class GitHubAgentRepositoryClientTests
     }
 
     [Fact]
+    public async Task GetReleaseByTagAsync_ReadsExplicitPrereleaseAndEscapesTag()
+    {
+        var handler = new RecordingHandler(_ => Json("""
+            { "tag_name": "candidate/1.2.3", "draft": false, "prerelease": true, "assets": [] }
+            """));
+
+        var release = await CreateClient(handler).GetReleaseByTagAsync(
+            "example", "research-agent", "candidate/1.2.3", CancellationToken.None);
+
+        Assert.NotNull(release);
+        Assert.True(release.Prerelease);
+        Assert.Equal("candidate/1.2.3", release.TagName);
+        Assert.Equal("/repos/example/research-agent/releases/tags/candidate%2F1.2.3",
+            Assert.Single(handler.Requests));
+    }
+
+    [Fact]
+    public async Task GetReleaseByTagAsync_ReturnsNullWhenTagHasNoRelease()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        Assert.Null(await CreateClient(handler).GetReleaseByTagAsync(
+            "example", "research-agent", "v1.2.3-rc.2", CancellationToken.None));
+        Assert.Equal("/repos/example/research-agent/releases/tags/v1.2.3-rc.2",
+            Assert.Single(handler.Requests));
+    }
+
+    [Fact]
     public async Task GetLatestReleaseAsync_ReturnsNullWhenNoReleases()
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));

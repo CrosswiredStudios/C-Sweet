@@ -78,16 +78,24 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
         return await ResolveCommitShaAsync(repository.Owner, repository.Name, reference, cancellationToken);
     }
 
-    public async Task<GitHubReleaseInfo?> GetLatestReleaseAsync(
+    public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(
         string repositoryOwner,
         string repositoryName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        ReadReleaseAsync($"repos/{Escape(repositoryOwner)}/{Escape(repositoryName)}/releases/latest", cancellationToken);
+
+    public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(
+        string repositoryOwner,
+        string repositoryName,
+        string tag,
+        CancellationToken cancellationToken) =>
+        ReadReleaseAsync($"repos/{Escape(repositoryOwner)}/{Escape(repositoryName)}/releases/tags/{Escape(tag)}", cancellationToken);
+
+    private async Task<GitHubReleaseInfo?> ReadReleaseAsync(string path, CancellationToken cancellationToken)
     {
-        using var response = await _httpClient.GetAsync(
-            $"repos/{Escape(repositoryOwner)}/{Escape(repositoryName)}/releases/latest",
-            cancellationToken);
+        using var response = await _httpClient.GetAsync(path, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        await EnsureSuccessAsync(response, "The latest GitHub release could not be read.", cancellationToken);
+        await EnsureSuccessAsync(response, "The GitHub release could not be read.", cancellationToken);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);

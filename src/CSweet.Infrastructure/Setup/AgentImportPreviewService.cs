@@ -160,7 +160,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         await PersistToolchainAdapterDefinitionsAsync(manifest, toolchainDefinitions, now, cancellationToken);
 
         var prebuilt = await ResolvePrebuiltReleaseAsync(
-            repository.Owner, repository.Name, cancellationToken);
+            repository.Owner, repository.Name, request.Ref?.Trim(), cancellationToken);
         if (prebuilt is not null &&
             PrebuiltBundleAssets.ParseVersionFromTag(prebuilt.Release.TagName) is { } releaseVersion &&
             SemanticVersionComparer.Compare(releaseVersion, version.Version) == 0)
@@ -456,13 +456,15 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
     private async Task<PrebuiltReleaseSelection?> ResolvePrebuiltReleaseAsync(
         string repositoryOwner,
         string repositoryName,
+        string? explicitReference,
         CancellationToken cancellationToken)
     {
         GitHubReleaseInfo? release;
         try
         {
-            release = await _repositoryClient.GetLatestReleaseAsync(
-                repositoryOwner, repositoryName, cancellationToken);
+            release = string.IsNullOrWhiteSpace(explicitReference) ? null :
+                await _repositoryClient.GetReleaseByTagAsync(repositoryOwner, repositoryName, explicitReference, cancellationToken);
+            release ??= await _repositoryClient.GetLatestReleaseAsync(repositoryOwner, repositoryName, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -470,7 +472,8 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             return null;
         }
 
-        if (release is null || release.Draft || release.Prerelease)
+        if (release is null || release.Draft || release.Prerelease &&
+            !string.Equals(release.TagName, explicitReference, StringComparison.Ordinal))
             return null;
         var bundle = PrebuiltBundleAssets.SelectBundle(release);
         return bundle is null ? null : new PrebuiltReleaseSelection(release, bundle);

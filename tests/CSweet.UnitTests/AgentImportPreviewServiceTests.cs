@@ -501,6 +501,54 @@ public class AgentImportPreviewServiceTests
         Assert.Null(version.ReleaseAssetUrl);
     }
 
+    [Fact]
+    public async Task PreviewAsync_ExplicitCandidateSelectsItsBundleBeforeLatestStable()
+    {
+        await using var dbContext = CreateDbContext();
+        var bundle = new GitHubReleaseAssetInfo("research-agent-1.2.3-rc.2-linux-x64.csab",
+            "https://github.com/example/research-agent/releases/download/v1.2.3-rc.2/agent.csab", 10);
+        var candidate = new GitHubReleaseInfo("v1.2.3-rc.2", false, true, [bundle]);
+        var stable = new GitHubReleaseInfo("v1.2.2", false, false, [bundle]);
+        var service = new AgentImportPreviewService(dbContext,
+            new FakeGitHubAgentRepositoryClient(ValidManifest().Replace(
+                "\"version\": \"1.2.3\"", "\"version\": \"1.2.3-rc.2\"", StringComparison.Ordinal), stable, candidate),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent", "v1.2.3-rc.2"));
+
+        Assert.Equal("PrebuiltRelease", result.PackageSourceMode);
+        Assert.Equal("v1.2.3-rc.2", result.ReleaseTag);
+        Assert.Equal(bundle.BrowserDownloadUrl, result.ReleaseAssetUrl);
+    }
+
+    [Theory]
+    [InlineData("v1.2.3", "v1.2.3", false, true, "PrebuiltRelease")]
+    [InlineData(null, "v1.2.3", false, true, "SourceBuild")]
+    [InlineData("main", "v1.2.3", false, true, "SourceBuild")]
+    [InlineData("v1.2.3", "v1.2.3", true, true, "SourceBuild")]
+    [InlineData("v1.2.3", "v1.2.2", false, true, "SourceBuild")]
+    [InlineData("v1.2.2", "v1.2.2", false, false, "SourceBuild")]
+    public async Task PreviewAsync_PrereleaseRequiresExplicitMatchingPublishedTag(
+        string? reference, string releaseTag, bool draft, bool prerelease, string expectedMode)
+    {
+        await using var dbContext = CreateDbContext();
+        var release = new GitHubReleaseInfo(releaseTag, draft, prerelease,
+            [new GitHubReleaseAssetInfo("research-agent-linux-x64.csab",
+                "https://github.com/example/research-agent/releases/download/bundle.csab", 10)]);
+        var service = new AgentImportPreviewService(dbContext,
+            new FakeGitHubAgentRepositoryClient(ValidManifest(), release, release),
+            new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest(
+            "https://github.com/example/research-agent", reference));
+
+        Assert.Equal(expectedMode, result.PackageSourceMode);
+        Assert.Equal(expectedMode == "PrebuiltRelease" ? releaseTag : null, result.ReleaseTag);
+        var version = Assert.Single(await dbContext.AgentPackageVersions.ToListAsync());
+        Assert.Equal(result.ReleaseTag, version.ReleaseTag);
+    }
+
     private static CSweetDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<CSweetDbContext>()
@@ -584,11 +632,14 @@ public class AgentImportPreviewServiceTests
         public const string CommitSha = "0123456789abcdef0123456789abcdef01234567";
         private readonly byte[] _manifest;
         private readonly GitHubReleaseInfo? _release;
+        private readonly GitHubReleaseInfo? _taggedRelease;
 
-        public FakeGitHubAgentRepositoryClient(string manifest, GitHubReleaseInfo? release = null)
+        public FakeGitHubAgentRepositoryClient(string manifest, GitHubReleaseInfo? release = null,
+            GitHubReleaseInfo? taggedRelease = null)
         {
             _manifest = Encoding.UTF8.GetBytes(manifest);
             _release = release;
+            _taggedRelease = taggedRelease;
         }
 
         public Task<string> GetDefaultBranchAsync(
@@ -612,5 +663,9 @@ public class AgentImportPreviewServiceTests
             string repositoryOwner,
             string repositoryName,
             CancellationToken cancellationToken) => Task.FromResult(_release);
+
+        public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(
+            string repositoryOwner, string repositoryName, string tag,
+            CancellationToken cancellationToken) => Task.FromResult(_taggedRelease);
     }
 }

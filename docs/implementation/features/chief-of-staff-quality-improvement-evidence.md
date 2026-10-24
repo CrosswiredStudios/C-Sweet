@@ -258,6 +258,28 @@ Deployment still follows published releases and Installed Agents. Deploy the com
 schema/capability and correctness changes before Chief 2.14.1-rc.2; do not patch stored manifests,
 digests or runtime payloads. SDK and Chief publication is complete. No installation update,
 live-business change or broader proactive rollout was performed. The normal UI still shows Chief
-2.13.5. The running API/AgentHost started before the final broker conflict fix; loading the companion
-fixes requires a controlled service restart. Active unrelated QFN Games work was observed, so
-installed acceptance must not be represented as complete before that operational step is handled.
+2.13.5. AgentHost was rebuilt and restarted with the final broker conflict fix for acceptance.
+The published RC.2 preview was blocked by the existing global setting, "Imported agents are disabled
+in global runtime settings." The owner explicitly declined enabling it and offered to stop/update
+the existing Chief. No alternative import, installation, definition update or global-setting change
+was performed. A Previewed package record is not an approval or installation.
+
+The temporary AgentHost development configuration enabling Chief leadership was removed from both
+source and Debug output, restoring the prior absent-file configuration. Browser control disconnected
+before a second controlled AgentHost restart could be verified; the running process may retain cached
+options until the next restart. Restart AgentHost as part of the next controlled acceptance session.
+Do not infer that an installed Chief update alone enables the default-off leadership gate.
+
+The preview also exposed a release-selection defect: an explicit prerelease tag still consulted only
+the latest stable release. `IGitHubAgentRepositoryClient.GetReleaseByTagAsync`,
+`GitHubAgentRepositoryClient.ReadReleaseAsync` and
+`AgentImportPreviewService.ResolvePrebuiltReleaseAsync` now select the explicitly requested published
+candidate bundle. Default/branch previews still reject prereleases, drafts remain rejected, and
+manifest-version matching remains required. This source fix does not alter runtime approval policy.
+The isolated published-dependency preview/client/definition regression run passed **65 tests**, with
+zero failures or skips (`tests/CSweet.UnitTests/TestResults/explicit-release-preview.trx`). It includes
+exact-candidate selection ahead of latest stable, draft/ref/version rejection and escaped tag routes.
+
+**G3 remains open.** Resume installed/UI acceptance only through the normal Installed Agents flow,
+after the owner-controlled update and a controlled test-gate session. Active unrelated QFN Games
+work must remain outside the disposable acceptance business. Broader refactoring remains deferred.
