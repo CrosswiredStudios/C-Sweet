@@ -99,6 +99,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilit
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentCoordinationCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, DelegationCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ChiefLeadershipCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, CompanyReportingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PluginOperationsCapabilityHandler>();

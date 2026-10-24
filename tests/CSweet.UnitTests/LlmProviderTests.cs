@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public class LlmProviderTests
+public partial class LlmProviderTests
 {
     [Theory]
     [InlineData(0)]

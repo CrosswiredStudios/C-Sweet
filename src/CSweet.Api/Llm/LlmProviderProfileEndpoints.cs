@@ -197,9 +197,12 @@ public static class LlmProviderProfileEndpoints
 
     private static IResult ToProviderActionError(LlmProviderProfileActionResponse result)
     {
-        return result.ErrorCode == "provider_profile_not_found"
-            ? Results.NotFound(result)
-            : Results.BadRequest(result);
+        return result.ErrorCode switch
+        {
+            "provider_profile_not_found" => Results.NotFound(result),
+            "default_provider_replacement_required" => Results.Conflict(result),
+            _ => Results.BadRequest(result)
+        };
     }
 
     private static bool TryCreateProviderPreview(

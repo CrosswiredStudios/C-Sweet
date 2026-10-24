@@ -6,8 +6,8 @@
 
 <div class="automatic-hiring-control" role="status" aria-live="polite">
     <div class="automatic-hiring-copy">
-        <strong>@L["AutomaticHiringControl.Mode"]</strong>
-        <span>@L.Format("AutomaticHiringControl.Description", new { name = Name })</span>
+        <strong>@L[Blocked ? "AutomaticHiringControl.Blocked" : "AutomaticHiringControl.Mode"]</strong>
+        <span>@(Blocked ? BlockReason : L.Format("AutomaticHiringControl.Description", new { name = Name }))</span>
     </div>
     <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_stopping" OnClick="StopAsync">
         @L[_stopping ? "AutomaticHiringControl.Stopping" : "AutomaticHiringControl.ChooseManually"]
@@ -19,6 +19,8 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid RecommendationId { get; set; }
     [Parameter] public string Name { get; set; } = "Your Chief of Staff";
+    [Parameter] public string? BlockReason { get; set; }
+    private bool Blocked => !string.IsNullOrWhiteSpace(BlockReason);
     [Parameter] public EventCallback<HiringRecommendationResponse> Stopped { get; set; }
     private bool _stopping;
     private string? _error;

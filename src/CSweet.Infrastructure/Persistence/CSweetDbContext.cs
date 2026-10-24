@@ -806,6 +806,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ConfigureChiefLeadership(modelBuilder);
         ConfigureResourceCleanup(modelBuilder);
         ConfigurePersonalAssistant(modelBuilder);
         modelBuilder.Entity<ChiefHiringPolicy>().HasIndex(x => new { x.OrganizationId, x.InstallationId }).IsUnique();
