@@ -451,7 +451,7 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.ItemIdentifier).HasMaxLength(32).IsRequired();
             entity.Property(x => x.CurrentStageKey).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
-            entity.Property(x => x.BlockedReason).HasMaxLength(4096);
+            entity.Property(x => x.BlockedReason).HasColumnType("text");
             entity.HasIndex(x => new { x.SprintExecutionId, x.WorkItemId }).IsUnique();
             entity.HasOne(x => x.SprintExecution).WithMany(x => x.Items)
                 .HasForeignKey(x => x.SprintExecutionId).OnDelete(DeleteBehavior.Cascade);
@@ -467,8 +467,9 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.PrincipalKind).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.PlatformAction).HasMaxLength(160);
             entity.Property(x => x.LastOutcomeCode).HasMaxLength(64);
-            entity.Property(x => x.LastSummary).HasMaxLength(4096);
-            entity.Property(x => x.LastError).HasMaxLength(4096);
+            // Completed inbox results must remain persistable regardless of model prose length.
+            entity.Property(x => x.LastSummary).HasColumnType("text");
+            entity.Property(x => x.LastError).HasColumnType("text");
             entity.HasIndex(x => new { x.ItemExecutionId, x.StageKey, x.Traversal }).IsUnique();
             entity.HasOne(x => x.ItemExecution).WithMany(x => x.Stages)
                 .HasForeignKey(x => x.ItemExecutionId).OnDelete(DeleteBehavior.Cascade);
@@ -521,7 +522,7 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.Scope).HasMaxLength(24);
             entity.Property(x => x.Status).HasMaxLength(32);
             entity.Property(x => x.CurrentStageKey).HasMaxLength(64);
-            entity.Property(x => x.BlockedReason).HasMaxLength(4096);
+            entity.Property(x => x.BlockedReason).HasColumnType("text");
             entity.Property(x => x.CandidateJson).HasColumnType("jsonb");
             entity.Property(x => x.AcceptanceJson).HasColumnType("jsonb");
             entity.Property(x => x.Revision).IsConcurrencyToken();
@@ -557,7 +558,7 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
             entity.Property(x => x.ResultJson).HasColumnType("jsonb");
             entity.Property(x => x.ErrorCategory).HasMaxLength(80);
-            entity.Property(x => x.ErrorMessage).HasMaxLength(4096);
+            entity.Property(x => x.ErrorMessage).HasColumnType("text");
             entity.HasIndex(x => new { x.StageExecutionId, x.Attempt }).IsUnique();
             entity.HasIndex(x => x.StageExecutionId).IsUnique()
                 .HasFilter("\"Status\" IN ('Pending', 'Running')");

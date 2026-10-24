@@ -7610,8 +7610,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<string>("BlockReason")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("BoardColumnId")
                         .HasColumnType("uuid");
@@ -9246,6 +9245,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<Guid?>("PluginAccountBusinessGrantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PluginAccountConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PluginAccountResourceId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ProviderInstallationId")
                         .HasColumnType("uuid");
 
@@ -9259,6 +9267,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PluginAccountBusinessGrantId");
+
+                    b.HasIndex("PluginAccountConnectionId");
+
+                    b.HasIndex("PluginAccountResourceId");
 
                     b.HasIndex("ProviderInstallationId");
 
@@ -12509,14 +12523,225 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("PlatformSourceControlSetupSessions");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountBusinessGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountGroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApprovedByApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CapabilitiesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("FutureResourcesAcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PackageDigest")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("PluginInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("SelectedResourceIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountGroupId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("PluginInstallationId", "AccountGroupId", "OrganizationId")
+                        .IsUnique();
+
+                    b.ToTable("PluginAccountBusinessGrants");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("IdentityAuthority")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("IdentityKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("PluginInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProviderProfile")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerifiedSubject")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PluginInstallationId", "ProviderProfile");
+
+                    b.ToTable("PluginAccountGroups");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountResource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountGroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ExternalResourceId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("Handle")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<bool>("IsAvailable")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PluginInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PluginInstallationId");
+
+                    b.HasIndex("AccountGroupId", "ResourceType", "ExternalResourceId")
+                        .IsUnique();
+
+                    b.ToTable("PluginAccountResources");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountResourceAuthorization", b =>
+                {
+                    b.Property<Guid>("ResourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsAvailable")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ResourceId", "ConnectionId");
+
+                    b.HasIndex("ConnectionId");
+
+                    b.ToTable("PluginAccountResourceAuthorizations");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.PluginConnection", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AccountGroupId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("AgentInstallationId")
                         .HasColumnType("uuid");
+
+                    b.Property<long>("AuthorizationRevision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.Property<string>("BoundResourceId")
                         .HasMaxLength(512)
@@ -12562,8 +12787,11 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccountGroupId");
+
                     b.HasIndex("AgentInstallationId", "DeclarationId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"AccountGroupId\" IS NULL");
 
                     b.ToTable("PluginConnections");
                 });
@@ -14465,8 +14693,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb");
 
                     b.Property<string>("BlockedReason")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                        .HasColumnType("text");
 
                     b.Property<Guid>("BoardId")
                         .HasColumnType("uuid");
@@ -14752,8 +14979,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(80)");
 
                     b.Property<string>("ErrorMessage")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                        .HasColumnType("text");
 
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
@@ -15110,8 +15336,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("BlockedReason")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                        .HasColumnType("text");
 
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
@@ -15904,16 +16129,14 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("LastError")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                        .HasColumnType("text");
 
                     b.Property<string>("LastOutcomeCode")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
                     b.Property<string>("LastSummary")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("OrganizationUserId")
                         .HasColumnType("uuid");
@@ -17816,6 +18039,21 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityBinding", b =>
                 {
+                    b.HasOne("CSweet.Domain.Setup.PluginAccountBusinessGrant", null)
+                        .WithMany()
+                        .HasForeignKey("PluginAccountBusinessGrantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSweet.Domain.Setup.PluginConnection", null)
+                        .WithMany()
+                        .HasForeignKey("PluginAccountConnectionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CSweet.Domain.Setup.PluginAccountResource", null)
+                        .WithMany()
+                        .HasForeignKey("PluginAccountResourceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSweet.Domain.Setup.AgentInstallation", "ProviderInstallation")
                         .WithMany()
                         .HasForeignKey("ProviderInstallationId")
@@ -18239,8 +18477,73 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("Session");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountBusinessGrant", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.PluginAccountGroup", null)
+                        .WithMany()
+                        .HasForeignKey("AccountGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("PluginInstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountGroup", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("PluginInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountResource", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.PluginAccountGroup", null)
+                        .WithMany()
+                        .HasForeignKey("AccountGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("PluginInstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountResourceAuthorization", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.PluginConnection", null)
+                        .WithMany()
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.PluginAccountResource", null)
+                        .WithMany()
+                        .HasForeignKey("ResourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.PluginConnection", b =>
                 {
+                    b.HasOne("CSweet.Domain.Setup.PluginAccountGroup", null)
+                        .WithMany()
+                        .HasForeignKey("AccountGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("CSweet.Domain.Setup.AgentInstallation", "AgentInstallation")
                         .WithMany("Connections")
                         .HasForeignKey("AgentInstallationId")

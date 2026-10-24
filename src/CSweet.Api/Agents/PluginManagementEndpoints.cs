@@ -11,6 +11,10 @@ public static class PluginManagementEndpoints
         var group = endpoints.MapGroup("/api/plugins")
             .RequireAuthorization("PluginAdministration");
 
+        group.MapGet("/installation-policy", async ([Microsoft.AspNetCore.Mvc.FromServices] IAgentRuntimeSettingsService settings,
+            CancellationToken cancellationToken) => Results.Ok(new PluginInstallationPolicyResponse(
+                (await settings.GetAsync(cancellationToken)).EnableImportedAgents)));
+
         group.MapGet("/provider-profiles", async (IPluginProviderProfileRegistry profiles,
             CancellationToken cancellationToken) => Results.Ok(await profiles.ListAsync(cancellationToken)));
         group.MapPut("/provider-profiles/{profileId}", async (string profileId,

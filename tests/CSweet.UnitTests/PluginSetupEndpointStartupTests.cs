@@ -30,6 +30,10 @@ public sealed class PluginSetupEndpointStartupTests
             auth => auth.Policy == "PluginAdministration");
         Assert.Equal(PluginBundleImportService.MaximumBundleBytes,
             endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>()!.MaxRequestBodySize);
+        var policy = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>(), e => e.RoutePattern.RawText == "/api/plugins/installation-policy");
+        Assert.Contains(policy.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>(),
+            auth => auth.Policy == "PluginAdministration");
     }
 
     [Fact]

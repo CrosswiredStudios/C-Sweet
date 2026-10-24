@@ -138,6 +138,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             }
 
         var manifest = DeserializeManifest(packageVersion.ManifestJson);
+        if (manifest.Accounts is not null)
+            throw new AgentInstallationException("Enterprise account management is not yet available on this host. Its complete OAuth and grant enforcement must be deployed before installation.");
         if (!manifest.Runtime.SupportsMultipleInstallations && await _dbContext.AgentInstallations.AnyAsync(
                 x => x.BusinessId == businessId && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active &&
                     x.PackageVersion!.AgentId == packageVersion.AgentId,

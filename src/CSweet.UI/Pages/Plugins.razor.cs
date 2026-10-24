@@ -24,7 +24,7 @@ public partial class Plugins
     private IEnumerable<PluginCatalogEntry> FilteredCatalog => PluginCatalog.Entries.Where(x =>
         (_catalogCategory == "All" || x.Category == _catalogCategory) &&
         $"{x.Name} {L[x.DescriptionKey]} {L[$"Plugins.Catalog.Category.{x.Category}"]}".Contains(_catalogSearch, StringComparison.OrdinalIgnoreCase));
-    private bool CanInstall => !_busy && _preview is not null && _approve && !HasMissingConfiguration &&
+    private bool CanInstall => !_busy && !_loading && _installationPolicy?.ImportedPluginsEnabled == true && _preview is not null && _approve && !HasMissingConfiguration &&
         (_preview.PluginKind != "Connector" || _businessId.HasValue) &&
         (_preview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _acknowledgeAllPublic);
     private static string PluginIcon(string id) => PluginCatalog.Entries.FirstOrDefault(x => x.Id == id)?.Icon
@@ -71,6 +71,7 @@ public partial class Plugins
     private HashSet<string> RequiredProviderIds => RequiredConnections
         .Select(x => x.ProviderProfile).ToHashSet(StringComparer.Ordinal);
     private AgentImportPreviewResponse? _preview;
+    private PluginInstallationPolicyResponse? _installationPolicy;
     private string _repositoryUrl = string.Empty;
     private string _commitSha = string.Empty;
     private string? _message;
@@ -104,9 +105,11 @@ public partial class Plugins
     private async Task LoadAsync()
     {
         _loading = true;
+        _installationPolicy = null;
         _providerProfilesLoaded = false;
         try
         {
+            _installationPolicy = await PluginApi.GetInstallationPolicyAsync();
             _installations.Clear();
             _installations.AddRange((await PluginApi.ListAsync()).Where(x => x.PluginKind is "Service" or "Connector"));
             _providerProfiles.Clear();
@@ -251,7 +254,8 @@ public partial class Plugins
                         pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
                         StringComparer.Ordinal)
             };
-            await PluginApi.InstallAsync(_preview.ImportId, request);
+            var installed = await PluginApi.InstallAsync(_preview.ImportId, request);
+            _managedId = installed.Id;
             ClearPreview(); _bundle = null; _repositoryUrl = string.Empty; _commitSha = string.Empty;
             _activeTab = 0;
             ShowSuccess(L[bundle ? "Plugins.Import.BundleInstalled" : "Plugins.Import.Installed"]);

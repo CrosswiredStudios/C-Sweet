@@ -644,7 +644,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
         entity.Property(x => x.Identifier).HasMaxLength(32);
         entity.Property(x => x.ResultSummary).HasMaxLength(4096);
-        entity.Property(x => x.BlockReason).HasMaxLength(4096);
+        entity.Property(x => x.BlockReason).HasColumnType("text");
         entity.Property(x => x.CreationIdempotencyKey).HasMaxLength(160);
         entity.Property(x => x.CorrelationId).HasMaxLength(160);
         entity.Property(x => x.CausationId).HasMaxLength(160);

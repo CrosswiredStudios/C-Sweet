@@ -16,6 +16,13 @@
         </div>
         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@(_busy || _loading)">@L["Common.Refresh"]</MudButton>
     </MudPaper>
+    @if (_installationPolicy is { ImportedPluginsEnabled: false })
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" role="status">
+            @L["Plugins.Import.DisabledByRuntime"]
+            <MudLink Href="/settings/agents/runtime">@L["Plugins.Import.RuntimeSettings"]</MudLink>
+        </MudAlert>
+    }
     @if (!string.IsNullOrWhiteSpace(_message))
     {
         <MudAlert Severity="@(_error ? Severity.Error : Severity.Success)" Variant="Variant.Outlined" role="status">@_message</MudAlert>

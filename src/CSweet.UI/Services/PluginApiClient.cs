@@ -7,6 +7,9 @@ namespace CSweet.UI.Services;
 
 public sealed class PluginApiClient(HttpClient httpClient) : IPluginApiClient
 {
+    public async Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<PluginInstallationPolicyResponse>("api/plugins/installation-policy", cancellationToken)
+            ?? throw new ApiClientException(System.Net.HttpStatusCode.ServiceUnavailable, "Plugin installation policy is unavailable.");
     public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken cancellationToken = default) =>
         SendAsync<AgentImportPreviewResponse>(HttpMethod.Post, "api/plugins/imports/preview", request, cancellationToken);
 

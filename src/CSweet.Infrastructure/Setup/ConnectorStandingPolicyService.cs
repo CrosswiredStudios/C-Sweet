@@ -220,6 +220,8 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
             plan.ResourceId, plan.GrantRevision, plan.ProviderGrantRevision, plan.PackageDigest, plan.Capability,
             requesterPackage = requester.PackageVersion!.PackageDigest, consumerBinding = binding.ApprovedAt,
             profileApproval = profile.ApprovedAt, connection.UpdatedAt, operation });
+        if (plan.AccountAuthority is { } accountAuthority)
+            hash = Hash(new { legacyAuthority = hash, accountAuthority });
         var requesterName = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             x.AgentInstallationId == requesterId && x.IsActive).Select(x => x.DisplayName).SingleOrDefaultAsync(ct);
         return new(plan, operation, hash, manifest.Provides.Single(x => x.Name == plan.Capability).Description,

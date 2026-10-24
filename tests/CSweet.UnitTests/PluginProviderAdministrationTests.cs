@@ -196,6 +196,7 @@ public sealed class PluginProviderAdministrationTests
 
     private sealed class FakeApi : IPluginApiClient
     {
+        public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(true));
         public IReadOnlyList<AgentInstallationResponse> Installations { get; init; } = [];
         public IReadOnlyList<PluginProviderProfileResponse> Profiles { get; init; } = [];
         public int ProfileReads { get; private set; }

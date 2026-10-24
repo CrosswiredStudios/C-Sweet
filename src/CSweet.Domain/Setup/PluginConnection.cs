@@ -4,6 +4,8 @@ public sealed class PluginConnection
 {
     public Guid Id { get; set; }
     public Guid AgentInstallationId { get; set; }
+    public Guid? AccountGroupId { get; set; }
+    public long AuthorizationRevision { get; set; } = 1;
     public string DeclarationId { get; set; } = string.Empty;
     public string ProviderProfile { get; set; } = string.Empty;
     public PluginConnectionStatus Status { get; set; }

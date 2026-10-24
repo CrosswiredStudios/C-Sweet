@@ -18,6 +18,20 @@ namespace CSweet.UnitTests;
 public sealed class PluginSettingsTests
 {
     [Fact]
+    public async Task DisabledRuntimeShowsExplanationAndCannotInstallAfterApproval()
+    {
+        var api = new Api { ImportsEnabled = false };
+        var html = await Render(api, async page =>
+        {
+            Set(page, "_repositoryUrl", "https://github.com/example/plugin");
+            await Invoke(page, "PreviewAsync"); Set(page, "_approve", true);
+            await Invoke(page, "InstallAsync");
+        });
+        Assert.Null(api.InstalledRequest);
+        Assert.Contains("disabled by the runtime security policy", html);
+        Assert.Contains("/settings/agents/runtime", html);
+    }
+    [Fact]
     public async Task InstalledTabExcludesAgentsAndShowsNonAgentVersionsAndManagement()
     {
         var html = await Render(new Api(), previewName: "plugins-installed");
@@ -160,6 +174,8 @@ public sealed class PluginSettingsTests
     }
     private sealed class Api : IPluginApiClient
     {
+        public bool ImportsEnabled { get; init; } = true;
+        public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(ImportsEnabled));
         public string PreviewKind { get; init; } = "Service";
         public bool AllPublic { get; init; }
         public PreviewAgentImportRequest? PreviewRequest { get; private set; }

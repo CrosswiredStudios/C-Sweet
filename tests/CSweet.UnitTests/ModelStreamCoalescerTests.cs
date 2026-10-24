@@ -22,7 +22,7 @@ public sealed class ModelStreamCoalescerTests
     [Fact]
     public async Task Text_is_lossless_with_immediate_first_chunk_and_preserved_nontext_boundaries()
     {
-        var reasoning = new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("reasoning")]);
+        var reasoning = new ChatResponseUpdate(ChatRole.Assistant, [new TextReasoningContent("reasoning") { ProtectedData = "signature" }]);
         var tool = new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent("call", "validate")]);
         var usage = new ChatResponseUpdate(null, [new UsageContent(new() { OutputTokenCount = 80 })]);
         var terminal = new ChatResponseUpdate(ChatRole.Assistant, []) { FinishReason = ChatFinishReason.Stop };
@@ -49,6 +49,69 @@ public sealed class ModelStreamCoalescerTests
         if (cancel) Assert.IsType<OperationCanceledException>(error);
         else Assert.IsType<InvalidOperationException>(error);
         Assert.Equal("firstbuffered", string.Concat(emitted.Select(x => x.Text)));
+    }
+
+    [Fact]
+    public async Task Plain_reasoning_is_batched_losslessly_without_crossing_text_or_control_boundaries()
+    {
+        var source = Enumerable.Range(0, 2048).Select(i => Reasoning($"r{i},")).ToList();
+        var tool = new ChatResponseUpdate(ChatRole.Assistant, [new FunctionCallContent("call", "validate")]);
+        var usage = new ChatResponseUpdate(null, [new UsageContent(new() { OutputTokenCount = 2048 })]);
+        var terminal = new ChatResponseUpdate(ChatRole.Assistant, []) { FinishReason = ChatFinishReason.Stop };
+        source.Add(Text("answer")); source.Add(tool); source.Add(usage); source.Add(terminal);
+        var result = new List<ChatResponseUpdate>();
+        await foreach (var update in ModelStreamCoalescer.ReadAsync(Stream(source), default)) result.Add(update);
+        Assert.Same(source[0], result[0]);
+        Assert.InRange(result.Count, 65, 75);
+        Assert.Equal(string.Concat(Enumerable.Range(0, 2048).Select(i => $"r{i},")),
+            string.Concat(result.SelectMany(x => x.Contents).OfType<TextReasoningContent>().Select(x => x.Text)));
+        Assert.Equal("answer", string.Concat(result.Select(x => x.Text)));
+        Assert.Equal(new[] { tool, usage, terminal }, result.TakeLast(3));
+    }
+
+    [Fact]
+    public async Task Protected_reasoning_and_metadata_remain_exact_objects_and_flush_plain_reasoning()
+    {
+        var signed = Reasoning("signed");
+        ((TextReasoningContent)signed.Contents[0]).ProtectedData = "signature";
+        var metadata = Reasoning("metadata");
+        metadata.Contents[0].AdditionalProperties = new() { ["provider-marker"] = "value" };
+        var updateMetadata = Reasoning("update metadata");
+        updateMetadata.AdditionalProperties = new() { ["provider-state"] = "value" };
+        var source = new[] { Reasoning("first"), Reasoning("a"), Reasoning("b"), signed,
+            Reasoning("c"), metadata, Reasoning("d"), updateMetadata, Text("answer"), Reasoning("last") };
+        var result = new List<ChatResponseUpdate>();
+        await foreach (var update in ModelStreamCoalescer.ReadAsync(Stream(source), default)) result.Add(update);
+        Assert.Equal("ab", Assert.IsType<TextReasoningContent>(result[result.IndexOf(signed) - 1].Contents[0]).Text);
+        Assert.Contains(signed, result); Assert.Contains(metadata, result); Assert.Contains(updateMetadata, result);
+        Assert.Equal("firstabsignedcmetadatadupdate metadatalast",
+            string.Concat(result.SelectMany(x => x.Contents).OfType<TextReasoningContent>().Select(x => x.Text)));
+        Assert.Equal("answer", string.Concat(result.Select(x => x.Text)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Buffered_reasoning_is_emitted_before_provider_failure_or_cancellation(bool cancel)
+    {
+        var emitted = new List<ChatResponseUpdate>();
+        var error = await Record.ExceptionAsync(async () =>
+        {
+            await foreach (var update in ModelStreamCoalescer.ReadAsync(FailingReasoning(cancel), default)) emitted.Add(update);
+        });
+        if (cancel) Assert.IsType<OperationCanceledException>(error);
+        else Assert.IsType<InvalidOperationException>(error);
+        Assert.Equal("firstbuffered", string.Concat(emitted.SelectMany(x => x.Contents)
+            .OfType<TextReasoningContent>().Select(x => x.Text)));
+    }
+
+    private static ChatResponseUpdate Reasoning(string text) => new(ChatRole.Assistant, [new TextReasoningContent(text)]);
+
+    private static async IAsyncEnumerable<ChatResponseUpdate> FailingReasoning(bool cancel)
+    {
+        yield return Reasoning("first"); yield return Reasoning("buffered"); await Task.CompletedTask;
+        if (cancel) throw new OperationCanceledException();
+        throw new InvalidOperationException("Provider failed");
     }
 
     private static ChatResponseUpdate Text(string text) => new(ChatRole.Assistant, text);

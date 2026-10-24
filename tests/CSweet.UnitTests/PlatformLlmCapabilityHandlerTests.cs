@@ -542,7 +542,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
 
     private static async Task<IReadOnlyList<CapabilityResult>> ReadAsync(
         CSweetDbContext db, PlatformLlmCapabilityHandler handler,
-        Guid providerId, Guid? organizationId = null)
+        Guid providerId, Guid? organizationId = null, Func<CapabilityResult, Task>? observeResult = null)
     {
         var request = new RequestCapability
         {
@@ -570,7 +570,10 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         var results = new List<CapabilityResult>();
         await SeedDispatchAuthorityAsync(db, session);
         await foreach (var result in handler.StreamAsync(session, request, CancellationToken.None))
+        {
             results.Add(result);
+            if (observeResult is not null) await observeResult(result);
+        }
         return results;
     }
 
