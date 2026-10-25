@@ -81,15 +81,18 @@
             <div><dt>@L["InstalledAgentCard.SourceCommit"]</dt><dd class="agent-import-hash">@Installation.CommitSha</dd></div>
         </dl>
         <MudDivider Class="my-4" />
+        @if(Installation.Schedule is {} schedule)
+        {
         <MudText Typo="Typo.overline">@L["InstalledAgentCard.DefaultsForNewHires"]</MudText>
         <dl class="configuration-details agents-details">
-            <div><dt>@L["InstalledAgentCard.Activation"]</dt><dd>@Installation.Schedule.ActivationMode</dd></div>
-            <div><dt>@L["InstalledAgentCard.Frequency"]</dt><dd>@TimeSpan.FromSeconds(Installation.Schedule.TickFrequencySeconds)</dd></div>
-            <div><dt>@L["InstalledAgentCard.OverlapPolicy"]</dt><dd>@Installation.Schedule.OverlapPolicy</dd></div>
-            <div><dt>@L["InstalledAgentCard.RuntimeLimit"]</dt><dd>@L.Format("InstalledAgentCard.Seconds", new { seconds = Installation.Schedule.MaxRuntimeSeconds })</dd></div>
+            <div><dt>@L["InstalledAgentCard.Activation"]</dt><dd>@schedule.ActivationMode</dd></div>
+            <div><dt>@L["InstalledAgentCard.Frequency"]</dt><dd>@TimeSpan.FromSeconds(schedule.TickFrequencySeconds)</dd></div>
+            <div><dt>@L["InstalledAgentCard.OverlapPolicy"]</dt><dd>@schedule.OverlapPolicy</dd></div>
+            <div><dt>@L["InstalledAgentCard.RuntimeLimit"]</dt><dd>@L.Format("InstalledAgentCard.Seconds", new { seconds = schedule.MaxRuntimeSeconds })</dd></div>
             <div><dt>@L["InstalledAgentCard.Memory"]</dt><dd>@L.Format("InstalledAgentCard.Megabytes", new { mb = Installation.MemoryMb })</dd></div>
             <div><dt>@L["InstalledAgentCard.Cpu"]</dt><dd>@L.Format("InstalledAgentCard.Percent", new { percent = Installation.CpuPercent })</dd></div>
         </dl>
+        }
         <MudDivider Class="my-4" />
         <MudText Typo="Typo.overline">@L["InstalledAgentCard.DefaultAccess"]</MudText>
         <dl class="configuration-details agents-details agent-access-details">

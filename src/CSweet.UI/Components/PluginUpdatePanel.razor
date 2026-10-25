@@ -64,7 +64,7 @@
         // Account connector packages cannot receive raw network authority through this simplified control.
         // A broader request needs a separate platform administrator grant review.
         if(manifest.WebAccess.Mode!=PluginWebAccessMode.None) throw new InvalidOperationException("This update requests direct network access. A separate administrator review is required.");
-        var request=new InstallAgentRequest(fresh.BusinessId,"OnDemand",300,"Skip",manifest.Provides.Select(x=>x.Name).ToArray(),manifest.Events.Subscribes,[],[],[],600,512,50)
+        var request=new InstallAgentRequest(fresh.BusinessId,string.Empty,0,string.Empty,manifest.Provides.Select(x=>x.Name).ToArray(),manifest.Events.Subscribes,[],[],[],0,0,0)
             {PluginScope="System",ExpectedPackageDigest=fresh.PackageDigest,GrantedRequestedCapabilities=manifest.Requires.Select(x=>x.Name).ToArray()};
         var result=await Plugins.ApproveUpdateAsync(View.InstallationId,request);Navigation.NavigateTo($"/settings/plugins/{result.Id:D}",true);
     });

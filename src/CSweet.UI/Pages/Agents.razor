@@ -1258,12 +1258,13 @@
 
     private void OpenScheduleDialog(AgentInstallationResponse installation)
     {
+        if(installation.Schedule is not {} schedule) return;
         _scheduleInstallation = installation;
-        _scheduleActivationMode = installation.Schedule.ActivationMode;
-        _scheduleTickFrequencySeconds = installation.Schedule.TickFrequencySeconds;
-        _scheduleOverlapPolicy = installation.Schedule.OverlapPolicy;
-        _scheduleMaxRuntimeSeconds = installation.Schedule.MaxRuntimeSeconds;
-        _scheduleEnabled = installation.Schedule.IsEnabled;
+        _scheduleActivationMode = schedule.ActivationMode;
+        _scheduleTickFrequencySeconds = schedule.TickFrequencySeconds;
+        _scheduleOverlapPolicy = schedule.OverlapPolicy;
+        _scheduleMaxRuntimeSeconds = schedule.MaxRuntimeSeconds;
+        _scheduleEnabled = schedule.IsEnabled;
         _scheduleError = null;
         _scheduleDialogOpen = true;
     }
@@ -2065,7 +2066,7 @@
         Navigation.NavigateTo("/settings/agents/runtime");
 
     private static bool IsAlwaysOn(AgentInstallationResponse installation) =>
-        string.Equals(installation.Schedule.ActivationMode, "AlwaysOn", StringComparison.Ordinal);
+        string.Equals(installation.Schedule?.ActivationMode, "AlwaysOn", StringComparison.Ordinal);
 
     private static string FormatLastRun(AgentRuntimeRunResponse? run) => run is null
         ? "Never"

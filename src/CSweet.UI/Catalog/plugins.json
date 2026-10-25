@@ -1,0 +1,43 @@
+[
+  {
+    "id": "com.csweet.connector.youtube",
+    "name": "YouTube Connection",
+    "descriptionKey": "Plugins.Catalog.YouTube",
+    "category": "Connections",
+    "repositoryName": "CSweet.Plugins.Platform.YouTube",
+    "iconKey": "video",
+    "logoPath": "_content/CSweet.UI/images/brands/youtube.svg"
+  },
+  {
+    "id": "com.csweet.web-previews",
+    "name": "Web Previews",
+    "descriptionKey": "Plugins.Catalog.WebPreviews",
+    "category": "Development",
+    "repositoryName": "CSweet.Plugins.WebPreviews",
+    "iconKey": "web"
+  },
+  {
+    "id": "com.csweet.toolchain.godot",
+    "name": "Godot Toolchain",
+    "descriptionKey": "Plugins.Catalog.Godot",
+    "category": "Development",
+    "repositoryName": "CSweet.Plugins.Toolchain.Godot",
+    "iconKey": "game"
+  },
+  {
+    "id": "com.csweet.toolchain.node-typescript",
+    "name": "Node & TypeScript",
+    "descriptionKey": "Plugins.Catalog.Node",
+    "category": "Development",
+    "repositoryName": "CSweet.Plugins.Toolchain.NodeTypeScript",
+    "iconKey": "code"
+  },
+  {
+    "id": "com.csweet.communication.discord",
+    "name": "Discord",
+    "descriptionKey": "Plugins.Catalog.Discord",
+    "category": "Connections",
+    "repositoryName": "CSweet.Plugins.Communication.Discord",
+    "iconKey": "chat"
+  }
+]

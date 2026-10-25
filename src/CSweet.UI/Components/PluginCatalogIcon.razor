@@ -1,0 +1,16 @@
+@using CSweet.UI.Services
+
+<span class="plugin-brand-icon @(Entry?.LogoPath is not null ? "has-logo" : "")">
+    @if(Entry?.LogoPath is { } logo)
+    {
+        <img src="@logo" alt="@Entry.Name" width="32" height="24" />
+    }
+    else
+    {
+        <MudIcon Icon="@(Entry?.Icon ?? Icons.Material.Outlined.Extension)" />
+    }
+</span>
+
+@code {
+    [Parameter] public PluginCatalogEntry? Entry { get; set; }
+}

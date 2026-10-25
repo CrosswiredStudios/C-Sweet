@@ -34,6 +34,14 @@ public sealed class PluginSetupEndpointStartupTests
             .OfType<RouteEndpoint>(), e => e.RoutePattern.RawText == "/api/plugins/installation-policy");
         Assert.Contains(policy.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>(),
             auth => auth.Policy == "PluginAdministration");
+        // No runtime-settings service is registered: plugin availability is independent
+        // of the imported-agent opt-in, while administration authorization still applies.
+        var context=new Microsoft.AspNetCore.Http.DefaultHttpContext{RequestServices=app.Services};
+        context.Response.Body=new MemoryStream();
+        await policy.RequestDelegate!(context);context.Response.Body.Position=0;
+        var availability=await System.Text.Json.JsonSerializer.DeserializeAsync<CSweet.Contracts.Plugins.PluginInstallationPolicyResponse>(context.Response.Body,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.True(availability!.ImportedPluginsEnabled);
     }
 
     [Fact]

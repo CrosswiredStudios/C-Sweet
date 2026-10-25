@@ -35,8 +35,10 @@ internal sealed class AcceptanceState(PluginAccountFlowTests.Fixture fixture)
     public PluginAccountFlowTests.Fixture Fixture { get; private set; } = fixture;
     public SemaphoreSlim Gate { get; } = new(1,1);
     public bool Installed { get; set; }
+    public bool RealYouTubeInstall { get; set; }
+    public AgentInstallationResponse? ActualInstallation { get; set; }
     public Task Reset() => Run(async () => {
-        await Fixture.DisposeAsync(); Fixture=await PluginAccountFlowTests.Fixture.Create(); Installed=false;
+        await Fixture.DisposeAsync(); Fixture=await PluginAccountFlowTests.Fixture.Create(); Installed=false;RealYouTubeInstall=false;ActualInstallation=null;
         Fixture.Environment.EnvironmentName="Production";Fixture.AllowDevelopmentPreview=false;
         var package=Fixture.Inner.Connector.PackageVersion!;
         package.PackageSourceId=Guid.NewGuid();
@@ -46,7 +48,7 @@ internal sealed class AcceptanceState(PluginAccountFlowTests.Fixture fixture)
     public async Task<T> Run<T>(Func<Task<T>> action) { await Gate.WaitAsync(); try { return await action(); } finally { Gate.Release(); } }
     public async Task Run(Func<Task> action) { await Gate.WaitAsync(); try { await action(); } finally { Gate.Release(); } }
     public PluginManifest Manifest => JsonSerializer.Deserialize<PluginManifest>(Fixture.Inner.Connector.PackageVersion!.ManifestJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-    public AgentInstallationResponse Installation => new(Fixture.Id, Fixture.Inner.Connector.PackageVersionId, "enterprise", Manifest.Id,
+    public AgentInstallationResponse Installation => ActualInstallation ?? new(Fixture.Id, Fixture.Inner.Connector.PackageVersionId, "enterprise", Manifest.Id,
         "Example Connection", Manifest.Version, "Test publisher", new string('a',40), true, Manifest.Provides.Select(x=>x.Name).ToArray(), [], [], [], [], 512, 50,
         null!, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { PluginKind="Connector", InstallationScope="System", Accounts=Manifest.Accounts, ConnectionDeclarations=Manifest.Connections };
 }
@@ -72,10 +74,16 @@ internal sealed class InstallationClient(AcceptanceState data) : IPluginApiClien
     public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken ct = default) => Task.FromResult(new PluginInstallationPolicyResponse(true));
     public Task<IReadOnlyList<AgentInstallationResponse>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<AgentInstallationResponse>>(data.Installed ? [data.Installation] : []);
     public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest r, CancellationToken ct = default) => Task.FromResult(new AgentImportPreviewResponse(Guid.NewGuid(),r.RepositoryUrl,new string('a',40),new string('b',64),data.Manifest.Id,
-        "Example Connection",data.Manifest.Version,"com.example","Test publisher","dotnet-project","Example.csproj","net10.0","OnDemand",data.Manifest.Provides.Select(x=>x.Name).ToArray(),[],[],[],[],[],"Previewed")
+        data.RealYouTubeInstall?data.Manifest.Name:"Example Connection",data.Manifest.Version,data.Manifest.Publisher.Id,data.Manifest.Publisher.Name,"dotnet-project","Example.csproj","net10.0","OnDemand",data.Manifest.Provides.Select(x=>x.Name).ToArray(),[],[],[],[],[],"Previewed")
         { PluginKind="Connector",Accounts=data.Manifest.Accounts,Connections=data.Manifest.Connections,Setup=data.Manifest.Setup,PackageSourceMode="PrebuiltRelease" });
-    public Task<AgentInstallationResponse> InstallAsync(Guid id, InstallAgentRequest r, CancellationToken ct = default)
-    { if(r.PluginScope!="System") throw new InvalidOperationException("Enterprise installation scope required."); data.Installed=true; return Task.FromResult(data.Installation); }
+    public Task<AgentInstallationResponse> InstallAsync(Guid id, InstallAgentRequest r, CancellationToken ct = default) => data.Run(async()=>
+    {
+        if(r.PluginScope!="System") throw new InvalidOperationException("Enterprise installation scope required.");
+        if(data.RealYouTubeInstall)
+            data.ActualInstallation=await AgentInstallationServiceTests.CreatePluginInstallerForAcceptance(data.Fixture.Inner.Db)
+                .InstallAsync(data.Fixture.Inner.Connector.PackageVersionId,r,ct);
+        data.Installed=true;return data.Installation;
+    });
     public Task<IReadOnlyList<PluginProviderProfileResponse>> ListProviderProfilesAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<PluginProviderProfileResponse>>([]);
     public Task<AgentImportPreviewResponse> PreviewBundleAsync(Stream s,string n,CancellationToken ct=default)=>throw new NotSupportedException();
     public Task SaveConfigurationAsync(Guid id,IReadOnlyDictionary<string,string> s,CancellationToken ct=default)=>throw new NotSupportedException();

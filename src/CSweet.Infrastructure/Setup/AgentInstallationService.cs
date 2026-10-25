@@ -121,10 +121,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         ValidateBusinessId(request.BusinessId);
         var businessId = Guid.TryParse(request.BusinessId, out var parsedBusiness)
             ? parsedBusiness.ToString("D") : request.BusinessId.Trim();
-        var settings = await GetSettingsAsync(cancellationToken);
+        var settings = packageVersion.PluginKind == PluginKind.Connector ? null : await GetSettingsAsync(cancellationToken);
 
         var bundled = await _dbContext.AgentPackageSources.AsNoTracking().AnyAsync(x => x.Id == packageVersion.PackageSourceId && x.IsBundled, cancellationToken);
-        if (!settings.EnableImportedAgents && !bundled)
+        if (packageVersion.PluginKind == PluginKind.Agent && !settings!.EnableImportedAgents && !bundled)
         {
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
         }
@@ -138,6 +138,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             }
 
         var manifest = DeserializeManifest(packageVersion.ManifestJson);
+        var brokerOnly = packageVersion.PluginKind == PluginKind.Connector;
+        if (brokerOnly) request = WithoutRuntimeSettings(request);
         if (manifest.Accounts is not null && await _dbContext.AgentInstallations.AnyAsync(x => x.Scope == PluginInstallationScope.System &&
             x.PackageVersion!.AgentId == packageVersion.AgentId && x.RevisionStatus == PluginRevisionStatus.Active, cancellationToken))
             throw new AgentInstallationException("This enterprise integration is already installed. Open its management page to connect another account.");
@@ -149,7 +151,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException("This agent does not support multiple installations for the business.");
         }
 
-        var activationMode = ParseActivationMode(request.ActivationMode);
+        var activationMode = brokerOnly ? ActivationMode.OnDemand : ParseActivationMode(request.ActivationMode);
         var scope = ParsePluginScope(request.PluginScope);
         if (scope == PluginInstallationScope.User && (!bundled || packageVersion.AgentId != CSweet.Contracts.PersonalAssistant.PersonalAssistantCapabilities.AgentId))
             throw new AgentInstallationException("User scope is reserved for the bundled personal assistant.");
@@ -158,14 +160,17 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         if (packageVersion.PluginKind == PluginKind.Service &&
             (scope != PluginInstallationScope.System || activationMode != ActivationMode.AlwaysOn))
             throw new AgentInstallationException("Communication providers must be system-scoped and always-on.");
-        var overlapPolicy = ParseOverlapPolicy(request.OverlapPolicy);
-        var maxRuntimeSeconds = NormalizeMaxRuntimeSeconds(
+        var overlapPolicy = brokerOnly ? OverlapPolicy.Skip : ParseOverlapPolicy(request.OverlapPolicy);
+        var maxRuntimeSeconds = brokerOnly ? 0 : NormalizeMaxRuntimeSeconds(
             request.MaxRuntimeSeconds,
-            settings,
+            settings!,
             packageVersion.AgentId,
             businessId);
-        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings);
-        ValidateResources(request.MemoryMb, request.CpuPercent, settings, packageVersion);
+        if (!brokerOnly)
+        {
+            ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings!, packageVersion.PluginKind);
+            ValidateResources(request.MemoryMb, request.CpuPercent, settings!, packageVersion);
+        }
         ValidateGrant("provided capabilities", request.GrantedCapabilities, manifest.Provides.Select(x => x.Name).ToArray());
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
             AgentImportPreviewService.GrantRequiredCapabilities(manifest));
@@ -212,7 +217,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             ProvidedCapabilitiesJson = SerializeGrant(request.GrantedCapabilities),
             RequiredCapabilitiesJson = SerializeGrant(request.GrantedRequestedCapabilities),
             EventSubscriptionsJson = SerializeGrant(request.GrantedSubscriptions),
-            ResourceLimitsJson = JsonSerializer.Serialize(new
+            ResourceLimitsJson = brokerOnly ? "{}" : JsonSerializer.Serialize(new
             {
                 MaxRuntimeSeconds = maxRuntimeSeconds,
                 request.MemoryMb,
@@ -221,7 +226,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             GrantRevision = 1,
             ApprovedAt = now
         };
-        var schedule = new AgentSchedule
+        var schedule = brokerOnly ? null : new AgentSchedule
         {
             Id = Guid.NewGuid(),
             AgentInstallationId = installation.Id,
@@ -379,6 +384,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken = default)
     {
         var installation = await GetInstallationAsync(installationId, cancellationToken);
+        RequireExecutableWorkload(installation);
         var settings = await GetSettingsAsync(cancellationToken);
         var activationMode = ParseActivationMode(request.ActivationMode);
         var overlapPolicy = ParseOverlapPolicy(request.OverlapPolicy);
@@ -387,7 +393,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             settings,
             installation.PackageVersion!.AgentId,
             installation.BusinessId);
-        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings);
+        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activationMode, settings, installation.PackageVersion.PluginKind);
 
         if (maxRuntimeSeconds > installation.Grant!.MaxRuntimeSeconds)
         {
@@ -431,6 +437,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         {
             throw new AgentInstallationException("The selected package is not an update for this agent.");
         }
+        if(nextPackage.PluginKind != currentPackage.PluginKind)
+            throw new AgentInstallationException("An update cannot change a package between broker-only connectors and executable workloads. Install and review it separately.");
 
         if (await _dbContext.AgentInstallations.AnyAsync(
                 x => x.Id != installation.Id &&
@@ -508,10 +516,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             RequiredCapabilitiesJson = "[]",
             EventSubscriptionsJson = "[]",
             ResourceLimitsJson = "{}",
-            MaxRuntimeSeconds = installation.Grant!.MaxRuntimeSeconds,
-            MemoryMb = installation.Grant.MemoryMb, CpuPercent = installation.Grant.CpuPercent
+            MaxRuntimeSeconds = nextPackage.PluginKind == PluginKind.Connector ? 0 : installation.Grant!.MaxRuntimeSeconds,
+            MemoryMb = nextPackage.PluginKind == PluginKind.Connector ? 0 : installation.Grant!.MemoryMb,
+            CpuPercent = nextPackage.PluginKind == PluginKind.Connector ? 0 : installation.Grant!.CpuPercent
         };
-        staged.Schedule = new AgentSchedule
+        staged.Schedule = nextPackage.PluginKind == PluginKind.Connector ? null : new AgentSchedule
         {
             Id = Guid.NewGuid(), AgentInstallationId = staged.Id,
             ActivationMode = installation.Schedule!.ActivationMode,
@@ -582,20 +591,25 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException("The approval business must match the staged revision.");
 
         var manifest = DeserializeManifest(staged.PackageVersion.ManifestJson);
+        var brokerOnly = staged.PackageVersion.PluginKind == PluginKind.Connector;
+        if (brokerOnly) request = WithoutRuntimeSettings(request);
         await using var updateTransaction=manifest.Accounts is not null && _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction==null
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         if(manifest.Accounts is not null && (string.IsNullOrWhiteSpace(request.ExpectedPackageDigest) || request.ExpectedPackageDigest!=staged.PackageVersion.PackageDigest))
             throw new AgentInstallationException("The verified update changed after review. Review and approve its exact package digest again.");
-        var settings = await GetSettingsAsync(cancellationToken);
-        var activation = ParseActivationMode(request.ActivationMode);
-        var overlap = ParseOverlapPolicy(request.OverlapPolicy);
-        var maxRuntimeSeconds = NormalizeMaxRuntimeSeconds(
+        var settings = brokerOnly ? null : await GetSettingsAsync(cancellationToken);
+        var activation = brokerOnly ? ActivationMode.OnDemand : ParseActivationMode(request.ActivationMode);
+        var overlap = brokerOnly ? OverlapPolicy.Skip : ParseOverlapPolicy(request.OverlapPolicy);
+        var maxRuntimeSeconds = brokerOnly ? 0 : NormalizeMaxRuntimeSeconds(
             request.MaxRuntimeSeconds,
-            settings,
+            settings!,
             staged.PackageVersion.AgentId,
             staged.BusinessId);
-        ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activation, settings);
-        ValidateResources(request.MemoryMb, request.CpuPercent, settings, staged.PackageVersion);
+        if (!brokerOnly)
+        {
+            ValidateSchedule(request.TickFrequencySeconds, maxRuntimeSeconds, activation, settings!, staged.PackageVersion.PluginKind);
+            ValidateResources(request.MemoryMb, request.CpuPercent, settings!, staged.PackageVersion);
+        }
         ValidateGrant("provided capabilities", request.GrantedCapabilities, manifest.Provides.Select(x => x.Name).ToArray());
         ValidateGrant("required capabilities", request.GrantedRequestedCapabilities,
             AgentImportPreviewService.GrantRequiredCapabilities(manifest));
@@ -632,7 +646,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             await _dbContext.PluginAccountGroups.AnyAsync(x=>x.PluginInstallationId==previous.Id && x.State!=PluginAccountState.Disconnected,cancellationToken))
             throw new AgentInstallationException("Disconnect the previous revision's accounts and confirm cleanup before approving this update. Credentials and autonomous policies are never transferred.");
         previous.IsEnabled = false;
-        previous.Schedule!.IsEnabled = false;
+        if(previous.Schedule is { } disabledSchedule) disabledSchedule.IsEnabled = false;
         await ResourceCleanupQueue.EnqueueAsync(_dbContext, ResourceCleanupQueue.Runtime, previous.Id,
             Guid.TryParse(previous.BusinessId, out var previousBusiness) ? previousBusiness : Guid.Empty, DateTimeOffset.UtcNow, cancellationToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -640,8 +654,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var now = DateTimeOffset.UtcNow;
         previous.IsEnabled = false;
         previous.RevisionStatus = PluginRevisionStatus.Retired;
-        previous.Schedule!.IsEnabled = false;
-        previous.Schedule.NextTickAt = null;
+        if(previous.Schedule is { } previousSchedule)
+        { previousSchedule.IsEnabled = false; previousSchedule.NextTickAt = null; }
         previous.UpdatedAt = now;
         await RevokeToolchainEligibilityAsync(
             previous.Id, "The provider package revision was replaced.", now, cancellationToken);
@@ -656,7 +670,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         grant.ProvidedCapabilitiesJson = SerializeGrant(request.GrantedCapabilities);
         grant.RequiredCapabilitiesJson = SerializeGrant(request.GrantedRequestedCapabilities);
         grant.EventSubscriptionsJson = SerializeGrant(request.GrantedSubscriptions);
-        grant.ResourceLimitsJson = JsonSerializer.Serialize(new
+        grant.ResourceLimitsJson = brokerOnly ? "{}" : JsonSerializer.Serialize(new
         {
             MaxRuntimeSeconds = maxRuntimeSeconds,
             request.MemoryMb,
@@ -667,13 +681,18 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         grant.MemoryMb = request.MemoryMb;
         grant.CpuPercent = request.CpuPercent;
         grant.ApprovedAt = now;
-        staged.Schedule!.ActivationMode = activation;
-        staged.Schedule.TickFrequencySeconds = request.TickFrequencySeconds;
-        staged.Schedule.MaxRuntimeSeconds = maxRuntimeSeconds;
-        staged.Schedule.OverlapPolicy = overlap;
-        staged.Schedule.IsEnabled = true;
-        ResetAutomaticStartupFailures(staged.Schedule);
-        staged.Schedule.NextTickAt = ComputeNextTick(activation, request.TickFrequencySeconds, now);
+        if (!brokerOnly)
+        {
+            staged.Schedule!.ActivationMode = activation;
+            staged.Schedule.TickFrequencySeconds = request.TickFrequencySeconds;
+            staged.Schedule.MaxRuntimeSeconds = maxRuntimeSeconds;
+            staged.Schedule.OverlapPolicy = overlap;
+            staged.Schedule.IsEnabled = true;
+            ResetAutomaticStartupFailures(staged.Schedule);
+            staged.Schedule.NextTickAt = ComputeNextTick(activation, request.TickFrequencySeconds, now);
+        }
+        else if(staged.Schedule is { } obsoleteSchedule)
+        { _dbContext.AgentSchedules.Remove(obsoleteSchedule); staged.Schedule = null; }
         staged.IsEnabled = true;
         staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
@@ -854,6 +873,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken = default)
     {
         var installation = await GetInstallationAsync(installationId, cancellationToken);
+        RequireExecutableWorkload(installation);
         if (!installation.IsEnabled || !installation.Schedule!.IsEnabled)
         {
             throw new AgentInstallationException("The agent installation and schedule must be enabled to run now.");
@@ -896,11 +916,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         }
 
         var now = DateTimeOffset.UtcNow;
-        var schedule = installation.Schedule!;
-        ResetAutomaticStartupFailures(schedule);
-        if (installation.IsEnabled &&
-            schedule.IsEnabled &&
-            schedule.ActivationMode == ActivationMode.AlwaysOn)
+        var schedule = installation.Schedule;
+        if (schedule is not null) ResetAutomaticStartupFailures(schedule);
+        if (installation.PackageVersion!.PluginKind != PluginKind.Connector && installation.IsEnabled &&
+            schedule is { IsEnabled:true, ActivationMode:ActivationMode.AlwaysOn })
         {
             schedule.NextTickAt = now;
         }
@@ -920,6 +939,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken = default)
     {
         var installation = await GetInstallationAsync(installationId, cancellationToken);
+        RequireExecutableWorkload(installation);
         var schedule = installation.Schedule!;
         if (!installation.IsEnabled || !schedule.IsEnabled)
             throw new AgentInstallationException("The agent installation and schedule must be enabled to try startup again.");
@@ -950,8 +970,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         if(DeserializeManifest(installation.PackageVersion!.ManifestJson).Accounts is not null)
             throw new AgentInstallationException("Use the enterprise plugin's impact-reviewed pause controls on its account management page.");
         installation.IsEnabled = false;
-        installation.Schedule!.IsEnabled = false;
-        installation.Schedule.NextTickAt = null;
+        if(installation.Schedule is { } schedule)
+        { schedule.IsEnabled = false; schedule.NextTickAt = null; }
         installation.UpdatedAt = DateTimeOffset.UtcNow;
         await RevokeToolchainEligibilityAsync(
             installation.Id, "The provider installation was disabled.", installation.UpdatedAt, cancellationToken);
@@ -986,8 +1006,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         if (await _dbContext.ResourceCleanupRequests.AnyAsync(x => x.Kind == ResourceCleanupQueue.Runtime &&
             x.ResourceId == installationId && x.CompletedAt == null, cancellationToken))
             throw new AgentInstallationException("Runtime deletion must complete before this installation can be enabled.");
-        var settings = await GetSettingsAsync(cancellationToken);
-        if (!settings.EnableImportedAgents)
+        var settings = installation.PackageVersion!.PluginKind == PluginKind.Connector ? null : await GetSettingsAsync(cancellationToken);
+        if (installation.PackageVersion!.PluginKind == PluginKind.Agent && !settings!.EnableImportedAgents)
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
         var manifest = DeserializeManifest(installation.PackageVersion!.ManifestJson);
         if(manifest.Accounts is not null)
@@ -1001,12 +1021,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             cancellationToken);
         var now = DateTimeOffset.UtcNow;
         installation.IsEnabled = true;
-        installation.Schedule!.IsEnabled = true;
-        ResetAutomaticStartupFailures(installation.Schedule);
-        installation.Schedule.NextTickAt = ComputeNextTick(
-            installation.Schedule.ActivationMode,
-            installation.Schedule.TickFrequencySeconds,
-            now);
+        if(installation.PackageVersion!.PluginKind != PluginKind.Connector)
+        {
+            installation.Schedule!.IsEnabled = true;
+            ResetAutomaticStartupFailures(installation.Schedule);
+            installation.Schedule.NextTickAt = ComputeNextTick(installation.Schedule.ActivationMode, installation.Schedule.TickFrequencySeconds, now);
+        }
+        else if(installation.Schedule is { } obsoleteSchedule)
+        { obsoleteSchedule.IsEnabled=false; obsoleteSchedule.NextTickAt=null; }
         installation.UpdatedAt = now;
         await _dbContext.SaveChangesAsync(cancellationToken);
         if (activation is not null) await activation.CommitAsync(cancellationToken);
@@ -1689,7 +1711,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         int tickFrequencySeconds,
         int maxRuntimeSeconds,
         ActivationMode activationMode,
-        AgentRuntimeGlobalSettings settings)
+        AgentRuntimeGlobalSettings settings,
+        PluginKind kind)
     {
         if (tickFrequencySeconds < settings.MinimumTickFrequencySeconds)
         {
@@ -1707,7 +1730,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 $"Max runtime must be greater than zero and no more than {settings.DefaultMaxRuntimeSeconds} seconds.");
         }
 
-        if (activationMode == ActivationMode.AlwaysOn && !settings.AllowAlwaysOnCommunityAgents)
+        if (kind == PluginKind.Agent && activationMode == ActivationMode.AlwaysOn && !settings.AllowAlwaysOnCommunityAgents)
         {
             throw new AgentInstallationException("Always-on community agents are disabled by global policy.");
         }
@@ -1815,12 +1838,22 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     private static IReadOnlyList<string> DeserializeGrant(string json) =>
         JsonSerializer.Deserialize<IReadOnlyList<string>>(json, SerializerOptions) ?? [];
 
+    private static InstallAgentRequest WithoutRuntimeSettings(InstallAgentRequest request) => request with
+    { ActivationMode=string.Empty, TickFrequencySeconds=0, OverlapPolicy=string.Empty, MaxRuntimeSeconds=0, MemoryMb=0, CpuPercent=0 };
+
+    private static void RequireExecutableWorkload(AgentInstallation installation)
+    {
+        if(installation.PackageVersion!.PluginKind == PluginKind.Connector)
+            throw new AgentInstallationException("Broker-only connectors do not have VM runtimes or schedules. Use the plugin's account and operation controls.");
+    }
+
     private static AgentInstallationResponse ToResponse(AgentInstallation installation)
     {
         var package = installation.PackageVersion!;
         var catalog = DeserializeManifest(package.ManifestJson).Catalog;
         var grant = installation.Grant!;
-        var schedule = installation.Schedule!;
+        var brokerOnly = package.PluginKind == PluginKind.Connector;
+        var schedule = brokerOnly ? null : installation.Schedule;
         var build = package.BuildJobs.OrderByDescending(x => x.Attempt).FirstOrDefault();
         var runtime = installation.RuntimeInstances.OrderByDescending(x => x.QueuedAt).FirstOrDefault();
         return new AgentInstallationResponse(
@@ -1838,9 +1871,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             [],
             [],
             DeserializeGrant(grant.NetworkAccessJson),
-            grant.MemoryMb,
-            grant.CpuPercent,
-            new AgentScheduleResponse(
+            brokerOnly ? 0 : grant.MemoryMb,
+            brokerOnly ? 0 : grant.CpuPercent,
+            schedule is null ? null : new AgentScheduleResponse(
                 schedule.Id,
                 schedule.ActivationMode.ToString(),
                 schedule.TickFrequencySeconds,

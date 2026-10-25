@@ -13,9 +13,9 @@ public static class PluginManagementEndpoints
         var group = endpoints.MapGroup("/api/plugins")
             .RequireAuthorization("PluginAdministration");
 
-        group.MapGet("/installation-policy", async ([Microsoft.AspNetCore.Mvc.FromServices] IAgentRuntimeSettingsService settings,
-            CancellationToken cancellationToken) => Results.Ok(new PluginInstallationPolicyResponse(
-                (await settings.GetAsync(cancellationToken)).EnableImportedAgents)));
+        // Plugin installation is available by default. The imported-agent runtime opt-in
+        // controls agent workloads, not reviewed Service/Connector packages.
+        group.MapGet("/installation-policy", () => Results.Ok(new PluginInstallationPolicyResponse(true)));
 
         group.MapGet("/provider-profiles", async (IPluginProviderProfileRegistry profiles,
             CancellationToken cancellationToken) => Results.Ok(await profiles.ListAsync(cancellationToken)));

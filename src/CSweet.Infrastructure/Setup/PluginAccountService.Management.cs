@@ -42,7 +42,8 @@ public sealed partial class PluginAccountService
             if((await Context(installationId,ct,true)).Installation.PackageVersion!.Status!=AgentPackageVersionStatus.Built)
                 throw new InvalidOperationException("The verified build must be ready before resuming this plugin.");
             if(!installation.IsEnabled) installation.IsEnabled=true;
-            if(installation.Schedule!=null) installation.Schedule.IsEnabled=true;
+            // Legacy connector schedules remain disabled. Account discovery/maintenance is brokered work.
+            if(installation.Schedule!=null) { installation.Schedule.IsEnabled=false; installation.Schedule.NextTickAt=null; }
         }
         else
         {

@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <Folder Include="wwwroot\images\" />
+    <Content Remove="Catalog\plugins.json" />
+    <None Remove="Catalog\plugins.json" />
+    <EmbeddedResource Include="Catalog\plugins.json" LogicalName="CSweet.PluginCatalog" />
   </ItemGroup>
 
   <ItemGroup>

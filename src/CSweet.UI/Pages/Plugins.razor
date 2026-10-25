@@ -20,8 +20,7 @@
     @if (_installationPolicy is { ImportedPluginsEnabled: false })
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" role="status">
-            @L["Plugins.Import.DisabledByRuntime"]
-            <MudLink Href="/settings/agents/runtime">@L["Plugins.Import.RuntimeSettings"]</MudLink>
+            @L["Plugins.Import.Unavailable"]
         </MudAlert>
     }
     @if (!string.IsNullOrWhiteSpace(_message))
@@ -52,7 +51,7 @@
                     {
                         <MudPaper @key="installation.Id" Outlined="true" Elevation="0" Class="plugin-installation">
                             <div class="plugin-row">
-                                <div class="plugin-icon"><MudIcon Icon="@PluginIcon(installation.AgentId)" /></div>
+                                <PluginCatalogIcon Entry="@PluginCatalog.Entries.FirstOrDefault(e=>e.Id==installation.AgentId)" />
                                 <div class="plugin-row-body">
                                     <div class="plugin-title"><MudText Typo="Typo.subtitle1">@installation.AgentName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@($"v{installation.AgentVersion}")</MudText></div>
                                     @if (!string.IsNullOrWhiteSpace(installation.Summary)) { <MudText Typo="Typo.body2" Color="Color.Secondary">@installation.Summary</MudText> }
@@ -157,7 +156,7 @@
                     {
                         var installed = _installations.FirstOrDefault(x => x.AgentId == entry.Id);
                         <MudPaper @key="entry.Id" Outlined="true" Elevation="0" Class="plugin-catalog-card">
-                            <div class="configuration-section-header"><div class="plugin-icon"><MudIcon Icon="@entry.Icon" /></div><MudText Typo="Typo.caption" Color="Color.Secondary">@L[$"Plugins.Catalog.Category.{entry.Category}"]</MudText></div>
+                            <div class="configuration-section-header"><PluginCatalogIcon Entry="entry" /><MudText Typo="Typo.caption" Color="Color.Secondary">@L[$"Plugins.Catalog.Category.{entry.Category}"]</MudText></div>
                             <MudText Typo="Typo.h6" Class="mt-4">@entry.Name</MudText>
                             <MudText Typo="Typo.body2" Color="Color.Secondary" Class="plugin-catalog-description">@L[entry.DescriptionKey]</MudText>
                             <MudText Typo="Typo.caption" Color="Color.Secondary">C-Sweet</MudText>
