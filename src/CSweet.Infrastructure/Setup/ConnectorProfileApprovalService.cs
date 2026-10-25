@@ -38,6 +38,7 @@ public sealed class ConnectorProfileApprovalService(CSweetDbContext db, IPluginP
             db.ConnectorProfileApprovals.Add(approval);
         }
         approval.ApprovedAt = DateTimeOffset.UtcNow; approval.RevokedAt = null;
+        approval.ProviderProfileHash = PluginAccountProfileGuard.Fingerprint(profile);
         approval.ApprovedByApplicationUserId = administratorId;
         await db.SaveChangesAsync(token);
         await audit.WriteAsync("connector.profile.approved", nameof(ConnectorProfileApproval), approval.Id,

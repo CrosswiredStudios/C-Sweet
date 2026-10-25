@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.Setup;
 
 /// <summary>Explicit, same-organization connection selection. Never auto-selects a channel.</summary>
-public sealed class ConnectorBindingService(CSweetDbContext db)
+public sealed partial class ConnectorBindingService(CSweetDbContext db)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public async Task<IReadOnlyList<PluginDependencySetupResponse>> GetChoicesAsync(
@@ -60,7 +60,8 @@ public sealed class ConnectorBindingService(CSweetDbContext db)
                 current.All(b => connectors.Any(c => c.Id == b.ProviderInstallationId && c.PackageVersion!.PackageDigest == b.ProviderPackageDigest))
                 ? current[0].ProviderInstallationId : null;
             result.Add(new(dependency.Id, dependency.PluginId, required, selected,
-                choices.OrderBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.InstallationId).ToArray()));
+                choices.OrderBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.InstallationId).ToArray())
+            { ResourceChoices = await EnterpriseChoices(organizationId, requester, dependency, required, token) });
         }
         return result;
     }
@@ -76,11 +77,23 @@ public sealed class ConnectorBindingService(CSweetDbContext db)
                 .Where(x => x.RequesterInstallationId == requester.Id && x.OrganizationId == requester.BusinessId &&
                     x.DependencyId == dependency.Id && x.GrantRevision == requester.Grant!.GrantRevision && x.RevokedAt == null)
                 .ToListAsync(token);
-            if (bindings.Select(x => x.ProviderInstallationId).Distinct().Count() != 1 ||
-                requirements.Any(x => !bindings.Any(b => b.Capability == x.Name)))
+            if (bindings.Select(x => x.ProviderInstallationId).Distinct().Count() != 1)
                 throw new InvalidOperationException("Select and authorize an account for every required connector capability.");
             var connector = bindings[0].ProviderInstallation!;
             ValidatePackage(dependency, connector.PackageVersion!);
+            var provider = JsonSerializer.Deserialize<PluginManifest>(connector.PackageVersion!.ManifestJson, JsonOptions)!;
+            if (provider.Accounts is not null)
+            {
+                var baseRequired = requirements.Where(r => provider.ProviderOperations.Any(o => o.Capability == r.Name && o.Http is { Bootstrap: false } mapping &&
+                    mapping.ScopeSets.All(id => provider.Connections.Single(c => c.Id == mapping.Connection).ScopeSets.Single(s => s.Id == id).Required))).ToArray();
+                if (!connector.IsEnabled || connector.SetupState != PluginSetupState.Ready || connector.RevisionStatus != PluginRevisionStatus.Active ||
+                    bindings.Any(b => b.ProviderPackageDigest != connector.PackageVersion.PackageDigest) || baseRequired.Any(r => !bindings.Any(b => b.Capability == r.Name)) ||
+                    bindings.Select(b => b.PluginAccountResourceId).Distinct().Count() != 1)
+                    throw new InvalidOperationException("Select a currently authorized resource with the required base permissions.");
+                foreach (var binding in bindings) await new PluginAccountAuthorityService(db).RequireAsync(Guid.Parse(requester.BusinessId), binding, connector, provider, token);
+                continue;
+            }
+            if (requirements.Any(x => !bindings.Any(b => b.Capability == x.Name))) throw new InvalidOperationException("Authorize every required connector capability.");
             if (connector.BusinessId != requester.BusinessId || !connector.IsEnabled || connector.SetupState != PluginSetupState.Ready ||
                 connector.RevisionStatus != PluginRevisionStatus.Active ||
                 bindings.Any(x => x.ProviderPackageDigest != connector.PackageVersion!.PackageDigest) ||

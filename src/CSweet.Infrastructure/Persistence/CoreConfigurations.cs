@@ -626,7 +626,7 @@ internal static class CoreConfigurations
                 "\"Priority\" IN ('Low', 'Medium', 'High', 'Critical')");
         });
         entity.Property(x => x.Title).HasMaxLength(512).IsRequired();
-        entity.Property(x => x.Description).HasMaxLength(8192).IsRequired();
+        entity.Property(x => x.Description).HasColumnType("text").IsRequired();
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         entity.Property(x => x.Priority).HasConversion<string>().HasMaxLength(16).IsRequired();
         entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24).IsRequired();
@@ -644,7 +644,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
         entity.Property(x => x.Identifier).HasMaxLength(32);
         entity.Property(x => x.ResultSummary).HasMaxLength(4096);
-        entity.Property(x => x.BlockReason).HasMaxLength(4096);
+        entity.Property(x => x.BlockReason).HasColumnType("text");
         entity.Property(x => x.CreationIdempotencyKey).HasMaxLength(160);
         entity.Property(x => x.CorrelationId).HasMaxLength(160);
         entity.Property(x => x.CausationId).HasMaxLength(160);

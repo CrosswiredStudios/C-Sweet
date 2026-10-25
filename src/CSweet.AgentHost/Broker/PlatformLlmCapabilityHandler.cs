@@ -337,6 +337,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         long? inputTokenCount = null;
         long? outputTokenCount = null;
         var streamSequence = 0;
+        var generation = new ModelGenerationTracker(runLog);
 
         // Older SDKs still serialize with queued jobs, but need an SDK update for
         // short polling and acknowledged-wait deadline accounting.
@@ -510,6 +511,8 @@ public sealed partial class PlatformLlmCapabilityHandler
                 }
 
                 var usage = update.Contents.OfType<UsageContent>().FirstOrDefault()?.Details;
+                var observedAt = DateTimeOffset.UtcNow;
+                generation.Observe(update, observedAt);
                 if (usage is not null)
                 {
                     inputTokenCount = usage.InputTokenCount ?? inputTokenCount;
@@ -526,7 +529,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                 {
                     _dbContext.QueueAudit(new AuditEventWriteRequest("model.response.chunk", "Model", Outcome: "Running",
                         OrganizationId: hasOrganization ? organizationId : null, EntityType: "AgentRunLog", EntityId: runLog.Id,
-                        OccurredAt: DateTimeOffset.UtcNow, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
+                        OccurredAt: observedAt, CorrelationId: runLog.ChatTurnId?.ToString("D") ?? runLog.Id.ToString("D"),
                         Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json",
                         Payload: omitInstructionEvidence ? JsonSerializer.SerializeToUtf8Bytes(new { sequence = streamSequence,
                             contentPolicy = "memory-content-omitted-v1", inputTokens = usage?.InputTokenCount,
@@ -537,12 +540,15 @@ public sealed partial class PlatformLlmCapabilityHandler
                             additionalUsage = usage is null ? null : ToAdditionalUsage(usage.AdditionalCounts) }, JsonOptions),
                         EventId: CSweetDbContext.AuditSourceId($"model:{runLog.Id:D}:chunk:{streamSequence}"),
                         Employees: hasEmployeeIdentity ? [new(employeeId, "Actor")] : []));
-                    try
+                    if (!await PersistStreamAuditAsync(runLog.Id))
                     {
-                        await _dbContext.SaveChangesAsync(CancellationToken.None);
-                        ReleasePersistedStreamAudits(runLog.Id);
+                        const string auditError = "The model stream stopped because its audit evidence could not be persisted.";
+                        CompleteRunLog(runLog, runStopwatch, "Failed", inputTokenCount, outputTokenCount,
+                            responseText, auditError, omitMemoryContent: omitInstructionEvidence);
+                        await TryPersistRunLogAsync(runLog, CancellationToken.None);
+                        yield return Failure(request.RequestId, auditError, retryable: true, "llm.audit_persistence_failed");
+                        yield break;
                     }
-                    catch (Exception error) { _logger.LogWarning(error, "Could not persist model stream audit evidence for {RunId}.", runLog.Id); }
                     yield return Success(
                         request.RequestId,
                         new PlatformChatChunk(
@@ -672,6 +678,28 @@ public sealed partial class PlatformLlmCapabilityHandler
             // Benchmarks require a durable receipt before dispatch. Preserve ordinary inference availability.
             if (runLog.BenchmarkTrialId.HasValue) throw;
         }
+    }
+
+    private async Task<bool> PersistStreamAuditAsync(Guid runId)
+    {
+        // Keep the same queued receipt/id across retries; never release an unaudited
+        // chunk. The database/outbox remains the durability boundary, not a background
+        // task or an in-memory buffer. Bound retries so an outage cannot hang a stream.
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                await _dbContext.SaveChangesAsync(CancellationToken.None);
+                ReleasePersistedStreamAudits(runId);
+                return true;
+            }
+            catch (Exception error)
+            {
+                _logger.LogWarning(error, "Could not persist model stream audit evidence for {RunId} (attempt {Attempt}).", runId, attempt);
+                if (attempt < 3) await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), CancellationToken.None);
+            }
+        }
+        return false;
     }
 
     private void ReleasePersistedStreamAudits(Guid runId)

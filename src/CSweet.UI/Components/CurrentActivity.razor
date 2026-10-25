@@ -29,7 +29,7 @@
         }
         @foreach (var item in VisibleRows)
         {
-            <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" Inspect="ToggleStreamAsync">
+            <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" IsConnected="@_connected" Inspect="ToggleStreamAsync">
     @if (_selected is { } selected && selected.Key == item.Key)
     {
         <section class="activity-stream @(_wide ? "wide" : "")" role="region" aria-label="@L["CurrentActivity.Stream.Title"]" data-activity-stream>

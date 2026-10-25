@@ -27,21 +27,31 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
     public async Task Long_reasoning_stream_keeps_tracking_bounded_and_persists_every_chunk(bool failOnce)
     {
         const int fragments = 2048;
-        var probe = new StreamPersistenceProbe(streamOutput, failOnce);
+        var protection = failOnce ? new EphemeralDataProtectionProvider() : null;
+        var probe = new StreamPersistenceProbe(streamOutput, failOnce, protection: protection);
         var options = new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).AddInterceptors(probe).Options;
-        var protection = failOnce ? new EphemeralDataProtectionProvider() : null;
         await using var db = new CSweetDbContext(options, protection);
         var provider = await AddProviderAsync(db);
         var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(new FragmentedReasoningClient(fragments)),
             new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
             [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance);
         var timer = Stopwatch.StartNew();
-        var results = await ReadAsync(db, handler, provider);
+        var forwarded = 0;
+        var results = await ReadAsync(db, handler, provider, observeResult: async result =>
+        {
+            if (!result.HasMore || !result.Succeeded) return;
+            await using var committed = new CSweetDbContext(options, protection);
+            // A separate context must see the receipt before the consumer receives
+            // this chunk, including immediately after a transient save failure.
+            Assert.Equal(++forwarded, (await committed.AuditOutbox.AsNoTracking().ToListAsync())
+                .Count(x => ReadAuditRequest(x, protection).EventType == "model.response.chunk"));
+        });
         streamOutput.WriteLine($"Total: {timer.ElapsedMilliseconds} ms; peak tracked audit rows: {probe.PeakAuditRows}");
         Assert.All(results, x => Assert.True(x.Succeeded, x.Error));
         Assert.False(results[^1].HasMore);
         var chunks = results.Where(x => x.HasMore).Select(x => JsonSerializer.Deserialize<ObservedStreamChunk>(x.Payload.Span, JsonOptions)!).ToArray();
+        Assert.InRange(chunks.Length, 65, 75); // More than 95% fewer durable writes than per-fragment persistence.
         Assert.Equal(string.Concat(Enumerable.Range(0, fragments).Select(i => $"r{i},")),
             string.Concat(chunks.SelectMany(x => x.Contents ?? []).Where(x => x.Kind == "reasoning").Select(x => x.Text)));
         Assert.Contains(chunks, x => x.FinishReason == "stop");
@@ -50,8 +60,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         Assert.Single(db.AgentRuntimeInstances.Local);
         await using var verify = new CSweetDbContext(options, protection);
         var persisted = await verify.AuditOutbox.AsNoTracking().ToListAsync();
-        var chunkAudits = persisted.Select(x => JsonSerializer.Deserialize<AuditEventWriteRequest>(x.ProtectedRequest is null
-                ? x.RequestJson : System.Text.Encoding.UTF8.GetString(protection!.CreateProtector("CSweet.AuditOutbox.v1").Unprotect(x.ProtectedRequest)))!)
+        var chunkAudits = persisted.Select(x => ReadAuditRequest(x, protection))
             .Where(x => x.EventType == "model.response.chunk").ToArray();
         Assert.Equal(chunks.Length, chunkAudits.Length);
         Assert.Equal(chunks.Length, chunkAudits.Select(x => x.EventId).Distinct().Count());
@@ -73,10 +82,35 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         Assert.True(probe.PeakActivityWakes < 4, $"Stream retained {probe.PeakActivityWakes} activity hints.");
     }
 
+    [Fact]
+    public async Task Persistent_stream_audit_failure_stops_before_forwarding_unaudited_content()
+    {
+        var probe = new StreamPersistenceProbe(streamOutput, failOnce: false, alwaysFail: true);
+        var options = new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).AddInterceptors(probe).Options;
+        await using var db = new CSweetDbContext(options);
+        var provider = await AddProviderAsync(db);
+        var handler = new PlatformLlmCapabilityHandler(db, new StreamingProviderFactory(new FragmentedReasoningClient(128)),
+            new AgentEmployeeIdentityResolver(db), new AgentInstallationConfigurationService(db, new TestAuditEventWriter()),
+            [], new TestMediaAssetService(), NullLogger<PlatformLlmCapabilityHandler>.Instance);
+        var results = await ReadAsync(db, handler, provider);
+        Assert.True(probe.FailureInjected);
+        var failure = Assert.Single(results);
+        Assert.False(failure.Succeeded); Assert.True(failure.Retryable);
+        Assert.Equal("llm.audit_persistence_failed", failure.FailureCode);
+        await using var verify = new CSweetDbContext(options);
+        Assert.DoesNotContain(await verify.AuditOutbox.ToListAsync(), x => x.RequestJson.Contains("model.response.chunk"));
+    }
+
     private sealed record ObservedStreamChunk(string? Text, IReadOnlyList<ObservedStreamContent>? Contents, string? FinishReason);
     private sealed record ObservedStreamContent(string Kind, string? Text);
 
-    private sealed class StreamPersistenceProbe(ITestOutputHelper output, bool failOnce = false) : SaveChangesInterceptor
+    private static AuditEventWriteRequest ReadAuditRequest(ComputeAuditOutbox row, IDataProtectionProvider? protection) =>
+        JsonSerializer.Deserialize<AuditEventWriteRequest>(row.ProtectedRequest is null ? row.RequestJson :
+            System.Text.Encoding.UTF8.GetString(protection!.CreateProtector("CSweet.AuditOutbox.v1").Unprotect(row.ProtectedRequest)))!;
+
+    private sealed class StreamPersistenceProbe(ITestOutputHelper output, bool failOnce = false, bool alwaysFail = false,
+        IDataProtectionProvider? protection = null) : SaveChangesInterceptor
     {
         public int PeakAuditRows { get; private set; }
         public int PeakActivityWakes { get; private set; }
@@ -96,7 +130,11 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
                 output.WriteLine($"Saves {saves}: block {block.ElapsedMilliseconds} ms; tracked audit rows {count}");
                 block.Restart();
             }
-            if (failOnce && saves == 1024)
+            // The run record is created before streaming; inject only when a chunk
+            // receipt is queued, including encrypted outbox payloads.
+            var pendingChunk = (failOnce || alwaysFail) && eventData.Context.ChangeTracker.Entries<ComputeAuditOutbox>()
+                .Any(x => x.State == EntityState.Added && ReadAuditRequest(x.Entity, protection).EventType == "model.response.chunk");
+            if (pendingChunk && (alwaysFail || (failOnce && !FailureInjected)))
             {
                 FailureInjected = true;
                 throw new InvalidOperationException("Injected transient stream audit save failure.");

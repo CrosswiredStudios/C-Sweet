@@ -15,6 +15,9 @@ public static class PluginOAuthCredentialKeys
 
     public static async Task<string> ResolveAsync(CSweetDbContext db, Guid installationId, Guid connectionId, CancellationToken ct)
     {
+        var generation = await db.PluginConnections.AsNoTracking().Where(x => x.Id == connectionId && x.AgentInstallationId == installationId &&
+            x.AccountGroupId != null).Select(x => x.ActiveCredentialAttemptId).SingleOrDefaultAsync(ct);
+        if (generation.HasValue) return Generation(connectionId, generation.Value);
         var reference = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x =>
             x.AgentInstallationId == installationId && x.Kind == ActiveKind && x.ExternalKey == connectionId.ToString("N"), ct);
         return reference is null ? Legacy(connectionId) : ReadKey(reference, connectionId);

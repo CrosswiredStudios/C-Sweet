@@ -257,7 +257,7 @@ public sealed record WorkBoardItemResponse(
 
 public sealed record CreateBoardWorkItemRequest(
     [property: Required, MaxLength(512)] string Title,
-    [property: MaxLength(8192)] string? Description = null,
+    string? Description = null,
     string Kind = "Task",
     string Priority = "Medium",
     Guid? ColumnId = null,

@@ -1,0 +1,70 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="ab75ebfc-b64c-4dfe-91ed-ff8fd38da8ee" name="PC@DESKTOP-1LDJV2J 2026-10-23 21:21:30" runUser="DESKTOP-1LDJV2J\PC" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-10-23T21:21:30.7729846-07:00" queuing="2026-10-23T21:21:30.7729850-07:00" start="2026-10-23T21:21:25.8499731-07:00" finish="2026-10-23T21:21:48.5552617-07:00" />
+  <TestSettings name="default" id="7d388a57-f455-4b7d-bea0-f9a72b791447">
+    <Deployment runDeploymentRoot="PC_DESKTOP-1LDJV2J_2026-10-23_21_21_30" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="37c454d6-b2cb-4eb6-94ea-8bd82b52d8ea" testId="3d2f6c3d-eb4c-21d2-6120-3ce845fb9058" testName="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.HiringDeliveryFulfillmentAndContinuationUseRealPostgresTransactions" computerName="DESKTOP-1LDJV2J" duration="00:00:14.2152393" startTime="2026-10-23T21:21:26.5107193-07:00" endTime="2026-10-23T21:21:40.7318487-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="37c454d6-b2cb-4eb6-94ea-8bd82b52d8ea" />
+    <UnitTestResult executionId="4b25c8af-c29d-4707-a94a-49b6e489e5ea" testId="f328dd8c-ac3f-c2de-2095-d1c2493ca6b0" testName="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;external&quot;)" computerName="DESKTOP-1LDJV2J" duration="00:00:01.2614905" startTime="2026-10-23T21:21:45.7344323-07:00" endTime="2026-10-23T21:21:46.9954543-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="4b25c8af-c29d-4707-a94a-49b6e489e5ea" />
+    <UnitTestResult executionId="816941db-c15c-4a85-9750-2ebdfcb3c70c" testId="993599bb-2c15-5453-6d88-5600e00c3af4" testName="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;defer&quot;)" computerName="DESKTOP-1LDJV2J" duration="00:00:00.2231214" startTime="2026-10-23T21:21:48.2438331-07:00" endTime="2026-10-23T21:21:48.4666011-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="816941db-c15c-4a85-9750-2ebdfcb3c70c" />
+    <UnitTestResult executionId="7dd217b3-08a2-42d1-bc87-aaf0195332c6" testId="3ee7462a-6008-fca3-8128-8fdc791d386a" testName="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;hire&quot;)" computerName="DESKTOP-1LDJV2J" duration="00:00:01.0509733" startTime="2026-10-23T21:21:46.9956333-07:00" endTime="2026-10-23T21:21:48.0465404-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7dd217b3-08a2-42d1-bc87-aaf0195332c6" />
+    <UnitTestResult executionId="c23c253f-ce8a-47d6-ae2e-21f508c61496" testId="b60c8369-9ac5-3579-b09b-7ce873b790a5" testName="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusAndDecisionUseRealPostgresTransactions" computerName="DESKTOP-1LDJV2J" duration="00:00:05.0002609" startTime="2026-10-23T21:21:40.7341884-07:00" endTime="2026-10-23T21:21:45.7338159-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c23c253f-ce8a-47d6-ae2e-21f508c61496" />
+    <UnitTestResult executionId="12bfe810-01e5-4aa8-bd8a-7aab5159a433" testId="075796a0-7c93-a59e-ea58-54568c5d94e8" testName="CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects" computerName="DESKTOP-1LDJV2J" duration="00:00:03.7783702" startTime="2026-10-23T21:21:26.5098331-07:00" endTime="2026-10-23T21:21:30.2934720-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="12bfe810-01e5-4aa8-bd8a-7aab5159a433" />
+    <UnitTestResult executionId="f378d0fd-f080-41c4-8158-cebd6d0706a5" testId="af3b20c2-414e-f24b-1e6d-2d556dc85abe" testName="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;owner&quot;)" computerName="DESKTOP-1LDJV2J" duration="00:00:00.1967305" startTime="2026-10-23T21:21:48.0467095-07:00" endTime="2026-10-23T21:21:48.2433945-07:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f378d0fd-f080-41c4-8158-cebd6d0706a5" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.HiringDeliveryFulfillmentAndContinuationUseRealPostgresTransactions" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="3d2f6c3d-eb4c-21d2-6120-3ce845fb9058">
+      <Execution id="37c454d6-b2cb-4eb6-94ea-8bd82b52d8ea" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests" name="HiringDeliveryFulfillmentAndContinuationUseRealPostgresTransactions" />
+    </UnitTest>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusAndDecisionUseRealPostgresTransactions" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="b60c8369-9ac5-3579-b09b-7ce873b790a5">
+      <Execution id="c23c253f-ce8a-47d6-ae2e-21f508c61496" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests" name="NativeFocusAndDecisionUseRealPostgresTransactions" />
+    </UnitTest>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests.RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="075796a0-7c93-a59e-ea58-54568c5d94e8">
+      <Execution id="12bfe810-01e5-4aa8-bd8a-7aab5159a433" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefProductContextReceiverTests" name="RealProductManagerReplaysTheSameContextWithoutDuplicatingCeoEffects" />
+    </UnitTest>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;defer&quot;)" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="993599bb-2c15-5453-6d88-5600e00c3af4">
+      <Execution id="816941db-c15c-4a85-9750-2ebdfcb3c70c" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests" name="NativeFocusThroughCoverageDecisionRecoversAcrossRestarts" />
+    </UnitTest>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;hire&quot;)" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="3ee7462a-6008-fca3-8128-8fdc791d386a">
+      <Execution id="7dd217b3-08a2-42d1-bc87-aaf0195332c6" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests" name="NativeFocusThroughCoverageDecisionRecoversAcrossRestarts" />
+    </UnitTest>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;external&quot;)" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="f328dd8c-ac3f-c2de-2095-d1c2493ca6b0">
+      <Execution id="4b25c8af-c29d-4707-a94a-49b6e489e5ea" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests" name="NativeFocusThroughCoverageDecisionRecoversAcrossRestarts" />
+    </UnitTest>
+    <UnitTest name="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests.NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(outcome: &quot;owner&quot;)" storage="c:\users\pc\documents\github\csweet\.artifacts\chief-acceptance\bin\csweet.deliveryworkflow.tests\chiefacceptance\csweet.deliveryworkflow.tests.dll" id="af3b20c2-414e-f24b-1e6d-2d556dc85abe">
+      <Execution id="f378d0fd-f080-41c4-8158-cebd6d0706a5" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\.artifacts\chief-acceptance\bin\CSweet.DeliveryWorkflow.Tests\chiefacceptance\CSweet.DeliveryWorkflow.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.DeliveryWorkflow.Tests.ChiefLeadershipWorkflowTests" name="NativeFocusThroughCoverageDecisionRecoversAcrossRestarts" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="3d2f6c3d-eb4c-21d2-6120-3ce845fb9058" executionId="37c454d6-b2cb-4eb6-94ea-8bd82b52d8ea" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f328dd8c-ac3f-c2de-2095-d1c2493ca6b0" executionId="4b25c8af-c29d-4707-a94a-49b6e489e5ea" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="993599bb-2c15-5453-6d88-5600e00c3af4" executionId="816941db-c15c-4a85-9750-2ebdfcb3c70c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="3ee7462a-6008-fca3-8128-8fdc791d386a" executionId="7dd217b3-08a2-42d1-bc87-aaf0195332c6" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="b60c8369-9ac5-3579-b09b-7ce873b790a5" executionId="c23c253f-ce8a-47d6-ae2e-21f508c61496" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="075796a0-7c93-a59e-ea58-54568c5d94e8" executionId="12bfe810-01e5-4aa8-bd8a-7aab5159a433" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="af3b20c2-414e-f24b-1e6d-2d556dc85abe" executionId="f378d0fd-f080-41c4-8158-cebd6d0706a5" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="7" executed="7" passed="7" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.12)&#xD;
+[xUnit.net 00:00:00.09]   Discovering: CSweet.DeliveryWorkflow.Tests&#xD;
+[xUnit.net 00:00:00.14]   Discovered:  CSweet.DeliveryWorkflow.Tests&#xD;
+[xUnit.net 00:00:00.16]   Starting:    CSweet.DeliveryWorkflow.Tests&#xD;
+[xUnit.net 00:00:22.15]   Finished:    CSweet.DeliveryWorkflow.Tests&#xD;
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

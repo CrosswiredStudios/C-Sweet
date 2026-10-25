@@ -127,6 +127,26 @@ dotnet run --project src/CSweet.WorkerHost
 | AI features | OpenAI-compatible model endpoint | LM Studio, Ollama, vLLM, or a compatible hosted provider |
 | Local untrusted agents on Windows | Hyper-V, RuntimeHost, signed guest image, and current certification | Prepared through the guided Agent Isolation onboarding flow; never replaced by Docker |
 
+### Default LLM provider and model
+
+Settings → LLM Providers shows the system's selected provider and its saved chat model.
+Choose **Edit model** to change that provider's model, then save and test the provider before
+using it as the default. `SystemConfiguration.DefaultChatProviderId` and
+`LlmProviderProfile.DefaultChatModel` form one selection; no second global model setting exists.
+New agent defaults and broad delegated hiring share `DefaultLlmSelection.ReadAsync`.
+
+Deleting or disabling the current default is rejected while another provider remains until
+the user explicitly selects an enabled replacement. The delete dialog offers the replacement
+provider/model choices. Disabled alternatives must first be enabled and tested. Removing the
+last provider clears the default. This does not rewrite existing employee configurations or
+immutable hiring snapshots; use the existing agent-provider migration flow for installed agents.
+
+For an automatic-hiring card showing an enabled-provider validation error, compare the candidate
+definition's saved provider with the current default. `HiringService.ConfigureDelegatedHireAsync`
+recovers unusable defaults only under broad delegation and validates the resulting pair before
+execution. Blocked attempts expose their reason and the shared review action instead of implying
+that saved automatic mode means work is underway.
+
 ## Inference request size configuration
 
 ### Provider concurrency

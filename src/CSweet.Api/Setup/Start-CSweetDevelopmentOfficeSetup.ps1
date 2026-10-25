@@ -183,6 +183,18 @@ try {
     } else {
         throw 'No compatible Office release could be found and no local Office source is configured. Connect to GitHub or provide a local CSweet.Office checkout and retry.'
     }
+    $storage = $null
+    $payloadSetupRoot = $setupRoot
+    $earlyStorageHelper = Join-Path $officeScriptRoot 'CSweet.OfficeStorage.ps1'
+    if (Test-Path -LiteralPath $earlyStorageHelper) {
+        . $earlyStorageHelper
+        $earlyStorage = Get-CSweetInstalledOfficeStorage
+        if ($null -ne $earlyStorage) {
+            $verifiedStorage = Resolve-CSweetOfficeStorage -VolumeId $earlyStorage.VolumeId -SkipSpaceCheck
+            $storage = $verifiedStorage
+            $payloadSetupRoot = Initialize-CSweetOfficeStaging $verifiedStorage
+        }
+    }
     $progressHelper = Join-Path $officeScriptRoot 'CSweet.WindowsSetupProgress.ps1'
     . $progressHelper
     $progressHelperLoaded = $true
@@ -205,7 +217,7 @@ try {
     $isUpgrade = -not [String]::IsNullOrWhiteSpace($upgradeOfficeText) -and $operation -in @('upgrade', 'repair')
     if (-not [String]::IsNullOrWhiteSpace($upgradeOfficeText)) {
         $expectedOfficeId = [guid]$upgradeOfficeText
-        $statePath = Join-Path $env:ProgramData 'CSweet\Office\node\node-state.json'
+        $statePath = if ($null -ne $storage) { Join-Path $storage.DataRoot 'node\node-state.json' } else { Join-Path $env:ProgramData 'CSweet\Office\node\node-state.json' }
         if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) { throw 'The selected Office identity is unavailable.' }
         $installedState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         if ([guid]$installedState.OfficeId -ne $expectedOfficeId) { throw 'The installed Office does not match the Office selected in Headquarters.' }
@@ -227,15 +239,16 @@ try {
             -Message 'Downloading and verifying the update. Current jobs are still running.' -PercentComplete 0
         if ($null -ne $release) {
             $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
-                -Destination (Join-Path $setupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
             $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
             $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
         }
         $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
-        $certificationRoot = Join-Path $officeRepositoryRoot 'artifacts\windows-test'
+        $certificationRoot = if ($null -ne $storage) { Join-Path $storage.DataRoot 'setup\certification' } else { Join-Path $officeRepositoryRoot 'artifacts\windows-test' }
         $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
         Remove-TransientFile $payloadResultPath
         $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
+        if ($null -ne $storage) { $bootstrapArguments.WorkingRoot = $certificationRoot }
         if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
         & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl $preparationControlPlaneUrl -ProgressPath $progressPath -ProgressJobId $sessionId `
@@ -272,6 +285,9 @@ try {
         $handoffSecret = [Uri]::UnescapeDataString($uri.Fragment.TrimStart('#').Substring('handoff='.Length))
     }
 
+    $storageHelper = Join-Path $officeScriptRoot 'CSweet.OfficeStorage.ps1'
+    if (Test-Path -LiteralPath $storageHelper) { . $storageHelper }
+    $installedStorage = if (Get-Command Get-CSweetInstalledOfficeStorage -ErrorAction SilentlyContinue) { Get-CSweetInstalledOfficeStorage } else { $null }
     $recoveryProbe = Join-Path $officeScriptRoot 'Get-CSweetOfficeRecoveryState.ps1'
     $existingInstallationState = if (Test-Path -LiteralPath $recoveryProbe -PathType Leaf) {
         [string](& $recoveryProbe -ForUpgrade:($isUpgrade -and $operation -eq 'upgrade'))
@@ -289,6 +305,7 @@ try {
             [string]$localBuild.Project.PropertyGroup.VersionPrefix
         }
         existingInstallationState = $existingInstallationState
+        existingStorage = $installedStorage
     } | ConvertTo-Json -Compress
     $preflight = $null
     try {
@@ -341,7 +358,7 @@ try {
                 machineName = [Environment]::MachineName
                 operatingSystem = 'windows'
                 architecture = $architecture
-                officeVersion = if ($null -ne $release) { $release.Version } else { '0.5.0' }
+                officeVersion = if ($null -ne $release) { $release.Version } else { [string]([xml](Get-Content -LiteralPath (Join-Path $officeScriptRoot '../../Directory.Build.props') -Raw)).Project.PropertyGroup.VersionPrefix }
                 existingInstallationState = 'none'
             } | ConvertTo-Json -Compress
             $preflight = Invoke-CSweetPinnedRestMethod -Method Post `
@@ -391,12 +408,23 @@ try {
         return
     }
 
+    $installedStorage = if (Get-Command Get-CSweetInstalledOfficeStorage -ErrorAction SilentlyContinue) { Get-CSweetInstalledOfficeStorage } else { $null }
+    $selectedStorage = Get-OptionalObjectProperty $preflight 'storage'
+    $storage = $null
+    if ($null -ne $selectedStorage) {
+        if (-not (Get-Command Resolve-CSweetOfficeStorage -ErrorAction SilentlyContinue)) { throw 'Get Office 0.13.0 or newer to use the selected drive.' }
+        $storage = Resolve-CSweetOfficeStorage -VolumeId ([string]$selectedStorage.volumeId) -InstallRoot ([string]$selectedStorage.installRoot) -DataRoot ([string]$selectedStorage.dataRoot) -RequiredDiskMb ([int]$selectedStorage.requiredDiskMb)
+    } elseif ($null -ne $installedStorage) {
+        $storage = Resolve-CSweetOfficeStorage -VolumeId $installedStorage.VolumeId
+    }
+    # Small progress/secret files stay in ProgramData; large bundles and certification use the selected disk.
+    $payloadSetupRoot = if ($null -ne $storage) { Initialize-CSweetOfficeStaging $storage } else { $setupRoot }
     $request = @{
         handoffSecret = $handoffSecret
         machineName = [Environment]::MachineName
         operatingSystem = 'windows'
         architecture = $architecture
-        officeVersion = if ($automaticUpdate) { $targetVersion } elseif ($null -ne $release) { $release.Version } else { '0.5.0' }
+        officeVersion = if ($automaticUpdate) { $targetVersion } elseif ($null -ne $release) { $release.Version } else { [string]([xml](Get-Content -LiteralPath (Join-Path $officeScriptRoot '../../Directory.Build.props') -Raw)).Project.PropertyGroup.VersionPrefix }
     } | ConvertTo-Json -Compress
     $redemption = Invoke-CSweetPinnedRestMethod -Method Post `
         -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/redeem') -Body $request
@@ -454,18 +482,19 @@ try {
             # Hyper-V appends VM names and GUIDs beneath this bundle during certification.
             # Keep its unique staging name short enough for Hyper-V's legacy path limits.
             $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
-                -Destination (Join-Path $setupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
             $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
             $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
         }
         $officeRepositoryRoot = [IO.Path]::GetFullPath((Join-Path $officeScriptRoot '..\..'))
-        $certificationRoot = Join-Path $officeRepositoryRoot 'artifacts\windows-test'
+        $certificationRoot = if ($null -ne $storage) { Join-Path $storage.DataRoot 'setup\certification' } else { Join-Path $officeRepositoryRoot 'artifacts\windows-test' }
         $payloadResultPath = Join-Path $setupRoot "office-payload-$($sessionId.ToString('N')).txt"
         Remove-TransientFile $payloadResultPath
         # The agent profile needs the development payload even when the Office binaries
         # are current. Select and certify it explicitly rather than accepting v14.
         # Reviewed per-agent internet grants still govern workload network access.
         $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
+        if ($null -ne $storage) { $bootstrapArguments.WorkingRoot = $certificationRoot }
         if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
         if (-not $preparedPayloadRoot) {
         & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
@@ -518,7 +547,13 @@ try {
             Invoke-CSweetPinnedRestMethod -Method Post `
                 -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/enrollment-ready') -Body $readyRequest | Out-Null
         }
-        & $officeInstaller -PayloadRoot $payloadRoot -ControlPlaneUserSid $identity.User.Value `
+        $storageArguments = @{}
+        $returnedStorage = Get-OptionalObjectProperty $redemption 'storage'
+        if ($null -ne $returnedStorage) {
+            $storage = Resolve-CSweetOfficeStorage -VolumeId ([string]$returnedStorage.volumeId) -InstallRoot ([string]$returnedStorage.installRoot) -DataRoot ([string]$returnedStorage.dataRoot) -RequiredDiskMb $allocatableDiskMb
+        }
+        if ($null -ne $storage) { $storageArguments = @{ StorageVolumeId = $storage.VolumeId; InstallRoot = $storage.InstallRoot; DataRoot = $storage.DataRoot } }
+        & $officeInstaller @storageArguments -PayloadRoot $payloadRoot -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
             -ControlPlaneCertificateSha256 $controlPlaneCertificateSha256 `
             -EnrollmentTokenInputPath $tokenPath -AssistedSetupSessionId $sessionId `

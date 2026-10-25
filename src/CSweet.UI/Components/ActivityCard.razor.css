@@ -28,6 +28,10 @@
 .activity-card-now { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .8rem; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-card-now span { overflow-wrap: anywhere; }
 .activity-card-now ::deep .mud-icon-root { flex-shrink: 0; }
+.activity-card-now { flex-wrap: wrap; }
+.activity-card-action { flex: 1 1 140px; }
+.activity-generation-speed { display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto; padding: 3px 7px; border-radius: 6px; background: var(--activity-tint, var(--mud-palette-primary-hover)); color: var(--activity-accent, var(--mud-palette-primary)); font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity-generation-speed ::deep .mud-icon-root { width: 14px; height: 14px; }
 .activity-card-reason { min-width: 0; padding-left: 12px; border-left: 2px solid var(--activity-accent, var(--mud-palette-warning)); }
 .activity-card-reason > span { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-card-reason p { font-size: .8rem; margin: 4px 0 0; overflow-wrap: anywhere; }

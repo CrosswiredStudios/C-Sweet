@@ -20,6 +20,15 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Prism Break project setup recovery](prism-break-project-setup-recovery.md) documents
+artifact-aware collaboration loop detection, repeated-failure self-requeue suppression,
+notification reuse, Producer metadata corrections, project-state promotion, resumed
+summary idempotency, technical planning schema compatibility and evidence-preserving recovery.
+
+[Engineering prerequisites and pending planning decisions](planning-prerequisite-handoff-2026-10-23.md)
+documents the Neon Shatter Phaser-pin planning deadlock, bounded prerequisite handoff,
+subsequent missing QA output, prevention rules and tests, and live recovery evidence.
+
 [Assignment-scoped QA Git history](internal-git-hosting.md#assignment-scoped-qa-history) maps the
 read-only inspection boundary, conventional generated subjects, release rollout and remaining UI gaps.
 
@@ -105,6 +114,8 @@ Cross-cutting features are documented as a phased series in their own folder:
 - [Native Communications Hub](./native-communications-hub.md) - the authoritative in-app
   workspace for human and agent conversations, durable agent turns, unread state, realtime
   updates, and optional external-provider mirrors.
+- [Plugin settings and bundles](./features/plugin-settings.md) - Installed, Find plugins, and Install tabs,
+  non-agent discovery, reviewed repository installs, and verified prebuilt `.cspb` uploads.
 - [GitHub Agent Import](./features/github-agent-import/README.md) - import public GitHub-hosted
   agent packages by URL, review the root manifest, approve bounded grants, and run community
   agents inside broker-governed sandboxes.

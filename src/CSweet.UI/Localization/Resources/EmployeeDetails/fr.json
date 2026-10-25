@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "Le flux est indisponible ou les accès ont changé. Actualisez pour réessayer.",
   "CurrentActivity.OpenWorkItem": "Ouvrir l’élément de travail",
   "CurrentActivity.EmployeeDetails": "Détails de l’employé",
-  "ActivityCard.WorkspaceAriaLabel": "Opérations récentes de l’espace de travail"
+  "ActivityCard.WorkspaceAriaLabel": "Opérations récentes de l’espace de travail",
+  "ActivityCard.Speed.Reported": "{rate} tokens/s",
+  "ActivityCard.Speed.Estimated": "~{rate} tokens/s",
+  "ActivityCard.Speed.ReportedLabel": "Vitesse de génération : {rate} tokens par seconde",
+  "ActivityCard.Speed.EstimatedLabel": "Vitesse de génération estimée : {rate} tokens par seconde",
+  "ActivityCard.Speed.ReportedTooltip": "Tokens de sortie par seconde signalés par le fournisseur, en moyenne depuis le début de cette réponse.",
+  "ActivityCard.Speed.EstimatedTooltip": "Estimation du texte diffusé à quatre caractères par token. Moyenne depuis le début de la sortie ; exclut le raisonnement masqué et les données des outils.",
+  "ActivityCard.Speed.Action": "Génération d’une réponse"
 }

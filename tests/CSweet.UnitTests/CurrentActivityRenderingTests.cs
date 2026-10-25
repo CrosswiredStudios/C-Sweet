@@ -16,6 +16,73 @@ namespace CSweet.UnitTests;
 
 public sealed class CurrentActivityRenderingTests
 {
+    [Theory]
+    [InlineData(false, "42.3 tok/s", "Generation speed: 42.3 tokens per second")]
+    [InlineData(true, "~42.3 tok/s", "Estimated generation speed: 42.3 tokens per second")]
+    public async Task SpeedIsInlineWithTheCurrentActionWithoutOpeningTheStream(bool estimated, string display, string label)
+    {
+        await using var f = new Fixture();
+        f.Handler.Item = f.Handler.Item with { CurrentAction = "Generating a response",
+            Generation = new(Guid.NewGuid(), 42.3, estimated, DateTimeOffset.UtcNow) };
+        await f.RenderAsync(); await f.SetConnectedAsync(true);
+        var html = await f.HtmlAsync();
+        Assert.Contains(display, html); Assert.Contains(label, html);
+        var action = html.IndexOf("activity-card-action", StringComparison.Ordinal);
+        var speed = html.IndexOf("activity-generation-speed", StringComparison.Ordinal);
+        Assert.True(speed > action);
+        Assert.True(speed > html.IndexOf("activity-card-summary", StringComparison.Ordinal));
+        Assert.Equal(0, f.Handler.FeedRequests);
+        Assert.DoesNotContain("data-activity-stream", html);
+        await f.SetConnectedAsync(false);
+        Assert.DoesNotContain("activity-generation-speed", await f.HtmlAsync());
+    }
+
+    [Theory]
+    [InlineData("stale")]
+    [InlineData("waiting")]
+    [InlineData("recovering")]
+    [InlineData("unconfirmed")]
+    [InlineData("no-access")]
+    [InlineData("next-action")]
+    public async Task SpeedIsHiddenWhenTheActionIsNoLongerGenerating(string reason)
+    {
+        await using var f = new Fixture();
+        var row = f.Handler.Item with { Generation = new(Guid.NewGuid(), 42.3, true, DateTimeOffset.UtcNow) };
+        row = reason switch
+        {
+            "stale" => row with { Generation = row.Generation! with { ObservedAt = DateTimeOffset.UtcNow.AddSeconds(-16) } },
+            "waiting" => row with { State = "Waiting" },
+            "recovering" => row with { LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1) },
+            "unconfirmed" => row with { LastProgressAt = DateTimeOffset.UtcNow.AddMinutes(-6) },
+            "no-access" => row with { CanInspect = false },
+            _ => row with { Generation = null, CurrentAction = "Running tests" }
+        };
+        f.Handler.Item = row;
+        await f.RenderAsync(); await f.SetConnectedAsync(true);
+        Assert.DoesNotContain("activity-generation-speed", await f.HtmlAsync());
+    }
+
+    [Fact]
+    public async Task SpeedNumbersFollowTheSelectedCulture()
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        var previousUi = System.Globalization.CultureInfo.CurrentUICulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+            System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+            await using var f = new Fixture();
+            f.Handler.Item = f.Handler.Item with { Generation = new(Guid.NewGuid(), 42.3, true, DateTimeOffset.UtcNow) };
+            await f.RenderAsync(); await f.SetConnectedAsync(true);
+            Assert.Contains("42,3", await f.HtmlAsync());
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+            System.Globalization.CultureInfo.CurrentUICulture = previousUi;
+        }
+    }
+
     [Fact]
     public async Task ComputeWaitShowsConfirmedProgressWithoutAnimatingTheWaitingAgent()
     {
@@ -354,6 +421,11 @@ public sealed class CurrentActivityRenderingTests
             typeof(ComponentBase).GetMethod("StateHasChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, null);
         });
         public Task<string> HtmlAsync() => renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
+        public Task SetConnectedAsync(bool connected) => renderer.Dispatcher.InvokeAsync(() =>
+        {
+            typeof(CurrentActivity).GetField("_connected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(component, connected);
+            typeof(ComponentBase).GetMethod("StateHasChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, null);
+        });
         public async ValueTask DisposeAsync() { await renderer.DisposeAsync(); await services.DisposeAsync(); }
     }
     public sealed class CaptureActivity : CurrentActivity

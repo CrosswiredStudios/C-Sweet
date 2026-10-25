@@ -8,8 +8,9 @@ namespace CSweet.AgentHost.Broker;
 
 internal static class ModelStreamCoalescer
 {
-    // Coalesce only ordinary text. Reasoning, tool, usage and terminal updates retain
-    // their boundaries. The caller persists each resulting chunk before forwarding it.
+    // Coalesce plain text or plain reasoning of the same kind. Signed/protected
+    // reasoning, metadata, tool, usage and terminal updates retain their boundaries.
+    // The caller persists each resulting chunk before forwarding it.
     internal static async IAsyncEnumerable<ChatResponseUpdate> ReadAsync(
         IAsyncEnumerable<ChatResponseUpdate> source, [EnumeratorCancellation] CancellationToken token)
     {
@@ -25,14 +26,11 @@ internal static class ModelStreamCoalescer
             Exception? failure = null;
             try { if (await iterator.MoveNextAsync()) update = iterator.Current; }
             catch (Exception error) { failure = error; }
-            var ordinary = update is not null && update.Contents.Count == 1 &&
-                update.Contents[0] is TextContent plain &&
-                (plain.Annotations is null || plain.Annotations.Count == 0) &&
-                (plain.AdditionalProperties is null || plain.AdditionalProperties.Count == 0) && update.FinishReason is null &&
-                (update.AdditionalProperties is null || update.AdditionalProperties.Count == 0);
+            var ordinary = IsPlainFragment(update);
             if (text.Length > 0 && (!ordinary || update!.Role != template!.Role ||
                 update.ResponseId != template.ResponseId || update.MessageId != template.MessageId ||
-                update.ModelId != template.ModelId || update.AuthorName != template.AuthorName))
+                update.ModelId != template.ModelId || update.AuthorName != template.AuthorName ||
+                update.Contents[0].GetType() != template.Contents[0].GetType()))
             {
                 yield return Chunk(template!, text.ToString());
                 text.Clear(); count = 0; sinceFlush.Restart();
@@ -41,7 +39,7 @@ internal static class ModelStreamCoalescer
             if (update is null) yield break;
             if (!ordinary || first) { first = false; yield return update; sinceFlush.Restart(); continue; }
             if (text.Length == 0) template = update;
-            text.Append(update.Text); count++;
+            text.Append(update.Contents[0] is TextReasoningContent reasoning ? reasoning.Text : update.Text); count++;
             if (count >= 32 || text.Length >= 4096 || sinceFlush.Elapsed >= TimeSpan.FromMilliseconds(500))
             {
                 yield return Chunk(template!, text.ToString());
@@ -50,10 +48,21 @@ internal static class ModelStreamCoalescer
         }
     }
 
+    private static bool IsPlainFragment(ChatResponseUpdate? update)
+    {
+        if (update is null || update.Contents.Count != 1 || update.FinishReason is not null ||
+            update.AdditionalProperties is { Count: > 0 }) return false;
+        var content = update.Contents[0];
+        if (content.Annotations is { Count: > 0 } || content.AdditionalProperties is { Count: > 0 }) return false;
+        return content.GetType() == typeof(TextContent) ||
+            (content.GetType() == typeof(TextReasoningContent) && ((TextReasoningContent)content).ProtectedData is null);
+    }
+
     private static ChatResponseUpdate Chunk(ChatResponseUpdate template, string text)
     {
         var chunk = template.Clone();
-        chunk.Contents = [new TextContent(text)];
+        chunk.Contents = [template.Contents[0] is TextReasoningContent
+            ? new TextReasoningContent(text) : new TextContent(text)];
         chunk.RawRepresentation = null;
         return chunk;
     }

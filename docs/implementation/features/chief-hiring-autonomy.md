@@ -129,6 +129,24 @@ or explicit grants, currency/cost and remaining total allowance, and required co
 team, manager, and the existing platform hire restrictions before creating the employee.
 Manual confirmation continues to require an owner and replaces delegated authorization.
 
+`ConfigureDelegatedHireAsync` retains valid candidate defaults and freezes validated settings
+in the hire snapshot. Under broad delegation, a missing/empty model pair or a deleted/disabled
+default provider falls back to the explicit system default provider and its `DefaultChatModel`.
+`DefaultLlmSelection.ReadAsync` is shared with new-installation defaults. Older installations
+without a usable system default may reuse the Chief's current validated pair. Only the pair is
+copied; secrets and unrelated settings never transfer. Narrower policies still require review,
+and a previously frozen snapshot is never silently rewritten.
+
+`LlmProviderProfileService` serializes default selection, deletion and disabling. Deleting or
+disabling the default requires explicit selection of another enabled, tested provider/model
+when any other profiles remain, including disabled ones. The last provider may be removed;
+default references are then cleared. Settings exposes the pair and a replacement picker in
+the delete flow. `default_provider_replacement_required` returns HTTP 409 before secret deletion.
+
+`WithHiringModesAsync` exposes `AutomaticHiringBlockReason` from the source-linked blocked
+hire attempt. Overview and Communications show **Automatic hiring needs attention** with a
+shared **Review hiring** action. Saved automatic mode does not imply that a hire is progressing.
+
 PostgreSQL transaction-scoped organization advisory locks serialize policy changes, withdrawals,
 and hire commits, including aggregate spending and headcount consumption. State and outbox
 writes commit together. Background operations revalidate current authority; recovery does not

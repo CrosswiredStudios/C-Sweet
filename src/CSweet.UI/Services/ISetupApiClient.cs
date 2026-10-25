@@ -8,6 +8,7 @@ public interface ISetupApiClient
         throw new NotSupportedException();
     Task<SetupStatusResponse> GetStatusAsync(CancellationToken cancellationToken = default);
     Task<ExecutionCapacityOnboardingResponse> GetExecutionCapacityStatusAsync(CancellationToken cancellationToken = default);
+    Task<ExecutionCapacityOnboardingResponse> RefreshOfficeStorageAsync(CancellationToken cancellationToken = default) => GetExecutionCapacityStatusAsync(cancellationToken);
     Task<ExecutionCapacityActionResponse> SelectExecutionModeAsync(string mode, CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> CreateExecutionEnrollmentAsync(CancellationToken cancellationToken = default);
     Task<LocalOfficeSetupActionResponse> CreateLocalOfficeSetupSessionAsync(

@@ -46,7 +46,7 @@ public partial class CurrentActivity
         Realtime.Reconnected += OnConnect;
         Realtime.Disconnected += OnDisconnect;
         _connected = Realtime.IsConnected;
-        _clock = new(TimeSpan.FromSeconds(15));
+        _clock = new(TimeSpan.FromSeconds(1));
         _ = UpdateClockAsync();
     }
 

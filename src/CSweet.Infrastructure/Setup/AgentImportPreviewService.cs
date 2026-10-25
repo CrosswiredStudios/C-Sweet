@@ -310,7 +310,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             errors.Add("Agent manifest protocol minimumVersion and maximumVersion are required.");
         }
-        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3") ||
+        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3" or "2.4") ||
                  !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
         {
             errors.Add("Executable plugins must require MCP runtime protocol 2.0 through 2.x.");
@@ -368,7 +368,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         }
     }
 
-    private static IReadOnlyList<AgentManifestWarningResponse> CreateWarnings(PluginManifest manifest)
+    internal static IReadOnlyList<AgentManifestWarningResponse> CreateWarnings(PluginManifest manifest)
     {
         var warnings = new List<AgentManifestWarningResponse>();
         if (manifest.Requires.Any(x => x.Name == CSweet.Contracts.Compute.ComputePermissions.LocalTestLinks))
@@ -445,8 +445,9 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             CredentialBindings = manifest.Credentials,
             Connections = manifest.Connections,
             Setup = manifest.Setup,
+            Accounts = manifest.Accounts,
             DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds,
-            PackageSourceMode = prebuilt ? "PrebuiltRelease" : "SourceBuild",
+            PackageSourceMode = source.SourceType == "PluginBundle" ? "PluginBundle" : prebuilt ? "PrebuiltRelease" : "SourceBuild",
             ReleaseTag = version.ReleaseTag,
             ReleaseAssetName = version.ReleaseAssetName,
             ReleaseAssetUrl = version.ReleaseAssetUrl
@@ -495,7 +496,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-    private static string CapabilityDescriptorsDigest(PluginManifest manifest)
+    internal static string CapabilityDescriptorsDigest(PluginManifest manifest)
     {
         var canonical = string.Join(
             "\n",
@@ -643,6 +644,28 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
                 DefinitionJson = definition.DefinitionJson, DefinitionDigest = definition.Digest, CreatedAt = now
             });
         }
+    }
+
+    internal async Task StageBundleContributionsAsync(PluginManifest manifest,
+        Func<string, int, CancellationToken, Task<byte[]>> readResource, CancellationToken token)
+    {
+        var profiles = new List<ValidatedWorkstreamProfileDefinition>();
+        var adapters = new List<ValidatedToolchainAdapterDefinition>();
+        try
+        {
+            foreach (var contribution in manifest.WorkstreamProfiles.Provides)
+                profiles.Add(WorkstreamProfileDefinitionValidator.Validate(contribution,
+                    await readResource(contribution.DefinitionResource, WorkstreamProfileDefinitionValidator.MaximumDefinitionBytes, token)));
+            foreach (var contribution in manifest.ToolchainAdapters.Provides)
+                adapters.Add(ToolchainAdapterDefinitionValidator.Validate(contribution,
+                    await readResource(contribution.DefinitionResource, ToolchainAdapterDefinitionValidator.MaximumDefinitionBytes, token)));
+        }
+        catch (ArgumentException exception)
+        {
+            throw new AgentImportPreviewException($"Bundle contribution is invalid: {exception.Message}", exception);
+        }
+        await PersistWorkstreamProfileDefinitionsAsync(manifest, profiles, DateTimeOffset.UtcNow, token);
+        await PersistToolchainAdapterDefinitionsAsync(manifest, adapters, DateTimeOffset.UtcNow, token);
     }
 
     private static string DescriptorHash(PluginCapabilityDeclaration capability)

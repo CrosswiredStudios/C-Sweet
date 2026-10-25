@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "الموجز غير متاح أو تغيّرت صلاحية الوصول. حدّث الصفحة للمحاولة مرة أخرى.",
   "CurrentActivity.OpenWorkItem": "فتح عنصر العمل",
   "CurrentActivity.EmployeeDetails": "تفاصيل الموظف",
-  "ActivityCard.WorkspaceAriaLabel": "عمليات مساحة العمل الأخيرة"
+  "ActivityCard.WorkspaceAriaLabel": "عمليات مساحة العمل الأخيرة",
+  "ActivityCard.Speed.Reported": "{rate} رمز/ث",
+  "ActivityCard.Speed.Estimated": "~{rate} رمز/ث",
+  "ActivityCard.Speed.ReportedLabel": "سرعة التوليد: {rate} رمز في الثانية",
+  "ActivityCard.Speed.EstimatedLabel": "سرعة التوليد التقديرية: {rate} رمز في الثانية",
+  "ActivityCard.Speed.ReportedTooltip": "رموز الإخراج في الثانية وفقًا لمزوّد الخدمة، بمتوسط منذ بدء بث هذا الرد.",
+  "ActivityCard.Speed.EstimatedTooltip": "تقدير من النص المتدفق بمعدل أربعة أحرف لكل رمز. المتوسط منذ بدء الإخراج؛ يستثني الاستدلال المخفي وبيانات الأدوات.",
+  "ActivityCard.Speed.Action": "جارٍ توليد رد"
 }

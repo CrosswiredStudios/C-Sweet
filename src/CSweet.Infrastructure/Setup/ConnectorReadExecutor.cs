@@ -19,7 +19,11 @@ public sealed class ConnectorReadExecutor(CSweetDbContext db, ConnectorPlanServi
         if (prepared.Request.Effect != "read" || prepared.Request.Method != "GET" || prepared.Request.MediaAssetId is not null)
             throw new UnauthorizedAccessException("Mutations and media transfers require the approved-action executor.");
         if (execution.Status == "Completed" && execution.ResultJson is { } stored)
-            return JsonDocument.Parse(stored).RootElement.Clone();
+        {
+            await plans.ValidateResultAuthorityAsync(organizationId, requesterId, execution.Id, execution.PlanHash, token);
+            using var cached = JsonDocument.Parse(stored);
+            return cached.RootElement.Clone();
+        }
         var frozen = await plans.RevalidateAsync(organizationId, requesterId, execution.Id, execution.PlanHash, token);
         if (frozen.Request.Effect != "read" || frozen.Request.Method != "GET" || frozen.Request.MediaAssetId is not null)
             throw new UnauthorizedAccessException("Mutations and media transfers require the approved-action executor.");

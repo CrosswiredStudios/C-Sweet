@@ -1,0 +1,8 @@
+<MudThemeProvider /><MudPopoverProvider /><MudDialogProvider /><MudSnackbarProvider />
+<div style="padding:8px 24px;background:#fff4ce;color:#443500">Acceptance test · synthetic accounts and provider · no Google authorization or real data</div>
+<Router AppAssembly="typeof(App).Assembly"><Found Context="route"><RouteView RouteData="route" /></Found><NotFound><p>Test route not found.</p></NotFound></Router>
+@if (_interactive) { <span hidden data-testid="interactive-ready"></span> }
+@code {
+    private bool _interactive;
+    protected override void OnAfterRender(bool firstRender) { if (firstRender) { _interactive=true; StateHasChanged(); } }
+}

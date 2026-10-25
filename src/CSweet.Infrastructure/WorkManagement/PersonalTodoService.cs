@@ -703,6 +703,12 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             throw new InvalidOperationException(
                 "Only blocked or unclaimed in-progress personal work can be requeued.");
         RequireRevision(item, request.ExpectedRevision);
+        // A routine agent wake cannot undo the platform's repeated-failure stop.
+        // The reporting manager (or human owner) may explicitly retry after review.
+        if (actor.AgentInstallationId.HasValue && actor.AgentInstallationId == item.AssignedAgentInstallationId &&
+            item.Status == WorkTaskStatus.Blocked &&
+            item.BlockReason?.StartsWith(AgentTicketFeedback.RepeatedIssuePrefix, StringComparison.Ordinal) == true)
+            return await MapItemAsync(item, cancellationToken);
         await ResumeBlockedCommitmentCoordinationAsync(item, request.IdempotencyKey, cancellationToken);
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         item.Status = WorkTaskStatus.Ready;
@@ -1205,8 +1211,6 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
     {
         if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Trim().Length > 512)
             throw new ArgumentException("A personal to-do title between 1 and 512 characters is required.");
-        if ((request.Description?.Trim().Length ?? 0) > 8192)
-            throw new ArgumentException("A personal to-do description cannot exceed 8192 characters.");
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Trim().Length > 160)
             throw new ArgumentException("A personal to-do idempotency key is required.");
         if (!Enum.TryParse<WorkTaskPriority>(CanonicalPriority(request.Priority), true, out _))
@@ -1220,8 +1224,6 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
     {
         if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > 512)
             throw new ArgumentException("A personal task title between 1 and 512 characters is required.");
-        if ((description?.Trim().Length ?? 0) > 8192)
-            throw new ArgumentException("A personal task description cannot exceed 8192 characters.");
         if (!Enum.TryParse<WorkTaskPriority>(CanonicalPriority(priority), true, out _))
             throw new ArgumentException("The personal task priority is invalid.");
     }

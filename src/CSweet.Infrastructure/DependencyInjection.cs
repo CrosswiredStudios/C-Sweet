@@ -193,6 +193,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IAgentImportPreviewService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginImportService>(sp => sp.GetRequiredService<AgentImportPreviewService>());
         builder.Services.AddScoped<IPluginArchiveImportService, PluginArchiveImportService>();
+        builder.Services.AddScoped<IPluginBundleImportService, PluginBundleImportService>();
         builder.Services.AddSingleton<IPluginManifestReader, PluginManifestReader>();
         builder.Services.AddScoped<IAgentUpdateService, AgentUpdateService>();
         builder.Services.AddScoped<IAgentDefinitionService, AgentDefinitionService>();
@@ -215,6 +216,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
         builder.Services.AddScoped<PluginConnectionCleanupService>();
+        builder.Services.AddScoped<PluginAccountService>();
         builder.Services.AddScoped<ConnectorActionApprovalService>();
         builder.Services.AddScoped<ConnectorBindingService>();
         builder.Services.AddScoped<ConnectorProfileApprovalService>();

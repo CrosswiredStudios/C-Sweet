@@ -33,7 +33,7 @@ public sealed class SettingsWorkspaceRenderingTests
     [InlineData(typeof(AgentRuntimeSettings), "runtime", "Save runtime settings")]
     [InlineData(typeof(ExecutionFleet), "offices", "Studio Office")]
     [InlineData(typeof(SourceControlSettings), "source-control", "Internal Git storage")]
-    [InlineData(typeof(Plugins), "plugins", "Preview manifest")]
+    [InlineData(typeof(Plugins), "plugins", "Find plugins")]
     [InlineData(typeof(CommunicationSettings), "communications", "Set up Discord")]
     [InlineData(typeof(CommunicationProviderSetup), "discord", "Provisioning preview")]
     [InlineData(typeof(AccountSecurity), "security", "Regenerate recovery codes")]

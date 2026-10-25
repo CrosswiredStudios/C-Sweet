@@ -121,5 +121,12 @@
   "CurrentActivity.Feed.Error": "The feed is unavailable or access has changed. Refresh to try again.",
   "CurrentActivity.OpenWorkItem": "Open work item",
   "CurrentActivity.EmployeeDetails": "Employee details",
-  "ActivityCard.WorkspaceAriaLabel": "Recent workspace operations"
+  "ActivityCard.WorkspaceAriaLabel": "Recent workspace operations",
+  "ActivityCard.Speed.Reported": "{rate} tok/s",
+  "ActivityCard.Speed.Estimated": "~{rate} tok/s",
+  "ActivityCard.Speed.ReportedLabel": "Generation speed: {rate} tokens per second",
+  "ActivityCard.Speed.EstimatedLabel": "Estimated generation speed: {rate} tokens per second",
+  "ActivityCard.Speed.ReportedTooltip": "Provider-reported output tokens per second, averaged since this response began streaming.",
+  "ActivityCard.Speed.EstimatedTooltip": "Estimated from streamed text at four characters per token. Average since output began; excludes hidden reasoning and tool payloads.",
+  "ActivityCard.Speed.Action": "Generating a response"
 }

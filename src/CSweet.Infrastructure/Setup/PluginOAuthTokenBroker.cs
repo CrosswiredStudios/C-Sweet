@@ -20,6 +20,8 @@ public sealed class PluginOAuthTokenBroker(
     public async Task<string?> GetAccessTokenAsync(Guid installationId, PluginConnection connection,
         CancellationToken cancellationToken = default)
     {
+        if (connection.AccountGroupId is not null)
+            return await new PluginAccountTokenBroker(db, secrets, httpClientFactory, providerProfiles).GetAsync(installationId, connection.Id, cancellationToken);
         var key = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, cancellationToken);
         if (!await IsCurrentAsync(installationId, connection.Id, key, cancellationToken)) return null;
         var token = await ReadAsync(installationId, key, cancellationToken);

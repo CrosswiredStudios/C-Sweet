@@ -1,0 +1,9 @@
+.plugin-manage { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; padding: 24px; overflow-wrap: anywhere; }
+.manage-heading, .resource-row, .manage-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.plugin-manage ::deep .manage-card { padding: 24px; border-radius: 16px; }
+.resource-row { padding: 14px 0; border-bottom: 1px solid var(--mud-palette-divider); }
+.plugin-manage ::deep .connect-panel, .access-editor { display: grid; gap: 12px; }
+.access-editor { padding: 20px; margin-top: 16px; border: 1px solid var(--mud-palette-divider); border-radius: 12px; }
+.plugin-manage ::deep .empty-state { display: grid; gap: 16px; justify-items: start; }
+.policy-links { font-size: 0.9rem; }
+@media (max-width: 640px) { .plugin-manage { padding: 12px; } .plugin-manage ::deep .manage-card { padding: 16px; } .manage-actions { align-items: stretch; flex-direction: column; } }

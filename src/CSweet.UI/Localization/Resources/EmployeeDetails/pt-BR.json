@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "O feed está indisponível ou o acesso mudou. Atualize para tentar novamente.",
   "CurrentActivity.OpenWorkItem": "Abrir item de trabalho",
   "CurrentActivity.EmployeeDetails": "Detalhes do funcionário",
-  "ActivityCard.WorkspaceAriaLabel": "Operações recentes do espaço de trabalho"
+  "ActivityCard.WorkspaceAriaLabel": "Operações recentes do espaço de trabalho",
+  "ActivityCard.Speed.Reported": "{rate} tokens/s",
+  "ActivityCard.Speed.Estimated": "~{rate} tokens/s",
+  "ActivityCard.Speed.ReportedLabel": "Velocidade de geração: {rate} tokens por segundo",
+  "ActivityCard.Speed.EstimatedLabel": "Velocidade de geração estimada: {rate} tokens por segundo",
+  "ActivityCard.Speed.ReportedTooltip": "Tokens de saída por segundo informados pelo provedor, em média desde o início desta resposta.",
+  "ActivityCard.Speed.EstimatedTooltip": "Estimativa do texto transmitido com quatro caracteres por token. Média desde o início da saída; exclui raciocínio oculto e dados de ferramentas.",
+  "ActivityCard.Speed.Action": "Gerando uma resposta"
 }

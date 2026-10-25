@@ -32,8 +32,10 @@ public sealed record AgentImportPreviewResponse(
     public IReadOnlyList<PluginCredentialBinding> CredentialBindings { get; init; } = [];
     public IReadOnlyList<PluginConnectionDeclaration> Connections { get; init; } = [];
     public PluginSetupManifest? Setup { get; init; }
+    public PluginAccountManagement? Accounts { get; init; }
     public int? DefaultTickFrequencySeconds { get; init; }
     public string PackageSourceMode { get; init; } = "SourceBuild";
+    public string? BundleDigest { get; init; }
     public string? ReleaseTag { get; init; }
     public string? ReleaseAssetName { get; init; }
     public string? ReleaseAssetUrl { get; init; }

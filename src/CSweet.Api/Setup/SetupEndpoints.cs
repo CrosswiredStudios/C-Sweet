@@ -27,7 +27,9 @@ public static class SetupEndpoints
             httpContext.Response.Headers.Pragma = "no-cache";
             httpContext.Response.Headers.Expires = "0";
             await setupService.EnsureSeededAsync(cancellationToken);
-            return Results.Ok(await service.GetOnboardingStatusAsync(cancellationToken));
+            return Results.Ok(httpContext.Request.Query["refreshStorage"] == "true"
+                ? await service.RefreshOfficeStorageAsync(cancellationToken)
+                : await service.GetOnboardingStatusAsync(cancellationToken));
         });
 
         group.MapPut("/execution-capacity/mode", async (

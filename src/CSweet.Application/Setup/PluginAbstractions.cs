@@ -10,6 +10,10 @@ public interface IPluginArchiveImportService
 {
     Task<AgentImportPreviewResponse> PreviewSourceArchiveAsync(Stream archive, string fileName, CancellationToken cancellationToken = default);
 }
+public interface IPluginBundleImportService
+{
+    Task<AgentImportPreviewResponse> PreviewAsync(Stream bundle, string fileName, CancellationToken cancellationToken = default);
+}
 public interface IPluginBuildExecutor : IAgentBuildExecutor;
 public interface IPluginRuntimeManager : IAgentRuntimeManager;
 public interface IPluginWorkloadRunner : IAgentWorkloadRunner;

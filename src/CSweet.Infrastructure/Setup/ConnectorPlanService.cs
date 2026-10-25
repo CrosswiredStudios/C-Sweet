@@ -12,7 +12,9 @@ public sealed record ConnectorMediaBinding(Guid AssetId, string Sha256, long Siz
 public sealed record FrozenConnectorPlan(Guid OrganizationId, Guid RequesterInstallationId, Guid ConnectorInstallationId,
     Guid ConnectionId, long GrantRevision, long ProviderGrantRevision, string PackageDigest, string Capability,
     string ResourceId, string IdempotencyKey, string InputHash, ConnectorPreparedRequest Request,
-    ConnectorMediaBinding? Media);
+    ConnectorMediaBinding? Media,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    PluginAccountAuthoritySnapshot? AccountAuthority = null);
 
 /// <summary>Freezes authority and request content before any provider effect. This service never sends HTTP.</summary>
 public sealed class ConnectorPlanService(CSweetDbContext db)
@@ -35,7 +37,7 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         RequestSchemaValidator.ValidateSchema(authority.Operation.InputSchema);
         RequestSchemaValidator.Validate(input, authority.Operation.InputSchema);
         var inputHash = ConnectorRequestMaterializer.Hash(input);
-        var request = ConnectorRequestMaterializer.Prepare(authority.Operation, input, authority.Connection.BoundResourceId!);
+        var request = ConnectorRequestMaterializer.Prepare(authority.Operation, input, authority.ResourceId);
         ConnectorMediaBinding? media = null;
         if (request.MediaAssetId is { } asset)
         {
@@ -46,8 +48,8 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
             throw new ArgumentException("Only a media operation can bind an attachment source.");
         var frozen = new FrozenConnectorPlan(organizationId, requesterId, authority.Connector.Id,
             authority.Connection.Id, authority.Requester.Grant!.GrantRevision, authority.Connector.Grant!.GrantRevision,
-            authority.Connector.PackageVersion!.PackageDigest!, capability, authority.Connection.BoundResourceId!,
-            idempotencyKey, inputHash, request, media);
+            authority.Connector.PackageVersion!.PackageDigest!, capability, authority.ResourceId,
+            idempotencyKey, inputHash, request, media, authority.AccountAuthority);
         var element = JsonSerializer.SerializeToElement(frozen, JsonOptions);
         var hash = ConnectorRequestMaterializer.Hash(element);
         var existing = await db.ConnectorExecutions.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
@@ -104,7 +106,7 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
             frozen.GrantRevision != authority.Requester.Grant!.GrantRevision ||
             frozen.ProviderGrantRevision != authority.Connector.Grant!.GrantRevision ||
             frozen.PackageDigest != authority.Connector.PackageVersion!.PackageDigest ||
-            frozen.ResourceId != authority.Connection.BoundResourceId || frozen.Capability != execution.Capability ||
+            frozen.ResourceId != authority.ResourceId || frozen.AccountAuthority != authority.AccountAuthority || frozen.Capability != execution.Capability ||
             frozen.IdempotencyKey != execution.IdempotencyKey || frozen.InputHash != execution.InputHash)
             throw new UnauthorizedAccessException("Plan authority has changed; prepare and approve a new plan.");
         if (frozen.Media is { } media)
@@ -137,31 +139,48 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
                 x.RevokedAt == null, token) ?? throw new UnauthorizedAccessException("Select and authorize a connector account.");
         var connector = binding.ProviderInstallation ?? throw new UnauthorizedAccessException("The connector was removed.");
         ConnectorBindingService.ValidatePackage(dependency, connector.PackageVersion!);
-        if (connector.BusinessId != organization || connector.Scope != PluginInstallationScope.Organization || !connector.IsEnabled ||
+        var provider = Manifest(connector);
+        var enterprise = provider.Accounts is not null;
+        if ((!enterprise && (connector.BusinessId != organization || connector.Scope != PluginInstallationScope.Organization)) ||
+            (enterprise && connector.Scope != PluginInstallationScope.System) || !connector.IsEnabled ||
             connector.SetupState != PluginSetupState.Ready || connector.RevisionStatus != PluginRevisionStatus.Active ||
             binding.ProviderPackageDigest != connector.PackageVersion!.PackageDigest || connector.Grant is null ||
             !List(connector.Grant.ProvidedCapabilitiesJson).Contains(capability))
             throw new UnauthorizedAccessException("The connector or its reviewed grants have changed.");
-        var provider = Manifest(connector);
         PluginManifestReader.ValidateConnectorContracts(provider);
-        var operation = provider.ProviderOperations.Single(x => x.Capability == capability && x.Http != null);
+        var operation = provider.ProviderOperations.Single(x => x.Capability == capability && x.Http is { Bootstrap: false });
         var declaration = provider.Connections.Single(x => x.Id == operation.Http!.Connection);
-        var connection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.AgentInstallationId == connector.Id && x.DeclarationId == declaration.Id && x.Status == PluginConnectionStatus.Connected, token)
-            ?? throw new UnauthorizedAccessException("Reconnect the provider before doing channel work.");
+        PluginConnection connection;
+        PluginAccountAuthoritySnapshot? accountAuthority = null;
+        string resourceId;
+        if (enterprise)
+        {
+            (accountAuthority, connection, resourceId) = await new PluginAccountAuthorityService(db)
+                .RequireAsync(organizationId, binding, connector, provider, token);
+        }
+        else
+        {
+            if (binding.PluginAccountBusinessGrantId is not null || binding.PluginAccountResourceId is not null || binding.PluginAccountConnectionId is not null)
+                throw new UnauthorizedAccessException("Enterprise resource bindings cannot use a legacy connector.");
+            connection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.AgentInstallationId == connector.Id && x.DeclarationId == declaration.Id && x.AccountGroupId == null &&
+                x.Status == PluginConnectionStatus.Connected, token)
+                ?? throw new UnauthorizedAccessException("Reconnect the provider before doing channel work.");
+            resourceId = connection.BoundResourceId!;
+        }
         var scopes = List(connection.GrantedScopesJson);
-        if (connection.ProviderProfile != declaration.ProviderProfile || string.IsNullOrWhiteSpace(connection.BoundResourceId) || operation.Http!.ScopeSets
+        if (connection.ProviderProfile != declaration.ProviderProfile || string.IsNullOrWhiteSpace(resourceId) || operation.Http!.ScopeSets
             .SelectMany(id => declaration.ScopeSets.Single(x => x.Id == id).Scopes).Except(scopes, StringComparer.Ordinal).Any())
             throw new UnauthorizedAccessException("Confirm the account and complete the required provider consent.");
         if (!await db.ConnectorProfileApprovals.AsNoTracking().AnyAsync(x => x.ConnectorInstallationId == connector.Id &&
             x.PackageDigest == connector.PackageVersion!.PackageDigest && x.ProfileId == declaration.ProviderProfile &&
             x.RevokedAt == null, token)) throw new UnauthorizedAccessException("This build is not approved to use the provider profile.");
-        return new(requester, connector, connection, operation);
+        return new(requester, connector, connection, operation, resourceId, accountAuthority);
     }
 
     private static string[] List(string json) => JsonSerializer.Deserialize<string[]>(json) ?? [];
     private static PluginManifest Manifest(AgentInstallation installation) =>
         JsonSerializer.Deserialize<PluginManifest>(installation.PackageVersion!.ManifestJson, JsonOptions)!;
     private sealed record Authority(AgentInstallation Requester, AgentInstallation Connector, PluginConnection Connection,
-        PluginProviderOperationDeclaration Operation);
+        PluginProviderOperationDeclaration Operation, string ResourceId, PluginAccountAuthoritySnapshot? AccountAuthority);
 }

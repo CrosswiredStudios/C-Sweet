@@ -38,7 +38,12 @@ public sealed record BeginPluginAuthorizationRequest(string ScopeSetId);
 public sealed record BindConnectorRequest(Guid ConnectorInstallationId);
 public sealed record PluginDependencySetupResponse(
     string Id, string PluginId, IReadOnlyList<string> Capabilities,
-    Guid? SelectedInstallationId, IReadOnlyList<PluginConnectorChoice> Choices);
+    Guid? SelectedInstallationId, IReadOnlyList<PluginConnectorChoice> Choices)
+{
+    public IReadOnlyList<PluginAccountResourceChoice> ResourceChoices { get; init; } = [];
+}
+public sealed record PluginAccountResourceChoice(Guid ConnectorInstallationId, string Name, Guid ResourceId, Guid ConnectionId,
+    long BusinessGrantRevision, string PackageDigest, bool Selected);
 public sealed record PluginConnectorChoice(
     Guid InstallationId, string Name, string State, bool CanSelect,
     string? UnavailableReason, IReadOnlyList<PluginConnectedAccount> Accounts);

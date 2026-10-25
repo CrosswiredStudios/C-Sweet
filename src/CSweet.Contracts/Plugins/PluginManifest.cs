@@ -28,6 +28,7 @@ public sealed record PluginManifest
     public IReadOnlyList<PluginProviderOperationDeclaration> ProviderOperations { get; init; } = [];
     public IReadOnlyList<PluginFileTransferTargetDeclaration> FileTransferTargets { get; init; } = [];
     public PluginSetupManifest? Setup { get; init; }
+    public PluginAccountManagement? Accounts { get; init; }
     public PluginWebAccess WebAccess { get; init; } = new();
     public IReadOnlyList<PluginUiContribution> Ui { get; init; } = [];
     public PluginCatalogMetadata Catalog { get; init; } = new();

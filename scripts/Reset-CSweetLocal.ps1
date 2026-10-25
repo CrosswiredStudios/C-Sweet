@@ -6,7 +6,7 @@ Previews or applies a destructive reset of the default Windows development insta
 Close AppHost, C-Sweet, builds and setup first. Run in elevated Windows PowerShell 5.1 or later as the
 development user. Preview is the default; -Apply is required for any mutation.
 This resets ALL local C-Sweet businesses, including ones still present in the DB.
-Custom storage, remote offices, Compose, certificates and shared SDK caches are excluded.
+Registered Office storage is included. Other custom storage, remote offices, Compose, certificates and shared SDK caches are excluded.
 See docs/implementation/local-reset.md for scope and recovery instructions.
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -273,6 +273,20 @@ function Invoke-CSweetLocalReset {
     }
     foreach ($name in @('Office', 'SatelliteOffice', 'ExecutionNode')) {
         Add-Target (Join-Path $installRoot $name) $installRoot 'Installed office'
+    }
+    $officeStorageKey = 'HKLM:\SOFTWARE\CSweet\Office\Storage'
+    if (Test-Path -LiteralPath $officeStorageKey) {
+        try {
+            $officeStorageHelper = Join-Path $parent 'CSweet.Office\scripts\windows\CSweet.OfficeStorage.ps1'
+            if (-not (Test-Path -LiteralPath $officeStorageHelper)) { throw 'The Office storage resolver is required to inventory its selected drive.' }
+            . $officeStorageHelper
+            $officeStorage = Resolve-CSweetOfficeStorage -SkipSpaceCheck
+            foreach ($officePath in @($officeStorage.InstallRoot, $officeStorage.DataRoot)) {
+                if (@($targets | Where-Object { $_.Path -eq $officePath }).Count -eq 0) {
+                    Add-Target $officePath ([IO.Path]::GetDirectoryName($officePath)) 'Installed office'
+                }
+            }
+        } catch { $blockers.Add('Office storage inventory failed: ' + $_.Exception.Message) }
     }
     if ($IncludeUserData) {
         Add-Target $localRoot $localRoot 'User data INCLUDING repositories, media and secrets'

@@ -8,8 +8,13 @@ public static class PluginManagementEndpoints
 {
     public static IEndpointRouteBuilder MapPluginManagementEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapPluginAccountEndpoints();
         var group = endpoints.MapGroup("/api/plugins")
             .RequireAuthorization("PluginAdministration");
+
+        group.MapGet("/installation-policy", async ([Microsoft.AspNetCore.Mvc.FromServices] IAgentRuntimeSettingsService settings,
+            CancellationToken cancellationToken) => Results.Ok(new PluginInstallationPolicyResponse(
+                (await settings.GetAsync(cancellationToken)).EnableImportedAgents)));
 
         group.MapGet("/provider-profiles", async (IPluginProviderProfileRegistry profiles,
             CancellationToken cancellationToken) => Results.Ok(await profiles.ListAsync(cancellationToken)));
@@ -34,6 +39,14 @@ public static class PluginManagementEndpoints
             try { return Results.Ok(await imports.PreviewAsync(request, cancellationToken)); }
             catch (AgentImportPreviewException exception) { return Results.BadRequest(new { error = exception.Message }); }
         }).RequireRateLimiting(AgentRateLimiting.ImportPolicy);
+
+        group.MapPost("/imports/preview/bundle", async (string fileName, HttpRequest request,
+            IPluginBundleImportService imports, CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await imports.PreviewAsync(request.Body, fileName, cancellationToken)); }
+            catch (AgentImportPreviewException exception) { return Results.BadRequest(new { error = exception.Message }); }
+        }).RequireRateLimiting(AgentRateLimiting.ImportPolicy)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(512L * 1024 * 1024));
 
         group.MapPost("/imports/preview/archive", async (IFormFile file,
             IPluginArchiveImportService imports, CancellationToken cancellationToken) =>

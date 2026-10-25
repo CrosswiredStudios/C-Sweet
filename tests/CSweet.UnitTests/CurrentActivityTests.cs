@@ -635,13 +635,13 @@ public sealed partial class CurrentActivityTests
         public AgentWorkAttempt Attempt { get; private set; } = null!;
         private readonly ServiceProvider services;
         private readonly IDataProtectionProvider protection = new EphemeralDataProtectionProvider();
-        public Fixture()
+        public Fixture(TimeProvider? time = null)
         {
             var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
             Db = new(options, protection);
             services = new ServiceCollection().AddScoped(_ => new CSweetDbContext(options, protection)).BuildServiceProvider();
             Writer = new(services.GetRequiredService<IServiceScopeFactory>(), new AuditExecutionContextAccessor(), protection);
-            Service = new(Db, Grants, new(Db, protection), TimeProvider.System);
+            Service = new(Db, Grants, new(Db, protection), time ?? TimeProvider.System);
         }
         public async Task SeedAsync()
         {

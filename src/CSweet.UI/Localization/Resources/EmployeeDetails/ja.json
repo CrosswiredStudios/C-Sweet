@@ -115,5 +115,12 @@
   "CurrentActivity.Feed.Error": "フィードを利用できないか、アクセス権が変更されました。更新して再試行してください。",
   "CurrentActivity.OpenWorkItem": "作業項目を開く",
   "CurrentActivity.EmployeeDetails": "従業員の詳細",
-  "ActivityCard.WorkspaceAriaLabel": "最近のワークスペース操作"
+  "ActivityCard.WorkspaceAriaLabel": "最近のワークスペース操作",
+  "ActivityCard.Speed.Reported": "{rate} トークン/秒",
+  "ActivityCard.Speed.Estimated": "約 {rate} トークン/秒",
+  "ActivityCard.Speed.ReportedLabel": "生成速度：毎秒 {rate} トークン",
+  "ActivityCard.Speed.EstimatedLabel": "推定生成速度：毎秒 {rate} トークン",
+  "ActivityCard.Speed.ReportedTooltip": "プロバイダーが報告した毎秒の出力トークン数。この応答のストリーミング開始からの平均です。",
+  "ActivityCard.Speed.EstimatedTooltip": "ストリーミングされたテキストを4文字で1トークンとして推定。出力開始からの平均で、非表示の推論やツールデータは含みません。",
+  "ActivityCard.Speed.Action": "応答を生成中"
 }

@@ -171,6 +171,7 @@ public sealed class PluginProviderAdministrationTests
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<IPluginApiClient>(api);
+        services.AddSingleton<IBusinessContext, EmptyBusinessContext>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
@@ -195,6 +196,7 @@ public sealed class PluginProviderAdministrationTests
 
     private sealed class FakeApi : IPluginApiClient
     {
+        public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(true));
         public IReadOnlyList<AgentInstallationResponse> Installations { get; init; } = [];
         public IReadOnlyList<PluginProviderProfileResponse> Profiles { get; init; } = [];
         public int ProfileReads { get; private set; }
@@ -202,6 +204,7 @@ public sealed class PluginProviderAdministrationTests
         public Task<IReadOnlyList<PluginProviderProfileResponse>> ListProviderProfilesAsync(CancellationToken cancellationToken = default)
         { ProfileReads++; return Task.FromResult(Profiles); }
         public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentImportPreviewResponse> PreviewBundleAsync(Stream bundle, string fileName, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentInstallationResponse> InstallAsync(Guid importId, InstallAgentRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SaveConfigurationAsync(Guid installationId, IReadOnlyDictionary<string, string> settings, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SetSecretAsync(Guid installationId, string key, string value, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -209,5 +212,18 @@ public sealed class PluginProviderAdministrationTests
         public Task<RemoveAgentInstallationResponse> RemoveAsync(Guid installationId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PluginProviderProfileResponse> SaveProviderProfileAsync(string id, UpsertPluginProviderProfileRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task DeleteProviderProfileAsync(string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class EmptyBusinessContext : IBusinessContext
+    {
+        public IReadOnlyList<CSweet.Contracts.Core.OrganizationResponse> Businesses => [];
+        public CSweet.Contracts.Core.OrganizationResponse? SelectedBusiness => null;
+        public bool IsLoading => false;
+        public string? ErrorMessage => null;
+        public event Action? Changed { add { } remove { } }
+        public Task InitializeAsync(CancellationToken token = default) => Task.CompletedTask;
+        public Task RefreshAsync(CancellationToken token = default) => Task.CompletedTask;
+        public Task SelectAsync(Guid id, bool navigate = true, CancellationToken token = default) => Task.CompletedTask;
+        public Task RemoveDeletedBusinessAsync(Guid id, CancellationToken token = default) => Task.CompletedTask;
     }
 }

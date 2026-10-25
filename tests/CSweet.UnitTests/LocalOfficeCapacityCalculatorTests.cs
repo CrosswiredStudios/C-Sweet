@@ -5,6 +5,23 @@ namespace CSweet.UnitTests;
 public sealed class LocalOfficeCapacityCalculatorTests
 {
     [Fact]
+    public void SelectingAnotherVolumeRecoversFromFullSystemDriveAndRecalculatesPresets()
+    {
+        var full = LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 10L << 30, true);
+        var other = new CSweet.Contracts.Setup.LocalOfficeVolumeResponse("data", @"D:\", "Data", "NTFS",
+            1024L << 30, 500L << 30, false, true, null, @"D:\CSweet\Office\program", @"D:\CSweet\Office\data");
+        var capacity = full with { Volumes = [other] };
+        var selected = LocalOfficeCapacityCalculator.ForVolume(capacity, "data");
+        Assert.False(full.IsSupported);
+        Assert.True(selected.IsSupported);
+        Assert.Equal(500 * 1024, selected.FreeDiskMb);
+        Assert.Equal(3, selected.Presets.Count);
+        Assert.Equal("data", selected.SelectedVolumeId);
+        Assert.False(LocalOfficeCapacityCalculator.ForVolume(capacity, "unknown").IsSupported);
+        Assert.False(LocalOfficeCapacityCalculator.ForVolume(capacity with { Volumes = [other with { IsEligible = false }] }, "data").IsSupported);
+    }
+
+    [Fact]
     public void Calculate_ReservesHostCapacity_AndBuildsAdaptivePresets()
     {
         var capacity = LocalOfficeCapacityCalculator.Calculate(

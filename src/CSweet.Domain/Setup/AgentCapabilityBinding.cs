@@ -16,6 +16,9 @@ public sealed class AgentCapabilityBinding
     public string? DependencyId { get; set; }
     public string? ProviderPackageDigest { get; set; }
     public Guid ProviderInstallationId { get; set; }
+    public Guid? PluginAccountBusinessGrantId { get; set; }
+    public Guid? PluginAccountResourceId { get; set; }
+    public Guid? PluginAccountConnectionId { get; set; }
     public long GrantRevision { get; set; }
     public string Origin { get; set; } = AgentCapabilityBindingOrigins.Explicit;
     public DateTimeOffset ApprovedAt { get; set; }

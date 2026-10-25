@@ -93,6 +93,13 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<PluginOrganizationGrant> PluginOrganizationGrants => Set<PluginOrganizationGrant>();
     public DbSet<PluginSecret> PluginSecrets => Set<PluginSecret>();
     public DbSet<PluginConnection> PluginConnections => Set<PluginConnection>();
+    public DbSet<PluginAccountGroup> PluginAccountGroups => Set<PluginAccountGroup>();
+    public DbSet<PluginAccountSetupSession> PluginAccountSetupSessions => Set<PluginAccountSetupSession>();
+    public DbSet<PluginAccountOperator> PluginAccountOperators => Set<PluginAccountOperator>();
+    public DbSet<PluginAccountRevocationJob> PluginAccountRevocationJobs => Set<PluginAccountRevocationJob>();
+    public DbSet<PluginAccountResource> PluginAccountResources => Set<PluginAccountResource>();
+    public DbSet<PluginAccountResourceAuthorization> PluginAccountResourceAuthorizations => Set<PluginAccountResourceAuthorization>();
+    public DbSet<PluginAccountBusinessGrant> PluginAccountBusinessGrants => Set<PluginAccountBusinessGrant>();
     public DbSet<PluginOAuthAttempt> PluginOAuthAttempts => Set<PluginOAuthAttempt>();
     public DbSet<PluginOperationalState> PluginOperationalStates => Set<PluginOperationalState>();
     public DbSet<PluginProviderProfile> PluginProviderProfiles => Set<PluginProviderProfile>();
@@ -559,7 +566,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     {
         var notifications = ChangeTracker.Entries<UserNotification>()
             .Where(x => x.State == EntityState.Added ||
-                (x.State == EntityState.Modified && (x.Property(y => y.ReadAt).IsModified || x.Property(y => y.DismissedAt).IsModified)))
+                (x.State == EntityState.Modified && (x.Property(y => y.ReadAt).IsModified || x.Property(y => y.DismissedAt).IsModified ||
+                    x.Property(y => y.ActionUri).IsModified)))
             .ToList();
         foreach (var entry in notifications)
         {
@@ -809,6 +817,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         ConfigureChiefLeadership(modelBuilder);
         ConfigureResourceCleanup(modelBuilder);
         ConfigurePersonalAssistant(modelBuilder);
+        ConfigurePluginAccounts(modelBuilder);
         modelBuilder.Entity<ChiefHiringPolicy>().HasIndex(x => new { x.OrganizationId, x.InstallationId }).IsUnique();
         modelBuilder.Entity<ChiefHiringPolicy>().Property(x => x.Revision).IsConcurrencyToken();
         modelBuilder.Entity<ChiefHiringPolicyRevision>().HasIndex(x => new { x.OrganizationId, x.InstallationId, x.Revision }).IsUnique();
@@ -1437,6 +1446,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         {
             entity.Property(x => x.Status).IsConcurrencyToken();
             entity.Property(x => x.UpdatedAt).IsConcurrencyToken();
+            entity.Property(x => x.AuthorizationRevision).IsConcurrencyToken().HasDefaultValue(1L);
             entity.HasKey(x => x.Id);
             entity.Property(x => x.DeclarationId).HasMaxLength(200).IsRequired();
             entity.Property(x => x.ProviderProfile).HasMaxLength(200).IsRequired();
@@ -1445,7 +1455,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.ExternalAccountId).HasMaxLength(512);
             entity.Property(x => x.ExternalAccountName).HasMaxLength(512);
             entity.Property(x => x.BoundResourceId).HasMaxLength(512);
-            entity.HasIndex(x => new { x.AgentInstallationId, x.DeclarationId }).IsUnique();
+            entity.HasIndex(x => new { x.AgentInstallationId, x.DeclarationId }).IsUnique()
+                .HasFilter("\"AccountGroupId\" IS NULL");
+            entity.HasOne<PluginAccountGroup>().WithMany().HasForeignKey(x => x.AccountGroupId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.AgentInstallation).WithMany(x => x.Connections)
                 .HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
         });
