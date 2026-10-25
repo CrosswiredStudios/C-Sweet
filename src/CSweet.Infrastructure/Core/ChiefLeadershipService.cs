@@ -125,7 +125,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
             var purpose = await db.ChiefFocusPrompts.SingleOrDefaultAsync(x => x.Id == decision.Id && x.OrganizationId == organization &&
                 x.InstallationId == installation && x.ConversationId == source.Turn.ConversationId, token)
                 ?? throw new ArgumentException("This immutable decision is not a leadership decision.");
-            if (decision.AnsweredByOrganizationUserId != source.Owner.Id || purpose.Purpose == "Focus" && purpose.ExpectedFocusRevision != agenda.FocusRevision ||
+            if (decision.AnsweredByOrganizationUserId != source.Owner.Id || (purpose.Purpose is "Focus" or "NextFocus") && purpose.ExpectedFocusRevision != agenda.FocusRevision ||
                 purpose.ProfileKey != agenda.ProfileKey || purpose.ProfileVersion != agenda.ProfileVersion)
                 throw new ArgumentException("The leadership decision is stale or belongs to another scope.");
             if (purpose.AssessmentId is { } assessmentId)
@@ -158,10 +158,18 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                 if (await db.ChiefFocusRecords.AnyAsync(x => x.OrganizationId == organization && x.SourceDecisionId == decision.Id, token))
                     throw new ArgumentException("This focus decision has already been consumed.");
                 var domain = decision.SelectedOptionId ?? "custom";
-                if (domain != "custom" && !await db.ChiefCoverageRecords.AnyAsync(x => x.OrganizationId == organization &&
+                if (domain != "custom" && !(purpose.Purpose == "NextFocus" && domain == "not-now") && !await db.ChiefCoverageRecords.AnyAsync(x => x.OrganizationId == organization &&
                     x.ProfileKey == agenda.ProfileKey && x.ProfileVersion == agenda.ProfileVersion && x.DomainId == domain, token))
                     throw new ArgumentException("The selected domain is not in the current agenda.");
-                await SaveFocusAsync(agenda, chief, source.Turn, source.Owner.Id, domain, decision.FreeTextAnswer, decision.Id, token);
+                if (purpose.Purpose == "NextFocus" && domain == "not-now")
+                {
+                    // Retain the current priority and its completed coverage. The new
+                    // authenticated record consumes this immutable answer after reconnect.
+                    var prior = await db.ChiefFocusRecords.SingleAsync(x => x.Id == agenda.FocusId && x.OrganizationId == organization, token);
+                    agenda.Paused = true;
+                    await SaveFocusAsync(agenda, chief, source.Turn, source.Owner.Id, prior.DomainId, prior.CustomText, decision.Id, token, activate: false);
+                }
+                else await SaveFocusAsync(agenda, chief, source.Turn, source.Owner.Id, domain, decision.FreeTextAnswer, decision.Id, token);
             }
         }
         else
@@ -185,7 +193,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
     }
 
     private async Task SaveFocusAsync(ChiefLeadershipAgenda agenda, OrganizationUser chief, ChatTurn turn, Guid owner,
-        string domain, string? custom, Guid? decisionId, CancellationToken token)
+        string domain, string? custom, Guid? decisionId, CancellationToken token, bool activate = true)
     {
         var focus = new ChiefFocusRecord { Id = Guid.NewGuid(), OrganizationId = agenda.Id, Revision = agenda.FocusRevision + 1,
             DomainId = domain, CustomText = custom, SourceDecisionId = decisionId, SourceTurnId = turn.Id, DecisionMakerId = owner,
@@ -193,6 +201,12 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                 await db.ChiefFocusRecords.Where(x => x.OrganizationId == agenda.Id).OrderByDescending(x => x.Revision).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(token) };
         db.ChiefFocusRecords.Add(focus); agenda.FocusId = focus.Id; agenda.FocusRevision = focus.Revision;
         agenda.Revision++; agenda.UpdatedAt = clock.GetUtcNow();
+        var obsoletePrompts = await (from prompt in db.ChiefFocusPrompts
+            join decision in db.ExecutiveDecisions on prompt.Id equals decision.Id
+            where prompt.OrganizationId == agenda.Id && prompt.Purpose == "NextFocus" && decision.Status == ExecutiveDecisionStatus.Pending
+            select decision).ToListAsync(token);
+        foreach (var obsolete in obsoletePrompts)
+        { obsolete.Status = ExecutiveDecisionStatus.Cancelled; obsolete.UpdatedAt = clock.GetUtcNow(); }
         var rows = await RowsAsync(agenda, token);
         var selected = rows.SingleOrDefault(x => x.DomainId == domain);
         if (selected is null && domain == "custom")
@@ -206,7 +220,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
         foreach (var row in rows)
         {
             if (row.ExecutionStatus is "WaitingHire" or "WaitingDecision") continue; // Preserve running/approved commitments.
-            if (row == selected && domain != "custom") { row.ExecutionStatus = "Ready"; row.CoverageStatus = "Unassessed"; row.BlockCode = null; }
+            if (activate && row == selected && domain != "custom") { row.ExecutionStatus = "Ready"; row.CoverageStatus = "Unassessed"; row.BlockCode = null; }
             else if (row.ExecutionStatus is "Ready" or "Assessing") row.ExecutionStatus = "Backlog";
             row.Revision++; row.UpdatedAt = clock.GetUtcNow(); await ProjectAsync(chief, row, token);
         }
@@ -228,7 +242,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                 join decision in db.ExecutiveDecisions on prompt.Id equals decision.Id
                 where prompt.OrganizationId == organization && prompt.InstallationId == installation &&
                     decision.Status == ExecutiveDecisionStatus.Answered && decision.NextChatTurnId != null &&
-                    (prompt.Purpose == "Focus" && prompt.ExpectedFocusRevision == agenda.FocusRevision &&
+                    ((prompt.Purpose == "Focus" || prompt.Purpose == "NextFocus") && prompt.ExpectedFocusRevision == agenda.FocusRevision &&
                         !db.ChiefFocusRecords.Any(x => x.SourceDecisionId == decision.Id) ||
                      prompt.AssessmentId != null && db.ChiefCoverageRecords.Any(x => x.Id == prompt.AssessmentId &&
                         x.DecisionId == decision.Id && x.ExecutionStatus == "WaitingDecision"))
@@ -258,6 +272,19 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                 agenda.Revision++; await WakeAsync(agenda, chief, token);
             }
         }
+        if (agenda.FocusId is { } currentFocus)
+        {
+            var domain = await db.ChiefFocusRecords.Where(x => x.Id == currentFocus && x.OrganizationId == organization)
+                .Select(x => x.DomainId).SingleAsync(token);
+            // Older versions advanced an untouched backlog domain without owner
+            // selection. Recover only scheduling; retain accepted decisions and hires.
+            foreach (var automatic in rows.Where(x => x.DomainId != domain && x.ExecutionStatus == "Ready" &&
+                x.AcceptedResultJson == null && x.RecommendationId == null && x.DecisionId == null))
+            {
+                automatic.ExecutionStatus = "Backlog"; automatic.Revision++; automatic.UpdatedAt = clock.GetUtcNow();
+                agenda.Revision++;
+            }
+        }
         var inputs = await InputsAsync(organization, token);
         foreach (var row in rows)
         {
@@ -277,7 +304,11 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
         }
         // One review per read, only when no active obligation needs attention. A changed
         // fingerprint is a wake hint, never proof that external work or a hire completed.
-        if (!rows.Any(x => x.ExecutionStatus is "Ready" or "Assessing" or "WaitingHire" or "WaitingDecision"))
+        var choosingNext = await (from prompt in db.ChiefFocusPrompts
+            join decision in db.ExecutiveDecisions on prompt.Id equals decision.Id
+            where prompt.OrganizationId == organization && prompt.Purpose == "NextFocus" && decision.Status == ExecutiveDecisionStatus.Pending
+            select decision.Id).AnyAsync(token);
+        if (!choosingNext && !rows.Any(x => x.ExecutionStatus is "Ready" or "Assessing" or "WaitingHire" or "WaitingDecision"))
         {
             var review = rows.FirstOrDefault(x => x.ReviewAt <= clock.GetUtcNow() && x.ExecutionStatus == "Complete" ||
                 x.InputFingerprint is not null && x.InputFingerprint != inputs &&
@@ -345,13 +376,35 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
 
     private async Task AdvanceAsync(ChiefLeadershipAgenda agenda, OrganizationUser chief, CancellationToken token)
     {
-        if (agenda.FocusId is null) return;
+        if (agenda.FocusId is null || agenda.Paused) return;
         var rows = await RowsAsync(agenda, token);
         if (rows.Any(x => x.ExecutionStatus is "Ready" or "Assessing" or "WaitingHire" or "WaitingDecision" or "Blocked")) return;
-        var next = rows.FirstOrDefault(x => x.ExecutionStatus == "Backlog");
-        if (next is null) return;
-        next.ExecutionStatus = "Ready"; next.Revision++; next.UpdatedAt = clock.GetUtcNow();
-        await ProjectAsync(chief, next, token); agenda.Revision++; await WakeAsync(agenda, chief, token);
+        var remaining = rows.Where(x => x.ExecutionStatus == "Backlog").ToArray();
+        if (remaining.Length == 0) return;
+        var focus = db.ChiefFocusRecords.Local.SingleOrDefault(x => x.Id == agenda.FocusId)
+            ?? await db.ChiefFocusRecords.SingleAsync(x => x.Id == agenda.FocusId && x.OrganizationId == agenda.Id, token);
+        if (!rows.Any(x => x.DomainId == focus.DomainId && x.ExecutionStatus == "Complete")) return;
+        // Completion authorizes no new domain. Ask once per selected focus, in the
+        // same transaction as completion and its durable notification outbox.
+        var key = $"chief-next-focus:{agenda.Id:N}:{agenda.FocusRevision}:{chief.AgentInstallationId:N}";
+        if (db.ChiefFocusPrompts.Local.Any(x => x.IdempotencyKey == key) ||
+            await db.ChiefFocusPrompts.AnyAsync(x => x.OrganizationId == agenda.Id && x.InstallationId == chief.AgentInstallationId && x.IdempotencyKey == key, token)) return;
+        if (await db.ExecutiveDecisions.AnyAsync(x => x.OrganizationId == agenda.Id && x.RequestingInstallationId == chief.AgentInstallationId &&
+                x.Status == ExecutiveDecisionStatus.Pending, token) ||
+            await db.WorkforcePlans.AnyAsync(x => x.OrganizationId == agenda.Id && x.RequestingInstallationId == chief.AgentInstallationId &&
+                x.Status == ProposalStatus.Pending, token)) return;
+        var message = await communication.SendAsync(agenda.Id, focus.ConversationId, chief.Id,
+            new CSweet.Contracts.Communications.SendCommunicationMessageRequest(
+                "The selected leadership area is resolved. What would you like to work on next? I’ll wait for your choice before starting another area.", key), token)
+            ?? throw new InvalidOperationException("The owner conversation is unavailable.");
+        var options = remaining.Select(x => new CreateExecutiveDecisionOption(x.DomainId, x.Label, x.Description)).ToList();
+        options.Add(new("not-now", "Nothing else for now", "Pause new proactive leadership work; retain existing coverage and commitments."));
+        var card = await decisions.CreateAsync(new(agenda.Id, focus.ConversationId, null, message.Message.Id, chief.AgentInstallationId!.Value,
+            "What would you like to work on next?", options, remaining[0].DomainId, key), token);
+        db.ChiefFocusPrompts.Add(new() { Id = card.Id, OrganizationId = agenda.Id, InstallationId = chief.AgentInstallationId.Value,
+            ConversationId = focus.ConversationId, ProfileKey = agenda.ProfileKey, ProfileVersion = agenda.ProfileVersion,
+            ExpectedFocusRevision = agenda.FocusRevision, Purpose = "NextFocus", IdempotencyKey = key });
+        agenda.Revision++; await WakeAsync(agenda, chief, token);
     }
 
     private async Task WakeAsync(ChiefLeadershipAgenda agenda, OrganizationUser chief, CancellationToken token)

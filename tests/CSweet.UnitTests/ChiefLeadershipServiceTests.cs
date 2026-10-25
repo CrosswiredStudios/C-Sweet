@@ -127,7 +127,7 @@ public sealed partial class UserActionServiceTests
     }
 
     [Fact]
-    public async Task ChiefCoverageOwnerDecisionCompletesResponsibilityAndAdvancesOnce()
+    public async Task ChiefCoverageOwnerDecisionCompletesResponsibilityAndAsksNextFocusOnce()
     {
         await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
         var state = await SelectedLeadershipAsync(db, f);
@@ -147,8 +147,9 @@ public sealed partial class UserActionServiceTests
         var final = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
         Assert.Equal("AdequatelyCovered", final.Assessments.Single(x => x.Id == row.Id).CoverageStatus);
         Assert.Equal(f.Owner, final.Assessments.Single(x => x.Id == row.Id).AccountableOwnerId);
-        Assert.Equal("research", final.Assessments.Single(x => x.Id == final.NextAssessmentId).DomainId);
-        Assert.Single(final.Assessments, x => x.ExecutionStatus == "Ready");
+        Assert.Null(final.NextAssessmentId);
+        Assert.DoesNotContain(final.Assessments, x => x.ExecutionStatus == "Ready");
+        Assert.Single(await db.ChiefFocusPrompts.Where(x => x.Purpose == "NextFocus").ToListAsync());
     }
 
     [Fact]
@@ -560,7 +561,8 @@ public sealed partial class UserActionServiceTests
             new("AdequatelyCovered", "Combined", f.Hire, "The current Video Game Director owns portfolio direction and team design with capacity for this scope.", "None", [f.Hire]), "studio-covered"));
         db.ChangeTracker.Clear(); var resumed = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
         Assert.Equal("Complete", resumed.Assessments.Single(x => x.Id == row.Id).ExecutionStatus);
-        Assert.Equal("research", resumed.Assessments.Single(x => x.Id == resumed.NextAssessmentId).DomainId);
+        Assert.Null(resumed.NextAssessmentId);
+        Assert.Single(await db.ChiefFocusPrompts.Where(x => x.Purpose == "NextFocus").ToListAsync());
         Assert.Empty(await db.WorkforcePlans.ToListAsync());
     }
 

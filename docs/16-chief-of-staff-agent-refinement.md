@@ -170,6 +170,19 @@ The CEO may change focus at any time. A new explicit CEO priority supersedes an 
 focus, but it does not silently cancel approved work or commitments. The Chief should identify and
 resolve those consequences explicitly.
 
+### Returning control after the selected focus
+
+A focus choice authorizes that area, not an automatic sweep through the remaining leadership
+agenda. After the selected responsibility has verified coverage, an accepted owner/defer outcome,
+or another resolved disposition, the Chief asks what the owner wants to work on next through a new
+native decision card. Completed areas are omitted; remaining areas stay in Backlog until selected.
+The card includes Nothing else for now, which pauses proactive leadership while retaining current
+coverage and commitments. With no remaining areas, no further focus card is required.
+
+Hiring fulfillment first requires reassessment of actual ownership and capacity. It is not proof of
+coverage or authorization for another leadership hire. Roles within an already approved manager
+staffing plan continue under that plan's existing authority.
+
 ## Widget-first executive interaction
 
 ### Policy
