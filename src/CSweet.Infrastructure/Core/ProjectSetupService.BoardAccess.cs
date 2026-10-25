@@ -35,9 +35,10 @@ public sealed partial class ProjectSetupService
         var added = new List<OrganizationUser>();
         if (manager is not null && people.All(x => x.Id != manager.Id) &&
             !await db.ProjectParticipants.AnyAsync(x => x.WorkstreamId == project.Id && x.OrganizationUserId == manager.Id, ct) &&
+            (await IsSharedGameTeamParticipantAsync(project, manager, ct) ||
             !await db.ProjectParticipants.AnyAsync(x => x.OrganizationId == project.OrganizationId &&
                 x.OrganizationUserId == manager.Id && x.WorkstreamId != project.Id && x.RemovedAt == null &&
-                db.Workstreams.Any(p => p.Id == x.WorkstreamId && p.Status != WorkstreamStatus.Completed && p.Status != WorkstreamStatus.Cancelled), ct))
+                db.Workstreams.Any(p => p.Id == x.WorkstreamId && p.Status != WorkstreamStatus.Completed && p.Status != WorkstreamStatus.Cancelled), ct)))
         {
             db.ProjectParticipants.Add(new() { OrganizationId = project.OrganizationId, WorkstreamId = project.Id,
                 OrganizationUserId = manager.Id, AddedByOrganizationUserId = manager.Id, JoinedAt = clock.GetUtcNow() });

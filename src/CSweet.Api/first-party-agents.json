@@ -108,6 +108,42 @@
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareProductManager#readme"
         },
         {
+          "Id": "73a7b05e-276c-47c5-bb17-cd548fd40c4c",
+          "AgentId": "com.csweet.video-game-director",
+          "ListingSlug": "video-game-director",
+          "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
+          "AccentColor": "#773F64",
+          "Name": "Video Game Director",
+          "Summary": "Leads the game portfolio, develops CEO-approved pitches and constraints, supervises creative and production leadership, and owns CEO updates.",
+          "Category": "Creative",
+          "RoleKey": "game-director",
+          "RoleName": "Video Game Director",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "game-direction.game-vision.v1"
+          ],
+          "RoleAliases": [
+            "Game Director",
+            "Video Game Director"
+          ],
+          "SpecializationKeys": [
+            "video-game-development",
+            "game-direction",
+            "portfolio-management"
+          ],
+          "Keywords": [
+            "video games",
+            "game design",
+            "creative direction",
+            "game vision"
+          ],
+          "IsFeatured": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame#readme"
+        },
+        {
           "Id": "2bb027ff-5316-4515-b538-369ef66cc2a8",
           "AgentId": "com.csweet.video-game-creative-director",
           "ListingSlug": "video-game-creative-director",
@@ -115,18 +151,17 @@
           "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
           "AccentColor": "#773F64",
           "Name": "Naomi Chen",
-          "Summary": "Leads video-game vision from minimal discovery through iterative pitch approval, Producer handoff, and creative production oversight.",
+          "Summary": "Owns creative direction, design documentation and creative acceptance within the Director’s CEO-approved game pitch.",
           "Category": "Creative",
           "RoleKey": "creative-director",
           "RoleName": "Creative Director",
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "creative-direction.game-vision.v1",
-            "game-creative-direction",
-            "video-game-development"
+            "work.execution.run",
+            "management.check-in.v1"
           ],
-          "RoleAliases": [ "Creative Director", "Game Director", "Video Game Creative Lead" ],
+          "RoleAliases": [ "Creative Director", "Video Game Creative Lead" ],
           "SpecializationKeys": [ "video-game-development", "game-creative-direction" ],
           "Keywords": [ "video games", "game design", "creative direction", "game vision" ],
           "IsFeatured": true,

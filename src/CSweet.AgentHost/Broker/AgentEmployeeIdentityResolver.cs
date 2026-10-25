@@ -100,13 +100,16 @@ public sealed class AgentEmployeeIdentityResolver(CSweetDbContext db)
             x.IsActive,
             cancellationToken);
         if (caller is null) return null;
-        var participant = await db.ProjectParticipants.AsNoTracking()
+        var participants = await db.ProjectParticipants.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId &&
                         x.OrganizationUserId == caller.Id &&
                         x.RemovedAt == null)
-            .OrderByDescending(x => x.JoinedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (participant is null) return null;
+            .Where(x => db.Workstreams.Any(p => p.Id == x.WorkstreamId && p.OrganizationId == organizationId &&
+                p.Status != WorkstreamStatus.Completed && p.Status != WorkstreamStatus.Cancelled))
+            .OrderByDescending(x => x.JoinedAt).Take(2).ToListAsync(cancellationToken);
+        // A shared portfolio employee has no implicit project. Each operation carries its explicit scope.
+        if (participants.Count != 1) return null;
+        var participant = participants[0];
         var project = await db.Workstreams.AsNoTracking()
             .SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.Id == participant.WorkstreamId, cancellationToken);
         if (project is null) return null;

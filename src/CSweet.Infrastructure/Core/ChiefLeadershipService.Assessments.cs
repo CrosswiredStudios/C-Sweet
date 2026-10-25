@@ -52,7 +52,9 @@ public sealed partial class ChiefLeadershipService
         var rows = await RowsAsync(agenda, token);
         var executable = focus is not null && !agenda.Paused;
         // Active hiring and native decisions take precedence over new proactive work.
-        if (rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" or "Blocked")) executable = false;
+        var firstGameDirector = agenda.ProfileKey == "game-studio" && rows.Any(x => x.DomainId == "creative-product" && x.ExecutionStatus == "Ready");
+        if (rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" ||
+            x.ExecutionStatus == "Blocked" && !(firstGameDirector && x.DomainId == "custom"))) executable = false;
         var leadershipQuestionIds = await db.ChiefFocusPrompts.Where(x => x.OrganizationId == agenda.Id).Select(x => x.Id).ToListAsync(token);
         if (await db.ExecutiveDecisions.AnyAsync(x => x.OrganizationId == agenda.Id && x.RequestingInstallationId == chief.AgentInstallationId &&
             x.Status == ExecutiveDecisionStatus.Pending && !leadershipQuestionIds.Contains(x.Id), token)) executable = false;
@@ -70,7 +72,7 @@ public sealed partial class ChiefLeadershipService
         return new(agenda.FocusRevision, focus is null ? null : new(focus.Id, focus.Revision, focus.DomainId, focus.CustomText, focus.DecisionMakerId,
                 focus.ConversationId, focus.SourceTurnId, focus.SourceDecisionId, focus.EffectiveAt, focus.SupersedesId),
             page.Select(Map).ToArray(), await AssignmentsAsync(agenda.Id, token), true, agenda.Paused,
-            chief.AgentInstallationId!.Value, executable ? rows.FirstOrDefault(x => x.ExecutionStatus == "Ready")?.Id : null,
+            chief.AgentInstallationId!.Value, executable ? rows.Where(x => x.ExecutionStatus == "Ready").OrderBy(x => agenda.ProfileKey == "game-studio" && x.DomainId == "creative-product" ? 0 : 1).FirstOrDefault()?.Id : null,
             await InputsAsync(agenda.Id, token), answered,
             null);
     }
@@ -110,7 +112,7 @@ public sealed partial class ChiefLeadershipService
         if (result.NextAction == "Hire")
         {
             if (result.HumanRequired || result.CoverageStatus is not ("NeedsCoverage" or "AtRisk") ||
-                result.RoleKey is not ("product-manager" or "creative-director") ||
+                result.RoleKey is not ("product-manager" or "creative-director" or "game-director") ||
                 string.IsNullOrWhiteSpace(result.RoleTitle) || result.RoleTitle.Length > 256 ||
                 string.IsNullOrWhiteSpace(result.RoleObjective) || result.RoleObjective.Length > 2048)
                 throw new ArgumentException("Only a verified gap for a supported CEO-direct agent manager can create a recommendation.");
@@ -118,7 +120,8 @@ public sealed partial class ChiefLeadershipService
             {
                 ("general" or "saas" or "ecommerce" or "custom", "product") => "product-manager",
                 ("professional-services", "offering") => "product-manager",
-                ("game-studio", "creative-product") or ("media-content", "creative") => "creative-director",
+                ("game-studio", "creative-product") => "game-director",
+                ("media-content", "creative") => "creative-director",
                 _ => null
             };
             if (result.RoleKey != expectedRole)

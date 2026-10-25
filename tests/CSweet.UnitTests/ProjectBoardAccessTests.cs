@@ -140,6 +140,37 @@ public sealed class ProjectBoardAccessTests
         Assert.Empty(s.Actions(s.Producer, GrantScopeKind.Workstream, s.Project.Id));
     }
 
+    [Theory]
+    [InlineData(7, true, true, true)]
+    [InlineData(6, true, true, false)]
+    [InlineData(7, false, true, false)]
+    [InlineData(7, true, false, false)]
+    public async Task Only_an_approved_shared_studio_authorizes_a_producer_on_multiple_games(
+        int version, bool directorEnabled, bool member, bool expected)
+    {
+        var s = await SeedAsync();
+        s.Project.ProfileKey = "video-game-production.v2";
+        s.Project.ProfileVersion = version;
+        var director = s.Db.CoreOrganizationUsers.Single(x => x.Id == s.Team.LeadOrganizationUserId);
+        s.Db.AgentInstallations.Add(new() { Id = director.AgentInstallationId!.Value,
+            BusinessId = s.Org.ToString("D"), IsEnabled = directorEnabled,
+            RevisionStatus = CSweet.Domain.Setup.PluginRevisionStatus.Active,
+            PackageVersion = new() { Id = Guid.NewGuid(), ManifestJson = """{"rolePolicy":{"declaredRoleKeys":["game-director"]}}""" } });
+        s.Db.WorkstreamSupervisionAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = s.Org,
+            WorkstreamId = s.Project.Id, SupervisorOrganizationUserId = director.Id, RoleKey = "game-director",
+            StartsAt = DateTimeOffset.UtcNow.AddMinutes(-1) });
+        if (!member) s.Db.TeamMemberships.Single(x => x.OrganizationUserId == s.Producer.Id).EndedAt = DateTimeOffset.UtcNow;
+        var other = new Workstream { Id = Guid.NewGuid(), OrganizationId = s.Org, Name = "Other game",
+            Outcome = "Other", Status = WorkstreamStatus.Active };
+        s.Db.Workstreams.Add(other);
+        s.Db.ProjectParticipants.Add(new() { OrganizationId = s.Org, WorkstreamId = other.Id,
+            OrganizationUserId = s.Producer.Id, AddedByOrganizationUserId = director.Id, JoinedAt = DateTimeOffset.UtcNow });
+        await s.Db.SaveChangesAsync();
+        await s.CreateBoardAsync();
+        Assert.Equal(expected, s.Db.ProjectParticipants.Any(x => x.WorkstreamId == s.Project.Id && x.OrganizationUserId == s.Producer.Id));
+        Assert.Equal(expected, s.Actions(s.Producer, GrantScopeKind.Workstream, s.Project.Id).Any());
+    }
+
     [Fact]
     public async Task A_board_for_an_inactive_project_or_no_project_changes_nothing()
     {

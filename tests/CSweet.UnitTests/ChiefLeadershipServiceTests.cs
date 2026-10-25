@@ -76,7 +76,7 @@ public sealed partial class UserActionServiceTests
 
     [Theory]
     [InlineData("general", "product", "product-manager")]
-    [InlineData("game-studio", "creative-product", "creative-director")]
+    [InlineData("game-studio", "creative-product", "game-director")]
     [InlineData("saas", "product", "product-manager")]
     [InlineData("ecommerce", "product", "product-manager")]
     [InlineData("professional-services", "offering", "product-manager")]
@@ -467,11 +467,35 @@ public sealed partial class UserActionServiceTests
     }
 
     [Fact]
-    public async Task ChiefGameStudioExistingCreativeOwnershipCompletesWithoutCompanyHiring()
+    public async Task ChiefGameStudioPrioritizesDirectorBeforeTheSelectedFinanceFocus()
+    {
+        await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
+        var domains = new[] { new ChiefCoverageDomain("creative-product", "Game direction", "Game portfolio ownership", 1) }
+            .Concat(ChiefDomains.Skip(1)).ToArray();
+        var prompt = await Leadership(db).PresentAsync(f.Organization, f.Installation,
+            new("game-studio", 1, f.Conversation, f.Message, domains, 0, "studio-finance"));
+        var answer = await AnswerLeadershipAsync(db, f, prompt.DecisionId, "financial");
+        var state = await Leadership(db).CaptureAsync(f.Organization, f.Installation, new(answer, 0, "studio-finance-answer", prompt.DecisionId));
+        Assert.Equal("financial", state.Focus!.DomainId);
+        Assert.Equal("creative-product", state.Assessments.Single(x => x.Id == state.NextAssessmentId).DomainId);
+        await new ChatTurnService(db).CompleteAsync(answer, f.LaterMessage, false);
+        db.LeadershipAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, OrganizationUserId = f.Hire,
+            PositionKey = "game-director", StartsAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        state = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
+        var row = state.Assessments.Single(x => x.Id == state.NextAssessmentId);
+        await Leadership(db).AssessAsync(f.Organization, f.Installation, new(row.Id, row.Revision, state.FocusRevision, state.InputFingerprint,
+            new("AdequatelyCovered", "Dedicated", f.Hire, "The active Video Game Director owns the complete game portfolio with available capacity.", "None", [f.Hire]), "director-covered"));
+        var resumed = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
+        Assert.Equal("financial", resumed.Assessments.Single(x => x.Id == resumed.NextAssessmentId).DomainId);
+    }
+
+    [Fact]
+    public async Task ChiefGameStudioExistingDirectorOwnershipCompletesWithoutCompanyHiring()
     {
         await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
         db.LeadershipAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, OrganizationUserId = f.Hire,
-            PositionKey = "creative-director", StartsAt = DateTimeOffset.UtcNow });
+            PositionKey = "game-director", StartsAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync();
         var domains = new[] { new ChiefCoverageDomain("creative-product", "Creative and Product", "Creative direction and player outcomes", 1) }.Concat(ChiefDomains.Skip(1)).ToArray();
         var prompt = await Leadership(db).PresentAsync(f.Organization, f.Installation, new("game-studio", 1, f.Conversation, f.Message, domains, 0, "studio"));
@@ -480,7 +504,7 @@ public sealed partial class UserActionServiceTests
         await new ChatTurnService(db).CompleteAsync(answer, f.LaterMessage, false);
         var row = state.Assessments.Single(x => x.DomainId == "creative-product");
         await Leadership(db).AssessAsync(f.Organization, f.Installation, new(row.Id, row.Revision, state.FocusRevision, state.InputFingerprint,
-            new("AdequatelyCovered", "Combined", f.Hire, "The current Creative Director owns this game's direction and initial team design with capacity for this scope.", "None", [f.Hire]), "studio-covered"));
+            new("AdequatelyCovered", "Combined", f.Hire, "The current Video Game Director owns portfolio direction and team design with capacity for this scope.", "None", [f.Hire]), "studio-covered"));
         db.ChangeTracker.Clear(); var resumed = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
         Assert.Equal("Complete", resumed.Assessments.Single(x => x.Id == row.Id).ExecutionStatus);
         Assert.Equal("research", resumed.Assessments.Single(x => x.Id == resumed.NextAssessmentId).DomainId);

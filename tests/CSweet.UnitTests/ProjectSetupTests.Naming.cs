@@ -12,6 +12,25 @@ namespace CSweet.UnitTests;
 public sealed partial class ProjectSetupTests
 {
     [Fact]
+    public async Task Shared_employee_has_no_implicit_project_until_only_one_remains_active()
+    {
+        await using var db = Db(); var (human, employee) = Seed(db); await db.SaveChangesAsync();
+        var first = await Service(db).CreateAsync(human, Request(human, employee), default);
+        var second = new Workstream { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            Name = "Other game", Outcome = "Deliver", Status = WorkstreamStatus.Active };
+        db.Workstreams.Add(second);
+        db.ProjectParticipants.Add(new() { OrganizationId = human.OrganizationId, WorkstreamId = second.Id,
+            OrganizationUserId = employee.Id, AddedByOrganizationUserId = human.Id, JoinedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var session = new CSweet.AgentHost.Broker.AgentSession("test", "agent", employee.AgentInstallationId!.Value.ToString("D"),
+            human.OrganizationId.ToString("D"), "runtime", "tick", new(new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), 1));
+        var resolver = new CSweet.AgentHost.Broker.AgentEmployeeIdentityResolver(db);
+        Assert.Null(await resolver.ReadProjectAssignmentAsync(session));
+        second.Status = WorkstreamStatus.Completed; await db.SaveChangesAsync();
+        Assert.Equal(first.ProjectId, (await resolver.ReadProjectAssignmentAsync(session))!.WorkstreamId);
+    }
+
+    [Fact]
     public async Task Rename_preserves_execution_authority_and_identifiers_and_records_the_transition_once()
     {
         await using var db = Db(); var (human, developer) = Seed(db); await db.SaveChangesAsync();

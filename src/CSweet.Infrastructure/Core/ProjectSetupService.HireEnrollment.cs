@@ -40,7 +40,7 @@ public sealed partial class ProjectSetupService
         var participant = await db.ProjectParticipants.AsNoTracking().SingleOrDefaultAsync(x =>
             x.WorkstreamId == project.Id && x.OrganizationUserId == employeeId, ct);
         if (participant?.RemovedAt is not null) return false;
-        if (participant is null && await db.ProjectParticipants.AnyAsync(x => x.OrganizationId == org &&
+        if (participant is null && !await IsSharedGameTeamParticipantAsync(project, person, ct) && await db.ProjectParticipants.AnyAsync(x => x.OrganizationId == org &&
                 x.OrganizationUserId == employeeId && x.WorkstreamId != project.Id && x.RemovedAt == null &&
                 db.Workstreams.Any(p => p.Id == x.WorkstreamId && p.Status != WorkstreamStatus.Completed && p.Status != WorkstreamStatus.Cancelled), ct))
             return false;

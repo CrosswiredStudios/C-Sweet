@@ -233,3 +233,5 @@ The first full vertical slice is complete when:
 - [Runtime public internet and dependency setup](features/runtime-public-internet.md) — reviewed execution permission, common Office egress, certified development guests and rollout gates.
 
 - [Coding workload resources and recovery](coding-workload-resources.md) — resource policy, checkpointed VM replacement, guest memory evidence and rollout acceptance.
+
+- [Video game portfolio leadership](features/video-game-director.md) — Director/Creative Director/Producer ownership, pitch approvals, shared teams and CEO reporting.
