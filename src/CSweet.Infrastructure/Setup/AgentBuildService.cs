@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.Setup;
 
-public sealed class AgentBuildService : IAgentBuildService
+public sealed partial class AgentBuildService : IAgentBuildService
 {
     private const int MaximumAutomaticSourceAttempts = 3;
     private static readonly string[] TransientSourceFailureMarkers =
@@ -75,10 +75,13 @@ public sealed class AgentBuildService : IAgentBuildService
             Attempt = (activeJob?.Attempt ?? 0) + 1,
             QueuedAt = DateTimeOffset.UtcNow
         };
-        job.ExecutionPoolId = await _dbContext.AgentRuntimeGlobalSettings.AsNoTracking()
-            .Select(x => x.DefaultBuildExecutionPoolId)
-            .SingleOrDefaultAsync(cancellationToken);
-        job.StepsJson = AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
+        if (packageVersion.PluginKind != PluginKind.Connector)
+            job.ExecutionPoolId = await _dbContext.AgentRuntimeGlobalSettings.AsNoTracking()
+                .Select(x => x.DefaultBuildExecutionPoolId)
+                .SingleOrDefaultAsync(cancellationToken);
+        job.StepsJson = packageVersion.PluginKind == PluginKind.Connector
+            ? AgentBuildStepStore.CreateConnectorInitialJson(job.QueuedAt)
+            : AgentBuildStepStore.CreateInitialJson(job.QueuedAt);
         packageVersion.Status = AgentPackageVersionStatus.Approved;
         _dbContext.AgentBuildJobs.Add(job);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -88,12 +91,24 @@ public sealed class AgentBuildService : IAgentBuildService
 
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken = default)
     {
+        // Connectors are reviewed declarations interpreted by the broker, never executable
+        // workloads. Drain their verification queue even when no execution fleet exists.
+        var connectorJob = await _dbContext.AgentBuildJobs
+            .Include(x => x.PackageVersion).ThenInclude(x => x!.PackageSource)
+            .Where(x => x.Status == AgentBuildStatus.Queued && x.QueuedAt <= DateTimeOffset.UtcNow &&
+                x.PackageVersion!.PluginKind == PluginKind.Connector)
+            .OrderBy(x => x.QueuedAt).FirstOrDefaultAsync(cancellationToken);
+        if (connectorJob is not null)
+        {
+            await VerifyConnectorAsync(connectorJob, cancellationToken);
+            return true;
+        }
         if (_executionFleet is not null && !await _executionFleet.IsReadyAsync(cancellationToken))
             return false;
         var job = await _dbContext.AgentBuildJobs
             .Include(x => x.PackageVersion)
                 .ThenInclude(x => x!.PackageSource)
-            .Where(x => x.Status == AgentBuildStatus.Queued &&
+            .Where(x => x.Status == AgentBuildStatus.Queued && x.PackageVersion!.PluginKind != PluginKind.Connector &&
                         x.QueuedAt <= DateTimeOffset.UtcNow)
             .OrderBy(x => x.QueuedAt)
             .FirstOrDefaultAsync(cancellationToken);

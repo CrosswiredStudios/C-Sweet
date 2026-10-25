@@ -256,7 +256,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 Attempt = 1,
                 QueuedAt = now
             };
-            buildJob.StepsJson = AgentBuildStepStore.CreateInitialJson(buildJob.QueuedAt);
+            buildJob.StepsJson = packageVersion.PluginKind == PluginKind.Connector
+                ? AgentBuildStepStore.CreateConnectorInitialJson(buildJob.QueuedAt)
+                : AgentBuildStepStore.CreateInitialJson(buildJob.QueuedAt);
             _dbContext.AgentBuildJobs.Add(buildJob);
         }
         installation.PackageVersion = packageVersion;

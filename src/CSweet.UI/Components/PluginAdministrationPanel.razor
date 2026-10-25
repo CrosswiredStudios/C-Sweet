@@ -13,7 +13,7 @@
         else if (admin.RemovalPending) { <MudAlert Severity="Severity.Info">Removal is in progress. All account access is stopped. The plugin will leave Installed when cleanup is confirmed.</MudAlert> }
         else if (!admin.Staged)
         {
-            @if (View.BuildStatus is "Failed" or "Approved") { <MudButton Disabled="_busy" OnClick="RetryBuild">Retry verified build</MudButton> }
+            @if (View.BuildStatus is "Failed" or "Approved") { <MudButton Disabled="_busy" OnClick="RetryBuild">Retry verification</MudButton> }
             <MudButton Disabled="_busy" OnClick="@(()=>Review(admin.Enabled ? "Pause" : "Resume"))">@(admin.Enabled ? "Pause plugin" : "Resume plugin")</MudButton>
             <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(()=>Review("Remove"))">Remove plugin</MudButton>
             @if (_impact is not null)

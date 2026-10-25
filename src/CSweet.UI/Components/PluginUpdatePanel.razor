@@ -9,9 +9,9 @@
 @if (View.Administration is { Retired:false,RemovalPending:false } admin)
 {
     <MudExpansionPanels Elevation="0" Class="my-4">
-        <MudExpansionPanel Text="Build diagnostics and updates">
+        <MudExpansionPanel Text="Verification diagnostics and updates">
             @if(_error!=null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
-            <MudButton Disabled="_busy" OnClick="ReadLog">View build diagnostics</MudButton>
+            <MudButton Disabled="_busy" OnClick="ReadLog">View verification diagnostics</MudButton>
             @if(_log!=null) { <pre style="max-height:320px;overflow:auto;white-space:pre-wrap">@_log</pre> }
             @if(admin.Staged)
             {

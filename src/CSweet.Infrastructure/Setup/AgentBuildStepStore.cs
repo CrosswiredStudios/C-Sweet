@@ -28,6 +28,16 @@ internal static class AgentBuildStepStore
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    private static readonly (string Key, string Label, string PendingDetail)[] ConnectorCatalog =
+    [
+        (AgentBuildStepKeys.Queued, "Verification queued", "Waiting for connector declaration verification; no VM is needed."),
+        (AgentBuildStepKeys.Verify, "Verify connector", "Validate the reviewed manifest, source identity and bounded broker operations."),
+        (AgentBuildStepKeys.Install, "Make connector available", "Record the immutable declaration digest; account consent remains separate.")
+    ];
+
+    public static string CreateConnectorInitialJson(DateTimeOffset queuedAt) =>
+        Serialize(CreateInitial(queuedAt, ConnectorCatalog));
+
     public static string CreateInitialJson(DateTimeOffset queuedAt) =>
         Serialize(CreateInitial(queuedAt));
 

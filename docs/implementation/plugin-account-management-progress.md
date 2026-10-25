@@ -1,9 +1,21 @@
 # Enterprise plugin account implementation progress
 
-Updated: 2026-10-25 (broker-only connector resource separation). Scope: [approved plan](plugin-account-management-plan.md).
+Updated: 2026-10-25 (broker-only declaration verification). Scope: [approved plan](plugin-account-management-plan.md).
 See [lifecycle implementation and explicit remaining boundaries](plugin-account-lifecycle.md).
 
 ## Implemented in source
+
+- `AgentBuildService.ProcessNextAsync` verifies queued connector declarations before checking fleet
+  availability. `VerifyConnectorDeclarations` revalidates the reviewed manifest's SHA-256, immutable
+  repository/commit, package identity, capability descriptors and closed broker operation contracts.
+  The resulting `connector-declarations.v1` digest identifies declarations, not a compiled or signed
+  executable. No clone, compiler, builder VM, runtime settings or execution-pool allocation is used.
+  Existing queued connector installs recover through the normal background-worker/retry path.
+  Executable agents/services retain their isolated build path. OAuth client-profile, package review,
+  account consent and per-business/per-agent grant checks remain separate and enforced.
+- `PluginManage`, `PluginAdministrationPanel` and `PluginUpdatePanel` distinguish connector
+  verification from compilation, show retry/diagnostics controls and explain worker readiness.
+  Verification alone does not establish a working Google application or provider consent.
 
 **Install → review abilities → approve enterprise installation → plugin page → Connect account →
 native scope/privacy review → provider-hosted consent → authenticated import → business access.**
