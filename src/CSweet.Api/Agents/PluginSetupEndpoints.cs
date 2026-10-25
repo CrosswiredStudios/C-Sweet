@@ -146,8 +146,24 @@ public static class PluginSetupEndpoints
         });
 
         endpoints.MapGet("/api/plugin-connections/oauth/callback", async (string? code, string? state,
-            string? error, HttpContext http, IPluginSetupService setup, CancellationToken cancellationToken) =>
+            string? error, HttpContext http, IPluginSetupService setup, [Microsoft.AspNetCore.Mvc.FromServices] PluginAccountService accounts, CancellationToken cancellationToken) =>
         {
+            if (state?.StartsWith("account.", StringComparison.Ordinal) == true)
+            {
+                if (http.User.GetApplicationUserId() is not { } owner) return Results.Forbid();
+                http.Response.Headers.CacheControl = "no-store";
+                http.Response.Headers["Referrer-Policy"] = "no-referrer";
+                try
+                {
+                    var result = await accounts.CompleteAsync(owner, code, state, error, cancellationToken);
+                    return Results.Redirect($"/settings/plugins/{result.InstallationId:D}?setup={result.SetupId:D}");
+                }
+                catch (Exception failure) when (failure is UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException or HttpRequestException)
+                {
+                    var failed = await accounts.FailCallbackAsync(owner, state, cancellationToken);
+                    return failed is { } context ? Results.Redirect($"/settings/plugins/{context.InstallationId:D}?setup={context.SetupId:D}") : Results.Forbid();
+                }
+            }
             if (!string.IsNullOrWhiteSpace(error)) return Results.BadRequest("Provider authorization was not completed.");
             var applicationUserId = http.User.GetApplicationUserId();
             if (!applicationUserId.HasValue || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))

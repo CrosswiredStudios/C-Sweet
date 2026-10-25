@@ -8,6 +8,7 @@ public static class PluginManagementEndpoints
 {
     public static IEndpointRouteBuilder MapPluginManagementEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapPluginAccountEndpoints();
         var group = endpoints.MapGroup("/api/plugins")
             .RequireAuthorization("PluginAdministration");
 

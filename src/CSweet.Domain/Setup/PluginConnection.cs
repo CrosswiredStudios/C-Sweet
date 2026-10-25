@@ -6,6 +6,10 @@ public sealed class PluginConnection
     public Guid AgentInstallationId { get; set; }
     public Guid? AccountGroupId { get; set; }
     public long AuthorizationRevision { get; set; } = 1;
+    public Guid? ActiveCredentialAttemptId { get; set; }
+    public string? CredentialProfileHash { get; set; }
+    public Guid? RefreshLeaseOwner { get; set; }
+    public DateTimeOffset? RefreshLeaseUntil { get; set; }
     public string DeclarationId { get; set; } = string.Empty;
     public string ProviderProfile { get; set; } = string.Empty;
     public PluginConnectionStatus Status { get; set; }

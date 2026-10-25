@@ -94,6 +94,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<PluginSecret> PluginSecrets => Set<PluginSecret>();
     public DbSet<PluginConnection> PluginConnections => Set<PluginConnection>();
     public DbSet<PluginAccountGroup> PluginAccountGroups => Set<PluginAccountGroup>();
+    public DbSet<PluginAccountSetupSession> PluginAccountSetupSessions => Set<PluginAccountSetupSession>();
+    public DbSet<PluginAccountOperator> PluginAccountOperators => Set<PluginAccountOperator>();
+    public DbSet<PluginAccountRevocationJob> PluginAccountRevocationJobs => Set<PluginAccountRevocationJob>();
     public DbSet<PluginAccountResource> PluginAccountResources => Set<PluginAccountResource>();
     public DbSet<PluginAccountResourceAuthorization> PluginAccountResourceAuthorizations => Set<PluginAccountResourceAuthorization>();
     public DbSet<PluginAccountBusinessGrant> PluginAccountBusinessGrants => Set<PluginAccountBusinessGrant>();

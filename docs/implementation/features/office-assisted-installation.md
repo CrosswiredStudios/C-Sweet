@@ -3,6 +3,44 @@
 Status: Windows assisted installation and stale-installation recovery implemented  
 Last updated: 2026-09-20
 
+## Office drive selection (2026-10-24)
+
+`AgentHostOnboardingStep` displays host volume inventory before the capacity profiles, shows final
+service/data paths, and recalculates limits using the selected volume's capacity. Refresh uses
+`RefreshOfficeStorageAsync`. `LocalOfficeStorageProbe` reads Windows volumes and their backing
+disks; a full system drive does not hide eligible alternatives. The system volume remains the
+default when eligible. Other-machine and portable platform setup choose storage in the destination
+installer; a browser does not enumerate remote filesystems.
+
+`CreateLocalOfficeSetupSessionRequest.StorageVolumeId`, `LocalOfficeSetupSession.StorageVolumeId`,
+`InstallRoot`, and `DataRoot` retain the selection across retries/reloads. Apply
+`AddOfficeInstallationStorage` through the normal migrator. `ExecutionFleetService` resolves the
+inventory again at creation and returns `OfficeInstallationLocation` in authenticated preflight and
+redemption. Storage-bearing sessions require Office 0.13.0 even if redemption skips preflight.
+Office.Contracts 0.12.0 is pinned by both Headquarters and Office.
+
+The independently released Office installer validates the selected volume again. Alternative roots
+are `<volume>/CSweet/Office/program` and `<volume>/CSweet/Office/data`; system-volume selection uses
+existing paths. The Windows launcher stages large downloads and certification under the selected
+data root. Office's protected location record supplies paths for maintenance, updates, repair,
+reassignment, and removal. Native package records/installer payloads and OS service registrations
+keep platform-required locations. Existing installations keep their location; this does not migrate
+an installed Office. Registered alternative Office paths are included in the local-reset preview.
+
+Coverage: `ExecutionFleetStorageTests`, `LocalOfficeCapacityCalculatorTests`,
+`OnboardingWorkspaceRenderingTests`, `Test-AutomaticOfficeUpdatePreparation.ps1`, Office's
+`Test-OfficeStorage.ps1` / `test-office-storage.sh`, and Office.Contracts `OfficeInstallationStorageTests`.
+Verification passed: 148 focused Headquarters tests, 245 Office tests, 20 contract tests,
+76 Office release checks, 31 reset-boundary tests, 12 Windows storage checks, five actual update
+preparation scenarios, and the Unix selection/registration/service-rendering harness. The Windows
+probe also discovered the host's C: and D: volumes. Both consumers were built using the packed
+Office.Contracts 0.12.0 with sibling references disabled; the package metadata and all 15 managed
+Office 0.13.0 package versions were inspected.
+
+Native second-volume installation, reboot, isolated workload, update, and uninstall acceptance
+remains required per platform before installer release certification. No installed Office, live
+database, or published release is modified by source verification.
+
 ## Failed setup diagnostics (2026-10-15)
 
 `ExecutionFleetService.ReportLocalSetupResultAsync` and `Map` preserve a same-attempt

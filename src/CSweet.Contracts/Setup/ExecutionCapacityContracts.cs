@@ -33,7 +33,14 @@ public sealed record LocalOfficeCapacityResponse(
     int MinimumCpuCount,
     int MinimumMemoryMb,
     int MinimumDiskMb,
-    IReadOnlyList<LocalOfficeResourcePresetResponse> Presets);
+    IReadOnlyList<LocalOfficeResourcePresetResponse> Presets,
+    IReadOnlyList<LocalOfficeVolumeResponse>? Volumes = null,
+    string? SelectedVolumeId = null);
+
+public sealed record LocalOfficeVolumeResponse(
+    string Id, string MountPath, string Label, string FileSystem,
+    long TotalBytes, long FreeBytes, bool IsSystemVolume, bool IsEligible,
+    string? UnavailableReason, string InstallRoot, string DataRoot, LocalOfficeCapacityResponse? Capacity = null);
 
 public sealed record LocalOfficeResourcePresetResponse(
     string Key,
@@ -52,7 +59,8 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
     bool Repair = false,
     bool AutomaticUpdate = false,
     string? TargetVersion = null,
-    bool UseLocalSource = false);
+    bool UseLocalSource = false,
+    string? StorageVolumeId = null);
 
 public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
 
@@ -87,7 +95,10 @@ public sealed record LocalOfficeSetupSessionResponse(
     bool ResumeAfterUpdate = false,
     DateTimeOffset? StopStartedAt = null,
     IReadOnlyList<OfficeUpdateJobResponse>? UpdateJobs = null,
-    bool CanCancelUpdate = false);
+    bool CanCancelUpdate = false,
+    string? StorageVolumeId = null,
+    string? InstallRoot = null,
+    string? DataRoot = null);
 
 public sealed record OfficeUpdateJobResponse(Guid AssignmentId, string Name, string Kind, string State);
 

@@ -16,7 +16,7 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace CSweet.UnitTests;
 
-public sealed class ExecutionFleetServiceTests
+public sealed partial class ExecutionFleetServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 10, 20, 0, 0, TimeSpan.Zero);
 

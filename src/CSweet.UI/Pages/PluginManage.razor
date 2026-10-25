@@ -1,0 +1,230 @@
+@page "/settings/plugins/{InstallationId:guid}"
+@layout SettingsLayout
+@using CSweet.Contracts.Plugins
+@using CSweet.UI.Services
+@implements IAsyncDisposable
+@inject IPluginAccountApiClient AccountsApi
+@inject IBusinessContext Businesses
+@inject NavigationManager Navigation
+
+<PageTitle>@(_view?.Name ?? "Plugin")</PageTitle>
+<main class="plugin-manage">
+    <MudLink Href="/settings/plugins">← Plugins</MudLink>
+    @if (_view is null)
+    {
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert><MudButton OnClick="Reload">Try again</MudButton> }
+        else { <MudProgressLinear Indeterminate="true" aria-label="Loading plugin" /> }
+    }
+    else
+    {
+        <header class="manage-heading">
+            <div><MudText Typo="Typo.h3">@_view.Name</MudText><MudText Color="Color.Secondary">Enterprise integration · v@_view.Version</MudText></div>
+            <div class="manage-actions"><MudButton Disabled="_busy" OnClick="Reload">Refresh</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_view.CanConnect)" OnClick="@(() => OpenConnect(null))">Connect account</MudButton></div>
+        </header>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+        @if (_notice is not null) { <MudAlert Severity="Severity.Success" role="status">@_notice</MudAlert> }
+        @if (_showSetupNotice && SetupId is not null && _view.SetupSessions.Any(s => s.Id == SetupId && s.Status == "Ready"))
+        { <MudAlert Severity="Severity.Success" role="status">Account connected and accessible resources imported. Next, choose a business and the resources it may use.</MudAlert> }
+        @if (!_view.CanConnect)
+        {
+            <MudAlert Severity="Severity.Info">@Readiness(_view.ReadinessMessage, _view.BuildStatus)
+                @if (_view.ReadinessMessage?.StartsWith("provider_", StringComparison.Ordinal) == true && _view.CanAdminister)
+                { <MudLink Href="/settings/plugins#provider-administration">Open administrator connection settings</MudLink> }
+            </MudAlert>
+        }
+        @foreach (var setup in _view.SetupSessions.Where(x => x.Status is "AwaitingConsent" or "Importing" or "ImportFailed" or "Cancelled" or "Expired" or "Failed" or "NoResources").Take(3))
+        {
+            <MudPaper Outlined="true" Class="manage-card" role="status">
+                <MudText Typo="Typo.subtitle1">@SetupTitle(setup.Status)</MudText>
+                <MudText>@SetupMessage(setup)</MudText>
+                @if (setup.Status == "Importing") { <MudProgressLinear Indeterminate="true" aria-label="Importing accessible resources" /> }
+                @if (setup.Status == "ImportFailed") { <MudButton Disabled="_busy" OnClick="@(() => Retry(setup.Id))">Resume import</MudButton> }
+            </MudPaper>
+        }
+        @if (_connecting)
+        {
+            <MudPaper Outlined="true" Class="manage-card connect-panel" role="region" aria-label="Connect account permissions">
+                <MudText Typo="Typo.h5">Connect @_view.Declaration.AccountLabel</MudText>
+                <MudText>@_view.Declaration.ConsentPurpose</MudText>
+                <MudText Typo="Typo.subtitle2" Class="mt-3">Choose what to enable</MudText>
+                @foreach (var scope in _view.ScopeSets)
+                {
+                    <MudCheckBox T="bool" Value="@(_scopes.Contains(scope.Id) || scope.Required)" ValueChanged="@(value => ToggleScope(scope.Id, value))"
+                        Disabled="@(scope.Required || _busy)" Label="@(scope.Label + (scope.Required ? " (included)" : ""))" />
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@scope.Purpose</MudText>
+                }
+                <MudAlert Severity="Severity.Info" Class="mt-3">You’ll sign in on the provider’s own page. Your password stays with the provider. Connecting an account does not give any business or agent access.</MudAlert>
+                <div class="policy-links"><a href="@_view.Declaration.PrivacyPolicyUrl" target="_blank" rel="noopener noreferrer">Privacy policy</a> ·
+                    <a href="@_view.Declaration.TermsOfServiceUrl" target="_blank" rel="noopener noreferrer">Terms</a>
+                    @foreach (var policy in _view.Declaration.PolicyLinks) { <span> · <a href="@policy.Url" target="_blank" rel="noopener noreferrer">@policy.Label</a></span> }
+                </div>
+                <MudCheckBox T="bool" @bind-Value="_accepted" Label="I have reviewed the access, privacy policy and terms for this connection." Disabled="_busy" />
+                <div class="manage-actions"><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_accepted)" OnClick="Connect">Continue to secure sign-in</MudButton>
+                    <MudButton OnClick="@(() => _connecting = false)" Disabled="_busy">Cancel</MudButton></div>
+            </MudPaper>
+        }
+        @if (_view.Accounts.Count == 0 && !_connecting)
+        {
+            <MudPaper Outlined="true" Class="manage-card empty-state">
+                <MudText Typo="Typo.h5">Connect your first account</MudText>
+                <MudText>Sign in securely, import the @_view.Declaration.ResourcesLabel.ToLowerInvariant() you can access, then choose which businesses may use them.</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">You won’t need API keys or technical credentials.</MudText>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_view.CanConnect || _busy)" OnClick="@(() => OpenConnect(null))">Connect account</MudButton>
+            </MudPaper>
+        }
+        @foreach (var account in _view.Accounts)
+        {
+            <MudPaper Outlined="true" Class="manage-card">
+                <div class="manage-heading"><div><MudText Typo="Typo.h5">@account.Name</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@(account.ProviderVerified ? "Provider-verified account" : "Account grouping") · @account.State</MudText></div>
+                </div>
+                @foreach (var authorization in account.Authorizations)
+                {
+                    <div class="resource-row"><div><MudText Typo="Typo.subtitle2">@AuthorizationResources(account, authorization)</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@AuthorizationPermissions(authorization) · @(authorization.State == "Connected" ? "Connected" : "Sign-in needs attention")</MudText></div>
+                        <MudButton Disabled="@(_busy || !authorization.CanReconnect)" OnClick="@(() => OpenConnect(authorization.Id))">Reconnect / change permissions</MudButton></div>
+                }
+                <MudText Typo="Typo.subtitle1" Class="mt-3">@_view.Declaration.ResourcesLabel (@account.Resources.Count)</MudText>
+                @if (account.Resources.Count > 10)
+                { <MudTextField T="string" @bind-Value="_resourceSearch" Immediate="true" Label="@($"Find {_view.Declaration.ResourcesLabel.ToLowerInvariant()}")" Variant="Variant.Outlined" /> }
+                @foreach (var resource in account.Resources.Where(r => string.IsNullOrWhiteSpace(_resourceSearch) || (r.Name + " " + r.Handle + " " + r.ExternalId).Contains(_resourceSearch, StringComparison.OrdinalIgnoreCase)))
+                {
+                    <div class="resource-row"><div><MudText>@resource.Name</MudText><MudText Typo="Typo.caption">@resource.Handle · @resource.ExternalId</MudText></div>
+                        <MudText Typo="Typo.caption">@(resource.Available ? "Available" : "Access needs attention")</MudText></div>
+                }
+                @if (account.Resources.Count == 0) { <MudText Color="Color.Secondary">No accessible @_view.Declaration.ResourcesLabel.ToLowerInvariant() were returned. You can authorize another account or resource.</MudText> }
+                @if (_view.CanAdminister)
+                {
+                    <div class="manage-heading mt-4"><MudText Typo="Typo.subtitle1">Business access</MudText>
+                        <MudButton Disabled="@(_busy || account.State != "Connected" || account.Resources.Count == 0)" OnClick="@(() => EditAccess(account))">Assign business access</MudButton></div>
+                    @if (!account.BusinessGrants.Any(x => !x.Revoked)) { <MudText Color="Color.Secondary">No businesses have access. Only authorized connection operators can manage this account.</MudText> }
+                    @foreach (var grant in account.BusinessGrants.Where(x => !x.Revoked))
+                    {
+                        <div class="resource-row"><MudText>@BusinessName(grant.OrganizationId) · @(grant.Scope == "WholeAccount" ? "Entire account, including future imports" : $"{grant.ResourceIds.Count} selected resources")</MudText>
+                            <MudButton Disabled="_busy" OnClick="@(() => _revokeGrant = grant)">Remove access</MudButton></div>
+                        @if (_revokeGrant?.Id == grant.Id)
+                        {
+                            <MudAlert Severity="Severity.Warning">This business and its agents will immediately lose access through this grant. Other businesses and the connected account are unaffected. Actions already sent cannot be undone.</MudAlert>
+                            <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => Revoke(grant))">Confirm remove access</MudButton><MudButton Disabled="_busy" OnClick="@(() => _revokeGrant = null)">Keep access</MudButton>
+                        }
+                    }
+                    <MudDivider Class="mt-4 mb-3" />
+                    @if (account.State == "Disconnecting")
+                    { <MudAlert Severity="Severity.Info">Account access has stopped. Provider revocation and data deletion are being tracked. Deletion is not yet confirmed.</MudAlert> }
+                    else
+                    { <MudButton Color="Color.Error" Variant="Variant.Text" Disabled="_busy" OnClick="@(() => ReviewDisconnect(account.Id))">Disconnect account</MudButton> }
+                    @if (_disconnectAccount == account.Id && _impact is not null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mt-3">Disconnecting immediately stops external work for every business and agent using this account. It does not undo actions already sent.</MudAlert>
+                        <MudText>Affected businesses: @(_impact.Businesses.Count == 0 ? "None" : string.Join(", ", _impact.Businesses))</MudText>
+                        <MudText>Affected agents: @(_impact.Agents.Count == 0 ? "None" : string.Join(", ", _impact.Agents))</MudText>
+                        @if (_impact.ProviderRevocationMayAffectOtherAuthorizations) { <MudText Color="Color.Warning">The provider may also revoke related authorizations for this account and application. Reconnection will require new review; autonomous policies will not be restored.</MudText> }
+                        <div class="manage-actions mt-3"><MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="_busy" OnClick="Disconnect">Confirm disconnect</MudButton><MudButton Disabled="_busy" OnClick="@(() => _disconnectAccount = null)">Keep connected</MudButton></div>
+                    }
+                    @if (_editing?.Id == account.Id)
+                    {
+                        <section class="access-editor" aria-label="Business access editor">
+                            <MudSelect T="Guid?" Label="Business" Value="_business" ValueChanged="BusinessChanged" Variant="Variant.Outlined">
+                                @foreach (var business in Businesses.Businesses) { <MudSelectItem T="Guid?" Value="@((Guid?)business.Id)">@business.Name</MudSelectItem> }
+                            </MudSelect>
+                            <MudRadioGroup T="string" Value="_grantScope" ValueChanged="GrantScopeChanged">
+                                <MudRadio T="string" Value="@("SelectedResources")">Selected @_view.Declaration.ResourcesLabel.ToLowerInvariant()</MudRadio>
+                                <MudRadio T="string" Value="@("WholeAccount")">Entire account</MudRadio>
+                            </MudRadioGroup>
+                            @if (_grantScope == "WholeAccount")
+                            { <MudCheckBox T="bool" @bind-Value="_future" Label="I understand this business will also access resources authorized and imported into this account in the future." /> }
+                            else
+                            {
+                                @foreach (var resource in account.Resources.Where(x => x.Available))
+                                { <MudCheckBox T="bool" Label="@resource.Name" Value="@_resources.Contains(resource.Id)" ValueChanged="@(value => ToggleResource(resource.Id, value))" /> }
+                            }
+                            <MudText Typo="Typo.subtitle2">Allowed abilities</MudText>
+                            @foreach (var permission in _view.Declaration.Permissions)
+                            { <MudCheckBox T="bool" Label="@permission.Label" Value="@_permissions.Contains(permission.Id)" ValueChanged="@(value => TogglePermission(permission.Id, value))" /><MudText Typo="Typo.body2">@permission.Purpose</MudText> }
+                            <MudAlert Severity="Severity.Info">Agents still need their own explicit resource binding. Public actions still follow your approval policy. Changing this grant requires affected agents to be authorized again.</MudAlert>
+                            <div class="manage-actions"><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanSave || _busy)" OnClick="SaveAccess">Save access</MudButton><MudButton OnClick="@(() => _editing = null)">Cancel</MudButton></div>
+                        </section>
+                    }
+                }
+            </MudPaper>
+        }
+    }
+</main>
+
+@code {
+    [Parameter] public Guid InstallationId { get; set; }
+    [SupplyParameterFromQuery(Name = "setup")] public Guid? SetupId { get; set; }
+    private PluginAccountManagementView? _view;
+    private PluginManagedAccount? _editing;
+    private PluginBusinessAccountGrantView? _revokeGrant;
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _polling;
+    private bool _busy, _connecting, _accepted, _future;
+    private bool _showSetupNotice = true;
+    private string? _error, _notice, _resourceSearch;
+    private Guid? _reconnect, _business;
+    private Guid? _disconnectAccount;
+    private PluginAccountImpactView? _impact;
+    private string _grantScope = "SelectedResources";
+    private readonly HashSet<string> _scopes = [], _permissions = [];
+    private readonly HashSet<Guid> _resources = [];
+    private bool CanSave => _business.HasValue && _permissions.Count > 0 && (_grantScope == "WholeAccount" ? _future : _resources.Count > 0);
+    protected override async Task OnInitializedAsync() { await Businesses.InitializeAsync(); await Reload(); _polling = Poll(); }
+    private async Task Poll()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) if (!_busy && (_view?.BuildStatus != "Built" || _view.SetupSessions.Any(s => s.Status == "Importing")))
+            await InvokeAsync(async () => { await Reload(); StateHasChanged(); }); }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+    private async Task Reload() { try { _view = await AccountsApi.GetAsync(InstallationId, _stop.Token); _error = null; } catch (Exception e) when (e is not OperationCanceledException) { _error = e.Message; } }
+    private void OpenConnect(Guid? id)
+    {
+        _showSetupNotice = false; _reconnect = id; _connecting = true; _accepted = false; _scopes.Clear();
+        var existing = _view!.Accounts.SelectMany(x => x.Authorizations).FirstOrDefault(x => x.Id == id);
+        foreach (var scope in existing?.GrantedScopeSets ?? []) _scopes.Add(scope);
+        foreach (var scope in _view.ScopeSets.Where(x => x.Required)) _scopes.Add(scope.Id);
+    }
+    private async Task Connect() => await Perform(async () =>
+    {
+        var response = await AccountsApi.ConnectAsync(InstallationId, new(_scopes.ToArray(), _view!.Declaration.PolicyVersion, _accepted, _view.PackageDigest, _reconnect), _stop.Token);
+        if (!Uri.TryCreate(response.AuthorizationUrl, UriKind.Absolute, out var url) || url.Scheme != "https") throw new InvalidOperationException("The secure sign-in address is unavailable.");
+        Navigation.NavigateTo(response.AuthorizationUrl, forceLoad: true);
+    });
+    private async Task Retry(Guid setupId) => await Perform(async () => { await AccountsApi.RetryAsync(InstallationId, setupId, _stop.Token); await Reload(); });
+    private void EditAccess(PluginManagedAccount account) { _editing = account; _business = null; _grantScope = "SelectedResources"; _future = false; _resources.Clear(); _permissions.Clear(); }
+    private void BusinessChanged(Guid? id)
+    {
+        _business = id; _resources.Clear(); _permissions.Clear();
+        var grant = _editing!.BusinessGrants.FirstOrDefault(g => g.OrganizationId == id);
+        _grantScope = grant?.Scope ?? "SelectedResources"; _future = grant?.Scope == "WholeAccount";
+        foreach (var resource in grant?.ResourceIds ?? []) _resources.Add(resource);
+        foreach (var permission in grant?.PermissionIds ?? _view!.Declaration.Permissions.Where(p => p.ScopeSets.All(id => _view.ScopeSets.Any(s => s.Id == id && s.Required))).Select(p => p.Id).ToArray()) _permissions.Add(permission);
+    }
+    private void GrantScopeChanged(string scope) { _grantScope = scope; _future = false; _resources.Clear(); }
+    private async Task SaveAccess() => await Perform(async () =>
+    {
+        var previous = _editing!.BusinessGrants.FirstOrDefault(g => g.OrganizationId == _business);
+        await AccountsApi.SaveGrantAsync(InstallationId, _editing.Id, new(_business!.Value, _grantScope,
+            _grantScope == "WholeAccount" ? [] : _resources.ToArray(), _permissions.ToArray(), _grantScope == "WholeAccount" && _future, previous?.Revision, _view!.PackageDigest), _stop.Token);
+        _editing = null; await Reload(); _notice = "Business access saved. Agent access still needs separate authorization.";
+    });
+    private async Task Revoke(PluginBusinessAccountGrantView grant) => await Perform(async () => { await AccountsApi.RevokeGrantAsync(InstallationId, grant.Id, grant.Revision, _stop.Token); _revokeGrant = null; await Reload(); _notice = "Business access removed. Other businesses and the provider connection were not disconnected."; });
+    private async Task ReviewDisconnect(Guid accountId) => await Perform(async () => { _impact = await AccountsApi.GetDisconnectImpactAsync(InstallationId, accountId, _stop.Token); _disconnectAccount = accountId; });
+    private async Task Disconnect() => await Perform(async () =>
+    {
+        await AccountsApi.DisconnectAsync(InstallationId, _disconnectAccount!.Value, new(_impact!.AccountRevision, _impact.ReviewHash), _stop.Token);
+        _disconnectAccount = null; _impact = null; await Reload(); _notice = "Account access stopped. Provider revocation and data deletion were queued.";
+    });
+    private async Task Perform(Func<Task> action) { if (_busy) return; _busy = true; _showSetupNotice = false; _error = null; _notice = null; try { await action(); } catch (Exception e) when (e is not OperationCanceledException) { _error = e.Message; } finally { _busy = false; } }
+    private void ToggleScope(string id, bool value) { if (value) _scopes.Add(id); else _scopes.Remove(id); }
+    private void ToggleResource(Guid id, bool value) { if (value) _resources.Add(id); else _resources.Remove(id); }
+    private void TogglePermission(string id, bool value) { if (value) _permissions.Add(id); else _permissions.Remove(id); }
+    private string BusinessName(Guid id) => Businesses.Businesses.FirstOrDefault(x => x.Id == id)?.Name ?? "Business";
+    private string AuthorizationResources(PluginManagedAccount account, PluginManagedAuthorization authorization) => string.Join(", ", account.Resources.Where(r => authorization.ResourceIds.Contains(r.Id)).Select(r => r.Name)) is { Length: > 0 } names ? names : "Provider authorization";
+    private string AuthorizationPermissions(PluginManagedAuthorization authorization) => string.Join(", ", _view!.ScopeSets.Where(s => authorization.GrantedScopeSets.Contains(s.Id)).Select(s => s.Label));
+    private static string Readiness(string? reason, string build) => reason == "assigned_accounts_only" ? "You can reconnect the accounts assigned to you. Ask an administrator to connect another account." : reason?.StartsWith("provider_", StringComparison.Ordinal) == true ? "An administrator needs to finish the connection settings. Ordinary account owners do not need technical credentials. Refresh this page after setup is complete." : $"Plugin build: {build}. Connect account will be available when the verified build is ready.";
+    private static string SetupTitle(string status) => status switch { "Importing" => "Importing accessible resources", "ImportFailed" => "Import paused", "AwaitingConsent" => "Waiting for secure sign-in", "Cancelled" => "Connection cancelled", "Expired" => "Sign-in expired", "NoResources" => "Connected — no accessible resources", _ => "Connection needs attention" };
+    private string SetupMessage(PluginAccountSetupView s) => s.Status switch { "Importing" => $"{s.ImportedCount} found so far. You can leave this page; import progress is saved.", "ImportFailed" => "Your progress is saved. Resume the import, or reconnect if access has changed.", "Cancelled" or "Expired" => "No business access was granted. Choose Connect account to try again.", "AwaitingConsent" => "Complete sign-in in the provider page, or start a new connection if you closed it.", "NoResources" => $"The provider returned no accessible {_view!.Declaration.ResourcesLabel.ToLowerInvariant()}. Try authorizing the intended account or resource.", _ => "The provider connection did not complete. Review the requested permissions and try again." };
+    public async ValueTask DisposeAsync() { _stop.Cancel(); if (_polling is not null) await _polling; _stop.Dispose(); }
+}

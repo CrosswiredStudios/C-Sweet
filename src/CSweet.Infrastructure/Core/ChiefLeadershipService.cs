@@ -9,19 +9,11 @@ using CSweet.Domain.Notifications;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace CSweet.Infrastructure.Core;
 
-public sealed class ChiefLeadershipOptions
-{
-    // Enable only after the published candidate passes the complete journey acceptance gate.
-    public bool Enabled { get; set; }
-}
-
 public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvider clock,
-    IExecutiveDecisionService decisions, ICommunicationHubService communication, IHiringService hiring,
-    IOptions<ChiefLeadershipOptions> options) : IChiefLeadershipService
+    IExecutiveDecisionService decisions, ICommunicationHubService communication, IHiringService hiring) : IChiefLeadershipService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -298,6 +290,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
         var agenda = await AgendaAsync(organization, token);
         if (agenda.FocusRevision != request.ExpectedFocusRevision) throw new DbUpdateConcurrencyException("The company focus changed.");
         agenda.Paused = request.Paused; agenda.Revision++; agenda.UpdatedAt = clock.GetUtcNow();
+        foreach (var row in await RowsAsync(agenda, token)) await ProjectAsync(chief, row, token);
         if (!request.Paused) await WakeAsync(agenda, chief, token);
         var result = await SnapshotAsync(agenda, chief, new(), token);
         Receipt(organization, installation, request.IdempotencyKey, request, result);
@@ -323,8 +316,13 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
         db.ChiefCoverageRecords.Where(x => x.OrganizationId == agenda.Id && x.ProfileKey == agenda.ProfileKey && x.ProfileVersion == agenda.ProfileVersion)
             .OrderBy(x => x.Priority).ThenBy(x => x.Id).ToListAsync(token);
 
-    private Task ProjectAsync(OrganizationUser chief, ChiefCoverageRecord row, CancellationToken token) =>
-        new WorkItemMutationEngine(db, clock).ProjectChiefAssessmentAsync(chief, row, token);
+    private async Task ProjectAsync(OrganizationUser chief, ChiefCoverageRecord row, CancellationToken token)
+    {
+        var agenda = db.ChiefLeadershipAgendas.Local.SingleOrDefault(x => x.Id == chief.OrganizationId)
+            ?? await AgendaAsync(chief.OrganizationId, token);
+        var block = agenda.Paused ? "Proactive leadership is paused by the owner." : null;
+        await new WorkItemMutationEngine(db, clock).ProjectChiefAssessmentAsync(chief, row, token, block);
+    }
 
     private async Task AdvanceAsync(ChiefLeadershipAgenda agenda, OrganizationUser chief, CancellationToken token)
     {

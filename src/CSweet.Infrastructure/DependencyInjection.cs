@@ -216,6 +216,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginProviderProfileRegistry, PluginProviderProfileRegistry>();
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
         builder.Services.AddScoped<PluginConnectionCleanupService>();
+        builder.Services.AddScoped<PluginAccountService>();
         builder.Services.AddScoped<ConnectorActionApprovalService>();
         builder.Services.AddScoped<ConnectorBindingService>();
         builder.Services.AddScoped<ConnectorProfileApprovalService>();
@@ -544,7 +545,6 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUserActionWorkflowResolver, PluginSetupUserActionWorkflowResolver>();
         builder.Services.AddScoped<IUserActionWorkflowResolver, ApprovalUserActionWorkflowResolver>();
         builder.Services.AddScoped<IExecutiveDecisionService, ExecutiveDecisionService>();
-        builder.Services.Configure<ChiefLeadershipOptions>(builder.Configuration.GetSection("CSweet:ChiefLeadership"));
         builder.Services.AddScoped<IChiefLeadershipService, ChiefLeadershipService>();
         builder.Services.AddScoped<IAgentCommunicationOnboardingService, AgentCommunicationOnboardingService>();
         builder.Services.AddScoped<IApplicationRealtimeOutboxDispatcher, ApplicationRealtimeOutboxDispatcher>();

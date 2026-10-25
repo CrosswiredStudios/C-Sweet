@@ -22,6 +22,7 @@ public interface IExecutionFleetService
 
     Task<ExecutionCapacityOnboardingResponse> GetOnboardingStatusAsync(
         CancellationToken cancellationToken = default);
+    Task<ExecutionCapacityOnboardingResponse> RefreshOfficeStorageAsync(CancellationToken cancellationToken = default) => GetOnboardingStatusAsync(cancellationToken);
 
     Task<ExecutionCapacityActionResponse> SelectOnboardingModeAsync(
         SelectExecutionOnboardingModeRequest request,

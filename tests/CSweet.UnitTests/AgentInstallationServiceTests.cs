@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using CSweet.Application.Setup;
 using CSweet.Office.Contracts.Workloads;
 using CSweet.Contracts.Agents;
+using CSweet.Contracts.Plugins;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -1041,6 +1042,27 @@ public sealed class AgentInstallationServiceTests
         var run = Assert.Single(await service.ListRunsAsync(installation.Id));
 
         Assert.Equal("agent established MCP session", run.LogExcerpt);
+    }
+
+    [Fact]
+    public async Task EnterpriseAccountPluginInstallsOnceWithoutBusinessOrAccountConsent()
+    {
+        await using var db = CreateDbContext(); var package = await SeedAsync(db);
+        await using var fixture = await PluginAccountFlowTests.Fixture.Create();
+        package.ManifestJson = fixture.Inner.Connector.PackageVersion!.ManifestJson;
+        package.PluginKind = PluginKind.Connector;
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        package.AgentId=manifest.Id; package.AgentName=manifest.Name;
+        await db.SaveChangesAsync();
+        IPluginInstallationService installer=CreateService(db);
+        var request=ValidRequest() with { BusinessId="enterprise", PluginScope="System", ActivationMode="OnDemand", GrantedSubscriptions=[],
+            GrantedCapabilities=manifest.Provides.Select(p=>p.Name).ToArray() };
+        var installed=await installer.InstallAsync(package.Id,request);
+        Assert.Equal("System",installed.InstallationScope); Assert.NotNull(installed.Accounts);
+        Assert.Equal(PluginSetupState.Ready,(await db.AgentInstallations.SingleAsync()).SetupState);
+        Assert.Empty(await db.PluginConnections.ToArrayAsync()); Assert.Empty(await db.PluginAccountBusinessGrants.ToArrayAsync());
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.InstallAsync(package.Id,request));
+        Assert.Single(await db.AgentInstallations.ToArrayAsync());
     }
 
     private static InstallAgentRequest ValidRequest() => new(

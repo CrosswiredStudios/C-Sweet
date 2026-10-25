@@ -25,7 +25,7 @@ public partial class Plugins
         (_catalogCategory == "All" || x.Category == _catalogCategory) &&
         $"{x.Name} {L[x.DescriptionKey]} {L[$"Plugins.Catalog.Category.{x.Category}"]}".Contains(_catalogSearch, StringComparison.OrdinalIgnoreCase));
     private bool CanInstall => !_busy && !_loading && _installationPolicy?.ImportedPluginsEnabled == true && _preview is not null && _approve && !HasMissingConfiguration &&
-        (_preview.PluginKind != "Connector" || _businessId.HasValue) &&
+        (_preview.PluginKind != "Connector" || _preview.Accounts is not null || _businessId.HasValue) &&
         (_preview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _acknowledgeAllPublic);
     private static string PluginIcon(string id) => PluginCatalog.Entries.FirstOrDefault(x => x.Id == id)?.Icon
         ?? MudBlazor.Icons.Material.Outlined.Extension;
@@ -40,7 +40,11 @@ public partial class Plugins
     }
     private void SetSource(bool upload) { ClearPreview(); _bundle = null; _uploadBundle = upload; }
     private void BackToSource() { ClearPreview(); _bundle = null; }
-    private void Manage(AgentInstallationResponse installation) { _managedId = _managedId == installation.Id ? null : installation.Id; _removePending = null; }
+    private void Manage(AgentInstallationResponse installation)
+    {
+        if (installation.Accounts is not null) { Navigation.NavigateTo($"/settings/plugins/{installation.Id:D}"); return; }
+        _managedId = _managedId == installation.Id ? null : installation.Id; _removePending = null;
+    }
     private void OpenInstalled(AgentInstallationResponse installation) { _installedSearch = string.Empty; _managedId = installation.Id; ChangeTab(0); }
     private void ConfigureFromReview(PluginProviderDeclarations.Requirement requirement) { ChangeTab(0); ConfigureDeclaredProvider(requirement); }
     private async Task ReviewCatalogAsync(PluginCatalogEntry entry)
@@ -231,9 +235,10 @@ public partial class Plugins
         try
         {
             var service = _preview.PluginKind == "Service";
+            var enterprise = service || _preview.Accounts is not null;
             var bundle = _preview.PackageSourceMode == "PluginBundle";
             var request = new InstallAgentRequest(
-                service ? "enterprise" : _businessId!.Value.ToString("D"),
+                enterprise ? "enterprise" : _businessId!.Value.ToString("D"),
                 service ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
                 _preview.DefaultTickFrequencySeconds ?? 300,
                 "Skip",
@@ -244,7 +249,7 @@ public partial class Plugins
                 _preview.RequestedNetworkAccess,
                 300, 512, 50)
             {
-                PluginScope = service ? "System" : "Organization",
+                PluginScope = enterprise ? "System" : "Organization",
                 AllPublicWebAccessAcknowledged = _acknowledgeAllPublic,
                 GrantedRequestedCapabilities = _preview.RequestedCapabilities,
                 ConfigurationSettings = _configurationValues
@@ -255,6 +260,7 @@ public partial class Plugins
                         StringComparer.Ordinal)
             };
             var installed = await PluginApi.InstallAsync(_preview.ImportId, request);
+            if (_preview.Accounts is not null) { Navigation.NavigateTo($"/settings/plugins/{installed.Id:D}"); return; }
             _managedId = installed.Id;
             ClearPreview(); _bundle = null; _repositoryUrl = string.Empty; _commitSha = string.Empty;
             _activeTab = 0;

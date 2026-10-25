@@ -7,6 +7,7 @@ public sealed class ConnectorProfileApproval
     public Guid ApprovedByApplicationUserId { get; set; }
     public string PackageDigest { get; set; } = string.Empty;
     public string ProfileId { get; set; } = string.Empty;
+    public string? ProviderProfileHash { get; set; }
     public DateTimeOffset ApprovedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
 }

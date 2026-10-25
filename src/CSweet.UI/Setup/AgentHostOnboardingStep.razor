@@ -44,7 +44,7 @@
                 <span class="host-location-copy">
                     <strong>@L["AgentHostOnboardingStep.ThisMachine"]</strong>
                     <small>@L["AgentHostOnboardingStep.InstallCSweetOfficeHere"]</small>
-                    @if (_status?.LocalCapacity is { } machineCapacity)
+                    @if (SelectedCapacity is { } machineCapacity)
                     {
                         <small class="host-machine-stats">
                             @FormatGb(machineCapacity.TotalMemoryMb) GB memory · @machineCapacity.TotalCpuCount CPU cores · @FormatGb(machineCapacity.FreeDiskMb) GB free
@@ -136,6 +136,8 @@
     private string _installationTarget = "local";
     private string _capacityPreset = "balanced";
     private bool _capacityPresetInitialized;
+    private string? _storageVolumeId;
+    private bool _storageSelectionInitialized;
     private int _customCpuCount;
     private int _customMemoryGb;
     private int _customStorageGb;
@@ -219,7 +221,7 @@
 
     private async Task StartLocalInstallAsync()
     {
-        if (_busy || _localSession is not null || _status?.LocalCapacity is null || !LocalAllocationIsValid) return;
+        if (_busy || _localSession is not null || SelectedCapacity is null || !LocalAllocationIsValid) return;
         BeginStatusMutation();
         _busy = true;
         _actionMessage = null;
@@ -227,7 +229,7 @@
         {
             var allocation = SelectedAllocation;
             var result = await SetupApi.CreateLocalOfficeSetupSessionAsync(new(
-                _capacityPreset, allocation.CpuCount, allocation.MemoryMb, allocation.DiskMb));
+                _capacityPreset, allocation.CpuCount, allocation.MemoryMb, allocation.DiskMb, StorageVolumeId: _storageVolumeId));
             _status = result.Status;
             _localSession = result.Session;
             AdoptLocalSession(result.Session);
@@ -587,11 +589,34 @@
 
         @if (_localSession is null)
         {
-            @if (_status?.LocalCapacity is not { IsSupported: true } capacity)
+            @if (_status?.LocalCapacity?.Volumes is { } volumes)
+            {
+                <fieldset class="office-storage-choice">
+                    <legend>Office installation drive</legend>
+                    <p>Office services, VM images, workspaces, and caches will use this drive.</p>
+                    <label for="office-storage-volume">Drive</label>
+                    <select id="office-storage-volume" value="@_storageVolumeId" @onchange="SelectStorageVolume">
+                        <option value="">Choose a drive</option>
+                        @foreach (var volume in volumes)
+                        {
+                            <option value="@volume.Id" disabled="@(!volume.IsEligible)">
+                                @volume.MountPath @volume.Label � @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
+                            </option>
+                        }
+                    </select>
+                    <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="RefreshStorageAsync">Refresh drives</MudButton>
+                    @if (volumes.FirstOrDefault(v => v.Id == _storageVolumeId) is { } selectedVolume)
+                    {
+                        <small>Services: @selectedVolume.InstallRoot</small>
+                        <small>Office data: @selectedVolume.DataRoot</small>
+                    }
+                </fieldset>
+            }
+            @if (SelectedCapacity is not { IsSupported: true } capacity)
             {
                 <div class="host-inline-notice warning" role="alert">
                     <MudIcon Icon="@Icons.Material.Outlined.Info" />
-                    <span>@(_status?.LocalCapacity?.UnavailableReason ?? "Assisted local setup is unavailable on this machine.")</span>
+                    <span>@(SelectedCapacity?.UnavailableReason ?? "Assisted local setup is unavailable on this machine.")</span>
                 </div>
             }
             else
@@ -636,6 +661,10 @@
         }
         else
         {
+            @if (_localSession.InstallRoot is { } installRoot)
+            {
+                <p class="office-storage-summary">Services: @installRoot<br />Office data: @_localSession.DataRoot</p>
+            }
             @if (_localSession.State == "created" && !_localApprovalRequested)
             {
                 <div class="local-approval-explanation">
@@ -820,6 +849,7 @@
                         <div>
                             <span class="host-section-kicker">@TargetKicker</span>
                             <h2 id="remote-host-title">Install a C-Sweet Office</h2>
+                            <p>The installer will detect fixed local drives on the Office computer and let you choose where to install its services and data.</p>
                         </div>
                     </div>
                     @if (!ManualLocalSetup)
@@ -966,6 +996,11 @@
     private async Task AcceptStatusAsync(ExecutionCapacityOnboardingResponse status)
     {
         _status = status;
+        if (!_storageSelectionInitialized)
+        {
+            _storageVolumeId = status.LocalCapacity?.SelectedVolumeId;
+            _storageSelectionInitialized = true;
+        }
         if (!_capacityPresetInitialized && status.LocalCapacity?.Presets is { Count: > 0 })
         {
             _capacityPreset = RecommendedPresetKey ?? "balanced";
@@ -1147,6 +1182,36 @@
         ? "complete"
         : LocalStepNumber == stage ? "current" : string.Empty;
 
+    private LocalOfficeCapacityResponse? SelectedCapacity
+    {
+        get
+        {
+            var capacity = _status?.LocalCapacity;
+            if (capacity?.Volumes is null) return capacity;
+            var volume = capacity.Volumes.FirstOrDefault(v => v.Id == _storageVolumeId);
+            if (volume is not { IsEligible: true }) return capacity with { IsSupported = false,
+                UnavailableReason = volume?.UnavailableReason ?? "Choose an Office installation drive." };
+            return volume.Capacity ?? capacity;
+        }
+    }
+
+    private void SelectStorageVolume(ChangeEventArgs args)
+    {
+        _storageVolumeId = args.Value?.ToString();
+        _customInitialized = false;
+        if (_capacityPreset == "custom") { _capacityPreset = "balanced"; SelectCapacityPreset("custom"); }
+    }
+
+    private async Task RefreshStorageAsync()
+    {
+        _busy = true;
+        try { await AcceptStatusAsync(await SetupApi.RefreshOfficeStorageAsync()); }
+        catch { SetAction(false, "Drives could not be refreshed. Try again."); }
+        finally { _busy = false; }
+    }
+
+    private static string FormatBytes(long bytes) => $"{bytes / (1024d * 1024 * 1024):0.#} GB";
+
     private void SelectCapacityPreset(string key)
     {
         if (key == "custom" && !_customInitialized)
@@ -1166,7 +1231,7 @@
         {
             if (_capacityPreset == "custom")
                 return new(_customCpuCount, _customMemoryGb * 1024, _customStorageGb * 1024);
-            var preset = _status?.LocalCapacity?.Presets.FirstOrDefault(x => x.Key == _capacityPreset);
+            var preset = SelectedCapacity?.Presets.FirstOrDefault(x => x.Key == _capacityPreset);
             return preset is null ? new(0, 0, 0) : new(preset.CpuCount, preset.MemoryMb, preset.DiskMb);
         }
     }
@@ -1175,7 +1240,7 @@
     {
         get
         {
-            var capacity = _status?.LocalCapacity;
+            var capacity = SelectedCapacity;
             var value = SelectedAllocation;
             return capacity is { IsSupported: true } &&
                 value.CpuCount >= capacity.MinimumCpuCount && value.CpuCount <= capacity.SafeCpuCount &&
@@ -1201,7 +1266,7 @@
 
     private void AdjustCustom(string key, int delta)
     {
-        if (_status?.LocalCapacity is not { } capacity) return;
+        if (SelectedCapacity is not { } capacity) return;
         switch (key)
         {
             case "cpu": _customCpuCount = Math.Clamp(_customCpuCount + delta,
@@ -1329,7 +1394,7 @@
         _ => packages.ReleaseManifestUrl
     };
 
-    private string? RecommendedPresetKey => _status?.LocalCapacity?.Presets
+    private string? RecommendedPresetKey => SelectedCapacity?.Presets
         .FirstOrDefault(preset => preset.MemoryMb >= 16 * 1024)?.Key;
 
     private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch

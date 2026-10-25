@@ -1,0 +1,3 @@
+@page "/settings/plugins/{InstallationId:guid}"
+<PluginManage InstallationId="InstallationId" />
+@code { [Parameter] public Guid InstallationId { get; set; } }

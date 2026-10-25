@@ -5,6 +5,7 @@
 @inject IPluginApiClient PluginApi
 @inject IBusinessContext BusinessContext
 @inject IAppLocalizer L
+@inject NavigationManager Navigation
 
 <PageTitle>@L["Plugins.PageTitle"]</PageTitle>
 <div class="setup-shell plugins-page">
@@ -86,7 +87,7 @@
                 <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-5">@L["Plugins.Installed.AgentsHint"] <MudLink Href="/settings/agents">@L["Plugins.Installed.AgentsLink"]</MudLink></MudText>
                     @if (RequiredProviderIds.Count > 0)
     {
-    <MudPaper Elevation="1" Class="surface-panel">
+    <MudPaper Elevation="1" Class="surface-panel" id="provider-administration">
         <MudText Typo="Typo.h6">@L["Plugins.Providers.Title"]</MudText>
         <MudText Color="Color.Secondary">@L["Plugins.Providers.Intro"]</MudText>
         <MudText Color="Color.Secondary">@L["Plugins.Providers.Note"]</MudText>
@@ -202,7 +203,7 @@
                         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ArrowBack" OnClick="BackToSource" Disabled="_busy">@L["Plugins.Import.Back"]</MudButton>
                         <MudText Typo="Typo.h6" Class="mt-3">@_preview.AgentName</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">@_preview.PublisherName · @($"v{_preview.AgentVersion}") · @_preview.PluginKind</MudText>
-                        @if (_preview.PluginKind == "Connector")
+                        @if (_preview.PluginKind == "Connector" && _preview.Accounts is null)
                         {
                             <MudSelect T="Guid?" @bind-Value="_businessId" Label="@L["Plugins.Import.Business"]" Variant="Variant.Outlined" Disabled="_busy" Class="mt-4">
                                 @foreach (var business in BusinessContext.Businesses) { <MudSelectItem T="Guid?" Value="@((Guid?)business.Id)">@business.Name</MudSelectItem> }
@@ -212,10 +213,19 @@
                         else { <MudText Typo="Typo.body2" Class="mt-3">@L["Plugins.Import.SystemScope"]</MudText> }
                         <MudDivider Class="my-4" />
                         <MudText Typo="Typo.subtitle1">@L["Plugins.Import.AccessTitle"]</MudText>
-                        <MudText Typo="Typo.body2" Class="mt-2">@L.Format("Plugins.Import.ProvidedCapabilities", new { values = Format(_preview.Capabilities) })</MudText>
-                        <MudText Typo="Typo.body2">@L.Format("Plugins.Import.RequestedCapabilities", new { values = Format(_preview.RequestedCapabilities) })</MudText>
-                        <MudText Typo="Typo.body2">@L.Format("Plugins.Import.NetworkAccess", new { values = Format(_preview.RequestedNetworkAccess) })</MudText>
-                        <MudText Typo="Typo.body2">@L.Format("Plugins.Import.Subscriptions", new { values = Format(_preview.RequestedSubscriptions) })</MudText>
+                        @if (_preview.Accounts is { } accounts)
+                        {
+                            @foreach (var permission in accounts.Permissions)
+                            { <MudText Typo="Typo.subtitle2" Class="mt-2">@permission.Label</MudText><MudText Typo="Typo.body2">@permission.Purpose</MudText> }
+                            <MudAlert Severity="Severity.Info" Class="mt-3">Installing makes these abilities available to your enterprise. No external account, business or agent receives access yet. After installation, choose Connect account and review the provider's consent page.</MudAlert>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2" Class="mt-2">@L.Format("Plugins.Import.ProvidedCapabilities", new { values = Format(_preview.Capabilities) })</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.RequestedCapabilities", new { values = Format(_preview.RequestedCapabilities) })</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.NetworkAccess", new { values = Format(_preview.RequestedNetworkAccess) })</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.Subscriptions", new { values = Format(_preview.RequestedSubscriptions) })</MudText>
+                        }
                         @foreach (var warning in _preview.Warnings) { <MudAlert Severity="Severity.Warning" Class="mt-2">@warning.Message</MudAlert> }
                         @foreach (var configField in _preview.ConfigurationFields.Where(configField => !configField.Secret && IsConfigurationFieldVisible(configField)))
                         {
@@ -223,6 +233,10 @@
                         }
                         <MudExpansionPanels Elevation="0" Class="my-3"><MudExpansionPanel Text="@L["Plugins.Import.PackageDetails"]"><div class="plugin-package-details">
                             <MudText Typo="Typo.body2">@_preview.AgentId</MudText><MudText Typo="Typo.body2">@_preview.RepositoryUrl</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.ProvidedCapabilities", new { values = Format(_preview.Capabilities) })</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.RequestedCapabilities", new { values = Format(_preview.RequestedCapabilities) })</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.NetworkAccess", new { values = Format(_preview.RequestedNetworkAccess) })</MudText>
+                            <MudText Typo="Typo.body2">@L.Format("Plugins.Import.Subscriptions", new { values = Format(_preview.RequestedSubscriptions) })</MudText>
                             @if (_preview.BundleDigest is not null) { <MudText Typo="Typo.caption">@L.Format("Plugins.Import.BundleDigest", new { digest = _preview.BundleDigest })</MudText> }
                             else { <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Commit", new { sha = _preview.CommitSha })</MudText> }
                             <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Manifest", new { file = _preview.ManifestFileName, digest = _preview.ManifestDigest })</MudText>
@@ -230,7 +244,7 @@
                         @if (_preview.WebAccess.Mode == PluginWebAccessMode.AllPublic) { <MudCheckBox @bind-Value="_acknowledgeAllPublic" Label="@L["Plugins.Import.AllPublic"]" Color="Color.Warning" Disabled="_busy" /> }
                         <MudCheckBox @bind-Value="_approve" Label="@L["Plugins.Import.Approve"]" Color="Color.Primary" Disabled="_busy" />
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(!CanInstall)">@L["Plugins.Import.BuildAndInstall"]</MudButton>
-                        @if (RequiredProviderIds.Count > 0) { <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureFromReview" /> }
+                        @if (_preview.Accounts is null && RequiredProviderIds.Count > 0) { <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureFromReview" /> }
                     }
                     @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-4" aria-label="@L["Plugins.Import.Working"]" /> }
                 </MudPaper>

@@ -1,5 +1,11 @@
 # Windows local reset and disk reclamation
 
+Registered Office storage on another fixed drive is now inventoried by `Reset-CSweetLocal.ps1`
+through Office's `Resolve-CSweetOfficeStorage -SkipSpaceCheck`. Its program/data leaves appear in
+the preview and use the Office uninstaller. An unreadable or invalid registration blocks reset;
+unregistered custom storage remains outside the reset's scope.
+
+
 Verified: 2026-10-07.
 
 `scripts/Reset-CSweetLocal.ps1` inventories the default Windows development installation

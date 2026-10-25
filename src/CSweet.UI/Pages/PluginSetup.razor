@@ -45,10 +45,19 @@
             <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4">
                 <MudText Typo="Typo.h6">@L["PluginSetup.Dependency.Title"]</MudText>
                 <MudText Color="Color.Secondary">@L["PluginSetup.Dependency.Intro"]</MudText>
-                @if (dependency.Choices.Count == 0)
+                @if (dependency.Choices.Count == 0 && dependency.ResourceChoices.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Class="mt-3">@L["PluginSetup.Dependency.NotInstalled"]</MudAlert>
                     <MudText Typo="Typo.caption">@L.Format("PluginSetup.Dependency.RequiredPackage", new { id = dependency.PluginId })</MudText>
+                }
+                @foreach (var resource in dependency.ResourceChoices)
+                {
+                    <MudPaper Outlined="true" Class="pa-3 mt-3">
+                        <MudText Typo="Typo.subtitle1">@resource.Name</MudText>
+                        @if (resource.Selected) { <MudChip T="string" Color="Color.Primary">Selected</MudChip> }
+                        <MudText Typo="Typo.body2">This resource is explicitly shared with your business. Agent actions still require their own grants and approvals.</MudText>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => SelectResourceAsync(dependency, resource))">Use this resource</MudButton>
+                    </MudPaper>
                 }
                 @foreach (var choice in dependency.Choices)
                 {
@@ -383,6 +392,19 @@
             await EnsureSuccessAsync(response); await LoadAsync();
         }
         catch (Exception exception) { _error = exception.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task SelectResourceAsync(PluginDependencySetupResponse dependency, PluginAccountResourceChoice resource)
+    {
+        _busy = true;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/plugins/installations/{resource.ConnectorInstallationId:D}/account-management/businesses/{OrganizationId:D}/bindings",
+                new PluginAccountBindingRequest(InstallationId, dependency.Id, resource.ResourceId, resource.ConnectionId, resource.BusinessGrantRevision, resource.PackageDigest));
+            await EnsureSuccessAsync(response); await LoadAsync();
+        }
+        catch (Exception error) { _error = error.Message; }
         finally { _busy = false; }
     }
 

@@ -41,6 +41,7 @@ public sealed record AgentInstallationResponse(
     public string? SetupFlowId { get; init; }
     public string? SetupStepId { get; init; }
     public IReadOnlyList<CSweet.Contracts.Plugins.PluginConnectionDeclaration> ConnectionDeclarations { get; init; } = [];
+    public CSweet.Contracts.Plugins.PluginAccountManagement? Accounts { get; init; }
 }
 
 public sealed record AgentBuildSummaryResponse(

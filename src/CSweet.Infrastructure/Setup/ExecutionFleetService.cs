@@ -313,7 +313,7 @@ public sealed partial class ExecutionFleetService(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        var capacity = DetectLocalCapacity();
+        var capacity = DetectLocalCapacity(request.StorageVolumeId, refresh: true);
         if (upgradeOffice is null && !LocalOfficeCapacityCalculator.Contains(capacity, request.AllocatableCpuCount,
                 request.AllocatableMemoryMb, request.AllocatableDiskMb))
             return await LocalFailureAsync("invalid_capacity",
@@ -393,6 +393,9 @@ public sealed partial class ExecutionFleetService(
                  (priorUpdate?.ResumeAfterUpdate ?? (upgradeOffice?.DrainingAt is null && upgradeOffice?.Status == ExecutionNodeStatus.Ready))),
             UseLocalUpdateSource = request.UseLocalSource,
             UpdatePhase = request.AutomaticUpdate ? "preparing" : null,
+            StorageVolumeId = upgradeOffice is null ? capacity.SelectedVolumeId : null,
+            InstallRoot = upgradeOffice is null ? capacity.Volumes?.FirstOrDefault(x => x.Id == capacity.SelectedVolumeId)?.InstallRoot : null,
+            DataRoot = upgradeOffice is null ? capacity.Volumes?.FirstOrDefault(x => x.Id == capacity.SelectedVolumeId)?.DataRoot : null,
             PresetKey = presetKey,
             AllocatableCpuCount = request.AllocatableCpuCount,
             AllocatableMemoryMb = request.AllocatableMemoryMb,
@@ -750,6 +753,19 @@ public sealed partial class ExecutionFleetService(
         if (!MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture))
             return PreflightFailure("machine_mismatch", "The setup handoff was created for a different Windows machine.");
 
+        if (session.StorageVolumeId is not null && Version.Parse(request.OfficeVersion) < new Version(0, 13, 0))
+            return PreflightFailure("storage_installer_update_required", "Install Office 0.13.0 or newer to use the selected drive.");
+
+        if (session.RecoveryAction == "reconnect" && request.ExistingStorage is { } existingStorage)
+        {
+            if (string.IsNullOrWhiteSpace(existingStorage.VolumeId) || string.IsNullOrWhiteSpace(existingStorage.InstallRoot) || string.IsNullOrWhiteSpace(existingStorage.DataRoot) || existingStorage.VolumeId.Length > 256 || existingStorage.InstallRoot.Length > 1024 || existingStorage.DataRoot.Length > 1024)
+                return PreflightFailure("invalid_storage", "The installed Office storage location is invalid.");
+            session.StorageVolumeId = existingStorage.VolumeId;
+            session.InstallRoot = existingStorage.InstallRoot;
+            session.DataRoot = existingStorage.DataRoot;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         if (session.RecoveryAction == "repair" &&
             (Version.Parse(request.OfficeVersion) < new Version(0, 5, 0) || observed != "clean"))
         {
@@ -782,7 +798,7 @@ public sealed partial class ExecutionFleetService(
                 session.ExpiresAt = now.Add(AssistedSetupLifetime);
                 await dbContext.SaveChangesAsync(cancellationToken);
                 return new(true, null, "Office removal is complete. Fresh installation can continue.",
-                    session.Id, "none", true);
+                    session.Id, "none", true, Storage: SessionStorage(session));
             }
             var setupReceipt = Base64Url(RandomNumberGenerator.GetBytes(32));
             session.Status = LocalOfficeSetupSessionStatus.RemovalInProgress;
@@ -803,7 +819,7 @@ public sealed partial class ExecutionFleetService(
                 session.UpdatedAt = now;
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
-            return new(true, null, "Office preflight completed.", session.Id, recoveryAction, true);
+            return new(true, null, "Office preflight completed.", session.Id, recoveryAction, true, Storage: SessionStorage(session));
         }
 
         var code = observed switch
@@ -850,6 +866,9 @@ public sealed partial class ExecutionFleetService(
             !CryptographicOperations.FixedTimeEquals(
                 Encoding.ASCII.GetBytes(session.MachineBindingHash), Encoding.ASCII.GetBytes(machineBinding)))
             return RedeemFailure("machine_mismatch", "The setup handoff was created for a different Windows machine.");
+
+        if (session.StorageVolumeId is not null && Version.Parse(request.OfficeVersion) < new Version(0, 13, 0))
+            return RedeemFailure("storage_installer_update_required", "Install Office 0.13.0 or newer to use the selected drive.");
 
         if (session.RecoveryAction is "upgrade" or "repair")
         {
@@ -906,7 +925,7 @@ public sealed partial class ExecutionFleetService(
         return new RedeemAssistedOfficeSetupResponse(true, null, "Assisted Office setup redeemed.",
             session.Id, enrollmentToken, session.ControlPlaneOrigin, session.ControlPlaneCertificateSha256,
             session.AllocatableCpuCount, session.AllocatableMemoryMb, session.AllocatableDiskMb,
-            session.MaximumConcurrentWorkloads, true, session.RecoveryAction, setupReceipt);
+            session.MaximumConcurrentWorkloads, true, session.RecoveryAction, setupReceipt, SessionStorage(session));
     }
 
     public async Task<bool> RefreshLocalSetupEnrollmentAsync(RefreshLocalOfficeEnrollmentRequest request,
@@ -1796,6 +1815,10 @@ public sealed partial class ExecutionFleetService(
         CancellationToken cancellationToken) =>
         new(false, code, message, null, await GetOnboardingStatusAsync(cancellationToken));
 
+    private static OfficeInstallationLocation? SessionStorage(LocalOfficeSetupSession session) =>
+        session.StorageVolumeId is { } id && session.InstallRoot is { } install && session.DataRoot is { } data
+            ? new(id, install, data, session.AllocatableDiskMb) : null;
+
     private static RedeemAssistedOfficeSetupResponse RedeemFailure(string code, string message) =>
         new(false, code, message, null, null, null, null, 0, 0, 0, 0, true);
 
@@ -1825,11 +1848,37 @@ public sealed partial class ExecutionFleetService(
         _ => "The Office setup did not complete."
     };
 
-    private LocalOfficeCapacityResponse DetectLocalCapacity()
+    public async Task<ExecutionCapacityOnboardingResponse> RefreshOfficeStorageAsync(CancellationToken cancellationToken = default)
     {
-        if (localCapacityProbe is not null) return localCapacityProbe.GetCapacity();
+        if (OperatingSystem.IsWindows()) LocalOfficeStorageProbe.GetWindowsVolumes(refresh: true);
+        return await GetOnboardingStatusAsync(cancellationToken);
+    }
+
+    private LocalOfficeCapacityResponse DetectLocalCapacity(string? volumeId = null, bool refresh = false)
+    {
+        if (localCapacityProbe is not null)
+        {
+            var probed = localCapacityProbe.GetCapacity();
+            return LocalOfficeCapacityCalculator.ForVolume(probed, volumeId ?? probed.SelectedVolumeId);
+        }
         var totalMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         if (totalMemory <= 0) totalMemory = 8L * 1024 * 1024 * 1024;
+        if (OperatingSystem.IsWindows())
+        {
+            var volumes = LocalOfficeStorageProbe.GetWindowsVolumes(refresh).Select(v =>
+            {
+                var limits = LocalOfficeCapacityCalculator.Calculate(Environment.ProcessorCount, totalMemory, v.FreeBytes, true);
+                return v with { Capacity = limits, IsEligible = v.IsEligible && limits.SafeDiskMb >= limits.MinimumDiskMb,
+                    UnavailableReason = v.UnavailableReason ?? (limits.SafeDiskMb < limits.MinimumDiskMb ? "Not enough safe free space for Office." : null) };
+            }).ToArray();
+            var eligible = volumes.Where(v => v.IsEligible &&
+                LocalOfficeCapacityCalculator.Calculate(Environment.ProcessorCount, totalMemory, v.FreeBytes, true).IsSupported).ToArray();
+            var selected = volumeId ?? eligible.FirstOrDefault(v => v.IsSystemVolume)?.Id ??
+                (eligible.Length == 1 ? eligible[0].Id : null);
+            var capacity = LocalOfficeCapacityCalculator.Calculate(Environment.ProcessorCount, totalMemory, 0, true)
+                with { Volumes = volumes };
+            return LocalOfficeCapacityCalculator.ForVolume(capacity, selected);
+        }
         long freeDisk;
         try
         {
@@ -2085,7 +2134,8 @@ public sealed partial class ExecutionFleetService(
             windowsPackageUrl, launchUri, effectiveErrorCode, effectiveErrorMessage,
             minimumSeconds, maximumSeconds, launchMethod,
             session.AdministratorApprovalRequestedAt, session.RecoveryAction,
-            effectiveRecoveryCanReconnect, session.UpgradeOfficeId, session.ExecutionNodeId);
+            effectiveRecoveryCanReconnect, session.UpgradeOfficeId, session.ExecutionNodeId,
+            StorageVolumeId: session.StorageVolumeId, InstallRoot: session.InstallRoot, DataRoot: session.DataRoot);
     }
 
     private string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)

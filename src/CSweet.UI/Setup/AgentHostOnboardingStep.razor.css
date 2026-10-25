@@ -854,3 +854,9 @@
     from { opacity: 0; transform: translateY(.35rem); }
     to { opacity: 1; transform: none; }
 }
+
+.office-storage-choice { border: 1px solid var(--mud-palette-lines-default); border-radius: 12px; padding: 1rem; margin-bottom: 1.25rem; min-width: 0; }
+.office-storage-choice legend { padding: 0 .4rem; font-weight: 600; }
+.office-storage-choice select { display: block; width: 100%; max-width: 100%; padding: .7rem; margin: .4rem 0; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+.office-storage-choice small { display: block; overflow-wrap: anywhere; }
+.office-storage-summary { overflow-wrap: anywhere; }

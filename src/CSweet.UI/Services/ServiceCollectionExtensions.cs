@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<PersonalAssistantApiClient>();
         services.AddScoped<IGenAiProviderApiClient, GenAiProviderApiClient>();
         services.AddScoped<IAgentRuntimeSettingsApiClient, AgentRuntimeSettingsApiClient>();
+        services.AddScoped<IPluginAccountApiClient, PluginAccountApiClient>();
         services.AddScoped<IOrganizationApiClient, OrganizationApiClient>();
         services.AddScoped<CalendarApiClient>();
         services.AddScoped<IBusinessContext, BusinessContext>();

@@ -138,8 +138,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             }
 
         var manifest = DeserializeManifest(packageVersion.ManifestJson);
-        if (manifest.Accounts is not null)
-            throw new AgentInstallationException("Enterprise account management is not yet available on this host. Its complete OAuth and grant enforcement must be deployed before installation.");
+        if (manifest.Accounts is not null && await _dbContext.AgentInstallations.AnyAsync(x => x.Scope == PluginInstallationScope.System &&
+            x.PackageVersion!.AgentId == packageVersion.AgentId && x.RevisionStatus == PluginRevisionStatus.Active, cancellationToken))
+            throw new AgentInstallationException("This enterprise integration is already installed. Open its management page to connect another account.");
         if (!manifest.Runtime.SupportsMultipleInstallations && await _dbContext.AgentInstallations.AnyAsync(
                 x => x.BusinessId == businessId && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active &&
                     x.PackageVersion!.AgentId == packageVersion.AgentId,
@@ -152,8 +153,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var scope = ParsePluginScope(request.PluginScope);
         if (scope == PluginInstallationScope.User && (!bundled || packageVersion.AgentId != CSweet.Contracts.PersonalAssistant.PersonalAssistantCapabilities.AgentId))
             throw new AgentInstallationException("User scope is reserved for the bundled personal assistant.");
-        if (packageVersion.PluginKind == PluginKind.Connector && scope != PluginInstallationScope.Organization)
-            throw new AgentInstallationException("Connectors must be scoped to one organization.");
+        if (packageVersion.PluginKind == PluginKind.Connector && scope != (manifest.Accounts is null ? PluginInstallationScope.Organization : PluginInstallationScope.System))
+            throw new AgentInstallationException("Use the installation scope declared by this connector's account-management contract.");
         if (packageVersion.PluginKind == PluginKind.Service &&
             (scope != PluginInstallationScope.System || activationMode != ActivationMode.AlwaysOn))
             throw new AgentInstallationException("Communication providers must be system-scoped and always-on.");
@@ -1854,6 +1855,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             SetupState = installation.SetupState.ToString(),
             SetupFlowId = installation.SetupFlowId,
             ConnectionDeclarations = package.PluginKind == PluginKind.Connector ? DeserializeManifest(package.ManifestJson).Connections : [],
+            Accounts = DeserializeManifest(package.ManifestJson).Accounts,
             SetupStepId = installation.SetupStepId
         };
     }

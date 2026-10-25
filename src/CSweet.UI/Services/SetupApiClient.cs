@@ -25,6 +25,14 @@ public sealed class SetupApiClient : ISetupApiClient
             ?? throw new ApiClientException(System.Net.HttpStatusCode.NoContent, "Setup status response was empty.");
     }
 
+    public async Task<ExecutionCapacityOnboardingResponse> RefreshOfficeStorageAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.GetAsync("api/setup/execution-capacity?refreshStorage=true", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ExecutionCapacityOnboardingResponse>(cancellationToken)
+            ?? throw new ApiClientException(response.StatusCode, "Office storage response was empty.");
+    }
+
     public async Task<ExecutionCapacityOnboardingResponse> GetExecutionCapacityStatusAsync(
         CancellationToken cancellationToken = default)
     {

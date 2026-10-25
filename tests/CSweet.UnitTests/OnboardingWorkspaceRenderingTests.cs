@@ -35,6 +35,8 @@ public sealed class OnboardingWorkspaceRenderingTests
             await File.WriteAllTextAsync(Path.Combine(path, $"setup-{step}-{scenario}.html"), html);
     }
     [Theory]
+    [InlineData("storage", "Office installation drive")]
+    [InlineData("storage-full", "Choose an Office installation drive")]
     [InlineData("custom", "Custom allocation")]
     [InlineData("created", "Continue to Windows approval")]
     [InlineData("missing-handoff", "The secure request cannot be reopened")]
@@ -225,6 +227,15 @@ public sealed class OnboardingWorkspaceRenderingTests
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         void Set(string name, object? value) => office.GetType().GetField(name, flags)!.SetValue(office, value);
         var status = (ExecutionCapacityOnboardingResponse)office.GetType().GetField("_status", flags)!.GetValue(office)!;
+        if (scenario is "storage" or "storage-full")
+        {
+            var limits = CSweet.Application.Setup.LocalOfficeCapacityCalculator.Calculate(8, 16L << 30, 500L << 30, true);
+            var volume = new LocalOfficeVolumeResponse("data", @"D:\", "Data", "NTFS", 1024L << 30, 500L << 30,
+                false, true, null, @"D:\CSweet\Office\program", @"D:\CSweet\Office\data", limits);
+            Set("_storageVolumeId", scenario == "storage" ? "data" : null);
+            Set("_status", status with { LocalCapacity = limits with { Volumes = [volume], SelectedVolumeId = null } });
+            return;
+        }
         if (scenario == "custom")
         {
             office.GetType().GetMethod("SelectCapacityPreset", flags)!.Invoke(office, ["custom"]);

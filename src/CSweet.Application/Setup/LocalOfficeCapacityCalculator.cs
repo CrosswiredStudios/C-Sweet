@@ -9,6 +9,22 @@ public interface ILocalOfficeCapacityProbe
 
 public static class LocalOfficeCapacityCalculator
 {
+    public static LocalOfficeCapacityResponse ForVolume(LocalOfficeCapacityResponse capacity, string? volumeId)
+    {
+        if (capacity.Volumes is null) return capacity; // Legacy/custom probes.
+        var volume = capacity.Volumes.FirstOrDefault(x => x.Id == volumeId);
+        var calculated = Calculate(capacity.TotalCpuCount, (long)capacity.TotalMemoryMb * 1024 * 1024,
+            volume?.FreeBytes ?? 0, "windows");
+        return calculated with
+        {
+            IsSupported = calculated.IsSupported && volume is { IsEligible: true },
+            UnavailableReason = volume is null ? "Choose an Office installation drive."
+                : !volume.IsEligible ? volume.UnavailableReason : calculated.UnavailableReason,
+            Volumes = capacity.Volumes,
+            SelectedVolumeId = volume?.Id
+        };
+    }
+
     public const int MinimumCpuCount = 1;
     public const int MinimumMemoryMb = 2048;
     public const int MinimumDiskMb = 32768;

@@ -1,7 +1,7 @@
 # Enterprise plugin accounts and resource access: implementation plan
 
 Date: 2026-10-23  
-Status: implementation proposal based on the reviewed account-first UI. No product implementation is included in this document.
+Status: approved design, implementation in progress. See [current source, tests and remaining release gates](plugin-account-management-progress.md). This document records intent, not a claim that every acceptance criterion is complete.
 
 ## 1. Outcome and scope
 

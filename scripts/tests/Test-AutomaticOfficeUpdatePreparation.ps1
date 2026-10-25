@@ -28,11 +28,16 @@ $harnessRoot = Join-Path $artifactsRoot ('office-update-harness-' + [guid]::NewG
 New-Item -ItemType Directory -Path $harnessRoot -Force | Out-Null
 $checks = 0
 try {
-    foreach ($scenario in @('ready', 'bootstrap-failed', 'wrong-version', 'cancelled')) {
+    foreach ($scenario in @('ready', 'ready-selected-drive', 'bootstrap-failed', 'wrong-version', 'cancelled')) {
         $caseRoot = Join-Path $harnessRoot $scenario
         $setupRoot = Join-Path $caseRoot 'setup'
+        $storage = $null; $installedStorage = $null; $payloadSetupRoot = $setupRoot
         $officeScriptRoot = Join-Path $caseRoot 'office/scripts/windows'
         $global:OfficeUpdateHarnessPayloadRoot = Join-Path $caseRoot 'office/artifacts/windows-test/payload'
+        if ($scenario -eq 'ready-selected-drive') {
+            $storage = [pscustomobject]@{ VolumeId = 'test-volume'; DataRoot = (Join-Path $caseRoot 'selected drive') }
+            $global:OfficeUpdateHarnessPayloadRoot = Join-Path $storage.DataRoot 'setup/certification/payload'
+        }
         New-Item -ItemType Directory -Path $setupRoot,$officeScriptRoot,$global:OfficeUpdateHarnessPayloadRoot -Force | Out-Null
         Copy-Item -LiteralPath $binary -Destination (Join-Path $global:OfficeUpdateHarnessPayloadRoot 'office.dll')
         @{ brokerProtocolVersion = '1.1'; certificationSuiteVersion = 'csweet-hardware-vm-smoke-v16'; officeExecutable = 'office.dll' } |
@@ -41,7 +46,7 @@ try {
         @'
 param([switch]$DevelopmentTools,[switch]$PublicInternetIpv4Only,[string]$ControlPlaneUserSid,
     [string]$ControlPlaneUrl,[string]$ProgressPath,[guid]$ProgressJobId,[switch]$NoElevation,
-    [switch]$SkipInstall,[string]$PayloadResultPath)
+    [switch]$SkipInstall,[string]$PayloadResultPath,[string]$WorkingRoot)
 $global:OfficeUpdateHarnessEvents.Add('prepared')
 [IO.File]::WriteAllText($PayloadResultPath,$global:OfficeUpdateHarnessPayloadRoot)
 $global:LASTEXITCODE = $(if ($global:OfficeUpdateHarnessScenario -eq 'bootstrap-failed') { 1 } else { 0 })
@@ -79,7 +84,7 @@ $global:LASTEXITCODE = $(if ($global:OfficeUpdateHarnessScenario -eq 'bootstrap-
         function Start-Sleep { param($Seconds) $global:OfficeUpdateHarnessEvents.Add('wait-for-confirmation') }
         $failure = $null
         try { & $body } catch { $failure = $_ }
-        if ($scenario -eq 'ready') {
+        if ($scenario -in @('ready','ready-selected-drive')) {
             if ($failure) { throw $failure }
             if ($script:readyCalls -ne 2 -or $global:OfficeUpdateHarnessEvents.IndexOf('prepared') -gt $global:OfficeUpdateHarnessEvents.IndexOf('request-stop') -or
                 -not $global:OfficeUpdateHarnessEvents.Contains('wait-for-confirmation')) { throw 'Preparation/stop ordering was violated.' }

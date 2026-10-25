@@ -45,6 +45,7 @@ builder.Services.AddHostedService<AgentOnboardingEventDispatcher>();
 builder.Services.AddScoped<CSweet.Infrastructure.Setup.PluginSetupObligationDispatcher>();
 builder.Services.AddHostedService<PluginSetupObligationWorker>();
 builder.Services.AddHostedService<PluginConnectionCleanupWorker>();
+builder.Services.AddHostedService<PluginAccountSetupWorker>();
 builder.Services.AddHostedService<ConnectorActionWorker>();
 builder.Services.AddScoped<ConnectorActionEventDispatcher>();
 builder.Services.AddHostedService<AgentPlatformEventDispatcher>();

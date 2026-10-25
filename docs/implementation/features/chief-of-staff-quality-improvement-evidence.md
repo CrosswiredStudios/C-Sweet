@@ -283,3 +283,49 @@ exact-candidate selection ahead of latest stable, draft/ref/version rejection an
 **G3 remains open.** Resume installed/UI acceptance only through the normal Installed Agents flow,
 after the owner-controlled update and a controlled test-gate session. Active unrelated QFN Games
 work must remain outside the disposable acceptance business. Broader refactoring remains deferred.
+
+## October 24: normal onboarding for every business
+
+The installed RC.2 Chief accepted the Creative & Product focus, persisted the native answer and
+made its coverage row Ready, but performed no assessment or hiring recommendation. The real broker
+snapshot returned `proactiveEnabled: false`, no next assessment, and a platform-rollout block. Its
+callback completed normally; the confirmation incorrectly promised that assessment would continue.
+
+The owner rejected the proposed rollout/cohort restriction. This supersedes earlier default-off,
+General/Game-Studio-only and bounded-cohort statements in this historical evidence document:
+
+- `ChiefLeadershipService` no longer accepts rollout options. `ChiefLeadershipOptions`, its DI
+  registration, the profile execution restriction and the business allowlist are removed.
+  `SnapshotAsync` offers the next eligible assessment for every supported operating profile.
+- `AssessAsync` accepts the appropriate CEO-direct primary-offering manager recommendation across
+  all seven profiles. Existing manager ownership must be assessed before another company-level hire.
+  Licensed-human, evidence, authority, owner-pause and one-unresolved-recommendation checks remain.
+- Owner pause/resume immediately reprojects the visible assessment card. A paused Ready assessment
+  displays its actual block; resume clears that execution block while retaining the original focus.
+- Chief RC.3 added truthful focus/decision confirmations and a current-state read after idempotent
+  command receipts. RC.4 documents normal execution for all businesses and retains that correction.
+  Published RC.3 notes remain historical. RC.4's interpretation policy is unchanged from RC.2.
+- The temporary business-only development configuration was removed. Global imported-agent settings,
+  approved packages, installed payloads, source decisions and live hiring records were not changed.
+  Rebuild/restart the platform to load this correction; an agent-only update cannot remove an old
+  platform's execution gate. Existing saved focus is recovered through normal durable discovery.
+
+Verification uses published dependencies with sibling references disabled:
+
+| Verification | Final result |
+|---|---|
+| Chief deterministic regressions | 156 passed, zero failed/skipped (`unrestricted-leadership.trx`) |
+| Isolated Chief platform and DI checks, including real PostgreSQL | 70 passed, zero failed/skipped (`chief-unrestricted-onboarding.trx`) |
+| Real Chief/broker workflow journeys, including Creative Director and PostgreSQL fulfillment/restart | 8 passed, zero failed/skipped (`unrestricted-director-workflow.trx`) |
+| Chief RC.4 Linux bundle and implementation self-test | Passed |
+| Chief NuGet metadata | `CSweet.Agents.ChiefOfStaff`, `2.14.1-rc.4` |
+
+The isolated platform checkout aligns with the current platform's published SDK 5.5.0 pin. Chief
+ships against compatible SDK 5.4.0. An initial historical-checkout integration run exposed a sibling
+Technical Director dependency downgrade; another root restore encountered a concurrent unpublished
+Office 0.12.0 pin. Final isolated runs avoid those unrelated changes and pass. An initial new
+workflow fixture queried a local assessment inside an EF predicate; extracting its ID fixed the
+fixture translation failure before the final successful PostgreSQL run.
+
+The full installed/model/UI product acceptance checkpoint remains open for the owner's test.
+It is a verification checkpoint, not a runtime feature gate. Broader refactoring remains deferred.

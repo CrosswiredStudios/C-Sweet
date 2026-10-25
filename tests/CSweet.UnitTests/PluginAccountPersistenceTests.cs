@@ -26,6 +26,13 @@ public sealed class PluginAccountPersistenceTests
         Assert.DoesNotContain("DROP TABLE", sql);
         Assert.DoesNotContain("DELETE FROM", sql);
         Assert.DoesNotContain("CoreWorkTasks", sql);
+        var accountIndex = Array.FindIndex(migrations,x => x.EndsWith("_AddPerAccountOAuthSetup",StringComparison.Ordinal));
+        Assert.True(accountIndex > index);
+        var accountSql = db.GetService<IMigrator>().GenerateScript(migrations[accountIndex-1],migrations[accountIndex]);
+        Assert.Contains("CREATE TABLE \"PluginAccountSetupSessions\"",accountSql);
+        Assert.Contains("CREATE TABLE \"PluginAccountRevocationJobs\"",accountSql);
+        Assert.Contains("\"VerifiedSubject\" IS NOT NULL",accountSql);
+        Assert.DoesNotContain("DROP TABLE",accountSql);
         foreach (var type in new[] { typeof(PluginAccountGroup), typeof(PluginAccountResource), typeof(PluginAccountBusinessGrant) })
             Assert.True(db.Model.FindEntityType(type)!.FindProperty("Revision")!.IsConcurrencyToken);
         Assert.True(db.Model.FindEntityType(typeof(PluginConnection))!.FindProperty("AuthorizationRevision")!.IsConcurrencyToken);
