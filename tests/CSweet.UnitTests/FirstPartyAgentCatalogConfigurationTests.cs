@@ -37,7 +37,7 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
     [InlineData("Video Game Engineer")]
     [InlineData("software-developer")]
     [InlineData("Software Developer")]
-    public async Task ConfiguredCatalog_ShowsBothSoftwareEngineersForLegacyRoleLinks(string role)
+    public async Task ConfiguredCatalog_ShowsSoftwareEngineersIncludingManualPilotForLegacyRoleLinks(string role)
     {
         var configuration = new ConfigurationBuilder()
             .AddJsonFile(Path.Combine(RepositoryRoot(), "src", "CSweet.Api", "first-party-agents.json")).Build();
@@ -45,9 +45,10 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
         var service = new AgentCatalogService([new FirstPartyAgentCatalogProvider(Options.Create(options))],
             NullLogger<AgentCatalogService>.Instance);
         var result = await service.GetAvailableAgentsAsync(Guid.NewGuid(), new(Role: role));
-        Assert.Equal(2, result.Agents.Count);
+        Assert.Equal(3, result.Agents.Count);
         Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.software-developer");
         Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.video-game-engineer");
+        Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.software-developer.openhands");
     }
     [Theory]
     [InlineData("Creative Director", false)]
@@ -67,7 +68,8 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
         var result = await service.GetAvailableAgentsAsync(
             Guid.NewGuid(), new(Role: freeText ? null : search, SearchString: freeText ? search : null));
 
-        Assert.Contains(result.Agents, agent => agent.AgentId == "com.csweet.video-game-creative-director");
+        Assert.Contains(result.Agents, agent => agent.AgentId == (search == "Game Director"
+            ? "com.csweet.video-game-director" : "com.csweet.video-game-creative-director"));
         if (!freeText) Assert.Single(result.Agents);
     }
 
@@ -288,13 +290,21 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
         Assert.NotEmpty(options.FirstPartyAgents);
         foreach (var entry in options.FirstPartyAgents)
         {
-            var expected = $"_content/CSweet.UI/images/agents/{entry.ListingSlug}-v1.jpg";
+            if (entry.AgentId == "com.csweet.software-developer.openhands")
+            {
+                Assert.True(entry.ManualSelectionOnly);
+                Assert.Null(entry.ImageUrl); // The opt-in pilot intentionally uses the default portrait.
+                continue;
+            }
+            var extension = Path.GetExtension(entry.ImageUrl);
+            Assert.Contains(extension, new[] { ".jpg", ".png" });
+            var expected = $"_content/CSweet.UI/images/agents/{entry.ListingSlug}-v1{extension}";
             Assert.Equal(expected, entry.ImageUrl);
             Assert.Equal(CSweet.UI.Services.MarketplaceAgentPresentation.CSweetCompanyLogoUrl, entry.CompanyLogoUrl);
             Assert.NotEqual(entry.RoleName, entry.Name);
             Assert.True(CSweet.UI.Services.MarketplaceAgentPresentation.IsAgentImageUrl(entry.ImageUrl));
             Assert.True(AgentCatalogBranding.IsAccentColor(entry.AccentColor));
-            var path = Path.Combine(root, "src", "CSweet.UI", "wwwroot", "images", "agents", $"{entry.ListingSlug}-v1.jpg");
+            var path = Path.Combine(root, "src", "CSweet.UI", "wwwroot", "images", "agents", $"{entry.ListingSlug}-v1{extension}");
             Assert.True(File.Exists(path), $"Missing portrait: {path}");
             var bytes = File.ReadAllBytes(path);
             Assert.True(bytes.Length > 1000);

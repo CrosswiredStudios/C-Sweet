@@ -109,6 +109,10 @@ public sealed class MarketplaceAgentBrandingTests
     [Theory]
     [InlineData("_content/CSweet.UI/images/agents/product-manager-v1.jpg", true)]
     [InlineData("_content/CSweet.UI/images/agents/chief-of-staff-v2.jpg", true)]
+    [InlineData("_content/CSweet.UI/images/agents/video-game-director-v1.png", true)]
+    [InlineData("_content/CSweet.UI/images/agents/../private-v1.png", false)]
+    [InlineData("_content/CSweet.UI/images/agents/video-game-director-v1.png?file=secret", false)]
+    [InlineData("_content/CSweet.UI/images/agents/video-game-director-v1.svg", false)]
     [InlineData("https://example.com/portrait.webp", true)]
     [InlineData("_content/CSweet.UI/images/agents/../private.jpg", false)]
     [InlineData("_content/CSweet.UI/images/agents/%2e%2e/private-v1.jpg", false)]
@@ -119,10 +123,11 @@ public sealed class MarketplaceAgentBrandingTests
     public void AgentArtworkAllowsOnlyHttpsOrBundledPortraitPaths(string path, bool expected) =>
         Assert.Equal(expected, MarketplaceAgentPresentation.IsAgentImageUrl(path));
 
-    [Fact]
-    public async Task CardRendersBundledPortraitWithoutRequiringTheMarketplace()
+    [Theory]
+    [InlineData("_content/CSweet.UI/images/agents/product-manager-v1.jpg")]
+    [InlineData("_content/CSweet.UI/images/agents/video-game-director-v1.png")]
+    public async Task CardRendersBundledPortraitWithoutRequiringTheMarketplace(string path)
     {
-        const string path = "_content/CSweet.UI/images/agents/product-manager-v1.jpg";
         var html = await Render(Agent() with { ImageUrl = path });
         Assert.Contains(path, html);
         Assert.DoesNotContain(MarketplaceAgentPresentation.DefaultImageUrl, html);

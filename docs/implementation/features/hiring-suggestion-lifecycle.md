@@ -69,6 +69,17 @@ Missing authority or required owner configuration retains the review action.
 
 ## Company overview hiring row
 
+`HiringService.WithCurrentCandidateBrandingAsync`, used by both recommendation list paths,
+refreshes name, portrait, logo and accent in the response from the embedded first-party catalog
+only when the saved candidate's reference and agent ID still match. This repairs cards selected
+before branding was added, including Marcus Vale. The saved selection, rationale, price,
+capabilities, repository and approval evidence remain unchanged; no external marketplace request
+is needed. `MarketplaceAgentPresentation.IsAgentImageUrl` accepts versioned JPG and PNG portraits
+inside the bundled agents directory. `OverviewHiringCandidateTests` covers Marcus's PNG on the
+actual hiring card; `HiringServiceTests.CandidateBranding` covers stale selection projection and
+identity mismatch. These are host changes and require rebuilding/restarting the app and API;
+updating an installed agent alone does not update hiring-card presentation.
+
 `HiringRecommendationResponse.NoSuitableAgentFound` exposes the persisted no-eligible-candidate
 outcome from `SelectCandidateAsync`, including recommendations created before this UI state.
 Both `OverviewHiringCandidateCard` and `HiringSuggestionCarousel` show **No suitable agent
