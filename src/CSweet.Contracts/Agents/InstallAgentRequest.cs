@@ -26,4 +26,6 @@ public sealed record InstallAgentRequest(
     public bool AllPublicWebAccessAcknowledged { get; init; }
     /// <summary>Hiring reuses an approved definition without changing its enterprise defaults.</summary>
     public bool ReuseExistingDefinition { get; init; }
+    /// <summary>Required when activating an enterprise account connector update after its build review.</summary>
+    public string? ExpectedPackageDigest { get; init; }
 }

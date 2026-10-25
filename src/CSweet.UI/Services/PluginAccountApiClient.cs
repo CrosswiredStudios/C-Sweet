@@ -12,6 +12,12 @@ public interface IPluginAccountApiClient
     Task RevokeGrantAsync(Guid installationId, Guid grantId, long revision, CancellationToken ct = default);
     Task<PluginAccountImpactView> GetDisconnectImpactAsync(Guid installationId, Guid accountId, CancellationToken ct = default);
     Task DisconnectAsync(Guid installationId, Guid accountId, DisconnectPluginAccountRequest request, CancellationToken ct = default);
+    Task SaveOperatorAsync(Guid installationId,SavePluginOperatorRequest request,CancellationToken ct=default);
+    Task RevokeOperatorAsync(Guid installationId,Guid operatorId,long revision,CancellationToken ct=default);
+    Task<PluginInstallationImpact> GetImpactAsync(Guid installationId,CancellationToken ct=default);
+    Task ControlAsync(Guid installationId,PluginInstallationControlRequest request,CancellationToken ct=default);
+    Task RetryBuildAsync(Guid installationId,CancellationToken ct=default);
+    Task<PluginPackageReview> GetReviewAsync(Guid installationId,CancellationToken ct=default);
 }
 public sealed class PluginAccountApiClient(HttpClient http) : IPluginAccountApiClient
 {
@@ -23,6 +29,12 @@ public sealed class PluginAccountApiClient(HttpClient http) : IPluginAccountApiC
     public async Task RevokeGrantAsync(Guid id, Guid grantId, long revision, CancellationToken ct = default) => await Send<object>(HttpMethod.Delete, Path(id) + $"/business-access/{grantId:D}?revision={revision}", null, ct);
     public Task<PluginAccountImpactView> GetDisconnectImpactAsync(Guid id, Guid accountId, CancellationToken ct = default) => Send<PluginAccountImpactView>(HttpMethod.Get, Path(id) + $"/{accountId:D}/disconnect-impact", null, ct);
     public async Task DisconnectAsync(Guid id, Guid accountId, DisconnectPluginAccountRequest request, CancellationToken ct = default) => await Send<object>(HttpMethod.Post, Path(id) + $"/{accountId:D}/disconnect", request, ct);
+    public async Task SaveOperatorAsync(Guid id,SavePluginOperatorRequest request,CancellationToken ct=default)=>await Send<object>(HttpMethod.Put,Path(id)+"/operators",request,ct);
+    public async Task RevokeOperatorAsync(Guid id,Guid operatorId,long revision,CancellationToken ct=default)=>await Send<object>(HttpMethod.Delete,Path(id)+$"/operators/{operatorId:D}?revision={revision}",null,ct);
+    public Task<PluginInstallationImpact> GetImpactAsync(Guid id,CancellationToken ct=default)=>Send<PluginInstallationImpact>(HttpMethod.Get,Path(id)+"/impact",null,ct);
+    public async Task ControlAsync(Guid id,PluginInstallationControlRequest request,CancellationToken ct=default)=>await Send<object>(HttpMethod.Post,Path(id)+"/control",request,ct);
+    public async Task RetryBuildAsync(Guid id,CancellationToken ct=default)=>await Send<object>(HttpMethod.Post,Path(id)+"/retry-build",null,ct);
+    public Task<PluginPackageReview> GetReviewAsync(Guid id,CancellationToken ct=default)=>Send<PluginPackageReview>(HttpMethod.Get,Path(id)+"/review",null,ct);
     private async Task<T> Send<T>(HttpMethod method, string url, object? body, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(method, url) { Content = body is null ? null : JsonContent.Create(body) };

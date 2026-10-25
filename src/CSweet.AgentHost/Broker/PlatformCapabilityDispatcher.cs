@@ -17,7 +17,7 @@ public interface IPlatformCapabilityDispatcher
 public sealed class PlatformCapabilityDispatcher(
     IEnumerable<IPlatformCapabilityHandler> handlers,
     PluginSetupAssistancePolicy? setupPolicy = null,
-    ProjectCapabilityPolicy? projectPolicy = null) : IPlatformCapabilityDispatcher
+    ProjectCapabilityPolicy? projectPolicy = null,PluginAccountDataExposureService? providerData = null) : IPlatformCapabilityDispatcher
 {
     private readonly IReadOnlyList<IPlatformCapabilityHandler> _handlers = handlers.ToList();
 
@@ -67,7 +67,19 @@ public sealed class PlatformCapabilityDispatcher(
             yield return Failure(request.RequestId, $"No platform handler provides '{request.Capability}'.");
         else
             await foreach (var result in handler.HandleAsync(session, request, cancellationToken))
+            {
+                string? retentionFailure=null;
+                if(providerData!=null && result.Succeeded && Guid.TryParse(session.BusinessId,out var org) && Guid.TryParse(session.InstallationId,out var consumer) &&
+                    (string.IsNullOrEmpty(result.ContentType) || result.ContentType.Contains("json",StringComparison.OrdinalIgnoreCase)))
+                {
+                    try { await providerData.RecordResponseAsync(org,consumer,result.Payload.Span.ToArray(),cancellationToken); }
+                    catch(Exception e) when(e is UnauthorizedAccessException or InvalidOperationException or JsonException or Microsoft.EntityFrameworkCore.DbUpdateException)
+                    { retentionFailure="The authorized data response is no longer available or exceeds its safe retention boundary. Refresh and request a smaller page."; }
+                }
+                if(retentionFailure!=null) yield return Failure(request.RequestId,retentionFailure);
+                else
                 yield return result;
+            }
     }
 
     private static bool IsImplicitPlatformCapability(string capability) =>

@@ -10,6 +10,7 @@ public sealed class PluginConnection
     public string? CredentialProfileHash { get; set; }
     public Guid? RefreshLeaseOwner { get; set; }
     public DateTimeOffset? RefreshLeaseUntil { get; set; }
+    public DateTimeOffset? NextInventoryCheckAt { get; set; }
     public string DeclarationId { get; set; } = string.Empty;
     public string ProviderProfile { get; set; } = string.Empty;
     public PluginConnectionStatus Status { get; set; }

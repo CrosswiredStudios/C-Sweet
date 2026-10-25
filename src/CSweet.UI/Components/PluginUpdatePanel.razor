@@ -1,0 +1,72 @@
+@using System.Text.Json
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Plugins
+@using CSweet.UI.Services
+@inject IPluginApiClient Plugins
+@inject IPluginAccountApiClient Accounts
+@inject NavigationManager Navigation
+
+@if (View.Administration is { Retired:false,RemovalPending:false } admin)
+{
+    <MudExpansionPanels Elevation="0" Class="my-4">
+        <MudExpansionPanel Text="Build diagnostics and updates">
+            @if(_error!=null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+            <MudButton Disabled="_busy" OnClick="ReadLog">View build diagnostics</MudButton>
+            @if(_log!=null) { <pre style="max-height:320px;overflow:auto;white-space:pre-wrap">@_log</pre> }
+            @if(admin.Staged)
+            {
+                <MudText Typo="Typo.h6">Review this update before activation</MudText>
+                <MudAlert Severity="Severity.Info">The existing plugin keeps its current authority until you replace it. Disconnect its accounts and confirm cleanup before activating this update. Credentials, account grants, operator assignments and autonomous policies will not transfer; connecting again needs new review.</MudAlert>
+                @if(admin.PreviousInstallationId is { } previous) { <MudLink Href="@($"/settings/plugins/{previous:D}")">Open existing plugin and review cleanup</MudLink> }
+                @foreach(var permission in View.Declaration.Permissions) { <MudText Typo="Typo.subtitle2">@permission.Label</MudText><MudText Typo="Typo.body2">@permission.Purpose</MudText> }
+                <MudButton Disabled="@(_busy || View.BuildStatus!="Built")" OnClick="ReadReview">Review verified package</MudButton>
+                @if(_review!=null)
+                {
+                    <MudText Typo="Typo.caption">Verified package digest: @_review.PackageDigest</MudText>
+                    <MudExpansionPanels><MudExpansionPanel Text="Exact declarations, operations and destinations"><pre style="max-height:320px;overflow:auto;white-space:pre-wrap">@_review.ManifestJson</pre></MudExpansionPanel></MudExpansionPanels>
+                    <MudCheckBox T="bool" @bind-Value="_approved" Label="I approve this exact verified package, its declared abilities and destinations. Account and agent permissions will need new review." />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_approved)" OnClick="Approve">Approve and activate update</MudButton>
+                }
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">Check the installed repository for a newer version. Previewing or building an update does not approve it or change current account access.</MudText>
+                <MudButton Disabled="@(_busy || string.IsNullOrWhiteSpace(admin.RepositoryUrl))" OnClick="CheckUpdate">Check for update</MudButton>
+                @if(_preview!=null)
+                {
+                    <MudText Typo="Typo.subtitle1">@_preview.AgentName · v@_preview.AgentVersion</MudText>
+                    @foreach(var permission in _preview.Accounts?.Permissions ?? []) { <MudText Typo="Typo.body2">@permission.Label — @permission.Purpose</MudText> }
+                    <MudText Typo="Typo.caption">The completed build will need a separate exact-package approval.</MudText>
+                    <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="Stage">Build update for review</MudButton>
+                }
+            }
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+}
+
+@code {
+    [Parameter,EditorRequired] public PluginAccountManagementView View {get;set;}=null!;
+    private bool _busy,_approved;
+    private string? _error,_log;
+    private AgentImportPreviewResponse? _preview;
+    private PluginPackageReview? _review;
+    private Task ReadLog()=>Run(async()=>{_log=(await Plugins.GetBuildLogAsync(View.InstallationId))?.Content ?? "No build diagnostics are available.";});
+    private Task CheckUpdate()=>Run(async()=>{
+        _preview=await Plugins.PreviewAsync(new(View.Administration!.RepositoryUrl!));
+        if(_preview.AgentVersion==View.Version) { _preview=null;_error="This repository currently resolves to the installed version."; }
+    });
+    private Task Stage()=>Run(async()=>{var staged=await Plugins.StageUpdateAsync(View.InstallationId,_preview!.ImportId);Navigation.NavigateTo($"/settings/plugins/{staged.Id:D}",true);});
+    private Task ReadReview()=>Run(async()=>{_approved=false;_review=await Accounts.GetReviewAsync(View.InstallationId);if(_review.PackageDigest!=View.PackageDigest)throw new InvalidOperationException("The verified package changed. Refresh and review again.");});
+    private Task Approve()=>Run(async()=>{
+        var fresh=await Accounts.GetReviewAsync(View.InstallationId);
+        if(fresh.PackageDigest!=_review!.PackageDigest || fresh.ManifestJson!=_review.ManifestJson) throw new InvalidOperationException("The package changed after review. Review again.");
+        var manifest=JsonSerializer.Deserialize<PluginManifest>(fresh.ManifestJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        // Account connector packages cannot receive raw network authority through this simplified control.
+        // A broader request needs a separate platform administrator grant review.
+        if(manifest.WebAccess.Mode!=PluginWebAccessMode.None) throw new InvalidOperationException("This update requests direct network access. A separate administrator review is required.");
+        var request=new InstallAgentRequest(fresh.BusinessId,"OnDemand",300,"Skip",manifest.Provides.Select(x=>x.Name).ToArray(),manifest.Events.Subscribes,[],[],[],600,512,50)
+            {PluginScope="System",ExpectedPackageDigest=fresh.PackageDigest,GrantedRequestedCapabilities=manifest.Requires.Select(x=>x.Name).ToArray()};
+        var result=await Plugins.ApproveUpdateAsync(View.InstallationId,request);Navigation.NavigateTo($"/settings/plugins/{result.Id:D}",true);
+    });
+    private async Task Run(Func<Task> action) {if(_busy)return;_busy=true;_error=null;try{await action();}catch(Exception e) when(e is not OperationCanceledException){_error=e.Message;}finally{_busy=false;}}
+}

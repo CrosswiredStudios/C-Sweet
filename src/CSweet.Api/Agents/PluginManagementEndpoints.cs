@@ -1,6 +1,7 @@
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Plugins;
+using CSweet.Api.Auth;
 
 namespace CSweet.Api.Agents;
 
@@ -73,16 +74,37 @@ public static class PluginManagementEndpoints
             await installations.GetAsync(installationId, cancellationToken) is { } value ? Results.Ok(value) : Results.NotFound());
         group.MapPost("/installations/{installationId:guid}/enable", async (Guid installationId,
             IPluginInstallationService installations, CancellationToken cancellationToken) =>
-            Results.Ok(await installations.EnableAsync(installationId, cancellationToken)));
+        {
+            try{return Results.Ok(await installations.EnableAsync(installationId,cancellationToken));}
+            catch(AgentInstallationException e){return Results.BadRequest(new {error=e.Message});}
+        });
         group.MapPost("/installations/{installationId:guid}/disable", async (Guid installationId,
             IPluginInstallationService installations, CancellationToken cancellationToken) =>
-            Results.Ok(await installations.DisableAsync(installationId, cancellationToken)));
-        group.MapPost("/installations/{installationId:guid}/update", async (Guid installationId,
-            UpdateAgentInstallationRequest request, IPluginInstallationService installations, CancellationToken cancellationToken) =>
-            Results.Ok(await installations.UpdateAsync(installationId, request, cancellationToken)));
-        group.MapPost("/installations/{stagedRevisionId:guid}/update/approve", async (Guid stagedRevisionId,
-            InstallAgentRequest request, IPluginInstallationService installations, CancellationToken cancellationToken) =>
         {
+            try{return Results.Ok(await installations.DisableAsync(installationId,cancellationToken));}
+            catch(AgentInstallationException e){return Results.BadRequest(new {error=e.Message});}
+        });
+        group.MapPost("/installations/{installationId:guid}/update", async (Guid installationId,
+            UpdateAgentInstallationRequest request, HttpContext http,[Microsoft.AspNetCore.Mvc.FromServices] CSweet.Infrastructure.Setup.PluginAccountService accounts,
+            IPluginInstallationService installations, CancellationToken cancellationToken) =>
+        {
+            if((await installations.GetAsync(installationId,cancellationToken))?.Accounts!=null)
+            {
+                if(http.User.GetApplicationUserId() is not { } user) return Results.Forbid();
+                try {await accounts.RequireAdministrationAsync(user,installationId,cancellationToken);}catch(UnauthorizedAccessException){return Results.Forbid();}
+            }
+            try{return Results.Ok(await installations.UpdateAsync(installationId,request,cancellationToken));}
+            catch(AgentInstallationException e){return Results.BadRequest(new {error=e.Message});}
+        });
+        group.MapPost("/installations/{stagedRevisionId:guid}/update/approve", async (Guid stagedRevisionId,
+            InstallAgentRequest request, HttpContext http,[Microsoft.AspNetCore.Mvc.FromServices] CSweet.Infrastructure.Setup.PluginAccountService accounts,
+            IPluginInstallationService installations, CancellationToken cancellationToken) =>
+        {
+            if((await installations.GetAsync(stagedRevisionId,cancellationToken))?.Accounts!=null)
+            {
+                if(http.User.GetApplicationUserId() is not { } user) return Results.Forbid();
+                try {await accounts.RequireAdministrationAsync(user,stagedRevisionId,cancellationToken);}catch(UnauthorizedAccessException){return Results.Forbid();}
+            }
             try { return Results.Ok(await installations.ApproveUpdateAsync(stagedRevisionId, request, cancellationToken)); }
             catch (AgentInstallationException exception) { return Results.BadRequest(new { error = exception.Message }); }
         }).RequireRateLimiting(AgentRateLimiting.BuildPolicy);
@@ -94,7 +116,10 @@ public static class PluginManagementEndpoints
             await installations.GetBuildLogAsync(installationId, cancellationToken) is { } value ? Results.Ok(value) : Results.NotFound());
         group.MapDelete("/installations/{installationId:guid}", async (Guid installationId,
             IPluginInstallationService installations, CancellationToken cancellationToken) =>
-            Results.Ok(await installations.RemoveAsync(installationId, cancellationToken)));
+        {
+            try{return Results.Ok(await installations.RemoveAsync(installationId,cancellationToken));}
+            catch(AgentInstallationException e){return Results.BadRequest(new {error=e.Message});}
+        });
 
         group.MapPut("/installations/{installationId:guid}/configuration", async (Guid installationId,
             UpdateAgentConfigurationRequest request, IAgentInstallationConfigurationService configurations,

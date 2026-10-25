@@ -5,7 +5,8 @@ public sealed class PluginAccountSetupSession
 {
     public Guid Id { get; set; }
     public Guid PluginInstallationId { get; set; }
-    public Guid ApplicationUserId { get; set; }
+    public Guid? ApplicationUserId { get; set; }
+    public bool IsMaintenance { get; set; }
     public Guid AccountGroupId { get; set; }
     public Guid ConnectionId { get; set; }
     public Guid? ReplacesConnectionId { get; set; }
@@ -44,4 +45,5 @@ public sealed class PluginAccountOperator
     public Guid? AccountGroupId { get; set; }
     public Guid GrantedByApplicationUserId { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
+    public long Revision { get; set; } = 1;
 }

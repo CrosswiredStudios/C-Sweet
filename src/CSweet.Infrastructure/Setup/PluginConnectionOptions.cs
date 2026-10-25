@@ -4,6 +4,8 @@ public sealed class PluginConnectionOptions
 {
     public const string SectionName = "CSweet:PluginConnections";
     public string? PublicBaseUrl { get; set; }
+    /// <summary>Legacy diagnostic flag only. Cleanup readiness never gates installation or account consent.</summary>
+    public bool AllowDevelopmentLifecyclePreview {get;set;}
     public Dictionary<string, OAuthProviderProfileOptions> Providers { get; set; } = new(StringComparer.Ordinal);
 }
 

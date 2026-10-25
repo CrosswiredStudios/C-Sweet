@@ -33,6 +33,18 @@ public sealed class PluginAccountPersistenceTests
         Assert.Contains("CREATE TABLE \"PluginAccountRevocationJobs\"",accountSql);
         Assert.Contains("\"VerifiedSubject\" IS NOT NULL",accountSql);
         Assert.DoesNotContain("DROP TABLE",accountSql);
+        var lifecycleIndex=Array.FindIndex(migrations,x=>x.EndsWith("_AddPluginAccountLifecycleEnforcement",StringComparison.Ordinal));
+        Assert.True(lifecycleIndex>accountIndex);
+        var lifecycleSql=db.GetService<IMigrator>().GenerateScript(migrations[lifecycleIndex-1],migrations[lifecycleIndex]);
+        Assert.Contains("CREATE TABLE \"PluginAccountDeletions\"",lifecycleSql);
+        Assert.Contains("CREATE TABLE \"PluginAccountDataCopies\"",lifecycleSql);
+        Assert.Contains("NULLS NOT DISTINCT",lifecycleSql);
+        Assert.DoesNotContain("DROP TABLE",lifecycleSql);
+        var cleanupIndex=Array.FindIndex(migrations,x=>x.EndsWith("_AddPluginCleanupConfirmations",StringComparison.Ordinal));
+        Assert.True(cleanupIndex>lifecycleIndex);
+        var cleanupSql=db.GetService<IMigrator>().GenerateScript(migrations[cleanupIndex-1],migrations[cleanupIndex]);
+        Assert.Contains("CREATE TABLE \"PluginAccountCleanupReceipts\"",cleanupSql);
+        Assert.Contains("plugin_cleanup_receipt_immutable",cleanupSql);Assert.DoesNotContain("DROP TABLE",cleanupSql);
         foreach (var type in new[] { typeof(PluginAccountGroup), typeof(PluginAccountResource), typeof(PluginAccountBusinessGrant) })
             Assert.True(db.Model.FindEntityType(type)!.FindProperty("Revision")!.IsConcurrencyToken);
         Assert.True(db.Model.FindEntityType(typeof(PluginConnection))!.FindProperty("AuthorizationRevision")!.IsConcurrencyToken);

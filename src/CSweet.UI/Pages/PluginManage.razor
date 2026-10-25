@@ -19,15 +19,28 @@
     {
         <header class="manage-heading">
             <div><MudText Typo="Typo.h3">@_view.Name</MudText><MudText Color="Color.Secondary">Enterprise integration · v@_view.Version</MudText></div>
-            <div class="manage-actions"><MudButton Disabled="_busy" OnClick="Reload">Refresh</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_view.CanConnect)" OnClick="@(() => OpenConnect(null))">Connect account</MudButton></div>
+            <div class="manage-actions"><MudButton Disabled="_busy" OnClick="Reload">Refresh</MudButton>@if(_view.Administration is not { Retired:true }) { <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_view.CanConnect)" OnClick="@(() => OpenConnect(null))">Connect account</MudButton> }</div>
         </header>
         @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
-        @if (_notice is not null) { <MudAlert Severity="Severity.Success" role="status">@_notice</MudAlert> }
+        @if (_notice is not null && _view.Administration is not { Retired:true }) { <MudAlert Severity="Severity.Success" role="status">@_notice</MudAlert> }
+        @if(!_view.CanAdminister && _view.CleanupReviews.Count>0)
+        {
+            <MudPaper Outlined="true" Class="manage-card" role="region" aria-label="Your saved context cleanup">
+                <MudText Typo="Typo.h5">Your saved context cleanup</MudText>
+                <MudText>Account access has stopped. Review your saved context separately; private audiences and retention holds still apply.</MudText>
+                @foreach(var review in _view.CleanupReviews)
+                {
+                    <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Review saved context cleanup">
+                        <CSweet.UI.Components.MemoryErasureImpactPanel OrganizationId="review.OrganizationId" EmployeeId="review.EmployeeId" EpisodeId="review.EpisodeId" />
+                    </MudExpansionPanel></MudExpansionPanels>
+                }
+            </MudPaper>
+        }
         @if (_showSetupNotice && SetupId is not null && _view.SetupSessions.Any(s => s.Id == SetupId && s.Status == "Ready"))
         { <MudAlert Severity="Severity.Success" role="status">Account connected and accessible resources imported. Next, choose a business and the resources it may use.</MudAlert> }
-        @if (!_view.CanConnect)
+        @if (!_view.CanConnect && _view.Administration is not { Retired:true })
         {
-            <MudAlert Severity="Severity.Info">@Readiness(_view.ReadinessMessage, _view.BuildStatus)
+            <MudAlert Severity="Severity.Info">@(Readiness(_view.ReadinessMessage, _view.BuildStatus))
                 @if (_view.ReadinessMessage?.StartsWith("provider_", StringComparison.Ordinal) == true && _view.CanAdminister)
                 { <MudLink Href="/settings/plugins#provider-administration">Open administrator connection settings</MudLink> }
             </MudAlert>
@@ -63,7 +76,7 @@
                     <MudButton OnClick="@(() => _connecting = false)" Disabled="_busy">Cancel</MudButton></div>
             </MudPaper>
         }
-        @if (_view.Accounts.Count == 0 && !_connecting)
+        @if (_view.Accounts.Count == 0 && !_connecting && _view.Administration is not { Staged:true } and not { Retired:true } and not { RemovalPending:true })
         {
             <MudPaper Outlined="true" Class="manage-card empty-state">
                 <MudText Typo="Typo.h5">Connect your first account</MudText>
@@ -78,6 +91,10 @@
                 <div class="manage-heading"><div><MudText Typo="Typo.h5">@account.Name</MudText>
                     <MudText Typo="Typo.body2" Color="Color.Secondary">@(account.ProviderVerified ? "Provider-verified account" : "Account grouping") · @account.State</MudText></div>
                 </div>
+                @if(account.State=="Disconnecting")
+                { <MudAlert Severity="Severity.Info">Account access has stopped. Provider revocation and data deletion are being tracked. Deletion is not yet confirmed.</MudAlert> }
+                else
+                {
                 @foreach (var authorization in account.Authorizations)
                 {
                     <div class="resource-row"><div><MudText Typo="Typo.subtitle2">@AuthorizationResources(account, authorization)</MudText>
@@ -96,7 +113,7 @@
                 @if (_view.CanAdminister)
                 {
                     <div class="manage-heading mt-4"><MudText Typo="Typo.subtitle1">Business access</MudText>
-                        <MudButton Disabled="@(_busy || account.State != "Connected" || account.Resources.Count == 0)" OnClick="@(() => EditAccess(account))">Assign business access</MudButton></div>
+                        <MudButton Disabled="@(_busy || _view.Administration is { Enabled:false } || account.State != "Connected" || account.Resources.Count == 0)" OnClick="@(() => EditAccess(account))">Assign business access</MudButton></div>
                     @if (!account.BusinessGrants.Any(x => !x.Revoked)) { <MudText Color="Color.Secondary">No businesses have access. Only authorized connection operators can manage this account.</MudText> }
                     @foreach (var grant in account.BusinessGrants.Where(x => !x.Revoked))
                     {
@@ -118,6 +135,8 @@
                         <MudAlert Severity="Severity.Warning" Class="mt-3">Disconnecting immediately stops external work for every business and agent using this account. It does not undo actions already sent.</MudAlert>
                         <MudText>Affected businesses: @(_impact.Businesses.Count == 0 ? "None" : string.Join(", ", _impact.Businesses))</MudText>
                         <MudText>Affected agents: @(_impact.Agents.Count == 0 ? "None" : string.Join(", ", _impact.Agents))</MudText>
+                        <MudText>Recorded data and cleanup references: @_impact.RecordedCopies</MudText>
+                        <MudText Typo="Typo.body2">Provider-derived drafts, reports and conversation copies will be removed, including mixed generated content. Original uploaded media and unrelated human messages are not part of this cleanup.</MudText>
                         @if (_impact.ProviderRevocationMayAffectOtherAuthorizations) { <MudText Color="Color.Warning">The provider may also revoke related authorizations for this account and application. Reconnection will require new review; autonomous policies will not be restored.</MudText> }
                         <div class="manage-actions mt-3"><MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="_busy" OnClick="Disconnect">Confirm disconnect</MudButton><MudButton Disabled="_busy" OnClick="@(() => _disconnectAccount = null)">Keep connected</MudButton></div>
                     }
@@ -146,8 +165,10 @@
                         </section>
                     }
                 }
+                }
             </MudPaper>
         }
+        @if (_view.CanAdminister) { <CSweet.UI.Components.PluginAdministrationPanel View="_view" Changed="Reload" /> }
     }
 </main>
 
@@ -173,7 +194,7 @@
     private async Task Poll()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
-        try { while (await timer.WaitForNextTickAsync(_stop.Token)) if (!_busy && (_view?.BuildStatus != "Built" || _view.SetupSessions.Any(s => s.Status == "Importing")))
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) if (!_busy && (_view?.BuildStatus != "Built" || _view.SetupSessions.Any(s => s.Status == "Importing") || _view.Deletions.Any(d=>!d.AllCopiesDeleted)))
             await InvokeAsync(async () => { await Reload(); StateHasChanged(); }); }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
     }
@@ -223,7 +244,7 @@
     private string BusinessName(Guid id) => Businesses.Businesses.FirstOrDefault(x => x.Id == id)?.Name ?? "Business";
     private string AuthorizationResources(PluginManagedAccount account, PluginManagedAuthorization authorization) => string.Join(", ", account.Resources.Where(r => authorization.ResourceIds.Contains(r.Id)).Select(r => r.Name)) is { Length: > 0 } names ? names : "Provider authorization";
     private string AuthorizationPermissions(PluginManagedAuthorization authorization) => string.Join(", ", _view!.ScopeSets.Where(s => authorization.GrantedScopeSets.Contains(s.Id)).Select(s => s.Label));
-    private static string Readiness(string? reason, string build) => reason == "assigned_accounts_only" ? "You can reconnect the accounts assigned to you. Ask an administrator to connect another account." : reason?.StartsWith("provider_", StringComparison.Ordinal) == true ? "An administrator needs to finish the connection settings. Ordinary account owners do not need technical credentials. Refresh this page after setup is complete." : $"Plugin build: {build}. Connect account will be available when the verified build is ready.";
+    private static string Readiness(string? reason, string build) => reason=="update_review_required" ? $"Update build: {build}. Review its verified package in Administration before activation." : reason=="plugin_paused" ? "This plugin is paused or being removed. Account access is stopped; an administrator can review its controls below." : reason == "assigned_accounts_only" ? "You can reconnect the accounts assigned to you. Ask an administrator to connect another account." : reason?.StartsWith("provider_", StringComparison.Ordinal) == true ? "An administrator needs to finish the connection settings. Ordinary account owners do not need technical credentials. Refresh this page after setup is complete." : $"Plugin build: {build}. Connect account will be available when the verified build is ready.";
     private static string SetupTitle(string status) => status switch { "Importing" => "Importing accessible resources", "ImportFailed" => "Import paused", "AwaitingConsent" => "Waiting for secure sign-in", "Cancelled" => "Connection cancelled", "Expired" => "Sign-in expired", "NoResources" => "Connected — no accessible resources", _ => "Connection needs attention" };
     private string SetupMessage(PluginAccountSetupView s) => s.Status switch { "Importing" => $"{s.ImportedCount} found so far. You can leave this page; import progress is saved.", "ImportFailed" => "Your progress is saved. Resume the import, or reconnect if access has changed.", "Cancelled" or "Expired" => "No business access was granted. Choose Connect account to try again.", "AwaitingConsent" => "Complete sign-in in the provider page, or start a new connection if you closed it.", "NoResources" => $"The provider returned no accessible {_view!.Declaration.ResourcesLabel.ToLowerInvariant()}. Try authorizing the intended account or resource.", _ => "The provider connection did not complete. Review the requested permissions and try again." };
     public async ValueTask DisposeAsync() { _stop.Cancel(); if (_polling is not null) await _polling; _stop.Dispose(); }

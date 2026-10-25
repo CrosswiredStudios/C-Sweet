@@ -97,6 +97,10 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<PluginAccountSetupSession> PluginAccountSetupSessions => Set<PluginAccountSetupSession>();
     public DbSet<PluginAccountOperator> PluginAccountOperators => Set<PluginAccountOperator>();
     public DbSet<PluginAccountRevocationJob> PluginAccountRevocationJobs => Set<PluginAccountRevocationJob>();
+    public DbSet<PluginAccountDeletion> PluginAccountDeletions => Set<PluginAccountDeletion>();
+    public DbSet<PluginAccountDataCopy> PluginAccountDataCopies => Set<PluginAccountDataCopy>();
+    public DbSet<PluginAccountAdministration> PluginAccountAdministrations => Set<PluginAccountAdministration>();
+    public DbSet<PluginAccountCleanupReceipt> PluginAccountCleanupReceipts => Set<PluginAccountCleanupReceipt>();
     public DbSet<PluginAccountResource> PluginAccountResources => Set<PluginAccountResource>();
     public DbSet<PluginAccountResourceAuthorization> PluginAccountResourceAuthorizations => Set<PluginAccountResourceAuthorization>();
     public DbSet<PluginAccountBusinessGrant> PluginAccountBusinessGrants => Set<PluginAccountBusinessGrant>();
@@ -269,7 +273,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        using var internetTransaction = HasRuntimeGrantChanges() && Database.IsRelational() && Database.CurrentTransaction is null
+        using var internetTransaction = (HasRuntimeGrantChanges() || HasProviderDataWrites()) && Database.IsRelational() && Database.CurrentTransaction is null
             ? Database.BeginTransaction() : null;
         CaptureRuntimeInternetRevocationsAsync().GetAwaiter().GetResult();
         CaptureCoordinationWakesAsync().GetAwaiter().GetResult();
@@ -290,6 +294,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureHiringRecommendationEvents();
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
+        CaptureProviderDataAsync().GetAwaiter().GetResult();
         CaptureAgentAuditEvents();
         CaptureProjectHealthSignals();
         var saved = base.SaveChanges(acceptAllChangesOnSuccess);
@@ -299,7 +304,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
-        await using var internetTransaction = HasRuntimeGrantChanges() && Database.IsRelational() && Database.CurrentTransaction is null
+        await using var internetTransaction = (HasRuntimeGrantChanges() || HasProviderDataWrites()) && Database.IsRelational() && Database.CurrentTransaction is null
             ? await Database.BeginTransactionAsync(cancellationToken) : null;
         await CaptureRuntimeInternetRevocationsAsync(cancellationToken);
         await CaptureCoordinationWakesAsync(cancellationToken);
@@ -320,6 +325,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureHiringRecommendationEvents();
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
+        await CaptureProviderDataAsync(cancellationToken);
         CaptureAgentAuditEvents();
         CaptureProjectHealthSignals();
         var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
@@ -409,7 +415,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
                x.Property(p => p.SourceType).IsModified || x.Property(p => p.SourceId).IsModified ||
                x.Property(p => p.OrganizationId).IsModified || x.Property(p => p.AgentInstallationId).IsModified)))))
             throw new InvalidOperationException("Queued memory evidence and its work binding are immutable.");
-        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload or MemoryCaptureRetryReceipt or MemoryEpisodeRetryReceipt or MemoryEpisodeReextractionReceipt or MemoryCaptureExclusion or MemorySourceInvalidation or MemoryReviewReceipt or MemoryTransferReceipt or MemoryErasureReceipt &&
+        if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload or MemoryCaptureRetryReceipt or MemoryEpisodeRetryReceipt or MemoryEpisodeReextractionReceipt or MemoryCaptureExclusion or MemorySourceInvalidation or MemoryReviewReceipt or MemoryTransferReceipt or MemoryErasureReceipt or PluginAccountCleanupReceipt &&
             x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Security audit ledger records are append-only.");
         if (ChangeTracker.Entries<AgentMemoryReadReceipt>().Any(x => x.State == EntityState.Modified ||

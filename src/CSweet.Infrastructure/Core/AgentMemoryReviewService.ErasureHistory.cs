@@ -74,7 +74,23 @@ public sealed partial class AgentMemoryReviewService
         if (payload is null || Encoding.UTF8.GetByteCount(payload) > MaximumErasureInventoryBytes)
             throw new InvalidOperationException("memory_erasure_evidence_review_required");
         ErasureReceiptInventory inventory;
-        try { inventory = JsonSerializer.Deserialize<ErasureReceiptInventory>(payload, JsonOptions) ?? throw new JsonException(); }
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            void UniqueKeys(JsonElement element)
+            {
+                if(element.ValueKind == JsonValueKind.Object)
+                {
+                    var keys = new HashSet<string>(StringComparer.Ordinal);
+                    foreach(var property in element.EnumerateObject())
+                    { if(!keys.Add(property.Name)) throw new JsonException(); UniqueKeys(property.Value); }
+                }
+                else if(element.ValueKind == JsonValueKind.Array)
+                    foreach(var child in element.EnumerateArray()) UniqueKeys(child);
+            }
+            UniqueKeys(document.RootElement);
+            inventory = JsonSerializer.Deserialize<ErasureReceiptInventory>(payload, JsonOptions) ?? throw new JsonException();
+        }
         catch (JsonException error) { throw new InvalidOperationException("memory_erasure_evidence_review_required", error); }
         if (inventory.OwnershipVersion != 1 || inventory.Owners is not { Length: > 0 })
             throw new InvalidOperationException("memory_erasure_ownership_review_required");
@@ -82,7 +98,8 @@ public sealed partial class AgentMemoryReviewService
             inventory.Owners.Length > 1024 || inventory.Owners.Any(x => x is null || x.EmployeeId == Guid.Empty || x.Partition is null) ||
             inventory.PendingRuntimes is not { Length: <= 1024 } || inventory.PendingRuntimes.Any(x => x is null || x.Id == Guid.Empty || x.RequestedAt == default) ||
             inventory.PendingRuntimes.Select(x => x.Id).Distinct().Count() != inventory.PendingRuntimes.Length ||
-            inventory.TurnIds is not { Length: <= 1024 } || inventory.TurnIds.Any(x => x == Guid.Empty))
+            inventory.TurnIds is not { Length: <= 1024 } || inventory.TurnIds.Any(x => x == Guid.Empty) ||
+            inventory.ErasedEpisodes is { } sources && (sources.Length>4096 || sources.Any(s=>s is null || s.Id==Guid.Empty || s.Partition is null)))
             throw new InvalidOperationException("memory_erasure_evidence_review_required");
         return inventory;
     }

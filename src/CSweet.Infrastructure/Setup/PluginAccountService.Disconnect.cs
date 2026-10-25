@@ -10,39 +10,51 @@ public sealed partial class PluginAccountService
     public async Task<PluginAccountImpactView> GetDisconnectImpactAsync(Guid userId, Guid installationId, Guid accountId, CancellationToken ct)
     {
         await Access.RequireAdministratorAsync(userId, ct);
-        var (installation, manifest, _) = await Context(installationId, ct);
+        var (installation, manifest, _) = await Context(installationId, ct,true);
         var group = await db.PluginAccountGroups.AsNoTracking().SingleAsync(x => x.Id == accountId && x.PluginInstallationId == installationId, ct);
         var connections = await db.PluginConnections.AsNoTracking().Where(x => x.AgentInstallationId == installationId && x.AccountGroupId == accountId &&
             x.Status != PluginConnectionStatus.Revoked).OrderBy(x => x.Id).ToArrayAsync(ct);
         var grants = await db.PluginAccountBusinessGrants.AsNoTracking().Where(x => x.PluginInstallationId == installationId && x.AccountGroupId == accountId && x.RevokedAt == null).OrderBy(x => x.Id).ToArrayAsync(ct);
         var ids = grants.Select(x => x.Id).ToArray();
         var bindings = await db.AgentCapabilityBindings.AsNoTracking().Where(x => x.PluginAccountBusinessGrantId != null && ids.Contains(x.PluginAccountBusinessGrantId.Value) && x.RevokedAt == null).OrderBy(x => x.Id).ToArrayAsync(ct);
-        var organizations = grants.Select(g => g.OrganizationId).ToArray(); var consumers = bindings.Select(b => b.RequesterInstallationId).ToArray();
+        var copies=await db.PluginAccountDataCopies.AsNoTracking().Where(x=>x.AccountGroupId==accountId && x.DeletedAt==null).OrderBy(x=>x.Id).ToArrayAsync(ct);
+        var organizations = grants.Select(g => g.OrganizationId).Concat(copies.Where(x=>x.OrganizationId!=null).Select(x=>x.OrganizationId!.Value)).Distinct().ToArray();
+        var consumers = bindings.Select(b => b.RequesterInstallationId).Concat(copies.Where(x=>x.ConsumerInstallationId!=installationId).Select(x=>x.ConsumerInstallationId)).Distinct().ToArray();
         var names = await db.CoreOrganizations.AsNoTracking().Where(x => organizations.Contains(x.Id)).Select(x => x.Name).ToArrayAsync(ct);
         var agents = await db.AgentInstallations.AsNoTracking().Where(x => consumers.Contains(x.Id)).Select(x => x.PackageVersion!.AgentName).ToArrayAsync(ct);
         var hash = ConnectorRequestMaterializer.Hash(JsonSerializer.SerializeToElement(new { group.Id, group.Revision, installation.PackageVersion!.PackageDigest,
             connections = connections.Select(x => new { x.Id, x.AuthorizationRevision, x.Status }), grants = grants.Select(x => new { x.Id, x.Revision }),
-            bindings = bindings.Select(x => new { x.Id, x.ApprovedAt, x.PluginAccountResourceId, x.PluginAccountConnectionId }) }));
-        return new(group.Revision, hash, names, agents, manifest.Accounts!.Lifecycle.RevocationScope == "subject-project");
+            bindings = bindings.Select(x => new { x.Id, x.ApprovedAt, x.PluginAccountResourceId, x.PluginAccountConnectionId }),copies=copies.Select(x=>new{x.Id,x.Revision}) }));
+        return new(group.Revision, hash, names, agents, manifest.Accounts!.Lifecycle.RevocationScope == "subject-project") {RecordedCopies=copies.Length};
     }
 
     public async Task DisconnectAsync(Guid userId, Guid installationId, Guid accountId, DisconnectPluginAccountRequest request, CancellationToken ct)
     {
+        await Access.RequireAdministratorAsync(userId,ct);
+        await using var tx = db.Database.IsRelational() && db.Database.CurrentTransaction==null ? await db.Database.BeginTransactionAsync(ct) : null;
+        if(db.Database.IsNpgsql()) _=await db.PluginAccountGroups.FromSqlInterpolated($"SELECT * FROM \"PluginAccountGroups\" WHERE \"Id\" = {accountId} AND \"PluginInstallationId\" = {installationId} FOR UPDATE").AsNoTracking().ToArrayAsync(ct);
         var impact = await GetDisconnectImpactAsync(userId, installationId, accountId, ct);
         if (request.AccountRevision != impact.AccountRevision || request.ReviewHash != impact.ReviewHash)
             throw new InvalidOperationException("Account access changed. Review the current impact before disconnecting.");
-        await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
-        var (_, manifest, _) = await Context(installationId, ct);
+        using var controlScope=db.BeginProviderDataErasure();
+        var (_, manifest, _) = await Context(installationId, ct,true);
         var group = await db.PluginAccountGroups.SingleAsync(x => x.Id == accountId && x.PluginInstallationId == installationId, ct);
+        if(group.State==PluginAccountState.Disconnected) throw new InvalidOperationException("This account is already disconnected.");
+        if(group.State==PluginAccountState.Disconnecting) return;
         group.State = PluginAccountState.Disconnecting; group.Revision++; group.UpdatedAt = DateTimeOffset.UtcNow;
+        if(!await db.PluginAccountDeletions.AnyAsync(x=>x.AccountGroupId==accountId,ct))
+            db.PluginAccountDeletions.Add(new(){AccountGroupId=accountId,PluginInstallationId=installationId,RequestedAt=DateTimeOffset.UtcNow,
+                TargetAt=DateTimeOffset.UtcNow.AddHours(manifest.Accounts!.Lifecycle.DeletionTargetHours),Deadline=DateTimeOffset.UtcNow.AddDays(manifest.Accounts.Lifecycle.DeletionMaximumDays)});
+        await db.TrackCopy(accountId,null,installationId,"external:backups",accountId,ct);
         var grants = await db.PluginAccountBusinessGrants.Where(x => x.PluginInstallationId == installationId && x.AccountGroupId == accountId && x.RevokedAt == null).ToArrayAsync(ct);
         foreach (var grant in grants) { await InvalidateGrant(grant, ct); grant.RevokedAt = DateTimeOffset.UtcNow; grant.Revision++; }
         var connections = await db.PluginConnections.Where(x => x.AgentInstallationId == installationId && x.AccountGroupId == accountId && x.Status != PluginConnectionStatus.Revoked).ToArrayAsync(ct);
         foreach (var connection in connections)
         {
             var key = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, ct);
+            var neverAuthorized=connection.Status==PluginConnectionStatus.Pending && await secrets.GetAsync(installationId,key,ct)==null;
             connection.Status = PluginConnectionStatus.Revoked; connection.AuthorizationRevision++; connection.UpdatedAt = DateTimeOffset.UtcNow;
-            if (!await db.PluginAccountRevocationJobs.AnyAsync(x => x.ConnectionId == connection.Id, ct))
+            if (!neverAuthorized && !await db.PluginAccountRevocationJobs.AnyAsync(x => x.ConnectionId == connection.Id, ct))
                 db.PluginAccountRevocationJobs.Add(new() { Id = Guid.NewGuid(), PluginInstallationId = installationId, AccountGroupId = accountId, ConnectionId = connection.Id,
                     ProfileId = connection.ProviderProfile, ProfileHash = connection.CredentialProfileHash ?? "", CredentialKey = key,
                     Deadline = DateTimeOffset.UtcNow.AddDays(manifest.Accounts!.Lifecycle.DeletionMaximumDays), NextAttempt = DateTimeOffset.UtcNow });
@@ -69,15 +81,24 @@ public sealed partial class PluginAccountService
             var token = await secrets.GetAsync(job.PluginInstallationId, quarantine, ct);
             if (token is null && source is not null) { await secrets.SetAsync(job.PluginInstallationId, quarantine, source, ct); token = source; }
             await secrets.RemoveAsync(job.PluginInstallationId, job.CredentialKey, ct);
-            var confirmed = token is null;
+            // Losing local credentials is not proof that the provider revoked the grant.
+            var confirmed = false;
             var profile = await profiles.ResolveAsync(job.ProfileId, ct);
             if (token is not null && profile is not null && PluginAccountProfileGuard.Fingerprint(profile) == job.ProfileHash &&
                 !string.IsNullOrEmpty(profile.RevocationEndpoint))
             {
-                var envelope = JsonSerializer.Deserialize<PluginAccountTokenEnvelope>(token, Json)!;
-                using var response = await http.CreateClient(nameof(PluginSetupService)).PostAsync(profile.RevocationEndpoint,
-                    new FormUrlEncodedContent(new Dictionary<string,string> { ["token"] = envelope.RefreshToken ?? envelope.AccessToken }), ct);
-                confirmed = response.IsSuccessStatusCode;
+                try
+                {
+                    var envelope = JsonSerializer.Deserialize<PluginAccountTokenEnvelope>(token, Json);
+                    if(envelope!=null)
+                    {
+                        using var response = await http.CreateClient(nameof(PluginSetupService)).PostAsync(profile.RevocationEndpoint,
+                            new FormUrlEncodedContent(new Dictionary<string,string> { ["token"] = envelope.RefreshToken ?? envelope.AccessToken }), ct);
+                        confirmed = response.IsSuccessStatusCode;
+                    }
+                }
+                catch(Exception error) when(error is HttpRequestException or JsonException || error is OperationCanceledException && !ct.IsCancellationRequested)
+                { /* Retry durably. A provider outage must not prevent independent local data cleanup. */ }
             }
             if (confirmed || DateTimeOffset.UtcNow >= job.Deadline)
             {

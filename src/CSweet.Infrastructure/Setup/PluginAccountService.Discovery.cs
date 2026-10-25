@@ -10,6 +10,9 @@ public sealed partial class PluginAccountService
     public async Task ProcessPendingAsync(CancellationToken ct)
     {
         await ProcessRevocations(ct);
+        await ProcessDeletions(ct);
+        await FinalizeRemovals(ct);
+        await QueueMaintenance(ct);
         var abandoned = await db.PluginAccountSetupSessions.Where(s =>
             (s.Status == "AwaitingConsent" && s.ExpiresAt <= DateTimeOffset.UtcNow ||
              s.Status == "Cancelled" || s.Status == "Expired" || s.Status == "Failed") &&
@@ -71,6 +74,13 @@ public sealed partial class PluginAccountService
                             x.AuthorizationRevision == authorization.AuthorizationRevision, cancel)) throw new UnauthorizedAccessException("The account import authority changed.");
                 }
                 var response = await transport.SendAsync(s.PluginInstallationId, s.ConnectionId, request, Revalidate, ct);
+                if (response.StatusCode is 401 or 403 && s.IsMaintenance)
+                {
+                    var expired=await db.PluginConnections.SingleAsync(x=>x.Id==s.ConnectionId,ct);
+                    expired.Status=PluginConnectionStatus.ReauthorizationRequired; expired.AuthorizationRevision++;
+                    await db.SaveChangesAsync(ct);
+                    throw new UnauthorizedAccessException("Account consent needs attention.");
+                }
                 if (response.StatusCode is < 200 or >= 300) throw new InvalidOperationException("The provider could not complete account discovery.");
                 using var document = JsonDocument.Parse(response.Body, new JsonDocumentOptions { MaxDepth = 32 });
                 _ = ConnectorRequestMaterializer.Canonical(document.RootElement); RequestSchemaValidator.Validate(document.RootElement, op.OutputSchema);
@@ -114,6 +124,11 @@ public sealed partial class PluginAccountService
             s = await db.PluginAccountSetupSessions.SingleAsync(x => x.Id == setupId, ct);
             if (s.Status != "Importing" || s.LeaseOwner != owner) return;
             s.Status = "ImportFailed"; s.FailureCode = error is UnauthorizedAccessException ? "connection_changed" : "discovery_failed";
+            if(s.IsMaintenance && error is UnauthorizedAccessException)
+            {
+                var authorization=await db.PluginConnections.SingleAsync(x=>x.Id==s.ConnectionId,ct);
+                if(authorization.Status==PluginConnectionStatus.Connected) { authorization.Status=PluginConnectionStatus.ReauthorizationRequired; authorization.AuthorizationRevision++; }
+            }
             s.LeaseOwner = null; s.LeaseUntil = null; s.Revision++;
             try { await db.SaveChangesAsync(ct); } catch (DbUpdateConcurrencyException) { }
         }
@@ -126,6 +141,9 @@ public sealed partial class PluginAccountService
         var connection = await db.PluginConnections.SingleAsync(x => x.Id == s.ConnectionId && x.AgentInstallationId == s.PluginInstallationId, ct);
         if (connection.Status != PluginConnectionStatus.Connected) throw new UnauthorizedAccessException("The authorization is no longer active.");
         var group = await db.PluginAccountGroups.SingleAsync(x => x.Id == s.AccountGroupId, ct);
+        if(s.IsMaintenance && group.IdentityKind==PluginAccountIdentityKind.ProviderSubject &&
+            (group.VerifiedSubject!=s.VerifiedSubject || group.IdentityAuthority!=s.IdentityAuthority))
+            throw new UnauthorizedAccessException("Account identity changed during its periodic authorization check.");
         var previous = s.ReplacesConnectionId is { } id ? await db.PluginConnections.SingleAsync(x => x.Id == id, ct) : null;
         if (previous is not null)
         {
@@ -149,7 +167,8 @@ public sealed partial class PluginAccountService
         }
         var now = DateTimeOffset.UtcNow;
         group.DisplayName = s.VerifiedName ?? rows.FirstOrDefault()?.Name ?? manifest.Accounts!.AccountLabel;
-        group.State = PluginAccountState.Connected; group.UpdatedAt = now; group.Revision++;
+        group.State = PluginAccountState.Connected; group.UpdatedAt = now;
+        if(!s.IsMaintenance) group.Revision++;
         connection.AccountGroupId = group.Id; connection.ExternalAccountName = group.DisplayName;
         var resourceIds = new List<Guid>();
         foreach (var row in rows)
@@ -165,7 +184,32 @@ public sealed partial class PluginAccountService
             if (resource.DisplayName != row.Name || resource.Handle != row.Handle || !resource.IsAvailable) resource.Revision++;
             resource.DisplayName = row.Name; resource.Handle = row.Handle; resource.VerifiedAt = now; resource.UpdatedAt = now; resource.IsAvailable = true;
             resourceIds.Add(resource.Id);
-            db.PluginAccountResourceAuthorizations.Add(new() { ConnectionId = connection.Id, ResourceId = resource.Id, IsAvailable = true, VerifiedAt = now });
+            var proof=await db.PluginAccountResourceAuthorizations.SingleOrDefaultAsync(x=>x.ConnectionId==connection.Id && x.ResourceId==resource.Id,ct);
+            if(proof==null) { proof=new(){ConnectionId=connection.Id,ResourceId=resource.Id}; db.PluginAccountResourceAuthorizations.Add(proof); }
+            if(!proof.IsAvailable) proof.Revision++;
+            proof.IsAvailable=true; proof.VerifiedAt=now;
+        }
+        if(s.IsMaintenance)
+        {
+            var missing=await db.PluginAccountResourceAuthorizations.Where(x=>x.ConnectionId==connection.Id && x.IsAvailable && !resourceIds.Contains(x.ResourceId)).ToArrayAsync(ct);
+            foreach(var proof in missing)
+            {
+                proof.IsAvailable=false; proof.Revision++;
+                var resource=await db.PluginAccountResources.SingleAsync(x=>x.Id==proof.ResourceId,ct);
+                if(!await db.PluginAccountResourceAuthorizations.AnyAsync(x=>x.ResourceId==resource.Id && x.ConnectionId!=connection.Id && x.IsAvailable &&
+                    db.PluginConnections.Any(c=>c.Id==x.ConnectionId && c.Status==PluginConnectionStatus.Connected),ct))
+                { resource.IsAvailable=false; resource.Revision++; }
+                var affected=await db.AgentCapabilityBindings.Where(x=>x.PluginAccountConnectionId==connection.Id && x.PluginAccountResourceId==resource.Id && x.RevokedAt==null).ToArrayAsync(ct);
+                foreach(var binding in affected) binding.RevokedAt=now;
+                foreach(var business in affected.GroupBy(x=>x.OrganizationId))
+                    if(Guid.TryParse(business.Key,out var org))
+                    {
+                        var consumers=business.Select(x=>x.RequesterInstallationId).Distinct().ToArray();
+                        await ConnectorStandingPolicyService.RevokeForConsumersAsync(db,org,consumers,ct);
+                        foreach(var policy in await db.PluginStandingPolicies.Where(x=>x.OrganizationId==org && consumers.Contains(x.AgentInstallationId) && x.Status==PluginStandingPolicyStatus.Approved).ToArrayAsync(ct))
+                        {policy.Status=PluginStandingPolicyStatus.Revoked;policy.RevokedAt=now;}
+                    }
+            }
         }
         if (previous is not null)
         {
@@ -195,6 +239,7 @@ public sealed partial class PluginAccountService
             // Local retirement only: revoking a superseded provider token could revoke the new grant too.
         }
         s.AccountGroupId = group.Id; s.Status = rows.Count == 0 ? "NoResources" : "Ready"; s.LeaseOwner = null; s.LeaseUntil = null; s.Revision++;
+        connection.NextInventoryCheckAt=now.AddHours(manifest.Accounts!.Lifecycle.AuthorizationCheckHours);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("plugin-account.discovery.completed", nameof(PluginAccountSetupSession), s.Id,
             "The complete provider-verified resource inventory was imported. No business access was granted.", cancellationToken: ct);

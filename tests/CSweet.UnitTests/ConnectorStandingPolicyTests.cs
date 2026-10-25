@@ -240,6 +240,8 @@ public sealed partial class ConnectorStandingPolicyTests
             AgentInstallationId TEXT NOT NULL, Kind TEXT NOT NULL, ExternalKey TEXT NOT NULL,
             PayloadJson TEXT NOT NULL, Revision INTEGER NOT NULL, CreatedAt TEXT NOT NULL, UpdatedAt TEXT NOT NULL, AvailableAt TEXT NULL);
             CREATE UNIQUE INDEX IX_PolicyIdentity ON PluginOperationalStates (AgentInstallationId, Kind, ExternalKey);
+              -- Provenance lookup finds no enterprise account consumer in this deliberately minimal fixture.
+              CREATE TABLE AgentInstallations (Id TEXT PRIMARY KEY, BusinessId TEXT NOT NULL);
             """);
         var row = new PluginOperationalState { Id = Guid.NewGuid(), AgentInstallationId = Guid.NewGuid(),
             OrganizationId = Guid.NewGuid(), Kind = ConnectorStandingPolicyService.PolicyKind, ExternalKey = "example.api.change.v1", Revision = 1 };

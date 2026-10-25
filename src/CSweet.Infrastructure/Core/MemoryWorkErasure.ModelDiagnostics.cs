@@ -104,7 +104,7 @@ internal sealed partial class MemoryWorkErasure
         MemoryAuditAssociations.Matches(metadata, run.WorkItemId, run.ConversationId, run.EmployeeId) &&
         code is null && error is null && (summary == type || type == "model.response.chunk" && summary is null);
 
-    private static bool SafeModelEvidence(string json, string type)
+    internal static bool SafeModelEvidence(string json, string type)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;

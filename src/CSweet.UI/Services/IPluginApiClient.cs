@@ -5,6 +5,9 @@ namespace CSweet.UI.Services;
 
 public interface IPluginApiClient
 {
+    Task<AgentInstallationResponse> StageUpdateAsync(Guid installationId,Guid packageId,CancellationToken ct=default)=>throw new NotSupportedException();
+    Task<AgentInstallationResponse> ApproveUpdateAsync(Guid stagedId,InstallAgentRequest request,CancellationToken ct=default)=>throw new NotSupportedException();
+    Task<AgentBuildLogResponse?> GetBuildLogAsync(Guid installationId,CancellationToken ct=default)=>Task.FromResult<AgentBuildLogResponse?>(null);
     Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken cancellationToken = default);
     Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken cancellationToken = default);
     Task<AgentImportPreviewResponse> PreviewBundleAsync(Stream bundle, string fileName, CancellationToken cancellationToken = default);

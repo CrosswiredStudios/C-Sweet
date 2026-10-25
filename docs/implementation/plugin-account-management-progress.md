@@ -1,6 +1,7 @@
 # Enterprise plugin account implementation progress
 
-Updated: 2026-10-24. Scope: [approved plan](plugin-account-management-plan.md).
+Updated: 2026-10-24 (native memory confirmation and non-gated onboarding increment). Scope: [approved plan](plugin-account-management-plan.md).
+See [lifecycle implementation and explicit remaining boundaries](plugin-account-lifecycle.md).
 
 ## Implemented in source
 
@@ -38,26 +39,103 @@ native scope/privacy review → provider-hosted consent → authenticated import
 - Disconnect stops local external authority immediately and queues durable provider revocation.
   Broker-readable credentials are quarantined/retired. Deletion is explicitly **pending**, not
   claimed complete merely because a job was queued.
+- `PluginAccountService.Operators` and native administration controls assign/revoke actual human
+  connection operators for selected accounts or explicitly acknowledged all-account authority.
+  Assignments bind the reviewed package and matching deployment profile; they do not grant business
+  or agent access. Revoking an operator cancels its unfinished setup without revoking shared tokens.
+- `PluginAccountService.Management` implements reviewed pause/resume/removal. Pending plans and
+  autonomous policies are invalidated; resume never restores them. Removal stays pending until
+  revocation and every recorded deletion obligation are confirmed, then retires the installation.
+- `PluginUpdatePanel` exposes build diagnostics/retry, repository update preview/build, and separate
+  exact-digest approval. The previous revision must finish account cleanup before replacement;
+  credentials, grants and policies never transfer. No plugin-executable UI is loaded.
+- `PluginAccountService.Lifecycle` schedules durable system-owned discovery, resumes interrupted
+  pages, verifies unchanged identity, removes missing access only after complete scans and expires
+  stale resource display metadata. Unchanged checks do not invalidate existing plan authority.
+- `CSweetDbContext.ProviderData` records conservative account provenance for supported generated
+  state, drafts, reports, messages, agent-authored tasks, work and diagnostics. Authorized native
+  responses referencing known recorded IDs propagate provenance, not provider grants, to consumers.
+- `PluginAccountService.Deletion` purges supported primary records, inventory and setup snapshots;
+  retains content-free receipts; distinguishes primary cleanup from independent external cleanup;
+  and shows overdue or protected-record blockers. Protected work/chat/model tombstones still require
+  integration with the existing reviewed-erasure closure: those guards were **not** weakened.
+- `IPluginAccountDataDeletionParticipant` admits only trusted deployment-owned confirmation adapters.
+  The runtime adapter verifies workload destruction through the broker. A restricted retained-
+  evidence adapter, native memory-confirmation adapter and signed backup/processor transport are
+  present. Missing deployment cleanup configuration is diagnostic, not an install/connect/import
+  gate. Physical external erasure still requires deployment services; missing proof remains pending.
 - Connector 0.2.0 declares Google identity, scopes, channel pagination, labels, permission groups
   and lifecycle requirements. Reserved partner consent is not offered. Agent 0.4.0 consumes this
   connector and SDK 5.5.0 via NuGet and asks for explicitly shared business channel access.
 - Source migration `20261024215723_AddPerAccountOAuthSetup` adds independent setup/operator/
   revocation records, refresh fencing and unique verified account identity. **Not applied.**
   Existing supported legacy workloads and unrelated concurrent worktree edits were preserved.
+- Source migration `20261025004315_AddPluginAccountLifecycleEnforcement` adds deletion/provenance/
+  administration records, system maintenance attempts, operator concurrency and recheck scheduling.
+  **Not applied.** Rollback refuses to invent human ownership for existing system maintenance rows.
+- Protected-erasure increment: `PluginRetainedEvidenceDeletionParticipant` uses the existing
+  PostgreSQL work-erasure writer for exact recorded operational scope. Private/native context,
+  unknown closure expansion, holds/review requirements and legacy content-bearing audit stay
+  blocked. Original eligible human reviewers receive the existing native erasure-impact control.
+- `PluginAuditRetentionGuard` verifies immutable audit omission instead of changing ledger rows.
+  Provenance now runs before audit capture, so supported future provider-derived records/models
+  omit content before entering the immutable store. Captured messages wait for native erasure
+  evidence rather than being scrubbed before their retention review.
+- `PluginSignedCleanupParticipant` provides backup/processor confirmation through deployment-owned
+  mTLS endpoints and pinned public receipt keys. Scope/revision/hash/expiry/signature checks,
+  bounded responses, persisted retry fences and append-only signed receipts fail closed.
+  Physical external erasure services are deployment-owned and are not supplied.
+- Source migration `20261025040252_AddPluginCleanupConfirmations` adds signed receipts, retry
+  concurrency and append-only database guards. **Not applied.** No package sources changed.
+- `PluginMemoryDeletionParticipant` confirms native receipts, captured-source fences, cleared input
+  queues, protected turn tombstones and runtime resets without impersonating a human or bypassing
+  holds. Generic memory/capture writes now retain content-free source lineage; new erasure receipts
+  identify erased descendants. Existing native review controls are available to original eligible
+  scoped operators as well as administrators. Unknown historical/direct-store lineage remains work.
+- Removed the blanket cleanup-readiness gate. Production account consent/import succeeds with
+  missing adapters; independent deletion completion still requires real evidence.
 
 ## Verification
 
-- Final selected host suite: **398 passed**, including actual enterprise installation, OAuth,
+- Native memory-confirmation increment: **467 passed, 1 opt-in PostgreSQL theory skipped** in the
+  focused selection. Wider adjacent selection: **1,202 passed, 493 skipped, 3 failed**, the same
+  previously documented memory expectations and isolated-output root assumption. Not a green
+  full suite or proof of PostgreSQL execution. The production API build passed.
+- Browser install-to-disconnect/removal passed with Production fixture settings, missing cleanup
+  services, non-blocking consent, a signed synthetic backup receipt and the real native-memory
+  confirmation participant reading a synthetic erasure receipt. Missing proof stayed pending.
+  This does not execute actual PostgreSQL memory erasure or contact Google/physical backup services.
+- Latest protected-erasure selection: **452 passed, 1 opt-in theory skipped** (PostgreSQL cases).
+  Production API build passed. Browser install-to-disconnect/removal passed and now exercises the
+  production signed-receipt verifier/persistence with a synthetic gateway/key, rather than a plain
+  boolean backup acknowledgement. No real Google or external storage service was contacted.
+- Latest wider adjacent run: **1,188 passed, 493 skipped, 3 failed**: the same two previously
+  reproduced memory expectations and isolated-output repository-root assumption described below.
+  The wider suite is not green; skipped PostgreSQL tests are not acceptance evidence.
+- Final lifecycle/administration selection: **437 passed**, including missing-credential revocation,
+  protected-primary blocking, unknown-store blocking, provenance propagation, metadata expiry,
+  system discovery identity/recovery, scoped operators, update digest/cleanup gates and legacy
+  enable/disable/remove bypass rejection. Production API build succeeded with packaged SDK and
+  WorkManagement contracts. No SDK/plugin/agent package source changed in this host-only increment.
+- Wider adjacent selection: **1,173 passed, 492 skipped, 3 failed**. Two memory-capture expectation
+  failures (`kind`, `nonhuman`) reproduce with the untouched prior `host-accounts` test binary.
+  The third test assumes build output lives underneath the repository and cannot find its source
+  root with isolated artifacts. These were not suppressed, and the wider suite is **not green**.
+  Skipped opt-in tests are not evidence of PostgreSQL concurrency/real-provider acceptance.
+- Prior account increment: **398 passed**, including actual enterprise installation, OAuth,
   identity isolation, partial consent, import recovery, binding/plan enforcement, refresh/profile
   changes, revocation, migration/model consistency and connector/media/approval/UI regressions.
 - SDK/WorkManagement sibling references were disabled and isolated build directories used.
   Other existing sibling dependencies were not all disabled.
-- Connector: **136 tests passed**, executable self-test passed, local 0.2.0 package produced.
-- Agent: **200 tests passed**, executable self-test passed, local 0.4.0 package produced.
+- Prior connector verification: **136 tests passed**, executable self-test passed, local 0.2.0 package produced.
+- Prior agent verification: **200 tests passed**, executable self-test passed, local 0.4.0 package produced.
 - Native Chromium acceptance passed install review/routing, scope/privacy review, provider redirect,
   paginated import, selected and whole-account grants/future acknowledgement, progressive reconnect,
   access removal, 390px layout and disconnect impact/pending deletion. Screenshots were inspected;
   native-card CSS isolation was corrected. No browser page errors were observed.
+- Lifecycle increment also exercises scoped operator assignment/revocation, pause/resume, build
+  diagnostics/no-update feedback, pending cleanup, reviewed removal and synthetic deletion receipts.
+  Advanced operator controls are collapsed; disconnecting resources no longer show erased IDs.
 - Browser harness hosts real Razor components and account services with **synthetic provider
   responses**. Package preview/build/install is **simulated**. It does not prove production HTTP
   authentication, GitHub compilation, PostgreSQL multi-process concurrency or Google acceptance.
@@ -65,17 +143,21 @@ native scope/privacy review → provider-hosted consent → authenticated import
 - Prior SDK increment passed 593 SDK, 2 sample and 7 generated-template tests; those historical
   counts are not a claim that the SDK suite was rerun for this host-only account increment.
 
-## Remaining release gates and code work
+## Remaining implementation and production validation
 
-1. Complete provenance-aware provider-data deletion across inventory, inboxes, drafts, reports,
-   conversations, processors and backups; verified deadlines/completion and periodic account/resource
-   lifecycle checks. Disconnect intentionally remains visibly pending.
-2. Native administrator assignment/revocation of connection operators. Persisted enforcement exists;
-   the operator-assignment UI/API is not implemented. Administrators can connect accounts; ordinary
-   business membership alone cannot.
-3. Finish administration/recovery polish: build retry/update/remove controls on the full management
-   page, cancelled-attempt housekeeping, administrative grouping when identity is unavailable,
-   detailed grant-impact review and durable consumer notifications.
+1. Complete private/native memory and chat cleanup coordination beyond the new restricted work
+   adapter and original-reviewer controls. Legacy content-bearing immutable audit needs an explicit
+   retention/erasure design, not a bypass. Complete provenance across legacy data, asynchronous input lineage,
+   memory/export paths and other unclassified stores. Current capture is conservative, not proof of
+   universal coverage. A blocked record must not be marked deleted.
+2. Implement deployment-specific physical backup/processor erasure services; configure/test the
+   mTLS signed-receipt adapter against them. Native memory confirmation is now implemented for
+   recorded sources. Missing confirmation stays pending without gating onboarding. The browser gateway
+   uses synthetic data/key/transport and is not proof of production storage deletion.
+3. Finish durable consumer/admin attention notifications, complete account-identity retention
+   handling after repeated failed refresh, installer retry idempotency, and recovery polish for
+   updates needing configuration/direct-network review. Core operator/build/pause/remove controls
+   are now implemented; their presence does not close these remaining boundaries.
 4. PostgreSQL multi-process refresh/import/install race acceptance, installer retry idempotency and
    the real authenticated browser journey including agent selection and an exact approved action.
 5. Publish real operator policies on the verified deployment domain and review matching declarations.

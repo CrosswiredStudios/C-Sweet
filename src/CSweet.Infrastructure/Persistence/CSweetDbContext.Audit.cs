@@ -263,6 +263,12 @@ public sealed partial class CSweetDbContext
         }
         Associate(employee);
         if (!organization.HasValue) return null;
+        // Provider-derived source content must never be copied into the immutable ledger.
+        // Provenance capture runs before this method; historical/imported records stay gated
+        // by the same evidence checks rather than rewriting existing ledger entries.
+        if(PluginAccountDataCopies.Local.Any(c=>c.RecordId==id && c.Store==entry.Metadata.ClrType.Name) ||
+            historical && ProviderContentFields.ContainsKey(entry.Metadata.ClrType.Name) &&
+            PluginAccountDataCopies.AsNoTracking().Any(c=>c.RecordId==id && c.Store==entry.Metadata.ClrType.Name)) contentFreeWork=true;
         var values = entry.Properties.Where(x => !x.Metadata.Name.StartsWith("Protected", StringComparison.Ordinal) &&
             !x.Metadata.Name.Contains("LeaseToken", StringComparison.Ordinal) && !x.Metadata.Name.Contains("BrokerToken", StringComparison.Ordinal))
             .ToDictionary(x => x.Metadata.Name, x => x.CurrentValue);

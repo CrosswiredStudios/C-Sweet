@@ -7,6 +7,9 @@ namespace CSweet.UI.Services;
 
 public sealed class PluginApiClient(HttpClient httpClient) : IPluginApiClient
 {
+    public Task<AgentInstallationResponse> StageUpdateAsync(Guid id,Guid packageId,CancellationToken ct=default)=>SendAsync<AgentInstallationResponse>(HttpMethod.Post,$"api/plugins/installations/{id:D}/update",new UpdateAgentInstallationRequest(packageId),ct);
+    public Task<AgentInstallationResponse> ApproveUpdateAsync(Guid stagedId,InstallAgentRequest request,CancellationToken ct=default)=>SendAsync<AgentInstallationResponse>(HttpMethod.Post,$"api/plugins/installations/{stagedId:D}/update/approve",request,ct);
+    public async Task<AgentBuildLogResponse?> GetBuildLogAsync(Guid id,CancellationToken ct=default)=>await httpClient.GetFromJsonAsync<AgentBuildLogResponse>($"api/plugins/installations/{id:D}/build-log",ct);
     public async Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken cancellationToken = default) =>
         await httpClient.GetFromJsonAsync<PluginInstallationPolicyResponse>("api/plugins/installation-policy", cancellationToken)
             ?? throw new ApiClientException(System.Net.HttpStatusCode.ServiceUnavailable, "Plugin installation policy is unavailable.");

@@ -3,6 +3,7 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Memory;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Persistence;
 using CSweet.Memory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -13,8 +14,40 @@ namespace CSweet.Infrastructure.Core;
 public sealed partial class AgentMemoryReviewService
 {
     private sealed record PendingErasureRuntime(Guid Id, DateTimeOffset RequestedAt);
+    private sealed record ErasedMemorySource(Guid Id, MemoryPartition Partition);
     private sealed record ErasureReceiptInventory(MemoryPartition[] Audiences, PendingErasureRuntime[] PendingRuntimes, Guid[] TurnIds,
-        ErasureAudienceOwner[]? Owners = null, int OwnershipVersion = 0);
+        ErasureAudienceOwner[]? Owners = null, int OwnershipVersion = 0, ErasedMemorySource[]? ErasedEpisodes = null);
+
+    // Host-only confirmation of an already authorized, committed erasure. This does not
+    // authorize a new erase, expose private inventory, or manufacture a human decision.
+    internal static async Task<bool> HasConfirmedErasureAsync(CSweetDbContext db, Guid organization, Guid episode,
+        DateTimeOffset sourceWrittenAt, CancellationToken token)
+    {
+        var identity=episode.ToString("D");
+        var receipts = await db.MemoryErasureReceipts.AsNoTracking().Where(r => r.OrganizationId == organization &&
+            (r.EpisodeId == episode || r.InventoryJson.Contains(identity)))
+            .Take(65).ToArrayAsync(token);
+        if (receipts.Length > 64) return false;
+        foreach (var receipt in receipts)
+        {
+            if (receipt.CreatedAt < sourceWrittenAt || receipt.CreatedAt > DateTimeOffset.UtcNow || receipt.OperationId == Guid.Empty ||
+                receipt.EmployeeId == Guid.Empty || receipt.ActorApplicationUserId == Guid.Empty || receipt.ActorOrganizationUserId == Guid.Empty ||
+                receipt.RequestHash is not { Length: 64 } || !receipt.RequestHash.All(Uri.IsHexDigit)) continue;
+            ErasureReceiptInventory inventory;
+            try { inventory = ReadErasureReceiptInventory(receipt.InventoryJson); }
+            catch (InvalidOperationException) { continue; }
+            if(receipt.EpisodeId!=episode && inventory.ErasedEpisodes?.Any(e=>e.Id==episode && e.Partition.TenantId==organization.ToString("D"))!=true) continue;
+            if(inventory.Audiences.Any(p=>p.TenantId!=organization.ToString("D")) ||
+                inventory.Owners!.Any(o=>o.Partition.TenantId!=organization.ToString("D")) ||
+                inventory.PendingRuntimes.Any(r=>r.RequestedAt>receipt.CreatedAt)) continue;
+            var ids = inventory.PendingRuntimes.Select(r => r.Id).ToArray();
+            var runtimes = await db.AgentRuntimeInstances.AsNoTracking().Where(r => ids.Contains(r.Id))
+                .Select(r => new { r.Id, r.Status, r.MemoryResetCompletedAt }).ToArrayAsync(token);
+            if (inventory.PendingRuntimes.All(p => runtimes.Any(r => r.Id == p.Id && !AgentRuntimeInstance.IsActive(r.Status) &&
+                r.MemoryResetCompletedAt >= p.RequestedAt))) return true;
+        }
+        return false;
+    }
 
     public async Task<MemoryErasureResponse> EraseSourceAsync(Guid organizationId, Guid employeeId, Guid episodeId,
         Guid applicationUserId, EraseMemorySourceRequest request, CancellationToken cancellationToken = default)
@@ -78,7 +111,8 @@ public sealed partial class AgentMemoryReviewService
                 EpisodeId = episodeId, OperationId = request.OperationId, ActorApplicationUserId = applicationUserId,
                 ActorOrganizationUserId = actor, RequestHash = hash, CreatedAt = now,
                 InventoryJson = JsonSerializer.Serialize(new ErasureReceiptInventory(plan.Audiences.ToArray(), pendingRuntimes, plan.Turns.Select(x => x.Id).ToArray(),
-                    plan.Execution.Owners.ToArray(), OwnershipVersion: 1), JsonOptions),
+                    plan.Execution.Owners.ToArray(), OwnershipVersion: 1,
+                    ErasedEpisodes: plan.Inventory.Targets.Where(t=>t.Kind==MemoryErasureKind.Episode).Select(t=>new ErasedMemorySource(t.Id,t.Partition)).ToArray()), JsonOptions),
                 ErasedRecords = erasedRecords, ErasedRevisions = erasedRevisions, ClearedJobs = captures.ClearedJobs+episodeJobs,
                 ClearedWorks = workResult.ClearedWorks, ClearedDiagnosticTurns = turns.Length };
             receipt.ClearedModelRuns = plan.Execution.Work.ModelRuns.Count;

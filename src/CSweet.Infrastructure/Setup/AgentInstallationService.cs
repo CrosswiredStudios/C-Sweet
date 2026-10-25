@@ -582,6 +582,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException("The approval business must match the staged revision.");
 
         var manifest = DeserializeManifest(staged.PackageVersion.ManifestJson);
+        await using var updateTransaction=manifest.Accounts is not null && _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction==null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        if(manifest.Accounts is not null && (string.IsNullOrWhiteSpace(request.ExpectedPackageDigest) || request.ExpectedPackageDigest!=staged.PackageVersion.PackageDigest))
+            throw new AgentInstallationException("The verified update changed after review. Review and approve its exact package digest again.");
         var settings = await GetSettingsAsync(cancellationToken);
         var activation = ParseActivationMode(request.ActivationMode);
         var overlap = ParseOverlapPolicy(request.OverlapPolicy);
@@ -618,6 +622,15 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             cancellationToken);
 
         var previous = await GetInstallationAsync(staged.SupersedesInstallationId.Value, cancellationToken);
+        if(manifest.Accounts is not null)
+        {
+            if(_dbContext.Database.IsNpgsql()) _=await _dbContext.AgentInstallations.FromSqlInterpolated($"SELECT * FROM \"AgentInstallations\" WHERE \"Id\" = {previous.Id} FOR UPDATE").AsNoTracking().ToArrayAsync(cancellationToken);
+            await _dbContext.Entry(previous).ReloadAsync(cancellationToken);
+            if(previous.RevisionStatus!=PluginRevisionStatus.Active) throw new AgentInstallationException("The previous revision was already replaced or removed. Refresh before approving another update.");
+        }
+        if (DeserializeManifest(previous.PackageVersion!.ManifestJson).Accounts is not null &&
+            await _dbContext.PluginAccountGroups.AnyAsync(x=>x.PluginInstallationId==previous.Id && x.State!=PluginAccountState.Disconnected,cancellationToken))
+            throw new AgentInstallationException("Disconnect the previous revision's accounts and confirm cleanup before approving this update. Credentials and autonomous policies are never transferred.");
         previous.IsEnabled = false;
         previous.Schedule!.IsEnabled = false;
         await ResourceCleanupQueue.EnqueueAsync(_dbContext, ResourceCleanupQueue.Runtime, previous.Id,
@@ -707,6 +720,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 $"Normalized configuration field(s) {string.Join(", ", normalized.Keys)} to the new version's signed defaults.",
                 null,
                 cancellationToken);
+        if(updateTransaction!=null) await updateTransaction.CommitAsync(cancellationToken);
         return ToResponse(staged);
     }
 
@@ -933,6 +947,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken = default)
     {
         var installation = await GetInstallationAsync(installationId, cancellationToken);
+        if(DeserializeManifest(installation.PackageVersion!.ManifestJson).Accounts is not null)
+            throw new AgentInstallationException("Use the enterprise plugin's impact-reviewed pause controls on its account management page.");
         installation.IsEnabled = false;
         installation.Schedule!.IsEnabled = false;
         installation.Schedule.NextTickAt = null;
@@ -974,6 +990,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         if (!settings.EnableImportedAgents)
             throw new AgentInstallationException("Imported agents are disabled in global runtime settings.");
         var manifest = DeserializeManifest(installation.PackageVersion!.ManifestJson);
+        if(manifest.Accounts is not null)
+            throw new AgentInstallationException("Use the enterprise plugin's impact-reviewed resume controls on its account management page.");
         var effectiveConfiguration = await new AgentInstallationConfigurationService(_dbContext, _auditWriter)
             .ResolveInstallationAsync(installationId, cancellationToken);
         await ValidateConfigurationAsync(
@@ -1005,6 +1023,8 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken)
             ?? throw new AgentInstallationException("The agent installation was not found.");
         var package = installation.PackageVersion!;
+        if (DeserializeManifest(package.ManifestJson).Accounts is not null)
+            throw new AgentInstallationException("Remove enterprise account plugins through their impact-reviewed account management page so credentials and authorized data are cleaned up first.");
         var assignedEmployees = await _dbContext.CoreOrganizationUsers
             .AsNoTracking()
             .Where(x => x.AgentInstallationId == installation.Id)

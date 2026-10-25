@@ -29,12 +29,14 @@ public sealed partial class CSweetDbContext
     internal static bool IsContentFreeModelAuditField(string name) => ContentFreeModelAuditFields.Contains(name);
 
     public bool RequiresContentFreeModelAudit(AgentRunLog log) => log.OmitMemoryAuditContent || log.MemoryErasedAt is not null ||
+        log.AgentInstallationId is { } installation && HasProviderAccountSource(installation) ||
         log.AgentWorkItemId is { } id && RequiresContentFreeWorkAudit(AgentWorkItems.Find(id));
 
     private bool RequiresContentFreeWorkAudit(AgentWorkItem? work)
     {
         if (OmitWorkAuditContent || work is null || work.MemoryErasedAt is not null || work.MemoryRecallReceiptJson is not null ||
             work.NativeWorkInputReceiptJson is not null || work.SourceType == "chat-turn") return true;
+        if(HasProviderAccountSource(work.AgentInstallationId)) return true;
         var persisted = AgentWorkAttempts.AsNoTracking().Where(x => x.AgentWorkItemId == work.Id)
             .Select(x => x.RuntimeInstanceId).Take(129).ToArray();
         var tracked = ChangeTracker.Entries<AgentWorkAttempt>().Where(x => x.Entity.AgentWorkItemId == work.Id)
@@ -60,4 +62,9 @@ public sealed partial class CSweetDbContext
             .Select(x => x.Entity.Id).ToHashSet();
         return ChangeTracker.Entries<AgentWorkAttempt>().Any(x => runtimeIds.Contains(x.Entity.RuntimeInstanceId) && localWork.Contains(x.Entity.AgentWorkItemId));
     }
+
+    private bool HasProviderAccountSource(Guid installation) =>
+        PluginAccountDataCopies.Local.Any(c=>c.ConsumerInstallationId==installation && c.Store=="consumer-origin") ||
+        PluginAccountDataCopies.AsNoTracking().Any(c=>c.ConsumerInstallationId==installation && c.Store=="consumer-origin") ||
+        AgentCapabilityBindings.AsNoTracking().Any(b=>b.RequesterInstallationId==installation && b.PluginAccountResourceId!=null && b.RevokedAt==null);
 }

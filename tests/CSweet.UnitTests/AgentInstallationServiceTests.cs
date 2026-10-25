@@ -1061,8 +1061,42 @@ public sealed class AgentInstallationServiceTests
         Assert.Equal("System",installed.InstallationScope); Assert.NotNull(installed.Accounts);
         Assert.Equal(PluginSetupState.Ready,(await db.AgentInstallations.SingleAsync()).SetupState);
         Assert.Empty(await db.PluginConnections.ToArrayAsync()); Assert.Empty(await db.PluginAccountBusinessGrants.ToArrayAsync());
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.DisableAsync(installed.Id));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.EnableAsync(installed.Id));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.RemoveAsync(installed.Id));
+        Assert.True((await db.AgentInstallations.SingleAsync()).IsEnabled);
         await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.InstallAsync(package.Id,request));
         Assert.Single(await db.AgentInstallations.ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task EnterpriseUpdateRequiresReviewedDigestAndConfirmedOldAccountCleanup()
+    {
+        await using var db=CreateDbContext();var current=await SeedAsync(db);
+        await using var fixture=await PluginAccountFlowTests.Fixture.Create();
+        current.ManifestJson=fixture.Inner.Connector.PackageVersion!.ManifestJson;current.PluginKind=PluginKind.Connector;
+        var manifest=JsonSerializer.Deserialize<PluginManifest>(current.ManifestJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        current.AgentId=manifest.Id;current.AgentName=manifest.Name;current.Version=manifest.Version;current.PackageDigest=new string('a',64);
+        await db.SaveChangesAsync();IPluginInstallationService service=CreateService(db);
+        var request=ValidRequest() with {BusinessId="enterprise",PluginScope="System",ActivationMode="OnDemand",GrantedSubscriptions=[],GrantedCapabilities=manifest.Provides.Select(p=>p.Name).ToArray()};
+        var installed=await service.InstallAsync(current.Id,request);current.Status=AgentPackageVersionStatus.Built;
+        var next=JsonNode.Parse(current.ManifestJson)!;next["version"]="9.0.0";
+        var update=new AgentPackageVersion{Id=Guid.NewGuid(),PackageSourceId=current.PackageSourceId,CommitSha=new string('2',40),ManifestDigest=new string('b',64),
+            ManifestJson=next.ToJsonString(),ManifestFileName=current.ManifestFileName,AgentId=current.AgentId,AgentName=current.AgentName,Version="9.0.0",
+            PublisherId=current.PublisherId,PublisherName=current.PublisherName,RuntimeType=current.RuntimeType,PluginKind=PluginKind.Connector,
+            PackageDigest=new string('c',64),Status=AgentPackageVersionStatus.Built,ImportedAt=DateTimeOffset.UtcNow};
+        var account=new PluginAccountGroup{Id=Guid.NewGuid(),PluginInstallationId=installed.Id,State=PluginAccountState.Connected};
+        db.AgentPackageVersions.Add(update);db.PluginAccountGroups.Add(account);await db.SaveChangesAsync();
+        var staged=await service.UpdateAsync(installed.Id,new(update.Id));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.ApproveUpdateAsync(staged.Id,request));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.ApproveUpdateAsync(staged.Id,request with {ExpectedPackageDigest=new string('d',64)}));
+        var reviewed=request with {ExpectedPackageDigest=update.PackageDigest};
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.ApproveUpdateAsync(staged.Id,reviewed));
+        account.State=PluginAccountState.Disconnected;await db.SaveChangesAsync();
+        var approved=await service.ApproveUpdateAsync(staged.Id,reviewed);Assert.True(approved.IsEnabled);
+        Assert.Equal(PluginRevisionStatus.Retired,(await db.AgentInstallations.SingleAsync(x=>x.Id==installed.Id)).RevisionStatus);
+        Assert.False(await db.PluginConnections.AnyAsync(x=>x.AgentInstallationId==approved.Id));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.ApproveUpdateAsync(staged.Id,reviewed));
     }
 
     private static InstallAgentRequest ValidRequest() => new(

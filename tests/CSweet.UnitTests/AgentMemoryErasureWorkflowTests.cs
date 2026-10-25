@@ -84,6 +84,7 @@ public sealed partial class AgentMemoryServiceTests
             Assert.NotNull(turnRow.MemoryErasedAt); Assert.Empty(turnRow.PartialResponse);
             Assert.Empty(await check.ChatTurnTraceEvents.ToListAsync()); Assert.Null(await ((IMemorySourceReader)fixture.Store).GetEpisodeAsync(fixture.Partition, fixture.MessageId));
             var receipt = await check.MemoryErasureReceipts.SingleAsync(); Assert.DoesNotContain("Alice", receipt.InventoryJson);
+            Assert.True(await AgentMemoryReviewService.HasConfirmedErasureAsync(check,fixture.OrganizationId,fixture.MessageId,receipt.CreatedAt.AddSeconds(-1),default));
             var replay = await ErasureService(fixture, check).EraseSourceAsync(fixture.OrganizationId, fixture.EmployeeId, fixture.MessageId, actor, request);
             Assert.True(replay.WasReplay); Assert.Equal(receipt.Id, replay.ReceiptId);
             await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => ErasureService(fixture, check).EraseSourceAsync(fixture.OrganizationId, fixture.EmployeeId, fixture.MessageId,

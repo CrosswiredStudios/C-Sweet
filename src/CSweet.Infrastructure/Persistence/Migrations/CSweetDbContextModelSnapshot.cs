@@ -12536,6 +12536,24 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("PlatformSourceControlSetupSessions");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountAdministration", b =>
+                {
+                    b.Property<Guid>("PluginInstallationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RemovalRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("PluginInstallationId");
+
+                    b.ToTable("PluginAccountAdministrations");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountBusinessGrant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -12603,6 +12621,130 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("PluginAccountBusinessGrants");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountCleanupReceipt", b =>
+                {
+                    b.Property<Guid>("CopyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("CopyRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasMaxLength(16384)
+                        .HasColumnType("character varying(16384)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Signature")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("CopyId");
+
+                    b.ToTable("PluginAccountCleanupReceipts");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountDataCopy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountGroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CleanupNextAttemptAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConsumerInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Store")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConsumerInstallationId", "DeletedAt");
+
+                    b.HasIndex("AccountGroupId", "Store", "RecordId")
+                        .IsUnique();
+
+                    b.ToTable("PluginAccountDataCopies");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountDeletion", b =>
+                {
+                    b.Property<Guid>("AccountGroupId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("Deadline")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LocalCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PluginInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("TargetAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AccountGroupId");
+
+                    b.HasIndex("PluginInstallationId", "Status");
+
+                    b.ToTable("PluginAccountDeletions");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.PluginAccountGroup", b =>
@@ -12681,12 +12823,22 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("PluginInstallationId")
                         .HasColumnType("uuid");
 
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
                     b.HasIndex("PluginInstallationId", "ApplicationUserId");
+
+                    b.HasIndex("PluginInstallationId", "ApplicationUserId", "AccountGroupId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PluginAccountOperators_PluginInstallationId_ApplicationUse~1");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("PluginInstallationId", "ApplicationUserId", "AccountGroupId"), false);
 
                     b.ToTable("PluginAccountOperators");
                 });
@@ -12839,7 +12991,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AccountGroupId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ApplicationUserId")
+                    b.Property<Guid?>("ApplicationUserId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("ConnectionId")
@@ -12861,6 +13013,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("IdentityAuthority")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("IsMaintenance")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid?>("LeaseOwner")
                         .HasColumnType("uuid");
@@ -13007,6 +13162,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("GrantedScopesJson")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("NextInventoryCheckAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ProviderProfile")
                         .IsRequired()

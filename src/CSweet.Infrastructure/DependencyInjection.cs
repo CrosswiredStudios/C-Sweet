@@ -206,6 +206,12 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
         builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
+        builder.Services.Configure<PluginCleanupOptions>(builder.Configuration.GetSection(PluginCleanupOptions.SectionName));
+        builder.Services.AddScoped<IPluginCleanupTransport,PluginCleanupTransport>();
+        foreach(var store in new[]{"external:backups","external:processors"})
+            builder.Services.AddScoped<IPluginAccountDataDeletionParticipant>(sp=>new PluginSignedCleanupParticipant(store,
+                sp.GetRequiredService<CSweetDbContext>(),sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<PluginCleanupOptions>>(),
+                sp.GetRequiredService<IPluginCleanupTransport>(),TimeProvider.System));
         builder.Services.AddHttpClient(nameof(PluginSetupService), client =>
             { client.Timeout = TimeSpan.FromSeconds(30); client.MaxResponseContentBufferSize = 65536; })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
@@ -217,6 +223,10 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
         builder.Services.AddScoped<PluginConnectionCleanupService>();
         builder.Services.AddScoped<PluginAccountService>();
+        builder.Services.AddScoped<PluginAccountDataExposureService>();
+        builder.Services.AddScoped<IPluginAccountDataDeletionParticipant, PluginRuntimeDataDeletionParticipant>();
+        builder.Services.AddScoped<IPluginAccountDataDeletionParticipant, PluginRetainedEvidenceDeletionParticipant>();
+        builder.Services.AddScoped<IPluginAccountDataDeletionParticipant, PluginMemoryDeletionParticipant>();
         builder.Services.AddScoped<ConnectorActionApprovalService>();
         builder.Services.AddScoped<ConnectorBindingService>();
         builder.Services.AddScoped<ConnectorProfileApprovalService>();

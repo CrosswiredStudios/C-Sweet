@@ -215,8 +215,11 @@ public sealed class PluginAccountFlowTests
         public Guid Id => Inner.Connector.Id; public Guid Business => Inner.Organization; public string Digest => Inner.Connector.PackageVersion!.PackageDigest!;
         public Secrets Secrets { get; } = new(); public Profiles Profiles { get; } = new(); public IdentityHttp Http { get; } = new(); public DiscoveryTransport Transport { get; } = new();
         private readonly IDataProtectionProvider protection = new EphemeralDataProtectionProvider();
+        public List<IPluginAccountDataDeletionParticipant> DeletionParticipants { get; }=[];
+        public bool AllowDevelopmentPreview {get;set;}=true;
+        public Microsoft.Extensions.Hosting.IHostEnvironment Environment {get;}=new TestHostEnvironment();
         public PluginAccountService Service => new(Inner.Db, Secrets, protection, Http, Profiles, Transport,
-            Options.Create(new PluginConnectionOptions { PublicBaseUrl = "https://platform.example" }), new TestAuditEventWriter());
+            Options.Create(new PluginConnectionOptions { PublicBaseUrl = "https://platform.example",AllowDevelopmentLifecyclePreview=AllowDevelopmentPreview }), new TestAuditEventWriter(),DeletionParticipants,Environment);
         public Task<BeginPluginAccountResponse> Begin(string[]? scopes = null, Guid? reconnect = null) => Service.BeginAsync(Admin, Id, new(scopes ?? ["base"], "v1", true, Digest, reconnect), default);
         public Task<(Guid InstallationId, Guid SetupId)> Complete(BeginPluginAccountResponse begin) => Service.CompleteAsync(Admin, "provider-code", State(begin), null, default);
         public ValueTask DisposeAsync() { Http.Dispose(); return Inner.DisposeAsync(); }
@@ -261,6 +264,13 @@ public sealed class PluginAccountFlowTests
         public Task<string?> GetAsync(Guid id, string key, CancellationToken ct = default) => Task.FromResult(Values.GetValueOrDefault($"{id:N}:{key}"));
         public Task RemoveAsync(Guid id, string key, CancellationToken ct = default) { Values.Remove($"{id:N}:{key}"); return Task.CompletedTask; }
     }
+    private sealed class TestHostEnvironment : Microsoft.Extensions.Hosting.IHostEnvironment
+    {
+        public string EnvironmentName {get;set;}="Development";
+        public string ApplicationName {get;set;}="SyntheticProviderTests";
+        public string ContentRootPath {get;set;}=AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider {get;set;}=new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
     internal sealed class Profiles : IPluginProviderProfileRegistry
     {
         public string ClientId { get; set; } = "test-client";
@@ -279,6 +289,7 @@ public sealed class PluginAccountFlowTests
     }
     internal sealed class DiscoveryTransport : IConnectorHttpTransport
     {
+        public bool OmitSecondResource {get;set;}
         public string Subject { get; set; } = "immutable-provider-subject"; public bool FailSecondPage { get; set; }
         public int Pages { get; private set; } public int FirstPageRequests { get; private set; }
         public async Task<ConnectorProviderResponse> SendAsync(Guid connector, Guid connection, ConnectorPreparedRequest request, Func<CancellationToken,Task> revalidate, CancellationToken ct)
@@ -287,7 +298,7 @@ public sealed class PluginAccountFlowTests
             if (request.Url.Contains("/identity")) return new(200, JsonSerializer.SerializeToUtf8Bytes(new { sub = Subject, name = "Example account" }));
             Pages++; var second = request.Url.Contains("pageToken=page-two"); if (!second) FirstPageRequests++;
             if (second && FailSecondPage) throw new HttpRequestException("simulated interruption");
-            return new(200, Encoding.UTF8.GetBytes(second ? """{"items":[{"id":"workspace-b","name":"Workspace B"}]}""" : """{"items":[{"id":"workspace-a","name":"Workspace A"}],"next":"page-two"}"""));
+            return new(200, Encoding.UTF8.GetBytes(second ? OmitSecondResource ? """{"items":[]}""" : """{"items":[{"id":"workspace-b","name":"Workspace B"}]}""" : """{"items":[{"id":"workspace-a","name":"Workspace A"}],"next":"page-two"}"""));
         }
     }
 }

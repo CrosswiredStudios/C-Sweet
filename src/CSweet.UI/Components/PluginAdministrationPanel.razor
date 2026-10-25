@@ -1,0 +1,94 @@
+@using CSweet.Contracts.Plugins
+@using CSweet.UI.Services
+@inject IPluginAccountApiClient Api
+
+@if (View.Administration is { } admin)
+{
+    <section aria-label="Plugin administration" class="plugin-admin-panel">
+        <MudText Typo="Typo.h5">Administration</MudText>
+        @if(admin.MissingDeletionStores.Count>0 && !admin.Retired && !admin.RemovalPending) { <MudAlert Severity="Severity.Warning">Some deployment cleanup services are not configured. Account setup does not wait for these services; cleanup after disconnect remains pending until every recorded storage obligation is confirmed. Ordinary account owners do not configure these services.</MudAlert> }
+        <CSweet.UI.Components.PluginUpdatePanel View="View" />
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+        @if (admin.Retired) { <MudAlert Severity="Severity.Info">Plugin removed. Content-free cleanup and audit receipts are retained.</MudAlert> }
+        else if (admin.RemovalPending) { <MudAlert Severity="Severity.Info">Removal is in progress. All account access is stopped. The plugin will leave Installed when cleanup is confirmed.</MudAlert> }
+        else if (!admin.Staged)
+        {
+            @if (View.BuildStatus is "Failed" or "Approved") { <MudButton Disabled="_busy" OnClick="RetryBuild">Retry verified build</MudButton> }
+            <MudButton Disabled="_busy" OnClick="@(()=>Review(admin.Enabled ? "Pause" : "Resume"))">@(admin.Enabled ? "Pause plugin" : "Resume plugin")</MudButton>
+            <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(()=>Review("Remove"))">Remove plugin</MudButton>
+            @if (_impact is not null)
+            {
+                <MudPaper Outlined="true" Class="pa-4 my-3" role="region" aria-label="Plugin impact review">
+                    <MudText Typo="Typo.h6">@_action plugin?</MudText>
+                    <MudText>@(_action=="Remove" ? "Every account will disconnect and its authorized data will enter the deletion workflow. Removal is not complete until recorded cleanup obligations are confirmed." : _action=="Pause" ? "External work stops for all connected businesses and agents. Accounts remain connected. Resume will not restore autonomous policies or cancelled plans." : "External work can resume under current grants. Autonomous policies remain disabled and still need new review.")</MudText>
+                    <MudText>Affected businesses: @Names(_impact.Businesses)</MudText>
+                    <MudText>Affected agents: @Names(_impact.Agents)</MudText>
+                    <MudText>Connected or pending accounts: @_impact.Accounts</MudText>
+                    <MudButton Variant="Variant.Filled" Color="@(_action=="Remove" ? Color.Error : Color.Primary)" Disabled="_busy" OnClick="Control">Confirm @_action.ToLowerInvariant()</MudButton>
+                    <MudButton Disabled="_busy" OnClick="@(()=>_impact=null)">Cancel</MudButton>
+                </MudPaper>
+            }
+            <MudDivider Class="my-4" />
+            <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Connection operators">
+            <MudText Typo="Typo.body2">Operators can connect or reconnect the accounts you assign. They cannot share accounts with businesses, authorize agents, or change approval policies.</MudText>
+            <MudText Typo="Typo.body2">Assigning an operator also approves this reviewed package's current matching deployment connection profile. No password or token is given to the operator.</MudText>
+            @foreach (var op in admin.Operators.Where(o=>!o.Revoked))
+            {
+                <div class="my-3"><MudText>@op.Name · @(op.AccountId is { } id ? View.Accounts.FirstOrDefault(a=>a.Id==id)?.Name ?? "Assigned account" : "All accounts and new connections")</MudText>
+                    <MudButton Disabled="_busy" OnClick="@(()=>_revoke=op)">Revoke operator</MudButton>
+                    @if (_revoke?.Id==op.Id)
+                    { <MudAlert Severity="Severity.Warning">Future sign-ins and imports using this user's removed authority will stop. Existing shared connections and business access will remain intact.</MudAlert><MudButton Color="Color.Error" Disabled="_busy" OnClick="Revoke">Confirm revoke operator</MudButton><MudButton OnClick="@(()=>_revoke=null)">Keep operator</MudButton> }
+                </div>
+            }
+            <MudSelect T="Guid?" Label="Operator user" @bind-Value="_user" Variant="Variant.Outlined" Class="mt-3" Disabled="_busy">
+                @foreach(var user in admin.Candidates) { <MudSelectItem T="Guid?" Value="@((Guid?)user.Id)">@user.Name</MudSelectItem> }
+            </MudSelect>
+            <MudSelect T="Guid?" Label="Accounts this operator may manage" Value="_account" ValueChanged="AccountChanged" Variant="Variant.Outlined" Class="mt-3" Disabled="_busy">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All accounts and new connections</MudSelectItem>
+                @foreach(var account in View.Accounts.Where(a=>a.State=="Connected")) { <MudSelectItem T="Guid?" Value="@((Guid?)account.Id)">@account.Name</MudSelectItem> }
+            </MudSelect>
+            @if (_account is null) { <MudCheckBox T="bool" @bind-Value="_all" Label="Allow this user to manage all current accounts and connect new accounts." Disabled="_busy" /> }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_user.HasValue || _account is null && !_all)" OnClick="Assign">Assign operator</MudButton>
+            </MudExpansionPanel></MudExpansionPanels>
+        }
+        @foreach (var deletion in View.Deletions)
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-4" role="status">
+                <MudText Typo="Typo.h6">Account cleanup</MudText>
+                <MudText>@(deletion.AllCopiesDeleted ? "All recorded cleanup obligations confirmed." : deletion.HostCopiesDeleted ? "Tracked primary database copies removed. Waiting for independent storage or processor confirmations." : "Access stopped. Host cleanup is queued.")</MudText>
+                <MudText Typo="Typo.body2">Target: @deletion.TargetAt.ToLocalTime().ToString("g") · Deadline: @deletion.Deadline.ToLocalTime().ToString("g")</MudText>
+                @if(deletion.PendingExternalCopies>0) { <MudText>Pending external cleanup receipts: @deletion.PendingExternalCopies</MudText> }
+                @if(deletion.Status=="PrimaryReviewRequired") { <MudAlert Severity="Severity.Warning">Some retained primary records still need the platform's protected-data cleanup workflow. Access remains stopped; cleanup is not complete.</MudAlert> }
+                @foreach(var review in View.CleanupReviews.Where(r=>r.AccountId==deletion.AccountId))
+                {
+                    <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="Review saved context cleanup">
+                        <MudText Typo="Typo.body2">Review the affected saved context before forgetting it. Private audiences and retention holds still apply; account disconnect does not override them.</MudText>
+                        <MemoryErasureImpactPanel OrganizationId="review.OrganizationId" EmployeeId="review.EmployeeId" EpisodeId="review.EpisodeId" />
+                    </MudExpansionPanel></MudExpansionPanels>
+                }
+                @if(deletion.Status is "DeadlineExceeded" or "TargetExceeded") { <MudAlert Severity="Severity.Warning">@(deletion.Status=="DeadlineExceeded" ? "Deletion deadline exceeded. An administrator must resolve the outstanding cleanup. This is not a successful deletion." : "Deletion target exceeded. Cleanup is still pending.")</MudAlert> }
+            </MudPaper>
+        }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public PluginAccountManagementView View {get;set;}=null!;
+    [Parameter] public EventCallback Changed {get;set;}
+    private bool _busy,_all;
+    private Guid? _user,_account;
+    private string? _error;
+    private string _action="Pause";
+    private PluginInstallationImpact? _impact;
+    private PluginAccountOperatorView? _revoke;
+    private static string Names(IReadOnlyList<string> names)=>names.Count==0?"None":string.Join(", ",names);
+    private void AccountChanged(Guid? id) { _account=id; _all=false; }
+    private Task Review(string action)=>Run(async()=>{_action=action;_impact=await Api.GetImpactAsync(View.InstallationId);});
+    private Task RetryBuild()=>Run(async()=>{await Api.RetryBuildAsync(View.InstallationId);await Changed.InvokeAsync();});
+    private Task Control()=>Run(async()=>{await Api.ControlAsync(View.InstallationId,new(_action,_impact!.ReviewHash,View.Administration!.Revision));_impact=null;await Changed.InvokeAsync();});
+    private Task Assign()=>Run(async()=>{
+        var previous=View.Administration!.Operators.SingleOrDefault(o=>o.UserId==_user && o.AccountId==_account);
+        await Api.SaveOperatorAsync(View.InstallationId,new(_user!.Value,_account,previous?.Revision,View.PackageDigest));_user=null;_all=false;await Changed.InvokeAsync();});
+    private Task Revoke()=>Run(async()=>{await Api.RevokeOperatorAsync(View.InstallationId,_revoke!.Id,_revoke.Revision);_revoke=null;await Changed.InvokeAsync();});
+    private async Task Run(Func<Task> action) {if(_busy)return;_busy=true;_error=null;try{await action();}catch(Exception e) when(e is not OperationCanceledException){_error=e.Message;}finally{_busy=false;}}
+}

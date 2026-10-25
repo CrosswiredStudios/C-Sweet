@@ -17,6 +17,12 @@ public sealed partial class PluginAccountService
             x.Id == oldId && x.AgentInstallationId == installationId && x.AccountGroupId != null && x.Status != PluginConnectionStatus.Revoked, ct)
             ?? throw new UnauthorizedAccessException("The account authorization is unavailable.") : null;
         await Access.RequireOperatorAsync(userId, installationId, previous?.AccountGroupId, ct);
+        await using var consentTx=db.Database.IsRelational() && db.Database.CurrentTransaction==null ? await db.Database.BeginTransactionAsync(ct):null;
+        if(db.Database.IsNpgsql()) _=await db.AgentInstallations.FromSqlInterpolated($"SELECT * FROM \"AgentInstallations\" WHERE \"Id\" = {installationId} FOR SHARE").AsNoTracking().ToArrayAsync(ct);
+        (installation,manifest,declaration)=await Context(installationId,ct);
+        if(manifest.Accounts!.Lifecycle.RevocationScope=="subject-project" && await db.PluginAccountRevocationJobs.AnyAsync(x=>
+            x.PluginInstallationId==installationId && x.ProfileId==declaration.ProviderProfile && x.Status=="Pending",ct))
+            throw new InvalidOperationException("Wait for the provider revocation to finish before starting a new authorization. It could invalidate the new connection.");
         if (installation.PackageVersion!.Status != AgentPackageVersionStatus.Built || string.IsNullOrWhiteSpace(request.PackageDigest) ||
             request.PackageDigest != installation.PackageVersion.PackageDigest) throw new InvalidOperationException("Review the current completed plugin build first.");
         if (!request.AcceptPolicies || request.PolicyVersion != manifest.Accounts!.PolicyVersion)
@@ -71,6 +77,7 @@ public sealed partial class PluginAccountService
             parameters.Add(pair.Key, pair.Value);
         await audit.WriteAsync("plugin-account.consent.started", nameof(PluginAccountSetupSession), session.Id,
             "A human reviewed the current plugin, provider access and privacy terms and started account consent.", cancellationToken: ct);
+        if(consentTx!=null) await consentTx.CommitAsync(ct);
         return new(session.Id, ConnectorRequestMaterializer.Query(profile.AuthorizationEndpoint, parameters), session.ExpiresAt);
     }
 
@@ -128,7 +135,13 @@ public sealed partial class PluginAccountService
     private async Task<(AgentInstallation Installation, PluginManifest Manifest, PluginConnectionDeclaration Connection)> Current(PluginAccountSetupSession s, CancellationToken ct)
     {
         var context = await Context(s.PluginInstallationId, ct);
-        await Access.RequireOperatorAsync(s.ApplicationUserId, s.PluginInstallationId, s.ReplacesConnectionId is null ? null : s.AccountGroupId, ct);
+        if (!s.IsMaintenance)
+        {
+            await Access.RequireOperatorAsync(s.ApplicationUserId ?? throw new UnauthorizedAccessException(), s.PluginInstallationId, s.ReplacesConnectionId is null ? null : s.AccountGroupId, ct);
+        }
+        else if (!await db.PluginConnections.AsNoTracking().AnyAsync(x=>x.Id==s.ConnectionId && x.AccountGroupId==s.AccountGroupId &&
+            x.Status==PluginConnectionStatus.Connected && x.AuthorizationRevision==s.ReplacesAuthorizationRevision,ct))
+            throw new UnauthorizedAccessException("The maintenance authorization changed.");
         var profile = await PluginAccountProfileGuard.RequireAsync(db, profiles, context.Installation, context.Connection, ct);
         if (context.Installation.PackageVersion!.PackageDigest != s.PackageDigest || PluginAccountProfileGuard.Fingerprint(profile) != s.ProfileHash ||
             context.Manifest.Accounts!.PolicyVersion != s.PolicyVersion || !await db.PluginAccountGroups.AsNoTracking().AnyAsync(x => x.Id == s.AccountGroupId &&
