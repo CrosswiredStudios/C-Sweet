@@ -218,6 +218,29 @@ public sealed class ChiefLeadershipWorkflowTests
                 model.Result = new("AdequatelyCovered", "Combined", f.Hire, "The assigned manager owns product outcomes with capacity for this scope.", "None", [f.Hire]);
                 await Wake();
             }
+            // Completion returns control to the owner. Duplicate wakes and process
+            // restarts cannot activate the next area or infer another hire.
+            var callsAfterCoverage = model.Calls;
+            await Wake(); await Wake();
+            var choosing = await context.Platform.ChiefLeadership.ReadAsync();
+            Assert.Null(choosing.NextAssessmentId);
+            Assert.Equal(callsAfterCoverage, model.Calls);
+            Assert.Equal("Backlog", choosing.Assessments.Single(x => x.DomainId == continuationDomain).ExecutionStatus);
+            var nextPrompts = await db.ChiefFocusPrompts.Where(x => x.Purpose == "NextFocus").ToListAsync();
+            if (outcome == "external") Assert.Empty(nextPrompts);
+            else
+            {
+                var nextPrompt = Assert.Single(nextPrompts);
+                var card = await db.ExecutiveDecisions.SingleAsync(x => x.Id == nextPrompt.Id);
+                using var options = JsonDocument.Parse(card.OptionsJson);
+                var ids = options.RootElement.GetProperty("options").EnumerateArray().Select(x => x.GetProperty("id").GetString()).ToArray();
+                Assert.Equal(new[] { continuationDomain, "not-now" }, ids);
+                var nextAnswer = await new ExecutiveDecisionService(db, new ChatTurnService(db)).AnswerAsync(f.Organization, f.Conversation,
+                    card.Id, f.Owner, new(continuationDomain, null, "next-focus-choice"));
+                Assert.True(nextAnswer.Succeeded, nextAnswer.Message);
+                await new ChatTurnService(db).CompleteAsync(nextAnswer.Turn!.Id, f.Message, false);
+                db.ChangeTracker.Clear();
+            }
             model.Result = new("NotApplicable", "Unresolved", null, "No additional research responsibility in the current scope.", "None", []);
             await Wake(); await Wake();
             var final = await context.Platform.ChiefLeadership.ReadAsync();
@@ -227,8 +250,8 @@ public sealed class ChiefLeadershipWorkflowTests
                 (await db.CoreWorkTasks.SingleAsync(x => x.Id == product.WorkItemId)).Status);
             Assert.Equal(outcome == "external" ? 1 : creative ? 2 : outcome == "hire" ? 3 : 2, model.Calls);
             Assert.Equal(outcome == "hire" ? 1 : 0, await db.WorkforcePlans.CountAsync());
-            Assert.Equal(outcome == "hire" ? 1 : 2, await db.ChiefFocusPrompts.CountAsync());
-            Assert.Single(await db.ChiefFocusRecords.ToListAsync());
+            Assert.Equal(outcome == "hire" || outcome == "external" ? 2 : 3, await db.ChiefFocusPrompts.CountAsync());
+            Assert.Equal(outcome == "external" ? 1 : 2, await db.ChiefFocusRecords.CountAsync());
             Assert.Equal(2, await db.CoreWorkTasks.CountAsync(x => x.CorrelationId!.StartsWith("chief-assessment:")));
         }
         finally { await db.Database.EnsureDeletedAsync(); }

@@ -53,6 +53,10 @@ public sealed partial class ChiefLeadershipService
         var executable = focus is not null && !agenda.Paused;
         // Active hiring and native decisions take precedence over new proactive work.
         if (rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" or "Blocked")) executable = false;
+        if (await (from prompt in db.ChiefFocusPrompts
+            join decision in db.ExecutiveDecisions on prompt.Id equals decision.Id
+            where prompt.OrganizationId == agenda.Id && prompt.Purpose == "NextFocus" && decision.Status == ExecutiveDecisionStatus.Pending
+            select decision.Id).AnyAsync(token)) executable = false;
         var leadershipQuestionIds = await db.ChiefFocusPrompts.Where(x => x.OrganizationId == agenda.Id).Select(x => x.Id).ToListAsync(token);
         if (await db.ExecutiveDecisions.AnyAsync(x => x.OrganizationId == agenda.Id && x.RequestingInstallationId == chief.AgentInstallationId &&
             x.Status == ExecutiveDecisionStatus.Pending && !leadershipQuestionIds.Contains(x.Id), token)) executable = false;
@@ -67,10 +71,14 @@ public sealed partial class ChiefLeadershipService
                 select (Guid?)decision.Id).SingleOrDefaultAsync(token);
         var page = rows.Where(x => request.AfterAssessmentId is null || x.Id.CompareTo(request.AfterAssessmentId.Value) > 0)
             .OrderBy(x => x.Id).Take(request.PageSize).ToArray();
+        var selectedDomains = await db.ChiefFocusRecords.Where(x => x.OrganizationId == agenda.Id)
+            .Select(x => x.DomainId).Distinct().ToListAsync(token);
+        if (focus is not null && !selectedDomains.Contains(focus.DomainId)) selectedDomains.Add(focus.DomainId);
         return new(agenda.FocusRevision, focus is null ? null : new(focus.Id, focus.Revision, focus.DomainId, focus.CustomText, focus.DecisionMakerId,
                 focus.ConversationId, focus.SourceTurnId, focus.SourceDecisionId, focus.EffectiveAt, focus.SupersedesId),
             page.Select(Map).ToArray(), await AssignmentsAsync(agenda.Id, token), true, agenda.Paused,
-            chief.AgentInstallationId!.Value, executable ? rows.FirstOrDefault(x => x.ExecutionStatus == "Ready")?.Id : null,
+            chief.AgentInstallationId!.Value, executable ? rows.FirstOrDefault(x => x.ExecutionStatus == "Ready" &&
+                (selectedDomains.Contains(x.DomainId) || x.RecommendationId != null))?.Id : null,
             await InputsAsync(agenda.Id, token), answered,
             null);
     }

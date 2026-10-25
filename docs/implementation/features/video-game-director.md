@@ -9,6 +9,7 @@ needs without requiring a Director. Creative Director and Producer are the Direc
 
 - `ChiefLeadershipService.SaveFocusAsync` readies the selected assessment. `SnapshotAsync` retains ordinary waiting, blocking and priority rules; it never promotes Creative & Product ahead of a different selection. `ReadAsync` repairs only untouched legacy Director-first assessment state from the saved noncreative focus, retaining accepted decisions and hires.
 - `ChiefLeadershipService.AssessAsync` accepts `game-director` only for Creative & Product. Research accepts research-lead/research-director/chief-science-officer, Financial accepts finance-lead/financial-controller/chief-financial-officer, and Legal & IP accepts legal-lead/legal-counsel/chief-legal-officer for agent-appropriate coordination. Licensed-human requirements remain excluded from agent hiring. Candidate availability, funding and existing hiring authority remain checked by the hiring pipeline.
+- `ChiefLeadershipService.AdvanceAsync` presents the next-focus decision after the selected area resolves. It never readies the next backlog domain automatically. `CaptureAsync` authenticates the new choice or Nothing else for now; `ReadAsync` recovers lost answers and only untouched automatic scheduling. Completed areas stay out of suggestions, and repeated reads do not duplicate cards. A direct new owner priority cancels the obsolete next-focus card.
 - `ChiefOfStaffAgent.InterpretCoverageAsync` proposes the Director deterministically only for Creative & Product. Other focuses receive their own bounded assessment with matching allowed role keys; a Director response for another focus is rejected. `GameStudioOwnershipPolicy` delegates Producer team design to an active or pending Director across all games.
 - `VideoGameDirectorAgent` persists concepts and approved projects separately. `PortfolioChat.cs` resolves explicit game context; personal agenda work retains concept identity even after the conversation moves to another game.
 - `ProjectApprovalReview.cs` binds Producer setup to the stored exact CEO-approved pitch. `CreativeDesign.cs` commissions and reviews the Creative Director's GDD. `CeoReporting.cs` persists cadence, format, timezone, report drafts and scheduled occurrences.
@@ -21,7 +22,7 @@ The Director is the formal studio-team lead and approves resource changes; the P
 
 ## Releases and validation
 
-Packages: Director 0.1.0, Chief 2.15.1, Creative Director 3.0.0, Producer 5.0.0. The role split targets a fresh installation; old role hierarchy state is not migrated. The focus-routing patch repairs only untouched queued assessments, preserving current hiring commitments. Deploy published releases through Installed Agents, with the host changes for role catalog, focus routing and shared-project access. Local tests and packages are verification artifacts only.
+Packages: Director 0.1.0, Chief 2.15.2, Creative Director 3.0.0, Producer 5.0.0. The role split targets a fresh installation; old role hierarchy state is not migrated. The focus-routing patch repairs only untouched queued assessments, preserving current hiring commitments. Deploy published releases through Installed Agents, with the host changes for role catalog, focus routing and shared-project access. Local tests and packages are verification artifacts only.
 
 Regression coverage includes exact pitch gating, two leadership roles, independent concepts, replay-safe creative submission, CEO reporting schedules and DST, project setup review, shared-team access checks, and existing staffing/production regressions.
 
@@ -49,3 +50,18 @@ Verification with sibling dependency references disabled:
   passed. The installed package must be updated through Installed Agents together with the
   matching platform routing correction. Candidate availability and policy still determine
   whether a recommendation can become an actual hire.
+
+## Owner-selected continuation (Chief 2.15.2)
+
+The next-focus handoff supersedes automatic backlog advancement from earlier leadership workflows.
+A fulfilled Director hire is reassessed for actual coverage before the next card is created. Creative
+& Product is then excluded; Research, Financial and Legal & IP remain suggestions requiring a new
+owner choice. The last remaining area is paired with Nothing else for now; an exhausted agenda
+creates no extra card. Manager-authored approved staffing plans retain their separate authority.
+
+Verification with published dependency pins: 165 Chief regressions, 83 platform/DI checks and all
+14 Chief/broker workflow cases passed, including PostgreSQL, reconnect recovery, duplicate wakes,
+shrinking choices, stale command rejection, pause/resume and atomic completion/card/message/outbox
+rollback. Chief 2.15.2 was packed and its Linux bundle and self-test passed. Installed/UI acceptance
+is pending. No live business state or existing Research recommendation was changed; accepted
+hiring or native decisions are retained for explicit review rather than silently cancelled.
