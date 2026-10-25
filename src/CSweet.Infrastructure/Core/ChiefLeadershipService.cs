@@ -203,14 +203,10 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                 Rationale = "The custom priority is saved. Map its scope before any proactive coverage action." };
             db.ChiefCoverageRecords.Add(selected); rows.Add(selected);
         }
-        // Focus sets the CEO's subsequent priority; a game studio first needs its portfolio owner.
-        if (agenda.ProfileKey == "game-studio" &&
-            !(await AssignmentsAsync(agenda.Id, token)).Any(x => x.RoleKeys.Contains("game-director")))
-            selected = rows.SingleOrDefault(x => x.DomainId == "creative-product") ?? selected;
         foreach (var row in rows)
         {
             if (row.ExecutionStatus is "WaitingHire" or "WaitingDecision") continue; // Preserve running/approved commitments.
-            if (row == selected && (domain != "custom" || selected.DomainId == "creative-product")) { row.ExecutionStatus = "Ready"; row.CoverageStatus = "Unassessed"; row.BlockCode = null; }
+            if (row == selected && domain != "custom") { row.ExecutionStatus = "Ready"; row.CoverageStatus = "Unassessed"; row.BlockCode = null; }
             else if (row.ExecutionStatus is "Ready" or "Assessing") row.ExecutionStatus = "Backlog";
             row.Revision++; row.UpdatedAt = clock.GetUtcNow(); await ProjectAsync(chief, row, token);
         }
@@ -243,6 +239,25 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                     $"chief-recover-answer:{answer.Id:N}", answer.Id), token);
         }
         var rows = await RowsAsync(agenda, token);
+        // The previous Game Studio override could save a noncreative owner focus
+        // while readying an untouched Director assessment instead. Repair only that
+        // unscheduled state; an accepted result, native question or hire is retained.
+        if (agenda.ProfileKey == "game-studio" && agenda.FocusId is { } savedFocus &&
+            !rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" or "Blocked"))
+        {
+            var selectedDomain = await db.ChiefFocusRecords.Where(x => x.Id == savedFocus && x.OrganizationId == organization)
+                .Select(x => x.DomainId).SingleAsync(token);
+            var selected = rows.SingleOrDefault(x => x.DomainId == selectedDomain && x.ExecutionStatus == "Backlog" && x.AcceptedResultJson == null);
+            var director = rows.SingleOrDefault(x => x.DomainId == "creative-product" && x.ExecutionStatus == "Ready" &&
+                x.CoverageStatus == "Unassessed" && x.AcceptedResultJson == null && x.InputFingerprint == null &&
+                x.RecommendationId == null && x.DecisionId == null);
+            if (selectedDomain is "research" or "financial" or "legal" && selected is not null && director is not null)
+            {
+                director.ExecutionStatus = "Backlog"; director.Revision++; director.UpdatedAt = clock.GetUtcNow();
+                selected.ExecutionStatus = "Ready"; selected.Revision++; selected.UpdatedAt = clock.GetUtcNow();
+                agenda.Revision++; await WakeAsync(agenda, chief, token);
+            }
+        }
         var inputs = await InputsAsync(organization, token);
         foreach (var row in rows)
         {
@@ -333,11 +348,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
         if (agenda.FocusId is null) return;
         var rows = await RowsAsync(agenda, token);
         if (rows.Any(x => x.ExecutionStatus is "Ready" or "Assessing" or "WaitingHire" or "WaitingDecision" or "Blocked")) return;
-        var focusDomain = agenda.ProfileKey == "game-studio"
-            ? await db.ChiefFocusRecords.Where(x => x.Id == agenda.FocusId).Select(x => x.DomainId).SingleAsync(token)
-            : null;
-        var next = rows.Where(x => x.ExecutionStatus == "Backlog")
-            .OrderBy(x => x.DomainId == focusDomain ? 0 : 1).ThenBy(x => x.Priority).FirstOrDefault();
+        var next = rows.FirstOrDefault(x => x.ExecutionStatus == "Backlog");
         if (next is null) return;
         next.ExecutionStatus = "Ready"; next.Revision++; next.UpdatedAt = clock.GetUtcNow();
         await ProjectAsync(chief, next, token); agenda.Revision++; await WakeAsync(agenda, chief, token);

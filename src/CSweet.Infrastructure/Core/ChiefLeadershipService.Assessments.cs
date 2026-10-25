@@ -52,9 +52,7 @@ public sealed partial class ChiefLeadershipService
         var rows = await RowsAsync(agenda, token);
         var executable = focus is not null && !agenda.Paused;
         // Active hiring and native decisions take precedence over new proactive work.
-        var firstGameDirector = agenda.ProfileKey == "game-studio" && rows.Any(x => x.DomainId == "creative-product" && x.ExecutionStatus == "Ready");
-        if (rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" ||
-            x.ExecutionStatus == "Blocked" && !(firstGameDirector && x.DomainId == "custom"))) executable = false;
+        if (rows.Any(x => x.ExecutionStatus is "WaitingHire" or "WaitingDecision" or "Blocked")) executable = false;
         var leadershipQuestionIds = await db.ChiefFocusPrompts.Where(x => x.OrganizationId == agenda.Id).Select(x => x.Id).ToListAsync(token);
         if (await db.ExecutiveDecisions.AnyAsync(x => x.OrganizationId == agenda.Id && x.RequestingInstallationId == chief.AgentInstallationId &&
             x.Status == ExecutiveDecisionStatus.Pending && !leadershipQuestionIds.Contains(x.Id), token)) executable = false;
@@ -72,7 +70,7 @@ public sealed partial class ChiefLeadershipService
         return new(agenda.FocusRevision, focus is null ? null : new(focus.Id, focus.Revision, focus.DomainId, focus.CustomText, focus.DecisionMakerId,
                 focus.ConversationId, focus.SourceTurnId, focus.SourceDecisionId, focus.EffectiveAt, focus.SupersedesId),
             page.Select(Map).ToArray(), await AssignmentsAsync(agenda.Id, token), true, agenda.Paused,
-            chief.AgentInstallationId!.Value, executable ? rows.Where(x => x.ExecutionStatus == "Ready").OrderBy(x => agenda.ProfileKey == "game-studio" && x.DomainId == "creative-product" ? 0 : 1).FirstOrDefault()?.Id : null,
+            chief.AgentInstallationId!.Value, executable ? rows.FirstOrDefault(x => x.ExecutionStatus == "Ready")?.Id : null,
             await InputsAsync(agenda.Id, token), answered,
             null);
     }
@@ -112,19 +110,22 @@ public sealed partial class ChiefLeadershipService
         if (result.NextAction == "Hire")
         {
             if (result.HumanRequired || result.CoverageStatus is not ("NeedsCoverage" or "AtRisk") ||
-                result.RoleKey is not ("product-manager" or "creative-director" or "game-director") ||
+                !RoleTaxonomy.IsCanonicalKey(result.RoleKey) ||
                 string.IsNullOrWhiteSpace(result.RoleTitle) || result.RoleTitle.Length > 256 ||
                 string.IsNullOrWhiteSpace(result.RoleObjective) || result.RoleObjective.Length > 2048)
                 throw new ArgumentException("Only a verified gap for a supported CEO-direct agent manager can create a recommendation.");
-            var expectedRole = (agenda.ProfileKey, row.DomainId) switch
+            var supportedRole = (agenda.ProfileKey, row.DomainId, result.RoleKey) switch
             {
-                ("general" or "saas" or "ecommerce" or "custom", "product") => "product-manager",
-                ("professional-services", "offering") => "product-manager",
-                ("game-studio", "creative-product") => "game-director",
-                ("media-content", "creative") => "creative-director",
-                _ => null
+                ("general" or "saas" or "ecommerce" or "custom", "product", "product-manager") => true,
+                ("professional-services", "offering", "product-manager") => true,
+                ("game-studio", "creative-product", "game-director") => true,
+                ("game-studio", "research", "research-lead" or "research-director" or "chief-science-officer") => true,
+                ("game-studio", "financial", "finance-lead" or "financial-controller" or "chief-financial-officer") => true,
+                ("game-studio", "legal", "legal-lead" or "legal-counsel" or "chief-legal-officer") => true,
+                ("media-content", "creative", "creative-director") => true,
+                _ => false
             };
-            if (result.RoleKey != expectedRole)
+            if (!supportedRole)
                 throw new ArgumentException("The requested agent role is not supported for this profile and responsibility. Ask for appropriate coverage instead.");
             if (await db.ChiefCoverageRecords.AnyAsync(x => x.OrganizationId == organization && x.Id != row.Id && x.ExecutionStatus == "WaitingHire", token))
                 throw new InvalidOperationException("One unresolved proactive recommendation already exists.");
