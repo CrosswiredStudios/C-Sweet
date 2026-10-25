@@ -30,6 +30,9 @@ public sealed class ChiefLeadershipWorkflowTests
     [InlineData("defer")]
     [InlineData("hire")]
     [InlineData("creative-hire")]
+    [InlineData("research-hire")]
+    [InlineData("finance-hire")]
+    [InlineData("legal-hire")]
     public Task NativeFocusThroughCoverageDecisionRecoversAcrossRestarts(string outcome) => JourneyAsync(outcome, false);
 
     [ChiefPostgresFact]
@@ -41,13 +44,29 @@ public sealed class ChiefLeadershipWorkflowTests
     [ChiefPostgresFact]
     public Task CreativeFocusStartsWithoutRolloutConfigurationAndTracksDirectorFulfillment() => JourneyAsync("creative-hire", true);
 
+    [ChiefPostgresFact]
+    public Task ResearchFocusTracksResearchLeadershipWithoutADirector() => JourneyAsync("research-hire", true);
+
+    [ChiefPostgresFact]
+    public Task FinanceFocusTracksFinanceLeadershipWithoutADirector() => JourneyAsync("finance-hire", true);
+
+    [ChiefPostgresFact]
+    public Task LegalFocusTracksLegalCoordinationWithoutADirector() => JourneyAsync("legal-hire", true);
+
     private static async Task JourneyAsync(string outcome, bool postgres)
     {
         var creative = outcome == "creative-hire";
-        if (creative) outcome = "hire";
-        var domain = creative ? "creative-product" : "product";
-        var role = creative ? "creative-director" : "product-manager";
-        var title = creative ? "Creative Director" : "Product Manager";
+        var game = outcome.EndsWith("-hire", StringComparison.Ordinal);
+        var (domain, role, title) = outcome switch
+        {
+            "creative-hire" => ("creative-product", "game-director", "Video Game Director"),
+            "research-hire" => ("research", "research-lead", "Research Lead"),
+            "finance-hire" => ("financial", "finance-lead", "Finance Lead"),
+            "legal-hire" => ("legal", "legal-lead", "Legal Coordination Lead"),
+            _ => ("product", "product-manager", "Product Manager")
+        };
+        var continuationDomain = domain == "research" ? "operations" : "research";
+        if (game) outcome = "hire";
         var builder = new DbContextOptionsBuilder<CSweetDbContext>();
         if (postgres)
         {
@@ -131,11 +150,23 @@ public sealed class ChiefLeadershipWorkflowTests
             if (outcome == "hire") model.Result = new("NeedsCoverage", "Unresolved", null, "Verified product accountability gap.", "Hire", [],
                 RoleKey: role, RoleTitle: title, RoleObjective: "Own creative and product outcomes.");
             ChiefOfStaffAgent Agent() => new(model, NullLogger<ChiefOfStaffAgent>.Instance, new Orchestrator());
-            Task Wake() => Agent().HandleEventAsync(new(Guid.NewGuid(), Guid.NewGuid(), ChiefLeadershipCapabilities.Changed,
-                JsonSerializer.SerializeToElement(new { }), DateTimeOffset.UtcNow, "acceptance"), context, default);
+            async Task Wake()
+            {
+                var agent = Agent();
+                var configured = await runtime.ExecuteCapabilityAsync(agent, AgentConfigurationCapabilities.Update,
+                    new UpdateAgentConfigurationRequest(new Dictionary<string, JsonElement>
+                    {
+                        ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString()),
+                        ["llmModel"] = JsonSerializer.SerializeToElement("fixture-model"),
+                        ["businessOperatingProfile"] = JsonSerializer.SerializeToElement(game ? "game-studio" : "general")
+                    }));
+                Assert.True(configured.Succeeded);
+                await agent.HandleEventAsync(new(Guid.NewGuid(), Guid.NewGuid(), ChiefLeadershipCapabilities.Changed,
+                    JsonSerializer.SerializeToElement(new { }), DateTimeOffset.UtcNow, "acceptance"), context, default);
+            }
 
-            var focus = await context.Platform.ChiefLeadership.PresentAsync(new(creative ? "game-studio" : "general", 1, f.Conversation, f.Message,
-                [new(domain, title, "Product accountability", 1), new("research", "Research", "Validate assumptions", 2)], 0, "present"));
+            var focus = await context.Platform.ChiefLeadership.PresentAsync(new(game ? "game-studio" : "general", 1, f.Conversation, f.Message,
+                [new(domain, title, "Selected accountability", 1), new(continuationDomain, "Next area", "Validate remaining needs", 2)], 0, "present"));
             var answer = await new ExecutiveDecisionService(db, new ChatTurnService(db)).AnswerAsync(f.Organization, f.Conversation,
                 focus.DecisionId!.Value, f.Owner, new(domain, null, "native-focus"));
             Assert.True(answer.Succeeded, answer.Message);
@@ -163,7 +194,7 @@ public sealed class ChiefLeadershipWorkflowTests
             Assert.Equal(outcome == "hire" ? 1 : 0, await db.WorkforcePlans.CountAsync());
             Assert.Equal(WorkTaskStatus.Running, (await db.CoreWorkTasks.SingleAsync(x => x.Id == product.WorkItemId)).Status);
             await Wake(); // duplicate/out-of-order hint while waiting has no new model/effect
-            Assert.Equal(1, model.Calls);
+            Assert.Equal(creative ? 0 : 1, model.Calls);
             if (outcome == "hire")
             {
                 Assert.Single(await db.SuggestedUserActions.ToListAsync());
@@ -194,7 +225,7 @@ public sealed class ChiefLeadershipWorkflowTests
             Assert.Equal(outcome == "external" ? "Blocked" : "Complete", finalProduct.ExecutionStatus);
             Assert.Equal(outcome == "external" ? WorkTaskStatus.Blocked : WorkTaskStatus.Completed,
                 (await db.CoreWorkTasks.SingleAsync(x => x.Id == product.WorkItemId)).Status);
-            Assert.Equal(outcome == "external" ? 1 : outcome == "hire" ? 3 : 2, model.Calls);
+            Assert.Equal(outcome == "external" ? 1 : creative ? 2 : outcome == "hire" ? 3 : 2, model.Calls);
             Assert.Equal(outcome == "hire" ? 1 : 0, await db.WorkforcePlans.CountAsync());
             Assert.Equal(outcome == "hire" ? 1 : 2, await db.ChiefFocusPrompts.CountAsync());
             Assert.Single(await db.ChiefFocusRecords.ToListAsync());

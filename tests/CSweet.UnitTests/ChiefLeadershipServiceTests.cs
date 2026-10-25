@@ -365,11 +365,16 @@ public sealed partial class UserActionServiceTests
         Assert.False((await Leadership(db).ReadAsync(f.Organization, f.Installation, new())).Paused);
     }
 
-    [Fact]
-    public async Task ChiefCustomFocusIsRetainedWithoutInferringAStaffingAction()
+    [Theory]
+    [InlineData("general")]
+    [InlineData("game-studio")]
+    public async Task ChiefCustomFocusIsRetainedWithoutInferringAStaffingAction(string profile)
     {
         await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
-        var prompt = await Leadership(db).PresentAsync(f.Organization, f.Installation, new("general", 1, f.Conversation, f.Message, ChiefDomains, 0, "focus"));
+        var domains = profile == "game-studio"
+            ? new[] { new ChiefCoverageDomain("creative-product", "Game direction", "Game ownership", 1) }.Concat(ChiefDomains.Skip(1)).ToArray()
+            : ChiefDomains;
+        var prompt = await Leadership(db).PresentAsync(f.Organization, f.Installation, new(profile, 1, f.Conversation, f.Message, domains, 0, "focus"));
         var answer = await new ExecutiveDecisionService(db, new ChatTurnService(db)).AnswerAsync(f.Organization, f.Conversation,
             prompt.DecisionId!.Value, f.Owner, new(null, "Validate our proposed acquisition", "custom-answer"));
         Assert.True(answer.Succeeded, answer.Message);
@@ -466,28 +471,76 @@ public sealed partial class UserActionServiceTests
         Assert.Empty(await db.WorkforcePlans.ToListAsync());
     }
 
-    [Fact]
-    public async Task ChiefGameStudioPrioritizesDirectorBeforeTheSelectedFinanceFocus()
+    [Theory]
+    [InlineData("creative-product", "game-director")]
+    [InlineData("research", "research-lead")]
+    [InlineData("financial", "finance-lead")]
+    [InlineData("legal", "legal-lead")]
+    public async Task ChiefGameStudioSelectedFocusDeterminesItsFirstLeadershipRecommendation(string domain, string role)
     {
         await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
         var domains = new[] { new ChiefCoverageDomain("creative-product", "Game direction", "Game portfolio ownership", 1) }
             .Concat(ChiefDomains.Skip(1)).ToArray();
         var prompt = await Leadership(db).PresentAsync(f.Organization, f.Installation,
-            new("game-studio", 1, f.Conversation, f.Message, domains, 0, "studio-finance"));
-        var answer = await AnswerLeadershipAsync(db, f, prompt.DecisionId, "financial");
-        var state = await Leadership(db).CaptureAsync(f.Organization, f.Installation, new(answer, 0, "studio-finance-answer", prompt.DecisionId));
-        Assert.Equal("financial", state.Focus!.DomainId);
-        Assert.Equal("creative-product", state.Assessments.Single(x => x.Id == state.NextAssessmentId).DomainId);
+            new("game-studio", 1, f.Conversation, f.Message, domains, 0, "studio-focus"));
+        var answer = await AnswerLeadershipAsync(db, f, prompt.DecisionId, domain);
+        var state = await Leadership(db).CaptureAsync(f.Organization, f.Installation, new(answer, 0, "studio-answer", prompt.DecisionId));
+        Assert.Equal(domain, state.Focus!.DomainId);
+        var row = Assert.Single(state.Assessments, x => x.ExecutionStatus == "Ready");
+        Assert.Equal(domain, row.DomainId); Assert.Equal(row.Id, state.NextAssessmentId);
+        Assert.All(state.Assessments.Where(x => x.Id != row.Id), x => Assert.Equal("Backlog", x.ExecutionStatus));
         await new ChatTurnService(db).CompleteAsync(answer, f.LaterMessage, false);
-        db.LeadershipAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization, OrganizationUserId = f.Hire,
-            PositionKey = "game-director", StartsAt = DateTimeOffset.UtcNow });
-        await db.SaveChangesAsync();
-        state = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
-        var row = state.Assessments.Single(x => x.Id == state.NextAssessmentId);
-        await Leadership(db).AssessAsync(f.Organization, f.Installation, new(row.Id, row.Revision, state.FocusRevision, state.InputFingerprint,
-            new("AdequatelyCovered", "Dedicated", f.Hire, "The active Video Game Director owns the complete game portfolio with available capacity.", "None", [f.Hire]), "director-covered"));
-        var resumed = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
-        Assert.Equal("financial", resumed.Assessments.Single(x => x.Id == resumed.NextAssessmentId).DomainId);
+        if (domain != "creative-product")
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() => Leadership(db).AssessAsync(f.Organization, f.Installation,
+                new(row.Id, row.Revision, state.FocusRevision, state.InputFingerprint,
+                    new("NeedsCoverage", "Unresolved", null, "Wrong Director-first recommendation.", "Hire", [],
+                        RoleKey: "game-director", RoleTitle: "Video Game Director", RoleObjective: "Wrong focus."), "wrong-role")));
+            Assert.Empty(await db.WorkforcePlans.ToListAsync());
+        }
+        var command = new RecordChiefAssessmentRequest(row.Id, row.Revision, state.FocusRevision, state.InputFingerprint,
+            new("NeedsCoverage", "Unresolved", null, "The selected focus requires a qualified functional lead.", "Hire", [],
+                RoleKey: role, RoleTitle: "Functional lead", RoleObjective: "Coordinate the selected responsibility and appropriate specialists."), "selected-role");
+        if (domain == "legal")
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() => Leadership(db).AssessAsync(f.Organization, f.Installation,
+                command with { Result = command.Result with { HumanRequired = true }, IdempotencyKey = "licensed-human" }));
+            Assert.Empty(await db.WorkforcePlans.ToListAsync());
+        }
+        await Leadership(db).AssessAsync(f.Organization, f.Installation, command);
+        db.ChangeTracker.Clear();
+        await Leadership(db).AssessAsync(f.Organization, f.Installation, command);
+        Assert.Equal(role, (await db.WorkforcePlans.SingleAsync()).RoleKey);
+        Assert.Null((await Leadership(db).ReadAsync(f.Organization, f.Installation, new())).NextAssessmentId);
+    }
+
+    [Theory]
+    [InlineData("research")]
+    [InlineData("financial")]
+    [InlineData("legal")]
+    public async Task ChiefRecoversUntouchedDirectorFirstStateFromTheSavedFocus(string domain)
+    {
+        await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
+        var domains = new[] { new ChiefCoverageDomain("creative-product", "Game direction", "Game ownership", 1) }.Concat(ChiefDomains.Skip(1)).ToArray();
+        var prompt = await Leadership(db).PresentAsync(f.Organization, f.Installation, new("game-studio", 1, f.Conversation, f.Message, domains, 0, "studio"));
+        var answer = await AnswerLeadershipAsync(db, f, prompt.DecisionId, domain);
+        var initial = await Leadership(db).CaptureAsync(f.Organization, f.Installation, new(answer, 0, "answer", prompt.DecisionId));
+        await new ChatTurnService(db).CompleteAsync(answer, f.LaterMessage, false);
+        // Reproduce persisted state from the old Director-first override.
+        var rows = await db.ChiefCoverageRecords.ToListAsync();
+        rows.Single(x => x.DomainId == domain).ExecutionStatus = "Backlog";
+        rows.Single(x => x.DomainId == "creative-product").ExecutionStatus = "Ready";
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        var recovered = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
+        Assert.Equal(initial.Focus!.Id, recovered.Focus!.Id);
+        Assert.Equal(domain, recovered.Assessments.Single(x => x.Id == recovered.NextAssessmentId).DomainId);
+        Assert.Equal("Backlog", recovered.Assessments.Single(x => x.DomainId == "creative-product").ExecutionStatus);
+        Assert.Single(await db.ChiefFocusRecords.ToListAsync()); Assert.Empty(await db.WorkforcePlans.ToListAsync());
+        Assert.Equal(4, await db.CoreWorkTasks.CountAsync(x => x.CorrelationId!.StartsWith("chief-assessment:")));
+        var revision = (await db.ChiefLeadershipAgendas.SingleAsync()).Revision;
+        db.ChangeTracker.Clear();
+        Assert.Equal(recovered.NextAssessmentId, (await Leadership(db).ReadAsync(f.Organization, f.Installation, new())).NextAssessmentId);
+        Assert.Equal(revision, (await db.ChiefLeadershipAgendas.SingleAsync()).Revision);
     }
 
     [Fact]
