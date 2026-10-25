@@ -51,6 +51,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Fixtures/video-game-production.v2.5.json" />
+    <EmbeddedResource Include="Fixtures/youtube-connector.0.2.0.json" LogicalName="YouTubeConnector.0.2.0.json" />
     <EmbeddedResource Include="Fixtures/qa-browser-interaction-5.3.3.ndjson" LogicalName="qa-browser-interaction-5.3.3.ndjson" />
   </ItemGroup>
   <ItemGroup><ProjectReference Include="../CSweet.Compute.GuestFixture/CSweet.Compute.GuestFixture.csproj" ReferenceOutputAssembly="false" /></ItemGroup>

@@ -14,6 +14,15 @@ namespace CSweet.UnitTests;
 public sealed partial class AgentRuntimeManagerTests
 {
     [Fact]
+    public async Task BrokerOnlyConnectorCannotQueueVmEvenWithALegacyScheduleAndPermissiveEligibility()
+    {
+        await using var db=CreateDb();var installation=await SeedAsync(db,due:false);
+        installation.PackageVersion!.PluginKind=PluginKind.Connector;await db.SaveChangesAsync();
+        var runner=new FakeRunner();var manager=CreateManager(db,runner);
+        var error=await Assert.ThrowsAsync<AgentInstallationException>(()=>manager.EnsureRuntimeQueuedAsync(installation.Id,"manual"));
+        Assert.Contains("Broker-only",error.Message);Assert.Empty(runner.Starts);Assert.Empty(await db.AgentRuntimeInstances.ToArrayAsync());
+    }
+    [Fact]
     public async Task InteractiveEnsure_ReusesRuntimeAndBecomesReadyAfterMcpSession()
     {
         await using var db = CreateDb();

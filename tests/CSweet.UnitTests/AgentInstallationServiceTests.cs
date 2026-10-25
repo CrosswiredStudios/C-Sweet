@@ -17,6 +17,7 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentInstallationServiceTests
 {
+    internal static IPluginInstallationService CreatePluginInstallerForAcceptance(CSweetDbContext db) => CreateService(db);
     [Fact]
     public async Task QuiesceAsync_ReloadsRacingSchedulesAndStillStopsOnlyTheDeletedBusiness()
     {
@@ -1053,12 +1054,15 @@ public sealed class AgentInstallationServiceTests
         package.PluginKind = PluginKind.Connector;
         var manifest = JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         package.AgentId=manifest.Id; package.AgentName=manifest.Name;
+        (await db.AgentRuntimeGlobalSettings.SingleAsync()).EnableImportedAgents=false;
         await db.SaveChangesAsync();
         IPluginInstallationService installer=CreateService(db);
         var request=ValidRequest() with { BusinessId="enterprise", PluginScope="System", ActivationMode="OnDemand", GrantedSubscriptions=[],
             GrantedCapabilities=manifest.Provides.Select(p=>p.Name).ToArray() };
         var installed=await installer.InstallAsync(package.Id,request);
         Assert.Equal("System",installed.InstallationScope); Assert.NotNull(installed.Accounts);
+        Assert.Null(installed.Schedule);Assert.Equal(0,installed.MemoryMb);Assert.Equal(0,installed.CpuPercent);
+        Assert.Empty(await db.AgentSchedules.ToArrayAsync());
         Assert.Equal(PluginSetupState.Ready,(await db.AgentInstallations.SingleAsync()).SetupState);
         Assert.Empty(await db.PluginConnections.ToArrayAsync()); Assert.Empty(await db.PluginAccountBusinessGrants.ToArrayAsync());
         await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.DisableAsync(installed.Id));
@@ -1067,6 +1071,41 @@ public sealed class AgentInstallationServiceTests
         Assert.True((await db.AgentInstallations.SingleAsync()).IsEnabled);
         await Assert.ThrowsAsync<AgentInstallationException>(()=>installer.InstallAsync(package.Id,request));
         Assert.Single(await db.AgentInstallations.ToArrayAsync());
+        Assert.False((await db.AgentRuntimeGlobalSettings.SingleAsync()).EnableImportedAgents);
+    }
+
+    [Theory]
+    [InlineData(PluginKind.Service,"System","AlwaysOn")]
+    [InlineData(PluginKind.Connector,"Organization","OnDemand")]
+    public async Task PluginsInstallAndReenableWithAgentImportsDisabled(PluginKind kind,string scope,string activation)
+    {
+        await using var db=CreateDbContext();var package=await SeedAsync(db);package.PluginKind=kind;
+        var manifest=JsonNode.Parse(package.ManifestJson)!;manifest["kind"]=kind.ToString().ToLowerInvariant();package.ManifestJson=manifest.ToJsonString();
+        var settings=await db.AgentRuntimeGlobalSettings.SingleAsync();settings.EnableImportedAgents=false;settings.AllowAlwaysOnCommunityAgents=false;await db.SaveChangesAsync();
+        IPluginInstallationService installer=CreateService(db);
+        var installed=await installer.InstallAsync(package.Id,ValidRequest() with{PluginScope=scope,ActivationMode=activation});
+        Assert.True(installed.IsEnabled);
+        await installer.DisableAsync(installed.Id);Assert.True((await installer.EnableAsync(installed.Id)).IsEnabled);
+        Assert.False(settings.EnableImportedAgents);
+        Assert.False(settings.AllowAlwaysOnCommunityAgents);
+    }
+
+    [Fact]
+    public async Task PluginDefaultsDoNotSilentlyEnableImportedAgentWorkloads()
+    {
+        await using var db=CreateDbContext();var package=await SeedAsync(db);
+        (await db.AgentRuntimeGlobalSettings.SingleAsync()).EnableImportedAgents=false;await db.SaveChangesAsync();
+        var error=await Assert.ThrowsAsync<AgentInstallationException>(()=>CreateService(db).InstallAsync(package.Id,ValidRequest()));
+        Assert.Contains("Imported agents are disabled",error.Message);Assert.Empty(await db.AgentInstallations.ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task PluginDefaultsDoNotBypassTheAlwaysOnCommunityAgentPolicy()
+    {
+        await using var db=CreateDbContext();var package=await SeedAsync(db);
+        var settings=await db.AgentRuntimeGlobalSettings.SingleAsync();settings.AllowAlwaysOnCommunityAgents=false;await db.SaveChangesAsync();
+        var error=await Assert.ThrowsAsync<AgentInstallationException>(()=>CreateService(db).InstallAsync(package.Id,ValidRequest() with{ActivationMode="AlwaysOn"}));
+        Assert.Contains("Always-on community agents are disabled",error.Message);Assert.Empty(await db.AgentInstallations.ToArrayAsync());
     }
 
     [Fact]
@@ -1094,9 +1133,59 @@ public sealed class AgentInstallationServiceTests
         await Assert.ThrowsAsync<AgentInstallationException>(()=>service.ApproveUpdateAsync(staged.Id,reviewed));
         account.State=PluginAccountState.Disconnected;await db.SaveChangesAsync();
         var approved=await service.ApproveUpdateAsync(staged.Id,reviewed);Assert.True(approved.IsEnabled);
+        Assert.Null(approved.Schedule);Assert.Empty(await db.AgentSchedules.ToArrayAsync());
+        Assert.Equal("{}",(await db.AgentInstallationGrants.SingleAsync(g=>g.AgentInstallationId==approved.Id)).ResourceLimitsJson);
         Assert.Equal(PluginRevisionStatus.Retired,(await db.AgentInstallations.SingleAsync(x=>x.Id==installed.Id)).RevisionStatus);
         Assert.False(await db.PluginConnections.AnyAsync(x=>x.AgentInstallationId==approved.Id));
         await Assert.ThrowsAsync<AgentInstallationException>(()=>service.ApproveUpdateAsync(staged.Id,reviewed));
+    }
+
+    [Theory]
+    [InlineData(AgentPackageVersionStatus.Previewed)]
+    [InlineData(AgentPackageVersionStatus.Built)]
+    public async Task ActualYouTubeManifestInstallsWithoutAnyVmResourcesOrSchedule(AgentPackageVersionStatus status)
+    {
+        await using var db=CreateDbContext();var package=await SeedAsync(db);
+        using var source=typeof(AgentInstallationServiceTests).Assembly.GetManifestResourceStream("YouTubeConnector.0.2.0.json")!;
+        package.ManifestJson=await new StreamReader(source).ReadToEndAsync();
+        var manifest=JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        PluginManifestReader.ValidateConnectorContracts(manifest);
+        package.AgentId=manifest.Id;package.AgentName=manifest.Name;package.Version=manifest.Version;
+        package.PublisherId=manifest.Publisher.Id;package.PluginKind=PluginKind.Connector;package.Status=status;
+        var settings=await db.AgentRuntimeGlobalSettings.SingleAsync();settings.EnableImportedAgents=false;
+        settings.MaximumWorkloadMemoryMb=1;settings.MaximumWorkloadCpuPercent=1;settings.MinimumTickFrequencySeconds=3600;
+        if(status==AgentPackageVersionStatus.Built) db.AgentRuntimeGlobalSettings.Remove(settings);
+        await db.SaveChangesAsync();IPluginInstallationService plugins=CreateService(db);
+        // Model a JSON request with the legacy VM/schedule properties omitted entirely.
+        var request=JsonSerializer.Deserialize<InstallAgentRequest>(JsonSerializer.Serialize(new{
+            businessId="enterprise",pluginScope="System",grantedCapabilities=manifest.Provides.Select(p=>p.Name).ToArray(),
+            grantedSubscriptions=Array.Empty<string>(),grantedPublications=Array.Empty<string>(),grantedPermissions=Array.Empty<string>(),grantedNetworkAccess=Array.Empty<string>()
+        }),new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var installed=await plugins.InstallAsync(package.Id,request);
+        Assert.Equal("YouTube",installed.AgentName);Assert.Equal(0,installed.MemoryMb);Assert.Equal(0,installed.CpuPercent);Assert.Null(installed.Schedule);
+        Assert.Empty(await db.AgentSchedules.ToArrayAsync());Assert.Empty(await db.AgentRuntimeInstances.ToArrayAsync());
+        Assert.Empty(await db.PluginConnections.ToArrayAsync());Assert.Empty(await db.PluginAccountBusinessGrants.ToArrayAsync());
+        Assert.NotNull(installed.Accounts);Assert.Equal("Ready",installed.SetupState);
+        var grant=await db.AgentInstallationGrants.SingleAsync();Assert.Equal("{}",grant.ResourceLimitsJson);Assert.Equal(0,grant.MaxRuntimeSeconds);
+        Assert.Equal(status==AgentPackageVersionStatus.Previewed?1:0,await db.AgentBuildJobs.CountAsync());
+        var service=CreateService(db);
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.RunNowAsync(installed.Id));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.UpdateScheduleAsync(installed.Id,new("AlwaysOn",300,"Skip",600,true)));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.RetryStartupAsync(installed.Id));
+        var retry=await Assert.ThrowsAsync<AgentInstallationException>(()=>plugins.InstallAsync(package.Id,request));
+        Assert.Contains("already installed",retry.Message);Assert.Single(await db.AgentInstallations.ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task ExecutableFirstPartyAgentsStillRequireTheirRuntimeResources()
+    {
+        await using var db=CreateDbContext();var package=await SeedAsync(db);package.PublisherId="com.csweet";await db.SaveChangesAsync();
+        var service=CreateService(db);
+        var error=await Assert.ThrowsAsync<AgentInstallationException>(()=>service.InstallAsync(package.Id,ValidRequest() with{MemoryMb=512}));
+        Assert.Contains("at least 1024",error.Message);
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.InstallAsync(package.Id,ValidRequest() with{MemoryMb=1024,CpuPercent=0}));
+        await Assert.ThrowsAsync<AgentInstallationException>(()=>service.InstallAsync(package.Id,ValidRequest() with{MemoryMb=1024,ActivationMode=string.Empty}));
+        Assert.Empty(await db.AgentInstallations.ToArrayAsync());
     }
 
     private static InstallAgentRequest ValidRequest() => new(

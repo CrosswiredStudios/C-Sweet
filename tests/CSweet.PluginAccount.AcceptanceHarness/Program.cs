@@ -17,6 +17,25 @@ builder.Services.AddScoped<IBusinessContext, TestBusinesses>();
 var app = builder.Build();
 app.UseStaticFiles(); app.UseAntiforgery();
 app.MapPost("/test/reset", async (AcceptanceState data) => { await data.Reset(); return Results.NoContent(); });
+app.MapPost("/test/reset-youtube-install",async(AcceptanceState data)=>
+{
+    await data.Reset();await data.Run(async()=>
+    {
+        using var source=typeof(AgentInstallationServiceTests).Assembly.GetManifestResourceStream("YouTubeConnector.0.2.0.json")!;
+        var package=data.Fixture.Inner.Connector.PackageVersion!;package.ManifestJson=await new StreamReader(source).ReadToEndAsync();
+        var manifest=data.Manifest;package.AgentId=manifest.Id;package.AgentName=manifest.Name;package.Version=manifest.Version;
+        package.PublisherId=manifest.Publisher.Id;package.PublisherName=manifest.Publisher.Name;
+        data.Fixture.Inner.Connector.RevisionStatus=CSweet.Domain.Setup.PluginRevisionStatus.Retired;
+        // No runtime settings row is seeded: broker-only installation must not depend on one.
+        data.RealYouTubeInstall=true;await data.Fixture.Inner.Db.SaveChangesAsync();
+    });return Results.NoContent();
+});
+app.MapGet("/test/actual-installation",async(AcceptanceState data)=>await data.Run(async()=>new{
+    data.ActualInstallation?.AgentName,data.ActualInstallation?.MemoryMb,data.ActualInstallation?.CpuPercent,
+    hasSchedule=data.ActualInstallation?.Schedule!=null,
+    runtimeCount=await data.Fixture.Inner.Db.AgentRuntimeInstances.CountAsync(),
+    installationCount=await data.Fixture.Inner.Db.AgentInstallations.CountAsync(i=>i.Id==data.ActualInstallation!.Id)
+}));
 app.MapPost("/test/run-cleanup",async(AcceptanceState data)=>{await data.Run(()=>data.Fixture.Service.ProcessPendingAsync(default));return Results.NoContent();});
 app.MapGet("/test/cleanup-receipt-count",async(AcceptanceState data)=>await data.Run(()=>data.Fixture.Inner.Db.PluginAccountCleanupReceipts.CountAsync()));
 app.MapGet("/test/memory-confirmation-count",async(AcceptanceState data)=>await data.Run(()=>data.Fixture.Inner.Db.PluginAccountDataCopies.CountAsync(c=>c.Store=="external:memory" && c.DeletedAt!=null)));

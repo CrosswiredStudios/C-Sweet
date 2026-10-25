@@ -27,8 +27,6 @@ public partial class Plugins
     private bool CanInstall => !_busy && !_loading && _installationPolicy?.ImportedPluginsEnabled == true && _preview is not null && _approve && !HasMissingConfiguration &&
         (_preview.PluginKind != "Connector" || _preview.Accounts is not null || _businessId.HasValue) &&
         (_preview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _acknowledgeAllPublic);
-    private static string PluginIcon(string id) => PluginCatalog.Entries.FirstOrDefault(x => x.Id == id)?.Icon
-        ?? MudBlazor.Icons.Material.Outlined.Extension;
     private string InstallationScope(AgentInstallationResponse installation) => installation.InstallationScope == "System"
         ? L["Plugins.Import.SystemScope"]
         : BusinessContext.Businesses.FirstOrDefault(x => x.Id.ToString("D").Equals(installation.BusinessId, StringComparison.OrdinalIgnoreCase))?.Name ?? installation.BusinessId;
@@ -235,19 +233,20 @@ public partial class Plugins
         try
         {
             var service = _preview.PluginKind == "Service";
+            var brokerOnly = _preview.PluginKind == "Connector";
             var enterprise = service || _preview.Accounts is not null;
             var bundle = _preview.PackageSourceMode == "PluginBundle";
             var request = new InstallAgentRequest(
                 enterprise ? "enterprise" : _businessId!.Value.ToString("D"),
-                service ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
-                _preview.DefaultTickFrequencySeconds ?? 300,
-                "Skip",
+                brokerOnly ? string.Empty : service ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
+                brokerOnly ? 0 : _preview.DefaultTickFrequencySeconds ?? 300,
+                brokerOnly ? string.Empty : "Skip",
                 _preview.Capabilities,
                 _preview.RequestedSubscriptions,
                 _preview.RequestedPublications,
                 _preview.RequestedPermissions,
                 _preview.RequestedNetworkAccess,
-                300, 512, 50)
+                brokerOnly ? 0 : 300, brokerOnly ? 0 : 512, brokerOnly ? 0 : 50)
             {
                 PluginScope = enterprise ? "System" : "Organization",
                 AllPublicWebAccessAcknowledged = _acknowledgeAllPublic,

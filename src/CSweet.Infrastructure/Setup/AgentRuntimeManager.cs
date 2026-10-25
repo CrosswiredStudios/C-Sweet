@@ -181,6 +181,9 @@ public sealed partial class AgentRuntimeManager(
 
     private async Task EnsureComputeRequestedBestEffortAsync(Guid installationId, CancellationToken cancellationToken)
     {
+        // Reject before compute provisioning, even for legacy connector installations with a schedule.
+        if(await dbContext.AgentInstallations.AnyAsync(i=>i.Id==installationId && i.PackageVersion!.PluginKind==PluginKind.Connector,cancellationToken))
+            throw new AgentInstallationException("Broker-only connectors execute through the host broker and do not have VM runtimes.");
         if (computeDefaults is null) return;
         try
         {
@@ -204,7 +207,7 @@ public sealed partial class AgentRuntimeManager(
         var now = DateTimeOffset.UtcNow;
         var installationIds = await dbContext.AgentInstallations
             .AsNoTracking()
-            .Where(x => x.IsEnabled &&
+            .Where(x => x.IsEnabled && x.PackageVersion!.PluginKind != PluginKind.Connector &&
                 x.Schedule != null &&
                 x.Schedule.IsEnabled &&
                 x.Schedule.ActivationMode == ActivationMode.AlwaysOn &&
@@ -301,7 +304,7 @@ public sealed partial class AgentRuntimeManager(
     {
         var now = DateTimeOffset.UtcNow;
         var dueIds = await dbContext.AgentSchedules.AsNoTracking()
-            .Where(x => x.IsEnabled && x.NextTickAt != null && x.NextTickAt <= now)
+            .Where(x => x.IsEnabled && x.AgentInstallation!.PackageVersion!.PluginKind != PluginKind.Connector && x.NextTickAt != null && x.NextTickAt <= now)
             .OrderBy(x => x.NextTickAt).Select(x => x.Id)
             .Take(Math.Clamp(options.Value.MaximumScheduleClaimsPerIteration, 1, 100))
             .ToListAsync(cancellationToken);
@@ -1167,9 +1170,12 @@ public sealed partial class AgentRuntimeManager(
     private async Task<AgentRuntimeGlobalSettings> SettingsAsync(CancellationToken cancellationToken)
         => await dbContext.AgentRuntimeGlobalSettings.SingleAsync(cancellationToken);
 
-    private Task<AgentRuntimeEligibility> EvaluateEligibilityAsync(
-        Guid installationId, CancellationToken cancellationToken) =>
-        eligibility.EvaluateAsync(installationId, cancellationToken);
+    private async Task<AgentRuntimeEligibility> EvaluateEligibilityAsync(Guid installationId, CancellationToken cancellationToken)
+    {
+        if(await dbContext.AgentInstallations.AnyAsync(i=>i.Id==installationId && i.PackageVersion!.PluginKind==PluginKind.Connector,cancellationToken))
+            return new(false,"Broker-only connectors execute through the host broker and do not have VM runtimes.");
+        return await eligibility.EvaluateAsync(installationId,cancellationToken);
+    }
 
     private static IsolationWorkloadHandle? TryGetHandle(AgentRuntimeInstance instance) =>
         string.IsNullOrWhiteSpace(instance.IsolationProviderId) || string.IsNullOrWhiteSpace(instance.ProviderInstanceId)

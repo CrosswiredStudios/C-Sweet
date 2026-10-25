@@ -25,6 +25,8 @@ public sealed class AgentRuntimeEligibilityService(
             .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken);
         if (installation is null)
             return Denied("The installation does not exist.");
+        if(installation.PackageVersion?.PluginKind == PluginKind.Connector)
+            return Denied("Broker-only connectors execute through the host broker and do not have VM runtimes.");
         if (!installation.IsEnabled || installation.Schedule?.IsEnabled != true || installation.Grant is null)
             return Denied("The installation, schedule, or approved grant is disabled or unavailable.");
         var package = installation.PackageVersion!;

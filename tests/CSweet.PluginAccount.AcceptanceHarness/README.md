@@ -8,6 +8,13 @@ The harness hosts the actual `Plugins` and `PluginManage` Razor components with 
 identity/resource responses. Package preview/build/install is simulated; production endpoints,
 authentication, PostgreSQL concurrency, Google and the complete agent approval UI are **not** exercised.
 Service tests separately cover the actual enterprise installer and business/resource/agent binding.
+`/test/reset-youtube-install` selects a second scenario using the exact YouTube 0.2.0 manifest fixture
+and the production `AgentInstallationService`, with no runtime-settings row. Package preview and
+built-package verification remain synthetic; this does not download/build a GitHub release or sign
+in to Google. `/test/actual-installation` exposes only synthetic installation/resource counts.
+The normal account-flow scenario still uses a synthetic installation shortcut.
+For the YouTube scenario, the management page correctly reports the fake profile's mismatch with
+Google's declared endpoints. That is separate from installation success: no Google login is performed.
 The reset fixture explicitly uses a Production account-service environment, with the legacy preview
 flag disabled and cleanup adapters initially missing. Missing services must not gate account consent.
 

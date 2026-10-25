@@ -1,6 +1,6 @@
 # Enterprise plugin account implementation progress
 
-Updated: 2026-10-24 (native memory confirmation and non-gated onboarding increment). Scope: [approved plan](plugin-account-management-plan.md).
+Updated: 2026-10-25 (broker-only connector resource separation). Scope: [approved plan](plugin-account-management-plan.md).
 See [lifecycle implementation and explicit remaining boundaries](plugin-account-lifecycle.md).
 
 ## Implemented in source
@@ -10,6 +10,20 @@ native scope/privacy review → provider-hosted consent → authenticated import
 
 - SDK 5.5.0/protocol 2.4 remains the public account/resource/management contract. The host renders
   declarations without branching on Google/YouTube identifiers, scopes or channel-specific UI.
+- Plugin discovery now reads `CSweet.UI/Catalog/plugins.json` as a bundled resource, with local
+  brand artwork through `PluginCatalogIcon`. The YouTube listing uses the current
+  `CrosswiredStudios/CSweet.Plugins.Platform.YouTube` repository. Catalog edits require a UI release;
+  they are not live settings or grants. See the catalog README.
+- Service/connector installation is enabled by default, independent of the imported-agent and
+  community-agent always-on opt-ins. Existing agent settings are unchanged. Package review,
+  administration authorization, grants, resource limits and provider consent still apply.
+  The obsolete link from plugin availability to agent-runtime settings has been removed.
+- Broker-only connector correction (2026-10-25): `AgentInstallationService` ignores legacy VM
+  request fields for connector packages, stores zero runtime memory/CPU/duration and no schedule,
+  and does not require seeded runtime settings. Install/update approval, grants and configuration
+  review remain unchanged. Update staging/approval, build retry and pause/resume accept no schedule.
+  Runtime admission, automatic scheduling and manual runtime controls reject connectors. Executable
+  agents/services retain their resource checks. No YouTube-specific runtime exception was added.
 - `AgentInstallationService` accepts enterprise account connectors, rejects business scope and a
   second active installation. Zero connected accounts is valid. `Plugins` routes to `PluginManage`,
   explains build/profile readiness, and separates installation from external consent. Business
@@ -97,6 +111,20 @@ native scope/privacy review → provider-hosted consent → authenticated import
 
 ## Verification
 
+- Broker-only connector increment: **501 focused tests passed**. The exact local YouTube 0.2.0
+  manifest is embedded as a regression fixture (SHA-256
+  `DCD537620260D60D8B236B76F141BD3D2F705D0F9BD784C662DAF369CFFF08DD`). Tests install it with
+  VM/schedule request properties omitted, including with no runtime-settings row; verify zero
+  VM grants and no schedule/runtime, and preserve executable-agent resource checks.
+  Browser acceptance uses the production installer for that manifest and reaches the YouTube
+  management page. Package verification is synthetic; the fake provider profile intentionally does
+  not configure real Google consent. The separate synthetic account-to-disconnect story also passed.
+  No real release installation, Google sign-in, database migration or product restart was performed.
+- Catalog/default-availability increment: **106 focused tests passed** covering discovery/rendering,
+  correct YouTube repository review, plugin install/re-enable with both agent opt-ins disabled,
+  retained agent restrictions, installation-policy authorization and provider administration.
+  Synthetic browser checks passed the local SVG, desktop/mobile catalog, correct repository,
+  required approval and full install-to-disconnect story. No running product instance was restarted.
 - Native memory-confirmation increment: **467 passed, 1 opt-in PostgreSQL theory skipped** in the
   focused selection. Wider adjacent selection: **1,202 passed, 493 skipped, 3 failed**, the same
   previously documented memory expectations and isolated-output root assumption. Not a green

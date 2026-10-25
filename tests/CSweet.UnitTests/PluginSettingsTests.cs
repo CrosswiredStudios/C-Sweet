@@ -18,7 +18,7 @@ namespace CSweet.UnitTests;
 public sealed class PluginSettingsTests
 {
     [Fact]
-    public async Task DisabledRuntimeShowsExplanationAndCannotInstallAfterApproval()
+    public async Task UnavailableServerPolicyCannotInstallOrSendUsersToAgentRuntimeSettings()
     {
         var api = new Api { ImportsEnabled = false };
         var html = await Render(api, async page =>
@@ -28,8 +28,8 @@ public sealed class PluginSettingsTests
             await Invoke(page, "InstallAsync");
         });
         Assert.Null(api.InstalledRequest);
-        Assert.Contains("disabled by the runtime security policy", html);
-        Assert.Contains("/settings/agents/runtime", html);
+        Assert.Contains("Plugin installation is unavailable from this server", html);
+        Assert.DoesNotContain("/settings/agents/runtime", html);
     }
     [Fact]
     public async Task InstalledTabExcludesAgentsAndShowsNonAgentVersionsAndManagement()
@@ -71,6 +71,35 @@ public sealed class PluginSettingsTests
     }
 
     [Fact]
+    public async Task FindUsesBundledYouTubeBrandArtwork()
+    {
+        var html=await Render(new Api(),page=>
+        {
+            Call(page,"ChangeTab",1);Set(page,"_catalogSearch","YouTube");return Task.CompletedTask;
+        });
+        Assert.Contains("src=\"_content/CSweet.UI/images/brands/youtube.svg\"",html);
+        Assert.Contains("alt=\"YouTube Connection\"",html);
+        Assert.Contains("has-logo",html);
+        Assert.DoesNotContain("Godot Toolchain",html);
+    }
+
+    [Fact]
+    public async Task YouTubeCatalogReviewUsesCurrentRepositoryAndNeverAutoApprovesInstallation()
+    {
+        var entry=Assert.Single(PluginCatalog.Entries,e=>e.Id=="com.csweet.connector.youtube");
+        Assert.Equal("https://github.com/CrosswiredStudios/CSweet.Plugins.Platform.YouTube",entry.RepositoryUrl);
+        Assert.NotNull(typeof(PluginCatalog).Assembly.GetManifestResourceInfo("CSweet.PluginCatalog"));
+        Assert.Equal(PluginCatalog.Entries.Count,PluginCatalog.Entries.Select(e=>e.Id).Distinct().Count());
+        var api=new Api{PreviewKind="Connector"};
+        await Render(api,async page=>
+        {
+            await (Task)Call(page,"ReviewCatalogAsync",entry)!;
+            Assert.Equal(entry.RepositoryUrl,api.PreviewRequest!.RepositoryUrl);
+            await Invoke(page,"InstallAsync");Assert.Null(api.InstalledRequest);
+        });
+    }
+
+    [Fact]
     public async Task BundleMethodShowsCspbInputAndPreviewRequiresAFile()
     {
         var html = await Render(new Api(), page =>
@@ -101,7 +130,12 @@ public sealed class PluginSettingsTests
         });
         Assert.Equal(scope, api.InstalledRequest!.PluginScope);
         Assert.Equal(business, api.InstalledRequest.BusinessId);
-        Assert.Equal(kind == "Service" ? "AlwaysOn" : "OnDemand", api.InstalledRequest.ActivationMode);
+        Assert.Equal(kind == "Service" ? "AlwaysOn" : string.Empty, api.InstalledRequest.ActivationMode);
+        if(kind=="Connector")
+        {
+            Assert.Equal(0,api.InstalledRequest.MemoryMb);Assert.Equal(0,api.InstalledRequest.CpuPercent);
+            Assert.Equal(0,api.InstalledRequest.TickFrequencySeconds);Assert.Equal(0,api.InstalledRequest.MaxRuntimeSeconds);
+        }
     }
 
     [Fact]

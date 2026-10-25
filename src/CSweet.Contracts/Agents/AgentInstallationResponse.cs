@@ -17,7 +17,8 @@ public sealed record AgentInstallationResponse(
     IReadOnlyList<string> GrantedNetworkAccess,
     int MemoryMb,
     int CpuPercent,
-    AgentScheduleResponse Schedule,
+    // Null for broker-only connectors; VM settings do not apply to their operations.
+    AgentScheduleResponse? Schedule,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     AgentBuildSummaryResponse? Build = null,
