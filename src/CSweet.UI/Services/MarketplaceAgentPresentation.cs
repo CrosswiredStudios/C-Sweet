@@ -20,7 +20,7 @@ public static partial class MarketplaceAgentPresentation
         AgentCatalogBranding.IsImageUrl(value) ||
         (value is not null && BundledPortraitPath().IsMatch(value));
 
-    [GeneratedRegex(@"\A_content/CSweet\.UI/images/agents/[a-z0-9]+(?:-[a-z0-9]+)*-v[1-9][0-9]*\.jpg\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A_content/CSweet\.UI/images/agents/[a-z0-9]+(?:-[a-z0-9]+)*-v[1-9][0-9]*\.(?:jpg|png)\z", RegexOptions.CultureInvariant)]
     private static partial Regex BundledPortraitPath();
 
     public static string AccentStyle(string? value)
