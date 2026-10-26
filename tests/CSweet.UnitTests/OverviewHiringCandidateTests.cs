@@ -20,6 +20,32 @@ namespace CSweet.UnitTests;
 public sealed class OverviewHiringCandidateTests
 {
     [Fact]
+    public async Task DirectorHiringCardRendersMarcusWithHisBundledPngPortrait()
+    {
+        const string portrait = "_content/CSweet.UI/images/agents/video-game-director-v1.png";
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Video Game Director", "Lead games", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        {
+            SelectedCatalogAgentJson = JsonSerializer.Serialize(new
+            {
+                agentReference = "first-party:73a7b05e276c47c5bb17cd548fd40c4c", name = "Marcus Vale",
+                publisher = "C-Sweet", imageUrl = portrait
+            })
+        };
+        var services = new ServiceCollection().AddLogging();
+        services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton<NavigationManager, TestNavigation>();
+        services.AddSingleton(new HttpClient(new Handler()) { BaseAddress = new Uri("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<OverviewHiringCandidateCard>(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { ["OrganizationId"] = Guid.NewGuid(), ["Recommendation"] = recommendation })));
+        var html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains($"src=\"{portrait}\"", html);
+        Assert.Contains("Marcus Vale", html);
+    }
+
+    [Fact]
     public async Task BlockedAutomaticHireShowsItsReasonAndOffersTheSharedReview()
     {
         const string reason = "'LLM provider' must reference an enabled LLM provider profile.";

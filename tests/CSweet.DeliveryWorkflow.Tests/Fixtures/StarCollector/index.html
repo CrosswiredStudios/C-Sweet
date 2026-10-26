@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Star Collector · playable delivery fixture</title>
+<style>body{margin:0;background:#101827;color:#eff7ff;font:18px system-ui;display:grid;place-items:center;min-height:100vh}main{max-width:740px;padding:30px}small{color:#7dd3fc;text-transform:uppercase;letter-spacing:.15em}h1{font-size:48px;margin:12px 0}p{color:#b8c8dd;line-height:1.5}canvas{width:100%;background:#17253c;border:1px solid #415775;border-radius:18px;box-shadow:0 20px 60px #0007}button{background:#8be6cd;color:#10272c;padding:12px 24px;border:0;border-radius:10px;font:inherit;cursor:pointer}header,footer{display:flex;align-items:center;justify-content:space-between;gap:20px}#score{font-size:24px;font-weight:700}</style>
+<main><small>Playable workflow test fixture</small><h1>Star Collector</h1><p>Guide the mint orb through the arena and collect ten golden stars. Use the arrow keys or W A S D. No installation, network services, or paid assets.</p><header><p id="status" aria-live="polite">Collect all ten stars.</p><div id="score">0 / 10</div></header><canvas id="arena" width="640" height="360" aria-label="Star collecting game arena"></canvas><footer><p>One arena. One clear goal.</p><button id="restart">Restart game</button></footer></main>
+<script src="game.js"></script><script>
+const game = new StarGame(), keys = new Set(), canvas = document.querySelector('canvas'), ctx = canvas.getContext('2d');
+addEventListener('keydown', e => {if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key)){keys.add(e.key);e.preventDefault();}});
+addEventListener('keyup',e=>keys.delete(e.key));addEventListener('blur',()=>keys.clear());
+document.querySelector('#restart').onclick=()=>{game.reset();keys.clear();};
+let previous=0, elapsed=0;
+function draw(time){elapsed+=Math.min(100,time-previous);previous=time;while(elapsed>=16){game.step((keys.has('ArrowRight')||keys.has('d'))-(keys.has('ArrowLeft')||keys.has('a')),(keys.has('ArrowDown')||keys.has('s'))-(keys.has('ArrowUp')||keys.has('w')));elapsed-=16;}
+ctx.clearRect(0,0,640,360);ctx.strokeStyle='#243952';for(let x=0;x<640;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,360);ctx.stroke();}for(let y=0;y<360;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(640,y);ctx.stroke();}
+if(!game.won){ctx.fillStyle='#ffd46c';ctx.font='32px system-ui';ctx.textAlign='center';ctx.fillText('★',game.star.x,game.star.y+11);}ctx.shadowColor='#8be6cd';ctx.shadowBlur=20;ctx.fillStyle='#8be6cd';ctx.beginPath();ctx.arc(game.x,game.y,12,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+document.querySelector('#score').textContent=game.score+' / 10';document.querySelector('#status').textContent=game.won?'All stars collected. You win!':'Collect all ten stars.';requestAnimationFrame(draw);}requestAnimationFrame(draw);
+</script></html>
