@@ -510,6 +510,12 @@ public sealed class ExecutionBrokerSessionRunner(
                 diagnostics.CaptureExitDetail(session.WorkloadExit?.Detail);
                 await PersistBuilderDiagnosticsAsync(assignment.Id, diagnostics.Latest);
             }
+            var finalStatus = await dbContext.DeliveryBuilds.AsNoTracking().Where(x => x.Id == workload.DeliveryBuildId)
+                .Select(x => x.Status).SingleAsync(cancellationToken);
+            if (finalStatus is CSweet.WorkManagement.Contracts.DeliveryBuildStatuses.Failed or
+                CSweet.WorkManagement.Contracts.DeliveryBuildStatuses.Blocked or CSweet.WorkManagement.Contracts.DeliveryBuildStatuses.Cancelled or
+                CSweet.WorkManagement.Contracts.DeliveryBuildStatuses.Exhausted)
+                return;
             var result = await resultTask;
             logger.LogInformation(
                 "Toolchain broker session completed for assignment {AssignmentId}, build {BuildId}, artifact {ArtifactDigest}.",

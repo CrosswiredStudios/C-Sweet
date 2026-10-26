@@ -139,7 +139,7 @@ public sealed class ToolchainCertificationWorker(
     private static string? ManifestHash(DeliveryBuildRecord? build)
     {
         if (build is null || string.IsNullOrWhiteSpace(build.ProvenanceJson)) return null;
-        try { return JsonSerializer.Deserialize<W.BuildExecutionProvenance>(build.ProvenanceJson)?.NormalizedOutputManifestHash; }
+        try { return JsonSerializer.Deserialize<W.BuildExecutionProvenance>(build.ProvenanceJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))?.NormalizedOutputManifestHash; }
         catch (JsonException) { return null; }
     }
     private static string? Aggregate(IEnumerable<string?> hashes)

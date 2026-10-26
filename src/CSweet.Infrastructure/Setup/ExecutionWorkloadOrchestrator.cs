@@ -419,6 +419,18 @@ public sealed partial class ExecutionWorkloadOrchestrator(
     public async Task<int> FenceExpiredAsync(CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow();
+        // A durable terminal provider report ends the managed workload even if its
+        // generic connected-service process remains alive. The stop journal still
+        // requires authoritative Office teardown before releasing VM capacity.
+        var completedBuildAssignments = await dbContext.ExecutionWorkloadAssignments.AsNoTracking().Where(x =>
+            x.WorkloadKind == ExecutionWorkloadKind.ToolchainBuild && x.DeliveryBuildId != null &&
+            ActiveStatuses.Contains(x.Status) && dbContext.DeliveryBuilds.Any(build => build.Id == x.DeliveryBuildId &&
+                (build.Status == W.DeliveryBuildStatuses.Succeeded || build.Status == W.DeliveryBuildStatuses.Failed ||
+                 build.Status == W.DeliveryBuildStatuses.Blocked || build.Status == W.DeliveryBuildStatuses.Cancelled ||
+                 build.Status == W.DeliveryBuildStatuses.Exhausted && build.Attempt > 0)))
+            .OrderBy(x => x.QueuedAt).Select(x => x.Id).Take(100).ToArrayAsync(cancellationToken);
+        foreach (var id in completedBuildAssignments)
+            await CancelAsync(id, "The provider recorded a terminal build result; stop its managed VM.", cancellationToken);
         var expired = await dbContext.ExecutionWorkloadAssignments
             .Include(x => x.ExecutionNode)
             .Where(x => ActiveStatuses.Contains(x.Status) && x.LeaseExpiresAt <= now)
@@ -470,7 +482,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             RefreshBuildRevision(assignment, deliveryBuild);
         }
         if (expired.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
-        return expired.Count;
+        return expired.Count + completedBuildAssignments.Length;
     }
 
     private async Task ReconcileToolchainBuildTerminationAsync(
