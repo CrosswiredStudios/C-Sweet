@@ -40,8 +40,12 @@ public sealed class CreativeHandoffJourneyTests
         var creative = new AgentCoordinationParticipant(naomi, Guid.NewGuid(), "Naomi", "Target");
         var parent = new AgentCoordinationSession(parentId, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), manager,
             new(producer, Guid.NewGuid(), "Gabriel", "Target"), "Production brief", "Plan", [], "Blocked", 3, 3, director, false, null,
-            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [new(Guid.NewGuid(), 2, director, "Blocked", "Awaiting Naomi's creative review of the exact production brief.", DateTimeOffset.UtcNow)]);
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, [new(Guid.NewGuid(), 1, producer, "Continue", "Ready", DateTimeOffset.UtcNow,
+                new("video-game.production.pitch-review.v1", "1.0", "pitch", 1, true, E(new { pitchDigest = "pitch", documentId, revisionId,
+                    revisionSha256 = hash, ready = true, questions = Array.Empty<string>(), rationale = "Ready" }), "review")),
+                new(Guid.NewGuid(), 2, director, "Blocked", "Awaiting Naomi's creative review of the exact production brief.", DateTimeOffset.UtcNow)]);
         var context = new AgentWorkContext(organization, project, team, null, null, null, null, parentId, null, null);
+        parent = parent with { WorkContext = context };
         AgentTestRuntime Runtime(Guid actor) => new AgentTestRuntime()
             .RegisterCapability<AgentOperatingStateReadRequest, AgentOperatingStateReadResponse>(PlatformCapabilities.AgentOperatingStateRead, (r, _) => Task.FromResult(new AgentOperatingStateReadResponse(stores[actor].GetValueOrDefault(r.StateKey))))
             .RegisterCapability<AgentOperatingStateWriteRequest, AgentOperatingStateResponse>(PlatformCapabilities.AgentOperatingStateWrite, (r, _) => Task.FromResult(stores[actor][r.StateKey] = Saved(r.StateKey, r.Payload)))
