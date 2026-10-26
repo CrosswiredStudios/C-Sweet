@@ -20,6 +20,8 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Game studio startup recovery](game-studio-startup-recovery.md) maps Producer ownership, metadata validation, revised proposal recovery and platform token-budget configuration boundaries.
+
 [Prism Break project setup recovery](prism-break-project-setup-recovery.md) documents
 artifact-aware collaboration loop detection, repeated-failure self-requeue suppression,
 notification reuse, Producer metadata corrections, project-state promotion, resumed

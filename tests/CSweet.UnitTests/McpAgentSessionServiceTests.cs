@@ -13,6 +13,29 @@ namespace CSweet.UnitTests;
 public sealed class McpAgentSessionServiceTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlatformTokenBudgetsReachRuntimeOnlyWhenDeclaredByTheAgent(bool declared)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Package.ManifestJson = JsonSerializer.Serialize(new {
+            requires = new[] { new { name = CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream } },
+            configuration = declared
+                ? new[] { new { key = "maxContextWindowTokens", type = "number" }, new { key = "maxOutputTokens", type = "number" } }
+                : Array.Empty<object>()
+        });
+        await fixture.Db.SaveChangesAsync();
+        var issue = await fixture.EstablishAsync();
+        Assert.Equal(declared, issue.Configuration!.Settings.ContainsKey(AgentTokenBudget.ContextKey));
+        Assert.Equal(declared, issue.Configuration.Settings.ContainsKey(AgentTokenBudget.OutputKey));
+        Assert.Contains("llmModel", issue.Configuration.Settings.Keys);
+        var effective = await new AgentInstallationConfigurationService(fixture.Db, new TestAuditEventWriter())
+            .ResolveInstallationAsync(fixture.Installation.Id);
+        Assert.Equal(128000, AgentTokenBudget.ResolveOutput(effective.Settings));
+        Assert.Equal(256000, effective.Settings[AgentTokenBudget.ContextKey].GetInt32());
+    }
+
+    [Theory]
     [InlineData("valid", true)]
     [InlineData("wrong-token", false)]
     [InlineData("revoked", false)]
