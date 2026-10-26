@@ -270,6 +270,7 @@ public partial class Plugins
                 brokerOnly ? 0 : 300, memoryMb, brokerOnly ? 0 : 50)
             {
                 PluginScope = enterprise ? "System" : "Organization",
+                ExpectedPackageDigest = _updateTarget is null ? null : _preview.BundleDigest,
                 AllPublicWebAccessAcknowledged = _acknowledgeAllPublic,
                 GrantedRequestedCapabilities = _preview.RequestedCapabilities,
                 ConfigurationSettings = _configurationValues
