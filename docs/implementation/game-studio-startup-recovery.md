@@ -17,3 +17,13 @@ Creative review continuation: `VideoGameCreativeDirectorAgent.ValidReview` and `
 
 `CanResumeCreativeParent` (Director 0.2.5) also binds completion wakes to the parent's latest authenticated Producer brief revision. A completed review of an older draft cannot repeatedly resume a newer draft that is still waiting for its own independent review.
 `VideoGameDirectorAgent.ValidCreativeReview` and `VideoGameCreativeDirectorAgent.ValidReview` accept supporting observations alongside an accepted disposition. An accepted review still requires no required changes and no unresolved Director question. Director 0.2.6 and Creative Director 4.0.3 carry this correction; `CreativeHandoffJourneyTests` now exercises positive findings through the real cross-role callbacks.
+
+`EnsureProductionBoardAsync` (Producer 6.0.2) uses compact project-linked metadata rather than copying the full game outcome into the 2,048-character board description. `PitchRefinementTests.QuestionsThenRefinementThenExactApprovalUnlocksPlanningAndRetriesKeepOneDocument` exercises short and 12,000-character outcomes through approval, initial staffing and post-hire board creation.
+
+`EnsureToolchainDecisionAsync` (Director 0.2.7) reads the current authorized team roster and uses `RoleTaxonomy.SelectAssignment` for technical leadership. The original leadership snapshot can predate the Producer's technical hires; it must not hide a new or replacement Technical Director after package creation. Tests cover first hire, replacement, removal, wrong team/role and unavailable staff.
+
+The Node/TypeScript build provider 1.0.1 builds against published SDK 5.5.0, aligns its metadata response schema, and publishes a verified `.cspb` with a checksum. Installing that provider and certifying it on an eligible Office image remain separate prerequisites; a published artifact alone creates no execution eligibility.
+
+Live PRISM BREAK verification on 2026-10-25: the CEO's `continue-current-plan` answer was retained, the Producer revised the exact production brief, Naomi accepted it, the Director accepted revision `b082164c-9405-4256-b448-62511d8f8e1c`, and the approved staffing proposal resulted in active Technical Director, engineering and QA hires. Board creation then exposed the long-description failure above. No CEO decision was answered by this recovery work, and no stored manifest, package digest or installed payload was patched.
+
+Additional verification: the two `AgentDeliveryJourneyTests` passed through real Git integration, source review, failed QA, reviewed rework and passed QA, including the authored playable-game fixture. These scripted provider/broker journeys do not establish that the live PRISM BREAK game has a completed build.
