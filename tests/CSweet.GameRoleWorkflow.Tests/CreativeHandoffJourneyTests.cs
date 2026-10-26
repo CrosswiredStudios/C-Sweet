@@ -64,7 +64,7 @@ public sealed class CreativeHandoffJourneyTests
             .RegisterCapability<JsonElement, JsonElement>(PlatformCapabilities.LlmChatStream, (r, _) => {
                 var system = r.GetProperty("messages")[0].GetProperty("text").GetString()!;
                 if (actor == naomi) { creativeModels++; Assert.Contains("independent-reviewer", system);
-                    return Task.FromResult(E(new { text = JsonSerializer.Serialize(new { disposition = changesRequired ? "changes-required" : "accepted", summary = "Reviewed exact player experience.", findings = changesRequired ? new[]{"Player promise changed"} : [], requiredChanges = changesRequired ? new[]{"Restore the approved one-arena scope"} : [], requiresDirector }), role = "assistant" })); }
+                    return Task.FromResult(E(new { text = JsonSerializer.Serialize(new { disposition = changesRequired ? "changes-required" : "accepted", summary = "Reviewed exact player experience.", findings = changesRequired ? new[]{"Player promise changed"} : new[]{"The approved player promise is preserved"}, requiredChanges = changesRequired ? new[]{"Restore the approved one-arena scope"} : [], requiresDirector }), role = "assistant" })); }
                 directorModels++; Assert.Contains("production-baseline-review", system);
                 return Task.FromResult(E(new { text = "{\"accept\":true,\"guidance\":\"Approved scope and budget are preserved.\",\"suggestedMarkdown\":\"\",\"requiresOwner\":false}", role = "assistant" }));
             });
