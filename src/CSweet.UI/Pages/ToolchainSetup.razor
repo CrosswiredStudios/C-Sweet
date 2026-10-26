@@ -1,0 +1,99 @@
+@page "/settings/toolchains"
+@layout SettingsLayout
+@using CSweet.Contracts.Core
+@inject IPluginApiClient PluginApi
+@inject IBusinessContext BusinessContext
+@inject IAppLocalizer L
+
+<PageTitle>@L["Toolchains.Title"]</PageTitle>
+<div class="setup-shell">
+    <MudPaper Elevation="0" Class="page-header">
+        <div><MudText Typo="Typo.h3">@L["Toolchains.Title"]</MudText><MudText>@L["Toolchains.Intro"]</MudText></div>
+        <MudButton OnClick="LoadAsync" Disabled="_busy">@L["Common.Refresh"]</MudButton>
+    </MudPaper>
+    <MudPaper Class="pa-5" Outlined="true" Elevation="0">
+        <MudSelect T="Guid?" Value="_business" ValueChanged="BusinessChanged" Label="@L["Plugins.Import.Business"]" Disabled="_busy">
+            @foreach (var business in BusinessContext.Businesses) { <MudSelectItem T="Guid?" Value="@((Guid?)business.Id)">@business.Name</MudSelectItem> }
+        </MudSelect>
+        @if (!string.IsNullOrWhiteSpace(_error)) { <MudAlert Severity="Severity.Error" Class="my-3">@_error</MudAlert> }
+        @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+        @if (_setup is not null)
+        {
+            @if (_setup.Providers.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Class="my-3">@L["Toolchains.NoProvider"]</MudAlert>
+                <MudButton Href="/settings/plugins">@L["Toolchains.InstallProvider"]</MudButton>
+            }
+            else
+            {
+                <MudSelect T="ToolchainCertificationProvider" Value="_provider" ValueChanged="ProviderChanged" Label="@L["Toolchains.Provider"]" Disabled="_busy" Class="mt-3">
+                    @foreach (var provider in _setup.Providers) { <MudSelectItem T="ToolchainCertificationProvider" Value="@provider">@provider.DisplayName @provider.PackageVersion</MudSelectItem> }
+                </MudSelect>
+                @if (_provider is not null)
+                {
+                    <MudSelect T="string" Value="_profile" ValueChanged="ProfileChanged" Label="@L["Toolchains.Profile"]" Disabled="_busy" Class="mt-3">
+                        @foreach (var profile in _provider.EnvironmentProfiles) { <MudSelectItem T="string" Value="@profile">@profile</MudSelectItem> }
+                    </MudSelect>
+                }
+                <MudSelect T="string" Value="_image" ValueChanged="ImageChanged" Label="@L["Toolchains.Image"]" Disabled="_busy" Class="mt-3">
+                    @foreach (var image in _setup.Images) { <MudSelectItem T="string" Value="@image.Digest">@image.OfficeName · @image.Digest</MudSelectItem> }
+                </MudSelect>
+                @if (_setup.Images.Count == 0) { <MudAlert Severity="Severity.Warning" Class="my-3">@L["Toolchains.NoOffice"]</MudAlert> }
+                <MudAlert Severity="Severity.Info" Class="my-3">@L["Toolchains.ReviewHelp"]</MudAlert>
+                <MudCheckBox T="bool" @bind-Value="_reviewed" Label="@L["Toolchains.Reviewed"]" Disabled="_busy" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="StartAsync" Disabled="@(!CanStart)">@L["Toolchains.Start"]</MudButton>
+            }
+        }
+        @if (!string.IsNullOrWhiteSpace(_message)) { <MudAlert Severity="Severity.Info" Class="my-3">@_message</MudAlert> }
+        @foreach (var run in _runs)
+        {
+            <MudPaper Outlined="true" Elevation="0" Class="pa-3 mt-3">
+                <MudText Typo="Typo.subtitle1">@run.Status · @run.CompletedBuilds / @run.ScheduledBuilds</MudText>
+                <MudText Typo="Typo.body2">@run.EnvironmentProfileKey</MudText>
+                <MudText Typo="Typo.caption">@run.CreatedAt.ToLocalTime()</MudText>
+                @if (run.Status is "Failed" or "Revoked") { <MudText Color="Color.Error">@run.RevocationReason</MudText> }
+            </MudPaper>
+        }
+    </MudPaper>
+</div>
+
+@code {
+    private Guid? _business;
+    private ToolchainCertificationSetup? _setup;
+    private ToolchainCertificationProvider? _provider;
+    private string? _profile, _image, _error, _message;
+    private bool _busy, _reviewed;
+    private IReadOnlyList<ToolchainCertificationSummary> _runs = [];
+    private bool CanStart => !_busy && _reviewed && _business.HasValue && _provider is not null &&
+        _setup?.Providers.Contains(_provider) == true && _provider.EnvironmentProfiles.Contains(_profile ?? "") &&
+        _setup.Images.Any(x => x.Digest == _image) && !_runs.Any(x => x.ProviderInstallationId == _provider.InstallationId &&
+            x.ToolchainDefinitionId == _provider.DefinitionId && x.EnvironmentProfileKey == _profile && x.EnvironmentImageDigest == _image && x.Status is "Running" or "Pending");
+    protected override async Task OnInitializedAsync() { _business = BusinessContext.SelectedBusiness?.Id; await LoadAsync(); }
+    private async Task BusinessChanged(Guid? value) { _business = value; _message = null; await LoadAsync(); }
+    private void ProviderChanged(ToolchainCertificationProvider? value) { _provider = value; _profile = null; _reviewed = false; }
+    private void ProfileChanged(string? value) { _profile = value; _reviewed = false; }
+    private void ImageChanged(string? value) { _image = value; _reviewed = false; }
+    private async Task LoadAsync()
+    {
+        if (_busy) return;
+        _provider = null; _profile = null; _image = null; _reviewed = false; _setup = null; _runs = []; _error = null;
+        if (_business is not { } business) return;
+        _busy = true;
+        try { _setup = await PluginApi.GetToolchainSetupAsync(business); _runs = await PluginApi.GetToolchainCertificationsAsync(business); }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+    private async Task StartAsync()
+    {
+        if (!CanStart) return;
+        _busy = true; _error = null;
+        try
+        {
+            var run = await PluginApi.StartToolchainCertificationAsync(new(_business!.Value, _provider!.DefinitionId,
+                _provider.InstallationId, _profile!, _image!));
+            _runs = _runs.Prepend(run).ToArray(); _reviewed = false; _message = L["Toolchains.Queued"];
+        }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+}

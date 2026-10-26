@@ -1,5 +1,11 @@
 namespace CSweet.Contracts.Core;
 
+public sealed record ToolchainCertificationProvider(Guid DefinitionId, Guid InstallationId, string DisplayName,
+    string PackageVersion, IReadOnlyList<string> EnvironmentProfiles);
+public sealed record ToolchainCertificationImage(string OfficeName, string Digest);
+public sealed record ToolchainCertificationSetup(IReadOnlyList<ToolchainCertificationProvider> Providers,
+    IReadOnlyList<ToolchainCertificationImage> Images);
+
 public sealed record StartToolchainCertificationRequest(
     Guid OrganizationId,
     Guid ToolchainDefinitionId,

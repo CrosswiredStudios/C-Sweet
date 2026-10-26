@@ -19,10 +19,46 @@ public static class ToolchainCertificationEndpoints
         var group = endpoints.MapGroup("/api/admin/toolchain-certifications")
             .RequireAuthorization("HostAdministration");
         group.MapGet("", ListAsync);
+        group.MapGet("/setup", SetupAsync);
         group.MapGet("/{id:guid}", GetAsync);
         group.MapPost("", StartAsync);
         group.MapPost("/{id:guid}/revoke", RevokeAsync);
         return endpoints;
+    }
+
+    private static async Task<IResult> SetupAsync(Guid organizationId, CSweetDbContext db, CancellationToken token) =>
+        organizationId == Guid.Empty ? Results.BadRequest(new { error = "organization_required" })
+            : Results.Ok(await ReadSetupAsync(organizationId, db, token));
+
+    internal static async Task<ToolchainCertificationSetup> ReadSetupAsync(Guid organizationId, CSweetDbContext db, CancellationToken token)
+    {
+        var installations = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Where(x =>
+            x.BusinessId == organizationId.ToString() && x.Scope == PluginInstallationScope.Organization &&
+            x.IsEnabled && x.SetupState == PluginSetupState.Ready && x.RevisionStatus == PluginRevisionStatus.Active &&
+            x.PackageVersion!.Status == AgentPackageVersionStatus.Built && x.PackageVersion.PluginKind == PluginKind.Service)
+            .OrderBy(x => x.Id).Take(100).ToListAsync(token);
+        var ids = installations.Select(x => x.PackageVersion!.AgentId).Distinct().ToList();
+        var definitions = await db.ToolchainAdapterDefinitions.AsNoTracking().Where(x => ids.Contains(x.ProviderPackageId))
+            .OrderBy(x => x.Id).Take(250).ToListAsync(token);
+        var providers = new List<ToolchainCertificationProvider>();
+        foreach (var installation in installations)
+        foreach (var definition in definitions.Where(x => x.ProviderPackageId == installation.PackageVersion!.AgentId &&
+                     x.ProviderPackageVersion == installation.PackageVersion.Version))
+        {
+            using var json = JsonDocument.Parse(definition.DefinitionJson);
+            var profiles = json.RootElement.GetProperty("recipes").EnumerateArray()
+                .SelectMany(x => x.GetProperty("requiredEnvironmentProfileKeys").EnumerateArray().Select(y => y.GetString()!))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            providers.Add(new(definition.Id, installation.Id, definition.DisplayName, definition.ProviderPackageVersion, profiles));
+        }
+        var now = DateTimeOffset.UtcNow;
+        var nodes = await db.ExecutionNodes.AsNoTracking().Include(x => x.Providers).Where(x => x.Status == ExecutionNodeStatus.Ready &&
+            x.LastHeartbeatAt >= now.AddMinutes(-2)).OrderBy(x => x.Id).Take(100).ToListAsync(token);
+        var images = nodes.SelectMany(node => node.Providers.Where(provider => provider.IsAvailable &&
+            provider.SupportsToolchainBuildWorkloads && !string.IsNullOrWhiteSpace(provider.GuestImageDigest))
+            .Select(provider => new ToolchainCertificationImage(node.Name, provider.GuestImageDigest)))
+            .DistinctBy(x => x.Digest).ToArray();
+        return new(providers, images);
     }
 
     private static async Task<IResult> ListAsync(Guid? organizationId, CSweetDbContext db, CancellationToken token)
@@ -58,7 +94,8 @@ public static class ToolchainCertificationEndpoints
             return Results.BadRequest(new { error = "invalid_certification_request" });
         var definition = await db.ToolchainAdapterDefinitions.SingleOrDefaultAsync(x => x.Id == request.ToolchainDefinitionId, token);
         var installation = await db.AgentInstallations.Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
-            x.Id == request.ProviderInstallationId && x.BusinessId == request.OrganizationId.ToString() && x.IsEnabled &&
+            x.Id == request.ProviderInstallationId && x.BusinessId == request.OrganizationId.ToString() &&
+            x.Scope == PluginInstallationScope.Organization && x.IsEnabled &&
             x.SetupState == PluginSetupState.Ready && x.RevisionStatus == PluginRevisionStatus.Active, token);
         if (definition is null || installation?.PackageVersion is null) return Results.NotFound();
         if (installation.PackageVersion.AgentId != definition.ProviderPackageId || installation.PackageVersion.Version != definition.ProviderPackageVersion)

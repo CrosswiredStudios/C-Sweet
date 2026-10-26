@@ -19,13 +19,14 @@ public partial class Plugins
     private Guid? _managedId;
     private Guid? _removePending;
     private bool _acknowledgeAllPublic;
+    private bool IsToolchainProvider => _preview?.PluginKind == "Service" && _preview.ToolchainAdapters.Provides.Count > 0;
     private IEnumerable<AgentInstallationResponse> FilteredInstallations => _installations.Where(x =>
         $"{x.AgentName} {x.AgentId} {x.PublisherName} {x.PluginKind} {x.Summary}".Contains(_installedSearch, StringComparison.OrdinalIgnoreCase));
     private IEnumerable<PluginCatalogEntry> FilteredCatalog => PluginCatalog.Entries.Where(x =>
         (_catalogCategory == "All" || x.Category == _catalogCategory) &&
         $"{x.Name} {L[x.DescriptionKey]} {L[$"Plugins.Catalog.Category.{x.Category}"]}".Contains(_catalogSearch, StringComparison.OrdinalIgnoreCase));
     private bool CanInstall => !_busy && !_loading && _installationPolicy?.ImportedPluginsEnabled == true && _preview is not null && _approve && !HasMissingConfiguration &&
-        (_preview.PluginKind != "Connector" || _preview.Accounts is not null || _businessId.HasValue) &&
+        ((!IsToolchainProvider && (_preview.PluginKind != "Connector" || _preview.Accounts is not null)) || _businessId.HasValue) &&
         (_preview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _acknowledgeAllPublic);
     private string InstallationScope(AgentInstallationResponse installation) => installation.InstallationScope == "System"
         ? L["Plugins.Import.SystemScope"]
@@ -234,11 +235,11 @@ public partial class Plugins
         {
             var service = _preview.PluginKind == "Service";
             var brokerOnly = _preview.PluginKind == "Connector";
-            var enterprise = service || _preview.Accounts is not null;
+            var enterprise = service && !IsToolchainProvider || _preview.Accounts is not null;
             var bundle = _preview.PackageSourceMode == "PluginBundle";
             var request = new InstallAgentRequest(
                 enterprise ? "enterprise" : _businessId!.Value.ToString("D"),
-                brokerOnly ? string.Empty : service ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
+                brokerOnly ? string.Empty : IsToolchainProvider ? "OnDemand" : service ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
                 brokerOnly ? 0 : _preview.DefaultTickFrequencySeconds ?? 300,
                 brokerOnly ? string.Empty : "Skip",
                 _preview.Capabilities,

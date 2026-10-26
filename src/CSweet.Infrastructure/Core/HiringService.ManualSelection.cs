@@ -21,6 +21,7 @@ public sealed partial class HiringService
             x.AssignedAgentInstallationId != null && installations.Contains(x.AssignedAgentInstallationId.Value))
             .Select(x => new { x.OrganizationId, x.AssignedAgentInstallationId, x.CreationIdempotencyKey, x.ResultSummary }).ToListAsync(token);
         var result = new List<HiringRecommendationResponse>(cards.Count);
+        var branding = new Dictionary<(Guid OrganizationId, string Reference), AvailableAgent?>();
         foreach (var card in cards)
         {
             var plan = plans.Single(x => x.Id == card.Id);
@@ -32,7 +33,8 @@ public sealed partial class HiringService
                     : !plan.TeamId.HasValue && !plan.WorkstreamId.HasValue);
             var blocked = automatic ? blockedAttempts.SingleOrDefault(x => x.OrganizationId == plan.OrganizationId &&
                 x.AssignedAgentInstallationId == plan.RequestingInstallationId && x.CreationIdempotencyKey == $"{ChiefWorkCards.Prefix}hire:{plan.Id:N}")?.ResultSummary : null;
-            result.Add(card with { AutomaticHiringEnabled = automatic, AutomaticHiringBlockReason = blocked });
+            var display = await WithCurrentCandidateBrandingAsync(plan.OrganizationId, card, branding, token);
+            result.Add(display with { AutomaticHiringEnabled = automatic, AutomaticHiringBlockReason = blocked });
         }
         return result;
     }

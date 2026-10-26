@@ -202,7 +202,7 @@
                         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ArrowBack" OnClick="BackToSource" Disabled="_busy">@L["Plugins.Import.Back"]</MudButton>
                         <MudText Typo="Typo.h6" Class="mt-3">@_preview.AgentName</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">@_preview.PublisherName · @($"v{_preview.AgentVersion}") · @_preview.PluginKind</MudText>
-                        @if (_preview.PluginKind == "Connector" && _preview.Accounts is null)
+                        @if (IsToolchainProvider || _preview.PluginKind == "Connector" && _preview.Accounts is null)
                         {
                             <MudSelect T="Guid?" @bind-Value="_businessId" Label="@L["Plugins.Import.Business"]" Variant="Variant.Outlined" Disabled="_busy" Class="mt-4">
                                 @foreach (var business in BusinessContext.Businesses) { <MudSelectItem T="Guid?" Value="@((Guid?)business.Id)">@business.Name</MudSelectItem> }
@@ -210,6 +210,10 @@
                             @if (!_businessId.HasValue) { <MudAlert Severity="Severity.Warning">@L["Plugins.Import.BusinessRequired"]</MudAlert> }
                         }
                         else { <MudText Typo="Typo.body2" Class="mt-3">@L["Plugins.Import.SystemScope"]</MudText> }
+                        @if (IsToolchainProvider)
+                        {
+                            <MudAlert Severity="Severity.Info" Class="mt-3">This build provider serves the selected business. Installing it does not approve game builds. Certify it on an Office image before the Director can select it for a project.</MudAlert>
+                        }
                         <MudDivider Class="my-4" />
                         <MudText Typo="Typo.subtitle1">@L["Plugins.Import.AccessTitle"]</MudText>
                         @if (_preview.Accounts is { } accounts)

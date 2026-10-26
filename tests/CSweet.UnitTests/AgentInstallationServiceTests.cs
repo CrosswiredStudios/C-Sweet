@@ -1188,6 +1188,31 @@ public sealed class AgentInstallationServiceTests
         Assert.Empty(await db.AgentInstallations.ToArrayAsync());
     }
 
+    [Theory]
+    [InlineData("Organization", "OnDemand", true)]
+    [InlineData("System", "AlwaysOn", false)]
+    [InlineData("Organization", "AlwaysOn", false)]
+    public async Task DeclaredToolchainProviderInstallsForItsBusinessWithoutBecomingAnAlwaysOnCommunicationService(string scope, string activation, bool valid)
+    {
+        await using var db = CreateDbContext(); var package = await SeedAsync(db); package.PluginKind = PluginKind.Service;
+        var json = JsonNode.Parse(package.ManifestJson)!;
+        json["kind"] = "service";
+        json["toolchainAdapters"] = JsonSerializer.SerializeToNode(new { provides = new[] {
+            new { key = "node-typescript.v1", version = 1, definitionResource = "toolchains/node-typescript.v1.json" } } });
+        package.ManifestJson = json.ToJsonString(); await db.SaveChangesAsync();
+        IPluginInstallationService installer = CreateService(db); var business = Guid.NewGuid();
+        var request = ValidRequest() with { BusinessId = business.ToString(), PluginScope = scope, ActivationMode = activation };
+        if (!valid)
+        {
+            var error = await Assert.ThrowsAsync<AgentInstallationException>(() => installer.InstallAsync(package.Id, request));
+            Assert.Contains("one business", error.Message); Assert.Empty(await db.AgentInstallations.ToArrayAsync()); return;
+        }
+        var installed = await installer.InstallAsync(package.Id, request);
+        Assert.Equal(business.ToString(), installed.BusinessId); Assert.Equal("Organization", installed.InstallationScope);
+        Assert.Equal(ActivationMode.OnDemand, (await db.AgentSchedules.SingleAsync()).ActivationMode);
+        Assert.Empty(await db.ToolchainInstallationEligibilities.ToArrayAsync());
+    }
+
     private static InstallAgentRequest ValidRequest() => new(
         "default",
         "Scheduled",
