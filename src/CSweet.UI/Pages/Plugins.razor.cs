@@ -242,6 +242,7 @@ public partial class Plugins
             var brokerOnly = _preview.PluginKind == "Connector";
             var enterprise = service && !IsToolchainProvider || _preview.Accounts is not null;
             var bundle = _preview.PackageSourceMode == "PluginBundle";
+            var memoryMb = brokerOnly ? 0 : string.Equals(_preview.PublisherId, "com.csweet", StringComparison.Ordinal) ? 1024 : 512;
             var request = new InstallAgentRequest(
                 enterprise ? "enterprise" : _businessId!.Value.ToString("D"),
                 brokerOnly ? string.Empty : IsToolchainProvider ? "OnDemand" : service ? "AlwaysOn" : (_preview.DefaultActivationMode ?? "OnDemand"),
@@ -252,7 +253,7 @@ public partial class Plugins
                 _preview.RequestedPublications,
                 _preview.RequestedPermissions,
                 _preview.RequestedNetworkAccess,
-                brokerOnly ? 0 : 300, brokerOnly ? 0 : 512, brokerOnly ? 0 : 50)
+                brokerOnly ? 0 : 300, memoryMb, brokerOnly ? 0 : 50)
             {
                 PluginScope = enterprise ? "System" : "Organization",
                 AllPublicWebAccessAcknowledged = _acknowledgeAllPublic,
