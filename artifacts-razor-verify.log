@@ -1,0 +1,21 @@
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj : warning NU1903: Package 'Microsoft.AspNetCore.SignalR.Common' 10.0.9 has a known high severity vulnerability, https://github.com/advisories/GHSA-334f-vvp4-7g6p
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Components\AgentBuildProgressContent.razor(9,183): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(250,34): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(293,69): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(337,55): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(365,199): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(669,22): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+
+Build succeeded.
+
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj : warning NU1903: Package 'Microsoft.AspNetCore.SignalR.Common' 10.0.9 has a known high severity vulnerability, https://github.com/advisories/GHSA-334f-vvp4-7g6p
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Components\AgentBuildProgressContent.razor(9,183): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(250,34): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(293,69): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(337,55): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(365,199): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\Pages\Communications.razor(669,22): warning CS8602: Dereference of a possibly null reference. [C:\Users\PC\Documents\GitHub\csweet\src\CSweet.UI\CSweet.UI.csproj]
+    7 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:13.75

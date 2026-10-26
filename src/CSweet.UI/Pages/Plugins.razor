@@ -56,9 +56,10 @@
                                     <div class="plugin-title"><MudText Typo="Typo.subtitle1">@installation.AgentName</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">@($"v{installation.AgentVersion}")</MudText></div>
                                     @if (!string.IsNullOrWhiteSpace(installation.Summary)) { <MudText Typo="Typo.body2" Color="Color.Secondary">@installation.Summary</MudText> }
                                     <MudText Typo="Typo.caption" Color="Color.Secondary">@L.Format("Plugins.Installed.Scope", new { kind = installation.PluginKind, scope = InstallationScope(installation) })</MudText>
+                                    @if (installation.RemovalPending) { <MudText Typo="Typo.body2" Color="Color.Warning">@L["Plugins.Installed.RemovalPendingHelp"]</MudText> }
                                 </div>
                                 <div class="plugin-row-actions">
-                                    <MudChip T="string" Size="Size.Small" Color="@(installation.IsEnabled ? Color.Success : Color.Default)">@(installation.IsEnabled ? L["Common.Enabled"] : L["Common.Disabled"])</MudChip>
+                                    <MudChip T="string" Size="Size.Small" Color="@(installation.RemovalPending ? Color.Warning : installation.IsEnabled ? Color.Success : Color.Default)">@InstallationState(installation)</MudChip>
                                     <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => Manage(installation))" Disabled="_busy" aria-expanded="@(_managedId == installation.Id)">@L["Plugins.Installed.Manage"]</MudButton>
                                 </div>
                             </div>

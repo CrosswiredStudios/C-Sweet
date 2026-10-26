@@ -1,9 +1,10 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using Microsoft.Extensions.Logging;
 
 namespace CSweet.UI.Localization;
 
-public sealed class AppLocalizer(LocalizationResources resources, AppCulture culture) : IAppLocalizer
+public sealed class AppLocalizer(LocalizationResources resources, AppCulture culture, ILogger<AppLocalizer>? logger = null) : IAppLocalizer
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo[]> PropertyCache = new();
     private readonly HashSet<string> _reportedMissing = [];
@@ -21,9 +22,9 @@ public sealed class AppLocalizer(LocalizationResources resources, AppCulture cul
         return IcuMessageFormatter.Format(pattern, ToDictionary(args), culture.Culture);
     }
 
-    public bool Has(string key) => Resolve(key) is not null;
+    public bool Has(string key) => Resolve(key, reportMissing: false) is not null;
 
-    private string? Resolve(string key)
+    private string? Resolve(string key, bool reportMissing = true)
     {
         if (string.IsNullOrEmpty(key))
         {
@@ -41,9 +42,11 @@ public sealed class AppLocalizer(LocalizationResources resources, AppCulture cul
             return fallback;
         }
 
-        if (_reportedMissing.Add(key))
+        if (reportMissing && _reportedMissing.Add(key))
         {
-            Console.Error.WriteLine($"[localization] missing resource key '{key}' ({culture.CurrentCode})");
+            // Blazor treats stderr output as a runtime failure and opens its global error UI.
+            // A missing translation has a safe fallback and is only a warning.
+            logger?.LogWarning("Missing localization resource key '{Key}' ({Culture})", key, culture.CurrentCode);
         }
 
         return null;

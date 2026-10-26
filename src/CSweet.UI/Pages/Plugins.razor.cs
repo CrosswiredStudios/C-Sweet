@@ -31,6 +31,10 @@ public partial class Plugins
     private string InstallationScope(AgentInstallationResponse installation) => installation.InstallationScope == "System"
         ? L["Plugins.Import.SystemScope"]
         : BusinessContext.Businesses.FirstOrDefault(x => x.Id.ToString("D").Equals(installation.BusinessId, StringComparison.OrdinalIgnoreCase))?.Name ?? installation.BusinessId;
+    private string InstallationState(AgentInstallationResponse installation) => installation.RemovalPending
+        ? L["Plugins.Installed.RemovalPending"]
+        : installation.RevisionStatus == "Staged" ? L["Plugins.Installed.UpdateReview"]
+        : installation.IsEnabled ? L["Common.Enabled"] : L["Common.Disabled"];
     private void ChangeTab(int tab)
     {
         if (_busy) return;
@@ -114,7 +118,8 @@ public partial class Plugins
         {
             _installationPolicy = await PluginApi.GetInstallationPolicyAsync();
             _installations.Clear();
-            _installations.AddRange((await PluginApi.ListAsync()).Where(x => x.PluginKind is "Service" or "Connector"));
+            _installations.AddRange((await PluginApi.ListAsync()).Where(x =>
+                (x.PluginKind is "Service" or "Connector") && x.RevisionStatus != "Retired"));
             _providerProfiles.Clear();
             if (RequiredProviderIds.Count > 0)
                 _providerProfiles.AddRange(await PluginApi.ListProviderProfilesAsync());

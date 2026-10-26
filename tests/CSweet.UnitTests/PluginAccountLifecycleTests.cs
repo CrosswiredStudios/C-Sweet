@@ -106,6 +106,8 @@ public sealed class PluginAccountLifecycleTests
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.ControlInstallationAsync(f.Admin,f.Id,new("Pause","modified",1),default));
         await f.Service.ControlInstallationAsync(f.Admin,f.Id,new("Pause",impact.ReviewHash,1),default);
         var paused=await f.Service.GetAsync(f.Admin,f.Id,default);Assert.False(paused.CanConnect);Assert.False(paused.Administration!.Enabled);
+        var plugins=AgentInstallationServiceTests.CreatePluginInstallerForAcceptance(f.Inner.Db);
+        Assert.False(Assert.Single(await plugins.ListAsync()).RemovalPending);
         Assert.Equal(PluginConnectionStatus.Connected,(await f.Inner.Db.PluginConnections.SingleAsync(x=>x.Id==account.Authorizations[0].Id)).Status);
         var current=await f.Service.GetInstallationImpactAsync(f.Admin,f.Id,default);
         await f.Service.ControlInstallationAsync(f.Admin,f.Id,new("Resume",current.ReviewHash,paused.Administration.Revision),default);
@@ -117,9 +119,35 @@ public sealed class PluginAccountLifecycleTests
         await using var f=await F.Create();await Connect(f);var impact=await f.Service.GetInstallationImpactAsync(f.Admin,f.Id,default);
         await f.Service.ControlInstallationAsync(f.Admin,f.Id,new("Remove",impact.ReviewHash,1),default);
         Assert.False(f.Inner.Connector.IsEnabled);Assert.Equal(PluginRevisionStatus.Active,f.Inner.Connector.RevisionStatus);
+        var plugins=AgentInstallationServiceTests.CreatePluginInstallerForAcceptance(f.Inner.Db);
+        Assert.True(Assert.Single(await plugins.ListAsync()).RemovalPending);
+        Assert.True((await plugins.GetAsync(f.Id))!.RemovalPending);
         await f.Service.ProcessPendingAsync(default);Assert.Equal(PluginRevisionStatus.Active,f.Inner.Connector.RevisionStatus);
+        Assert.True(Assert.Single(await plugins.ListAsync()).RemovalPending);
         f.DeletionParticipants.Add(new ConfirmedParticipant("external:backups"));await f.Service.ProcessPendingAsync(default);
         Assert.Equal(PluginRevisionStatus.Retired,f.Inner.Connector.RevisionStatus);
+        Assert.Empty(await plugins.ListAsync());
+        var retained=await plugins.GetAsync(f.Id);Assert.Equal("Retired",retained!.RevisionStatus);Assert.False(retained.RemovalPending);
+    }
+    [Fact]
+    public async Task RemovingNeverConnectedPluginImmediatelyLeavesInstalledButPreservesReceiptAccess()
+    {
+        await using var f=await F.Create();
+        f.Inner.Db.PluginConnections.RemoveRange(await f.Inner.Db.PluginConnections.ToArrayAsync());
+        await f.Inner.Db.SaveChangesAsync();
+        Assert.Empty(await f.Inner.Db.PluginAccountGroups.ToArrayAsync());
+        var plugins=AgentInstallationServiceTests.CreatePluginInstallerForAcceptance(f.Inner.Db);
+        Assert.Single(await plugins.ListAsync());
+        var impact=await f.Service.GetInstallationImpactAsync(f.Admin,f.Id,default);
+        Assert.Equal(0,impact.Accounts);
+        await f.Service.ControlInstallationAsync(f.Admin,f.Id,new("Remove",impact.ReviewHash,1),default);
+        Assert.Equal(PluginRevisionStatus.Retired,f.Inner.Connector.RevisionStatus);
+        Assert.Empty(await plugins.ListAsync());
+        Assert.Empty(await f.Inner.Db.PluginAccountDeletions.ToArrayAsync());
+        Assert.Empty(await f.Inner.Db.PluginAccountRevocationJobs.ToArrayAsync());
+        Assert.Equal("Retired",(await plugins.GetAsync(f.Id))!.RevisionStatus);
+        var view=await f.Service.GetAsync(f.Admin,f.Id,default);
+        Assert.True(view.Administration!.Retired);Assert.False(view.CanConnect);
     }
     [Fact]
     public async Task MissingCleanupServicesDoNotGateProductionConsentOrImport()
