@@ -8,6 +8,21 @@ namespace CSweet.UnitTests;
 
 public sealed class ChatMarkdownLinkTests
 {
+    [Theory]
+    [InlineData("javascript:alert%281%29")]
+    [InlineData("JaVaScRiPt:alert%281%29")]
+    [InlineData("data:text/html,unsafe")]
+    public async Task Active_content_link_schemes_are_neutralized(string destination)
+    {
+        await using var provider = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<ChatMarkdown>(ParameterView.FromDictionary(new Dictionary<string, object?> {
+                [nameof(ChatMarkdown.Content)] = $"[unsafe]({destination})" }))).ToHtmlString());
+        Assert.Contains("href=\"#\"", html);
+        Assert.DoesNotContain(destination, html);
+    }
+
     [Fact]
     public async Task Application_links_open_in_a_new_tab_with_opener_isolation_and_raw_html_stays_disabled()
     {

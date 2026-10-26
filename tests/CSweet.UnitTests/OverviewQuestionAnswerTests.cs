@@ -55,6 +55,23 @@ public sealed class OverviewQuestionAnswerTests
     }
 
     [Fact]
+    public async Task OverviewQuestionUsesMarkdownAndLinksToTheExactDecision()
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.Question = fixture.Api.Question with { Decision = fixture.Api.Question.Decision with {
+            Prompt = "**Choose the direction**\n\n- Keep the approved scope\n- Plan independent QA\n\n<script>unsafe()</script>" } };
+        var output = await fixture.RenderAsync();
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("decision-preview-text", html);
+        Assert.Contains("<strong>Choose the direction</strong>", html);
+        Assert.Contains("<li>Keep the approved scope</li>", html);
+        Assert.Contains($"/communications/{fixture.Api.Question.ConversationId}?decision={fixture.Api.Question.Decision.Id}", html);
+        Assert.Contains("Read the full question in Communications", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.Empty(fixture.Api.Answers);
+    }
+
+    [Fact]
     public async Task InstalledAvatarAndMenuLinkBelongToTheRequestingAgent()
     {
         await using var fixture = new Fixture();

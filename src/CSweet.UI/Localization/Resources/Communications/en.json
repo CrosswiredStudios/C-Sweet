@@ -150,5 +150,7 @@
   "_dynamic.ShareWorkInstruction": "ShareWorkInstruction.Status.* resolved from the publication status value.",
   "_dynamic": "CommunicationConnectionStatus.*, CommunicationWorkspaceMode.*, CommunicationChangeKind.*, CommunicationResourceKind.*, AgentCoordinationStatus.* and ChatTurnStatus.* are resolved from enum names.",
   "Communications.SendingAndConversationActionsAre": ". Sending and conversation actions are disabled.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "More",
+  "DecisionPrompt.ReadFullQuestion": "Read the full question in Communications"
 }

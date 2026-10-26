@@ -1,0 +1,24 @@
+@using CSweet.Contracts.Communications
+
+@if (!IsRedundant(Content, DecisionPrompt))
+{
+    <MentionedMessageContent Content="@Content" Mentions="Mentions" />
+}
+
+@code {
+    [Parameter, EditorRequired] public string Content { get; set; } = "";
+    [Parameter] public string? DecisionPrompt { get; set; }
+    [Parameter] public IReadOnlyList<CommunicationMessageMentionResponse> Mentions { get; set; } = [];
+
+    public static bool IsRedundant(string content, string? prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt)) return false;
+        var body = content.Replace("\r\n", "\n").Trim();
+        var question = prompt.Replace("\r\n", "\n").Trim();
+        if (!body.StartsWith(question, StringComparison.Ordinal)) return false;
+        var remaining = body[question.Length..].Trim();
+        return remaining.Length == 0 || remaining is
+            "Please review this project decision. Your response will be recorded against the project. Select an option below." or
+            "Please review this project decision. Your response will be recorded against the project. Use Something else to provide specific direction.";
+    }
+}

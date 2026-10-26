@@ -385,7 +385,7 @@
                                 </div>
                                   @if (message.ResourceChange is null && message.Actions?.Any(x => x.ApprovalId.HasValue) != true)
                                   {
-                                      <MentionedMessageContent Content="@message.Content" Mentions="@message.Mentions" />
+                                      <DecisionMessageBody Content="@message.Content" DecisionPrompt="@message.Decision?.Prompt" Mentions="@message.Mentions" />
                                       @if (!_hub.IsReadOnlyPerspective && _selected.IsDirect && _selected.IsPrivate &&
                                           _selected.Participants.Any(x => x.EmployeeType == "Agent") &&
                                           message.SenderOrganizationUserId == _hub.CurrentOrganizationUserId &&
@@ -542,10 +542,10 @@
                                     }
                                     else
                                     {
-                                    <section class="executive-decision-card" aria-label="@L["Communications.Decision.AriaLabel"]">
+                                    <section id="@($"decision-{decision.Id:D}")" tabindex="-1" class="executive-decision-card" aria-label="@L["Communications.Decision.AriaLabel"]">
                                         <header>
                                             <span>@L["Communications.Decision.Overline"]</span>
-                                            <strong>@decision.Prompt</strong>
+                                            <DecisionPrompt Content="@decision.Prompt" />
                                         </header>
                                         @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                         {
@@ -863,6 +863,9 @@
     private Guid? _loadedCollaborationId;
     [Parameter, SupplyParameterFromQuery(Name = "message")]
     public Guid? SourceMessageId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "decision")]
+    public Guid? DecisionId { get; set; }
+    private Guid? _focusedDecisionId;
     [Parameter, SupplyParameterFromQuery(Name = "artifact")]
     public Guid? ArtifactId { get; set; }
     private readonly CancellationTokenSource _disposeCts = new();
@@ -1038,6 +1041,21 @@
             catch (ObjectDisposedException) { }
             return;
         }
+        if (DecisionId is { } decisionId && _messages.Any(x => x.Decision?.Id == decisionId))
+        {
+            _scrollToBottomPending = false;
+            if (_focusedDecisionId == decisionId) return;
+            try
+            {
+                var module = await GetCommunicationsModuleAsync();
+                await module.InvokeVoidAsync("focusCollaboration", $"decision-{decisionId:D}");
+                _focusedDecisionId = decisionId;
+            }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+            return;
+        }
+        if (DecisionId is null) _focusedDecisionId = null;
         if (!_scrollToBottomPending) return;
         _scrollToBottomPending = false;
 

@@ -1,0 +1,42 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject IAppLocalizer L
+
+@if (Preview)
+{
+    <div class="decision-preview" @ref="_preview">
+        <div class="decision-preview-text"><ChatMarkdown Content="@Content" /></div>
+        <a class="decision-preview-more" href="@ConversationHref" aria-label="@L["DecisionPrompt.ReadFullQuestion"]">@L["DecisionPrompt.More"]</a>
+    </div>
+}
+else
+{
+    <div class="decision-prompt"><ChatMarkdown Content="@Content" /></div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Content { get; set; } = "";
+    [Parameter] public bool Preview { get; set; }
+    [Parameter] public string? ConversationHref { get; set; }
+    private ElementReference _preview;
+    private IJSObjectReference? _module;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!Preview || !firstRender) return;
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/decisionPreview.js");
+            if (_module is not null) await _module.InvokeVoidAsync("observe", _preview);
+        }
+        catch (Exception error) when (error is JSException or InvalidOperationException or OperationCanceledException)
+        {
+            // The three-line CSS limit and conversation link also work without measurement.
+        }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is null) return;
+        try { await _module.InvokeVoidAsync("unobserve", _preview); await _module.DisposeAsync(); }
+        catch (Exception error) when (error is JSDisconnectedException or ObjectDisposedException or OperationCanceledException) { }
+    }
+}
