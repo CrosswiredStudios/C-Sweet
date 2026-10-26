@@ -38,4 +38,3 @@ public sealed class InternalCertificationProjectTests
         Assert.Equal(fixture.Id, (await db.Workstreams.SingleAsync(x => x.ProfileKey == WorkstreamPurpose.ToolchainCertificationProfile)).Id);
     }
 }
-
