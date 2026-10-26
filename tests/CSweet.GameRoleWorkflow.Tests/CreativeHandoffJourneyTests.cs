@@ -16,9 +16,10 @@ public sealed class CreativeHandoffJourneyTests
     static JsonElement E(object value) => JsonSerializer.SerializeToElement(value, Json);
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Producer_brief_waits_for_exact_Naomi_review_then_Marcus_accepts_and_replay_is_safe(bool changesRequired)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Producer_brief_waits_for_exact_Naomi_review_then_Marcus_accepts_and_replay_is_safe(bool changesRequired, bool requiresDirector)
     {
         var organization = Guid.NewGuid(); var director = Guid.NewGuid(); var naomi = Guid.NewGuid(); var producer = Guid.NewGuid();
         var project = Guid.NewGuid(); var team = Guid.NewGuid(); var parentId = Guid.NewGuid(); var childId = Guid.NewGuid();
@@ -59,7 +60,7 @@ public sealed class CreativeHandoffJourneyTests
             .RegisterCapability<JsonElement, JsonElement>(PlatformCapabilities.LlmChatStream, (r, _) => {
                 var system = r.GetProperty("messages")[0].GetProperty("text").GetString()!;
                 if (actor == naomi) { creativeModels++; Assert.Contains("independent-reviewer", system);
-                    return Task.FromResult(E(new { text = JsonSerializer.Serialize(new { disposition = changesRequired ? "changes-required" : "accepted", summary = "Reviewed exact player experience.", findings = changesRequired ? new[]{"Player promise changed"} : [], requiredChanges = changesRequired ? new[]{"Restore the approved one-arena scope"} : [], requiresDirector = false }), role = "assistant" })); }
+                    return Task.FromResult(E(new { text = JsonSerializer.Serialize(new { disposition = changesRequired ? "changes-required" : "accepted", summary = "Reviewed exact player experience.", findings = changesRequired ? new[]{"Player promise changed"} : [], requiredChanges = changesRequired ? new[]{"Restore the approved one-arena scope"} : [], requiresDirector }), role = "assistant" })); }
                 directorModels++; Assert.Contains("production-baseline-review", system);
                 return Task.FromResult(E(new { text = "{\"accept\":true,\"guidance\":\"Approved scope and budget are preserved.\",\"suggestedMarkdown\":\"\",\"requiresOwner\":false}", role = "assistant" }));
             });
@@ -87,6 +88,6 @@ public sealed class CreativeHandoffJourneyTests
         var final = await marcus.HandleCoordinationTurnAsync(request, directorContext, default);
         Assert.Equal("Continue", final.Disposition); Assert.Equal(!changesRequired, final.Artifact!.Payload.GetProperty("accepted").GetBoolean());
         await marcus.HandleCoordinationTurnAsync(request, directorContext, default);
-        Assert.Equal(changesRequired ? 0 : 1, decisions); Assert.Equal(changesRequired ? 0 : 1, directorModels); Assert.Equal(1, creativeModels);
+        Assert.Equal(changesRequired ? 0 : 1, decisions); Assert.Equal(changesRequired && !requiresDirector ? 0 : 1, directorModels); Assert.Equal(1, creativeModels);
     }
 }
