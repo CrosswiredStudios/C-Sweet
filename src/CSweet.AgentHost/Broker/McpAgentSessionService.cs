@@ -92,7 +92,8 @@ public sealed class McpAgentSessionService(
             LastRenewedAt = now,
             ExpiresAt = now.Add(SessionLifetime)
         };
-        var effectiveConfiguration = await configurations.ResolveInstallationAsync(installation.Id, cancellationToken);
+        var effectiveConfiguration = AgentTokenBudget.ForRuntime(package.ManifestJson,
+            await configurations.ResolveInstallationAsync(installation.Id, cancellationToken));
         db.McpAgentSessions.Add(entity);
         if (installation.DesiredConfigurationRevision > installation.AppliedConfigurationRevision)
         {
