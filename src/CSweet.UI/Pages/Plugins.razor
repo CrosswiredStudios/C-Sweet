@@ -71,6 +71,8 @@
                                     <MudText Typo="Typo.caption">@installation.AgentId · @installation.PublisherName</MudText>
                                     <MudStack Row="true" Wrap="Wrap.Wrap" Class="mt-3">
                                         <MudButton Variant="Variant.Outlined" OnClick="@(() => ToggleAsync(installation))" Disabled="_busy">@(installation.IsEnabled ? L["Plugins.Installed.Disable"] : L["Plugins.Installed.Enable"])</MudButton>
+                                        @if (installation.PluginKind == "Service" && installation.Accounts is null && !installation.RemovalPending && installation.RevisionStatus == "Active")
+                                        { <MudButton Variant="Variant.Outlined" OnClick="@(() => ReviewPublishedUpdate(installation))" Disabled="_busy">@L["Plugins.Installed.PublishedUpdate"]</MudButton> }
                                         <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => _removePending = installation.Id)" Disabled="_busy">@L["Plugins.Installed.Remove"]</MudButton>
                                     </MudStack>
                                     @if (_removePending == installation.Id)
@@ -246,8 +248,12 @@
                             <MudText Typo="Typo.caption">@L.Format("Plugins.Import.Manifest", new { file = _preview.ManifestFileName, digest = _preview.ManifestDigest })</MudText>
                         </div></MudExpansionPanel></MudExpansionPanels>
                         @if (_preview.WebAccess.Mode == PluginWebAccessMode.AllPublic) { <MudCheckBox @bind-Value="_acknowledgeAllPublic" Label="@L["Plugins.Import.AllPublic"]" Color="Color.Warning" Disabled="_busy" /> }
+                        @if (_updateTarget is not null)
+                        {
+                            <MudAlert Severity="@(UpdateMatches ? Severity.Info : Severity.Error)">@L.Format("Plugins.Import.UpdateTarget", new { name = _updateTarget.AgentName, version = _updateTarget.AgentVersion })</MudAlert>
+                        }
                         <MudCheckBox @bind-Value="_approve" Label="@L["Plugins.Import.Approve"]" Color="Color.Primary" Disabled="_busy" />
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(!CanInstall)">@L["Plugins.Import.BuildAndInstall"]</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(!CanInstall)">@L[_updateTarget is null ? "Plugins.Import.BuildAndInstall" : "Plugins.Import.UpdatePublished"]</MudButton>
                         @if (_preview.Accounts is null && RequiredProviderIds.Count > 0) { <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureFromReview" /> }
                     }
                     @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-4" aria-label="@L["Plugins.Import.Working"]" /> }
