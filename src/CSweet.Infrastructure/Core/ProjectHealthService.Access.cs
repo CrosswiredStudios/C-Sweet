@@ -25,7 +25,7 @@ public sealed partial class ProjectHealthService
 
     private async Task<bool> CanReadAsync(Guid organization, Guid actor, Guid projectId, ProjectIncident? incident, CancellationToken token)
     {
-        var project = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.Id == projectId, token);
+        var project = await db.Workstreams.BusinessProjects().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.Id == projectId, token);
         if (project is null) return false;
         var manager = await MonitoringManagerAsync(project, token);
         var people = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization && x.IsActive).ToListAsync(token);

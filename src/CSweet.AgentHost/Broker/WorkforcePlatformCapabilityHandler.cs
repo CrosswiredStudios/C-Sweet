@@ -283,7 +283,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
             .Select(x => new OrganizationRole(x.Id, x.Name, x.Description, x.ResponsibilitiesJson)).ToListAsync(token);
         var objectives = await db.CoreStrategicObjectives.AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .Select(x => new OrganizationObjective(x.Id, x.Title, x.Description, x.Status.ToString(), x.TargetDate)).ToListAsync(token);
-        var workstreams = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+        var workstreams = await db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .Select(x => new WorkstreamSummary(x.Id, x.Name, x.Outcome, x.Status.ToString(), x.LifecycleStage,
                 x.AccountableManagerOrganizationUserId, x.TargetDate, x.BudgetAmount, x.BudgetCurrency)).ToListAsync(token);
         var workers = await db.CoreWorkers.AsNoTracking().Where(x => x.OrganizationId == organizationId || x.OrganizationId == null).ToListAsync(token);

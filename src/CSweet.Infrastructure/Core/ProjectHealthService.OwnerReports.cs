@@ -26,7 +26,8 @@ public sealed partial class ProjectHealthService
     private async Task RefreshOwnerReportsAsync(CancellationToken token)
     {
         var now = clock.GetUtcNow(); var retryAt = now.AddMinutes(-15);
-        var candidates = await db.ProjectIncidents.Where(x => x.Status == "Open" &&
+        var businessProjectIds = db.Workstreams.BusinessProjects().Select(x => x.Id);
+        var candidates = await db.ProjectIncidents.Where(x => businessProjectIds.Contains(x.WorkstreamId) && x.Status == "Open" &&
             (x.OwnerReportRequestedAt == null || x.OwnerReportRequestedAt <= retryAt) &&
             db.CoreOrganizationUsers.Any(p => p.Id == x.CurrentRecipientId && p.IsActive && p.EmployeeType == EmployeeType.Human))
             .OrderBy(x => x.OwnerReportRequestedAt).ThenBy(x => x.DetectedAt).Take(25).ToListAsync(token);

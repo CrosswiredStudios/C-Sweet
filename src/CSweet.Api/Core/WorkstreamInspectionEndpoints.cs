@@ -33,7 +33,7 @@ public static class WorkstreamInspectionEndpoints
         var supervised = await db.WorkstreamSupervisionAssignments.AsNoTracking().Where(x =>
             x.OrganizationId == organizationId && x.SupervisorOrganizationUserId == actor.Id && x.EndsAt == null)
             .Select(x => x.WorkstreamId).ToListAsync(token);
-        var query = db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId);
+        var query = db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organizationId);
         if (actor.PermissionLevel < OrganizationPermissionLevel.Manager)
             query = query.Where(x =>
                 x.AccountableManagerOrganizationUserId == actor.Id ||
@@ -100,7 +100,7 @@ public static class WorkstreamInspectionEndpoints
         if (!applicationUserId.HasValue) return Results.Forbid();
         var actor = await db.CoreOrganizationUsers.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive, token);
-        var workstream = await db.Workstreams.SingleOrDefaultAsync(x =>
+        var workstream = await db.Workstreams.BusinessProjects().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.Id == workstreamId, token);
         var gate = await db.WorkstreamGates.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.WorkstreamId == workstreamId && x.Id == gateId, token);
@@ -166,7 +166,7 @@ public static class WorkstreamInspectionEndpoints
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.ApplicationUserId == applicationUserId && x.IsActive, token);
         if (actor is null) return Results.Forbid();
-        var workstream = await db.Workstreams.AsNoTracking().SingleOrDefaultAsync(x =>
+        var workstream = await db.Workstreams.BusinessProjects().AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.Id == workstreamId, token);
         if (workstream is null) return Results.NotFound();
 

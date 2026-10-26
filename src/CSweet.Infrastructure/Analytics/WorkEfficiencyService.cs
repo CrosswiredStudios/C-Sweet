@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Application.Analytics;
 using CSweet.Contracts.Analytics;
 using CSweet.Domain.Analytics;
+using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -32,7 +33,7 @@ public sealed class WorkEfficiencyService(CSweetDbContext db, TimeProvider clock
         if (truncated) logs.RemoveAt(MaximumRows);
         var items = await db.CoreWorkTasks.AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .OrderBy(x => x.CreatedAt).Take(MaximumRows + 1).ToListAsync(cancellationToken);
-        var projects = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+        var projects = await db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .OrderBy(x => x.CreatedAt).Take(MaximumRows + 1).ToListAsync(cancellationToken);
         var boards = await db.WorkBoards.AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .ToDictionaryAsync(x => x.Id, x => x.WorkstreamId, cancellationToken);

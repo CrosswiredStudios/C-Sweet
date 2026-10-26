@@ -19,6 +19,22 @@ public sealed partial class ProjectSetupTests
         db.CoreOrganizationUsers.AddRange(human, developer); return (human, developer);
     }
     [Fact]
+    public async Task ProjectIntakeCannotAssignDeveloperToCertificationFixtures()
+    {
+        await using var db = Db(); var (human, developer) = Seed(db);
+        var game = new Workstream { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId, Name = "Game", Status = WorkstreamStatus.Active };
+        var fixture = new Workstream { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId, Name = "Certification",
+            Status = WorkstreamStatus.Active, ProfileKey = WorkstreamPurpose.ToolchainCertificationProfile };
+        var intake = new ProjectIntake { Id = Guid.NewGuid(), OrganizationId = human.OrganizationId,
+            DeveloperId = developer.Id, DeveloperInstallationId = developer.AgentInstallationId!.Value,
+            RequestingHumanId = human.Id, Name = "Game work", Goal = "Playable game", IdempotencyKey = "request" };
+        db.AddRange(game, fixture, intake); await db.SaveChangesAsync();
+        var service = new ProjectIntakeService(db, TimeProvider.System, Service(db), new(db, TimeProvider.System), null!, null!);
+        Assert.Equal(game.Id, Assert.Single(await service.DiscoverAsync(human.OrganizationId,
+            developer.AgentInstallationId.Value, intake.Id, default)).Id);
+    }
+
+    [Fact]
     public async Task Existing_profile_manager_can_be_retained_when_explicit_participants_are_added()
     {
         await using var db = Db(); var (human, developer) = Seed(db);

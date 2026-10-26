@@ -321,7 +321,7 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
                   member.EndedAt == null && team.ArchivedAt == null &&
                   assignment.StartsAt <= now && assignment.EndsAt == null
             select assignment.WorkstreamId).Distinct().ToListAsync(token);
-        var query = db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+        var query = db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             (x.AccountableManagerOrganizationUserId == actorId || supervisedIds.Contains(x.Id) || assignedIds.Contains(x.Id)));
         if (request.WorkstreamIds is { Count: > 0 }) query = query.Where(x => request.WorkstreamIds.Contains(x.Id));
         if (!request.IncludeClosed) query = query.Where(x => x.Status != WorkstreamStatus.Completed && x.Status != WorkstreamStatus.Cancelled);
@@ -484,7 +484,7 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
     private async Task<Workstream> RequireVisibleWorkstreamAsync(
         Guid organizationId, Guid actorId, Guid workstreamId, bool managementRequired, CancellationToken token)
     {
-        var workstream = await db.Workstreams.SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.Id == workstreamId, token)
+        var workstream = await db.Workstreams.BusinessProjects().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.Id == workstreamId, token)
             ?? throw new KeyNotFoundException("The Workstream was not found.");
         var manager = workstream.AccountableManagerOrganizationUserId == actorId;
         var supervisor = await db.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x =>

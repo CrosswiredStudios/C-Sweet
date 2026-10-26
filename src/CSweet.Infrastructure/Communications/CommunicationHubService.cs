@@ -143,7 +143,7 @@ public sealed class CommunicationHubService(
             .Where(x => x.OrganizationId == organizationId)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
-        var workstreams = await db.Workstreams.AsNoTracking()
+        var workstreams = await db.Workstreams.BusinessProjects().AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.Status != WorkstreamStatus.Cancelled)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
@@ -369,7 +369,7 @@ public sealed class CommunicationHubService(
         if (actor is null) return Failure("actor_not_found", "The chat creator is not an active member of this organization.");
         if (!request.IsDirect && actor.PermissionLevel < OrganizationPermissionLevel.Manager && actor.EmployeeType != EmployeeType.Agent)
             return Failure("not_authorized", "Only managers and granted agents can create group chats.");
-        if (request.WorkstreamId.HasValue && !await db.Workstreams.AsNoTracking().AnyAsync(x =>
+        if (request.WorkstreamId.HasValue && !await db.Workstreams.BusinessProjects().AsNoTracking().AnyAsync(x =>
                 x.OrganizationId == organizationId && x.Id == request.WorkstreamId, cancellationToken))
             return Failure("workstream_not_found", "The selected Workstream does not exist in this organization.");
         if (request.TeamId.HasValue && !await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>

@@ -121,14 +121,14 @@ public static class ToolchainCertificationEndpoints
         if (owner is null) return Results.Conflict(new { error = "organization_has_no_active_owner" });
         var now = DateTimeOffset.UtcNow;
         var workstream = await db.Workstreams.SingleOrDefaultAsync(x => x.OrganizationId == request.OrganizationId &&
-            x.ProfileKey == "platform.toolchain-certification.v1", token);
+            x.ProfileKey == WorkstreamPurpose.ToolchainCertificationProfile, token);
         if (workstream is null)
         {
             workstream = new Workstream { Id = Guid.NewGuid(), OrganizationId = request.OrganizationId,
                 AccountableManagerOrganizationUserId = owner.Id, Name = "Toolchain certification",
                 Outcome = "Certify immutable toolchain definitions on clean Office runtime images.",
                 LifecycleStage = "Active", ManagerTitle = "Platform owner", Status = WorkstreamStatus.Active,
-                ProfileKey = "platform.toolchain-certification.v1", ProfileVersion = 1,
+                ProfileKey = WorkstreamPurpose.ToolchainCertificationProfile, ProfileVersion = 1,
                 ProfileDataJson = "{}", CreatedAt = now, UpdatedAt = now };
             db.Workstreams.Add(workstream);
         }

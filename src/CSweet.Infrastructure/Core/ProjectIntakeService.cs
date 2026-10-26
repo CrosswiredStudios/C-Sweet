@@ -50,7 +50,7 @@ public sealed partial class ProjectIntakeService(CSweetDbContext db, TimeProvide
     {
         var intake = await OwnedAsync(org, installation, id, ct);
         var human = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == intake.RequestingHumanId && x.OrganizationId == org && x.IsActive, ct);
-        var query = db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == org && (x.Status == WorkstreamStatus.Active || x.Status == WorkstreamStatus.Approved));
+        var query = db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == org && (x.Status == WorkstreamStatus.Active || x.Status == WorkstreamStatus.Approved));
         if (human.PermissionLevel < OrganizationPermissionLevel.Manager)
             query = query.Where(x => x.AccountableManagerOrganizationUserId == human.Id || db.ProjectParticipants.Any(p => p.WorkstreamId == x.Id && p.OrganizationUserId == human.Id && p.RemovedAt == null));
         return await query.OrderBy(x => x.Name).ThenBy(x => x.Id).Take(100).Select(x => new ProjectCandidate(x.Id, x.Name, x.Outcome, x.AccountableManagerOrganizationUserId ?? Guid.Empty,

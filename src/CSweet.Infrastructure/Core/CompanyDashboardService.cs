@@ -86,7 +86,7 @@ public sealed class CompanyDashboardService(CSweetDbContext db, TimeProvider clo
             case CompanyReportingCapabilities.Project:
                 var project = payload.Deserialize<ProjectLeadUpdate>(Json) ?? throw new ArgumentException("A project update is required.");
                 if (!Text(project.Summary, 2000)) throw new ArgumentException("The update must contain 1–2,000 characters.");
-                if (!await db.Workstreams.AnyAsync(x => x.OrganizationId == organizationId && x.Id == project.WorkstreamId &&
+                if (!await db.Workstreams.BusinessProjects().AnyAsync(x => x.OrganizationId == organizationId && x.Id == project.WorkstreamId &&
                     x.AccountableManagerOrganizationUserId == actor.Id, token))
                     throw new UnauthorizedAccessException("Only the accountable project lead can publish this update.");
                 kind = "project"; workstreamId = project.WorkstreamId; data = project; break;
