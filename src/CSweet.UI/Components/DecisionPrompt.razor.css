@@ -1,0 +1,11 @@
+.decision-preview { min-width: 0; width: 100%; margin: 15px 0 14px; }
+.decision-preview-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; max-height: 4.5rem; overflow: hidden; line-height: 1.5rem; overflow-wrap: anywhere; }
+.decision-preview-text ::deep .chat-markdown { font-size: 1rem; line-height: 1.5rem; }
+.decision-preview-text ::deep :is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6) { margin: 0; font-size: inherit; line-height: inherit; }
+.decision-preview-more { display: inline-block; margin-top: 5px; color: var(--mud-palette-primary); font-size: .8rem; font-weight: 600; text-decoration: underline; }
+.decision-preview.is-measured:not(.is-truncated) .decision-preview-more { display: none; }
+.decision-prompt { font-size: .9rem; line-height: 1.5; font-weight: 400; overflow-wrap: anywhere; }
+.decision-prompt ::deep p { white-space: pre-line; }
+.decision-prompt ::deep :is(p, ul, ol) { margin: 0 0 .75rem; }
+.decision-prompt ::deep :is(h1, h2, h3, h4, h5, h6) { font-size: 1rem; line-height: 1.4; margin: .75rem 0 .4rem; }
+.decision-prompt ::deep :last-child { margin-bottom: 0; }

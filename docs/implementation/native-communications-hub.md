@@ -49,7 +49,15 @@ originate concepts. Existing prose messages are not retroactively converted to d
 On company Overview, `CommandCenter` places `PendingAgentQuestions` inside
 `EmployeePortraitScope`. Each pending question renders `AgentQuestionCard` in Overview
 mode, using the requesting employee ID with `PersonAvatarContent` for the installed
-agent portrait and showing the full prompt. **Choose an answer** opens a menu with the
+agent portrait. `DecisionPrompt` renders safe Markdown and caps Overview previews at three lines.
+`decisionPreview.js` observes content and width changes, showing **More** only when text overflows.
+The link opens `/communications/{chatId}?decision={decisionId}`; `Communications.OnAfterRenderAsync`
+focuses that exact decision without being pulled to the latest incoming message. The full question
+and answer controls stay in the structured decision widget, including Markdown headings, lists and
+emphasis. `DecisionMessageBody` suppresses message text that repeats its attached question, including
+the former generated project-review wrapper, while preserving distinct context and mentions.
+`WorkstreamDecisionChatReview.PresentAsync` now stores only the question as its searchable message
+body and attaches the actionable decision to it, without adding a second prose request. **Choose an answer** opens a menu with the
 decision's options and recommendation/description labels. Choosing a predefined option
 posts to the existing decision response endpoint with the card's stable idempotency key,
 then removes that decision immediately, reloads authoritative pending questions, and shows

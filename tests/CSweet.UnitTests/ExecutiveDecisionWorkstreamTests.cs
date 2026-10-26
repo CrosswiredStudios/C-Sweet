@@ -51,7 +51,9 @@ public sealed partial class ExecutiveDecisionServiceTests
         var card = Assert.Single(await db.ExecutiveDecisions.ToListAsync());
         var messages = await hub.ListMessagesAsync(setup.OrganizationId, setup.ConversationId, setup.OwnerId);
         var message = Assert.Single(messages!, x => x.Decision?.Id == card.Id);
-        Assert.False(message.Decision!.AllowFreeText);
+        Assert.Equal(source.Summary, message.Content);
+        Assert.Equal(source.Summary, message.Decision!.Prompt);
+        Assert.False(message.Decision.AllowFreeText);
         var answer = await decisions.AnswerAsync(setup.OrganizationId, setup.ConversationId, card.Id, setup.OwnerId,
             new("procedural", null, "choose-assets"));
         Assert.True(answer.Succeeded, answer.Message);
