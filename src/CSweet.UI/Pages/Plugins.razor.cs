@@ -18,6 +18,11 @@ public partial class Plugins
     private Guid? _businessId;
     private Guid? _managedId;
     private Guid? _removePending;
+    private AgentInstallationResponse? _updateTarget;
+    private Guid? _stagedUpdateId;
+    private bool UpdateMatches => _updateTarget is null || (_preview is { PluginKind: "Service", Accounts: null, PackageSourceMode: "PluginBundle" } &&
+        _preview.AgentId == _updateTarget.AgentId && (_updateTarget.InstallationScope == "System" ||
+            _businessId?.ToString("D") == _updateTarget.BusinessId));
     private bool _acknowledgeAllPublic;
     private bool IsToolchainProvider => _preview?.PluginKind == "Service" && _preview.ToolchainAdapters.Provides.Count > 0;
     private IEnumerable<AgentInstallationResponse> FilteredInstallations => _installations.Where(x =>
@@ -25,7 +30,7 @@ public partial class Plugins
     private IEnumerable<PluginCatalogEntry> FilteredCatalog => PluginCatalog.Entries.Where(x =>
         (_catalogCategory == "All" || x.Category == _catalogCategory) &&
         $"{x.Name} {L[x.DescriptionKey]} {L[$"Plugins.Catalog.Category.{x.Category}"]}".Contains(_catalogSearch, StringComparison.OrdinalIgnoreCase));
-    private bool CanInstall => !_busy && !_loading && _installationPolicy?.ImportedPluginsEnabled == true && _preview is not null && _approve && !HasMissingConfiguration &&
+    private bool CanInstall => !_busy && !_loading && _installationPolicy?.ImportedPluginsEnabled == true && _preview is not null && _approve && !HasMissingConfiguration && UpdateMatches &&
         ((!IsToolchainProvider && (_preview.PluginKind != "Connector" || _preview.Accounts is not null)) || _businessId.HasValue) &&
         (_preview.WebAccess.Mode != PluginWebAccessMode.AllPublic || _acknowledgeAllPublic);
     private string InstallationScope(AgentInstallationResponse installation) => installation.InstallationScope == "System"
@@ -38,7 +43,7 @@ public partial class Plugins
     private void ChangeTab(int tab)
     {
         if (_busy) return;
-        if (tab != 2) _bundle = null;
+        if (tab != 2) { _bundle = null; _updateTarget = null; _stagedUpdateId = null; }
         _activeTab = tab;
     }
     private void SetSource(bool upload) { ClearPreview(); _bundle = null; _uploadBundle = upload; }
@@ -47,6 +52,15 @@ public partial class Plugins
     {
         if (installation.Accounts is not null) { Navigation.NavigateTo($"/settings/plugins/{installation.Id:D}"); return; }
         _managedId = _managedId == installation.Id ? null : installation.Id; _removePending = null;
+    }
+    private void ReviewPublishedUpdate(AgentInstallationResponse installation)
+    {
+        if (_busy || installation.PluginKind != "Service" || installation.Accounts is not null ||
+            installation.RemovalPending || installation.RevisionStatus != "Active") return;
+        ClearPreview(); _bundle = null; _stagedUpdateId = null;
+        _updateTarget = installation; _uploadBundle = true;
+        if (Guid.TryParse(installation.BusinessId, out var business)) _businessId = business;
+        ChangeTab(2);
     }
     private void OpenInstalled(AgentInstallationResponse installation) { _installedSearch = string.Empty; _managedId = installation.Id; ChangeTab(0); }
     private void ConfigureFromReview(PluginProviderDeclarations.Requirement requirement) { ChangeTab(0); ConfigureDeclaredProvider(requirement); }
@@ -58,7 +72,7 @@ public partial class Plugins
     }
     private void ClearPreview()
     {
-        _preview = null; _approve = false; _acknowledgeAllPublic = false; _configurationValues.Clear(); ResetProviderForm();
+        _preview = null; _stagedUpdateId = null; _approve = false; _acknowledgeAllPublic = false; _configurationValues.Clear(); ResetProviderForm();
     }
     private void BundleSelected(InputFileChangeEventArgs args)
     {
@@ -265,7 +279,15 @@ public partial class Plugins
                         pair => JsonSerializer.SerializeToElement(pair.Value.Trim()),
                         StringComparer.Ordinal)
             };
-            var installed = await PluginApi.InstallAsync(_preview.ImportId, request);
+            AgentInstallationResponse installed;
+            if (_updateTarget is not null)
+            {
+                if (!_stagedUpdateId.HasValue)
+                    _stagedUpdateId = (await PluginApi.StageUpdateAsync(_updateTarget.Id, _preview.ImportId)).Id;
+                installed = await PluginApi.ApproveUpdateAsync(_stagedUpdateId.Value, request);
+            }
+            else installed = await PluginApi.InstallAsync(_preview.ImportId, request);
+            _updateTarget = null; _stagedUpdateId = null;
             if (_preview.Accounts is not null) { Navigation.NavigateTo($"/settings/plugins/{installed.Id:D}"); return; }
             _managedId = installed.Id;
             ClearPreview(); _bundle = null; _repositoryUrl = string.Empty; _commitSha = string.Empty;

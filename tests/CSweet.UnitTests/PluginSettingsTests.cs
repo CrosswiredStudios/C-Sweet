@@ -219,6 +219,31 @@ public sealed class PluginSettingsTests
         Assert.Equal(kind == "Connector" ? 0 : 50, api.InstalledRequest.CpuPercent);
     }
 
+    [Theory]
+    [InlineData("reviewed", 1)] [InlineData("unapproved", 0)] [InlineData("other-package", 0)]
+    [InlineData("other-business", 0)] [InlineData("source-build", 0)]
+    public async Task PublishedServiceUpdateUsesTheExistingRevisionFlowAndExactReviewedScope(string scenario, int expected)
+    {
+        var installed = Api.Installation("Service") with { InstallationScope = "Organization" };
+        var api = new Api { PreviewPublisherId = "com.csweet", Installations = [installed] };
+        await Render(api, async page =>
+        {
+            Call(page, "ReviewPublishedUpdate", installed);
+            var preview = await api.PreviewAsync(new("https://github.com/example/plugin"));
+            Set(page, "_preview", preview with { AgentId = scenario == "other-package" ? "different" : installed.AgentId,
+                AgentVersion = "1.2.4", PackageSourceMode = scenario == "source-build" ? "SourceBuild" : "PluginBundle",
+                ToolchainAdapters = new() { Provides = [new() { Key = "node", Version = 1, DefinitionResource = "toolchains/node.json" }] } });
+            if (scenario == "other-business") Set(page, "_businessId", (Guid?)Guid.NewGuid());
+            Set(page, "_approve", scenario != "unapproved");
+            await Invoke(page, "InstallAsync");
+        });
+        Assert.Null(api.InstalledRequest); Assert.Equal(expected, api.Stages);
+        if (expected == 0) { Assert.Null(api.UpdateRequest); return; }
+        Assert.Equal(installed.Id, api.UpdateTarget); Assert.Equal(api.StagedId, api.ApprovedId);
+        Assert.Equal(installed.BusinessId, api.UpdateRequest!.BusinessId); Assert.Equal("Organization", api.UpdateRequest.PluginScope);
+        Assert.Equal("OnDemand", api.UpdateRequest.ActivationMode); Assert.Equal(1024, api.UpdateRequest.MemoryMb);
+    }
+
     private static readonly OrganizationResponse Business = new(Guid.Parse("11111111-1111-1111-1111-111111111111"), "QFN Games", null, null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     private static void Set(Plugins page, string name, object? value) => typeof(Plugins).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, value);
     private static object? Call(Plugins page, string name, params object?[] args) => typeof(Plugins).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, args);
@@ -270,6 +295,13 @@ public sealed class PluginSettingsTests
         public bool AllPublic { get; init; }
         public PreviewAgentImportRequest? PreviewRequest { get; private set; }
         public InstallAgentRequest? InstalledRequest { get; private set; }
+        public int Stages; public Guid UpdateTarget, ApprovedId; public readonly Guid StagedId = Guid.NewGuid();
+        public InstallAgentRequest? UpdateRequest;
+        public Task<AgentInstallationResponse> StageUpdateAsync(Guid id, Guid packageId, CancellationToken ct=default)
+        { Stages++; UpdateTarget=id; return Task.FromResult(Installation("Service") with { Id=StagedId, RevisionStatus="Staged", IsEnabled=false }); }
+        public Task<AgentInstallationResponse> ApproveUpdateAsync(Guid id, InstallAgentRequest request, CancellationToken ct=default)
+        { ApprovedId=id; UpdateRequest=request; return Task.FromResult(Installation("Service") with { Id=id }); }
+
         public Task<IReadOnlyList<AgentInstallationResponse>> ListAsync(CancellationToken token = default) => Task.FromResult<IReadOnlyList<AgentInstallationResponse>>(Installations ?? [Installation("Service"), Installation("Connector"), Installation("Agent")]);
         public static AgentInstallationResponse Installation(string kind) => new(Guid.NewGuid(), Guid.NewGuid(), Business.Id.ToString("D"), "example." + kind,
             kind == "Agent" ? "Hidden agent" : kind + " example", "1.2.3", "Example", new string('a', 40), true, [], [], [], [], [], 512, 50, null!, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { PluginKind = kind, InstallationScope = kind == "Service" ? "System" : "Organization" };
