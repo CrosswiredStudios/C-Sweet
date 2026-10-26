@@ -21,7 +21,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
     {
         var now = clock.GetUtcNow();
         await ReconcileClosedIncidentQuestionsAsync(token);
-        var missing = await db.Workstreams.Where(x => x.Status != WorkstreamStatus.Completed && x.Status != WorkstreamStatus.Cancelled &&
+        var missing = await db.Workstreams.BusinessProjects().Where(x => x.Status != WorkstreamStatus.Completed && x.Status != WorkstreamStatus.Cancelled &&
             !db.ProjectHealthStates.Any(h => h.WorkstreamId == x.Id)).OrderBy(x => x.CreatedAt).Take(100).ToListAsync(token);
         foreach (var project in missing)
         {
@@ -53,7 +53,8 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
         }
         foreach (var signal in signals) signal.ProcessedAt = now;
         await db.SaveChangesAsync(token);
-        var due = await db.ProjectHealthStates.Where(x => x.NextReviewAt <= now).OrderBy(x => x.NextReviewAt).ThenBy(x => x.WorkstreamId).Take(25).ToListAsync(token);
+        var businessProjectIds = db.Workstreams.BusinessProjects().Select(x => x.Id);
+        var due = await db.ProjectHealthStates.Where(x => x.NextReviewAt <= now && businessProjectIds.Contains(x.WorkstreamId)).OrderBy(x => x.NextReviewAt).ThenBy(x => x.WorkstreamId).Take(25).ToListAsync(token);
         foreach (var state in due)
         {
             try
@@ -72,7 +73,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
                 await db.SaveChangesAsync(token);
             }
         }
-        var reviews = await db.ProjectIncidents.Where(x => x.Status == "Open" && x.ReviewAt <= now && x.EscalateAt > now)
+        var reviews = await db.ProjectIncidents.Where(x => businessProjectIds.Contains(x.WorkstreamId) && x.Status == "Open" && x.ReviewAt <= now && x.EscalateAt > now)
             .OrderBy(x => x.ReviewAt).Take(50).ToListAsync(token);
         foreach (var incident in reviews)
         {
@@ -80,7 +81,7 @@ public sealed partial class ProjectHealthService(CSweetDbContext db, ProjectHeal
             await NotifyAsync(incident, token);
             await db.SaveChangesAsync(token);
         }
-        var overdue = await db.ProjectIncidents.Where(x => x.Status == "Open" && x.EscalateAt <= now)
+        var overdue = await db.ProjectIncidents.Where(x => businessProjectIds.Contains(x.WorkstreamId) && x.Status == "Open" && x.EscalateAt <= now)
             .OrderBy(x => x.EscalateAt).Take(50).ToListAsync(token);
         foreach (var incident in overdue)
         {

@@ -12,6 +12,18 @@ namespace CSweet.UnitTests;
 
 public sealed partial class ProjectHealthTests
 {
+    [Fact]
+    public async Task InternalCertificationDoesNotEnterProducerHealthMonitoring()
+    {
+        await using var f = await Fixture.Create();
+        f.Project.ProfileKey = WorkstreamPurpose.ToolchainCertificationProfile;
+        await f.Db.SaveChangesAsync(); await f.Review();
+        Assert.Empty(f.Db.ProjectHealthStates);
+        Assert.Empty(f.Db.ProjectIncidents);
+        Assert.Empty(f.Db.ExecutiveDecisions);
+        Assert.Single(f.Db.Workstreams);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

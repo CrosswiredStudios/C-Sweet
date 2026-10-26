@@ -40,7 +40,7 @@ public sealed partial class ChiefLeadershipService
         var assignments = await AssignmentsAsync(organization, token);
         var objectives = await db.CoreStrategicObjectives.AsNoTracking().Where(x => x.OrganizationId == organization)
             .OrderBy(x => x.Id).Select(x => new { x.Id, x.Title, x.Description, x.Status }).ToListAsync(token);
-        var workstreams = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organization)
+        var workstreams = await db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organization)
             .OrderBy(x => x.Id).Select(x => new { x.Id, x.Revision, x.AccountableManagerOrganizationUserId, x.Status, x.BudgetAmount, x.BudgetCurrency }).ToListAsync(token);
         return Digest(new { business, finance, people, assignments, objectives, workstreams });
     }
