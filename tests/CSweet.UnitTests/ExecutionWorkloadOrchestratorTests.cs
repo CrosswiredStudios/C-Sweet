@@ -462,6 +462,8 @@ public sealed partial class ExecutionWorkloadOrchestratorTests
         var node = Node(pool, Guid.NewGuid());
         var build = DeliveryBuild(W.DeliveryBuildStatuses.Running, attempt: 1, maximumAttempts: 3);
         var assignment = ToolchainAssignment(pool.Id, node.Id, build.Id, attempt: 1);
+        assignment.SpecificationJson = System.Text.Json.JsonSerializer.Serialize(new { DeliveryBuildId = build.Id,
+            ExpectedBuildRevision = build.Revision, SourceRevision = build.SourceRevision });
         db.AddRange(pool, node, build, assignment);
         await db.SaveChangesAsync();
 
@@ -475,6 +477,10 @@ public sealed partial class ExecutionWorkloadOrchestratorTests
         Assert.Null(build.ClaimId);
         Assert.Null(build.LeaseExpiresAt);
         Assert.Equal(8, build.Revision);
+        using var specification = System.Text.Json.JsonDocument.Parse(assignment.SpecificationJson);
+        Assert.Equal(build.Revision, specification.RootElement.GetProperty("ExpectedBuildRevision").GetInt64());
+        Assert.Equal(build.SourceRevision, specification.RootElement.GetProperty("SourceRevision").GetString());
+        Assert.Equal(CSweet.Office.Contracts.Security.AssignmentEnvelope.Digest(assignment.SpecificationJson), assignment.SpecificationDigest);
     }
 
     [Fact]

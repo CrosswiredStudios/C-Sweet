@@ -40,7 +40,7 @@ public sealed partial class AgentRuntimeManager(
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
             .FirstOrDefaultAsync(
-                x => x.AgentInstallationId == installationId &&
+                x => x.DeliveryBuildId == null && x.AgentInstallationId == installationId &&
                     (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                 cancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -118,7 +118,7 @@ public sealed partial class AgentRuntimeManager(
                     .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
                     .OrderByDescending(x => x.QueuedAt)
                     .FirstAsync(
-                        x => x.AgentInstallationId == installationId &&
+                        x => x.DeliveryBuildId == null && x.AgentInstallationId == installationId &&
                             (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                         cancellationToken);
                 if (winner.AgentInstallation?.Schedule?.ActivationMode == ActivationMode.OnDemand)
@@ -157,7 +157,7 @@ public sealed partial class AgentRuntimeManager(
             .Include(x => x.AgentInstallation)!.ThenInclude(x => x!.Schedule)
             .OrderByDescending(x => x.QueuedAt)
             .FirstOrDefaultAsync(
-                x => x.AgentInstallationId == installationId &&
+                x => x.DeliveryBuildId == null && x.AgentInstallationId == installationId &&
                     (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)),
                 cancellationToken);
         if (activeRuntime is not null)
@@ -213,9 +213,9 @@ public sealed partial class AgentRuntimeManager(
                 x.Schedule.ActivationMode == ActivationMode.AlwaysOn &&
                 x.Schedule.AutomaticStartSuppressedAt == null &&
                 (x.Schedule.ConsecutiveStartupFailures == 0 || x.Schedule.NextTickAt == null || x.Schedule.NextTickAt <= now) &&
-                !x.RuntimeInstances.Any(runtime =>
+                !x.RuntimeInstances.Any(runtime => runtime.DeliveryBuildId == null && (
                     runtime.Status == AgentRuntimeStatus.Queued ||
-                    WorkloadActiveStatuses.Contains(runtime.Status)))
+                    WorkloadActiveStatuses.Contains(runtime.Status))))
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
 
@@ -269,9 +269,9 @@ public sealed partial class AgentRuntimeManager(
                     ((work.Status == AgentWorkStatus.Pending && work.AvailableAt <= now) ||
                      (work.Status == AgentWorkStatus.Leased && work.Attempts.Any(attempt =>
                          attempt.FinishedAt == null && attempt.LeaseExpiresAt <= now)))) &&
-                !x.RuntimeInstances.Any(runtime =>
+                !x.RuntimeInstances.Any(runtime => runtime.DeliveryBuildId == null && (
                     runtime.Status == AgentRuntimeStatus.Queued ||
-                    WorkloadActiveStatuses.Contains(runtime.Status)))
+                    WorkloadActiveStatuses.Contains(runtime.Status))))
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
 
@@ -343,8 +343,8 @@ public sealed partial class AgentRuntimeManager(
 
         var restartIds = await dbContext.AgentInstallations.AsNoTracking()
             .Where(x => x.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Restarting &&
-                x.RuntimeInstances.Any(runtime => runtime.Status == AgentRuntimeStatus.Queued ||
-                    WorkloadActiveStatuses.Contains(runtime.Status)))
+                x.RuntimeInstances.Any(runtime => runtime.DeliveryBuildId == null && (runtime.Status == AgentRuntimeStatus.Queued ||
+                    WorkloadActiveStatuses.Contains(runtime.Status))))
             .Select(x => x.Id).ToListAsync(cancellationToken);
         foreach (var installationId in restartIds)
         {
@@ -358,8 +358,8 @@ public sealed partial class AgentRuntimeManager(
         }
         var stoppedRestartIds = await dbContext.AgentInstallations
             .Where(x => x.ConfigurationSyncStatus == AgentConfigurationSyncStatus.Restarting &&
-                !x.RuntimeInstances.Any(runtime => runtime.Status == AgentRuntimeStatus.Queued ||
-                    WorkloadActiveStatuses.Contains(runtime.Status)))
+                !x.RuntimeInstances.Any(runtime => runtime.DeliveryBuildId == null && (runtime.Status == AgentRuntimeStatus.Queued ||
+                    WorkloadActiveStatuses.Contains(runtime.Status))))
             .ToListAsync(cancellationToken);
         foreach (var installation in stoppedRestartIds)
             installation.ConfigurationSyncStatus = AgentConfigurationSyncStatus.PendingNextStart;
@@ -375,7 +375,7 @@ public sealed partial class AgentRuntimeManager(
             foreach (var id in memoryFailures) await workInbox.RecoverResourceFailureAsync(id, cancellationToken);
         }
         var instanceIds = await dbContext.AgentRuntimeInstances.AsNoTracking()
-            .Where(x => x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))
+            .Where(x => x.DeliveryBuildId == null && (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status)))
             .OrderBy(x => x.QueuedAt)
             .Select(x => x.Id)
             .ToListAsync(cancellationToken);
@@ -656,7 +656,7 @@ public sealed partial class AgentRuntimeManager(
             _ => null
         };
 
-        var active = await dbContext.AgentRuntimeInstances.Where(x => x.AgentInstallationId == schedule.AgentInstallationId && (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))).OrderBy(x => x.QueuedAt).ToListAsync(cancellationToken);
+        var active = await dbContext.AgentRuntimeInstances.Where(x => x.DeliveryBuildId == null && x.AgentInstallationId == schedule.AgentInstallationId && (x.Status == AgentRuntimeStatus.Queued || WorkloadActiveStatuses.Contains(x.Status))).OrderBy(x => x.QueuedAt).ToListAsync(cancellationToken);
         var cancelPrevious = new List<AgentRuntimeInstance>();
         var tickOutcome = "queued";
         if (active.Count > 0 && schedule.OverlapPolicy == OverlapPolicy.Skip)

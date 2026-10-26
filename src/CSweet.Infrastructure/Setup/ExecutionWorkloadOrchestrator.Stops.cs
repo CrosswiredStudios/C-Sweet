@@ -44,6 +44,20 @@ public sealed partial class ExecutionWorkloadOrchestrator
                 assignment.SanitizedFailure = "The Office confirmed teardown before a terminal result was recorded.";
                 await ReconcileToolchainBuildTerminationAsync(assignment, assignment.Status, now, cancellationToken);
             }
+            if (assignment.WorkloadKind == ExecutionWorkloadKind.ToolchainBuild && !assignment.IsActive &&
+                assignment.Status != ExecutionAssignmentStatus.Pending &&
+                !await dbContext.ExecutionAssignmentAttempts.AnyAsync(x => x.AssignmentId == assignment.Id &&
+                    x.FencingEpoch != fencingEpoch && x.StoppedAt == null, cancellationToken))
+            {
+                var runtime = await dbContext.AgentRuntimeInstances.SingleOrDefaultAsync(x =>
+                    x.Id == assignment.AgentRuntimeInstanceId && x.DeliveryBuildId == assignment.DeliveryBuildId, cancellationToken);
+                if (runtime is not null && AgentRuntimeInstance.IsActive(runtime.Status))
+                {
+                    runtime.TransitionTo(AgentRuntimeStatus.Stopping, now, "Office confirmed managed build teardown.");
+                    runtime.TransitionTo(assignment.Status == ExecutionAssignmentStatus.Completed
+                        ? AgentRuntimeStatus.Completed : AgentRuntimeStatus.Failed, now);
+                }
+            }
             try
             {
                 await dbContext.SaveChangesAsync(cancellationToken);

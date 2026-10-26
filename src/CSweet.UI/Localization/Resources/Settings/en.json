@@ -12,6 +12,7 @@
   "Toolchains.NoOffice": "No connected Office currently offers a ready runtime image for toolchain builds.",
   "Toolchains.ReviewHelp": "Certification runs each declared fixture twice on the selected image. Installation or a project decision alone does not certify capacity. All checks must pass before project selection.",
   "Toolchains.Reviewed": "I reviewed this provider and Office image and want to run certification tests.",
+  "Toolchains.Resume": "Resume fixture dispatch",
   "Toolchains.Start": "Run certification tests",
   "Toolchains.Queued": "Certification was scheduled. Build capacity remains unavailable until the real fixture checks pass. Refresh to see the result.",
 

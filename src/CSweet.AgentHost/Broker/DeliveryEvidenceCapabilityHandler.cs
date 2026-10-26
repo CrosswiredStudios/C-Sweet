@@ -306,6 +306,7 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
             Id = Guid.NewGuid(),
             TickId = Guid.NewGuid(),
             AgentInstallationId = provider.Id,
+            DeliveryBuildId = build.Id,
             BrokerTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(workloadToken))),
             QueuedAt = now,
             RuntimeDeadlineAt = now.Add(maximumDuration).AddMinutes(5)

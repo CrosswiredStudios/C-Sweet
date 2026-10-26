@@ -74,6 +74,7 @@ public sealed class DeliveryBuildRecoveryTests
         db.ChangeTracker.Clear();
         var assignment = Assert.Single(await db.ExecutionWorkloadAssignments.ToListAsync());
         Assert.Equal(saved.Id, assignment.DeliveryBuildId);
+        Assert.Equal(saved.Id, (await db.AgentRuntimeInstances.SingleAsync()).DeliveryBuildId);
         var workload = JsonSerializer.Deserialize<ToolchainBuildWorkloadSpecification>(assignment.SpecificationJson,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.Equal(saved.Id, workload.DeliveryBuildId);

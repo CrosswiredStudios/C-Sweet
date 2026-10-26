@@ -10200,6 +10200,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("CompletionReportedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DeliveryBuildId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("IdleDeadlineAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -10277,7 +10280,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasIndex("AgentInstallationId")
                         .IsUnique()
                         .HasDatabaseName("UX_AgentRuntimeInstances_ActiveInstallation")
-                        .HasFilter("\"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
+                        .HasFilter("\"DeliveryBuildId\" IS NULL AND \"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
+
+                    b.HasIndex("DeliveryBuildId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AgentRuntimeInstances_ActiveDeliveryBuild")
+                        .HasFilter("\"DeliveryBuildId\" IS NOT NULL AND \"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
 
                     b.HasIndex("TickId")
                         .IsUnique();

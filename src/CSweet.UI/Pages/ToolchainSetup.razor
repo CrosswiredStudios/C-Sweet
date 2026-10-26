@@ -52,6 +52,10 @@
                 <MudText Typo="Typo.body2">@run.EnvironmentProfileKey</MudText>
                 <MudText Typo="Typo.caption">@run.CreatedAt.ToLocalTime()</MudText>
                 @if (run.Status is "Failed" or "Revoked") { <MudText Color="Color.Error">@run.RevocationReason</MudText> }
+                @if (run.Status == "Running" && run.CompletedBuilds < run.ScheduledBuilds)
+                {
+                    <MudButton OnClick="@(() => ResumeAsync(run))" Disabled="_busy">@L["Toolchains.Resume"]</MudButton>
+                }
             </MudPaper>
         }
     </MudPaper>
@@ -80,6 +84,19 @@
         if (_business is not { } business) return;
         _busy = true;
         try { _setup = await PluginApi.GetToolchainSetupAsync(business); _runs = await PluginApi.GetToolchainCertificationsAsync(business); }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+    private async Task ResumeAsync(ToolchainCertificationSummary run)
+    {
+        if (_busy || run.Status != "Running") return;
+        _busy = true; _error = null;
+        try
+        {
+            var resumed = await PluginApi.ResumeToolchainCertificationAsync(run.Id, new(run.Revision));
+            _runs = _runs.Select(x => x.Id == resumed.Id ? resumed : x).ToArray();
+            _message = L["Toolchains.Queued"];
+        }
         catch (Exception error) { _error = error.Message; }
         finally { _busy = false; }
     }

@@ -8,6 +8,8 @@ public interface IPluginApiClient
     Task<CSweet.Contracts.Core.ToolchainCertificationSetup> GetToolchainSetupAsync(Guid organizationId, CancellationToken ct = default) => throw new NotSupportedException();
     Task<IReadOnlyList<CSweet.Contracts.Core.ToolchainCertificationSummary>> GetToolchainCertificationsAsync(Guid organizationId, CancellationToken ct = default) => throw new NotSupportedException();
     Task<CSweet.Contracts.Core.ToolchainCertificationSummary> StartToolchainCertificationAsync(CSweet.Contracts.Core.StartToolchainCertificationRequest request, CancellationToken ct = default) => throw new NotSupportedException();
+    Task<CSweet.Contracts.Core.ToolchainCertificationSummary> ResumeToolchainCertificationAsync(Guid id,
+        CSweet.Contracts.Core.ResumeToolchainCertificationRequest request, CancellationToken ct = default) => throw new NotSupportedException();
     Task<AgentInstallationResponse> StageUpdateAsync(Guid installationId,Guid packageId,CancellationToken ct=default)=>throw new NotSupportedException();
     Task<AgentInstallationResponse> ApproveUpdateAsync(Guid stagedId,InstallAgentRequest request,CancellationToken ct=default)=>throw new NotSupportedException();
     Task<AgentBuildLogResponse?> GetBuildLogAsync(Guid installationId,CancellationToken ct=default)=>Task.FromResult<AgentBuildLogResponse?>(null);

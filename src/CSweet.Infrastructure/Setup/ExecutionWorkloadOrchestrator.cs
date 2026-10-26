@@ -467,6 +467,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             assignment.FailureCode = "assignment-lease-expired";
             assignment.SanitizedFailure = "The execution node did not renew its assignment lease; the prior epoch was fenced.";
             RequeueToolchainBuild(deliveryBuild, now, assignment.FailureCode, assignment.SanitizedFailure);
+            RefreshBuildRevision(assignment, deliveryBuild);
         }
         if (expired.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
         return expired.Count;
@@ -501,6 +502,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             RequeueToolchainBuild(build, now,
                 assignment.FailureCode ?? "execution-infrastructure-failure",
                 assignment.SanitizedFailure ?? "The isolated Office workload failed before it could report a durable build result.");
+            RefreshBuildRevision(assignment, build);
             return;
         }
 
@@ -516,6 +518,17 @@ public sealed partial class ExecutionWorkloadOrchestrator(
         ExhaustToolchainBuild(build, now,
             assignment.FailureCode ?? "assignment-recovery-exhausted",
             assignment.SanitizedFailure ?? "The isolated Office workload exhausted its recovery attempts.");
+    }
+
+    private static void RefreshBuildRevision(ExecutionWorkloadAssignment assignment, CSweet.Domain.Core.DeliveryBuildRecord? build)
+    {
+        if (build is null || assignment.WorkloadKind != ExecutionWorkloadKind.ToolchainBuild) return;
+        var specification = System.Text.Json.Nodes.JsonNode.Parse(assignment.SpecificationJson) as System.Text.Json.Nodes.JsonObject;
+        var revisionKey = specification?.Select(x => x.Key).FirstOrDefault(x => x.Equals("ExpectedBuildRevision", StringComparison.OrdinalIgnoreCase));
+        if (revisionKey is null) return;
+        specification![revisionKey] = build.Revision;
+        assignment.SpecificationJson = specification.ToJsonString();
+        assignment.SpecificationDigest = AssignmentEnvelope.Digest(assignment.SpecificationJson);
     }
 
     private static void ResetAssignmentForRetry(ExecutionWorkloadAssignment assignment, DateTimeOffset now)

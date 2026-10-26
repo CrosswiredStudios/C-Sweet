@@ -11,6 +11,8 @@ public sealed class AgentRuntimeInstance
     public string? MemoryResetReasonCode { get; set; }
     public DateTimeOffset? MemoryResetCompletedAt { get; set; }
     public Guid AgentInstallationId { get; set; }
+    // Managed builds have their own fenced workload lifecycle, separate from the installation agent loop.
+    public Guid? DeliveryBuildId { get; set; }
     public AgentRuntimeStatus Status { get; private set; } = AgentRuntimeStatus.Queued;
     public string BrokerTokenHash { get; set; } = string.Empty;
     public string? IsolationProviderId { get; set; }
