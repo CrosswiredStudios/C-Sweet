@@ -54,8 +54,10 @@ public sealed partial class ExecutionWorkloadOrchestrator
                 if (runtime is not null && AgentRuntimeInstance.IsActive(runtime.Status))
                 {
                     runtime.TransitionTo(AgentRuntimeStatus.Stopping, now, "Office confirmed managed build teardown.");
-                    runtime.TransitionTo(assignment.Status == ExecutionAssignmentStatus.Completed
-                        ? AgentRuntimeStatus.Completed : AgentRuntimeStatus.Failed, now);
+                    var buildSucceeded = assignment.Status == ExecutionAssignmentStatus.Completed ||
+                        await dbContext.DeliveryBuilds.AnyAsync(x => x.Id == assignment.DeliveryBuildId &&
+                            x.Status == CSweet.WorkManagement.Contracts.DeliveryBuildStatuses.Succeeded, cancellationToken);
+                    runtime.TransitionTo(buildSucceeded ? AgentRuntimeStatus.Completed : AgentRuntimeStatus.Failed, now);
                 }
             }
             try
