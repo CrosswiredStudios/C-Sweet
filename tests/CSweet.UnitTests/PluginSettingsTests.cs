@@ -199,6 +199,26 @@ public sealed class PluginSettingsTests
         Assert.True(api.InstalledRequest!.AllPublicWebAccessAcknowledged);
     }
 
+    [Theory]
+    [InlineData("Service", "com.csweet", 1024)]
+    [InlineData("Service", "example", 512)]
+    [InlineData("Connector", "com.csweet", 0)]
+    [InlineData("Connector", "example", 0)]
+    public async Task InstallRequestHonorsFirstPartyRuntimeMinimumAndKeepsConnectorsBrokerOnly(string kind, string publisher, int expectedMemory)
+    {
+        var api = new Api { PreviewKind = kind, PreviewPublisherId = publisher };
+        await Render(api, async page =>
+        {
+            Set(page, "_repositoryUrl", "https://github.com/example/plugin");
+            await Invoke(page, "PreviewAsync");
+            Set(page, "_approve", true);
+            await Invoke(page, "InstallAsync");
+        });
+        Assert.NotNull(api.InstalledRequest);
+        Assert.Equal(expectedMemory, api.InstalledRequest.MemoryMb);
+        Assert.Equal(kind == "Connector" ? 0 : 50, api.InstalledRequest.CpuPercent);
+    }
+
     private static readonly OrganizationResponse Business = new(Guid.Parse("11111111-1111-1111-1111-111111111111"), "QFN Games", null, null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
     private static void Set(Plugins page, string name, object? value) => typeof(Plugins).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, value);
     private static object? Call(Plugins page, string name, params object?[] args) => typeof(Plugins).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, args);
@@ -246,6 +266,7 @@ public sealed class PluginSettingsTests
         public bool ImportsEnabled { get; init; } = true;
         public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(ImportsEnabled));
         public string PreviewKind { get; init; } = "Service";
+        public string PreviewPublisherId { get; init; } = "example";
         public bool AllPublic { get; init; }
         public PreviewAgentImportRequest? PreviewRequest { get; private set; }
         public InstallAgentRequest? InstalledRequest { get; private set; }
@@ -255,7 +276,7 @@ public sealed class PluginSettingsTests
         public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken token = default)
         {
             PreviewRequest = request;
-            return Task.FromResult(new AgentImportPreviewResponse(Guid.NewGuid(), request.RepositoryUrl, new string('a', 40), new string('b', 64), "example", "Example", "1.0.0", "example", "Example", "dotnet-project", "Example.csproj", "net10.0", "OnDemand", [], [], [], [], AllPublic ? ["all-public"] : [], [], "Previewed")
+            return Task.FromResult(new AgentImportPreviewResponse(Guid.NewGuid(), request.RepositoryUrl, new string('a', 40), new string('b', 64), "example", "Example", "1.0.0", PreviewPublisherId, "Example", "dotnet-project", "Example.csproj", "net10.0", "OnDemand", [], [], [], [], AllPublic ? ["all-public"] : [], [], "Previewed")
             { PluginKind = PreviewKind, WebAccess = new() { Mode = AllPublic ? PluginWebAccessMode.AllPublic : PluginWebAccessMode.None } });
         }
         public Task<AgentInstallationResponse> InstallAsync(Guid id, InstallAgentRequest request, CancellationToken token = default) { InstalledRequest = request; return Task.FromResult(Installation(PreviewKind)); }
