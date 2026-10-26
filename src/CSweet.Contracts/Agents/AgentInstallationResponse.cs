@@ -38,6 +38,8 @@ public sealed record AgentInstallationResponse(
     public Guid InstallationKey { get; init; }
     public int RevisionNumber { get; init; } = 1;
     public string RevisionStatus { get; init; } = "Active";
+    // Removal has fenced access but still awaits account revocation/cleanup confirmation.
+    public bool RemovalPending { get; init; }
     public string SetupState { get; init; } = "Ready";
     public string? SetupFlowId { get; init; }
     public string? SetupStepId { get; init; }

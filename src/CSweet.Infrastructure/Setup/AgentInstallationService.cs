@@ -360,11 +360,15 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken)
     {
         var installations = await InstallationQuery()
-            .Where(x => x.PackageVersion!.PluginKind != PluginKind.Agent)
+            .Where(x => x.PackageVersion!.PluginKind != PluginKind.Agent && x.RevisionStatus != PluginRevisionStatus.Retired)
             .OrderBy(x => x.PackageVersion!.AgentName)
             .ThenBy(x => x.BusinessId)
             .ToListAsync(cancellationToken);
-        return installations.Select(ToResponse).ToList();
+        var ids = installations.Select(x => x.Id).ToArray();
+        var removals = (await _dbContext.PluginAccountAdministrations.AsNoTracking()
+            .Where(x => ids.Contains(x.PluginInstallationId) && x.RemovalRequestedAt != null)
+            .Select(x => x.PluginInstallationId).ToArrayAsync(cancellationToken)).ToHashSet();
+        return installations.Select(x => ToResponse(x) with { RemovalPending = removals.Contains(x.Id) }).ToList();
     }
 
     public async Task<AgentInstallationResponse?> GetAsync(
@@ -382,7 +386,13 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
     {
         var installation = await InstallationQuery()
             .SingleOrDefaultAsync(x => x.Id == installationId, cancellationToken);
-        return installation is null ? null : ToResponse(installation);
+        // Keep direct reads available for historical cleanup receipts, not in Installed.
+        return installation is null ? null : ToResponse(installation) with
+        {
+            RemovalPending = installation.RevisionStatus != PluginRevisionStatus.Retired &&
+                await _dbContext.PluginAccountAdministrations.AsNoTracking().AnyAsync(
+                    x => x.PluginInstallationId == installationId && x.RemovalRequestedAt != null, cancellationToken)
+        };
     }
 
     public async Task<AgentInstallationResponse> UpdateScheduleAsync(

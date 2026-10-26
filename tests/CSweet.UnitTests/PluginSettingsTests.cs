@@ -46,6 +46,40 @@ public sealed class PluginSettingsTests
         Assert.DoesNotContain("Plugin repository URL", html);
     }
 
+    [Fact]
+    public async Task RetiredPluginDoesNotAppearOrContributeProviderSettingsEvenFromAnOlderServer()
+    {
+        var retired=Api.Installation("Connector") with { AgentName="Removed connector",IsEnabled=false,RevisionStatus="Retired",
+            ConnectionDeclarations=[new() { Id="account",ProviderProfile="example.retired.profile",Provider=new()
+            { DisplayName="Retired provider",AuthorizationEndpoint="https://identity.example.com/authorize",
+                TokenEndpoint="https://identity.example.com/token",RevocationEndpoint="https://identity.example.com/revoke" } }] };
+        var html=await Render(new Api { Installations=[retired] });
+        Assert.Contains("0 installed",html);
+        Assert.DoesNotContain("Removed connector",html);
+        Assert.DoesNotContain("OAuth provider profiles",html);
+        Assert.DoesNotContain("example.retired.profile",html);
+    }
+
+    [Fact]
+    public async Task PendingRemovalIsVisibleAndDistinctFromDisabledWhileCleanupIsOutstanding()
+    {
+        var removing=Api.Installation("Connector") with { IsEnabled=false,RemovalPending=true };
+        var html=await Render(new Api { Installations=[removing] });
+        Assert.Contains("1 installed",html);
+        Assert.Contains("Removal in progress",html);
+        Assert.Contains("Account access has stopped.",html);
+        Assert.DoesNotContain(">Disabled<",html);
+        Assert.Contains("Manage",html);
+    }
+
+    [Fact]
+    public async Task PausedPluginStillShowsDisabledWithoutImplyingRemoval()
+    {
+        var html=await Render(new Api { Installations=[Api.Installation("Connector") with { IsEnabled=false }] });
+        Assert.Contains(">Disabled<",html);
+        Assert.DoesNotContain("Removal in progress",html);
+    }
+
     [Theory]
     [InlineData(1, "Find your next capability", "Plugin repository URL")]
     [InlineData(2, "Plugin repository URL", "Find your next capability")]
@@ -208,14 +242,15 @@ public sealed class PluginSettingsTests
     }
     private sealed class Api : IPluginApiClient
     {
+        public IReadOnlyList<AgentInstallationResponse>? Installations { get; init; }
         public bool ImportsEnabled { get; init; } = true;
         public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(ImportsEnabled));
         public string PreviewKind { get; init; } = "Service";
         public bool AllPublic { get; init; }
         public PreviewAgentImportRequest? PreviewRequest { get; private set; }
         public InstallAgentRequest? InstalledRequest { get; private set; }
-        public Task<IReadOnlyList<AgentInstallationResponse>> ListAsync(CancellationToken token = default) => Task.FromResult<IReadOnlyList<AgentInstallationResponse>>([Installation("Service"), Installation("Connector"), Installation("Agent")]);
-        private static AgentInstallationResponse Installation(string kind) => new(Guid.NewGuid(), Guid.NewGuid(), Business.Id.ToString("D"), "example." + kind,
+        public Task<IReadOnlyList<AgentInstallationResponse>> ListAsync(CancellationToken token = default) => Task.FromResult<IReadOnlyList<AgentInstallationResponse>>(Installations ?? [Installation("Service"), Installation("Connector"), Installation("Agent")]);
+        public static AgentInstallationResponse Installation(string kind) => new(Guid.NewGuid(), Guid.NewGuid(), Business.Id.ToString("D"), "example." + kind,
             kind == "Agent" ? "Hidden agent" : kind + " example", "1.2.3", "Example", new string('a', 40), true, [], [], [], [], [], 512, 50, null!, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) { PluginKind = kind, InstallationScope = kind == "Service" ? "System" : "Organization" };
         public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken token = default)
         {

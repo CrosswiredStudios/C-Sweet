@@ -42,6 +42,14 @@ external work, invalidates pending plans and disables standing policies. Resume 
 autonomy. Removing initiates all account disconnects; the installation remains visibly pending until
 cleanup confirms, then becomes Retired. Historical content-free receipts remain accessible.
 
+`IPluginInstallationService.ListAsync` excludes retired revisions from Installed while direct
+`GetAsync` reads remain available for historical receipts. `AgentInstallationResponse.RemovalPending`
+projects the persisted removal request so `Plugins` can display **Removal in progress**, not Disabled,
+while connected-account cleanup is outstanding. The page also filters retired responses from older
+servers before computing installed counts, catalog actions or declared provider administration.
+A never-connected installation retires immediately without inventing cleanup obligations or requiring
+deployment cleanup services; configured shared provider profiles are not deleted by hiding the plugin.
+
 Updates build as staged, zero-grant revisions. The administrator reviews the exact completed digest
 and declarations separately. Changed digests fail approval. Old connected accounts block activation;
 cleanup must finish, and the new revision requires fresh connection/operator/business/agent grants.
