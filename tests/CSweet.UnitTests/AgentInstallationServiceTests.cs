@@ -567,6 +567,39 @@ public sealed class AgentInstallationServiceTests
         Assert.Single(await dbContext.AgentInstallations.ToListAsync());
     }
 
+    [Theory]
+    [InlineData("bundle")] [InlineData("different-publisher")] [InlineData("repository-source")] [InlineData("different-id")]
+    public async Task UploadedServiceVersionsRequireMatchingIdentityAndFreshExactDigestApproval(string scenario)
+    {
+        await using var db = CreateDbContext(); var current = await SeedAsync(db);
+        current.PluginKind = PluginKind.Service; current.Status = AgentPackageVersionStatus.Built;
+        current.PackageDigest = new string('c',64); current.ArtifactSignature = "old-signature";
+        var source = await db.AgentPackageSources.SingleAsync(x => x.Id == current.PackageSourceId);
+        source.SourceType = "PluginBundle";
+        var manifest = JsonNode.Parse(current.ManifestJson)!.AsObject(); manifest["kind"] = "service";
+        current.ManifestJson = manifest.ToJsonString(); await db.SaveChangesAsync();
+        var service = CreateService(db, new TestAgentContainerRunner());
+        var installed = await ((IPluginInstallationService)service).InstallAsync(current.Id, ValidRequest() with { PluginScope = "System", BusinessId = "enterprise", ActivationMode = "AlwaysOn" });
+        var nextSource = new AgentPackageSource { Id = Guid.NewGuid(), SourceType = scenario == "repository-source" ? "GitHub" : "PluginBundle",
+            RepositoryUrl = "upload://new-digest/plugin.cspb" };
+        manifest["version"] = "2.0.0";
+        var update = new AgentPackageVersion { Id = Guid.NewGuid(), PackageSourceId = nextSource.Id, AgentId = scenario == "different-id" ? "other" : current.AgentId,
+            AgentName = current.AgentName, Version = "2.0.0", PublisherId = scenario == "different-publisher" ? "other" : current.PublisherId,
+            PluginKind = PluginKind.Service, Status = AgentPackageVersionStatus.Built, ManifestJson = manifest.ToJsonString(),
+            PackageDigest = new string('d',64), ArtifactSignature = "new-signature" };
+        db.AddRange(nextSource, update); await db.SaveChangesAsync();
+        if (scenario != "bundle")
+        { await Assert.ThrowsAsync<AgentInstallationException>(() => service.UpdateAsync(installed.Id, new(update.Id))); return; }
+        var staged = await service.UpdateAsync(installed.Id, new(update.Id));
+        Assert.False(staged.IsEnabled); Assert.Empty(staged.GrantedCapabilities);
+        Assert.True((await db.AgentInstallations.SingleAsync(x => x.Id == installed.Id)).IsEnabled);
+        var approval = ValidRequest() with { PluginScope = "System", BusinessId = "enterprise", ActivationMode = "AlwaysOn" };
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ApproveUpdateAsync(staged.Id, approval));
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ApproveUpdateAsync(staged.Id, approval with { ExpectedPackageDigest = current.PackageDigest }));
+        var approved = await service.ApproveUpdateAsync(staged.Id, approval with { ExpectedPackageDigest = update.PackageDigest });
+        Assert.True(approved.IsEnabled); Assert.Equal("Retired", (await db.AgentInstallations.SingleAsync(x => x.Id == installed.Id)).RevisionStatus.ToString());
+    }
+
     [Fact]
     public async Task UpdateAsync_StagesZeroGrantRevisionAndKeepsActiveRevisionRunning()
     {

@@ -231,7 +231,7 @@ public sealed class PluginSettingsTests
             Call(page, "ReviewPublishedUpdate", installed);
             var preview = await api.PreviewAsync(new("https://github.com/example/plugin"));
             Set(page, "_preview", preview with { AgentId = scenario == "other-package" ? "different" : installed.AgentId,
-                AgentVersion = "1.2.4", PackageSourceMode = scenario == "source-build" ? "SourceBuild" : "PluginBundle",
+                AgentVersion = "1.2.4", BundleDigest = new string('b',64), PackageSourceMode = scenario == "source-build" ? "SourceBuild" : "PluginBundle",
                 ToolchainAdapters = new() { Provides = [new() { Key = "node", Version = 1, DefinitionResource = "toolchains/node.json" }] } });
             if (scenario == "other-business") Set(page, "_businessId", (Guid?)Guid.NewGuid());
             Set(page, "_approve", scenario != "unapproved");
@@ -242,6 +242,7 @@ public sealed class PluginSettingsTests
         Assert.Equal(installed.Id, api.UpdateTarget); Assert.Equal(api.StagedId, api.ApprovedId);
         Assert.Equal(installed.BusinessId, api.UpdateRequest!.BusinessId); Assert.Equal("Organization", api.UpdateRequest.PluginScope);
         Assert.Equal("OnDemand", api.UpdateRequest.ActivationMode); Assert.Equal(1024, api.UpdateRequest.MemoryMb);
+        Assert.Equal(new string('b',64), api.UpdateRequest.ExpectedPackageDigest);
     }
 
     private static readonly OrganizationResponse Business = new(Guid.Parse("11111111-1111-1111-1111-111111111111"), "QFN Games", null, null, null, null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);

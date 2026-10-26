@@ -449,7 +449,18 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             .SingleOrDefaultAsync(x => x.Id == request.PackageVersionId, cancellationToken)
             ?? throw new AgentInstallationException("The selected agent update is no longer available.");
 
-        if (nextPackage.PackageSourceId != currentPackage.PackageSourceId ||
+        // Uploaded sources are content-addressed, so a new bundle necessarily has a
+        // different source row. This only stages a zero-grant revision; activation
+        // separately requires explicit approval of the exact built bundle digest.
+        var serviceBundles = currentPackage.PluginKind == PluginKind.Service && nextPackage.PluginKind == PluginKind.Service &&
+            currentPackage.Status == AgentPackageVersionStatus.Built && nextPackage.Status == AgentPackageVersionStatus.Built &&
+            !string.IsNullOrWhiteSpace(nextPackage.PackageDigest) && !string.IsNullOrWhiteSpace(nextPackage.ArtifactSignature) &&
+            string.Equals(nextPackage.PublisherId, currentPackage.PublisherId, StringComparison.Ordinal) &&
+            DeserializeManifest(currentPackage.ManifestJson).Accounts is null && DeserializeManifest(nextPackage.ManifestJson).Accounts is null &&
+            await _dbContext.AgentPackageSources.CountAsync(x =>
+                (x.Id == currentPackage.PackageSourceId || x.Id == nextPackage.PackageSourceId) && x.SourceType == "PluginBundle", cancellationToken) ==
+                (currentPackage.PackageSourceId == nextPackage.PackageSourceId ? 1 : 2);
+        if (nextPackage.PackageSourceId != currentPackage.PackageSourceId && !serviceBundles ||
             !string.Equals(nextPackage.AgentId, currentPackage.AgentId, StringComparison.Ordinal))
         {
             throw new AgentInstallationException("The selected package is not an update for this agent.");
@@ -612,7 +623,9 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         if (brokerOnly) request = WithoutRuntimeSettings(request);
         await using var updateTransaction=manifest.Accounts is not null && _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction==null
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
-        if(manifest.Accounts is not null && (string.IsNullOrWhiteSpace(request.ExpectedPackageDigest) || request.ExpectedPackageDigest!=staged.PackageVersion.PackageDigest))
+        var reviewedBundle = staged.PackageVersion.PluginKind == PluginKind.Service &&
+            await _dbContext.AgentPackageSources.AnyAsync(x => x.Id == staged.PackageVersion.PackageSourceId && x.SourceType == "PluginBundle", cancellationToken);
+        if((manifest.Accounts is not null || reviewedBundle) && (string.IsNullOrWhiteSpace(request.ExpectedPackageDigest) || request.ExpectedPackageDigest!=staged.PackageVersion.PackageDigest))
             throw new AgentInstallationException("The verified update changed after review. Review and approve its exact package digest again.");
         var settings = brokerOnly ? null : await GetSettingsAsync(cancellationToken);
         var activation = brokerOnly ? ActivationMode.OnDemand : ParseActivationMode(request.ActivationMode);
