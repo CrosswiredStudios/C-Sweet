@@ -34,6 +34,7 @@ public sealed class SettingsWorkspaceRenderingTests
     [InlineData(typeof(ExecutionFleet), "offices", "Studio Office")]
     [InlineData(typeof(SourceControlSettings), "source-control", "Internal Git storage")]
     [InlineData(typeof(Plugins), "plugins", "Find plugins")]
+    [InlineData(typeof(ToolchainSetup), "toolchains", "No enabled, built provider is installed for this business")]
     [InlineData(typeof(CommunicationSettings), "communications", "Set up Discord")]
     [InlineData(typeof(CommunicationProviderSetup), "discord", "Provisioning preview")]
     [InlineData(typeof(AccountSecurity), "security", "Regenerate recovery codes")]
@@ -87,7 +88,7 @@ public sealed class SettingsWorkspaceRenderingTests
             new AppLocalizer(new LocalizationResources(), new AppCulture(null, new AuthSessionStore())));
         typeof(Settings).GetField("_search", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, "image");
         var matches = (IEnumerable<SettingsSection>)typeof(Settings).GetProperty("MatchingSections", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!;
-        Assert.Equal("/settings/genai-providers", Assert.Single(matches).Url);
+        Assert.Equal(new[] { "/settings/genai-providers", "/settings/toolchains" }, matches.Select(x => x.Url).ToArray());
     }
 
     [Fact]
@@ -196,6 +197,8 @@ public sealed class SettingsWorkspaceRenderingTests
                 "/api/agent-runtime/settings" => """{"enableImportedAgents":true,"defaultActivationMode":"OnDemand","defaultOverlapPolicy":"Skip","defaultRestartPolicy":"OnFailure","defaultNetworkPolicy":"McpOnly","allowedPackageFeedHosts":"nuget.org","blockedNetworkCidrs":"","defaultTickFrequencySeconds":60,"minimumTickFrequencySeconds":10,"defaultMaxRuntimeSeconds":300,"defaultWorkloadMemoryMb":512,"maximumWorkloadMemoryMb":4096,"globalMaxActiveWorkloads":8} """,
                 "/api/llm-provider-profiles/usage/summary" => """{"last24Hours":{"totalTokens":12500,"requestCount":12},"last7Days":{"totalTokens":148000,"requestCount":145},"last30Days":{"totalTokens":610000,"requestCount":580},"providers":[],"agents":[],"recentChatTurns":[]} """,
                 "/api/agents/available" => "{\"agents\":[],\"sources\":[]}",
+                "/api/admin/toolchain-certifications/setup" => "{\"providers\":[],\"images\":[]}",
+                "/api/admin/toolchain-certifications" => "[]",
                 "/api/execution-fleet" => """{"pools":[],"nodes":[{"id":"10000000-0000-0000-0000-000000000001","name":"Studio Office","machineName":"studio-desktop","operatingSystem":"linux","architecture":"x64","nodeVersion":"1.2.0","status":"ready","providers":[],"labels":{},"allocatableCpuCount":8,"allocatableMemoryMb":16000,"maximumConcurrentWorkloads":4}],"recentAssignments":[],"installationOverrides":[]} """,
                 "/api/source-control/storage" => """{"ready":true,"repositoryRoot":"/data/repositories","temporaryRoot":"/data/tmp","lfsProvider":"FileSystem","lfsLocation":"/data/lfs","backupProvider":"FileSystem","backupLocation":"/data/backups"} """,
                 "/api/source-control/platform-setup" => "{\"readiness\":{\"existingGitHubAvailable\":false,\"guidedSetupAvailable\":true}}",

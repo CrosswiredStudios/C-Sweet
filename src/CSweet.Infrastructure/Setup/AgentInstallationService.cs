@@ -157,7 +157,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             throw new AgentInstallationException("User scope is reserved for the bundled personal assistant.");
         if (packageVersion.PluginKind == PluginKind.Connector && scope != (manifest.Accounts is null ? PluginInstallationScope.Organization : PluginInstallationScope.System))
             throw new AgentInstallationException("Use the installation scope declared by this connector's account-management contract.");
-        if (packageVersion.PluginKind == PluginKind.Service &&
+        var toolchainProvider = packageVersion.PluginKind == PluginKind.Service && manifest.ToolchainAdapters.Provides.Count > 0;
+        if (toolchainProvider && (scope != PluginInstallationScope.Organization ||
+            !Guid.TryParse(businessId, out var toolchainBusiness) || toolchainBusiness == Guid.Empty ||
+            activationMode != ActivationMode.OnDemand))
+            throw new AgentInstallationException("Build toolchain providers must be installed for one business with on-demand activation; certification and targeted workloads govern execution.");
+        if (packageVersion.PluginKind == PluginKind.Service && !toolchainProvider &&
             (scope != PluginInstallationScope.System || activationMode != ActivationMode.AlwaysOn))
             throw new AgentInstallationException("Communication providers must be system-scoped and always-on.");
         var overlapPolicy = brokerOnly ? OverlapPolicy.Skip : ParseOverlapPolicy(request.OverlapPolicy);

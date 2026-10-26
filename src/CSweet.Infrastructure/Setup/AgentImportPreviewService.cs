@@ -446,6 +446,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             Connections = manifest.Connections,
             Setup = manifest.Setup,
             Accounts = manifest.Accounts,
+            ToolchainAdapters = manifest.ToolchainAdapters,
             DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds,
             PackageSourceMode = source.SourceType == "PluginBundle" ? "PluginBundle" : prebuilt ? "PrebuiltRelease" : "SourceBuild",
             ReleaseTag = version.ReleaseTag,
