@@ -17,6 +17,7 @@ public static class SettingsSections
         new("Settings.Group.Platform", "Settings.Section.Offices.Title", "/settings/offices", "Settings.Section.Offices.Description", Icons.Material.Outlined.Hub),
         new("Settings.Group.Platform", "Settings.Section.SourceControl.Title", "/settings/source-control", "Settings.Section.SourceControl.Description", Icons.Material.Outlined.AccountTree),
         new("Settings.Group.Platform", "Settings.Section.Plugins.Title", "/settings/plugins", "Settings.Section.Plugins.Description", Icons.Material.Outlined.Extension),
+        new("Settings.Group.Platform", "Settings.Section.ToolchainSetup.Title", "/settings/toolchains", "Settings.Section.ToolchainSetup.Description", Icons.Material.Outlined.Build),
         new("Settings.Group.Platform", "Settings.Section.Communications.Title", "/settings/communications", "Settings.Section.Communications.Description", Icons.Material.Outlined.Forum),
         new("Settings.Group.Account", "Settings.Section.Security.Title", "/settings/security", "Settings.Section.Security.Description", Icons.Material.Outlined.Security)
     ];

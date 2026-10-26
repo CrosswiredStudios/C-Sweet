@@ -1,0 +1,11 @@
+# Build provider setup
+
+`AgentImportPreviewResponse.ToolchainAdapters` carries the reviewed adapter declarations into the plugin installation screen. `AgentImportPreviewService.ToResponse` reads them from the immutable package manifest. The declaration, rather than a package-name exception, distinguishes a build provider from a communication service.
+
+`AgentInstallationService.InstallCoreAsync` requires declared service toolchain providers to use one organization UUID and `OnDemand` activation. Ordinary service plugins retain their system/always-on policy. `Plugins.IsToolchainProvider` uses the same declaration to require business selection and preserve on-demand activation. Installation retains ordinary manifest, grant, package, configuration, resource and isolation checks; it creates no toolchain eligibility.
+
+`ToolchainCertificationEndpoints.ReadSetupAsync` supplies the build-runner screen with exact active, enabled, built business installations, version-matched immutable definitions, and currently ready Office image digests. `SetupAsync`, existing certification start, listing and revoke routes remain inside `HostAdministration`. Start also checks organization scope and rereads current package, readiness and capacity.
+
+`ToolchainSetup` at `/settings/toolchains` lets a deployment administrator select a business, provider, declared build environment and Office image, review the combination, and invoke the existing certification pipeline. Changing a selection clears review; an already running combination cannot be submitted again from the screen. The API remains authoritative. Each declared fixture runs twice and must satisfy the existing reproducibility checks before eligibility exists. The UI reports scheduled tests rather than claiming capacity or project execution.
+
+`ToolchainSetupTests`, `ToolchainSetupPageTests` and `AgentInstallationServiceTests` cover organization boundaries, disabled/staged/unbuilt/version-mismatched providers, unavailable Office capacity, administrator route policy, exact reviewed request binding, duplicate prevention and unchanged communication-service behavior. The setup screen does not resolve CEO decisions, hire employees, or substitute for Technical Director feasibility and Director project selection.
