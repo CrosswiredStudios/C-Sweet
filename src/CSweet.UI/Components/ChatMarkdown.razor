@@ -19,6 +19,14 @@
         var document = Markdown.Parse(value, Pipeline);
         foreach (var link in document.Descendants<LinkInline>().Where(link => !link.IsImage))
         {
+            var destination = System.Net.WebUtility.HtmlDecode(link.Url ?? "").Trim();
+            if (destination.Any(char.IsControl) ||
+                !Uri.TryCreate(destination, UriKind.RelativeOrAbsolute, out var parsed) ||
+                parsed.IsAbsoluteUri && parsed.Scheme is not ("http" or "https" or "mailto" or "tel"))
+            {
+                link.Url = "#";
+                continue;
+            }
             if (Uri.TryCreate(link.Url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
             {
                 var attributes = link.GetAttributes();

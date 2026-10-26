@@ -11,6 +11,9 @@ else
 {
     <AttentionRequestCard Kind="Decision" EmployeeId="Question.AgentOrganizationUserId" Name="@Question.AgentName"
         Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt" Status="Awaiting your response" RightAlignedActions="OpenEnded">
+        <PromptContent>
+            <DecisionPrompt Content="@Question.Decision.Prompt" Preview="true" ConversationHref="@DecisionHref" />
+        </PromptContent>
         <BodyContent>
             @if (OpenEnded)
             {
@@ -57,7 +60,7 @@ else
     <details>
     <summary>
         <span class="question-meta"><strong>@Question.AgentName</strong><span class="question-date">@Question.Decision.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span><span class="pending-label">@L["AgentQuestionCard.Pending"]</span></span>
-        <span class="question-prompt">@Question.Decision.Prompt</span>
+        <div class="question-prompt"><DecisionPrompt Content="@Question.Decision.Prompt" /></div>
         <span class="expand-label">@L["AgentQuestionCard.ReviewRespond"]</span>
     </summary>
     <div class="question-response">
@@ -105,6 +108,7 @@ else
     private bool OpenEnded => Question.Decision.AllowFreeText && Question.Decision.Options.Count == 0;
     private bool NeedsText => Question.Decision.AllowFreeText && (OpenEnded || _selected == Other || _selected == "provide-direction");
     private string ConversationHref => $"/organizations/{OrganizationId}/communications/{Question.ConversationId}";
+    private string DecisionHref => $"{ConversationHref}?decision={Question.Decision.Id:D}";
     private async Task AnswerOptionAsync(string option)
     {
         if (_busy || _submitted || _answerConfirmed) return;

@@ -10,7 +10,7 @@
         <div class="request-identity"><strong>@Name</strong>@if (!string.IsNullOrWhiteSpace(Context)) { <span>@Context</span> }</div>
         <span class="request-kind"><MudIcon Icon="@Icon" Size="Size.Small" />@Kind</span>
     </div>
-    <div class="request-title"><h3>@Prompt</h3>@if (!string.IsNullOrWhiteSpace(PromptMeta)) { <span>@PromptMeta</span> }</div>
+    <div class="request-title">@if (PromptContent is not null) { @PromptContent } else { <h3>@Prompt</h3> }@if (!string.IsNullOrWhiteSpace(PromptMeta)) { <span>@PromptMeta</span> }</div>
     @if (!string.IsNullOrWhiteSpace(Description)) { <p>@Description</p> }
     @BodyContent
     <div class="request-footer @(RightAlignedActions ? "align-actions-right" : "")"><div class="request-footer-context">@if (FooterContent is not null) { @FooterContent } else { <span>@Status</span> }</div><div class="request-actions">@ChildContent</div></div>
@@ -26,6 +26,7 @@
     [Parameter] public string? Description { get; set; }
     [Parameter] public string? Status { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? PromptContent { get; set; }
     [Parameter] public RenderFragment? BodyContent { get; set; }
     [Parameter] public RenderFragment? FooterContent { get; set; }
     [Parameter] public bool Compact { get; set; }

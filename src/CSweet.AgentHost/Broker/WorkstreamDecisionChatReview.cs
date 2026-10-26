@@ -48,8 +48,7 @@ internal static class WorkstreamDecisionChatReview
                 AudienceWorkstreamIds: [source.WorkstreamId]) { WorkstreamId = source.WorkstreamId }, token);
         if (!chat.Succeeded || chat.Chat is null) throw new InvalidOperationException(chat.Message);
         var sent = await hub.SendAsync(source.OrganizationId, chat.Chat.Id, source.RequestedByOrganizationUserId,
-            new SendCommunicationMessageRequest(source.Summary + "\n\nPlease review this project decision. Your response will be recorded against the project. " +
-                (options.Any(x => x.Id == "provide-direction") ? "Use Something else to provide specific direction." : "Select an option below."), key), token)
+            new SendCommunicationMessageRequest(source.Summary, key), token)
             ?? throw new InvalidOperationException("The project decision message could not be created.");
         await decisions.CreateAsync(new CreateExecutiveDecisionCommand(source.OrganizationId, chat.Chat.Id, null,
             sent.Message.Id, installation, source.Summary,
