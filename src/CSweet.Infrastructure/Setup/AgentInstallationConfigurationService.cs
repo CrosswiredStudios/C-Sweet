@@ -336,9 +336,12 @@ public sealed partial class AgentInstallationConfigurationService(
         CancellationToken cancellationToken)
     {
         if (changedKeys.Count == 0 || inbox is null) return;
-        var effective = await ResolveInstallationAsync(installationId, cancellationToken);
-        var organizationId = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == installationId)
-            .Select(x => x.BusinessId).SingleAsync(cancellationToken);
+        var runtimeInstallation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion)
+            .SingleAsync(x => x.Id == installationId, cancellationToken);
+        var effective = AgentTokenBudget.ForRuntime(runtimeInstallation.PackageVersion!.ManifestJson,
+            await ResolveInstallationAsync(installationId, cancellationToken));
+        var runtimeChangedKeys = changedKeys.Where(effective.Settings.ContainsKey).ToArray();
+        var organizationId = runtimeInstallation.BusinessId;
         try
         {
             await inbox.EnqueueAsync(
@@ -351,7 +354,7 @@ public sealed partial class AgentInstallationConfigurationService(
                     effective.InstallationId,
                     effective.SchemaVersion,
                     EffectiveSettings = effective.Settings,
-                    ChangedKeys = changedKeys,
+                    ChangedKeys = runtimeChangedKeys,
                     DesiredRevision = effective.Revision,
                     EffectiveDigest = effective.Digest
                 }, JsonOptions),

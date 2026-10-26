@@ -20,6 +20,8 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Game studio startup recovery](game-studio-startup-recovery.md) maps Producer ownership, metadata validation, revised proposal recovery and platform token-budget configuration boundaries.
+
 [Game studio role boundaries](game-studio-role-boundaries.md) defines the Director/Creative/Producer split, exact pitch and creative review gates, SDK interaction primitives, and reproducible concept-to-demo verification.
 
 [Prism Break project setup recovery](prism-break-project-setup-recovery.md) documents

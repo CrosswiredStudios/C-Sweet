@@ -51,6 +51,17 @@ public static class AgentTokenBudget
         return result;
     }
 
+    // Platform budgets remain in control-plane settings and inference enforcement. Only
+    // send them to an agent when its signed configuration contract declares the fields.
+    public static EffectiveAgentConfiguration ForRuntime(string manifestJson, EffectiveAgentConfiguration effective)
+    {
+        var manifest = AgentConfigurationRules.DeserializeManifest(manifestJson);
+        var declared = manifest.Configuration.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
+        var settings = effective.Settings.Where(x => x.Key is not (ContextKey or OutputKey) || declared.Contains(x.Key))
+            .ToDictionary(x => x.Key, x => x.Value.Clone(), StringComparer.Ordinal);
+        return effective with { Settings = settings, Digest = AgentConfigurationRules.Digest(settings) };
+    }
+
     public static int ResolveOutput(IReadOnlyDictionary<string, JsonElement> settings)
     {
         var context = Read(settings, ContextKey, DefaultContextTokens);
