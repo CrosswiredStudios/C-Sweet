@@ -41,6 +41,30 @@ public sealed class ToolchainSetupPageTests
             Assert.Equal(1, handler.Requests);
         }
     }
+    [Theory]
+    [InlineData("Running", false, 1)] [InlineData("Running", true, 0)] [InlineData("Failed", false, 0)]
+    public async Task ResumeUsesTheSavedRunIdentityAndRevision(string status, bool busy, int expected)
+    {
+        var run = JsonSerializer.Deserialize<ToolchainCertificationSummary>("{}")! with { Id = Guid.NewGuid(), Revision = 7, Status = status };
+        var handler = new ResumeHandler(run); var page = new ToolchainSetup();
+        typeof(ToolchainSetup).GetProperty("PluginApi", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page,
+            new PluginApiClient(new HttpClient(handler) { BaseAddress = new("http://localhost") }));
+        typeof(ToolchainSetup).GetProperty("L", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, new Localizer());
+        Set(page, "_runs", new[] { run }); Set(page, "_busy", busy);
+        await (Task)typeof(ToolchainSetup).GetMethod("ResumeAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, [run])!;
+        Assert.Equal(expected, handler.Requests);
+    }
+    private sealed class ResumeHandler(ToolchainCertificationSummary run) : HttpMessageHandler
+    {
+        public int Requests;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal($"/api/admin/toolchain-certifications/{run.Id:D}/resume", request.RequestUri!.AbsolutePath);
+            Assert.Equal(new ResumeToolchainCertificationRequest(run.Revision), await request.Content!.ReadFromJsonAsync<ResumeToolchainCertificationRequest>(token));
+            Requests++; return new(HttpStatusCode.OK) { Content = JsonContent.Create(run with { Revision = run.Revision + 1 }) };
+        }
+    }
     private static void Set(ToolchainSetup page, string field, object value) =>
         typeof(ToolchainSetup).GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, value);
     private sealed class Handler : HttpMessageHandler

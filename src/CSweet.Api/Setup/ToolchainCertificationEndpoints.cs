@@ -23,6 +23,7 @@ public static class ToolchainCertificationEndpoints
         group.MapGet("/{id:guid}", GetAsync);
         group.MapPost("", StartAsync);
         group.MapPost("/{id:guid}/revoke", RevokeAsync);
+        group.MapPost("/{id:guid}/resume", ResumeAsync);
         return endpoints;
     }
 
@@ -184,7 +185,7 @@ public static class ToolchainCertificationEndpoints
         return Results.Accepted($"/api/admin/toolchain-certifications/{run.Id:D}", Map(run, new { Total = total, Complete = 0 }));
     }
 
-    private static async Task QueueCertificationBuildAsync(
+    internal static async Task QueueCertificationBuildAsync(
         StartToolchainCertificationRequest request,
         DeliveryBuildRecord build,
         ToolchainAdapterDefinitionRecord definition,
@@ -194,6 +195,18 @@ public static class ToolchainCertificationEndpoints
         CSweetDbContext db,
         CancellationToken token)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(token) : null;
+        if (db.Database.IsNpgsql())
+        {
+            var key = $"toolchain-build:{build.Id:N}";
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", token);
+            await db.Entry(build).ReloadAsync(token);
+        }
+        if (build.Status != W.DeliveryBuildStatuses.Queued || await db.ExecutionWorkloadAssignments.AnyAsync(x =>
+            x.DeliveryBuildId == build.Id && (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned ||
+                x.Status == ExecutionAssignmentStatus.Starting || x.Status == ExecutionAssignmentStatus.Running || x.Status == ExecutionAssignmentStatus.Stopping), token))
+            return;
         var package = installation.PackageVersion!;
         if (string.IsNullOrWhiteSpace(package.PackageDigest) || string.IsNullOrWhiteSpace(package.ArtifactSignature) ||
             string.IsNullOrWhiteSpace(package.ProjectPath))
@@ -215,6 +228,7 @@ public static class ToolchainCertificationEndpoints
         var runtime = new AgentRuntimeInstance
         {
             Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = installation.Id,
+            DeliveryBuildId = build.Id,
             BrokerTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(workloadToken))),
             QueuedAt = now, RuntimeDeadlineAt = now.AddMinutes(35)
         };
@@ -240,6 +254,44 @@ public static class ToolchainCertificationEndpoints
             request.OrganizationId.ToString("D"), null, image.Digest, artifactDigest,
             limits.VirtualCpuCount, limits.MemoryMegabytes, limits.WritableDiskMegabytes,
             JsonSerializer.Serialize(workload), DeliveryBuildId: build.Id), token);
+        if (transaction is not null) await transaction.CommitAsync(token);
+    }
+
+    internal static async Task<IResult> ResumeAsync(Guid id, ResumeToolchainCertificationRequest request, CSweetDbContext db,
+        IExecutionWorkloadOrchestrator workloads, IGuestImageRegistry guestImages, CancellationToken token)
+    {
+        var run = await db.ToolchainCertificationRuns.SingleOrDefaultAsync(x => x.Id == id, token);
+        if (run is null) return Results.NotFound();
+        if (run.Revision != request.ExpectedRevision) return Results.Conflict(new { error = "stale_certification", run.Revision });
+        if (run.Status != W.ToolchainCertificationStatuses.Running || run.ExpiresAt <= DateTimeOffset.UtcNow)
+            return Results.Conflict(new { error = "certification_not_running" });
+        var setup = await ReadSetupAsync(run.OrganizationId, db, token);
+        if (!setup.Providers.Any(x => x.InstallationId == run.ProviderInstallationId && x.DefinitionId == run.ToolchainDefinitionId &&
+            x.EnvironmentProfiles.Contains(run.EnvironmentProfileKey)) || !setup.Images.Any(x => x.Digest == run.EnvironmentImageDigest))
+            return Results.Conflict(new { error = "certification_capacity_changed" });
+        var installation = await db.AgentInstallations.Include(x => x.PackageVersion).SingleAsync(x => x.Id == run.ProviderInstallationId, token);
+        var definition = await db.ToolchainAdapterDefinitions.SingleAsync(x => x.Id == run.ToolchainDefinitionId, token);
+        if (NormalizeDigest(installation.PackageVersion!.PackageDigest!) != run.ProviderPackageDigest || definition.DefinitionDigest != run.DefinitionDigest)
+            return Results.Conflict(new { error = "certification_inputs_changed" });
+        var builds = await db.DeliveryBuilds.Where(x => x.CertificationRunId == run.Id).ToListAsync(token);
+        // An explicit administrator retry can recover pre-execution dispatch exhaustion. It
+        // cannot turn a failed fixture or an exhausted provider execution into another attempt.
+        foreach (var build in builds.Where(x => x.Status == W.DeliveryBuildStatuses.Exhausted && x.Attempt == 0 &&
+            x.FailureCode == "headquarters-broker-rejected"))
+        {
+            if (await db.ExecutionWorkloadAssignments.AnyAsync(x => x.DeliveryBuildId == build.Id &&
+                (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned ||
+                 x.Status == ExecutionAssignmentStatus.Starting || x.Status == ExecutionAssignmentStatus.Running || x.Status == ExecutionAssignmentStatus.Stopping), token))
+                continue;
+            build.Status = W.DeliveryBuildStatuses.Queued; build.Revision++; build.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        run.Revision++;
+        await db.SaveChangesAsync(token);
+        var start = new StartToolchainCertificationRequest(run.OrganizationId, run.ToolchainDefinitionId, run.ProviderInstallationId,
+            run.EnvironmentProfileKey, run.EnvironmentImageDigest);
+        foreach (var build in builds.Where(x => x.Status == W.DeliveryBuildStatuses.Queued))
+            await QueueCertificationBuildAsync(start, build, definition, installation, workloads, guestImages, db, token);
+        return Results.Ok(Map(run, new { Total = builds.Count, Complete = builds.Count(x => x.Status == W.DeliveryBuildStatuses.Succeeded) }));
     }
 
     private static string NormalizeDigest(string value)

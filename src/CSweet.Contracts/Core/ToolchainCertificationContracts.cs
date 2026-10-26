@@ -14,6 +14,8 @@ public sealed record StartToolchainCertificationRequest(
     string EnvironmentImageDigest,
     int ValidForDays = 90);
 
+public sealed record ResumeToolchainCertificationRequest(long ExpectedRevision);
+
 public sealed record RevokeToolchainCertificationRequest(string Reason, long ExpectedRevision);
 
 public sealed record ToolchainCertificationSummary(

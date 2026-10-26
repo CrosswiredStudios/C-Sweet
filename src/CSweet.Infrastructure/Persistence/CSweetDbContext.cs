@@ -881,7 +881,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
         // Apply planning entity configurations
         PlanningConfigurations.Apply(modelBuilder);
-        
+
         // Apply core business domain entity configurations
         CoreConfigurations.Apply(modelBuilder);
         CompanyDashboardConfigurations.Apply(modelBuilder);
@@ -1583,7 +1583,11 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.HasIndex(x => x.AgentInstallationId)
                 .HasDatabaseName("UX_AgentRuntimeInstances_ActiveInstallation")
                 .IsUnique()
-                .HasFilter("\"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
+                .HasFilter("\"DeliveryBuildId\" IS NULL AND \"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
+            entity.HasIndex(x => x.DeliveryBuildId)
+                .HasDatabaseName("UX_AgentRuntimeInstances_ActiveDeliveryBuild")
+                .IsUnique()
+                .HasFilter("\"DeliveryBuildId\" IS NOT NULL AND \"Status\" IN ('Queued', 'Starting', 'WaitingForMcpSession', 'Running', 'CompletionReported', 'Stopping')");
             entity.HasOne(x => x.AgentInstallation)
                 .WithMany(x => x.RuntimeInstances)
                 .HasForeignKey(x => x.AgentInstallationId)

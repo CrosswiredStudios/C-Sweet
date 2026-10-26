@@ -378,9 +378,12 @@ public sealed class ExecutionBrokerSessionRunner(
             ?? throw new InvalidDataException("The toolchain runtime instance was not loaded.");
         var deliveryBuild = await dbContext.DeliveryBuilds.AsNoTracking()
             .SingleAsync(x => x.Id == workload.DeliveryBuildId, cancellationToken);
-        var sourceRepository = await dbContext.SourceControlRepositories.AsNoTracking()
+        if (runtime.DeliveryBuildId != deliveryBuild.Id || runtime.AgentInstallationId != deliveryBuild.ProviderInstallationId)
+            throw new UnauthorizedAccessException("The runtime must be bound to this provider's exact managed build.");
+        var certification = await ValidateCertificationFixtureAsync(dbContext, deliveryBuild, workload, cancellationToken);
+        var sourceRepository = certification ? null : await dbContext.SourceControlRepositories.AsNoTracking()
             .Include(x => x.Connection)
-            .SingleAsync(x => x.Id == deliveryBuild.RepositoryId, cancellationToken);
+            .SingleAsync(x => x.Id == deliveryBuild.RepositoryId && x.OrganizationId == deliveryBuild.OrganizationId, cancellationToken);
         var now = timeProvider.GetUtcNow();
         if (runtime.Status == AgentRuntimeStatus.Queued)
             runtime.TransitionTo(AgentRuntimeStatus.Starting, now, "Starting the assigned certified toolchain VM.");
@@ -429,7 +432,7 @@ public sealed class ExecutionBrokerSessionRunner(
             }
             var operations = new ToolchainBuildBrokerOperationHandler(
                 workload, runtimeOperations, artifact, PersistResultAsync,
-                sourceRepository.IsPrivate
+                sourceRepository?.IsPrivate == true
                     ? token => PrepareTrustedSourceAsync(sourceRepository, deliveryBuild, workload, token)
                     : null,
                 logger);
@@ -484,7 +487,7 @@ public sealed class ExecutionBrokerSessionRunner(
             start.Environment.Add("CSWEET_BUILD_CONFIGURATION_JSON", workload.ConfigurationJson);
             start.Environment.Add("CSWEET_BUILD_SOURCE_URL", workload.SourceRepository.RepositoryUrl);
             start.Environment.Add("CSWEET_BUILD_SOURCE_COMMIT", workload.SourceRepository.CommitSha);
-            if (sourceRepository.Connection?.Provider == SourceControlProvider.InternalGit)
+            if (sourceRepository?.Connection?.Provider == SourceControlProvider.InternalGit)
                 start.Environment.Add("CSWEET_BUILD_SOURCE_ARCHIVE_URL", ToolchainTrustedSource.ArchiveUri(deliveryBuild.Id, deliveryBuild.SourceRevision));
             start.Environment.Add("CSWEET_BUILD_INPUT_ROOT", "/run/csweet/workload/source");
             start.Environment.Add("CSWEET_BUILD_OUTPUT_ROOT", "/run/csweet/workload/output");
@@ -512,6 +515,34 @@ public sealed class ExecutionBrokerSessionRunner(
                 "Toolchain broker session completed for assignment {AssignmentId}, build {BuildId}, artifact {ArtifactDigest}.",
                 assignment.Id, workload.DeliveryBuildId, result.Artifact.Digest);
         }
+    }
+
+    internal static async Task<bool> ValidateCertificationFixtureAsync(
+        CSweetDbContext dbContext, CSweet.Domain.Core.DeliveryBuildRecord build, ToolchainBuildWorkloadSpecification workload, CancellationToken token)
+    {
+        if (!build.CertificationRunId.HasValue)
+        {
+            if (!string.IsNullOrWhiteSpace(build.CertificationFixtureResource))
+                throw new InvalidDataException("An ordinary build cannot substitute packaged certification source.");
+            return false;
+        }
+        var run = await dbContext.ToolchainCertificationRuns.AsNoTracking().SingleAsync(x => x.Id == build.CertificationRunId, token);
+        var definition = await dbContext.ToolchainAdapterDefinitions.AsNoTracking().SingleAsync(x => x.Id == build.ToolchainDefinitionId, token);
+        using var json = JsonDocument.Parse(definition.DefinitionJson);
+        var declared = json.RootElement.GetProperty("recipes").EnumerateArray().Any(recipe =>
+            recipe.GetProperty("key").GetString() == build.RecipeKey &&
+            recipe.GetProperty("targetKeys").EnumerateArray().Any(target => target.GetString() == build.TargetKey) &&
+            recipe.GetProperty("requiredEnvironmentProfileKeys").EnumerateArray().Any(profile => profile.GetString() == run.EnvironmentProfileKey) &&
+            recipe.GetProperty("certificationFixtures").EnumerateArray().Any(fixture =>
+                fixture.GetProperty("key").GetString() == build.CertificationFixtureKey &&
+                fixture.GetProperty("resource").GetString() == build.CertificationFixtureResource));
+        if (!declared || build.RepositoryId != Guid.Empty || run.Status != CSweet.WorkManagement.Contracts.ToolchainCertificationStatuses.Running ||
+            run.ExpiresAt <= DateTimeOffset.UtcNow || run.OrganizationId != build.OrganizationId || run.ToolchainDefinitionId != build.ToolchainDefinitionId ||
+            run.ProviderInstallationId != build.ProviderInstallationId || run.DefinitionDigest != definition.DefinitionDigest ||
+            run.EnvironmentImageDigest != workload.GuestImage.Digest || run.ProviderPackageDigest != workload.AdapterArtifact.Digest ||
+            build.SourceRevision != workload.SourceRepository.CommitSha || build.DefinitionDigest != definition.DefinitionDigest)
+            throw new UnauthorizedAccessException("Certification source must match the current run, exact provider artifact, image and declared fixture.");
+        return true;
     }
 
     private async Task<ToolchainSourceArchive?> PrepareTrustedSourceAsync(

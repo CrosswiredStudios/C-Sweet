@@ -84,7 +84,7 @@ public sealed class AgentInteractiveRuntimeService(
 
         var runtimes = dbContext.AgentRuntimeInstances
             .AsNoTracking()
-            .Where(x => x.AgentInstallationId == installationId);
+            .Where(x => x.DeliveryBuildId == null && x.AgentInstallationId == installationId);
         var activeStatuses = new[]
         {
             AgentRuntimeStatus.Queued,

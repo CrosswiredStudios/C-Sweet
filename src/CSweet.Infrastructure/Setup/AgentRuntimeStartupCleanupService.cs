@@ -20,9 +20,9 @@ public sealed class AgentRuntimeStartupCleanupService(
         var installations = await dbContext.AgentInstallations.Include(x => x.Schedule)
             .Where(x => x.IsEnabled && x.Schedule != null && x.Schedule.IsEnabled &&
                 x.Schedule.ActivationMode == ActivationMode.AlwaysOn && x.Schedule.ConsecutiveStartupFailures > 0 &&
-                !x.RuntimeInstances.Any(r => r.Status == AgentRuntimeStatus.Queued || r.Status == AgentRuntimeStatus.Starting ||
+                !x.RuntimeInstances.Any(r => r.DeliveryBuildId == null && (r.Status == AgentRuntimeStatus.Queued || r.Status == AgentRuntimeStatus.Starting ||
                     r.Status == AgentRuntimeStatus.WaitingForMcpSession || r.Status == AgentRuntimeStatus.Running ||
-                    r.Status == AgentRuntimeStatus.CompletionReported || r.Status == AgentRuntimeStatus.Stopping))
+                    r.Status == AgentRuntimeStatus.CompletionReported || r.Status == AgentRuntimeStatus.Stopping)))
             .ToListAsync(cancellationToken);
         var recovered = 0;
         var now = DateTimeOffset.UtcNow;
@@ -30,7 +30,7 @@ public sealed class AgentRuntimeStartupCleanupService(
         {
             if (installation.Schedule!.AutomaticStartSuppressedAt is null && installation.Schedule.NextTickAt <= now) continue;
             var runtime = await dbContext.AgentRuntimeInstances.Include(x => x.Events)
-                .Where(x => x.AgentInstallationId == installation.Id)
+                .Where(x => x.DeliveryBuildId == null && x.AgentInstallationId == installation.Id)
                 .OrderByDescending(x => x.QueuedAt).FirstOrDefaultAsync(cancellationToken);
             if (runtime is null || !AgentStartupRecovery.IsTransient(runtime)) continue;
             installation.Schedule!.AutomaticStartSuppressedAt = null;
@@ -57,7 +57,7 @@ public sealed class AgentRuntimeStartupCleanupService(
         }
 
         var stale = await dbContext.AgentRuntimeInstances.AsNoTracking()
-            .Where(instance => instance.IsolationProviderId != null && instance.ProviderInstanceId != null)
+            .Where(instance => instance.DeliveryBuildId == null && instance.IsolationProviderId != null && instance.ProviderInstanceId != null)
             .Select(instance => new { instance.Id, instance.IsolationProviderId, instance.ProviderInstanceId })
             .ToListAsync(cancellationToken);
         var removed = 0;

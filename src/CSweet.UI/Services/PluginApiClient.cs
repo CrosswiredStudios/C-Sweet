@@ -13,6 +13,9 @@ public sealed class PluginApiClient(HttpClient httpClient) : IPluginApiClient
         SendAsync<IReadOnlyList<CSweet.Contracts.Core.ToolchainCertificationSummary>>(HttpMethod.Get, $"api/admin/toolchain-certifications?organizationId={organizationId:D}", null, ct);
     public Task<CSweet.Contracts.Core.ToolchainCertificationSummary> StartToolchainCertificationAsync(CSweet.Contracts.Core.StartToolchainCertificationRequest request, CancellationToken ct = default) =>
         SendAsync<CSweet.Contracts.Core.ToolchainCertificationSummary>(HttpMethod.Post, "api/admin/toolchain-certifications", request, ct);
+    public Task<CSweet.Contracts.Core.ToolchainCertificationSummary> ResumeToolchainCertificationAsync(Guid id,
+        CSweet.Contracts.Core.ResumeToolchainCertificationRequest request, CancellationToken ct = default) =>
+        SendAsync<CSweet.Contracts.Core.ToolchainCertificationSummary>(HttpMethod.Post, $"api/admin/toolchain-certifications/{id:D}/resume", request, ct);
     public Task<AgentInstallationResponse> StageUpdateAsync(Guid id,Guid packageId,CancellationToken ct=default)=>SendAsync<AgentInstallationResponse>(HttpMethod.Post,$"api/plugins/installations/{id:D}/update",new UpdateAgentInstallationRequest(packageId),ct);
     public Task<AgentInstallationResponse> ApproveUpdateAsync(Guid stagedId,InstallAgentRequest request,CancellationToken ct=default)=>SendAsync<AgentInstallationResponse>(HttpMethod.Post,$"api/plugins/installations/{stagedId:D}/update/approve",request,ct);
     public async Task<AgentBuildLogResponse?> GetBuildLogAsync(Guid id,CancellationToken ct=default)=>await httpClient.GetFromJsonAsync<AgentBuildLogResponse>($"api/plugins/installations/{id:D}/build-log",ct);
