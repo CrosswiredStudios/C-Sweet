@@ -77,10 +77,11 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
             return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied, "The agent identity is invalid.");
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive && x.EmployeeType == EmployeeType.Agent, token);
-        if (actor is null) return Failure(request.RequestId, PlatformCapabilityErrorCode.Denied, "The agent is not an active employee.");
         try
         {
-            object result = request.Capability switch
+            object result = actor is null
+                ? await HandleManagedProviderAsync(session, organizationId, installationId, request, token)
+                : request.Capability switch
             {
                 W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2 => await ReadToolchainsAsync(organizationId, Read<W.ReadToolchainCatalogV2Request>(request), token),
                 W.DeliveryEvidenceCapabilityNames.BuildRequestV2 => await RequestBuildAsync(organizationId, installationId, actor.Id, Read<W.RequestBuildV2Request>(request), token),
@@ -109,6 +110,55 @@ public sealed class DeliveryEvidenceCapabilityHandler : IPlatformCapabilityHandl
         catch (DbUpdateConcurrencyException exception) { return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, exception.Message); }
         catch (InvalidOperationException exception) { return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, exception.Message); }
         catch (KeyNotFoundException exception) { return Failure(request.RequestId, PlatformCapabilityErrorCode.NotFound, exception.Message); }
+    }
+
+    private async Task<object> HandleManagedProviderAsync(AgentSession session, Guid organizationId, Guid installationId,
+        RequestCapability request, CancellationToken token)
+    {
+        if (request.Capability is not (W.DeliveryEvidenceCapabilityNames.BuildReadV2 or
+            W.DeliveryEvidenceCapabilityNames.BuildClaimV1 or W.DeliveryEvidenceCapabilityNames.BuildHeartbeatV1 or
+            W.DeliveryEvidenceCapabilityNames.BuildReportV2) || !Guid.TryParse(session.RuntimeInstanceId, out var runtimeId))
+            throw new UnauthorizedAccessException("This capability requires an active employee.");
+        var now = clock.GetUtcNow();
+        var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
+            x.Id == installationId && x.BusinessId == organizationId.ToString("D") && x.Scope == PluginInstallationScope.Organization &&
+            x.IsEnabled && x.SetupState == PluginSetupState.Ready && x.RevisionStatus == PluginRevisionStatus.Active &&
+            x.PackageVersion!.PluginKind == PluginKind.Service && x.PackageVersion.Status == AgentPackageVersionStatus.Built, token)
+            ?? throw new UnauthorizedAccessException("The managed build provider is not active.");
+        var runtime = await db.AgentRuntimeInstances.AsNoTracking().SingleOrDefaultAsync(x => x.Id == runtimeId &&
+            x.AgentInstallationId == installationId && x.DeliveryBuildId != null && x.Status == AgentRuntimeStatus.Running, token)
+            ?? throw new UnauthorizedAccessException("The service has no active managed build identity.");
+        var build = await db.DeliveryBuilds.AsNoTracking().SingleOrDefaultAsync(x => x.Id == runtime.DeliveryBuildId &&
+            x.OrganizationId == organizationId && x.ProviderInstallationId == installationId, token)
+            ?? throw new UnauthorizedAccessException("The managed build is outside this provider's assignment.");
+        var definition = await db.ToolchainAdapterDefinitions.AsNoTracking().SingleAsync(x => x.Id == build.ToolchainDefinitionId, token);
+        if (definition.ProviderPackageId != installation.PackageVersion!.AgentId ||
+            definition.ProviderPackageVersion != installation.PackageVersion.Version || definition.DefinitionDigest != build.DefinitionDigest ||
+            !await db.ExecutionWorkloadAssignments.AsNoTracking().AnyAsync(x => x.AgentRuntimeInstanceId == runtimeId &&
+                x.DeliveryBuildId == build.Id && x.WorkloadKind == ExecutionWorkloadKind.ToolchainBuild &&
+                x.Status == ExecutionAssignmentStatus.Running && x.LeaseExpiresAt > now, token))
+            throw new UnauthorizedAccessException("The exact provider package and live Office assignment are required.");
+        var requestedId = request.Capability switch
+        {
+            W.DeliveryEvidenceCapabilityNames.BuildReadV2 => Read<W.ReadBuildV2Request>(request).BuildId,
+            W.DeliveryEvidenceCapabilityNames.BuildClaimV1 => Read<W.ClaimBuildRequest>(request).BuildId,
+            W.DeliveryEvidenceCapabilityNames.BuildHeartbeatV1 => Read<W.HeartbeatBuildRequest>(request).BuildId,
+            _ => Read<W.ReportBuildV2Request>(request).BuildId
+        };
+        if (requestedId != build.Id) throw new UnauthorizedAccessException("A managed provider may access only its exact assigned build.");
+        if (request.Capability == W.DeliveryEvidenceCapabilityNames.BuildReadV2)
+        {
+            var read = Read<W.ReadBuildV2Request>(request);
+            if (read.WorkstreamId.HasValue && read.WorkstreamId != build.WorkstreamId)
+                throw new UnauthorizedAccessException("The build does not belong to the requested Workstream.");
+            return new[] { MapBuild(build) };
+        }
+        return request.Capability switch
+        {
+            W.DeliveryEvidenceCapabilityNames.BuildClaimV1 => await ClaimBuildAsync(organizationId, installationId, session.RuntimeInstanceId, Read<W.ClaimBuildRequest>(request), token),
+            W.DeliveryEvidenceCapabilityNames.BuildHeartbeatV1 => await HeartbeatBuildAsync(organizationId, installationId, Read<W.HeartbeatBuildRequest>(request), token),
+            _ => await ReportBuildAsync(organizationId, installationId, Read<W.ReportBuildV2Request>(request), token)
+        };
     }
 
     private async Task<IReadOnlyList<W.EligibleToolchainAdapter>> ReadToolchainsAsync(
