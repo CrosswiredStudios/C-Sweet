@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const Game = require('./game.js');
+const game = new Game();
+const initial = game.x;
+game.step(1, 0); assert.ok(game.x > initial, 'keyboard movement must move the player');
+for (let i=0; i<5000 && !game.won; i++) game.step(Math.sign(game.star.x-game.x), Math.sign(game.star.y-game.y));
+assert.equal(game.score, 10, 'all ten stars must be collectible'); assert.equal(game.won, true);
+const x=game.x; game.step(1,0); assert.equal(game.x,x,'winning stops movement');
+game.reset(); assert.equal(game.score,0); assert.equal(game.won,false);
+for (let i=0;i<1000;i++) game.step(-1,-1);
+assert.ok(game.x>=14 && game.y>=14,'arena boundaries must hold');
+console.log('PASS: movement, ten-star win, stopped win state, restart and arena bounds');

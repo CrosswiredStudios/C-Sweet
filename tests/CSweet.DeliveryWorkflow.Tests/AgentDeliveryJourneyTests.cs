@@ -27,8 +27,10 @@ public sealed class AgentDeliveryJourneyTests
     private static JsonElement Element(object value)=>JsonSerializer.SerializeToElement(value,Json);
     private static string Hash(string value)=>Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
-    [Fact]
-    public async Task ReviewCorrectionRealIntegrationFailedQaReviewedReworkAndPassedQaReachDone()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReviewCorrectionRealIntegrationFailedQaReviewedReworkAndPassedQaReachDone(bool playableDemo)
     {
         await using var f=await Fixture.Create(false);
         var root=Path.Combine(Path.GetTempPath(),"csweet-agent-journey",Guid.NewGuid().ToString("N"));
@@ -56,6 +58,17 @@ public sealed class AgentDeliveryJourneyTests
                 await File.WriteAllTextAsync(Path.Combine(path,"state.json"),JsonSerializer.Serialize(new {works=cycle++>0}));
                 // Authored fixture, never a fetched project's script executed on the host.
                 await File.WriteAllTextAsync(Path.Combine(path,"verify.cjs"),"const s=require('./state.json'); console.log('works='+s.works); process.exit(s.works?0:1);");
+                if (playableDemo)
+                {
+                    var fixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "StarCollector");
+                    foreach (var name in new[] { "index.html", "game.js", "verify.cjs" })
+                    {
+                        var content = await File.ReadAllTextAsync(Path.Combine(fixture, name));
+                        // First candidate has a real movement defect. Reviewed rework repairs the shipped source.
+                        if (name == "game.js" && cycle == 1) content = content.Replace("SPEED = 5", "SPEED = 0");
+                        await File.WriteAllTextAsync(Path.Combine(path, name), content);
+                    }
+                }
                 await File.WriteAllTextAsync(Path.Combine(path,"design.txt"),new string('x',146391));
                 using var archive=new MemoryStream(); var manifest=await artifacts.CreateZipAsync(path,archive);
                 await store.ApplySnapshotAsync(new(f.Org,f.Repositories[0],workspace,"publish",source.BaseCommitSha,branch,"csweet/story/one",
@@ -114,7 +127,7 @@ public sealed class AgentDeliveryJourneyTests
                         var report=new {sourceCommitSha=commit,summary="Executed the exact integrated fixture test.",passed,
                             validations=new[]{new {command="node verify.cjs",succeeded=passed,exitCode=process.ExitCode,diagnosticExcerpt=output+error}},
                             findings=passed?Array.Empty<string>():new[]{"The integrated implementation fails its executable acceptance test."},
-                            criteria=new[]{new {criterion="Requirement works",satisfied=passed,evidence=output}}};
+                            criteria=new[]{new {criterion="Requirement works",satisfied=passed,evidence=output+error}}};
                         return Element(new {contents=new[]{new {kind="function_call",callId="report",name="submit_qa_report",arguments=report}},finishReason="tool_calls"});
                     });
                 return await Execute(runtime,new QaAgent(),Assignment("quality","game-quality-assurance"));
