@@ -8,6 +8,28 @@ namespace CSweet.UnitTests;
 public sealed class ComputeDashboardTests
 {
     [Fact]
+    public async Task Runtime_update_requires_owner_and_idle_compute_and_preserves_instances()
+    {
+        await using var f=new ComputeBrokerTests.Fixture();await f.SeedAsync();
+        var env=await ComputeWorkloadTests.ReadyAsync(f);var user=Guid.NewGuid();
+        var member=new OrganizationUser{Id=Guid.NewGuid(),OrganizationId=f.Organization,ApplicationUserId=user,
+            EmployeeType=EmployeeType.Human,IsActive=true,PermissionLevel=OrganizationPermissionLevel.Contributor};
+        f.Db.CoreOrganizationUsers.Add(member);
+        var setup=new ComputeLocalSetup{Id=Guid.NewGuid(),OrganizationId=f.Organization,State="Ready",HandoffHash="old",HandoffExpiresAt=DateTimeOffset.UtcNow};
+        f.Db.Add(setup);await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>ComputeDashboardEndpoints.QueueRuntimeUpdateAsync(f.Db,f.Organization,user,default));
+        member.PermissionLevel=OrganizationPermissionLevel.Owner;await f.Db.SaveChangesAsync();
+        var operation=await f.Db.ComputeOperations.SingleAsync();operation.Status="Dispatching";await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>ComputeDashboardEndpoints.QueueRuntimeUpdateAsync(f.Db,f.Organization,user,default));
+        Assert.Equal("Ready",setup.State);operation.Status="Completed";await f.Db.SaveChangesAsync();
+        await ComputeDashboardEndpoints.QueueRuntimeUpdateAsync(f.Db,f.Organization,user,default);
+        Assert.Equal("Pending",setup.State);Assert.Null(setup.HandoffHash);Assert.Null(setup.HandoffExpiresAt);
+        var retained=await f.Db.ComputeEnvironments.SingleAsync();Assert.Equal(env.Id,retained.Id);Assert.Null(retained.TeardownConfirmedAt);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>ComputeDashboardEndpoints.QueueRuntimeUpdateAsync(f.Db,f.Organization,user,default));
+        Assert.Contains(f.Db.AuditOutbox,x=>x.RequestJson.Contains("runtime-update-requested"));
+    }
+
+    [Fact]
     public async Task DashboardRequiresActiveHumanMembershipAndDoesNotExposeAnotherBusiness()
     {
         await using var f = new ComputeBrokerTests.Fixture(); await f.SeedAsync(); await f.Send();

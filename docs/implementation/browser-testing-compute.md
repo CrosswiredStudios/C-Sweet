@@ -310,7 +310,7 @@ still required source inspection or read-only database diagnostics rather than c
 
 ## Artifact QA browser-wait incident (2026-10-22)
 
-Prism Break #16 failed at `AcceptComputeWaitAsync` after #11ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“15 completed because the browser
+Prism Break #16 failed at `AcceptComputeWaitAsync` after #11ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ15 completed because the browser
 compute feature only searched `SourceControlWorkspaces`. #16 correctly delivers an Artifact report
 with a pinned read-only Story snapshot and therefore has no writable workspace row. Browser compute
 support (commit `6733188f`) added this code-ticket assumption after artifact repository inputs
@@ -530,3 +530,5 @@ The existing provider replay journal/outbox retains the complete verified result
 QA 5.4.9 `GameQaEvidenceTransfer` checkpoints the one export request before submission and reuses its stable key after a lost reply. Both smoke and behavioral checks use it. Already-retained legacy chunks and pending chunk requests remain untouched; an in-flight legacy read finishes before the archive export. Full behavioral assertions are parsed and compared with the original receipt before a verdict. `GameQaJournal` retains the archive handle/hash/length instead of duplicating binary ZIPs into many operating-state records. No product acceptance is synthesized.
 
 Verification includes `ComputeEvidenceTransferTests`, `ComputeRuntimeUpdateScriptTests`, SDK `ComputeEvidenceTests`, and QA `BrowserRecoveryTests.Pending_legacy_chunk_survives_upgrade_and_exports_remaining_evidence_without_replaying_test`. The optional `CSWEET_EVIDENCE_PROBE_EXPORT` test environment variable exports an actual reader request; `tests/compute-evidence-read-probe.py` runs it in an offline disposable Linux container and checks regular-file/size and symlink boundaries. `Install-ComputeLocalProvider.ps1` uses `Install-ComputeProviderRuntime` during retained-service recovery to replace only the stopped service payload, validate it, and roll back on failure. Enrollment, signing keys, catalogs, images, journal and workload disks remain in place.
+
+Owners can request a retained runtime update from `ComputePreparation` through `ComputeDashboardEndpoints.QueueRuntimeUpdateAsync`. The action requires Ready setup, current owner membership, and no outstanding compute operation, audits the request, and enters the normal preparation/UAC flow. It does not release or recreate existing instances.
