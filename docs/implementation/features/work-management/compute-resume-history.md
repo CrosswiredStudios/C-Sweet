@@ -20,3 +20,5 @@ resume normally without a database repair or repeating completed browser checks.
 `WorkExecutionResumeHistoryTests` exercises 1,000 callbacks with shuffled stored
 attempts, current operation binding, retained substantive failures, independent
 stages, superseded waits, bounded serialization and unchanged audit history.
+
+`WorkOrchestrationService.LoadStageAsync` loads the current stage attempts through the item stage graph once. A redundant root include previously multiplied checkpoint histories during retries. The relational `WorkOrchestrationRetryTests.RelationalRetryLoadsLongCheckpointHistoryOnceAndPreservesEveryAttempt` covers 500 retained callbacks, a bounded join shape, unchanged attempt history and the normal durable retry event.
