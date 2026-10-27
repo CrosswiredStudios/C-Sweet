@@ -33,6 +33,7 @@ public sealed record AgentInstallationResponse(
     public string? RoleName { get; init; }
     public string? Summary { get; init; }
     public IReadOnlyList<string> RequiredCapabilities { get; init; } = [];
+    public bool HasNativeApiKeyAccounts { get; init; }
     public string PluginKind { get; init; } = "Agent";
     public string InstallationScope { get; init; } = "Organization";
     public Guid InstallationKey { get; init; }

@@ -7,7 +7,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
-  <ItemGroup><InternalsVisibleTo Include="CSweet.DeliveryWorkflow.Tests" /><InternalsVisibleTo Include="CSweet.PluginAccount.AcceptanceHarness" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.DeliveryWorkflow.Tests" /><InternalsVisibleTo Include="CSweet.RemoteMcp.AcceptanceHarness" /><InternalsVisibleTo Include="CSweet.PluginAccount.AcceptanceHarness" /></ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/CSweet.Compute.Guest/CSweet.Compute.Guest.csproj" />
@@ -59,4 +59,7 @@
     <ItemGroup><ComputeGuestFixtureFiles Include="../CSweet.Compute.GuestFixture/bin/$(Configuration)/$(TargetFramework)/CSweet.Compute.GuestFixture.*" /></ItemGroup>
     <Copy SourceFiles="@(ComputeGuestFixtureFiles)" DestinationFolder="$(OutDir)guest-fixture" />
   </Target>
-</Project>
+<ItemGroup>
+    <None Include="Fixtures/realtyleads-plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures/realtyleads-agent.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup></Project>

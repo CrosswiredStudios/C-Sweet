@@ -24,7 +24,7 @@ public sealed class PluginManifestReader : IPluginManifestReader
         }
 
         var kind = Required(root, "kind");
-        if (kind is not ("agent" or "service" or "connector"))
+        if (kind is not ("agent" or "service" or "connector" or "remote-mcp"))
         {
             throw new JsonException("Plugin manifest kind must be 'agent', 'service' or 'connector'.");
         }
@@ -37,7 +37,7 @@ public sealed class PluginManifestReader : IPluginManifestReader
             manifest.Catalog.ImageUrl, manifest.Catalog.CompanyLogoUrl,
             manifest.Catalog.AccentColor, manifest.Catalog.LongDescription);
         if (brandingErrors.Count > 0) throw new JsonException(string.Join(" ", brandingErrors));
-        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3" or "2.4") ||
+        if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3" or "2.4" or "2.5") ||
             !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
             throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0 through 2.4).");
         if (manifest.Protocol.MinimumVersion == "2.4" && manifest.Accounts is null)
@@ -90,15 +90,15 @@ public sealed class PluginManifestReader : IPluginManifestReader
 
     internal static void ValidateConnectorContracts(PluginManifest manifest)
     {
-        if (manifest.Accounts is null && manifest.Kind != "connector" && manifest.Dependencies.Count == 0 &&
+        if (manifest.ReviewedRemoteMcp is null && manifest.Protocol.MinimumVersion != "2.5" && manifest.Accounts is null && manifest.Kind is not ("connector" or "remote-mcp") && manifest.Dependencies.Count == 0 &&
             !manifest.ProviderOperations.Any(x => x.Http is not null) &&
             !manifest.Connections.Any(x => x.Provider is not null) && manifest.Setup?.Assistance is null &&
             manifest.Setup?.Flows.SelectMany(x => x.Steps).Any(x => x.AccountOptions is not null) != true) return;
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var packaging = JsonSerializer.Deserialize<CSweet.Agent.Contracts.Packaging.AgentManifest>(
             JsonSerializer.Serialize(manifest, options), options) ?? throw new JsonException("Invalid manifest.");
-        var errors = CSweet.Agent.SDK.ConnectorContractValidator.Validate(packaging);
-        if (errors.Count > 0) throw new JsonException(string.Join(" ", errors));
+        var errors = CSweet.Agent.SDK.ConnectorContractValidator.Validate(packaging).Concat(CSweet.Agent.SDK.ReviewedRemoteMcpValidator.Validate(packaging)).ToArray();
+        if (errors.Length > 0) throw new JsonException(string.Join(" ", errors));
     }
 
     private static string Required(JsonElement root, string propertyName) =>

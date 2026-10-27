@@ -1,0 +1,334 @@
+{
+  "$schema": "https://raw.githubusercontent.com/CrosswiredStudios/CSweetAgentSdk/main/schemas/csweet-plugin.v2.schema.json",
+  "manifestVersion": "2.0",
+  "kind": "agent",
+  "rolePolicy": {
+    "baseType": "individual-contributor",
+    "profile": "individual-contributor.v1",
+    "declaredRoleKeys": [
+      "general-specialist"
+    ]
+  },
+  "id": "com.crosswiredstudios.agent.realtyleads",
+  "name": "RealtyLeadsAI Researcher",
+  "version": "0.1.0",
+  "publisher": {
+    "id": "com.crosswiredstudios",
+    "name": "CrosswiredStudios"
+  },
+  "runtime": {
+    "type": "dotnet-project",
+    "projectPath": "src/CSweet.Agent.RealtyLeadsAI/CSweet.Agent.RealtyLeadsAI.csproj",
+    "targetFramework": "net10.0",
+    "defaultActivationMode": "OnDemand",
+    "defaultTickFrequencySeconds": 300,
+    "supportsMultipleInstallations": true,
+    "maximumConcurrentJobs": 1
+  },
+  "protocol": {
+    "minimumVersion": "2.1",
+    "maximumVersion": "2.x"
+  },
+  "provides": [
+    {
+      "name": "realtyleads.research.search.v1",
+      "description": "Search subscribed inheritance leads.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "county": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "minScore": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inheritanceLeadId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "propertyId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "address": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ownerName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "deceasedId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "deceasedName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cityName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "countyName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stateAbbreviation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "score": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "inheritanceLeadId",
+            "propertyId",
+            "address",
+            "ownerName",
+            "status",
+            "deceasedId",
+            "deceasedName",
+            "cityName",
+            "countyName",
+            "stateAbbreviation",
+            "score"
+          ]
+        }
+      },
+      "executionTimeoutSeconds": 30,
+      "idempotency": "none"
+    },
+    {
+      "name": "realtyleads.research.lookup.v1",
+      "description": "Look up a subscribed inheritance lead.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "inheritanceLeadId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ownerName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deceasedId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deceasedName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cityName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "countyName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stateAbbreviation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "inheritanceLeadId",
+          "propertyId",
+          "address",
+          "ownerName",
+          "status",
+          "deceasedId",
+          "deceasedName",
+          "cityName",
+          "countyName",
+          "stateAbbreviation",
+          "score"
+        ]
+      },
+      "executionTimeoutSeconds": 30,
+      "idempotency": "none"
+    }
+  ],
+  "requires": [
+    {
+      "name": "realtyleads.inheritance.search.v1",
+      "scope": "organization",
+      "purpose": "Search subscribed inheritance leads.",
+      "dependency": "realtyleads",
+      "modelVisible": false
+    },
+    {
+      "name": "realtyleads.inheritance.lookup.v1",
+      "scope": "organization",
+      "purpose": "Look up a subscribed inheritance lead.",
+      "dependency": "realtyleads",
+      "modelVisible": false
+    }
+  ],
+  "events": {
+    "subscribes": []
+  },
+  "configuration": [],
+  "credentials": [],
+  "webAccess": {
+    "mode": "None",
+    "rules": []
+  },
+  "ui": [],
+  "catalog": {
+    "summary": "Research subscribed inheritance leads through the approved RealtyLeadsAI connection.",
+    "longDescription": "Handles a bounded request and returns a clear, structured result for the team to review.",
+    "imageUrl": null,
+    "companyLogoUrl": null,
+    "accentColor": "#1C6252",
+    "category": "General",
+    "role": {
+      "key": "realtyleads-researcher",
+      "name": "RealtyLeadsAI Researcher"
+    },
+    "license": {
+      "spdxId": "MIT"
+    },
+    "iconUrls": [],
+    "roleAliases": [],
+    "keywords": [],
+    "documentationUrl": "README.md"
+  },
+  "dependencies": [
+    {
+      "id": "realtyleads",
+      "pluginId": "com.crosswiredstudios.plugin.realtyleads",
+      "publisherId": "com.crosswiredstudios",
+      "minimumVersion": "0.1.0",
+      "maximumVersionExclusive": "1.0.0"
+    }
+  ]
+}

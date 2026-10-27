@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../CSweet.UnitTests/CSweet.UnitTests.csproj" />
+    <ProjectReference Include="../../src/CSweet.UI/CSweet.UI.csproj" />
+    <Compile Include="../../../CSweet.Agent.RealtyLeadsAI/src/CSweet.Agent.RealtyLeadsAI/RealtyLeadsAgent.cs" Link="RealtyLeadsAgent.cs" />
+  </ItemGroup>
+</Project>

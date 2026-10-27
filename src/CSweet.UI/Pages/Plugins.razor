@@ -60,6 +60,8 @@
                                 </div>
                                 <div class="plugin-row-actions">
                                     <MudChip T="string" Size="Size.Small" Color="@(installation.RemovalPending ? Color.Warning : installation.IsEnabled ? Color.Success : Color.Default)">@InstallationState(installation)</MudChip>
+                                    @if (installation.HasNativeApiKeyAccounts)
+                                    { <MudButton Href="@($"/businesses/{installation.BusinessId}/plugins/{installation.Id}/api-key-accounts")">API-key accounts</MudButton> }
                                     <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => Manage(installation))" Disabled="_busy" aria-expanded="@(_managedId == installation.Id)">@L["Plugins.Installed.Manage"]</MudButton>
                                 </div>
                             </div>

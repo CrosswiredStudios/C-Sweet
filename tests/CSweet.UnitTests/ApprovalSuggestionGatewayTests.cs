@@ -117,7 +117,7 @@ public sealed class ApprovalSuggestionGatewayTests
         var tool = Assert.Single(catalog.List(session.Grant.RequiredCapabilities));
         var root = JsonSerializer.SerializeToElement(new { jsonrpc = "2.0", id = 1, method = "tools/call", @params = new { name = tool.Name, arguments } });
         var response = await McpGatewayEndpoints.CallToolAsync(JsonSerializer.SerializeToElement(1), root, session, catalog,
-            db, new PlatformCapabilityDispatcher(handlers), null!, null!, audit, 65536, NullLogger.Instance, CancellationToken.None);
+            db, new PlatformCapabilityDispatcher(handlers), null!, null!, null!, audit, 65536, NullLogger.Instance, CancellationToken.None);
         using var services = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services };
         await using var body = new MemoryStream();

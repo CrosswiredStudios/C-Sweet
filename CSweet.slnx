@@ -4,6 +4,7 @@
     <Project Path="agents/CSweet.PersonalAssistant/tests/CSweet.PersonalAssistant.Tests/CSweet.PersonalAssistant.Tests.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/CSweet.RemoteMcp/CSweet.RemoteMcp.csproj" />
     <Project Path="src/CSweet.AgentBroker/CSweet.AgentBroker.csproj" />
     <Project Path="src/CSweet.ExecutionArtifacts/CSweet.ExecutionArtifacts.csproj" />
     <Project Path="src/CSweet.AgentHost/CSweet.AgentHost.csproj" />
@@ -32,6 +33,7 @@
     <Project Path="src/CSweet.WorkerHost/CSweet.WorkerHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CSweet.RemoteMcp.Tests/CSweet.RemoteMcp.Tests.csproj" />
     <Project Path="tests/CSweet.Compute.GuestFixture/CSweet.Compute.GuestFixture.csproj" />
     <Project Path="tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj" />
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />

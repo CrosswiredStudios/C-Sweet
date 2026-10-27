@@ -236,6 +236,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IConnectorMediaTransport, ConnectorMediaTransport>();
         builder.Services.AddScoped<ConnectorMediaTransferService>();
         builder.Services.AddScoped<ConnectorReadExecutor>();
+        builder.Services.AddScoped<RemoteMcpAccountService>();
         builder.Services.AddScoped<ConnectorMutationExecutor>();
         builder.Services.AddScoped<ConnectorActionService>();
         builder.Services.AddScoped<ConnectorActionDispatchService>();

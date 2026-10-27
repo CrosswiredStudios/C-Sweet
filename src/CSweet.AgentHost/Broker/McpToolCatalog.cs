@@ -53,7 +53,8 @@ public sealed record McpToolDescriptor(
 
 public sealed class McpToolCatalog(
     IEnumerable<IPlatformCapabilityHandler> handlers,
-    IOptions<McpGatewayOptions>? gatewayOptions = null)
+    IOptions<McpGatewayOptions>? gatewayOptions = null,
+    RemoteMcpAccountService? remoteMcp = null)
 {
     private readonly McpGatewayOptions? _gatewayLimits = gatewayOptions?.Value;
     private static readonly JsonElement EmptyInput = Schema("""
@@ -521,7 +522,9 @@ public sealed class McpToolCatalog(
             var manifest = JsonSerializer.Deserialize<PluginManifest>(
                 binding.ProviderInstallation!.PackageVersion!.ManifestJson,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            if (binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector &&
+            if (manifest?.Kind == "remote-mcp" && (remoteMcp is null || !Guid.TryParse(session.BusinessId, out var remoteBusiness) ||
+                !await remoteMcp.IsAvailableAsync(remoteBusiness, requesterId, binding.Capability, cancellationToken))) continue;
+            if (manifest?.Kind != "remote-mcp" && binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector &&
                 (manifest?.ProviderOperations.SingleOrDefault(x => x.Capability == binding.Capability)?.Effect != "read" ||
                  !Guid.TryParse(session.BusinessId, out var organizationId) ||
                  !await new ConnectorPlanService(db).IsAvailableAsync(organizationId, requesterId, binding.Capability, cancellationToken)))
@@ -540,7 +543,7 @@ public sealed class McpToolCatalog(
                 declaration.Description,
                 declaration.InputSchema,
                 declaration.OutputSchema,
-                McpToolExecutionPolicy.AdvisoryWrite,
+                manifest?.Kind == "remote-mcp" ? McpToolExecutionPolicy.ReadOnly : McpToolExecutionPolicy.AdvisoryWrite,
                 ModelVisible: requirements.TryGetValue(binding.Capability, out var requesterRequirement) &&
                               requesterRequirement.ModelVisible,
                 ProviderInstallationId: binding.ProviderInstallationId,

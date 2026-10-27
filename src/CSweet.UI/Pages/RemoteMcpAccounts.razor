@@ -1,0 +1,62 @@
+@page "/businesses/{BusinessId:guid}/plugins/{ProviderId:guid}/api-key-accounts"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using CSweet.Contracts.Plugins
+@using CSweet.UI.Services
+@inject RemoteMcpAccountApiClient Api
+<PageTitle>RealtyLeadsAI account access</PageTitle>
+<MudContainer MaxWidth="MaxWidth.Medium" Class="pa-6">
+    <MudText Typo="Typo.h4">RealtyLeadsAI account access</MudText>
+    <MudText>Your key is stored encrypted by C-Sweet. Agents receive lead results only. Connecting does not grant an agent access.</MudText>
+    <MudAlert Severity="Severity.Info" Class="my-4">Use a subscription-scoped RealtyLeadsAI account. Company identity is enforced by RealtyLeadsAI and is not verified or matched to this C-Sweet business.</MudAlert>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_view is not null)
+    {
+        <MudTextField T="string" @bind-Value="_key" Immediate="true" InputType="InputType.Password" Label="API key" autocomplete="off" maxlength="256" Disabled="_busy" />
+        <MudButton OnClick="Connect" Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))">Store a new connection</MudButton>
+        <MudText Typo="Typo.caption">The key is never displayed again. It is checked by the provider when an approved agent reads leads. Changing or revoking access stops the previously authorized agent’s active and queued work; submit new work after reviewing access.</MudText>
+        @foreach (var connection in _view.Connections)
+        {
+            <MudPaper Class="pa-4 my-4" Outlined="true">
+                <MudText Typo="Typo.h6">Connection @connection.Id.ToString("N")[..8]</MudText>
+                <MudText>@(connection.Revoked ? "Revoked" : connection.ConsumerInstallationId is null ? "Stored · no agent access" : "Access granted to the selected agent")</MudText>
+                @if (!connection.Revoked)
+                {
+                    <MudSelect T="Guid" @bind-Value="_consumer" Label="Agent to authorize" Disabled="_busy">
+                        @foreach (var consumer in _view.Consumers) { <MudSelectItem T="Guid" Value="consumer.Id">@consumer.Name</MudSelectItem> }
+                    </MudSelect>
+                    <MudCheckBox T="bool" @bind-Value="_approved" Disabled="_busy" Label="Allow this agent to search and look up my subscribed inheritance leads in this business." />
+                    <MudButton Disabled="@(_busy || !_approved || _consumer == Guid.Empty)" OnClick="@(() => Grant(connection))">Grant read access</MudButton>
+                    <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => Revoke(connection))">Revoke access and remove stored key</MudButton>
+                }
+                <MudButton Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))" OnClick="@(() => Rotate(connection))">Replace key and clear grants</MudButton>
+            </MudPaper>
+        }
+    }
+</MudContainer>
+@code {
+    [Parameter] public Guid BusinessId { get; set; }
+    [Parameter] public Guid ProviderId { get; set; }
+    private RemoteMcpAccountView? _view;
+    private string _key = "";
+    private string? _error;
+    private Guid _consumer;
+    private bool _approved, _busy;
+    protected override Task OnParametersSetAsync() => Run(async () => _view = await Api.GetAsync(BusinessId, ProviderId));
+    private Task Connect() => WithKey(async input => await Api.ConnectAsync(BusinessId, ProviderId, input));
+    private Task Rotate(RemoteMcpConnectionView c) => WithKey(async input => { input.ExpectedGeneration = c.Generation; await Api.RotateAsync(BusinessId, ProviderId, c.Id, input); });
+    private Task Grant(RemoteMcpConnectionView c) => Run(async () => { await Api.GrantAsync(BusinessId, ProviderId, c.Id, new(_consumer, c.Generation, _view!.PackageDigest)); _approved = false; await Reload(); });
+    private Task Revoke(RemoteMcpConnectionView c) => Run(async () => { await Api.RevokeAsync(BusinessId, ProviderId, c.Id, new(c.Generation)); await Reload(); });
+    private async Task WithKey(Func<RemoteMcpKeyRequest, Task> action)
+    {
+        var input = new RemoteMcpKeyRequest { Key = _key }; _key = "";
+        try { await Run(async () => { await action(input); _approved = false; await Reload(); }); }
+        finally { input.Key = ""; _key = ""; }
+    }
+    private async Task Reload() => _view = await Api.GetAsync(BusinessId, ProviderId);
+    private async Task Run(Func<Task> action)
+    {
+        _busy = true; _error = null;
+        try { await action(); } catch { _error = "Account settings are unavailable or changed. Refresh and review access again."; }
+        finally { _busy = false; }
+    }
+}
