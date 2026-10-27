@@ -30,7 +30,7 @@
                     var complete = Setup?.State == "Ready" || step < Milestone;
                     var current = step == Milestone && Setup?.State != "Ready";
                     <li class="@(complete ? "complete" : current ? "current" : "")" aria-current="@(current ? "step" : null)">
-                        <span class="step-marker" aria-hidden="true">@(complete ? "âœ“" : step.ToString())</span>
+                        <span class="step-marker" aria-hidden="true">@(complete ? "✓" : step.ToString())</span>
                         <span>@Milestones[index]<span class="sr-only">@(complete ? ", complete" : current ? ", current" : ", pending")</span></span>
                     </li>
                 }
@@ -47,16 +47,16 @@
                     {
                         var percent = Math.Clamp(100d * bytes / download.TotalDownloadBytes.Value, 0, 100);
                         <MudProgressLinear Value="percent" Color="Color.Primary" Size="Size.Medium" Class="my-3" aria-label="@L["ComputePreparation.LinuxImageDownloadProgress"]" />
-                        <p><strong>@percent.ToString("0")%</strong> Â· @Downloaded(bytes) of @Downloaded(download.TotalDownloadBytes.Value)</p>
+                        <p><strong>@percent.ToString("0")%</strong> · @Downloaded(bytes) of @Downloaded(download.TotalDownloadBytes.Value)</p>
                     }
                     else
                     {
-                        <p>@Downloaded(bytes) downloaded Â· Total size unavailable</p>
+                        <p>@Downloaded(bytes) downloaded · Total size unavailable</p>
                     }
                     <p>@DownloadEta(download)</p>
                     @if (download.DownloadBytesPerSecond is { } speed)
                     {
-                        <p class="preparation-secondary">@(speed < 1_000_000 ? $"{speed / 1_000d:0} KB/s" : $"{speed / 1_000_000d:0.0} MB/s") Â· Recent average speed</p>
+                        <p class="preparation-secondary">@(speed < 1_000_000 ? $"{speed / 1_000d:0} KB/s" : $"{speed / 1_000_000d:0.0} MB/s") · Recent average speed</p>
                     }
                     <p class="preparation-secondary">@L["ComputePreparation.TimeRemainingIsForThe"]</p>
                 }
@@ -74,7 +74,7 @@
                 <div class="preparation-actions">
                     @if (CanManage && Setup is null)
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnSetup">@(Busy ? "Requesting setupâ€¦" : "Set up Linux")</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnSetup">@(Busy ? "Requesting setup…" : "Set up Linux")</MudButton>
                     }
                     else if (CanManage && Setup?.State == "Ready")
                     {
@@ -83,7 +83,7 @@
                     }
                     else if (CanManage && Setup?.CanRetry == true)
                     {
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnRetry">@(Busy ? "Requesting preparationâ€¦" : Setup.Health == "NeedsPermission" ? "Continue setup" : "Retry preparation")</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnRetry">@(Busy ? "Requesting preparation…" : Setup.Health == "NeedsPermission" ? "Continue setup" : "Retry preparation")</MudButton>
                     }
                     else if (Setup is { State: "Running", Health: "Unknown" })
                     {
@@ -91,7 +91,7 @@
                     }
                     @if (Setup?.LastProgressAt is { } last)
                     {
-                        <span class="preparation-secondary">Last milestone Â· @last.ToLocalTime().ToString("t")</span>
+                        <span class="preparation-secondary">Last milestone · @last.ToLocalTime().ToString("t")</span>
                     }
                 </div>
                 @if (Setup?.Activity.Count > 0 || Setup?.FailureCode is not null)
@@ -189,7 +189,7 @@
     {
         { State: "Ready" } => "Readiness confirmed",
         { Health: "NeedsPermission" } => "Waiting for permission",
-        { InstallerRunning: true } => $"Process running Â· checked {Setup.InstallerCheckedAt?.ToLocalTime().ToString("T") ?? Time.Format(CheckedAt, "T")}",
+        { InstallerRunning: true } => $"Process running · checked {Setup.InstallerCheckedAt?.ToLocalTime().ToString("T") ?? Time.Format(CheckedAt, "T")}",
         { State: "Failed" } => "Preparation stopped",
         { State: "Pending" } => "Not started",
         _ => "Could not verify process"
@@ -202,13 +202,13 @@
         { State: "Running", Health: "Unknown" } => "We cannot confirm the installer status. Preparation may still be running. Check the existing attempt before starting another.",
         { State: "Running", InstallerRunning: true } when Setup.LastProgressAt is { } last && CheckedAt - last > TimeSpan.FromMinutes(2) =>
             "No new milestone has been reported. The installer process is still running; quiet steps do not by themselves indicate failure.",
-        { State: "Running" } when Milestone is 3 or 4 => "Expected duration: 10â€“30 minutes for image preparation. This is an expected range, not a countdown.",
+        { State: "Running" } when Milestone is 3 or 4 => "Expected duration: 10–30 minutes for image preparation. This is an expected range, not a countdown.",
         { State: "Failed", CanRetry: false, InstallerRunning: true } => "The installer process is still running. Another preparation cannot start until it exits.",
         _ => ""
     };
     private string Footer => Setup?.State switch
     {
-        "Ready" => "Set up once Â· Reuse across instances Â· Subject to host capacity and approved permissions",
+        "Ready" => "Set up once · Reuse across instances · Subject to host capacity and approved permissions",
         "Failed" => "Waiting agents remain queued until Linux preparation recovers.",
         "Running" or "Pending" => "You can leave this page. Agents waiting for compute continue automatically when preparation finishes.",
         _ => CanManage ? "Setup is managed here. No terminal commands or image paths required." : "A business owner can set up Linux compute."
@@ -242,9 +242,9 @@
     private static string Downloaded(long bytes) => bytes >= 1_000_000_000 ? $"{bytes / 1_000_000_000d:0.00} GB" : $"{bytes / 1_000_000d:0} MB";
     private static string DownloadEta(ComputeSetupStatus setup)
     {
-        if (setup.DownloadSecondsRemaining == 0) return "Download complete Â· Verifying image";
-        if (setup.DownloadWaitingForProgress) return "Waiting for download progress Â· ETA unavailable";
-        if (setup.DownloadSecondsRemaining is not { } seconds) return "Estimating time remainingâ€¦";
+        if (setup.DownloadSecondsRemaining == 0) return "Download complete · Verifying image";
+        if (setup.DownloadWaitingForProgress) return "Waiting for download progress · ETA unavailable";
+        if (setup.DownloadSecondsRemaining is not { } seconds) return "Estimating time remaining…";
         if (seconds < 60) return "Less than a minute remaining";
         if (seconds < 3600) return $"About {Math.Ceiling(seconds / 60):0} minutes remaining";
         var minutes = (long)Math.Ceiling(seconds / 60);

@@ -310,7 +310,7 @@ still required source inspection or read-only database diagnostics rather than c
 
 ## Artifact QA browser-wait incident (2026-10-22)
 
-Prism Break #16 failed at `AcceptComputeWaitAsync` after #11ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ15 completed because the browser
+Prism Break #16 failed at `AcceptComputeWaitAsync` after #11–15 completed because the browser
 compute feature only searched `SourceControlWorkspaces`. #16 correctly delivers an Artifact report
 with a pinned read-only Story snapshot and therefore has no writable workspace row. Browser compute
 support (commit `6733188f`) added this code-ticket assumption after artifact repository inputs

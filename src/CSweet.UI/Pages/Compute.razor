@@ -19,7 +19,7 @@
     <div class="compute-freshness" role="status">
         @if (_dashboard is not null)
         {
-            <span>Status checked @_dashboard.CheckedAt.ToLocalTime().ToString("T") Â· Refreshes every 10 seconds</span>
+            <span>Status checked @_dashboard.CheckedAt.ToLocalTime().ToString("T") · Refreshes every 10 seconds</span>
         }
     </div>
     @if (_error is not null)
@@ -54,10 +54,10 @@
                 else
                 {
                     <div class="compute-create-fields">
-                        <MudSelect T="ComputeCreationOption" Label="@L["Compute.AgentProject"]" @bind-Value="_creationOption" ToStringFunc="@(option => option is null ? string.Empty : $"{option.Agent} Â· {option.Project}")" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
+                        <MudSelect T="ComputeCreationOption" Label="@L["Compute.AgentProject"]" @bind-Value="_creationOption" ToStringFunc="@(option => option is null ? string.Empty : $"{option.Agent} · {option.Project}")" Variant="Variant.Outlined" Disabled="@(_creating || _pendingCreation is not null)">
                             @foreach (var option in _creationOptions.Options)
                             {
-                                <MudSelectItem T="ComputeCreationOption" Value="option">@option.Agent Â· @option.Project</MudSelectItem>
+                                <MudSelectItem T="ComputeCreationOption" Value="option">@option.Agent · @option.Project</MudSelectItem>
                             }
                         </MudSelect>
                         <MudTextField T="string" Label="@L["Compute.InstanceName"]" @bind-Value="_instanceName" Variant="Variant.Outlined" MaxLength="64" HelperText="Lowercase letters, numbers and hyphens; start with a letter." Disabled="@(_creating || _pendingCreation is not null)" />
@@ -68,7 +68,7 @@
                     </div>
                     <p class="compute-secondary">@L["Compute.2VCPU2GiBRAM"]</p>
                     <p class="compute-secondary">@L["Compute.NetworkAccessFollowsTheAgent"]</p>
-                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateInstanceAsync" Disabled="@(_creating || _creationOption is null || string.IsNullOrWhiteSpace(_instanceName))">@(_creating ? "Requesting instanceâ€¦" : "Create instance")</MudButton>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreateInstanceAsync" Disabled="@(_creating || _creationOption is null || string.IsNullOrWhiteSpace(_instanceName))">@(_creating ? "Requesting instance…" : "Create instance")</MudButton>
                 }
                 @if (_creationError is not null) { <MudAlert Severity="Severity.Error" Class="mt-3">@_creationError</MudAlert> }
             </section>
@@ -90,7 +90,7 @@
                     <MudTh>@L["Compute.Instance"]</MudTh><MudTh>@L["Compute.AgentProject"]</MudTh><MudTh>@L["Compute.State"]</MudTh><MudTh>@L["Compute.Resources"]</MudTh><MudTh>@L["Compute.LeaseExpires"]</MudTh><MudTh>@L["Compute.LastChange"]</MudTh><MudTh>@L["Compute.BrowserAccess"]</MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Instance"><strong>@(context.Name ?? context.OperatingSystem)</strong><br /><span class="compute-id">@context.OperatingSystem Â· @context.Id.ToString("N")[..8]</span></MudTd>
+                    <MudTd DataLabel="Instance"><strong>@(context.Name ?? context.OperatingSystem)</strong><br /><span class="compute-id">@context.OperatingSystem · @context.Id.ToString("N")[..8]</span></MudTd>
                     <MudTd DataLabel="Agent / project"><strong>@context.Agent</strong><br />@context.Project</MudTd>
                     <MudTd DataLabel="State">
                         <MudChip T="string" Color="@StateColor(context.State)" Size="Size.Small">@context.State</MudChip>
@@ -102,7 +102,7 @@
                         @if (context.DesiredState == "Destroyed" && context.State != "Destroyed") { <div>@L["Compute.RemovalRequested"]</div> }
                         @if (context.LeaseExpiresAt <= dashboard.CheckedAt && context.State != "Destroyed") { <div>@L["Compute.LeaseExpired"]</div> }
                     </MudTd>
-                    <MudTd DataLabel="Resources">@context.CpuCount CPU Â· @(context.MemoryMiB / 1024d) GiB RAM<br />@(context.DiskMiB / 1024d) GiB disk</MudTd>
+                    <MudTd DataLabel="Resources">@context.CpuCount CPU · @(context.MemoryMiB / 1024d) GiB RAM<br />@(context.DiskMiB / 1024d) GiB disk</MudTd>
                     <MudTd DataLabel="Lease expires">
                         @(context.LeaseExpiresAt == DateTimeOffset.MaxValue ? "Until released" : context.LeaseExpiresAt.ToLocalTime().ToString("g"))
                         @if (dashboard.CanManageNetwork && context.State is not ("Destroyed" or "Destroying"))
@@ -142,7 +142,7 @@
                                                    Color="Color.Primary" Size="Size.Small" Disabled="_grantBusy.HasValue"
                                                    StartIcon="@(context.LocalLinkAllowed ? Icons.Material.Outlined.LinkOff : Icons.Material.Outlined.Link)"
                                                    OnClick="@(() => SetLocalLinkAsync(context))">
-                                            @(_grantBusy == context.Id ? "Savingâ€¦" : context.LocalLinkAllowed ? "Revoke access" : "Allow local test link")
+                                            @(_grantBusy == context.Id ? "Saving…" : context.LocalLinkAllowed ? "Revoke access" : "Allow local test link")
                                         </MudButton>
                                     </div>
                                 }
