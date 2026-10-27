@@ -23,6 +23,8 @@ public sealed record ComputeOperationView(Guid Id, Guid EnvironmentId, long Gene
 public interface IComputeBroker
 {
     Task<ComputeOperationView> SubmitWorkloadAsync(Guid organizationId, Guid installationId, RequestComputeWorkload request, CancellationToken token);
+    Task<ComputeEvidencePage> ReadEvidencePageAsync(Guid organizationId, Guid installationId, Guid artifactId, int offset, CancellationToken token)
+        => throw new NotSupportedException("Evidence archive transfer is not supported by this broker.");
     Task<ComputeOperationView> ReadOperationAsync(Guid organizationId, Guid installationId, Guid operationId, CancellationToken token);
     Task<ComputeEnvironmentView> RequestAsync(Guid organizationId, Guid installationId,
         RequestComputeEnvironment request, CancellationToken token);

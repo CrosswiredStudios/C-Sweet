@@ -46,8 +46,8 @@ try {
             (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
             # A retained provider can outlive a recreated C-Sweet database. The installed service
             # may predate the recovery command, so publish the current control utility beside this
-            # one-time handoff. Do not replace the running service, its protected identity, journal,
-            # catalog, images, or workloads.
+            # one-time handoff. Update only its stopped runtime payload; preserve its protected
+            # identity, journal, catalog, images and live workloads.
             Write-ComputeSetupProgress -Path $setupProgress -Phase 'connect-service' -Message 'Restoring the compute connection.' -AttemptId $preparationAttempt
             $recoveryRoot = Join-Path $logRoot 'recovery-provider'
             $failureCode = 'compute_provider_publish_failed'
@@ -58,6 +58,15 @@ try {
             Stop-Service -Name $serviceName -ErrorAction Stop
             (Get-Service -Name $serviceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
             $recoveryStoppedService = $true
+            $failureCode = 'compute_provider_update_failed'
+            . (Join-Path $repositoryRoot 'scripts\Update-ComputeProviderRuntime.ps1')
+            $runtimeBackup = Install-ComputeProviderRuntime -ProtectedRoot $protectedRoot -PublishRoot $recoveryRoot -Validate {
+                param($updatedExecutable)
+                & "$env:SystemRoot\System32\icacls.exe" (Split-Path -Parent $updatedExecutable) '/setowner' '*S-1-5-32-544' '/T' '/C' | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw 'Updated compute payload ownership could not be protected.' }
+                & $updatedExecutable @validationArguments
+                if ($LASTEXITCODE -ne 0) { throw 'Updated compute service validation failed; previous payload restored.' }
+            }
             $failureCode = 'compute_enrollment_failed'
             & $recoveryExecutable reenroll-local $HandoffPath
             if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }

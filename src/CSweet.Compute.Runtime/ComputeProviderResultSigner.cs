@@ -29,7 +29,7 @@ public sealed class ComputeProviderResultSigner(ComputeProviderEnrollment enroll
         if (key.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
             throw new InvalidOperationException("Provider signing requires P-256.");
         var json = JsonSerializer.Serialize(result, ComputeProtocol.Json);
-        if (json.Length > 32768) throw new InvalidDataException("Provider observation exceeds its size limit.");
+        if (json.Length > ComputeResultTransport.PayloadLimit(result)) throw new InvalidDataException("Provider observation exceeds its size limit.");
         return new(keyId, json, Convert.ToBase64String(key.SignData(ComputeProtocol.ResultPayload(json), HashAlgorithmName.SHA256)));
     }
 }

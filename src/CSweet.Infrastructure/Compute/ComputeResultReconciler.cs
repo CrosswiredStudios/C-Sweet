@@ -64,21 +64,29 @@ public sealed class ComputeResultReconciler(CSweetDbContext db, ComputeProviderR
                 var workload = operation.WorkloadJson is null ? null : JsonSerializer.Deserialize<ComputeWorkload>(operation.WorkloadJson, ComputeProtocol.Json);
                 var output = result.Workload ?? throw new UnauthorizedAccessException("Workload evidence is missing.");
                 if (output.ErrorCode is not (null or "outcome-unknown" or "guest-unavailable" or "dependency-authority-denied" or "dependency-fetch-failed" or "dependency-integrity-failed") ||
-                    output.ErrorCode is not null && (output.Command is not null || output.Url is not null || output.UrlExpiresAt is not null))
+                    output.ErrorCode is not null && (output.Command is not null || output.Url is not null || output.UrlExpiresAt is not null || output.Artifact is not null))
                     throw new UnauthorizedAccessException("Workload evidence has conflicting terms.");
                 if (output.ErrorCode?.StartsWith("dependency-", StringComparison.Ordinal) == true && workload?.NodeDependencies is null)
                     throw new UnauthorizedAccessException("Dependency evidence requires a dependency workload.");
-                if (output.ErrorCode is null && operation.Action == InfrastructureActions.Execute)
+                if (output.ErrorCode is null && workload?.EvidenceArchive is { } archive)
+                {
+                    if (output.Artifact is null || output.Command is not null || output.Url is not null || output.UrlExpiresAt is not null)
+                        throw new UnauthorizedAccessException("Conflicting archive evidence.");
+                    try { archive.Verify(output.Artifact); }
+                    catch (Exception error) when (error is ArgumentException or InvalidDataException)
+                    { throw new UnauthorizedAccessException("Archive evidence differs from its request.", error); }
+                }
+                else if (output.ErrorCode is null && operation.Action == InfrastructureActions.Execute)
                 {
                     var command = output.Command;
                     if (workload?.EffectiveCommand is not { } requested || command is null || command.RequestId != requested.RequestId ||
                         command.StandardOutput is null || command.StandardError is null ||
                         (long)command.StandardOutput.Length + command.StandardError.Length > requested.MaximumOutputBytes ||
-                        output.Url is not null || output.UrlExpiresAt is not null)
+                        output.Url is not null || output.UrlExpiresAt is not null || output.Artifact is not null)
                         throw new UnauthorizedAccessException("Command evidence exceeds the recorded request.");
                 }
                 if (output.ErrorCode is null && operation.Action == InfrastructureActions.PublishPort &&
-                    (workload?.PublishPort is null || output.Command is not null || output.UrlExpiresAt is null ||
+                    (workload?.PublishPort is null || output.Artifact is not null || output.Command is not null || output.UrlExpiresAt is null ||
                      output.UrlExpiresAt > environment.LeaseExpiresAt || !Uri.TryCreate(output.Url, UriKind.Absolute, out var url) ||
                      url.Scheme != "http" || url.Host != "127.0.0.1" || url.Port < 1024 || url.AbsolutePath != "/" ||
                      url.Query != "" || url.Fragment != "" || url.UserInfo != ""))

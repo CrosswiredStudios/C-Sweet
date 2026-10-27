@@ -80,7 +80,10 @@ internal sealed class HyperVComputeExecutor
                     try
                     {
                         var vm = observation.Id.Value;
-                        if (dispatch.Workload!.EffectiveCommand is { } command)
+                        if (dispatch.Workload!.EvidenceArchive is { } archive)
+                            result = new(Artifact: await ComputeEvidenceArchiveTransfer.ExecuteAsync(archive,
+                                (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct), cancellation));
+                        else if (dispatch.Workload.EffectiveCommand is { } command)
                         {
                             if (dispatch.Workload.BrowserTest is { } browser)
                                 result = new(Command: await ComputeBrowserTestExecutor.ExecuteAsync(browser,

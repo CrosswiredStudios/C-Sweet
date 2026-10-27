@@ -23,8 +23,8 @@ public sealed partial class ComputeBroker
                 ?? throw new UnauthorizedAccessException("Environment unavailable.");
             var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)!;
             var workload = request.Workload.Validate(spec.OperatingSystem);
-            var action = workload.EffectiveCommand is null ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
-            if (workload.BrowserTest is not null)
+            var action = workload.PublishPort.HasValue ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
+            if (workload.BrowserTest is not null || workload.EvidenceArchive is not null)
             {
                 var provision = await db.ComputeOperations.AsNoTracking().SingleOrDefaultAsync(operation => operation.EnvironmentId == environment.Id &&
                     operation.OrganizationId == organizationId && operation.InstallationId == installationId &&
@@ -123,7 +123,42 @@ public sealed partial class ComputeBroker
         return OperationView(operation);
     }
 
-    private static ComputeOperationView OperationView(ComputeOperation operation) => new(operation.Id, operation.EnvironmentId,
-        operation.Generation, operation.Status, operation.FailureCode,
-        operation.ResultJson is null ? null : JsonSerializer.Deserialize<ComputeWorkloadResult>(operation.ResultJson, Json));
+    private static readonly Microsoft.Extensions.Caching.Memory.MemoryCache EvidenceCache = new(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions { SizeLimit = 16 * 1024 * 1024 });
+
+    public async Task<ComputeEvidencePage> ReadEvidencePageAsync(Guid organizationId, Guid installationId,
+        Guid artifactId, int offset, CancellationToken token)
+    {
+        if (offset < 0 || offset > ComputeEvidenceArchive.MaximumBytes) throw new ArgumentOutOfRangeException(nameof(offset));
+        // Reauthorize every page, including cache hits. Do not fetch the multi-MiB JSON for every page.
+        var operation = await db.ComputeOperations.AsNoTracking().Where(x => x.Id == artifactId &&
+            x.OrganizationId == organizationId && x.InstallationId == installationId)
+            .Select(x => new { x.EnvironmentId, x.Status }).SingleOrDefaultAsync(token)
+            ?? throw new UnauthorizedAccessException("Evidence unavailable.");
+        await ReadAsync(organizationId, installationId, operation.EnvironmentId, token);
+        if (operation.Status != "Completed") throw new InvalidOperationException("Evidence archive is not retained.");
+        if (!EvidenceCache.TryGetValue(artifactId, out var cached))
+        {
+            var json = await db.ComputeOperations.AsNoTracking().Where(x => x.Id == artifactId &&
+                x.OrganizationId == organizationId && x.InstallationId == installationId).Select(x => x.ResultJson).SingleAsync(token);
+            var retained = json is null ? null : JsonSerializer.Deserialize<ComputeWorkloadResult>(json, Json)?.Artifact;
+            if (retained?.Content is not { } retainedBytes || retainedBytes.Length != retained.Length || retained.Length is < 1 or > ComputeEvidenceArchive.MaximumBytes ||
+                Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(retainedBytes)) != retained.Sha256)
+                throw new InvalidOperationException("Evidence archive is not retained or failed integrity validation.");
+            using var entry = EvidenceCache.CreateEntry(artifactId);
+            entry.Value = retained; entry.Size = retained.Length; entry.SlidingExpiration = TimeSpan.FromMinutes(2); entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+            cached = retained;
+        }
+        var artifact = (ComputeEvidenceArtifact)cached!;
+        var content = artifact.Content!;
+        if (offset > content.Length) throw new ArgumentOutOfRangeException(nameof(offset));
+        return new(artifactId, artifact.Sha256, artifact.Length, offset,
+            content.AsSpan(offset, Math.Min(ComputeEvidenceArchive.PageBytes, content.Length - offset)).ToArray());
+    }
+
+    private static ComputeOperationView OperationView(ComputeOperation operation)
+    {
+        var result = operation.ResultJson is null ? null : JsonSerializer.Deserialize<ComputeWorkloadResult>(operation.ResultJson, Json);
+        if (result?.Artifact is { } artifact) result = result with { Artifact = artifact with { Content = null } };
+        return new(operation.Id, operation.EnvironmentId, operation.Generation, operation.Status, operation.FailureCode, result);
+    }
 }

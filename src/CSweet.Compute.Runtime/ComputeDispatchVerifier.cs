@@ -60,8 +60,8 @@ public sealed class ComputeDispatchVerifier(ComputeProviderEnrollment enrollment
             if (claim.Action is InfrastructureActions.Execute or InfrastructureActions.PublishPort) {
                 workload = packet.Workload?.Validate(spec.OperatingSystem) ?? throw Denied();
                 if (claim.ResourceId is null || claim.EnvironmentLeaseExpiresAt <= now || claim.ExpiresAt > claim.EnvironmentLeaseExpiresAt ||
-                    (workload.EffectiveCommand is not null) != (claim.Action == InfrastructureActions.Execute) || ComputeProtocol.Digest(JsonSerializer.Serialize(workload, ComputeProtocol.Json)) != claim.WorkloadDigest) throw Denied();
-                if (workload.BrowserTest is not null && (!certifiedTemplates.TryGetValue(spec.TemplateId, out var browserTemplate) ||
+                    (workload.EffectiveCommand is not null || workload.EvidenceArchive is not null) != (claim.Action == InfrastructureActions.Execute) || ComputeProtocol.Digest(JsonSerializer.Serialize(workload, ComputeProtocol.Json)) != claim.WorkloadDigest) throw Denied();
+                if ((workload.BrowserTest is not null || workload.EvidenceArchive is not null) && (!certifiedTemplates.TryGetValue(spec.TemplateId, out var browserTemplate) ||
                     !browserTemplate.Enabled || !browserTemplate.Matches(spec) || !browserTemplate.Features.Contains(ComputeBrowserTest.Feature))) throw Denied();
             } else if (packet.Workload is not null || claim.WorkloadDigest is not null) throw Denied();
             var energizing = claim.Action is InfrastructureActions.Provision or InfrastructureActions.Start or InfrastructureActions.Restart;
