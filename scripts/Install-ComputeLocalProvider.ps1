@@ -55,6 +55,21 @@ try {
                 -c Release -r win-x64 --self-contained true --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false -o $recoveryRoot --verbosity quiet
             if ($LASTEXITCODE -ne 0) { throw 'The compute recovery utility could not be prepared.' }
             $recoveryExecutable = Join-Path $recoveryRoot 'CSweet.Compute.HyperV.exe'
+            # A changed runtime cannot validate against the previous exact-byte certificate.
+            # Run real component acceptance, then use the existing installer repair command
+            # to certify this release while retaining the enrolled image and all durable state.
+            if (@($installedCatalog.templates).Count -ne 1) { throw 'Runtime update requires one retained Linux template.' }
+            $acceptanceRoot = Join-Path $logRoot 'recovery-acceptance'
+            $failureCode = 'compute_checks_failed'
+            dotnet test (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release `
+                --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false `
+                -p:UseLocalCSweetAgentSdk=false -p:UseLocalCSweetMemory=false -p:UseLocalCSweetWorkManagementContracts=false `
+                -p:UseLocalOfficeContracts=false -p:UseLocalIsolation=false `
+                --filter 'FullyQualifiedName~Compute&FullyQualifiedName!~Postgres' `
+                --logger 'trx;LogFileName=compute.trx' --results-directory $acceptanceRoot --verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw 'The updated compute component acceptance suite did not pass.' }
+            $repairArguments = @('repair-local', [string]$installedCatalog.templates[0].imagePath, (Join-Path $acceptanceRoot 'compute.trx'))
+            if ($serviceName -ne 'CSweet.Compute.HyperV') { $repairArguments += ([guid]$setup.organizationId).ToString('N') }
             Stop-Service -Name $serviceName -ErrorAction Stop
             (Get-Service -Name $serviceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
             $recoveryStoppedService = $true
@@ -64,6 +79,8 @@ try {
                 param($updatedExecutable)
                 & "$env:SystemRoot\System32\icacls.exe" (Split-Path -Parent $updatedExecutable) '/setowner' '*S-1-5-32-544' '/T' '/C' | Out-Null
                 if ($LASTEXITCODE -ne 0) { throw 'Updated compute payload ownership could not be protected.' }
+                & $updatedExecutable @repairArguments
+                if ($LASTEXITCODE -ne 0) { throw 'Updated compute release certification failed; previous release restored.' }
                 & $updatedExecutable @validationArguments
                 if ($LASTEXITCODE -ne 0) { throw 'Updated compute service validation failed; previous payload restored.' }
             }

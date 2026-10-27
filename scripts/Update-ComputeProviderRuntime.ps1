@@ -26,6 +26,16 @@ function Install-ComputeProviderRuntime {
         if ([IO.Path]::GetDirectoryName($path) -cne $root) { throw 'Unexpected runtime update target.' }
         return $path
     }
+    # Certification is part of an installer transaction, alongside its exact runtime bytes.
+    # Keep the previous protected metadata recoverable if recertification or validation fails.
+    $metadata = @{}
+    foreach ($name in @('provider.json','catalog.json','provisioning.json')) {
+        $path = Child $name
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            if (([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Runtime metadata redirects elsewhere.' }
+            $metadata[$path] = [IO.File]::ReadAllBytes($path)
+        }
+    }
     $runtime = Child 'runtime'
     Assert-PlainTree $runtime; Assert-PlainTree $published
     if (-not (Test-Path -LiteralPath (Join-Path $published 'CSweet.Compute.HyperV.exe') -PathType Leaf)) { throw 'Published provider entry point is missing.' }
@@ -40,10 +50,11 @@ function Install-ComputeProviderRuntime {
         Move-Item -LiteralPath $stage -Destination $runtime
         & $Validate (Join-Path $runtime 'CSweet.Compute.HyperV.exe')
     } catch {
+        foreach ($path in $metadata.Keys) { [IO.File]::WriteAllBytes($path, $metadata[$path]) }
         if (Test-Path -LiteralPath $runtime) { Move-Item -LiteralPath $runtime -Destination (Child ('runtime-failed-' + [guid]::NewGuid().ToString('N'))) }
         Move-Item -LiteralPath $backup -Destination $runtime
         throw
     }
-    # Keep the previous payload recoverable. Enrollment, keys, catalog, images, workloads and journal are untouched.
+    # Keep the previous payload recoverable. Enrollment, keys, images, workloads and journal are preserved; certification follows the validated runtime.
     return $backup
 }
