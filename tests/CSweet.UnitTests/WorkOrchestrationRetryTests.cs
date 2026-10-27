@@ -106,6 +106,66 @@ public sealed class WorkOrchestrationRetryTests
         Assert.Empty(await db.WorkOrchestrationEvents.ToListAsync());
     }
 
+    [Fact]
+    public async Task RelationalRetryLoadsLongCheckpointHistoryOnceAndPreservesEveryAttempt()
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:;Foreign Keys=False");
+        await connection.OpenAsync();
+        var capture = new RetryQueries();
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseSqlite(connection).AddInterceptors(capture, new RetrySqliteSequence()).Options);
+        await db.Database.EnsureCreatedAsync();
+        var seeded = await SeedAsync(db);
+        for (var number = 1; number <= 500; number++)
+            db.WorkExecutionAttempts.Add(new() { Id = Guid.NewGuid(), StageExecutionId = seeded.StageId,
+                Attempt = number, Status = WorkExecutionAttemptStatus.Completed,
+                ResultJson = "{}", IdempotencyKey = "checkpoint-" + number, CreatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear(); capture.Commands.Clear();
+
+        var result = await new WorkOrchestrationService(db, TimeProvider.System).RetryAsync(
+            seeded.OrganizationId, seeded.BoardId, seeded.StageId, seeded.DeveloperInstallationId,
+            new WorkOrchestrationControlRequest(seeded.AssignmentRevision, "long-history-retry"));
+
+        Assert.Equal("Pending", result.Status);
+        Assert.Equal(500, result.AttemptCount);
+        var stageLoads = capture.Commands.Where(sql =>
+            sql.Contains("FROM \"WorkStageExecutions\"", StringComparison.Ordinal) &&
+            sql.Contains("\"WorkExecutionAttempts\"", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(stageLoads);
+        Assert.All(stageLoads, sql => Assert.Equal(1,
+            System.Text.RegularExpressions.Regex.Matches(sql, "\"WorkExecutionAttempts\"").Count));
+        db.ChangeTracker.Clear();
+        Assert.Equal(500, await db.WorkExecutionAttempts.CountAsync());
+        Assert.Single(await db.WorkOrchestrationEvents.Where(x => x.EventType == "stage.retry.requested").ToListAsync());
+    }
+
+    private sealed class RetrySqliteSequence : SaveChangesInterceptor
+    {
+        private long sequence;
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken token = default)
+        {
+            // SQLite cannot generate the PostgreSQL outbox identity column.
+            foreach (var entry in eventData.Context!.ChangeTracker.Entries<CSweet.Domain.Notifications.ApplicationRealtimeOutboxItem>()
+                         .Where(x => x.State == EntityState.Added && x.Entity.Sequence == 0))
+                entry.Entity.Sequence = ++sequence;
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class RetryQueries : DbCommandInterceptor
+    {
+        internal List<string> Commands { get; } = [];
+        public override ValueTask<InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+            System.Data.Common.DbCommand command, CommandEventData eventData,
+            InterceptionResult<System.Data.Common.DbDataReader> result, CancellationToken token = default)
+        {
+            Commands.Add(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private static async Task<Seeded> SeedAsync(CSweetDbContext db)
     {
         var now = DateTimeOffset.UtcNow;

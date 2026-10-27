@@ -846,7 +846,10 @@ public sealed partial class WorkOrchestrationService(
 
     private async Task<WorkStageExecution> LoadStageAsync(
         Guid organizationId, Guid boardId, Guid stageExecutionId, CancellationToken cancellationToken) =>
-        await db.WorkStageExecutions.Include(x => x.Attempts)
+        // The current stage is also in ItemExecution.Stages. Tracking fixup loads
+        // its attempts through that path; a second root Attempts include multiplies
+        // every checkpoint by the entire sibling history and can time out retries.
+        await db.WorkStageExecutions
             .Include(x => x.ItemExecution)!.ThenInclude(x => x!.Stages).ThenInclude(x => x.Attempts)
             .Include(x => x.ItemExecution)!.ThenInclude(x => x!.WorkItem)
             .Include(x => x.ItemExecution)!.ThenInclude(x => x!.SprintExecution)
