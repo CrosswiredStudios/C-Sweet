@@ -23,6 +23,7 @@ with sync_playwright() as p:
     assert page.request.post(path, data={'key':'synthetic-native-account-key-0001'}).status == 403
     assert page.request.post(path, data={'key':'x'*5000}, headers={'X-CSweet-Native-Account':'1'}).status == 413
     assert page.request.post(args.base + '/test/agent-read').status == 403
+    assert page.request.post(args.base + '/test/agent-conversation').status == 403
     page.goto(args.base)
     page.get_by_test_id('interactive-ready').wait_for(state='attached')
     key = page.get_by_label('API key', exact=True)
@@ -33,6 +34,7 @@ with sync_playwright() as p:
     expect(key).to_have_value('')
     assert 'synthetic-native-account-key-0001' not in page.content()
     assert page.request.post(args.base + '/test/agent-read').status == 403
+    assert page.request.post(args.base + '/test/agent-conversation').status == 403
     assert 'synthetic-native-account-key-0001' not in page.request.get(path).text()
     page.screenshot(path=str(out/'01-connected-no-grant.png'), full_page=True)
     page.get_by_role('combobox', name='Agent to authorize').click()
@@ -43,11 +45,13 @@ with sync_playwright() as p:
     grant.click()
     expect(page.get_by_text('Access granted to the selected agent', exact=True)).to_be_visible()
     assert page.request.post(args.base + '/test/agent-read').status == 200
+    assert page.request.post(args.base + '/test/agent-conversation').status == 200
     page.screenshot(path=str(out/'02-granted-agent-read.png'), full_page=True)
     page.get_by_role('button', name='Revoke access and remove stored key').click()
     expect(page.get_by_text('Revoked', exact=True)).to_be_visible()
     assert page.request.post(args.base + '/test/agent-read').status == 403
+    assert page.request.post(args.base + '/test/agent-conversation').status == 403
     page.screenshot(path=str(out/'03-revoked-agent-denied.png'), full_page=True)
     assert not errors, errors
     browser.close()
-print('PASS: native connect -> explicit grant -> actual agent read -> revoke -> denied; no key readback; owner/CSRF/size checks')
+print('PASS: native connect -> explicit grant -> actual agent read + synthetic conversation -> revoke -> denied; no key readback; owner/CSRF/size checks')

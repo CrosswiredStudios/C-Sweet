@@ -29,13 +29,7 @@ app.MapRemoteMcpAccountEndpoints();
 app.MapGet("/test/identity", () => new { fixture.Business, provider = fixture.Provider.Id, consumer = fixture.Consumer.Id });
 app.MapPost("/test/agent-read", async () =>
 {
-    var runtime = new AgentTestRuntime().RegisterCapability<LeadSearch, InheritanceLead[]>(RealtyLeadsAgent.ProviderSearch, async (query, ct) =>
-    {
-        var json = JsonSerializer.SerializeToElement(query, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var result = await fixture.Service.ReadAsync(fixture.Business, fixture.Consumer.Id, RealtyPolicy.Search, json, ct,
-            vault => new RemoteMcpBroker(vault, () => new RemoteMcpNativeFlowTests.FakeMcp()));
-        return result.Deserialize<InheritanceLead[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-    });
+    var runtime = TestRuntime();
     try
     {
         var result = await runtime.ExecuteCapabilityAsync(new RealtyLeadsAgent(), RealtyLeadsAgent.Search, new LeadSearch(State: "TX", Limit: 1));
@@ -43,8 +37,35 @@ app.MapPost("/test/agent-read", async () =>
     }
     catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
 });
+app.MapPost("/test/agent-conversation", async () =>
+{
+    var runtime = TestRuntime();
+    // Synthetic intent only: no real inference account or model grant is created.
+    var agent = new RealtyLeadsAgent((_, _) => Task.FromResult(new ResearchIntent("Search", new(State: "TX", Limit: 1))));
+    try
+    {
+        await runtime.DeliverEventAsync(agent, CommunicationEvents.MessageReceived,
+            new CommunicationMessageReceivedEvent(Guid.NewGuid(), Guid.NewGuid().ToString(), "fixture-user", "Search TX", null, Guid.NewGuid()));
+        var final = runtime.Progress.Single();
+        var passed = final.GetProperty("isFinal").GetBoolean() &&
+            final.GetProperty("delta").GetString()!.StartsWith("No subscribed leads matched these filters.", StringComparison.Ordinal);
+        return passed ? Results.Ok(new { succeeded = true }) : Results.StatusCode(403);
+    }
+    catch (UnauthorizedAccessException) { return Results.StatusCode(403); }
+});
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 await app.RunAsync();
+
+AgentTestRuntime TestRuntime()
+{
+    return new AgentTestRuntime().RegisterCapability<LeadSearch, InheritanceLead[]>(RealtyLeadsAgent.ProviderSearch, async (query, ct) =>
+    {
+        var json = JsonSerializer.SerializeToElement(query, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var result = await fixture.Service.ReadAsync(fixture.Business, fixture.Consumer.Id, RealtyPolicy.Search, json, ct,
+            vault => new RemoteMcpBroker(vault, () => new RemoteMcpNativeFlowTests.FakeMcp()));
+        return result.Deserialize<InheritanceLead[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+    });
+}
 
 internal sealed class FixtureAuthentication(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder,
     RemoteMcpNativeFlowTests.Fixture fixture) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)

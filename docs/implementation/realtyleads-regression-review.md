@@ -149,3 +149,44 @@ reports.
 SDK is based on upstream 5.5.4, including the private HTTP logging and claim-poll deadline fixes. SDK 5.6.0 passed 617 SDK tests, 2 sample tests, pack and 7 generated-template tests. Its GitHub CI passed at `a7ee5ebfd436dc97d2046c3bbff1ade5f38dca8b`. A fresh package cache validates the provider manifest; older local prototype caches with the same unpublished version must not be reused. Broker/probe suite: 47 passed. Core includes upstream `3cef951b` retry-history fix. A new complete safe regression rerun is in progress; the earlier baseline comparison above remains the established evidence, not a claim that every core test passes.
 
 Release rerun: core UnitTests completed with 5,810 passed, 46 failed and 544 skipped (6,400 total). Three additional compute-supervisor timing failures require isolated reruns; other failures match the prior comparison. Browser rerun needs serial rebuild after concurrent MSBuild nodes exited; the earlier passing browser evidence is not presented as a pass for this revision. No production service was involved.
+
+
+### Completed release verification follow-up
+
+The serial fresh-cache harness rebuild and browser run now pass. The native page
+and authenticated endpoints completed connect → explicit grant → actual typed
+agent read plus a synthetic planned conversation → revoke → both denied. The
+provider fixture returns an empty result, and the conversation correctly reports
+that without inventing leads. No real inference or provider credentials were used.
+Owner isolation, mutation-header/size checks, cleared password input and no key
+readback also pass. The harness was stopped after the run. Focused native-account
+and connector tests against the fresh build: 16 passed.
+
+Delivery workflow: 11 passed, 6 database-dependent skips. Game-role workflow:
+3 passed. Both processes completed successfully. Integration: 98 passed, the same
+baseline setup-step-count failure, 6 skips.
+
+Exact full unit delta from the earlier 44 failures to 46:
+
+- Removed: `RemoteMcpAccountRepositoryTests.RelationalRevisionFenceRejectsStaleTrackedWriter`;
+  its relational fixture correction passes.
+- Added: `ComputeResultSupervisorTests.Result_lane_failure_does_not_stop_lease_cleanup_or_maintenance_delivery`;
+  reproduced on unchanged baseline and integration in isolated comparison.
+- Added: `ComputeRecoverySupervisorTests.Shutdown_joins_inflight_recovery_and_retains_pending_evidence`;
+  reproduced on unchanged baseline and integration (cancellation/journal-lock race).
+- Added: `ComputeIntakeSupervisorTests.Intake_failure_does_not_stop_expired_workload_cleanup`;
+  full-run failure was an IOException on the fixture journal lock during shutdown.
+  Serial isolated reruns pass on both baseline and integration. The compute code
+  and these test sources are unchanged by this integration. This remains an
+  intermittent test issue, not a claimed deterministic baseline reproduction.
+
+Thus 43 previously failing cases remain (42 established baseline failures plus
+the earlier compute timing case), one scoped fixture failure is fixed, and three
+compute timing failures were observed. No remaining scoped regression was found.
+
+GitHub verification at the published draft revisions: SDK CI passed; core's
+47 broker/probe tests passed. Core native/memory jobs, plugin validation and agent
+checks stop at NU1102 because SDK 5.6.0 has not yet been published (nearest 5.5.4).
+These checks need rerunning after the separately approved SDK release; they are
+not reported as passing. The consumer manifest correction and installed-host
+acceptance remain separate gates.
