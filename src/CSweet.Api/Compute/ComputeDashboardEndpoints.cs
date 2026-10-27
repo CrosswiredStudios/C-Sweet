@@ -25,6 +25,14 @@ public static class ComputeDashboardEndpoints
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), token, downloads);
             return result is null ? Results.Forbid() : Results.Ok(result);
         }).RequireAuthorization();
+        endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/update", async (Guid organizationId,
+            HttpContext http, CSweetDbContext db, CancellationToken token) =>
+        {
+            if (http.User.GetApplicationUserId() is not { } userId) return Results.Unauthorized();
+            try { await QueueRuntimeUpdateAsync(db, organizationId, userId, token); return Results.Accepted(); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (InvalidOperationException) { return Results.Conflict(new { error = "Compute must be ready with no outstanding operation before updating its service." }); }
+        }).RequireAuthorization();
         endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/repair", async (Guid organizationId,
             HttpContext http, CSweetDbContext db, CancellationToken token) =>
         {
@@ -50,6 +58,23 @@ public static class ComputeDashboardEndpoints
             return Results.Accepted();
         }).RequireAuthorization();
         return endpoints;
+    }
+
+    internal static async Task QueueRuntimeUpdateAsync(CSweetDbContext db, Guid business, Guid user, CancellationToken token)
+    {
+        await ComputeManagementEndpoints.RequireOwnerAsync(db, business, user, token);
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).LockAsync(business, token);
+        var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == business, token);
+        if (setup is null || setup.State != "Ready" || await db.ComputeOperations.AnyAsync(x => x.OrganizationId == business &&
+            (x.Status == "Pending" || x.Status == "Dispatching" || x.Status == "Reconciling" || x.Status == "Blocked"), token))
+            throw new InvalidOperationException("Compute is not ready for a runtime update.");
+        setup.State = "Pending"; setup.ErrorCode = null; setup.HandoffHash = null; setup.HandoffExpiresAt = null;
+        setup.Revision++; setup.UpdatedAt = DateTimeOffset.UtcNow;
+        ComputeManagementEndpoints.QueueOwnerAudit(db, business, user, setup.Id, "compute.workspace.runtime-update-requested.v1");
+        await db.SaveChangesAsync(token);
+        if (transaction is not null) await transaction.CommitAsync(token);
     }
 
     internal static bool IsRepairable(ComputeLocalSetup setup, string setupDirectory, DateTimeOffset now)

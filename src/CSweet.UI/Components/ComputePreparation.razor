@@ -76,6 +76,11 @@
                     {
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnSetup">@(Busy ? "Requesting setup…" : "Set up Linux")</MudButton>
                     }
+                    else if (CanManage && Setup?.State == "Ready")
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="OnUpdate">Update compute service</MudButton>
+                        <span class="preparation-secondary">Existing instances are retained. Administrator approval may be requested.</span>
+                    }
                     else if (CanManage && Setup?.CanRetry == true)
                     {
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnRetry">@(Busy ? "Requesting preparation…" : Setup.Health == "NeedsPermission" ? "Continue setup" : "Retry preparation")</MudButton>
@@ -115,6 +120,7 @@
     [Parameter] public bool Busy { get; set; }
     [Parameter] public EventCallback OnSetup { get; set; }
     [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public EventCallback OnUpdate { get; set; }
     [Parameter] public EventCallback OnRefresh { get; set; }
     [Parameter] public EventCallback OnCreate { get; set; }
     private static readonly string[] Milestones = ["Check requirements", "Download image", "Install Ubuntu", "Finalize image", "Connect compute service", "Verify readiness"];

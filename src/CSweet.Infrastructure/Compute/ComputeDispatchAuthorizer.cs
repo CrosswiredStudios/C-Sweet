@@ -53,7 +53,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                     if (workloadAction) {
                         if (environment.LeaseExpiresAt <= now.AddSeconds(45) || operation.WorkloadJson is null || environment.ProviderResourceId is null) throw new UnauthorizedAccessException();
                         workload = JsonSerializer.Deserialize<ComputeWorkload>(operation.WorkloadJson, ComputeBroker.Json)?.Validate(spec.OperatingSystem) ?? throw new UnauthorizedAccessException();
-                        if ((workload.EffectiveCommand is not null) != (operation.Action == InfrastructureActions.Execute)) throw new UnauthorizedAccessException();
+                        if ((workload.EffectiveCommand is not null || workload.EvidenceArchive is not null) != (operation.Action == InfrastructureActions.Execute)) throw new UnauthorizedAccessException();
                     }
                     var energizing = operation.Action is InfrastructureActions.Provision or InfrastructureActions.Start or InfrastructureActions.Restart;
                     if (energizing && environment.LeaseExpiresAt <= now) throw new UnauthorizedAccessException();

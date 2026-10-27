@@ -37,7 +37,7 @@
             <span class="compute-secondary">@L["Compute.SetUpOnceReuseAcross"]</span>
         </div>
         <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork"
-                            Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
+                            Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnUpdate="UpdateServiceAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
         @if (_showCreate && dashboard.CanManageNetwork && dashboard.Setup?.State == "Ready")
         {
             <section class="compute-create" aria-labelledby="create-instance-title">
@@ -265,6 +265,22 @@
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
         catch (Exception) { if (organization == OrganizationId) _error = L["Compute.CouldNotRequestLinuxPreparation"]; }
+        finally { if (organization == OrganizationId) _repairingSetup = false; }
+    }
+    private async Task UpdateServiceAsync()
+    {
+        if (_repairingSetup) return;
+        var organization = OrganizationId; _repairingSetup = true;
+        try
+        {
+            using var response = await Http.PostAsync($"api/organizations/{organization}/compute/setup/update", null, _stop.Token);
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            { _error = "Compute is busy. Try the service update after the current operation finishes."; return; }
+            response.EnsureSuccessStatusCode();
+            if (organization == OrganizationId) await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception) { if (organization == OrganizationId) _error = "The compute service update could not be requested."; }
         finally { if (organization == OrganizationId) _repairingSetup = false; }
     }
     private async Task RepairSetupAsync()

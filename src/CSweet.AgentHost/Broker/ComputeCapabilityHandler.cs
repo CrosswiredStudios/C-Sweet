@@ -27,7 +27,10 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             else if (request.Capability == InfrastructureActions.Read)
             {
                 var input = Read<ReadInput>(request);
-                if (input.Defaults == true && input.OperationId is null && input.EnvironmentId is null)
+                if (input.ArtifactId is { } artifactId && input.OperationId is null && input.EnvironmentId is null && input.Defaults is null && input.WorkstreamId is null)
+                    response = await broker.ReadEvidencePageAsync(organizationId, installationId, artifactId, input.Offset ?? 0, token);
+                else if (input.ArtifactId is not null || input.Offset is not null) throw new ArgumentException();
+                else if (input.Defaults == true && input.OperationId is null && input.EnvironmentId is null)
                     response = input.WorkstreamId is { } projectId
                         ? await (defaults ?? throw new InvalidOperationException()).ReadProjectAsync(organizationId, installationId, projectId, token)
                         : await (defaults ?? throw new InvalidOperationException()).ReadAsync(organizationId, installationId, token);
@@ -41,7 +44,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             else if (request.Capability is InfrastructureActions.Execute or InfrastructureActions.PublishPort)
             {
                 var input = Read<RequestComputeWorkload>(request);
-                if (input.Workload is null || (input.Workload.EffectiveCommand is not null) != (request.Capability == InfrastructureActions.Execute)) throw new ArgumentException();
+                if (input.Workload is null || (input.Workload.EffectiveCommand is not null || input.Workload.EvidenceArchive is not null) != (request.Capability == InfrastructureActions.Execute)) throw new ArgumentException();
                 if (input.Workload.NodeDependencies is not null && !session.Grant.RequiredCapabilities.Contains(InfrastructureActions.Outbound))
                     throw new UnauthorizedAccessException();
                 response = await broker.SubmitWorkloadAsync(organizationId, installationId, input, token);
@@ -87,7 +90,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
 
     private static T Read<T>(RequestCapability request) => JsonSerializer.Deserialize<T>(request.Payload.Span, ComputeProtocol.Json)
         ?? throw new JsonException("Compute input is missing.");
-    private sealed record ReadInput(Guid? EnvironmentId = null, Guid? OperationId = null, bool? Defaults = null, Guid? WorkstreamId = null);
+    private sealed record ReadInput(Guid? EnvironmentId = null, Guid? OperationId = null, bool? Defaults = null, Guid? WorkstreamId = null, Guid? ArtifactId = null, int? Offset = null);
     private sealed record ListInput(Guid WorkstreamId, Guid? AfterId = null, int Limit = 50);
     private sealed record LifecycleInput(Guid EnvironmentId, long ExpectedGeneration, string IdempotencyKey);
 }

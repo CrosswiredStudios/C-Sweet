@@ -25,7 +25,7 @@ public sealed class ComputeResultHttpClient : IDisposable
 
     public async Task<ComputeResultAcknowledgement> DeliverAsync(SignedComputeProviderResult envelope, CancellationToken token)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(envelope, ComputeProtocol.Json);
+        var bytes = ComputeResultTransport.SerializeEnvelope(envelope);
         if (bytes.Length > ComputeResultTransport.MaximumRequestBytes)
             throw new InvalidDataException("Provider result exceeds its size limit.");
         var result = JsonSerializer.Deserialize<ComputeProviderResult>(envelope.PayloadJson, ComputeProtocol.Json)

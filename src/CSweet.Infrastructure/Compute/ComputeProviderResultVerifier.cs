@@ -12,13 +12,15 @@ public sealed class ComputeProviderResultVerifier(IComputeNodeTrust trust, TimeP
 
     internal async Task<ComputeProviderResult> VerifyAsync(SignedComputeProviderResult envelope, CancellationToken token)
     {
-        if (envelope.KeyId is not { Length: > 0 and <= 128 } || envelope.PayloadJson is not { Length: > 0 and <= 32768 } ||
+        if (envelope.KeyId is not { Length: > 0 and <= 128 } || envelope.PayloadJson is not { Length: > 0 and <= ComputeResultTransport.MaximumArtifactPayloadCharacters } ||
             envelope.SignatureBase64 is not { Length: > 0 and <= 512 })
             throw new UnauthorizedAccessException("Compute result envelope is invalid.");
         try
         {
             var result = JsonSerializer.Deserialize<ComputeProviderResult>(envelope.PayloadJson, ComputeBroker.Json)
                 ?? throw new UnauthorizedAccessException("Compute result is missing.");
+            if (envelope.PayloadJson.Length > ComputeResultTransport.PayloadLimit(result))
+                throw new UnauthorizedAccessException("Compute result exceeds its payload limit.");
             var now = clock.GetUtcNow();
             if (result.OperationId == Guid.Empty || result.EnvironmentId == Guid.Empty || result.OrganizationId == Guid.Empty ||
                 result.InstallationId == Guid.Empty || result.NodeId == Guid.Empty || result.Generation < 1 || result.Sequence < 1 ||
