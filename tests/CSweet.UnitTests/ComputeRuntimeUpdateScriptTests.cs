@@ -10,7 +10,10 @@ public sealed class ComputeRuntimeUpdateScriptTests
         var root=new DirectoryInfo(AppContext.BaseDirectory);
         while(root is not null && !File.Exists(Path.Combine(root.FullName,"scripts","Update-ComputeProviderRuntime.ps1")))root=root.Parent;
         Assert.NotNull(root);
-        var start=new ProcessStartInfo("pwsh"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};
+        var shell=OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe")
+            : "pwsh";
+        var start=new ProcessStartInfo(shell){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};
         start.ArgumentList.Add("-NoProfile");start.ArgumentList.Add("-File");
         start.ArgumentList.Add(Path.Combine(root!.FullName,"tests","compute-runtime-update.tests.ps1"));
         start.ArgumentList.Add("-RepositoryRoot");start.ArgumentList.Add(root.FullName);

@@ -31,6 +31,6 @@ try {
     Write-Output 'Passed provider payload replacement and rollback; identity, journal and workloads preserved.'
 } finally {
     $resolved=[IO.Path]::GetFullPath($testRoot)
-    if([IO.Path]::GetDirectoryName($resolved) -ne [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath([IO.Path]::GetTempPath())) -or -not [IO.Path]::GetFileName($resolved).StartsWith('csweet-runtime-update-test-')) { throw 'Unexpected fixture cleanup target' }
+    if([IO.Path]::GetDirectoryName($resolved) -ne ([IO.Path]::GetFullPath([IO.Path]::GetTempPath())).TrimEnd([IO.Path]::DirectorySeparatorChar) -or -not [IO.Path]::GetFileName($resolved).StartsWith('csweet-runtime-update-test-')) { throw 'Unexpected fixture cleanup target' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
