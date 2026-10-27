@@ -12,6 +12,22 @@ namespace CSweet.UnitTests;
 public sealed class PluginArchiveImportServiceTests
 {
     [Fact]
+    public async Task ReviewedRemoteMcpArchiveCannotBecomeAnExecutableService()
+    {
+        await using var db = CreateDb();
+        var root = Path.Combine(Path.GetTempPath(), "csweet-archive-test", Guid.NewGuid().ToString("N"));
+        var service = new PluginArchiveImportService(db, new PluginManifestReader(), new TestAuditEventWriter(),
+            Options.Create(new AgentRuntimeManagerOptions { SourceArchiveStorePath = root }));
+        await using var archive = Archive(("csweet-plugin.json",
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "realtyleads-plugin.json"))));
+        var error = await Assert.ThrowsAsync<AgentImportPreviewException>(() => service.PreviewSourceArchiveAsync(archive, "realty.zip"));
+        Assert.Contains("immutable repository import", error.Message);
+        Assert.Empty(await db.AgentPackageSources.ToListAsync());
+        Assert.Empty(await db.AgentPackageVersions.ToListAsync());
+        Assert.False(Directory.Exists(root));
+    }
+
+    [Fact]
     public async Task PreviewSourceArchiveAsync_PersistsContentAddressedSource()
     {
         var root = Path.Combine(Path.GetTempPath(), "csweet-archive-test", Guid.NewGuid().ToString("N"));

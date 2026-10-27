@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IGenAiProviderApiClient, GenAiProviderApiClient>();
         services.AddScoped<IAgentRuntimeSettingsApiClient, AgentRuntimeSettingsApiClient>();
         services.AddScoped<IPluginAccountApiClient, PluginAccountApiClient>();
+        services.AddScoped<RemoteMcpAccountApiClient>();
         services.AddScoped<IOrganizationApiClient, OrganizationApiClient>();
         services.AddScoped<CalendarApiClient>();
         services.AddScoped<IBusinessContext, BusinessContext>();

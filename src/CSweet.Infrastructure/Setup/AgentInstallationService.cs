@@ -1149,6 +1149,12 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             }
         }
 
+        if (DeserializeManifest(package.ManifestJson).Kind == "remote-mcp")
+        {
+            var remoteState = await _dbContext.PluginOperationalStates.Where(x => x.AgentInstallationId == installation.Id &&
+                (x.Kind == "remote-mcp-account.v1" || x.Kind == RemoteMcpAccountService.BindingKind)).ToArrayAsync(cancellationToken);
+            _dbContext.PluginOperationalStates.RemoveRange(remoteState);
+        }
         _dbContext.AgentInstallations.Remove(installation);
         if (removePackage)
         {
@@ -1937,6 +1943,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             RevisionStatus = installation.RevisionStatus.ToString(),
             SetupState = installation.SetupState.ToString(),
             SetupFlowId = installation.SetupFlowId,
+            HasNativeApiKeyAccounts = DeserializeManifest(package.ManifestJson).Kind == "remote-mcp",
             ConnectionDeclarations = package.PluginKind == PluginKind.Connector ? DeserializeManifest(package.ManifestJson).Connections : [],
             Accounts = DeserializeManifest(package.ManifestJson).Accounts,
             SetupStepId = installation.SetupStepId

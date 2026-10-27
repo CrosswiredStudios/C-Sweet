@@ -1,0 +1,5 @@
+<MudThemeProvider /><MudPopoverProvider /><MudDialogProvider /><MudSnackbarProvider />
+<div style="padding:12px;background:#fff4ce">Synthetic RealtyLeadsAI acceptance fixture · never enter a real key</div>
+<Router AppAssembly="typeof(App).Assembly"><Found Context="route"><RouteView RouteData="route" /></Found></Router>
+@if (_interactive) { <span hidden data-testid="interactive-ready"></span> }
+@code { private bool _interactive; protected override void OnAfterRender(bool firstRender) { if(firstRender) { _interactive=true;StateHasChanged(); } } }

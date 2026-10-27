@@ -54,4 +54,4 @@
 
   <ItemGroup>
   </ItemGroup>
-</Project>
+<ItemGroup><ProjectReference Include="../CSweet.RemoteMcp/CSweet.RemoteMcp.csproj" /></ItemGroup></Project>

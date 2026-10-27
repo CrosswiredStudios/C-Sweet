@@ -36,6 +36,7 @@ public static class McpGatewayEndpoints
         IPlatformCapabilityDispatcher dispatcher,
         IAgentRuntimeSignalService runtimeSignals,
         ConnectorReadExecutor connectorReads,
+        RemoteMcpAccountService remoteMcp,
         PlatformLlmJobService llmJobs,
         IAuditEventWriter audit,
         IOptions<McpGatewayOptions> gatewayOptions,
@@ -126,6 +127,7 @@ public static class McpGatewayEndpoints
                         db,
                         dispatcher,
                         connectorReads,
+                        remoteMcp,
                         inbox,
                         audit,
                         limits.MaximumInlineTextBytes,
@@ -304,6 +306,7 @@ public static class McpGatewayEndpoints
         CSweetDbContext db,
         IPlatformCapabilityDispatcher dispatcher,
         ConnectorReadExecutor connectorReads,
+        RemoteMcpAccountService remoteMcp,
         AgentWorkInbox inbox,
         IAuditEventWriter audit,
         int maximumInlineTextBytes,
@@ -341,6 +344,14 @@ public static class McpGatewayEndpoints
         CapabilityResult? terminal;
         if (inputFailure is not null)
             terminal = inputFailure;
+        else if (tool.ProviderInstallationId is { } remoteProvider && await db.AgentInstallations.AnyAsync(x =>
+                x.Id == remoteProvider && x.PackageVersion!.AgentId == "com.crosswiredstudios.plugin.realtyleads", cancellationToken))
+        {
+            var result = await remoteMcp.ReadAsync(Guid.Parse(session.BusinessId), Guid.Parse(session.InstallationId),
+                tool.Capability, arguments, cancellationToken);
+            terminal = new CapabilityResult { RequestId = request.RequestId, Succeeded = true,
+                Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(result, JsonOptions)) };
+        }
         else if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
                 x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
         {

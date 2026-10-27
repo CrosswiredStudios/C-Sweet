@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.Setup;
 
 /// <summary>Explicit, same-organization connection selection. Never auto-selects a channel.</summary>
-public sealed partial class ConnectorBindingService(CSweetDbContext db)
+public sealed partial class ConnectorBindingService(CSweetDbContext db, Microsoft.AspNetCore.DataProtection.IDataProtectionProvider? protection = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     public async Task<IReadOnlyList<PluginDependencySetupResponse>> GetChoicesAsync(
@@ -40,6 +40,12 @@ public sealed partial class ConnectorBindingService(CSweetDbContext db)
                 try { ValidatePackage(dependency, connector.PackageVersion!); }
                 catch (InvalidOperationException) { continue; }
                 var provider = JsonSerializer.Deserialize<PluginManifest>(connector.PackageVersion!.ManifestJson, JsonOptions)!;
+                if (provider.Kind == "remote-mcp")
+                {
+                    choices.Add(new(connector.Id, provider.Name, connector.SetupState.ToString(), false,
+                        "Connect and grant access in this plugin's native API-key account settings.", []));
+                    continue;
+                }
                 var provided = JsonSerializer.Deserialize<string[]>(connector.Grant?.ProvidedCapabilitiesJson ?? "[]") ?? [];
                 var accounts = connector.Connections.Where(x => x.Status == PluginConnectionStatus.Connected &&
                     !string.IsNullOrWhiteSpace(x.BoundResourceId)).Select(x => new PluginConnectedAccount(
@@ -82,6 +88,15 @@ public sealed partial class ConnectorBindingService(CSweetDbContext db)
             var connector = bindings[0].ProviderInstallation!;
             ValidatePackage(dependency, connector.PackageVersion!);
             var provider = JsonSerializer.Deserialize<PluginManifest>(connector.PackageVersion!.ManifestJson, JsonOptions)!;
+            if (provider.Kind == "remote-mcp")
+            {
+                if (protection is null) throw new InvalidOperationException("Native API-key account authorization is unavailable.");
+                var remote = new RemoteMcpAccountService(db, protection);
+                foreach (var requirement in requirements)
+                    if (!await remote.IsAvailableAsync(Guid.Parse(requester.BusinessId), requester.Id, requirement.Name, token))
+                        throw new InvalidOperationException("Connect and grant access in the plugin's native API-key account settings.");
+                continue;
+            }
             if (provider.Accounts is not null)
             {
                 var baseRequired = requirements.Where(r => provider.ProviderOperations.Any(o => o.Capability == r.Name && o.Http is { Bootstrap: false } mapping &&

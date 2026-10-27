@@ -81,7 +81,7 @@ public sealed partial class AgentBuildService
         var manifest = JsonSerializer.Deserialize<PluginManifest>(envelope.ManifestJson,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         AgentImportPreviewService.ValidateManifest(manifest);
-        if (envelope.Kind != "connector" || manifest.Id != package.AgentId || manifest.Version != package.Version ||
+        if (envelope.Kind is not ("connector" or "remote-mcp") || manifest.Id != package.AgentId || manifest.Version != package.Version ||
             manifest.Name != package.AgentName || manifest.Publisher.Id != package.PublisherId ||
             manifest.Publisher.Name != package.PublisherName ||
             AgentImportPreviewService.CapabilityDescriptorsDigest(manifest) != package.CapabilityDescriptorsDigest)

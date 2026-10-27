@@ -1,0 +1,23 @@
+name: RealtyLeads trusted MCP
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/CSweet.RemoteMcp.Tests/**'
+      - 'tests/CSweet.UnitTests/*RemoteMcp*'
+      - 'Directory.Packages.props'
+      - '.github/workflows/realtyleads-mcp.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test tests/CSweet.RemoteMcp.Tests -m:1 -p:UseLocalCSweetAgentSdk=false
+      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~RemoteMcp|FullyQualifiedName~ConnectorContract'

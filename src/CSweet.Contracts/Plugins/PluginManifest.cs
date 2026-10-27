@@ -24,6 +24,7 @@ public sealed record PluginManifest
     public IReadOnlyList<PluginConfigurationField> Configuration { get; init; } = [];
     public IReadOnlyList<PluginCredentialBinding> Credentials { get; init; } = [];
     public IReadOnlyList<PluginConnectionDeclaration> Connections { get; init; } = [];
+    public PluginReviewedRemoteMcpManifest? ReviewedRemoteMcp { get; init; }
     public IReadOnlyList<PluginMcpServerDeclaration> McpServers { get; init; } = [];
     public IReadOnlyList<PluginProviderOperationDeclaration> ProviderOperations { get; init; } = [];
     public IReadOnlyList<PluginFileTransferTargetDeclaration> FileTransferTargets { get; init; } = [];
@@ -358,3 +359,14 @@ public sealed record PlatformWebSocketResponse(
     bool EndOfMessage = true,
     int? CloseStatus = null,
     string? CloseDescription = null);
+
+public sealed record PluginReviewedRemoteMcpManifest
+{
+    public string Profile { get; init; } = "";
+    public string Endpoint { get; init; } = "";
+    public string Authentication { get; init; } = "";
+    public string Header { get; init; } = "";
+    public string AccountBinding { get; init; } = "";
+    public string Transport { get; init; } = "";
+    public IReadOnlyList<string> ProtocolVersions { get; init; } = [];
+}

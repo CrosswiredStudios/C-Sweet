@@ -78,6 +78,8 @@ public sealed class PluginArchiveImportService(
             envelope = manifestReader.Read(manifestBytes, "csweet-plugin.json");
             manifest = JsonSerializer.Deserialize<PluginManifest>(envelope.ManifestJson, JsonOptions) ?? throw new JsonException("Manifest is empty.");
             AgentImportPreviewService.ValidateManifest(manifest);
+            if (envelope.Kind == "remote-mcp")
+                throw new AgentImportPreviewException("Reviewed remote MCP providers require an immutable repository import; source archive imports are not supported.");
         }
         catch (Exception exception) when (exception is JsonException or AgentImportPreviewException)
         {
