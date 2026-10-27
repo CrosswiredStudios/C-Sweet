@@ -30,9 +30,10 @@ public sealed partial class WorkOrchestrator
                 throw new InvalidOperationException("The current author attempt must deliver an exact artifact before QA dispatch.");
             return [outcome];
         }
-        return item.Stages.OrderBy(x => x.Traversal).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id)
+        return WorkExecutionResumeHistory.Compact(item.Stages
+            .OrderBy(x => x.Traversal).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id)
             .SelectMany(x => x.Attempts.OrderBy(a => a.Attempt))
             .Where(x => !string.IsNullOrWhiteSpace(x.ResultJson))
-            .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions)!).ToArray();
+            .Select(x => JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(x.ResultJson!, JsonOptions)!));
     }
 }

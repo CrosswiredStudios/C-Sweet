@@ -295,10 +295,11 @@ public sealed partial class WorkDeliveryService
             clock.GetUtcNow().AddHours(1), TicketStep(scope,stage.StageKey)!.Instructions,
             JsonSerializer.SerializeToElement(scope, Json), JsonSerializer.SerializeToElement(new WorkExecutionInputV1(plan.WorkstreamId, null, scope.PlanningRevision, scope.Planning)
                 { AllowedOutcomeCodes = ["approved", "changes_requested"] }, Json),
-            execution.Stages.SelectMany(x => x.Attempts).Where(x => x.Status == WorkExecutionAttemptStatus.Completed && x.ResultJson != null)
+            WorkExecutionResumeHistory.Compact(execution.Stages.OrderBy(x => x.Traversal).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id)
+                .SelectMany(x => x.Attempts.OrderBy(a => a.Attempt)).Where(x => x.Status == WorkExecutionAttemptStatus.Completed && x.ResultJson != null)
                 .Select(x => Decode<WorkExecutionOutcomeV1>(x.ResultJson!))
                 .Where(x => x.Output.ValueKind == JsonValueKind.Object && x.Output.TryGetProperty("candidateDigest", out var digest) &&
-                    digest.GetString() == Candidate(execution)!.Digest).ToArray(), [], Candidate(execution))
+                    digest.GetString() == Candidate(execution)!.Digest)), [], Candidate(execution))
             { OrganizationUserId = stage.OrganizationUserId!.Value, AgentInstallationId = installation,
               PlanningRevision = scope.PlanningRevision, Handler = TicketStep(scope, stage.StageKey)?.Handler,
               WorkflowTicketId = scope.TicketWorkflow?.TicketId, PermittedOutcomes = Handler(scope,stage.StageKey) is "build-readiness" or "compute-test"
