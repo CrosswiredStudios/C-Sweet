@@ -256,6 +256,10 @@ public static class AgentTicketFeedback
         var x when CSweet.Infrastructure.Setup.AgentWorkFailure.IsWorkspaceCommandTimeout(x) =>
             "A workspace command exceeded its deadline. Coding stopped and C-Sweet is replacing the isolated runtime before any retry from the last saved checkpoint.",
         var x when x.Contains("code=runtime.transport", StringComparison.Ordinal) => "I couldn’t finish this attempt because the connection to the runtime failed.",
+        var x when x.Split(';').Contains("code=development.progress", StringComparer.Ordinal) =>
+            "The execution controller paused after repeated work without new evidence. Source and the short plan are retained for focused recovery; this is not a request to change the ticket's scope.",
+        var x when x.Split(';').Contains("code=development.infrastructure", StringComparer.Ordinal) =>
+            "Required development tooling or runtime infrastructure is unavailable. Source, the short plan and the resource recovery action are retained; the unexecuted checks have not passed.",
         // Checked before the capability-specific cases: a refusal is an authority problem, not an outage.
         var x when IsDenied(x) =>
             $"I couldn’t continue because the platform denied me access{DeniedCapability(x)}. Someone who manages this project " +
@@ -317,7 +321,8 @@ public static class AgentTicketFeedback
             // A lost runtime heartbeat is not evidence that the developer repeated a coding
             // mistake. Respect the inbox/stage's bounded recovery budget before parking it.
             var blockRepeat = sameIssue && !(willRetry && (error == "The prior runtime lease expired." ||
-                CSweet.Infrastructure.Setup.AgentWorkFailure.IsWorkspaceCommandTimeout(error)));
+                CSweet.Infrastructure.Setup.AgentWorkFailure.IsWorkspaceCommandTimeout(error) ||
+                CSweet.Infrastructure.Setup.AgentWorkFailure.IsRetryableDevelopmentCheckpoint(error)));
             added = true;
             // Each decision request goes to the decision maker; a repeat is not a failure to block again.
             repeated |= blockRepeat && !(decisionRequired && awaitingManager);

@@ -29,7 +29,7 @@ function Get-CoreFiles([string] $root, [string] $project) {
         $files[(Normalize-Core $relative)] = $file.FullName
     }
     foreach ($test in @('HarnessExecutionTests.cs', 'WorkspaceProgressTests.cs', 'WorkspaceShellTests.cs',
-        'WorkspaceResourceSizingTests.cs', 'BrowserDeliveryRecipeTests.cs', 'PlanningExecutionTests.cs', 'PlanCompletionRecoveryTests.cs', 'GeneratedCommitMessageTests.cs', 'ReviewFeedbackTests.cs', 'NoChangeReworkTests.cs', 'DevelopmentEfficiencyTests.cs', 'AssignedCodingRuntimeTests.cs')) {
+        'WorkspaceResourceSizingTests.cs', 'BrowserDeliveryRecipeTests.cs', 'PlanningExecutionTests.cs', 'PlanCompletionRecoveryTests.cs', 'ComputeDeploymentRecoveryTests.cs', 'GeneratedCommitMessageTests.cs', 'ReviewFeedbackTests.cs', 'NoChangeReworkTests.cs', 'DevelopmentEfficiencyTests.cs', 'DevelopmentWorkflowTests.cs', 'AssignedCodingRuntimeTests.cs')) {
         $files["tests/$test"] = Join-Path $root "tests/$project.Tests/$test"
     }
     return $files

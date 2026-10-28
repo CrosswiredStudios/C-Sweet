@@ -12,6 +12,30 @@ public sealed class AgentTicketFeedbackTests
 {
     private const string Error = "agent-failure:v1;code=runtime.transport;exceptionType=IOException;diagnosticId=one";
 
+    [Theory]
+    [InlineData("development.progress")]
+    [InlineData("development.infrastructure")]
+    public async Task Development_checkpoints_respect_bounded_platform_retry_without_repeated_issue_escalation(string code)
+    {
+        await using var db = CreateDb();
+        var (ticket, owner, _) = Seed(db, false);
+        var now = DateTimeOffset.UtcNow;
+        var error = $"agent-failure:v1;code={code};retryable=true";
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            Assert.False(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+                "checkpoint-" + attempt, error, true, now.AddMinutes(attempt), default));
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(WorkTaskStatus.Running, ticket.Status);
+        Assert.Empty(db.CoreConversationMessages);
+        Assert.All(db.WorkItemComments, comment => Assert.DoesNotContain("stopped unexpectedly", comment.Body));
+        Assert.True(await AgentTicketFeedback.RecordFailureAsync(db, ticket, owner.AgentInstallationId!.Value,
+            "checkpoint-exhausted", error, false, now.AddMinutes(4), default));
+        await db.SaveChangesAsync();
+        Assert.Equal(WorkTaskStatus.Blocked, ticket.Status);
+    }
+
     [Fact]
     public async Task Repeated_lease_expiry_uses_bounded_recovery_before_blocking()
     {

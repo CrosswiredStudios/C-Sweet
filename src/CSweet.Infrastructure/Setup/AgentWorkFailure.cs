@@ -18,6 +18,11 @@ public static class AgentWorkFailure
         error.Split(';').Contains("code=runtime.transport", StringComparer.Ordinal) &&
         error.Split(';').Contains("retryable=true", StringComparer.Ordinal);
 
+    public static bool IsRetryableDevelopmentCheckpoint(string? error) =>
+        error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
+        error.Split(';').Contains("retryable=true", StringComparer.Ordinal) &&
+        error.Split(';').Any(field => field is "code=development.progress" or "code=development.infrastructure");
+
     public static bool IsRecoverableAtAttentionReview(string? error)
     {
         if (error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) != true ||
@@ -25,7 +30,7 @@ public static class AgentWorkFailure
         var code = error.Split(';')
             .FirstOrDefault(x => x.StartsWith("code=", StringComparison.Ordinal))?[5..];
         return code is "runtime.transport" or "agent.invalid_operation" or
-            "agent.payload_invalid" or "agent.unhandled";
+            "agent.payload_invalid" or "agent.unhandled" or "development.progress";
     }
 
     public static bool IsLlmProviderBlocker(string? reason)
@@ -58,6 +63,14 @@ public static class AgentWorkFailure
                 "Resolve that failure, then move this task back to To Do to retry.";
         var capability = FailureField(error, "capability");
         var code = FailureField(error, "code");
+        if (code == "development.progress")
+            return "The development controller paused after repeated work without new evidence. Source and the execution plan are retained. " +
+                "Bounded recovery resumes in a fresh model session; a slow model response alone is not a stall. " +
+                "If recovery is exhausted, inspect the controller and model tool trace rather than revising the ticket's acceptance criteria.";
+        if (code == "development.infrastructure")
+            return "Required development tooling or runtime infrastructure is unavailable. Source and the execution plan are retained. " +
+                "Restore the resource recorded in the execution plan and rerun its recorded check before resuming. " +
+                "Missing runtime evidence is not a completed acceptance check or a business decision.";
         if (code == "runtime.resources.exhausted")
             return "The workload reached its approved memory or replacement limit. The last saved source is retained. Automatic coding retries stopped; review capacity, the checkpoint and guest evidence before authorizing recovery.";
         if (code == "runtime.repeated_operation")

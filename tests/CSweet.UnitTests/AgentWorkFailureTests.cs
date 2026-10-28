@@ -4,6 +4,17 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentWorkFailureTests
 {
+    [Theory]
+    [InlineData("agent-failure:v1;code=development.progress;retryable=true", true)]
+    [InlineData("agent-failure:v1;code=development.infrastructure;retryable=true", true)]
+    [InlineData("agent-failure:v1;code=development.progress;retryable=false", false)]
+    [InlineData("agent-failure:v1;code=development.progress.fake;retryable=true", false)]
+    [InlineData("agent-failure:v1;code=platform.capability.denied;retryable=true", false)]
+    public void DevelopmentCheckpointClassificationIsExactAndRequiresRetryAuthority(string error, bool expected)
+    {
+        Assert.Equal(expected, AgentWorkFailure.IsRetryableDevelopmentCheckpoint(error));
+        if (expected) Assert.DoesNotContain("execution failure exhausted", AgentWorkFailure.DescribeBlocker(error));
+    }
     [Fact]
     public void LeaseExpiryExplainsWhereToFindTheCauseAndHowToResume()
     {
@@ -63,6 +74,7 @@ public sealed class AgentWorkFailureTests
     [InlineData("agent-failure:v1;code=agent.invalid_operation", true)]
     [InlineData("agent-failure:v1;code=agent.payload_invalid", true)]
     [InlineData("agent-failure:v1;code=agent.unhandled", true)]
+    [InlineData("agent-failure:v1;code=development.progress;retryable=true", true)]
     [InlineData("agent-failure:v1;code=platform.capability.unavailable;retryable=false", false)]
     [InlineData("private exception body", false)]
     public void AttentionReviewRecoveryIsBoundedToRecoverableAgentFailures(string error, bool expected) =>
