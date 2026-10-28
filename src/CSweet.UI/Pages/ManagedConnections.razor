@@ -1,0 +1,49 @@
+@page "/settings/connections"
+@layout SettingsLayout
+@using CSweet.Contracts.Plugins
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Connection service</PageTitle>
+<main class="pa-6" style="max-width:900px;margin:auto">
+    <MudText Typo="Typo.h4">Connection service</MudText>
+    <MudText Class="mb-5">One-time administrator pairing. Account owners connect through their plugins afterward.</MudText>
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (_status is null) { <MudProgressLinear Indeterminate="true" /> }
+    else if (!_status.Enabled) { <MudAlert Severity="Severity.Info">Managed connections are not enabled for this deployment. Configure its trusted service address and return address before pairing. Customer-owned connections remain separate.</MudAlert> }
+    else if (_status.Paired) { <MudAlert Severity="Severity.Success">This installation is paired. Provider credentials stay at the connection service.</MudAlert><MudButton Href="/settings/plugins">Back to plugins</MudButton> }
+    else
+    {
+        <MudText Typo="Typo.h6">Pair this installation</MudText>
+        <MudText>Service: @_status.ServiceOrigin</MudText>
+        <MudText>Browser return: @_status.ReturnUri</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="Prepare" Class="my-4">Prepare pairing</MudButton>
+        @if (_pairing is not null)
+        {
+            <MudText>Register this public key with the service using your authorized enterprise administrator account. No Google secret is needed on this installation.</MudText>
+            <MudTextField T="string" Value="@System.Text.Json.JsonSerializer.Serialize(_pairing)" ReadOnly="true" Lines="5" Label="Public pairing details" Variant="Variant.Outlined" Class="my-4" />
+            <MudTextField T="string" @bind-Value="_deployment" Label="Deployment ID returned by service" Variant="Variant.Outlined" />
+            <MudTextField T="string" @bind-Value="_tenant" Label="Tenant ID returned by service" Variant="Variant.Outlined" Class="my-3" />
+            <MudNumericField T="long" @bind-Value="_revision" Min="1" Label="Registration revision" Variant="Variant.Outlined" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="Complete" Class="my-4">Verify and finish pairing</MudButton>
+        }
+    }
+</main>
+
+@code {
+    private ManagedConnectionStatus? _status;
+    private ManagedConnectionPairing? _pairing;
+    private string? _error;
+    private bool _busy;
+    private string _deployment = "", _tenant = "";
+    private long _revision = 1;
+    protected override Task OnInitializedAsync() => Run(async () => _status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status"));
+    private Task Prepare() => Run(async () => { using var response = await Http.PostAsync("api/plugins/managed-connections/pairing", null); response.EnsureSuccessStatusCode(); _pairing = await response.Content.ReadFromJsonAsync<ManagedConnectionPairing>(); });
+    private Task Complete() => Run(async () =>
+    {
+        if (!Guid.TryParse(_deployment, out var id) || string.IsNullOrWhiteSpace(_tenant) || _revision < 1) throw new InvalidOperationException();
+        using var response = await Http.PostAsJsonAsync("api/plugins/managed-connections/pairing/complete", new CompleteManagedConnectionPairing(id, _tenant, _revision));
+        response.EnsureSuccessStatusCode(); _status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status");
+    });
+    private async Task Run(Func<Task> action) { if (_busy) return; _busy = true; _error = null; try { await action(); } catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { _error = "Pairing could not be verified. Check administrator access, deployment configuration and the service registration."; } finally { _busy = false; } }
+}

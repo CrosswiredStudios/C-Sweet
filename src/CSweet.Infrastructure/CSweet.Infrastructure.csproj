@@ -23,6 +23,7 @@
     <ProjectReference Include="..\CSweet.ExecutionArtifacts\CSweet.ExecutionArtifacts.csproj" />
     <ProjectReference Include="..\CSweet.TrustedServices\CSweet.TrustedServices.csproj" />
     <PackageReference Include="CSweet.Agent.SDK" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
+    <PackageReference Include="CSweet.ConnectionService.Protocol" />
     <PackageReference Include="CSweet.Memory" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
     <PackageReference Include="CSweet.Memory.PostgreSql" Condition="'$(UseLocalCSweetMemory)' != 'true'" />
     <PackageReference Include="CSweet.Memory.Sqlite" Condition="'$(UseLocalCSweetMemory)' != 'true'" />

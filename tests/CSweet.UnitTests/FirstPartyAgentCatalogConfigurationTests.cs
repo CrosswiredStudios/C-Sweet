@@ -256,7 +256,7 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
     [InlineData("com.csweet.video-game-technical-artist", "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalArtist.VideoGame")]
     [InlineData("com.csweet.video-game-technical-director", "https://github.com/CrosswiredStudios/CSweet.Agent.TechnicalDirector.VideoGame")]
     [InlineData("com.csweet.video-game-ui-ux-accessibility-designer", "https://github.com/CrosswiredStudios/CSweet.Agent.UiUxAccessibilityDesigner.VideoGame")]
-    [InlineData("com.csweet.youtube-account-manager", "https://github.com/CrosswiredStudios/CSweet.Agent.YouTubeAccountManager")]
+    [InlineData("com.csweet.agent.platform.youtube", "https://github.com/CrosswiredStudios/CSweet.Agent.Platform.YouTube")]
     public async Task FirstPartyAgent_ResolvesHostedRepository(string agentId, string repositoryUrl)
     {
         using var document = JsonDocument.Parse(File.ReadAllText(
@@ -316,6 +316,32 @@ public sealed class FirstPartyAgentCatalogConfigurationTests
             Assert.Equal(entry.CompanyLogoUrl, mapped.CompanyLogoUrl);
             Assert.Equal(entry.Name, mapped.Name);
         }
+    }
+
+    [Fact]
+    public async Task YouTubePreviewIsDiscoverableWithCurrentContractsButNeverAutomaticallySelected()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(RepositoryRoot(), "src", "CSweet.Api", "first-party-agents.json")).Build();
+        var options = configuration.GetSection(MarketplaceOptions.SectionName).Get<MarketplaceOptions>()!;
+        var provider = new FirstPartyAgentCatalogProvider(Options.Create(options));
+        var service = new AgentCatalogService([provider], NullLogger<AgentCatalogService>.Instance, Options.Create(options));
+        var result = await service.GetAvailableAgentsAsync(Guid.NewGuid(), new(SearchString: "YouTube"));
+        var agent = Assert.Single(result.Agents, x => x.AgentId == "com.csweet.agent.platform.youtube");
+        Assert.Equal("https://github.com/CrosswiredStudios/CSweet.Agent.Platform.YouTube", agent.RepositoryUrl);
+        Assert.Equal("YouTube Manager", agent.RoleName);
+        Assert.Equal("general-specialist", agent.RoleKey);
+        Assert.Equal(AgentAvailabilityState.AvailableToInstall, agent.Availability);
+        Assert.Equal(new[] { "agent.configuration.describe.v1", "agent.configuration.update.v1", "assistant.converse.v1" }, agent.Capabilities);
+        Assert.Contains("Preview", agent.Summary);
+        Assert.Contains("YouTube Connection plugin", agent.Summary);
+        Assert.False(service.IsAutomaticSelectionAllowed(agent));
+        Assert.NotNull(await service.ResolveAsync(Guid.NewGuid(), agent.AgentReference));
+        Assert.DoesNotContain(options.FirstPartyAgents, x => x.AgentId == "com.csweet.youtube-account-manager");
+        Assert.Null(await provider.ResolveAsync(null, "first-party:f46d3cab7d8542abbf88d794cb9208ec"));
+        var connector = Assert.Single(CSweet.UI.Services.PluginCatalog.Entries, x => x.Id == "com.csweet.connector.youtube");
+        Assert.Equal("https://github.com/CrosswiredStudios/CSweet.Plugins.Platform.YouTube", connector.RepositoryUrl);
+        Assert.DoesNotContain(options.FirstPartyAgents, x => x.AgentId == connector.Id);
     }
 
     private static string RepositoryRoot()

@@ -19,6 +19,20 @@ public sealed partial class PluginAccountService
             s.FailureCode != "expired_cleaned").Take(25).ToListAsync(ct);
         foreach (var attempt in abandoned)
         {
+            var managedJson = await secrets.GetAsync(attempt.PluginInstallationId, ManagedContextKey(attempt.ConnectionId), ct);
+            if (managedJson is not null)
+            {
+                if (managed is null) continue;
+                try
+                {
+                    var cancelled = await managed.CancelAttempt(attempt.Id, ct);
+                    if (cancelled.ConnectionId is { } remote && (await managed.Snapshot(remote, ct)).Status != "Revoked") continue;
+                    await secrets.RemoveAsync(attempt.PluginInstallationId, ManagedContextKey(attempt.ConnectionId), ct);
+                    var pendingConnection = await db.PluginConnections.SingleAsync(x => x.Id == attempt.ConnectionId, ct);
+                    pendingConnection.Status = PluginConnectionStatus.Revoked; pendingConnection.AuthorizationRevision++;
+                }
+                catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { continue; }
+            }
             // Removal is repeatable: a crash before the state commit cannot leave a reusable verifier.
             await secrets.RemoveAsync(attempt.PluginInstallationId, VerifierKey(attempt.Id), ct);
             if (attempt.Status == "AwaitingConsent") attempt.Status = "Expired";
@@ -28,6 +42,10 @@ public sealed partial class PluginAccountService
         var retired = await db.PluginAccountSetupSessions.Where(s => (s.Status == "Ready" || s.Status == "NoResources") && s.RetiredCredentialKey != null).Take(25).ToListAsync(ct);
         foreach (var completed in retired)
         {
+            if (completed.RetiredCredentialKey!.StartsWith("managed.context.", StringComparison.Ordinal))
+            {
+                if (!await RetireManaged(completed, ct)) continue;
+            }
             await secrets.RemoveAsync(completed.PluginInstallationId, completed.RetiredCredentialKey!, ct);
             completed.RetiredCredentialKey = null; completed.Revision++; await db.SaveChangesAsync(ct);
         }
@@ -52,6 +70,8 @@ public sealed partial class PluginAccountService
         try
         {
             var (_, manifest, _) = await Current(s, ct);
+            if (managed?.UsesManaged(manifest.Connections.Single(x => x.Id == manifest.Accounts!.Connection).ProviderProfile) == true)
+            { await ImportManaged(s, ct); return; }
             var a = manifest.Accounts!;
             async Task<JsonElement> Invoke(string capability, JsonElement input)
             {
@@ -214,8 +234,9 @@ public sealed partial class PluginAccountService
         if (previous is not null)
         {
             var previousKey = await PluginOAuthCredentialKeys.ResolveAsync(db, s.PluginInstallationId, previous.Id, ct);
-            s.RetiredCredentialKey = previousKey;
-            if (s.VerifiedSubject is not null && previous.ExternalAccountId == s.VerifiedSubject && previous.CredentialProfileHash == s.ProfileHash)
+            var managedPrevious = await secrets.GetAsync(s.PluginInstallationId, ManagedContextKey(previous.Id), ct) is not null;
+            s.RetiredCredentialKey = managedPrevious ? ManagedContextKey(previous.Id) : previousKey;
+            if (!managedPrevious && s.VerifiedSubject is not null && previous.ExternalAccountId == s.VerifiedSubject && previous.CredentialProfileHash == s.ProfileHash)
             {
                 // Long/resumed imports may already have refreshed into a different active vault generation.
                 var currentKey = await PluginOAuthCredentialKeys.ResolveAsync(db, s.PluginInstallationId, connection.Id, ct);

@@ -47,20 +47,25 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Install plugin", exact=True).click()
     expect(page).to_have_url(__import__('re').compile(r"/settings/plugins/[a-f0-9-]{36}$"))
     expect(page.get_by_text("Connect your first account", exact=True)).to_be_visible()
-    expect(page.get_by_text("Some deployment cleanup services are not configured.",exact=False)).to_be_visible()
+    expect(page.get_by_text("Some deployment cleanup services are not configured.",exact=False)).not_to_be_visible()
+    expect(page.get_by_role("button",name="Connect account",exact=True)).to_have_count(1)
     expect(page.get_by_role("button",name="Connect account",exact=True).first).to_be_enabled()
     page.screenshot(path=str(out / "03-installed-empty.png"), full_page=True)
-    page.get_by_text("Build diagnostics and updates",exact=True).click()
-    page.get_by_role("button",name="View build diagnostics",exact=True).click()
+    page.get_by_text("Plugin settings",exact=True).click()
+    expect(page.get_by_text("Some deployment cleanup services are not configured.",exact=False)).to_be_visible()
+    page.get_by_text("Verification diagnostics and updates",exact=True).click()
+    page.get_by_role("button",name="View verification diagnostics",exact=True).click()
     expect(page.get_by_text("Synthetic package build diagnostics.",exact=False)).to_be_visible()
     page.get_by_role("button",name="Check for update",exact=True).click()
     expect(page.get_by_text("This repository currently resolves to the installed version.",exact=True)).to_be_visible()
-    page.get_by_text("Build diagnostics and updates",exact=True).click()
+    page.get_by_text("Verification diagnostics and updates",exact=True).click()
+    page.get_by_text("Plugin settings",exact=True).click()
+    expect(page.get_by_role("region", name="Account connection access and policies")).to_be_visible()
+    expect(page.get_by_role("link", name="Privacy policy", exact=True)).to_be_visible()
     page.get_by_role("button", name="Connect account", exact=True).first.click()
-    expect(page.get_by_role("button", name="Continue to secure sign-in")).to_be_disabled()
-    page.get_by_role("checkbox", name="I have reviewed the access", exact=False).check()
-    page.get_by_role("button", name="Continue to secure sign-in").click()
     expect(page.get_by_role("heading",name="Example provider",exact=False)).to_be_visible()
+    expect(page.get_by_text("Requested scopes: identity read", exact=False)).to_be_visible()
+    expect(page.get_by_text("optional", exact=False)).to_have_count(0)
     page.screenshot(path=str(out / "04-synthetic-provider-consent.png"), full_page=True)
     page.get_by_role("link",name="Allow test connection").click()
     page.get_by_test_id("interactive-ready").wait_for(state="attached")
@@ -68,6 +73,7 @@ with sync_playwright() as p:
     expect(page.get_by_text("Workspace B",exact=True)).to_be_visible()
     expect(page.get_by_text("Account connected and accessible resources imported.",exact=False)).to_be_visible()
     page.screenshot(path=str(out / "05-account-imported.png"), full_page=True)
+    page.get_by_text("Plugin settings",exact=True).click()
     page.get_by_text("Connection operators",exact=True).click()
     page.get_by_role("combobox",name="Operator user",exact=True).click()
     page.get_by_role("option",name="manager",exact=True).click()
@@ -89,10 +95,10 @@ with sync_playwright() as p:
     page.screenshot(path=str(out / "06-selected-business-access.png"),full_page=True)
     page.get_by_role("button",name="Pause plugin",exact=True).click()
     page.get_by_role("button",name="Confirm pause",exact=True).click()
-    expect(page.get_by_role("button",name="Connect account",exact=True).first).to_be_disabled()
+    expect(page.get_by_role("button",name="Connect another account",exact=True)).to_have_count(0)
     page.get_by_role("button",name="Resume plugin",exact=True).click()
     page.get_by_role("button",name="Confirm resume",exact=True).click()
-    expect(page.get_by_role("button",name="Connect account",exact=True).first).to_be_enabled()
+    expect(page.get_by_role("button",name="Connect another account",exact=True)).to_be_enabled()
     page.get_by_role("button",name="Reconnect / change permissions").click()
     page.get_by_role("checkbox",name="Optional",exact=True).check()
     page.get_by_role("checkbox",name="I have reviewed the access",exact=False).check()
@@ -124,7 +130,10 @@ with sync_playwright() as p:
     expect(page.get_by_text("Deletion is not yet confirmed.",exact=False)).to_be_visible()
     assert page.request.post(args.base+"/test/run-cleanup").status==204
     assert page.request.get(args.base+"/test/memory-confirmation-count").json()==0
-    page.get_by_role("button",name="Refresh",exact=True).click()
+    # Provider consent navigates away; returning starts with administrator details collapsed.
+    if page.locator("#plugin-settings").get_attribute("open") is None:
+        page.get_by_text("Plugin settings",exact=True).click()
+    page.get_by_role("button",name="Refresh status",exact=True).click()
     expect(page.get_by_text("Tracked primary database copies removed.",exact=False)).to_be_visible()
     expect(page.get_by_text("Disconnected resource",exact=True)).to_have_count(0)
     page.get_by_role("button",name="Remove plugin",exact=True).click()
@@ -134,10 +143,31 @@ with sync_playwright() as p:
     assert page.request.post(args.base+"/test/confirm-synthetic-cleanup").status==204
     assert page.request.get(args.base+"/test/cleanup-receipt-count").json()==1
     assert page.request.get(args.base+"/test/memory-confirmation-count").json()==1
-    page.get_by_role("button",name="Refresh",exact=True).click()
+    page.get_by_role("button",name="Refresh status",exact=True).click()
     expect(page.get_by_text("Plugin removed.",exact=False)).to_be_visible()
     expect(page.get_by_text("All recorded cleanup obligations confirmed.",exact=True)).to_be_visible()
     page.screenshot(path=str(out/"10-removed-synthetic-receipts.png"),full_page=True)
+    # Exercise the actual browser return module, without contacting the managed service or Google.
+    result = page.evaluate("""async () => {
+        const module = await import('/_content/CSweet.UI/js/managed-plugin-return.js');
+        const attempt = '4c643638-094c-4971-ae60-bef6071ad55c';
+        const handoff = 'h'.repeat(43);
+        history.replaceState(null, '', '/settings/plugins/managed-return#handoff=' + handoff + '&attempt=' + attempt);
+        const value = module.consumeReturn();
+        if (value.handoff !== handoff || value.attemptId !== attempt || location.hash || location.search) throw Error('Return was not consumed safely');
+        for (const fragment of [
+            '#handoff=' + handoff + '&attempt=' + attempt + '&attempt=' + attempt,
+            '#handoff=bad&attempt=' + attempt,
+            '#handoff=' + handoff + '&attempt=' + attempt + '&redirect=https://attacker.example',
+        ]) {
+            history.replaceState(null, '', '/settings/plugins/managed-return' + fragment);
+            let rejected = false;
+            try { module.consumeReturn(); } catch { rejected = true; }
+            if (!rejected || location.hash) throw Error('Unsafe return accepted or retained');
+        }
+        return true;
+    }""")
+    assert result
     assert not errors, errors
     print("PASS: non-gated install/connect with missing cleanup services, consent, import, scoped operators, selected/whole business grants, pause/resume, progressive consent, mobile layout, disconnect, pending cleanup, removal, signed backup receipt and native memory confirmation. Provider/package install/erasure receipt data and external confirmations are synthetic.")
     browser.close()

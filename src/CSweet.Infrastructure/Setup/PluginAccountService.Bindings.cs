@@ -25,8 +25,10 @@ public sealed partial class PluginAccountService
         if (request.PackageDigest != connector.PackageVersion!.PackageDigest || grant.PackageDigest != request.PackageDigest) throw new UnauthorizedAccessException("The reviewed connector changed.");
         var connection = await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.ConnectionId && x.AccountGroupId == resource.AccountGroupId &&
             x.AgentInstallationId == installationId && x.Status == PluginConnectionStatus.Connected, ct) ?? throw new UnauthorizedAccessException("Connect this resource first.");
-        var profile = await PluginAccountProfileGuard.RequireAsync(db, profiles, connector, declaration, ct);
-        if (connection.CredentialProfileHash != PluginAccountProfileGuard.Fingerprint(profile)) throw new UnauthorizedAccessException("The connection settings changed. Reconnect before authorizing an agent.");
+        var bindingHash = managed?.UsesManaged(declaration.ProviderProfile) == true
+            ? (await managed.Availability(connector.PackageVersion!.PackageDigest!, ct)).BindingHash
+            : PluginAccountProfileGuard.Fingerprint(await PluginAccountProfileGuard.RequireAsync(db, profiles, connector, declaration, ct));
+        if (connection.CredentialProfileHash != bindingHash) throw new UnauthorizedAccessException("The connection settings changed. Reconnect before authorizing an agent.");
         var granted = List<string>(grant.CapabilitiesJson).Intersect(List<string>(requester.Grant!.RequiredCapabilitiesJson), StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
         var required = consumer.Requires.Where(x => x.Dependency == dependency.Id && granted.Contains(x.Name)).Where(x => manifest.ProviderOperations.Any(o => o.Capability == x.Name &&
             o.Http is { Bootstrap: false } mapping && !mapping.ScopeSets.SelectMany(id => declaration.ScopeSets.Single(s => s.Id == id).Scopes)

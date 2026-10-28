@@ -5,18 +5,26 @@ using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 
 namespace CSweet.Infrastructure.Setup;
 
 public sealed partial class PluginAccountService
 {
-    public async Task<BeginPluginAccountResponse> BeginAsync(Guid userId, Guid installationId, ConnectPluginAccountRequest request, CancellationToken ct)
+    public async Task<BeginPluginAccountResponse> BeginAsync(Guid userId, Guid installationId, ConnectPluginAccountRequest request, CancellationToken ct, string? browserBinding = null)
     {
         var (installation, manifest, declaration) = await Context(installationId, ct);
         var previous = request.ReconnectConnectionId is { } oldId ? await db.PluginConnections.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == oldId && x.AgentInstallationId == installationId && x.AccountGroupId != null && x.Status != PluginConnectionStatus.Revoked, ct)
             ?? throw new UnauthorizedAccessException("The account authorization is unavailable.") : null;
         await Access.RequireOperatorAsync(userId, installationId, previous?.AccountGroupId, ct);
+        if (managed?.UsesManaged(declaration.ProviderProfile) == true)
+        {
+            if (installation.PackageVersion!.Status != AgentPackageVersionStatus.Built || request.PackageDigest != installation.PackageVersion.PackageDigest ||
+                !request.AcceptPolicies || request.PolicyVersion != manifest.Accounts!.PolicyVersion)
+                throw new InvalidOperationException("Review the completed plugin and current connection terms first.");
+            return await BeginManaged(userId, installation, manifest, declaration, previous, request, browserBinding, ct);
+        }
         await using var consentTx=db.Database.IsRelational() && db.Database.CurrentTransaction==null ? await db.Database.BeginTransactionAsync(ct):null;
         if(db.Database.IsNpgsql()) _=await db.AgentInstallations.FromSqlInterpolated($"SELECT * FROM \"AgentInstallations\" WHERE \"Id\" = {installationId} FOR SHARE").AsNoTracking().ToArrayAsync(ct);
         (installation,manifest,declaration)=await Context(installationId,ct);
@@ -46,9 +54,8 @@ public sealed partial class PluginAccountService
         var scopes = sets.SelectMany(s => s.Scopes).Concat(previous is null ? [] : List<string>(previous.GrantedScopesJson)
             .Intersect(declaration.ScopeSets.SelectMany(s => s.Scopes), StringComparer.Ordinal)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (scopes.Length == 0) throw new InvalidOperationException("The plugin must request declared base permissions.");
-        var redirect = (options.Value.PublicBaseUrl ?? "").TrimEnd('/') + "/api/plugin-connections/oauth/callback";
-        if (!Uri.TryCreate(redirect, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !string.IsNullOrEmpty(uri.UserInfo) ||
-            !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)) throw new InvalidOperationException("Configure the public HTTPS callback address before connecting accounts.");
+        var redirect = PluginConnectionAddresses.Callback(options.Value);
+        _ = PluginConnectionAddresses.Return(options.Value, "/settings/plugins", environment?.IsDevelopment() == true);
         var now = DateTimeOffset.UtcNow;
         var group = previous?.AccountGroupId is { } groupId ? await db.PluginAccountGroups.SingleAsync(x => x.Id == groupId && x.PluginInstallationId == installationId, ct) :
             new PluginAccountGroup { Id = Guid.NewGuid(), PluginInstallationId = installationId, DisplayName = manifest.Accounts.AccountLabel,
@@ -142,8 +149,10 @@ public sealed partial class PluginAccountService
         else if (!await db.PluginConnections.AsNoTracking().AnyAsync(x=>x.Id==s.ConnectionId && x.AccountGroupId==s.AccountGroupId &&
             x.Status==PluginConnectionStatus.Connected && x.AuthorizationRevision==s.ReplacesAuthorizationRevision,ct))
             throw new UnauthorizedAccessException("The maintenance authorization changed.");
-        var profile = await PluginAccountProfileGuard.RequireAsync(db, profiles, context.Installation, context.Connection, ct);
-        if (context.Installation.PackageVersion!.PackageDigest != s.PackageDigest || PluginAccountProfileGuard.Fingerprint(profile) != s.ProfileHash ||
+        var bindingHash = managed?.UsesManaged(context.Connection.ProviderProfile) == true
+            ? (await managed.Availability(s.PackageDigest, ct)).BindingHash
+            : PluginAccountProfileGuard.Fingerprint(await PluginAccountProfileGuard.RequireAsync(db, profiles, context.Installation, context.Connection, ct));
+        if (context.Installation.PackageVersion!.PackageDigest != s.PackageDigest || bindingHash != s.ProfileHash ||
             context.Manifest.Accounts!.PolicyVersion != s.PolicyVersion || !await db.PluginAccountGroups.AsNoTracking().AnyAsync(x => x.Id == s.AccountGroupId &&
                 x.PluginInstallationId == s.PluginInstallationId && x.State != PluginAccountState.Disconnecting && x.State != PluginAccountState.Disconnected, ct))
             throw new UnauthorizedAccessException("The reviewed plugin or account authority changed. Connect again.");

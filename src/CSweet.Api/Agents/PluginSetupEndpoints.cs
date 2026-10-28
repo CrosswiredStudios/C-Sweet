@@ -146,8 +146,13 @@ public static class PluginSetupEndpoints
         });
 
         endpoints.MapGet("/api/plugin-connections/oauth/callback", async (string? code, string? state,
-            string? error, HttpContext http, IPluginSetupService setup, [Microsoft.AspNetCore.Mvc.FromServices] PluginAccountService accounts, CancellationToken cancellationToken) =>
+            string? error, HttpContext http, IPluginSetupService setup, [Microsoft.AspNetCore.Mvc.FromServices] PluginAccountService accounts,
+            IOptions<PluginConnectionOptions> connectionOptions, IHostEnvironment environment, CancellationToken cancellationToken) =>
         {
+            // Validate the trusted destination before consuming a code or changing connection state.
+            string Return(string path) => PluginConnectionAddresses.Return(connectionOptions.Value, path, environment.IsDevelopment());
+            try { _ = Return("/settings/plugins"); }
+            catch (InvalidOperationException) { return Results.Problem("The deployment's connection return address needs configuration.", statusCode: 503); }
             if (state?.StartsWith("account.", StringComparison.Ordinal) == true)
             {
                 if (http.User.GetApplicationUserId() is not { } owner) return Results.Forbid();
@@ -156,12 +161,12 @@ public static class PluginSetupEndpoints
                 try
                 {
                     var result = await accounts.CompleteAsync(owner, code, state, error, cancellationToken);
-                    return Results.Redirect($"/settings/plugins/{result.InstallationId:D}?setup={result.SetupId:D}");
+                    return Results.Redirect(Return($"/settings/plugins/{result.InstallationId:D}?setup={result.SetupId:D}"));
                 }
                 catch (Exception failure) when (failure is UnauthorizedAccessException or InvalidOperationException or System.Text.Json.JsonException or HttpRequestException)
                 {
                     var failed = await accounts.FailCallbackAsync(owner, state, cancellationToken);
-                    return failed is { } context ? Results.Redirect($"/settings/plugins/{context.InstallationId:D}?setup={context.SetupId:D}") : Results.Forbid();
+                    return failed is { } context ? Results.Redirect(Return($"/settings/plugins/{context.InstallationId:D}?setup={context.SetupId:D}")) : Results.Forbid();
                 }
             }
             if (!string.IsNullOrWhiteSpace(error)) return Results.BadRequest("Provider authorization was not completed.");
@@ -169,7 +174,7 @@ public static class PluginSetupEndpoints
             if (!applicationUserId.HasValue || string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(state))
                 return Results.BadRequest("The authorization response is incomplete.");
             var completion = await setup.CompleteAuthorizationAsync(applicationUserId.Value, code, state, cancellationToken);
-            return Results.Redirect($"/organizations/{completion.OrganizationId:D}/plugin-setup/{completion.InstallationId:D}");
+            return Results.Redirect(Return($"/organizations/{completion.OrganizationId:D}/plugin-setup/{completion.InstallationId:D}"));
         });
         return endpoints;
     }

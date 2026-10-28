@@ -22,14 +22,16 @@ public sealed partial class PluginAccountService
             connection.NextInventoryCheckAt=now.AddHours(1);
             if(!await db.PluginAccountSetupSessions.AnyAsync(x=>x.ConnectionId==connection.Id && x.IsMaintenance && x.Status=="Importing",ct))
             {
-                var profile=await PluginAccountProfileGuard.RequireAsync(db,profiles,installation,declaration,ct);
+                var bindingHash = managed?.UsesManaged(declaration.ProviderProfile) == true
+                    ? (await managed.Availability(installation.PackageVersion!.PackageDigest!, ct)).BindingHash
+                    : PluginAccountProfileGuard.Fingerprint(await PluginAccountProfileGuard.RequireAsync(db,profiles,installation,declaration,ct));
                 var retry=await db.PluginAccountSetupSessions.Where(x=>x.ConnectionId==connection.Id && x.IsMaintenance && x.Status=="ImportFailed" &&
                     x.CreatedAt>now.AddHours(-24) && x.ReplacesAuthorizationRevision==connection.AuthorizationRevision && x.PackageDigest==installation.PackageVersion!.PackageDigest)
                     .OrderByDescending(x=>x.CreatedAt).FirstOrDefaultAsync(ct);
-                if(retry!=null && retry.ProfileHash==PluginAccountProfileGuard.Fingerprint(profile)) { retry.Status="Importing"; retry.FailureCode=null; retry.Revision++; }
+                if(retry!=null && retry.ProfileHash==bindingHash) { retry.Status="Importing"; retry.FailureCode=null; retry.Revision++; }
                 else db.PluginAccountSetupSessions.Add(new(){Id=Guid.NewGuid(),PluginInstallationId=installation.Id,AccountGroupId=group.Id,
                     ConnectionId=connection.Id,ApplicationUserId=null,IsMaintenance=true,ReplacesAuthorizationRevision=connection.AuthorizationRevision,
-                    PackageDigest=installation.PackageVersion!.PackageDigest!,ProfileHash=PluginAccountProfileGuard.Fingerprint(profile),PolicyVersion=manifest.Accounts!.PolicyVersion,
+                    PackageDigest=installation.PackageVersion!.PackageDigest!,ProfileHash=bindingHash,PolicyVersion=manifest.Accounts!.PolicyVersion,
                     Status="Importing",CreatedAt=now,ExpiresAt=now.AddHours(24)});
             }
             // The connection's existing concurrency tokens fence duplicate scheduling across workers.
@@ -37,6 +39,8 @@ public sealed partial class PluginAccountService
             }
             catch(UnauthorizedAccessException)
             { connection.Status=PluginConnectionStatus.ReauthorizationRequired; connection.AuthorizationRevision++; await db.SaveChangesAsync(ct); }
+            catch(HttpRequestException)
+            { connection.NextInventoryCheckAt=now.AddMinutes(5); await db.SaveChangesAsync(ct); }
         }
         // Failed scans never remove unseen resources. Once the declared refresh window expires,
         // stale inventory loses authority and provider display metadata is removed instead of retained indefinitely.

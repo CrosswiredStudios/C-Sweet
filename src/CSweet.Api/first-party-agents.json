@@ -702,33 +702,23 @@
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.UiUxAccessibilityDesigner.VideoGame#readme"
         },
         {
-          "Id": "f46d3cab-7d85-42ab-bf88-d794cb9208ec",
-          "AgentId": "com.csweet.youtube-account-manager",
-          "ListingSlug": "youtube-account-manager",
-          "ImageUrl": "_content/CSweet.UI/images/agents/youtube-account-manager-v1.jpg",
+          "Id": "94950d76-2d31-47ae-8ced-3055fc6bbad3",
+          "AgentId": "com.csweet.agent.platform.youtube",
+          "ListingSlug": "youtube-manager",
+          "ImageUrl": "_content/CSweet.UI/images/agents/youtube-manager-v1.jpg",
           "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
           "AccentColor": "#A64B45",
           "Name": "Jordan Mitchell",
-          "Summary": "Securely manages one YouTube channel's content, engagement, live operations, and official metrics.",
+          "Summary": "Preview YouTube specialist for channel reads, comment drafts, approved replies and uploads, and official reports. Requires the YouTube Connection plugin and account setup.",
           "Category": "Marketing",
-          "RoleKey": "youtube-account-manager",
-          "RoleName": "YouTube Account Manager",
+          "RoleKey": "general-specialist",
+          "RoleName": "YouTube Manager",
           "LicenseSpdxId": "MIT",
           "IconUrls": [],
           "Capabilities": [
-            "assistant.converse.v1",
-            "management.check-in.v1",
             "agent.configuration.describe.v1",
             "agent.configuration.update.v1",
-            "youtube.setup.channels.v1",
-            "youtube.setup.validate.v1",
-            "youtube.account.sync.v1",
-            "youtube.video.publish.v1",
-            "youtube.video.manage.v1",
-            "youtube.engagement.manage.v1",
-            "youtube.live.manage.v1",
-            "youtube.partner.manage.v1",
-            "youtube.analytics.report.v1"
+            "assistant.converse.v1"
           ],
           "RoleAliases": [
             "YouTube Manager",
@@ -736,19 +726,20 @@
             "Community Manager"
           ],
           "SpecializationKeys": [
-            null
+            "youtube-channel-management"
           ],
           "Keywords": [
             "youtube",
             "video",
             "comments",
             "analytics",
-            "live"
+            "drafts"
           ],
           "IsFeatured": false,
+          "ManualSelectionOnly": true,
           "Availability": "Available",
-          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.YouTubeAccountManager",
-          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.YouTubeAccountManager#readme"
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Platform.YouTube",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Platform.YouTube#readme"
         }
       ]
     }

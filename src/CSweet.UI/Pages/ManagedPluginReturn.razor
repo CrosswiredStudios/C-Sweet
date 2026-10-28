@@ -1,0 +1,51 @@
+@page "/settings/plugins/managed-return"
+@layout SettingsLayout
+@implements IAsyncDisposable
+@using CSweet.Contracts.Plugins
+@using System.Net.Http.Json
+@inject IJSRuntime JS
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Connecting account</PageTitle>
+<section class="pa-6" aria-live="polite">
+    <MudText Typo="Typo.h5">@(_error is null ? "Finishing your account connection" : "Connection needs attention")</MudText>
+    @if (_error is null) { <MudProgressLinear Indeterminate="true" Class="my-4" /><MudText>Returning securely to your plugin…</MudText> }
+    else
+    {
+        <MudAlert Severity="Severity.Warning" Class="my-4">@_error</MudAlert>
+        @if (_request is not null) { <MudButton Color="Color.Primary" OnClick="CompleteAsync">Try again</MudButton> }
+        <MudButton Href="/settings/plugins">Back to plugins</MudButton>
+    }
+</section>
+
+@code {
+    private IJSObjectReference? _module;
+    private string? _error;
+    private CompleteManagedPluginReturnRequest? _request;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/managed-plugin-return.js");
+            _request = await _module.InvokeAsync<CompleteManagedPluginReturnRequest>("consumeReturn");
+            await CompleteAsync();
+        }
+        catch { _error = "This connection return is no longer available. Go back to the plugin to reconnect."; StateHasChanged(); }
+    }
+    private async Task CompleteAsync()
+    {
+        _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/plugins/managed-connections/return", _request);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException();
+            var result = await response.Content.ReadFromJsonAsync<ManagedPluginReturnResponse>() ?? throw new InvalidOperationException();
+            Navigation.NavigateTo($"/settings/plugins/{result.InstallationId:D}?setup={result.SetupId:D}", replace: true);
+        }
+        catch (Exception error) when (error is JSException or HttpRequestException or InvalidOperationException or System.Text.Json.JsonException or TaskCanceledException)
+        { _error = "The connection could not be confirmed. Try again, or return to the plugin to check its status. Connecting never automatically grants business or agent access."; StateHasChanged(); }
+    }
+    public async ValueTask DisposeAsync() { if (_module is not null) await _module.DisposeAsync(); }
+}

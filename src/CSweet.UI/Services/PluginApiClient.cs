@@ -67,6 +67,8 @@ public sealed class PluginApiClient(HttpClient httpClient) : IPluginApiClient
     public Task<RemoveAgentInstallationResponse> RemoveAsync(Guid installationId, CancellationToken cancellationToken = default) =>
         SendAsync<RemoveAgentInstallationResponse>(HttpMethod.Delete, $"api/plugins/installations/{installationId}", null, cancellationToken);
 
+    public Task<ManagedConnectionStatus> GetManagedConnectionStatusAsync(CancellationToken ct = default) =>
+        SendAsync<ManagedConnectionStatus>(HttpMethod.Get, "api/plugins/managed-connections/status", null, ct);
     public async Task<IReadOnlyList<PluginProviderProfileResponse>> ListProviderProfilesAsync(
         CancellationToken cancellationToken = default) =>
         await httpClient.GetFromJsonAsync<IReadOnlyList<PluginProviderProfileResponse>>(

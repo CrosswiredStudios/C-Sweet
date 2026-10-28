@@ -52,7 +52,9 @@ public sealed partial class PluginAccountService
         foreach (var connection in connections)
         {
             var key = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, ct);
-            var neverAuthorized=connection.Status==PluginConnectionStatus.Pending && await secrets.GetAsync(installationId,key,ct)==null;
+            var managedContext = await secrets.GetAsync(installationId, ManagedContextKey(connection.Id), ct);
+            if (managedContext is not null) await db.TrackCopy(accountId, null, installationId, "external:managed-service-backups", accountId, ct);
+            var neverAuthorized=managedContext is null && connection.Status==PluginConnectionStatus.Pending && await secrets.GetAsync(installationId,key,ct)==null;
             connection.Status = PluginConnectionStatus.Revoked; connection.AuthorizationRevision++; connection.UpdatedAt = DateTimeOffset.UtcNow;
             if (!neverAuthorized && !await db.PluginAccountRevocationJobs.AnyAsync(x => x.ConnectionId == connection.Id, ct))
                 db.PluginAccountRevocationJobs.Add(new() { Id = Guid.NewGuid(), PluginInstallationId = installationId, AccountGroupId = accountId, ConnectionId = connection.Id,
@@ -76,6 +78,24 @@ public sealed partial class PluginAccountService
         {
             job.Attempts++; job.Revision++; job.NextAttempt = DateTimeOffset.UtcNow.AddMinutes(2);
             try { await db.SaveChangesAsync(ct); } catch (DbUpdateConcurrencyException) { continue; }
+            var managedJson = await secrets.GetAsync(job.PluginInstallationId, ManagedContextKey(job.ConnectionId), ct);
+            if (managedJson is not null)
+            {
+                try
+                {
+                    if (managed is null || !managed.UsesManaged(job.ProfileId)) continue;
+                    var remote = JsonSerializer.Deserialize<ManagedAccountAttempt>(managedJson, Json)!;
+                    var original = await db.PluginAccountSetupSessions.AsNoTracking().Where(x => x.ConnectionId == job.ConnectionId && !x.IsMaintenance)
+                        .OrderBy(x => x.CreatedAt).FirstAsync(ct);
+                    var cancelled = await managed.CancelAttempt(original.Id, ct);
+                    var remoteId = remote.RemoteConnectionId ?? cancelled.ConnectionId;
+                    if (remoteId is { } id && (await managed.Snapshot(id, ct)).Status != "Revoked") continue;
+                    await secrets.RemoveAsync(job.PluginInstallationId, ManagedContextKey(job.ConnectionId), ct);
+                    job.Status = "RevokedDataDeletionPending"; job.Revision++; await db.SaveChangesAsync(ct);
+                }
+                catch (Exception error) when (error is HttpRequestException or InvalidOperationException or JsonException) { }
+                continue;
+            }
             var source = await secrets.GetAsync(job.PluginInstallationId, job.CredentialKey, ct);
             var quarantine = $"oauth.account-revocation.{job.Id:N}";
             var token = await secrets.GetAsync(job.PluginInstallationId, quarantine, ct);
