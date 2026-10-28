@@ -86,10 +86,13 @@ public partial class Plugins
     }
     private readonly List<AgentInstallationResponse> _installations = [];
     private readonly List<PluginProviderProfileResponse> _providerProfiles = [];
+    private ManagedConnectionStatus? _managedConnections;
     private IReadOnlyList<PluginConnectionDeclaration> RequiredConnections => _installations.Where(x => x.PluginKind == "Connector")
         .SelectMany(x => x.ConnectionDeclarations).Concat(_preview?.PluginKind == "Connector" ? _preview.Connections : [])
         .ToArray();
-    private HashSet<string> RequiredProviderIds => RequiredConnections
+    private IReadOnlyList<PluginConnectionDeclaration> LocalConnections => _managedConnections?.Enabled == true
+        ? RequiredConnections.Where(x => _managedConnections.CustomerOwnedProfiles.Contains(x.ProviderProfile)).ToArray() : RequiredConnections;
+    private HashSet<string> RequiredProviderIds => LocalConnections
         .Select(x => x.ProviderProfile).ToHashSet(StringComparer.Ordinal);
     private AgentImportPreviewResponse? _preview;
     private PluginInstallationPolicyResponse? _installationPolicy;
@@ -131,6 +134,7 @@ public partial class Plugins
         try
         {
             _installationPolicy = await PluginApi.GetInstallationPolicyAsync();
+            _managedConnections = await PluginApi.GetManagedConnectionStatusAsync();
             _installations.Clear();
             _installations.AddRange((await PluginApi.ListAsync()).Where(x =>
                 (x.PluginKind is "Service" or "Connector") && x.RevisionStatus != "Retired"));

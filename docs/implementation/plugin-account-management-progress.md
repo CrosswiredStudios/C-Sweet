@@ -1,6 +1,6 @@
 # Enterprise plugin account implementation progress
 
-Updated: 2026-10-25 (broker-only declaration verification). Scope: [approved plan](plugin-account-management-plan.md).
+Updated: 2026-10-27 (direct base-access connection and connector release checks). Scope: [approved plan](plugin-account-management-plan.md).
 See [lifecycle implementation and explicit remaining boundaries](plugin-account-lifecycle.md).
 
 ## Implemented in source
@@ -18,7 +18,14 @@ See [lifecycle implementation and explicit remaining boundaries](plugin-account-
   Verification alone does not establish a working Google application or provider consent.
 
 **Install → review abilities → approve enterprise installation → plugin page → Connect account →
-native scope/privacy review → provider-hosted consent → authenticated import → business access.**
+provider-hosted consent → authenticated import → business access.**
+
+The current purpose, included access and policy links appear inline before the initiating click.
+The initial click acknowledges that exact package/policy and requests only required scope sets.
+Reconnect/change-permissions retains explicit optional-access review. The provider still owns
+actual account consent; no business grant or agent binding is created by clicking Connect.
+See [plugin preview verification](youtube-plugin-preview-verification-2026-10-27.md) for delivery
+changes, current checks and the remaining live-provider prerequisites.
 
 - SDK 5.5.0/protocol 2.4 remains the public account/resource/management contract. The host renders
   declarations without branching on Google/YouTube identifiers, scopes or channel-specific UI.

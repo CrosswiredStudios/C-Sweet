@@ -23,7 +23,14 @@ with the same package-only SDK/WorkManagement flags and local verified package f
 release tests. Use an isolated `--artifacts-path` if other developers are building sibling sources.
 
 Then run `python tests/CSweet.PluginAccount.AcceptanceHarness/browser_acceptance.py --output <test-output>`
-with Playwright/Chromium available. The script intercepts only `https://identity.example.com/authorize`
+with Playwright/Chromium available. The first Connect account click acknowledges the visible current
+purpose/policies and opens provider consent with required scope sets only, without an extra wizard.
+Reconnect/change-permissions retains its explicit optional-access review.
+The focused management page has a single first-account action, expandable access details and
+visible privacy/terms links. Administrator diagnostics, cleanup health and lifecycle controls live
+under the collapsed **Plugin settings** disclosure. Unconfigured deployments show a setup action
+instead of a disabled account button; tests never pretend that missing OAuth credentials are usable.
+The script intercepts only `https://identity.example.com/authorize`
 and renders an explicit synthetic consent page. It never contacts Google or uses real credentials.
 It resets only its own in-memory fixtures. Screenshots and assertions cover install review, enterprise
 install, consent, import, selected and whole-account grants, additional permission consent, local
@@ -39,6 +46,10 @@ memory erasure. Other stores, if present, still use test-only acknowledgements.
 `/test/cleanup-receipt-count` and `/test/memory-confirmation-count` expose only synthetic counts.
 None of these endpoints belongs to
 the product. Staged update approval has service-level tests, not full browser/build coverage here.
+
+The browser script also imports the real managed-return module and checks fragment removal and
+rejection of duplicate keys, malformed handoffs and extra redirect parameters. This does not perform
+service handoff redemption or exercise a real managed service-to-host browser connection.
 
 Production acceptance still requires authorized test accounts, the real deployed host, approved
 package installation, registered/verified OAuth application, restrictive account grants, native agent

@@ -61,7 +61,7 @@
 
         <div class="documents-content">
             <aside class="documents-folders">
-                <button class="@(!_folderId.HasValue ? "active" : null)" @onclick="@(() => SelectFolderAsync(null))"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />@L["Documents.AllDocuments"]</button>
+                <button class="@(!_folderId.HasValue ? "active" : null)" @onclick="SelectAllFoldersAsync"><MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />@L["Documents.AllDocuments"]</button>
                 @foreach (var folder in OrderedFolders())
                 {
                     <button class="@(_folderId == folder.Id ? "active" : null)" style="padding-left:@(1 + FolderDepth(folder) * 1.1)rem" @onclick="@(() => SelectFolderAsync(folder.Id))">
@@ -249,6 +249,7 @@
     private void CloseWorkspace() { _selectedId = _selectedRevisionId = null; Navigation.NavigateTo($"/organizations/{OrganizationId:D}/documents", false, true); }
     private async Task OnDocumentChanged(ArtifactDocumentDetail _) => await ReloadAsync();
     private async Task SelectFolderAsync(Guid? id) { _folderId = id; await ReloadAsync(); }
+    private Task SelectAllFoldersAsync() => SelectFolderAsync(null);
     private async Task StatusChanged(string value) { _status = value; await ReloadAsync(); }
     private async Task PackageChanged(Guid? value) { _packageId = value; await ReloadAsync(); }
     private async Task ArchivedChanged(bool value) { _includeArchived = value; await ReloadAsync(); }

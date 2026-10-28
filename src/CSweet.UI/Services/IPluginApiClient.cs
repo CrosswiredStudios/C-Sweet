@@ -5,6 +5,7 @@ namespace CSweet.UI.Services;
 
 public interface IPluginApiClient
 {
+    Task<ManagedConnectionStatus> GetManagedConnectionStatusAsync(CancellationToken ct = default) => Task.FromResult(new ManagedConnectionStatus(false, false, "", ""));
     Task<CSweet.Contracts.Core.ToolchainCertificationSetup> GetToolchainSetupAsync(Guid organizationId, CancellationToken ct = default) => throw new NotSupportedException();
     Task<IReadOnlyList<CSweet.Contracts.Core.ToolchainCertificationSummary>> GetToolchainCertificationsAsync(Guid organizationId, CancellationToken ct = default) => throw new NotSupportedException();
     Task<CSweet.Contracts.Core.ToolchainCertificationSummary> StartToolchainCertificationAsync(CSweet.Contracts.Core.StartToolchainCertificationRequest request, CancellationToken ct = default) => throw new NotSupportedException();

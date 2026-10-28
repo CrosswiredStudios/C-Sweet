@@ -206,6 +206,10 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
         builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
+        builder.Services.AddScoped<ManagedPluginConnectionGateway>();
+        builder.Services.AddScoped<IManagedPluginConnectionGateway>(sp => sp.GetRequiredService<ManagedPluginConnectionGateway>());
+        builder.Services.AddHttpClient(nameof(ManagedPluginConnectionGateway), client => client.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
         builder.Services.Configure<PluginCleanupOptions>(builder.Configuration.GetSection(PluginCleanupOptions.SectionName));
         builder.Services.AddScoped<IPluginCleanupTransport,PluginCleanupTransport>();
         foreach(var store in new[]{"external:backups","external:processors"})

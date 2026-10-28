@@ -16,6 +16,7 @@ public static class PluginAccountEndpoints
             context.HttpContext.Response.Headers.CacheControl = "no-store";
             try { return await next(context); }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (HttpRequestException) { return Results.Json(new { error = "The connection service is temporarily unavailable. Try again shortly." }, statusCode: 503); }
             catch(Microsoft.EntityFrameworkCore.DbUpdateException) { return Results.Conflict(new {error="Account access changed concurrently. Refresh and review again."}); }
             catch (Exception e) when (e is ArgumentException or InvalidOperationException)
             { return Results.BadRequest(new { error = e.Message }); }
@@ -43,7 +44,48 @@ public static class PluginAccountEndpoints
         });
         group.MapPost("/connect", async (Guid installationId, ConnectPluginAccountRequest request, HttpContext http,
             [FromServices] PluginAccountService accounts, CancellationToken ct) =>
-            Results.Ok(await accounts.BeginAsync(http.User.GetApplicationUserId()!.Value, installationId, request, ct)));
+        {
+            var environment = http.RequestServices.GetRequiredService<IHostEnvironment>();
+            if (!http.Request.IsHttps && !(environment.IsDevelopment() &&
+                (http.Request.Host.Host == "localhost" || System.Net.IPAddress.TryParse(http.Request.Host.Host, out var address) && System.Net.IPAddress.IsLoopback(address))))
+                return Results.Problem("Secure account setup requires HTTPS.", statusCode: 400);
+            var binding = CSweet.ConnectionService.Protocol.DeploymentProofCodec.Random();
+            var response = await accounts.BeginAsync(http.User.GetApplicationUserId()!.Value, installationId, request, ct, binding);
+            http.Response.Cookies.Append("CSweet.ManagedReturn." + response.SetupId.ToString("N"), binding,
+                new CookieOptions { HttpOnly = true, Secure = http.Request.IsHttps, SameSite = SameSiteMode.Lax,
+                    Path = "/api/plugins", MaxAge = TimeSpan.FromMinutes(10), IsEssential = true });
+            return Results.Ok(response);
+        });
+        endpoints.MapPost("/api/plugins/managed-connections/return", async (CompleteManagedPluginReturnRequest request,
+            HttpContext http, [FromServices] PluginAccountService accounts, CancellationToken ct) =>
+        {
+            if (http.User.GetApplicationUserId() is not { } user) return Results.Forbid();
+            http.Response.Headers.CacheControl = "no-store";
+            try
+            {
+                var result = await accounts.CompleteManagedAsync(user, request.AttemptId, request.Handoff,
+                    http.Request.Cookies["CSweet.ManagedReturn." + request.AttemptId.ToString("N")], ct);
+                return Results.Ok(result);
+            }
+            catch (Exception error) when (error is UnauthorizedAccessException or InvalidOperationException or HttpRequestException)
+            { return Results.BadRequest(new { error = "The managed connection return could not be completed. Return to the plugin and reconnect." }); }
+        }).RequireAuthorization();
+        var administration = endpoints.MapGroup("/api/plugins/managed-connections").RequireAuthorization("PluginAdministration");
+        administration.AddEndpointFilter(async (context, next) =>
+        {
+            context.HttpContext.Response.Headers.CacheControl = "no-store";
+            try { return await next(context); }
+            catch (Exception error) when (error is InvalidOperationException or HttpRequestException or ArgumentException or
+                System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
+            { return Results.BadRequest(new { error = "The managed service configuration or registration could not be verified." }); }
+        });
+        administration.MapPost("/pairing", async ([FromServices] ManagedPluginConnectionGateway gateway, CancellationToken ct) =>
+            Results.Ok(await gateway.PreparePairing(ct)));
+        administration.MapGet("/status", async ([FromServices] ManagedPluginConnectionGateway gateway, CancellationToken ct) =>
+            Results.Ok(await gateway.Status(ct)));
+        administration.MapPost("/pairing/complete", async (CompleteManagedConnectionPairing request,
+            [FromServices] ManagedPluginConnectionGateway gateway, CancellationToken ct) =>
+        { await gateway.CompletePairing(new(request.DeploymentId, request.TenantId, request.Revision), ct); return Results.NoContent(); });
         group.MapPost("/setup/{setupId:guid}/retry", async (Guid installationId, Guid setupId, HttpContext http,
             [FromServices] PluginAccountService accounts, CancellationToken ct) =>
         { await accounts.RetryImportAsync(http.User.GetApplicationUserId()!.Value, installationId, setupId, ct); return Results.NoContent(); });

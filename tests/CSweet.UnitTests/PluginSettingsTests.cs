@@ -18,6 +18,20 @@ namespace CSweet.UnitTests;
 public sealed class PluginSettingsTests
 {
     [Fact]
+    public async Task ManagedDeploymentNeverAsksForLocalProviderSecretsButExplicitCustomerOwnedProfilesDo()
+    {
+        var connector = Api.Installation("Connector") with { ConnectionDeclarations = [new() { Id = "account", ProviderProfile = "example.profile", Provider = new()
+            { DisplayName = "Example Provider", AuthorizationEndpoint = "https://identity.example.com/authorize", TokenEndpoint = "https://identity.example.com/token", RevocationEndpoint = "https://identity.example.com/revoke" } }] };
+        var status = new ManagedConnectionStatus(true, true, "https://connections.example.com", "https://host.example/settings/plugins/managed-return");
+        var managed = await Render(new Api { Installations = [connector], ManagedStatus = status });
+        Assert.Contains("managed connection service", managed);
+        Assert.DoesNotContain("OAuth provider profiles", managed);
+        Assert.DoesNotContain("Configure declared provider", managed);
+        var local = await Render(new Api { Installations = [connector], ManagedStatus = status with { CustomerOwnedProfiles = ["example.profile"] } });
+        Assert.Contains("OAuth provider profiles", local);
+        Assert.Contains("Example Provider", local);
+    }
+    [Fact]
     public async Task UnavailableServerPolicyCannotInstallOrSendUsersToAgentRuntimeSettings()
     {
         var api = new Api { ImportsEnabled = false };
@@ -288,6 +302,8 @@ public sealed class PluginSettingsTests
     }
     private sealed class Api : IPluginApiClient
     {
+        public ManagedConnectionStatus ManagedStatus { get; init; } = new(false, false, "", "");
+        public Task<ManagedConnectionStatus> GetManagedConnectionStatusAsync(CancellationToken token = default) => Task.FromResult(ManagedStatus);
         public IReadOnlyList<AgentInstallationResponse>? Installations { get; init; }
         public bool ImportsEnabled { get; init; } = true;
         public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(ImportsEnabled));

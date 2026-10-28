@@ -20,6 +20,11 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Managed connection service](managed-connection-service-plan.md) plans provider-neutral, plugin-driven
+one-click account connections with a central vault and optional customer-owned credentials. The
+[Google registration checklist](../deployment/google-youtube-connection-setup.md) separates operator
+registration, development testing and production review from ordinary customer consent.
+
 [Build provider setup](toolchain-build-setup.md) maps business-scoped toolchain installation, the administrator certification screen, exact provider/image selection and real fixture validation.
 
 [Game studio startup recovery](game-studio-startup-recovery.md) maps Producer ownership, metadata validation, revised proposal recovery and platform token-budget configuration boundaries.

@@ -89,13 +89,19 @@
                     }
                 }
                 <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-5">@L["Plugins.Installed.AgentsHint"] <MudLink Href="/settings/agents">@L["Plugins.Installed.AgentsLink"]</MudLink></MudText>
+                @if (_managedConnections?.Enabled == true && RequiredConnections.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Info">Account connections use the managed connection service. Provider application secrets are not needed on this installation.
+                        <MudLink Href="/settings/connections">@(_managedConnections.Paired ? "View connection service" : "Pair this installation")</MudLink>
+                    </MudAlert>
+                }
                     @if (RequiredProviderIds.Count > 0)
     {
     <MudPaper Elevation="1" Class="surface-panel" id="provider-administration">
         <MudText Typo="Typo.h6">@L["Plugins.Providers.Title"]</MudText>
         <MudText Color="Color.Secondary">@L["Plugins.Providers.Intro"]</MudText>
         <MudText Color="Color.Secondary">@L["Plugins.Providers.Note"]</MudText>
-        <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureDeclaredProvider" />
+        <PluginProviderRequirements Declarations="LocalConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureDeclaredProvider" />
         @if (!string.IsNullOrEmpty(_providerId))
         {
         <MudGrid Class="mt-2">
@@ -256,7 +262,7 @@
                         }
                         <MudCheckBox @bind-Value="_approve" Label="@L["Plugins.Import.Approve"]" Color="Color.Primary" Disabled="_busy" />
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="@(!CanInstall)">@L[_updateTarget is null ? "Plugins.Import.BuildAndInstall" : "Plugins.Import.UpdatePublished"]</MudButton>
-                        @if (_preview.Accounts is null && RequiredProviderIds.Count > 0) { <PluginProviderRequirements Declarations="RequiredConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureFromReview" /> }
+                        @if (_preview.Accounts is null && RequiredProviderIds.Count > 0) { <PluginProviderRequirements Declarations="LocalConnections" Profiles="_providerProfiles" Busy="@(_busy || !_providerProfilesLoaded)" Configure="ConfigureFromReview" /> }
                     }
                     @if (_busy) { <MudProgressLinear Indeterminate="true" Class="mt-4" aria-label="@L["Plugins.Import.Working"]" /> }
                 </MudPaper>
