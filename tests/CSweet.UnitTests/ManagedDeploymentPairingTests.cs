@@ -58,7 +58,7 @@ public sealed class ManagedDeploymentPairingTests
         Assert.False(f.Gateway.UsesManaged("provider.one"));
         f.Http.CleanupAttempt = Guid.NewGuid();
         var restarted = f.CreateGateway();
-        var cancelled = await restarted.CancelAttempt(f.Http.CleanupAttempt.Value, default);
+        var cancelled = await restarted.CancelAttempt(f.Http.CleanupAttempt.Value, default, f.Options.ServiceOrigin);
         Assert.Equal("Cancelled", cancelled.Status);
         if (disableService)
         {
@@ -66,6 +66,71 @@ public sealed class ManagedDeploymentPairingTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.Availability(new string('a', 64), default));
             Assert.Equal(requests, f.Http.Requests);
         }
+    }
+
+    [Theory]
+    [InlineData("https://connections.c-sweet.com", "Official")]
+    [InlineData("HTTPS://CONNECTIONS.C-SWEET.COM:443/", "Official")]
+    [InlineData("https://connections.c-sweet.com.evil.example", "Custom")]
+    [InlineData("https://connections.c-sweet.com:444", "Custom")]
+    [InlineData("https://custom.example", "Custom")]
+    [InlineData("https://user@connections.c-sweet.com", "Unconfigured")]
+    [InlineData("https://connections.c-sweet.com/../", "Unconfigured")]
+    [InlineData("https://connections.c-sweet.com/%2e", "Unconfigured")]
+    [InlineData("http://connections.c-sweet.com", "Unconfigured")]
+    public void OfficialIdentityComesOnlyFromExactApplicationOwnedOriginPolicy(string origin, string expected)
+        => Assert.Equal(expected, CSweet.Contracts.Plugins.ManagedServiceTrust.Identity(origin));
+
+    [Fact]
+    public async Task ChangingOriginBlocksNewAccessButCleanupSignsOnlyForItsStoredOriginalOrigin()
+    {
+        using var f = new Fixture(); f.Http.Pairing = await f.Gateway.PreparePairing(default);
+        await f.Gateway.CompletePairing(f.Http.Registration, default);
+        var stored = await File.ReadAllTextAsync(f.Options.RegistrationPath);
+        f.Options.ServiceOrigin = "https://different.example";
+        var status = await f.CreateGateway().Status(default);
+        Assert.False(status.Paired); Assert.Equal("OriginChanged", status.PairingState);
+        Assert.Equal("https://service.example.com", status.PairedServiceOrigin);
+        var requests = f.Http.Requests;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.PreparePairing(default));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.Availability(new string('a', 64), default));
+        Assert.Equal(requests, f.Http.Requests);
+        Assert.Equal(stored, await File.ReadAllTextAsync(f.Options.RegistrationPath));
+        f.Http.CleanupAttempt = Guid.NewGuid();
+        await f.Gateway.CancelAttempt(f.Http.CleanupAttempt.Value, default, "https://service.example.com");
+        Assert.Equal("https://service.example.com", f.Http.LastOrigin);
+        requests = f.Http.Requests;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.CancelAttempt(f.Http.CleanupAttempt.Value, default, f.Options.ServiceOrigin));
+        Assert.Equal(requests, f.Http.Requests);
+        var originalPath = f.Options.RegistrationPath;
+        f.Options.RegistrationPath = Path.Combine(Path.GetDirectoryName(originalPath)!, "new-origin-registration.dat");
+        var fresh = await f.Gateway.PreparePairing(default);
+        Assert.NotEqual(f.Http.Pairing.PublicKey, fresh.PublicKey);
+        Assert.Equal(stored, await File.ReadAllTextAsync(originalPath));
+        f.Http.Pairing = fresh; f.Http.ExpectedOrigin = f.Options.ServiceOrigin;
+        f.Http.Registration = new(Guid.NewGuid(), "new-service-tenant", 1); f.Http.CleanupAttempt = null;
+        await f.Gateway.CompletePairing(f.Http.Registration, default);
+        Assert.True((await f.Gateway.Status(default)).Paired);
+        requests = f.Http.Requests;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.CancelAttempt(Guid.NewGuid(), default, "https://service.example.com"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.Redeem(
+            new(new string('h', 43), new string('v', 43), Guid.NewGuid(), "actor", new string('a', 64)), default, "https://service.example.com"));
+        Assert.Equal(requests, f.Http.Requests);
+    }
+
+    [Fact]
+    public async Task LegacyUnboundRegistrationIsPreservedAndNeverUsedOrSilentlyBoundToCurrentConfiguration()
+    {
+        using var f = new Fixture(); await f.Gateway.PreparePairing(default);
+        await f.RemoveStoredOrigin();
+        var stored = await File.ReadAllTextAsync(f.Options.RegistrationPath);
+        var status = await f.Gateway.Status(default);
+        Assert.False(status.Paired); Assert.Equal("LegacyUnbound", status.PairingState);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.PreparePairing(default));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.CompletePairing(f.Http.Registration, default));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Gateway.CancelAttempt(Guid.NewGuid(), default, f.Options.ServiceOrigin));
+        Assert.Equal(0, f.Http.Requests);
+        Assert.Equal(stored, await File.ReadAllTextAsync(f.Options.RegistrationPath));
     }
 
     [Theory]
@@ -93,6 +158,13 @@ public sealed class ManagedDeploymentPairingTests
             Gateway = CreateGateway();
         }
         public ManagedPluginConnectionGateway CreateGateway() => new(Http, protection, Microsoft.Extensions.Options.Options.Create(new PluginConnectionOptions { Managed = Options }));
+        public async Task RemoveStoredOrigin()
+        {
+            var protector = protection.CreateProtector("CSweet.ManagedConnection.Deployment.v1");
+            var legacy = System.Text.Json.Nodes.JsonNode.Parse(protector.Unprotect(await File.ReadAllTextAsync(Options.RegistrationPath)))!.AsObject();
+            legacy.Remove("ServiceOrigin");
+            await File.WriteAllTextAsync(Options.RegistrationPath, protector.Protect(legacy.ToJsonString()));
+        }
         public void Dispose() { Http.Dispose(); if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true); }
     }
     private sealed class ProofService : HttpMessageHandler, IHttpClientFactory
@@ -101,14 +173,18 @@ public sealed class ManagedDeploymentPairingTests
         public DeploymentRegistration Registration = new(Guid.NewGuid(), "tenant-one", 1);
         public int Requests; public bool Fail;
         public Guid? CleanupAttempt;
+        public string? LastOrigin;
+        public string ExpectedOrigin = "https://service.example.com";
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
+            LastOrigin = request.RequestUri!.GetLeftPart(UriPartial.Authority);
+            Assert.Equal(ExpectedOrigin, LastOrigin);
             using var key = DeploymentProofCodec.PublicKey(Pairing!.PublicKey);
             var proof = DeploymentProofCodec.Verify(request.Headers.GetValues(ConnectionProtocol.ProofHeader).Single(), key);
             Assert.Equal(Registration.DeploymentId, proof.DeploymentId); Assert.Equal(Pairing.KeyId, proof.KeyId);
-            Assert.Equal("https://service.example.com", proof.Audience);
+            Assert.Equal(ExpectedOrigin, proof.Audience);
             if (CleanupAttempt is { } attempt)
             {
                 Assert.Equal("POST", proof.Method); Assert.Equal($"/v1/attempts/{attempt:D}/cancel", proof.PathAndQuery);

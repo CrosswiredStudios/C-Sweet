@@ -16,6 +16,16 @@ namespace CSweet.UnitTests;
 
 public sealed class PluginManageConnectionTests
 {
+    [Theory]
+    [InlineData("https://connections.c-sweet.com", "Official C-Sweet service address")]
+    [InlineData("https://custom.example", "Custom self-hosted service")]
+    public async Task ManagedAccountPageShowsTheActualServiceOriginBeforeConsent(string origin, string label)
+    {
+        var api = new Api(); api.View = api.View with { ConnectionMode = "Managed", ManagedServiceOrigin = origin };
+        var html = await Render(api);
+        Assert.Contains(origin, html); Assert.Contains(label, html); Assert.Null(api.Request);
+    }
+
     [Fact]
     public async Task InitialPageHasOneConnectActionAndCollapsedAccessDetailsWithVisiblePolicyLinks()
     {

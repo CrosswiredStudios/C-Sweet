@@ -22,6 +22,8 @@
             @if (_view.Accounts.Count > 0 && _view.CanConnect && !_connecting)
             { <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => OpenConnect(null))">Connect another account</MudButton> }
         </header>
+        @if (_view.ConnectionMode == "Managed")
+        { <ManagedServiceOriginNotice Origin="@_view.ManagedServiceOrigin" /> }
         @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
         @if (_notice is not null && _view.Administration is not { Retired:true }) { <MudAlert Severity="Severity.Success" role="status">@_notice</MudAlert> }
         @if(!_view.CanAdminister && _view.CleanupReviews.Count>0)

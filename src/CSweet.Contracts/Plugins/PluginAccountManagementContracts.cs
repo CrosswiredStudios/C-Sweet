@@ -8,6 +8,7 @@ public sealed record PluginAccountManagementView(Guid InstallationId, string Nam
     public string? PluginId { get; init; }
     public string? OAuthRedirectUri { get; init; }
     public string ConnectionMode { get; init; } = "CustomerOwned";
+    public string? ManagedServiceOrigin { get; init; }
     public PluginAdministrationView? Administration { get; init; }
     public IReadOnlyList<PluginDeletionView> Deletions { get; init; } = [];
     public IReadOnlyList<PluginCleanupReview> CleanupReviews {get;init;}=[];
@@ -32,6 +33,9 @@ public sealed record ManagedPluginReturnResponse(Guid InstallationId, Guid Setup
 public sealed record ManagedConnectionStatus(bool Enabled, bool Paired, string ServiceOrigin, string ReturnUri)
 {
     public IReadOnlyList<string> CustomerOwnedProfiles { get; init; } = [];
+    public string PairingState { get; init; } = "NotPaired";
+    public string? PairedServiceOrigin { get; init; }
+    public string ServiceIdentity => ManagedServiceTrust.Identity(ServiceOrigin);
 }
 public sealed record ManagedConnectionPairing(string ServiceOrigin, string PublicKey, string KeyId, string ReturnUri);
 public sealed record CompleteManagedConnectionPairing(Guid DeploymentId, string TenantId, long Revision);

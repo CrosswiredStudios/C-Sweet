@@ -66,6 +66,27 @@ managed mode is disabled, while new managed access stays disabled. Keep its prot
 and exact service configuration until cleanup completes. Provider-wide revocation can require fresh
 customer-owned consent; a local replacement is never claimed as a service-verified supersession.
 
+Protected deployment registrations and managed account attempts now bind a canonical HTTPS service
+origin. Changing the configured origin blocks new use and re-pairing of the old file; it never
+retargets old signatures or handoffs. Cleanup carries the account attempt's expected origin and uses
+only a protected registration bound to that same origin, including when new managed use is disabled.
+Finish cleanup at the original service before configuring a new service with a fresh registration
+path and deployment key. If the old registration is unavailable, cleanup stays pending rather than
+sending its authority to the replacement service.
+
+Legacy registrations or account attempts without a stored origin fail closed and are not silently
+assigned the current configuration. Preserve their files, key ring and cleanup evidence. An operator
+must identify the original service independently, revoke the old deployment/provider authority there
+and record cleanup confirmation, then enroll a fresh deployment using a separate registration path.
+The host does not invent an origin or report legacy cleanup as complete.
+
+The application-owned `ManagedServiceTrust` policy identifies only the exact canonical
+`https://connections.c-sweet.com` origin as the official C-Sweet service address. Other valid HTTPS
+origins are explicitly custom/self-hosted. The actual origin and classification remain visible
+before and after administrator pairing and on managed plugin account pages. Remote names and protocol
+headers cannot confer official status. This identifies the service address, not Google verification,
+production acceptance or a claim that modified forks cannot copy branding.
+
 The plugin catalog/manage screens do not ask for local provider secrets in managed mode. Explicit
 customer-owned declarations retain their administrator-only local configuration. Account owners
 connect through the focused plugin page; pairing and diagnostics stay administrative. Managed mode is
@@ -85,9 +106,13 @@ gateway signing, protected registration storage, pairing validation and focused 
 The existing browser harness exercises native pages with a fake local provider; it is not an
 integrated service-to-host browser or Google acceptance test.
 
-Latest local verification: **80 service tests**, **146 focused host tests**, the synthetic native-page
-browser story and real return-fragment tampering checks pass. Service publish and a fresh NuGet-only
-protocol consumer pass. The host build still reports pre-existing vulnerable SignalR/cryptography
+Latest local verification: **80 service tests** and **456 selected host tests** pass; one
+PostgreSQL-dependent host test is skipped. Origin-change, legacy-pairing, old-origin cleanup,
+handoff and before/after-pairing identity UI regressions are included. Windows Roslyn crashed at
+default concurrency; a process-local two-processor limit and sequential non-shared compilation
+completed without disabling analyzers or changing repository build settings. The earlier synthetic
+native-page browser story and return-fragment tampering checks passed before this hardening.
+Service publish and a fresh NuGet-only protocol consumer pass. The host build still reports pre-existing vulnerable SignalR/cryptography
 package and nullable/analyzer warnings; these are not cleared by connection-service acceptance.
 
 Before release:
