@@ -24,6 +24,16 @@ operating-state grants. No new provider, external permission or model setting is
   the same callback before yielding a retryable `DevelopmentProgressException`.
   Novelty evidence survives those fresh sessions. There is no five-minute ticket timeout or reduced
   configured model budget. Existing command shutdown safety remains separate.
+- `PlannedVerification.RunAsync` executes existing plan-named npm checks before the
+  first model turn on recovery, and after two automatic progress windows. It runs
+  at most two checks per intervention, checkpoints their actual results and stops
+  at the first failure. It accepts literal verification script names already in
+  `package.json`; it never invents deployment commands or another test framework.
+  Fresh receipts suppress duplicate checks until source or dependencies change.
+- `WorkspaceValidation.Record` invalidates earlier receipts after a successful
+  dependency restore. Runtime directories are excluded from source fingerprints;
+  restoring `node_modules` must therefore explicitly invalidate a pre-restore
+  missing-module failure as well as a pre-restore pass.
 - Todo status and model-written outcomes never replace `WorkspaceValidation`
   receipts or publication, technical-review and QA gates.
 
@@ -65,28 +75,29 @@ Existing personal-plan recovery fixtures exercise the additional operating-state
 record and plan tool without removing their publication/recovery assertions.
 
 `scripts/Test-DeveloperAgentCoreParity.ps1` compares the shared controller, source
-and regression coverage in both repositories. Releases are Adrian **4.1.10** and
-Daniel **2.1.9**. Apply runtime changes through published releases and the Installed
+and regression coverage in both repositories. Releases are Adrian **4.1.12** and
+Daniel **2.1.11**. Apply runtime changes through published releases and the Installed
 Agents update flow; local packages only verify the implementation.
 
 Verified rollout on 2026-10-28 UTC:
 
-- Both standalone package consumers passed **344 tests**, their self-tests and
-  Linux bundle verification. Both `.nupkg` versions matched their manifests.
-  Core parity passed for **65 files**.
-- Adrian commit `f781dad74d18197ac0b223a038287d0313cafdc9` was published through
-  [release build 40633646330](https://github.com/CrosswiredStudios/CSweet.Agent.Engineer.VideoGame/actions/runs/40633646330).
-  Daniel commit `1f04521ea633eeb5fb4e6fae5d14c86d4a604aef` was published through
-  [release build 40633653293](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper/actions/runs/40633653293).
+- Both standalone package consumers passed **357 tests**, their self-tests and
+  Linux bundle verification. The `.nupkg` metadata versions were inspected and
+  matched the final manifests. Core parity passed for **68 files**.
+- Adrian commit `7eae55e` was published through
+  [release build 40647639637](https://github.com/CrosswiredStudios/CSweet.Agent.Engineer.VideoGame/actions/runs/40647639637).
+  Daniel commit `81db216` was published through
+  [release build 40647648824](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper/actions/runs/40647648824).
   Both builds succeeded.
 - The normal `IAgentImportPreviewService` / `IAgentDefinitionService.UpdateAsync`
-  path verified the exact published prebuilt release and installed Adrian 4.1.9.
-  Configuration revision 3 was acknowledged and the replacement runtime ran.
-  Daniel has no installation in the local database; 2.1.8 is available to install.
-- #54 recovered through the existing orchestration backoff after its old runtime
-  lease expired. It resumed assignment revision 2 in workspace
-  `0fb40f08-9e9d-4504-b27e-2f54ced09ce5`, with its saved source checkpoint and a
-  new persisted execution plan recorded at 04:50:49 UTC. No ticket status, decision,
+  path verified the exact published prebuilt release and installed Adrian 4.1.12.
+  Configuration revision 6 was acknowledged. Daniel has no installation in the
+  local database; 2.1.11 is available to install.
+- #54 retains assignment revision 2 and workspace
+  `0fb40f08-9e9d-4504-b27e-2f54ced09ce5`. Its checkpoint was confirmed at
+  07:08:45 UTC before the final update. `IWorkBoardService.RetryItemAsync` recovered
+  it after the prior runtime lease expired, using the current ticket revision.
+  Recovery is not evidence of ticket completion. No ticket status, decision,
   approved package record, artifact digest or runtime payload was manually patched.
 
 ## Correction after #54 reblocked
@@ -116,12 +127,13 @@ codes. The platform respects its existing bounded retry budget instead of declar
 a repeated ticket issue while recovery is available. Exhausted recovery remains
 visible with an operational diagnostic; no acceptance criterion or grant is waived.
 
-Validation: 350 tests in each agent, 52 focused platform tests, 66-file core parity,
-package self-tests and verified NuGet/Linux bundles. Official release builds
-[40642114353](https://github.com/CrosswiredStudios/CSweet.Agent.Engineer.VideoGame/actions/runs/40642114353)
-and [40642122300](https://github.com/CrosswiredStudios/CSweet.Agent.SoftwareDeveloper/actions/runs/40642122300)
-succeeded. API and AgentHost were rebuilt and restarted individually through Aspire
-to activate the platform changes. Adrian 4.1.10 acknowledged configuration revision
-4; #54 was recovered using `IWorkBoardService.RetryItemAsync` with the current ticket
-revision, retaining assignment revision 2 and its workspace. Daniel has no local
-installation; the matching release is available.
+The platform changes passed 52 focused tests. API and AgentHost were rebuilt and
+restarted individually through Aspire to activate them. Later live evidence found
+that a recovered model could still spend many turns inspecting an inherited
+browser helper before running it. 4.1.11 / 2.1.10 added `PlannedVerification`.
+Its first live recovery executed the planned check at 06:54:48 UTC, before the
+first model call at 06:54:49. That check exposed missing Phaser dependencies;
+the model restored them. 4.1.12 / 2.1.11 correct stale validation receipts after
+that restoration, with regression coverage for both stale passes and failures.
+Browser and technical-review acceptance remain required; a resumed callback or
+successful dependency installation does not prove #54 complete.
