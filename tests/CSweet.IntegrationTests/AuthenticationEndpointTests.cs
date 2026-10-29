@@ -268,6 +268,32 @@ public sealed class AuthenticationEndpointTests
     private static RegisterAdminRequest ValidRegistration(string email = "admin@example.com") =>
         new("Admin User", email, "Password1!", "Password1!");
 
+    [Fact]
+    public async Task ConnectionServiceSelectionRequiresCurrentAdministratorSessionAndCsrf()
+    {
+        await using var factory = CreateFactory(out _);
+        var client = CreateHttpsClient(factory);
+        const string path = "/api/plugins/connection-service/selection";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", ValidRegistration())).StatusCode);
+        var choice = await client.GetFromJsonAsync<CSweet.Contracts.Plugins.ConnectionServiceChoice>(path);
+        Assert.NotNull(choice);
+        var request = new CSweet.Contracts.Plugins.SaveConnectionServiceChoice("Skip", null, choice.Revision);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(path, request)).StatusCode);
+        var session = await client.GetFromJsonAsync<AuthStatusResponse>("/api/auth/session");
+        client.DefaultRequestHeaders.Add("X-CSWEET-CSRF", session!.AntiforgeryToken);
+        using var saved = await client.PutAsJsonAsync(path, request);
+        Assert.True(saved.StatusCode == HttpStatusCode.OK, await saved.Content.ReadAsStringAsync());
+        using (var scope = factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<ApplicationUser>>();
+            var user = await users.Users.SingleAsync();
+            Assert.True((await users.RemoveFromRoleAsync(user, AuthenticationService.AdministratorRole)).Succeeded);
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/plugins/connection-service/owner/prepare", null)).StatusCode);
+    }
+
     private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> factory) =>
         factory.CreateClient(new WebApplicationFactoryClientOptions
         {

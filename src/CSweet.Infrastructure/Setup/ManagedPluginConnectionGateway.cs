@@ -31,10 +31,10 @@ public interface IManagedPluginConnectionGateway
 }
 
 public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, IDataProtectionProvider protection,
-    IOptions<PluginConnectionOptions> options) : IManagedPluginConnectionGateway
+    IOptions<PluginConnectionOptions> options, ConnectionServiceSelectionStore? selections = null) : IManagedPluginConnectionGateway
 {
     private readonly IDataProtector protector = protection.CreateProtector("CSweet.ManagedConnection.Deployment.v1");
-    private ManagedPluginConnectionOptions Settings => options.Value.Managed;
+    private ManagedPluginConnectionOptions Settings => selections?.Effective(options.Value.Managed) ?? options.Value.Managed;
     public bool UsesManaged(string profile) => Settings.Enabled && !Settings.CustomerOwnedProfiles.Contains(profile, StringComparer.Ordinal);
     public string ReturnUri => Settings.ReturnUri;
     public async Task<CSweet.Contracts.Plugins.ManagedConnectionStatus> Status(CancellationToken ct)

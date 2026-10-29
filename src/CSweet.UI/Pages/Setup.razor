@@ -98,6 +98,7 @@
         "llm-provider" => "The thinking behind your team.",
         "personal-assistant" => "An assistant, made yours.",
         "genai-provider" => "Make room for imagination.",
+        "connection-service" => "Connect on your terms.",
         _ => "Your next great team starts here."
     };
     private string StoryDescription => _activeStepKey switch
@@ -122,7 +123,8 @@
         new(2, "agent-execution", "Agent hosting", "Required · Connect a machine"),
         new(3, "llm-provider", "AI models", "Required · Connect a provider"),
         new(4, "personal-assistant", "AI Assistant", "Required · Make it yours"),
-        new(5, "genai-provider", "Images & video", "Optional")
+        new(5, "genai-provider", "Images & video", "Optional"),
+        new(6, "connection-service", "Connections", "Optional")
     ];
 
     private SetupStatusResponse? _status;
@@ -187,8 +189,11 @@
         "llm-provider" => LlmProviderStep,
         "personal-assistant" => AssistantStep,
         "genai-provider" => GenAiProviderStep,
+        "connection-service" => ConnectionServiceStep,
         _ => WelcomeStep
     };
+
+    private RenderFragment ConnectionServiceStep => @<ConnectionServiceSetupStep OnContinue="FinishSetupAsync" OnBack="BackToGenAi" />;
 
     private RenderFragment WelcomeStep => @<WelcomeSetupStep IsBusy="@_isBusy" OnContinue="@ContinueFromWelcomeAsync" />;
 
@@ -209,7 +214,7 @@
     private RenderFragment AssistantStep => @<PersonalAssistantSetupStep PreferredProviderId="@_providerProfileId" IsCompleting="@_isBusy"
         OnBack="@BackToProvider" OnContinue="@ContinueFromAssistantAsync" />;
 
-    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep IsFinalStep="true" IsCompleting="@_isBusy" AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
+    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep IsFinalStep="false" IsCompleting="@_isBusy" AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
                                                                               LocalProviderDiscoveryAttempted="@HandleLocalGenAiProviderDiscoveryAttempted"
                                                                               OnContinue="@ContinueFromGenAiProviderAsync"
                                                                               OnBack="@BackToAssistant" />;
@@ -248,7 +253,8 @@
 
     private Task ContinueFromAssistantAsync() => CompleteStepAsync("personal-assistant", "genai-provider");
 
-    private Task ContinueFromGenAiProviderAsync() => FinishSetupAsync();
+    private void BackToGenAi() => SelectStep("genai-provider");
+    private Task ContinueFromGenAiProviderAsync() => CompleteStepAsync("genai-provider", "connection-service");
 
     private async Task FinishSetupAsync()
     {
@@ -257,7 +263,7 @@
 
         try
         {
-            var step = await SetupApi.CompleteStepAsync("genai-provider");
+            var step = await SetupApi.CompleteStepAsync("connection-service");
             if (!step.Succeeded)
             {
                 _stepMessage = step.Message ?? "We couldn't save this step. Please try again.";

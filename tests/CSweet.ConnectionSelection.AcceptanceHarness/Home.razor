@@ -1,0 +1,9 @@
+@page "/"
+@page "/settings"
+@if (_back) { <MudButton OnClick="() => _back = false">Return to connections</MudButton> }
+else { <ConnectionServiceSetupStep OnContinue="() => _continued++" OnBack="() => _back = true"/> }
+<p data-testid="continued">@_continued</p>
+@if (_ready) { <span hidden data-testid="interactive-ready"></span> }
+@code { private bool _back; private int _continued; private bool _ready;
+protected override void OnAfterRender(bool firstRender) { if (firstRender) { _ready = true; StateHasChanged(); } } }
+
