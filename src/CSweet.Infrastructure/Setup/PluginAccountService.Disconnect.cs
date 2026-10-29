@@ -83,17 +83,16 @@ public sealed partial class PluginAccountService
             {
                 try
                 {
-                    if (managed is null || !managed.UsesManaged(job.ProfileId)) continue;
                     var remote = JsonSerializer.Deserialize<ManagedAccountAttempt>(managedJson, Json)!;
-                    var original = await db.PluginAccountSetupSessions.AsNoTracking().Where(x => x.ConnectionId == job.ConnectionId && !x.IsMaintenance)
-                        .OrderBy(x => x.CreatedAt).FirstAsync(ct);
-                    var cancelled = await managed.CancelAttempt(original.Id, ct);
-                    var remoteId = remote.RemoteConnectionId ?? cancelled.ConnectionId;
-                    if (remoteId is { } id && (await managed.Snapshot(id, ct)).Status != "Revoked") continue;
+                    // Stored protected context selects the old backend, regardless of the mode
+                    // configured for future connections. Never send its cleanup to local OAuth.
+                    if (remote is null || !await RevokeManaged(job.PluginInstallationId, job.ConnectionId, remote, ct)) continue;
                     await secrets.RemoveAsync(job.PluginInstallationId, ManagedContextKey(job.ConnectionId), ct);
                     job.Status = "RevokedDataDeletionPending"; job.Revision++; await db.SaveChangesAsync(ct);
                 }
-                catch (Exception error) when (error is HttpRequestException or InvalidOperationException or JsonException) { }
+                catch (Exception error) when (error is HttpRequestException or InvalidOperationException or JsonException or
+                    UnauthorizedAccessException or System.Security.Cryptography.CryptographicException ||
+                    error is OperationCanceledException && !ct.IsCancellationRequested) { }
                 continue;
             }
             var source = await secrets.GetAsync(job.PluginInstallationId, job.CredentialKey, ct);

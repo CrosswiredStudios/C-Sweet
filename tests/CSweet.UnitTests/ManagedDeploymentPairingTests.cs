@@ -47,6 +47,28 @@ public sealed class ManagedDeploymentPairingTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExistingPairingCanCancelAfterModeChangeWhileNewManagedAccessRemainsDisabled(bool disableService)
+    {
+        using var f = new Fixture(); f.Http.Pairing = await f.Gateway.PreparePairing(default);
+        await f.Gateway.CompletePairing(f.Http.Registration, default);
+        f.Options.CustomerOwnedProfiles = ["provider.one"];
+        f.Options.Enabled = !disableService;
+        Assert.False(f.Gateway.UsesManaged("provider.one"));
+        f.Http.CleanupAttempt = Guid.NewGuid();
+        var restarted = f.CreateGateway();
+        var cancelled = await restarted.CancelAttempt(f.Http.CleanupAttempt.Value, default);
+        Assert.Equal("Cancelled", cancelled.Status);
+        if (disableService)
+        {
+            var requests = f.Http.Requests;
+            await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.Availability(new string('a', 64), default));
+            Assert.Equal(requests, f.Http.Requests);
+        }
+    }
+
+    [Theory]
     [InlineData("http://service.example.com", "https://host.example/settings/plugins/managed-return")]
     [InlineData("https://service.example.com/arbitrary", "https://host.example/settings/plugins/managed-return")]
     [InlineData("https://service.example.com", "https://host.example/wrong-return")]
@@ -78,6 +100,7 @@ public sealed class ManagedDeploymentPairingTests
         public ManagedPairing? Pairing;
         public DeploymentRegistration Registration = new(Guid.NewGuid(), "tenant-one", 1);
         public int Requests; public bool Fail;
+        public Guid? CleanupAttempt;
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -85,8 +108,16 @@ public sealed class ManagedDeploymentPairingTests
             using var key = DeploymentProofCodec.PublicKey(Pairing!.PublicKey);
             var proof = DeploymentProofCodec.Verify(request.Headers.GetValues(ConnectionProtocol.ProofHeader).Single(), key);
             Assert.Equal(Registration.DeploymentId, proof.DeploymentId); Assert.Equal(Pairing.KeyId, proof.KeyId);
-            Assert.Equal("GET", proof.Method); Assert.Equal("/v1/deployment", proof.PathAndQuery);
             Assert.Equal("https://service.example.com", proof.Audience);
+            if (CleanupAttempt is { } attempt)
+            {
+                Assert.Equal("POST", proof.Method); Assert.Equal($"/v1/attempts/{attempt:D}/cancel", proof.PathAndQuery);
+                var cancelled = new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = JsonContent.Create(new ConnectionReceipt(Guid.NewGuid(), null, "Cancelled", null, []), options: DeploymentProofCodec.Json) };
+                cancelled.Headers.Add("X-CSweet-Connection-Protocol", ConnectionProtocol.Version);
+                return Task.FromResult(cancelled);
+            }
+            Assert.Equal("GET", proof.Method); Assert.Equal("/v1/deployment", proof.PathAndQuery);
             var response = new HttpResponseMessage(Fail ? HttpStatusCode.Forbidden : HttpStatusCode.OK) { Content = JsonContent.Create(Registration, options: DeploymentProofCodec.Json) };
             response.Headers.Add("X-CSweet-Connection-Protocol", ConnectionProtocol.Version);
             return Task.FromResult(response);

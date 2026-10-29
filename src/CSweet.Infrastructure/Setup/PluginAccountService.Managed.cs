@@ -103,18 +103,46 @@ public sealed partial class PluginAccountService
     private async Task<bool> RetireManaged(PluginAccountSetupSession completed, CancellationToken ct)
     {
         if (managed is null || completed.ReplacesConnectionId is not { } previous) return false;
-        var priorJson = await secrets.GetAsync(completed.PluginInstallationId, ManagedContextKey(previous), ct);
-        if (priorJson is null) return true;
-        var prior = JsonSerializer.Deserialize<ManagedAccountAttempt>(priorJson, Json)!;
-        var current = await ManagedAttempt(completed, ct);
-        if (prior.RemoteConnectionId is not { } oldRemote || current.RemoteConnectionId is not { } newRemote) return false;
         try
         {
-            var receipt = await managed.Supersede(oldRemote, newRemote, ct);
-            if (receipt.ConnectionId != oldRemote || receipt.Status != "Superseded") return false;
+            var priorJson = await secrets.GetAsync(completed.PluginInstallationId, ManagedContextKey(previous), ct);
+            if (priorJson is null) return true;
+            var prior = JsonSerializer.Deserialize<ManagedAccountAttempt>(priorJson, Json)
+                ?? throw new InvalidOperationException("The prior managed attempt is unavailable.");
+            var currentJson = await secrets.GetAsync(completed.PluginInstallationId, ManagedContextKey(completed.ConnectionId), ct);
+            if (currentJson is not null)
+            {
+                var current = JsonSerializer.Deserialize<ManagedAccountAttempt>(currentJson, Json);
+                if (prior.RemoteConnectionId is not { } oldRemote || current?.RemoteConnectionId is not { } newRemote) return false;
+                var receipt = await managed.Supersede(oldRemote, newRemote, ct);
+                if (receipt.ConnectionId != oldRemote || receipt.Status != "Superseded") return false;
+            }
+            else
+            {
+                // A customer-owned replacement has no central replacement proof. Revoke the old
+                // managed grant through its original attempt rather than claiming a supersession.
+                if (!await db.PluginConnections.AnyAsync(x => x.Id == completed.ConnectionId &&
+                    x.AgentInstallationId == completed.PluginInstallationId && x.ActiveCredentialAttemptId != null, ct) ||
+                    !await RevokeManaged(completed.PluginInstallationId, previous, prior, ct)) return false;
+            }
             await db.TrackCopy(completed.AccountGroupId, null, completed.PluginInstallationId, "external:managed-service-backups", completed.AccountGroupId, ct);
             return true;
         }
-        catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { return false; }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException or JsonException or
+            UnauthorizedAccessException or CryptographicException || error is OperationCanceledException && !ct.IsCancellationRequested)
+        { return false; }
+    }
+
+    private async Task<bool> RevokeManaged(Guid installation, Guid connection, ManagedAccountAttempt context, CancellationToken ct)
+    {
+        if (managed is null) return false;
+        var original = await db.PluginAccountSetupSessions.AsNoTracking().Where(x => x.PluginInstallationId == installation &&
+            x.ConnectionId == connection && !x.IsMaintenance).OrderBy(x => x.CreatedAt).FirstAsync(ct);
+        var cancelled = await managed.CancelAttempt(original.Id, ct);
+        if (cancelled.Status != "Cancelled" || context.RemoteSessionId != Guid.Empty && cancelled.SessionId != context.RemoteSessionId ||
+            context.RemoteConnectionId is { } expected && cancelled.ConnectionId != expected) return false;
+        if ((context.RemoteConnectionId ?? cancelled.ConnectionId) is not { } id) return true;
+        var snapshot = await managed.Snapshot(id, ct);
+        return snapshot.ConnectionId == id && snapshot.Status == "Revoked";
     }
 }

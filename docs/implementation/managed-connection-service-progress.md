@@ -57,6 +57,15 @@ Managed outages never fall back to local application secrets. The local token br
 managed authority and old local tokens after a managed-mode switch; switching back requires new consent.
 Already recorded managed metadata remains ineligible for local token use.
 
+Changing the mode for future connections does not clear an existing managed cleanup obligation.
+Retirement uses the protected context of the old connection: a managed replacement must be verified
+centrally for supersession; a customer-owned replacement instead revokes the original managed attempt
+and waits for its matching `Revoked` snapshot. Unavailable or malformed cleanup evidence remains
+pending without stopping independent imports. The paired gateway permits signed cleanup after
+managed mode is disabled, while new managed access stays disabled. Keep its protected registration
+and exact service configuration until cleanup completes. Provider-wide revocation can require fresh
+customer-owned consent; a local replacement is never claimed as a service-verified supersession.
+
 The plugin catalog/manage screens do not ask for local provider secrets in managed mode. Explicit
 customer-owned declarations retain their administrator-only local configuration. Account owners
 connect through the focused plugin page; pairing and diagnostics stay administrative. Managed mode is

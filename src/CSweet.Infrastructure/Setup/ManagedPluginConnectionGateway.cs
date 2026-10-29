@@ -43,14 +43,14 @@ public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, I
     }
     public Task<ProfileAvailability> Availability(string digest, CancellationToken ct) => With(c => c.Availability(digest, ct), ct);
     public Task<ConnectionAttempt> Begin(BeginConnection r, CancellationToken ct) => With(c => c.Begin(r, ct), ct);
-    public Task<ConnectionReceipt> Cancel(Guid id, CancellationToken ct) => With(c => c.Cancel(id, ct), ct);
-    public Task<ConnectionReceipt> CancelAttempt(Guid id, CancellationToken ct) => With(c => c.CancelAttempt(id, ct), ct);
-    public Task<ConnectionSnapshot> Supersede(Guid previous, Guid replacement, CancellationToken ct) => With(c => c.Supersede(previous, replacement, ct), ct);
+    public Task<ConnectionReceipt> Cancel(Guid id, CancellationToken ct) => With(c => c.Cancel(id, ct), ct, cleanup: true);
+    public Task<ConnectionReceipt> CancelAttempt(Guid id, CancellationToken ct) => With(c => c.CancelAttempt(id, ct), ct, cleanup: true);
+    public Task<ConnectionSnapshot> Supersede(Guid previous, Guid replacement, CancellationToken ct) => With(c => c.Supersede(previous, replacement, ct), ct, cleanup: true);
     public Task<ConnectionReceipt> Redeem(RedeemConnection r, CancellationToken ct) => With(c => c.Redeem(r, ct), ct);
     public Task<ConnectionReceipt> Recover(Guid id, RecoverConnection r, CancellationToken ct) => With(c => c.Recover(id, r, ct), ct);
     public Task<ConnectionInventory> Discover(Guid id, CancellationToken ct) => With(c => c.Discover(id, ct), ct);
-    public Task<ConnectionSnapshot> Disconnect(Guid id, CancellationToken ct) => With(c => c.Disconnect(id, ct), ct);
-    public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct) => With(c => c.Get(id, ct), ct);
+    public Task<ConnectionSnapshot> Disconnect(Guid id, CancellationToken ct) => With(c => c.Disconnect(id, ct), ct, cleanup: true);
+    public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct) => With(c => c.Get(id, ct), ct, cleanup: true);
     public async Task<ManagedPairing> PreparePairing(CancellationToken ct)
     {
         Validate();
@@ -86,9 +86,11 @@ public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, I
             await writer.WriteAsync(protector.Protect(JsonSerializer.Serialize(candidate)).AsMemory(), ct);
         File.Move(temporary, Settings.RegistrationPath, true);
     }
-    private async Task<T> With<T>(Func<ManagedConnectionClient, Task<T>> action, CancellationToken ct)
+    private async Task<T> With<T>(Func<ManagedConnectionClient, Task<T>> action, CancellationToken ct, bool cleanup = false)
     {
-        var record = await Read(ct);
+        // Disabling new managed connections does not erase the paired identity's cleanup duty.
+        // All address, registration, protected-key and service proof checks still apply.
+        var record = await Read(ct, requireEnabled: !cleanup);
         if (record.DeploymentId == Guid.Empty) throw new InvalidOperationException("managed_deployment_pairing_required");
         return await WithRecord(record, action);
     }
@@ -98,16 +100,16 @@ public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, I
         using var http = clients.CreateClient(nameof(ManagedPluginConnectionGateway));
         return await action(new ManagedConnectionClient(http, new Uri(Settings.ServiceOrigin), record.DeploymentId, record.KeyId, record.Revision, key, TimeProvider.System));
     }
-    private async Task<ManagedDeploymentRegistration> Read(CancellationToken ct)
+    private async Task<ManagedDeploymentRegistration> Read(CancellationToken ct, bool requireEnabled = true)
     {
-        Validate();
+        Validate(requireEnabled);
         if (!File.Exists(Settings.RegistrationPath)) throw new InvalidOperationException("managed_deployment_pairing_required");
         return JsonSerializer.Deserialize<ManagedDeploymentRegistration>(protector.Unprotect(await File.ReadAllTextAsync(Settings.RegistrationPath, ct)))
             ?? throw new InvalidOperationException("The deployment registration is unavailable.");
     }
-    private void Validate()
+    private void Validate(bool requireEnabled = true)
     {
-        if (!Settings.Enabled || !Uri.TryCreate(Settings.ServiceOrigin, UriKind.Absolute, out var origin) || origin.Scheme != "https" ||
+        if (requireEnabled && !Settings.Enabled || !Uri.TryCreate(Settings.ServiceOrigin, UriKind.Absolute, out var origin) || origin.Scheme != "https" ||
             origin.AbsolutePath != "/" || !string.IsNullOrEmpty(origin.UserInfo) || !string.IsNullOrEmpty(origin.Query) || !string.IsNullOrEmpty(origin.Fragment) ||
             !Uri.TryCreate(Settings.ReturnUri, UriKind.Absolute, out var target) || target.AbsolutePath != "/settings/plugins/managed-return" ||
             !string.IsNullOrEmpty(target.UserInfo) || !string.IsNullOrEmpty(target.Query) || !string.IsNullOrEmpty(target.Fragment) ||
