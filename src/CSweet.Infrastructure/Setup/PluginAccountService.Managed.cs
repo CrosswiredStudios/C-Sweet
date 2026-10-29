@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Setup;
 
-internal sealed record ManagedAccountAttempt(Guid RemoteSessionId, Guid? RemoteConnectionId, string ReturnVerifier)
+internal sealed record ManagedAccountAttempt(Guid RemoteSessionId, Guid? RemoteConnectionId, string ReturnVerifier, string? ServiceOrigin = null)
 { public override string ToString() => "Managed account attempt [proof redacted]"; }
 
 public sealed partial class PluginAccountService
@@ -18,6 +18,7 @@ public sealed partial class PluginAccountService
     {
         if (browserBinding is null || browserBinding.Length != 43) throw new UnauthorizedAccessException("A browser-initiated connection is required.");
         var available = await managed!.Availability(request.PackageDigest, ct);
+        var serviceOrigin = await managed.BoundServiceOrigin(ct);
         if (available.ProfileId != declaration.ProviderProfile) throw new UnauthorizedAccessException("The service profile differs from this package.");
         var selectable = manifest.Accounts!.Permissions.SelectMany(x => x.ScopeSets).Concat(declaration.ScopeSets.Where(x => x.Required).Select(x => x.Id)).ToHashSet(StringComparer.Ordinal);
         if (request.ScopeSetIds.Count > 32 || request.ScopeSetIds.Any(x => !selectable.Contains(x))) throw new ArgumentException("Only declared scope sets are available.");
@@ -39,11 +40,11 @@ public sealed partial class PluginAccountService
         var verifier = DeploymentProofCodec.Random();
         db.PluginConnections.Add(connection); db.PluginAccountSetupSessions.Add(session); await db.SaveChangesAsync(ct);
         // Persist before the external call so a crash never loses the local identity/verifier binding.
-        await secrets.SetAsync(installation.Id, ManagedContextKey(connection.Id), JsonSerializer.Serialize(new ManagedAccountAttempt(Guid.Empty, null, verifier), Json), ct);
+        await secrets.SetAsync(installation.Id, ManagedContextKey(connection.Id), JsonSerializer.Serialize(new ManagedAccountAttempt(Guid.Empty, null, verifier, serviceOrigin), Json), ct);
         var remote = await managed.Begin(new(session.Id, installation.Id, user.ToString("D"), request.PackageDigest, declaration.Id, requested,
-            request.PolicyVersion, true, managed.ReturnUri, DeploymentProofCodec.Challenge(verifier)), ct);
+            request.PolicyVersion, true, managed.ReturnUri, DeploymentProofCodec.Challenge(verifier)), ct, serviceOrigin);
         if (remote.LaunchUrl is null || remote.Status != "Created") throw new InvalidOperationException("The managed sign-in could not be started.");
-        await secrets.SetAsync(installation.Id, ManagedContextKey(connection.Id), JsonSerializer.Serialize(new ManagedAccountAttempt(remote.SessionId, null, verifier), Json), ct);
+        await secrets.SetAsync(installation.Id, ManagedContextKey(connection.Id), JsonSerializer.Serialize(new ManagedAccountAttempt(remote.SessionId, null, verifier, serviceOrigin), Json), ct);
         await audit.WriteAsync("plugin-account.managed-consent.started", nameof(PluginAccountSetupSession), session.Id,
             "A human initiated reviewed managed consent; provider credentials remain at the connection service.", cancellationToken: ct);
         return new(session.Id, remote.LaunchUrl, remote.ExpiresAt);
@@ -61,10 +62,11 @@ public sealed partial class PluginAccountService
         if (session.Status is "Importing" or "Ready" or "NoResources") return new(session.PluginInstallationId, session.Id);
         if (session.Status != "AwaitingConsent" || handoff.Length != 43) throw new UnauthorizedAccessException("This connection return is no longer usable.");
         var context = await ManagedAttempt(session, ct);
+        var serviceOrigin = context.ServiceOrigin ?? throw new UnauthorizedAccessException("The connection service origin is unavailable.");
         ConnectionReceipt receipt;
-        try { receipt = await managed.Redeem(new(handoff, context.ReturnVerifier, session.Id, user.ToString("D"), session.PackageDigest), ct); }
+        try { receipt = await managed.Redeem(new(handoff, context.ReturnVerifier, session.Id, user.ToString("D"), session.PackageDigest), ct, serviceOrigin); }
         catch (HttpRequestException)
-        { receipt = await managed.Recover(context.RemoteSessionId, new(session.Id, user.ToString("D"), session.PackageDigest, context.ReturnVerifier), ct); }
+        { receipt = await managed.Recover(context.RemoteSessionId, new(session.Id, user.ToString("D"), session.PackageDigest, context.ReturnVerifier), ct, serviceOrigin); }
         if (receipt.SessionId != context.RemoteSessionId) throw new UnauthorizedAccessException("The service returned a different attempt.");
         if (receipt.ConnectionId is not { } remoteId || receipt.Status != "AuthorizedPendingDiscovery")
         { session.Status = receipt.Status == "Cancelled" ? "Cancelled" : "Failed"; session.FailureCode = "managed_consent_not_completed"; session.Revision++; await db.SaveChangesAsync(ct); return new(session.PluginInstallationId, session.Id); }
@@ -87,7 +89,8 @@ public sealed partial class PluginAccountService
     {
         await Current(session, ct); var context = await ManagedAttempt(session, ct);
         if (context.RemoteConnectionId is not { } connectionId) throw new UnauthorizedAccessException("Managed consent has not completed.");
-        var inventory = await managed!.Discover(connectionId, ct); await Current(session, ct);
+        var inventory = await managed!.Discover(connectionId, ct,
+            context.ServiceOrigin ?? throw new UnauthorizedAccessException("The connection service origin is unavailable.")); await Current(session, ct);
         if (inventory.ConnectionId != connectionId || inventory.Status is not ("AuthorizedPendingDiscovery" or "Ready")) throw new UnauthorizedAccessException("Managed discovery is unavailable.");
         var (_, manifest, _) = await Context(session.PluginInstallationId, ct);
         if (inventory.Resources.Count > manifest.Accounts!.MaximumResources || inventory.Resources.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != inventory.Resources.Count)
@@ -109,13 +112,21 @@ public sealed partial class PluginAccountService
             if (priorJson is null) return true;
             var prior = JsonSerializer.Deserialize<ManagedAccountAttempt>(priorJson, Json)
                 ?? throw new InvalidOperationException("The prior managed attempt is unavailable.");
+            if (prior.ServiceOrigin is null) return false;
             var currentJson = await secrets.GetAsync(completed.PluginInstallationId, ManagedContextKey(completed.ConnectionId), ct);
             if (currentJson is not null)
             {
                 var current = JsonSerializer.Deserialize<ManagedAccountAttempt>(currentJson, Json);
                 if (prior.RemoteConnectionId is not { } oldRemote || current?.RemoteConnectionId is not { } newRemote) return false;
-                var receipt = await managed.Supersede(oldRemote, newRemote, ct);
-                if (receipt.ConnectionId != oldRemote || receipt.Status != "Superseded") return false;
+                if (current.ServiceOrigin != prior.ServiceOrigin)
+                {
+                    if (!await RevokeManaged(completed.PluginInstallationId, previous, prior, ct)) return false;
+                }
+                else
+                {
+                    var receipt = await managed.Supersede(oldRemote, newRemote, ct, prior.ServiceOrigin);
+                    if (receipt.ConnectionId != oldRemote || receipt.Status != "Superseded") return false;
+                }
             }
             else
             {
@@ -135,14 +146,14 @@ public sealed partial class PluginAccountService
 
     private async Task<bool> RevokeManaged(Guid installation, Guid connection, ManagedAccountAttempt context, CancellationToken ct)
     {
-        if (managed is null) return false;
+        if (managed is null || context.ServiceOrigin is null) return false;
         var original = await db.PluginAccountSetupSessions.AsNoTracking().Where(x => x.PluginInstallationId == installation &&
             x.ConnectionId == connection && !x.IsMaintenance).OrderBy(x => x.CreatedAt).FirstAsync(ct);
-        var cancelled = await managed.CancelAttempt(original.Id, ct);
+        var cancelled = await managed.CancelAttempt(original.Id, ct, context.ServiceOrigin);
         if (cancelled.Status != "Cancelled" || context.RemoteSessionId != Guid.Empty && cancelled.SessionId != context.RemoteSessionId ||
             context.RemoteConnectionId is { } expected && cancelled.ConnectionId != expected) return false;
         if ((context.RemoteConnectionId ?? cancelled.ConnectionId) is not { } id) return true;
-        var snapshot = await managed.Snapshot(id, ct);
+        var snapshot = await managed.Snapshot(id, ct, context.ServiceOrigin);
         return snapshot.ConnectionId == id && snapshot.Status == "Revoked";
     }
 }

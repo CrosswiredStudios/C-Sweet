@@ -149,8 +149,16 @@ public sealed partial class PluginAccountService
         else if (!await db.PluginConnections.AsNoTracking().AnyAsync(x=>x.Id==s.ConnectionId && x.AccountGroupId==s.AccountGroupId &&
             x.Status==PluginConnectionStatus.Connected && x.AuthorizationRevision==s.ReplacesAuthorizationRevision,ct))
             throw new UnauthorizedAccessException("The maintenance authorization changed.");
-        var bindingHash = managed?.UsesManaged(context.Connection.ProviderProfile) == true
-            ? (await managed.Availability(s.PackageDigest, ct)).BindingHash
+        var managedMode = managed?.UsesManaged(context.Connection.ProviderProfile) == true;
+        var managedJson = await secrets.GetAsync(s.PluginInstallationId, ManagedContextKey(s.ConnectionId), ct);
+        if (managedJson is not null)
+        {
+            var origin = JsonSerializer.Deserialize<ManagedAccountAttempt>(managedJson, Json)?.ServiceOrigin;
+            if (!managedMode || origin is null || origin != await managed!.BoundServiceOrigin(ct))
+                throw new UnauthorizedAccessException("The connection service changed. Review a fresh connection.");
+        }
+        var bindingHash = managedMode
+            ? (await managed!.Availability(s.PackageDigest, ct)).BindingHash
             : PluginAccountProfileGuard.Fingerprint(await PluginAccountProfileGuard.RequireAsync(db, profiles, context.Installation, context.Connection, ct));
         if (context.Installation.PackageVersion!.PackageDigest != s.PackageDigest || bindingHash != s.ProfileHash ||
             context.Manifest.Accounts!.PolicyVersion != s.PolicyVersion || !await db.PluginAccountGroups.AsNoTracking().AnyAsync(x => x.Id == s.AccountGroupId &&

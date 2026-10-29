@@ -8,14 +8,18 @@
 <main class="pa-6" style="max-width:900px;margin:auto">
     <MudText Typo="Typo.h4">Connection service</MudText>
     <MudText Class="mb-5">One-time administrator pairing. Account owners connect through their plugins afterward.</MudText>
+    @if (_status is not null) { <ManagedServiceOriginNotice Origin="@_status.ServiceOrigin" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     @if (_status is null) { <MudProgressLinear Indeterminate="true" /> }
-    else if (!_status.Enabled) { <MudAlert Severity="Severity.Info">Managed connections are not enabled for this deployment. Configure its trusted service address and return address before pairing. Customer-owned connections remain separate.</MudAlert> }
+    else if (_status.PairingState == "OriginChanged")
+    { <MudAlert Severity="Severity.Warning">The stored pairing belongs to @_status.PairedServiceOrigin. New connections are blocked. Existing cleanup stays bound to that original service. Finish that cleanup, then enroll a fresh deployment for the new service.</MudAlert> }
+    else if (_status.PairingState == "LegacyUnbound")
+    { <MudAlert Severity="Severity.Warning">This older pairing has no verified service address and is blocked. Preserve it for operator-assisted recovery and enroll a fresh deployment before connecting accounts.</MudAlert> }
+    else if (!_status.Enabled || _status.PairingState == "ConfigurationRequired") { <MudAlert Severity="Severity.Info">Managed connections are not enabled or fully configured for this deployment. Configure its trusted service address and return address before pairing. Customer-owned connections remain separate.</MudAlert> }
     else if (_status.Paired) { <MudAlert Severity="Severity.Success">This installation is paired. Provider credentials stay at the connection service.</MudAlert><MudButton Href="/settings/plugins">Back to plugins</MudButton> }
     else
     {
         <MudText Typo="Typo.h6">Pair this installation</MudText>
-        <MudText>Service: @_status.ServiceOrigin</MudText>
         <MudText>Browser return: @_status.ReturnUri</MudText>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="Prepare" Class="my-4">Prepare pairing</MudButton>
         @if (_pairing is not null)

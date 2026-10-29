@@ -112,6 +112,8 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
                 s.Status == "AwaitingConsent" && s.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired" : s.Status,
                 List<ConnectorAccountChoice>(s.ObservedResourcesJson).Length, s.FailureCode, s.ExpiresAt)).ToArray(), admin)
         { PluginId = manifest.Id, OAuthRedirectUri = redirectUri, ConnectionMode = managedMode ? "Managed" : "CustomerOwned",
+          ManagedServiceOrigin = managedMode && ManagedServiceTrust.Identity(options.Value.Managed.ServiceOrigin) != "Unconfigured"
+              ? ManagedServiceTrust.CanonicalOrigin(options.Value.Managed.ServiceOrigin) : null,
           Administration = admin ? await Administration(installation, ct) : null,
           Deletions = admin ? await DeletionViews(installationId,ct) : [],
           CleanupReviews=await CleanupReviews(userId,installationId,ct,groups.Select(g=>g.Id).ToArray()) };

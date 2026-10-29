@@ -25,13 +25,13 @@ public sealed partial class PluginAccountService
                 if (managed is null) continue;
                 try
                 {
-                    var cancelled = await managed.CancelAttempt(attempt.Id, ct);
-                    if (cancelled.ConnectionId is { } remote && (await managed.Snapshot(remote, ct)).Status != "Revoked") continue;
+                    var context = JsonSerializer.Deserialize<ManagedAccountAttempt>(managedJson, Json);
+                    if (context is null || !await RevokeManaged(attempt.PluginInstallationId, attempt.ConnectionId, context, ct)) continue;
                     await secrets.RemoveAsync(attempt.PluginInstallationId, ManagedContextKey(attempt.ConnectionId), ct);
                     var pendingConnection = await db.PluginConnections.SingleAsync(x => x.Id == attempt.ConnectionId, ct);
                     pendingConnection.Status = PluginConnectionStatus.Revoked; pendingConnection.AuthorizationRevision++;
                 }
-                catch (Exception error) when (error is HttpRequestException or InvalidOperationException) { continue; }
+                catch (Exception error) when (error is HttpRequestException or InvalidOperationException or JsonException or UnauthorizedAccessException) { continue; }
             }
             // Removal is repeatable: a crash before the state commit cannot leave a reusable verifier.
             await secrets.RemoveAsync(attempt.PluginInstallationId, VerifierKey(attempt.Id), ct);
