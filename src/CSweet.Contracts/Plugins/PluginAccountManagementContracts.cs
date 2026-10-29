@@ -5,6 +5,10 @@ public sealed record PluginAccountManagementView(Guid InstallationId, string Nam
     IReadOnlyList<PluginConnectionScopeSet> ScopeSets, IReadOnlyList<PluginManagedAccount> Accounts,
     IReadOnlyList<PluginAccountSetupView> SetupSessions, bool CanAdminister)
 {
+    public string? PluginId { get; init; }
+    public string? OAuthRedirectUri { get; init; }
+    public string ConnectionMode { get; init; } = "CustomerOwned";
+    public string? ManagedServiceOrigin { get; init; }
     public PluginAdministrationView? Administration { get; init; }
     public IReadOnlyList<PluginDeletionView> Deletions { get; init; } = [];
     public IReadOnlyList<PluginCleanupReview> CleanupReviews {get;init;}=[];
@@ -24,6 +28,17 @@ public sealed record PluginBusinessAccountGrantView(Guid Id, Guid OrganizationId
 public sealed record ConnectPluginAccountRequest(IReadOnlyList<string> ScopeSetIds, string PolicyVersion, bool AcceptPolicies, string PackageDigest,
     Guid? ReconnectConnectionId = null);
 public sealed record BeginPluginAccountResponse(Guid SetupId, string AuthorizationUrl, DateTimeOffset ExpiresAt);
+public sealed record CompleteManagedPluginReturnRequest(Guid AttemptId, string Handoff);
+public sealed record ManagedPluginReturnResponse(Guid InstallationId, Guid SetupId);
+public sealed record ManagedConnectionStatus(bool Enabled, bool Paired, string ServiceOrigin, string ReturnUri)
+{
+    public IReadOnlyList<string> CustomerOwnedProfiles { get; init; } = [];
+    public string PairingState { get; init; } = "NotPaired";
+    public string? PairedServiceOrigin { get; init; }
+    public string ServiceIdentity => ManagedServiceTrust.Identity(ServiceOrigin);
+}
+public sealed record ManagedConnectionPairing(string ServiceOrigin, string PublicKey, string KeyId, string ReturnUri);
+public sealed record CompleteManagedConnectionPairing(Guid DeploymentId, string TenantId, long Revision);
 public sealed record SavePluginAccountGrantRequest(Guid OrganizationId, string Scope, IReadOnlyList<Guid> ResourceIds,
     IReadOnlyList<string> PermissionIds, bool IncludeFutureResources, long? ExpectedRevision, string PackageDigest);
 public sealed record PluginAccountImpactView(long AccountRevision, string ReviewHash, IReadOnlyList<string> Businesses, IReadOnlyList<string> Agents,

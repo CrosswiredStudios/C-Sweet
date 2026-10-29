@@ -1,0 +1,13 @@
+@using CSweet.Contracts.Plugins
+
+@if (ManagedServiceTrust.Identity(Origin) is var identity && identity != "Unconfigured")
+{
+    <section class="my-3" aria-label="Connection service identity">
+        <MudText Typo="Typo.subtitle2">Service: @ManagedServiceTrust.CanonicalOrigin(Origin!)</MudText>
+        <MudText Typo="Typo.body2">@(identity == "Official" ? "Official C-Sweet service address" : "Custom self-hosted service")</MudText>
+        @if (identity == "Custom")
+        { <MudText Typo="Typo.body2">This service's operator supplies its own authorized provider applications. Pairing does not make it an official C-Sweet service.</MudText> }
+    </section>
+}
+
+@code { [Parameter] public string? Origin { get; set; } }

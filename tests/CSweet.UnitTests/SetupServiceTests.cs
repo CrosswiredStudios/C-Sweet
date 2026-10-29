@@ -17,7 +17,7 @@ public class SetupServiceTests
 
         Assert.False(status.IsFirstRunComplete);
         Assert.Null(status.DefaultChatProviderId);
-        Assert.Equal(5, status.Steps.Count);
+        Assert.Equal(6, status.Steps.Count);
         Assert.DoesNotContain(status.Steps, x => x.Key == "finish");
         Assert.Contains(status.Steps, x => x.Key == "llm-provider" && !x.IsComplete);
         Assert.Contains(status.Steps, x => x.Key == "genai-provider" && !x.IsRequired && !x.IsComplete);
@@ -111,7 +111,7 @@ public class SetupServiceTests
         await dbContext.SaveChangesAsync();
 
         var status = await service.GetStatusAsync();
-        Assert.Equal(5, status.Steps.Count);
+        Assert.Equal(6, status.Steps.Count);
         Assert.All(await dbContext.OnboardingSteps.Where(x => x.Key == "email-delivery" || x.Key == "communications").ToListAsync(),
             step => { Assert.False(step.IsRequired); Assert.False(step.IsComplete); });
         await CompletePriorRequiredStepsAsync(dbContext);

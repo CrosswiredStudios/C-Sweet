@@ -1,0 +1,7 @@
+.connection-notice { display: grid; gap: 12px; width: 100%; }
+.connection-access { border-top: 1px solid var(--mud-palette-divider); padding-top: 16px; }
+.connection-access summary { cursor: pointer; color: var(--mud-palette-text-primary); }
+.access-details { display: grid; gap: 8px; padding-top: 14px; }
+.policy-links { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 0.875rem; }
+.connection-terms { color: var(--mud-palette-text-secondary); }
+.policy-links a { color: var(--mud-palette-primary); }

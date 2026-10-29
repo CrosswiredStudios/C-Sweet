@@ -14,7 +14,8 @@ public sealed class SetupService : ISetupService
         ("agent-execution", "Agent hosting", true),
         ("llm-provider", "AI models", true),
         ("personal-assistant", "AI Assistant", true),
-        ("genai-provider", "Images & video", false)
+        ("genai-provider", "Images & video", false),
+        ("connection-service", "Connection service", false)
     ];
 
     private readonly CSweetDbContext _dbContext;

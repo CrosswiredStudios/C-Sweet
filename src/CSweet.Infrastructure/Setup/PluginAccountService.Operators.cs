@@ -30,18 +30,20 @@ public sealed partial class PluginAccountService
         if(!await Access.IsActiveHumanAsync(request.UserId,ct) || request.AccountId is { } account &&
             !await db.PluginAccountGroups.AnyAsync(x=>x.Id==account && x.PluginInstallationId==installationId && x.State==PluginAccountState.Connected,ct))
             throw new UnauthorizedAccessException("Choose an active user and an available account.");
-        var profile=await profiles.ResolveAsync(declaration.ProviderProfile,ct) ?? throw new InvalidOperationException("An administrator must configure the deployment connection profile first.");
-        if(installation.PackageVersion!.Status!=AgentPackageVersionStatus.Built || profile.AuthorizationEndpoint!=declaration.Provider!.AuthorizationEndpoint ||
-            profile.TokenEndpoint!=declaration.Provider.TokenEndpoint || profile.RevocationEndpoint!=declaration.Provider.RevocationEndpoint)
+        var managedMode = managed?.UsesManaged(declaration.ProviderProfile) == true;
+        var profile = managedMode ? null : await profiles.ResolveAsync(declaration.ProviderProfile,ct) ?? throw new InvalidOperationException("An administrator must configure the deployment connection profile first.");
+        if(installation.PackageVersion!.Status!=AgentPackageVersionStatus.Built || !managedMode && (profile!.AuthorizationEndpoint!=declaration.Provider!.AuthorizationEndpoint ||
+            profile.TokenEndpoint!=declaration.Provider.TokenEndpoint || profile.RevocationEndpoint!=declaration.Provider.RevocationEndpoint))
             throw new InvalidOperationException("The deployment profile must match the reviewed, completed plugin build.");
+        var bindingHash = managedMode ? (await managed!.Availability(request.PackageDigest, ct)).BindingHash : PluginAccountProfileGuard.Fingerprint(profile!);
         await using var tx=db.Database.IsRelational()?await db.Database.BeginTransactionAsync(ct):null;
         var row=await db.PluginAccountOperators.SingleOrDefaultAsync(x=>x.PluginInstallationId==installationId && x.ApplicationUserId==request.UserId && x.AccountGroupId==request.AccountId,ct);
         if(request.ExpectedRevision!=row?.Revision) throw new InvalidOperationException("Operator access changed. Refresh and review again.");
         if(row==null) { row=new(){Id=Guid.NewGuid(),PluginInstallationId=installationId,ApplicationUserId=request.UserId,AccountGroupId=request.AccountId}; db.PluginAccountOperators.Add(row); }
         row.GrantedByApplicationUserId=actor; row.RevokedAt=null; row.Revision++;
-        var approval=await db.ConnectorProfileApprovals.SingleOrDefaultAsync(x=>x.ConnectorInstallationId==installationId && x.PackageDigest==request.PackageDigest && x.ProfileId==profile.Id,ct);
-        if(approval==null) { approval=new(){Id=Guid.NewGuid(),ConnectorInstallationId=installationId,PackageDigest=request.PackageDigest,ProfileId=profile.Id}; db.ConnectorProfileApprovals.Add(approval); }
-        approval.ApprovedByApplicationUserId=actor; approval.ApprovedAt=DateTimeOffset.UtcNow; approval.RevokedAt=null; approval.ProviderProfileHash=PluginAccountProfileGuard.Fingerprint(profile);
+        var approval=await db.ConnectorProfileApprovals.SingleOrDefaultAsync(x=>x.ConnectorInstallationId==installationId && x.PackageDigest==request.PackageDigest && x.ProfileId==declaration.ProviderProfile,ct);
+        if(approval==null) { approval=new(){Id=Guid.NewGuid(),ConnectorInstallationId=installationId,PackageDigest=request.PackageDigest,ProfileId=declaration.ProviderProfile}; db.ConnectorProfileApprovals.Add(approval); }
+        approval.ApprovedByApplicationUserId=actor; approval.ApprovedAt=DateTimeOffset.UtcNow; approval.RevokedAt=null; approval.ProviderProfileHash=bindingHash;
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("plugin-account.operator.assigned",nameof(PluginAccountOperator),row.Id,
             "An administrator explicitly assigned connection-operator authority. Business grants and agent permissions are unchanged.",cancellationToken:ct);

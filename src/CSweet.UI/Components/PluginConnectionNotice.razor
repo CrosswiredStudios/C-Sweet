@@ -1,0 +1,28 @@
+@using CSweet.Contracts.Plugins
+
+<section class="connection-notice" aria-label="Account connection access and policies">
+    <details class="connection-access">
+        <summary>What am I allowing?</summary>
+        <div class="access-details">
+            <MudText Typo="Typo.body2">@View.Declaration.ConsentPurpose</MudText>
+            @foreach (var scope in View.ScopeSets.Where(x => x.Required))
+            { <MudText Typo="Typo.body2">@scope.Label: @scope.Purpose</MudText> }
+            <MudText Typo="Typo.body2">Only included access is requested now. Optional abilities can be enabled later. Connecting does not grant business or agent access.</MudText>
+            @if (View.Declaration.PolicyLinks.Count > 0)
+            {
+                <div class="policy-links">
+                    @foreach (var policy in View.Declaration.PolicyLinks)
+                    { <a href="@policy.Url" target="_blank" rel="noopener noreferrer">@policy.Label</a> }
+                </div>
+            }
+        </div>
+    </details>
+    <div class="policy-links connection-terms">By choosing Connect account, you accept the
+        <a href="@View.Declaration.PrivacyPolicyUrl" target="_blank" rel="noopener noreferrer">Privacy policy</a> and
+        <a href="@View.Declaration.TermsOfServiceUrl" target="_blank" rel="noopener noreferrer">Terms</a>.
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public PluginAccountManagementView View { get; set; } = null!;
+}

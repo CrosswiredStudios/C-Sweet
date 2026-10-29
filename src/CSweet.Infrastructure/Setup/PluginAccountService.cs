@@ -14,11 +14,13 @@ namespace CSweet.Infrastructure.Setup;
 public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecretStore secrets,
     IDataProtectionProvider protection, IHttpClientFactory http, IPluginProviderProfileRegistry profiles,
     IConnectorHttpTransport transport, IOptions<PluginConnectionOptions> options, IAuditEventWriter audit,
-    IEnumerable<IPluginAccountDataDeletionParticipant>? deletionParticipants = null,IHostEnvironment? environment = null)
+    IEnumerable<IPluginAccountDataDeletionParticipant>? deletionParticipants = null,IHostEnvironment? environment = null,
+    IManagedPluginConnectionGateway? managed = null, ConnectionServiceSelectionStore? selections = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly IDataProtector _state = protection.CreateProtector("CSweet.PluginAccountOAuth.State.v1");
     private PluginAccountAccessService Access => new(db);
+    private ManagedPluginConnectionOptions ManagedSettings => selections?.Effective(options.Value.Managed) ?? options.Value.Managed;
     private bool DevelopmentPreview=>options.Value.AllowDevelopmentLifecyclePreview && environment?.IsDevelopment()==true;
     private string[] MissingDeletionStores=>new[]{"external:backups","external:processors","external:memory","external:runtime","external:retained-evidence"}
         .Except((deletionParticipants ?? []).Where(p=>p.IsConfigured).Select(p=>p.Store),StringComparer.Ordinal).ToArray();
@@ -45,15 +47,39 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
         var build = installation.PackageVersion!.Status.ToString();
         var canConnect = installation.IsEnabled && installation.RevisionStatus == PluginRevisionStatus.Active && build == "Built" && !string.IsNullOrWhiteSpace(installation.PackageVersion.PackageDigest);
         string? readiness = canConnect ? null : "build_pending";
-        var profile = canConnect ? await profiles.ResolveAsync(declaration.ProviderProfile, ct) : null;
-        if (canConnect && profile is null)
+        var managedMode = managed?.UsesManaged(declaration.ProviderProfile) == true;
+        if (canConnect && managedMode)
+        {
+            try
+            {
+                var availability = await managed!.Availability(installation.PackageVersion.PackageDigest!, ct);
+                if (availability.ProfileId != declaration.ProviderProfile) throw new InvalidOperationException("The managed application binding differs from this package.");
+            }
+            catch (Exception error) when (error is HttpRequestException or InvalidOperationException or System.Security.Cryptography.CryptographicException)
+            { readiness = "managed_connection_unavailable"; canConnect = false; }
+        }
+        var profile = canConnect && !managedMode ? await profiles.ResolveAsync(declaration.ProviderProfile, ct) : null;
+        if (canConnect && !managedMode && profile is null)
         { readiness = "provider_configuration_required"; canConnect = false; }
-        else if (canConnect)
+        else if (canConnect && !managedMode)
         {
             var p = profile;
             if (p!.AuthorizationEndpoint != declaration.Provider!.AuthorizationEndpoint || p.TokenEndpoint != declaration.Provider.TokenEndpoint ||
                 p.RevocationEndpoint != declaration.Provider.RevocationEndpoint)
             { readiness = "provider_configuration_mismatch"; canConnect = false; }
+        }
+        string? redirectUri = null;
+        try
+        {
+            if (!managedMode)
+            {
+                redirectUri = PluginConnectionAddresses.Callback(options.Value);
+                _ = PluginConnectionAddresses.Return(options.Value, "/settings/plugins", environment?.IsDevelopment() == true);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            if (canConnect) { readiness = "callback_configuration_required"; canConnect = false; }
         }
         var groups = await db.PluginAccountGroups.AsNoTracking().Where(x => x.PluginInstallationId == installationId &&
             x.State != PluginAccountState.Disconnected).OrderBy(x => x.CreatedAt).ToListAsync(ct);
@@ -86,7 +112,10 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
             manifest.Accounts!, declaration.ScopeSets.Where(s => s.Required || manifest.Accounts!.Permissions.Any(p => p.ScopeSets.Contains(s.Id))).ToArray(), rows, sessions.Select(s => new PluginAccountSetupView(s.Id,
                 s.Status == "AwaitingConsent" && s.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired" : s.Status,
                 List<ConnectorAccountChoice>(s.ObservedResourcesJson).Length, s.FailureCode, s.ExpiresAt)).ToArray(), admin)
-        { Administration = admin ? await Administration(installation, ct) : null,
+        { PluginId = manifest.Id, OAuthRedirectUri = redirectUri, ConnectionMode = managedMode ? "Managed" : "CustomerOwned",
+          ManagedServiceOrigin = managedMode && ManagedServiceTrust.Identity(ManagedSettings.ServiceOrigin) != "Unconfigured"
+              ? ManagedServiceTrust.CanonicalOrigin(ManagedSettings.ServiceOrigin) : null,
+          Administration = admin ? await Administration(installation, ct) : null,
           Deletions = admin ? await DeletionViews(installationId,ct) : [],
           CleanupReviews=await CleanupReviews(userId,installationId,ct,groups.Select(g=>g.Id).ToArray()) };
     }

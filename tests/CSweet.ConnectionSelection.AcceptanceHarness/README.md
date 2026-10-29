@@ -1,0 +1,7 @@
+# Connection selection acceptance fixture
+
+Test only. Never deploy. Bind only to loopback. This hosts the actual shared `ConnectionServiceSetupStep` Razor component with the actual selection store and a synthetic HTTP adapter/in-memory database. It exercises skip, back callback, repeat, saved reload/interruption, Settings reuse and unavailable capability status. It does not exercise the entire first-run wizard, product authentication, an external service, mobile pairing or Google consent. Product Identity/CSRF is separately tested by `AuthenticationEndpointTests`.
+
+Build with sibling package references disabled and the local unpublished protocol package feed. Run the resulting assembly with `--urls http://127.0.0.1:5391`, then run `browser_acceptance.py` with Playwright/Chromium. Screenshots go to `artifacts/selection-browser`.
+
+The same assembly's `--migration-sql <directory>` option generates actual PostgreSQL baseline, upgrade and downgrade SQL using `IMigrator`. It does not connect to a database. Migration acceptance applies those scripts only to a disposable PostgreSQL container with no network, published ports or host data mount, seeds a synthetic completed installation, checks preservation and saved choice, then tests rollback/reapply. Test logs live under `artifacts/migration-*`. Rollback intentionally removes the new selection field; backups remain required for real upgrades.

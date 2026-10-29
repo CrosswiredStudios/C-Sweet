@@ -206,6 +206,16 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
         builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
+        builder.Services.AddScoped<ConnectionServiceSelectionStore>();
+        builder.Services.Configure<ConnectionServiceNetworkOptions>(builder.Configuration.GetSection(ConnectionServiceNetworkOptions.Section));
+        builder.Services.Configure<ConnectionServiceOwnerOptions>(builder.Configuration.GetSection(ConnectionServiceOwnerOptions.Section));
+        builder.Services.AddScoped<ConnectionServiceOwnerGateway>();
+        builder.Services.AddHttpClient(nameof(ConnectionServiceOwnerGateway), c => c.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(sp => ConnectionServiceNetworkPolicy.Create(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ConnectionServiceNetworkOptions>>().Value));
+        builder.Services.AddScoped<ManagedPluginConnectionGateway>();
+        builder.Services.AddScoped<IManagedPluginConnectionGateway>(sp => sp.GetRequiredService<ManagedPluginConnectionGateway>());
+        builder.Services.AddHttpClient(nameof(ManagedPluginConnectionGateway), client => client.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(sp => ConnectionServiceNetworkPolicy.Create(sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ConnectionServiceNetworkOptions>>().Value));
         builder.Services.Configure<PluginCleanupOptions>(builder.Configuration.GetSection(PluginCleanupOptions.SectionName));
         builder.Services.AddScoped<IPluginCleanupTransport,PluginCleanupTransport>();
         foreach(var store in new[]{"external:backups","external:processors"})

@@ -22,6 +22,7 @@ public sealed class PluginAccountFlowTests
     {
         await using var f = await Fixture.Create();
         var empty = await f.Service.GetAsync(f.Admin, f.Id, default); Assert.Empty(empty.Accounts); Assert.True(empty.CanConnect);
+        Assert.Equal(f.Inner.Connector.PackageVersion!.AgentId, empty.PluginId);
         var begin = await f.Begin(); var query = QueryHelpers.ParseQuery(new Uri(begin.AuthorizationUrl).Query);
         Assert.Equal("S256", query["code_challenge_method"]); Assert.Equal(new[] { "identity", "read" }, query["scope"].ToString().Split(' ').Order());
         Assert.DoesNotContain("secret", begin.AuthorizationUrl); Assert.Equal("AwaitingConsent", (await f.Inner.Db.PluginAccountSetupSessions.SingleAsync()).Status);
@@ -54,6 +55,32 @@ public sealed class PluginAccountFlowTests
         Assert.DoesNotContain("optional", Assert.Single(account.Authorizations).GrantedScopeSets);
         var second = await f.Begin(); f.Http.Scopes = "identity"; await f.Complete(second);
         Assert.Equal("Failed", (await f.Inner.Db.PluginAccountSetupSessions.SingleAsync(s => s.Id == second.SetupId)).Status);
+    }
+
+    [Fact]
+    public async Task MissingCallbackIsVisibleAndCannotCreateAnOAuthAttempt()
+    {
+        await using var f = await Fixture.Create(); f.ConnectionOptions.PublicBaseUrl = null;
+        var view = await f.Service.GetAsync(f.Admin, f.Id, default);
+        Assert.False(view.CanConnect);
+        Assert.Equal("callback_configuration_required", view.ReadinessMessage);
+        Assert.Null(view.OAuthRedirectUri);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Begin());
+        Assert.Empty(await f.Inner.Db.PluginAccountSetupSessions.ToArrayAsync());
+        Assert.Empty(f.Secrets.Values); Assert.Equal(0, f.Http.Exchanges);
+    }
+
+    [Fact]
+    public async Task InsecureProductionReturnAddressCannotConsumeConsent()
+    {
+        await using var f = await Fixture.Create(); f.Environment.EnvironmentName = "Production";
+        f.ConnectionOptions.ReturnBaseUrl = "http://localhost:5097";
+        var view = await f.Service.GetAsync(f.Admin, f.Id, default);
+        Assert.False(view.CanConnect);
+        Assert.Equal("callback_configuration_required", view.ReadinessMessage);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Begin());
+        Assert.Empty(await f.Inner.Db.PluginAccountSetupSessions.ToArrayAsync());
+        Assert.Equal(0, f.Http.Exchanges);
     }
 
     [Fact]
@@ -217,9 +244,18 @@ public sealed class PluginAccountFlowTests
         private readonly IDataProtectionProvider protection = new EphemeralDataProtectionProvider();
         public List<IPluginAccountDataDeletionParticipant> DeletionParticipants { get; }=[];
         public bool AllowDevelopmentPreview {get;set;}=true;
+        public PluginConnectionOptions ConnectionOptions { get; } = new() { PublicBaseUrl = "https://platform.example" };
+        public IManagedPluginConnectionGateway? Managed { get; set; }
         public Microsoft.Extensions.Hosting.IHostEnvironment Environment {get;}=new TestHostEnvironment();
-        public PluginAccountService Service => new(Inner.Db, Secrets, protection, Http, Profiles, Transport,
-            Options.Create(new PluginConnectionOptions { PublicBaseUrl = "https://platform.example",AllowDevelopmentLifecyclePreview=AllowDevelopmentPreview }), new TestAuditEventWriter(),DeletionParticipants,Environment);
+        public PluginAccountService Service
+        {
+            get
+            {
+                ConnectionOptions.AllowDevelopmentLifecyclePreview = AllowDevelopmentPreview;
+                return new(Inner.Db, Secrets, protection, Http, Profiles, Transport,
+                    Options.Create(ConnectionOptions), new TestAuditEventWriter(), DeletionParticipants, Environment, Managed);
+            }
+        }
         public Task<BeginPluginAccountResponse> Begin(string[]? scopes = null, Guid? reconnect = null) => Service.BeginAsync(Admin, Id, new(scopes ?? ["base"], "v1", true, Digest, reconnect), default);
         public Task<(Guid InstallationId, Guid SetupId)> Complete(BeginPluginAccountResponse begin) => Service.CompleteAsync(Admin, "provider-code", State(begin), null, default);
         public ValueTask DisposeAsync() { Http.Dispose(); return Inner.DisposeAsync(); }

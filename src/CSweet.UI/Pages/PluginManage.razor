@@ -18,9 +18,12 @@
     else
     {
         <header class="manage-heading">
-            <div><MudText Typo="Typo.h3">@_view.Name</MudText><MudText Color="Color.Secondary">Enterprise integration · v@_view.Version</MudText></div>
-            <div class="manage-actions"><MudButton Disabled="_busy" OnClick="Reload">Refresh</MudButton>@if(_view.Administration is not { Retired:true }) { <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_view.CanConnect)" OnClick="@(() => OpenConnect(null))">Connect account</MudButton> }</div>
+            <div class="plugin-identity"><PluginCatalogIcon Entry="@PluginCatalog.Entries.FirstOrDefault(e => e.Id == _view.PluginId)" /><div><MudText Typo="Typo.h4">@_view.Name</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Accounts &amp; business access</MudText></div></div>
+            @if (_view.Accounts.Count > 0 && _view.CanConnect && !_connecting)
+            { <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => OpenConnect(null))">Connect another account</MudButton> }
         </header>
+        @if (_view.ConnectionMode == "Managed")
+        { <ManagedServiceOriginNotice Origin="@_view.ManagedServiceOrigin" /> }
         @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
         @if (_notice is not null && _view.Administration is not { Retired:true }) { <MudAlert Severity="Severity.Success" role="status">@_notice</MudAlert> }
         @if(!_view.CanAdminister && _view.CleanupReviews.Count>0)
@@ -38,7 +41,7 @@
         }
         @if (_showSetupNotice && SetupId is not null && _view.SetupSessions.Any(s => s.Id == SetupId && s.Status == "Ready"))
         { <MudAlert Severity="Severity.Success" role="status">Account connected and accessible resources imported. Next, choose a business and the resources it may use.</MudAlert> }
-        @if (!_view.CanConnect && _view.Administration is not { Retired:true })
+        @if (!_view.CanConnect && _view.Accounts.Count > 0 && _view.Administration is not { Retired:true })
         {
             <MudAlert Severity="Severity.Info">@(Readiness(_view.ReadinessMessage, _view.BuildStatus))
                 @if (_view.ReadinessMessage?.StartsWith("provider_", StringComparison.Ordinal) == true && _view.CanAdminister)
@@ -53,6 +56,10 @@
                 @if (setup.Status == "Importing") { <MudProgressLinear Indeterminate="true" aria-label="Importing accessible resources" /> }
                 @if (setup.Status == "ImportFailed") { <MudButton Disabled="_busy" OnClick="@(() => Retry(setup.Id))">Resume import</MudButton> }
             </MudPaper>
+        }
+        @if (!_connecting && _view.CanConnect && _view.Accounts.Count > 0 && _view.Administration is not { Retired:true } and not { RemovalPending:true })
+        {
+            <PluginConnectionNotice View="_view" />
         }
         @if (_connecting)
         {
@@ -79,10 +86,26 @@
         @if (_view.Accounts.Count == 0 && !_connecting && _view.Administration is not { Staged:true } and not { Retired:true } and not { RemovalPending:true })
         {
             <MudPaper Outlined="true" Class="manage-card empty-state">
-                <MudText Typo="Typo.h5">Connect your first account</MudText>
-                <MudText>Sign in securely, import the @_view.Declaration.ResourcesLabel.ToLowerInvariant() you can access, then choose which businesses may use them.</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">You won’t need API keys or technical credentials.</MudText>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_view.CanConnect || _busy)" OnClick="@(() => OpenConnect(null))">Connect account</MudButton>
+                @if (_view.CanConnect)
+                {
+                    <MudText Typo="Typo.h5">Connect your first account</MudText>
+                    <MudText Color="Color.Secondary">Sign in securely, then choose which @_view.Declaration.ResourcesLabel.ToLowerInvariant() your businesses can use.</MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.OpenInNew" Disabled="_busy" OnClick="@(() => OpenConnect(null))">Connect account</MudButton>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Your password stays with the provider. Agents never receive it.</MudText>
+                    <PluginConnectionNotice View="_view" />
+                }
+                else
+                {
+                    <MudText Typo="Typo.h5">@(_view.ReadinessMessage?.StartsWith("provider_", StringComparison.Ordinal) == true ? "Account connections need setup" : "Account connections aren’t ready yet")</MudText>
+                    <MudText Color="Color.Secondary">@Readiness(_view.ReadinessMessage, _view.BuildStatus)</MudText>
+                    @if (_view.CanAdminister && _view.ReadinessMessage?.StartsWith("provider_", StringComparison.Ordinal) == true)
+                    { <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/settings/plugins#provider-administration">Set up connections</MudButton> }
+                    else if (_view.CanAdminister && _view.ConnectionMode == "Managed")
+                    { <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/settings/connections">Review connection service</MudButton> }
+                    else if (_view.CanAdminister)
+                    { <MudButton Variant="Variant.Outlined" Href="#plugin-settings" OnClick="@(() => _settingsOpen = true)">Review plugin settings</MudButton> }
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">The plugin is installed. No external account has been connected.</MudText>
+                }
             </MudPaper>
         }
         @foreach (var account in _view.Accounts)
@@ -168,7 +191,19 @@
                 }
             </MudPaper>
         }
-        @if (_view.CanAdminister) { <CSweet.UI.Components.PluginAdministrationPanel View="_view" Changed="Reload" /> }
+        <footer class="manage-footer"><MudText Typo="Typo.caption" Color="Color.Secondary">You control which businesses and agents get access.</MudText><MudText Typo="Typo.caption" Color="Color.Secondary">v@_view.Version</MudText></footer>
+        @if (_view.CanAdminister)
+        {
+            <details id="plugin-settings" class="plugin-settings" open="@_settingsOpen">
+                <summary>Plugin settings</summary>
+                <div class="settings-content">
+                    <MudButton Disabled="_busy" OnClick="Reload" StartIcon="@Icons.Material.Outlined.Refresh">Refresh status</MudButton>
+                    @if (_view.OAuthRedirectUri is { } callback)
+                    { <MudText Typo="Typo.body2">Application redirect URI: <code>@callback</code></MudText> }
+                    <CSweet.UI.Components.PluginAdministrationPanel View="_view" Changed="Reload" />
+                </div>
+            </details>
+        }
     }
 </main>
 
@@ -180,7 +215,7 @@
     private PluginBusinessAccountGrantView? _revokeGrant;
     private readonly CancellationTokenSource _stop = new();
     private Task? _polling;
-    private bool _busy, _connecting, _accepted, _future;
+    private bool _busy, _connecting, _accepted, _future, _settingsOpen;
     private bool _showSetupNotice = true;
     private string? _error, _notice, _resourceSearch;
     private Guid? _reconnect, _business;
@@ -199,12 +234,20 @@
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
     }
     private async Task Reload() { try { _view = await AccountsApi.GetAsync(InstallationId, _stop.Token); _error = null; } catch (Exception e) when (e is not OperationCanceledException) { _error = e.Message; } }
-    private void OpenConnect(Guid? id)
+    private async Task OpenConnect(Guid? id)
     {
+        if (_busy || _view is null || (id is null ? !_view.CanConnect : !_view.Accounts.SelectMany(x => x.Authorizations).Any(x => x.Id == id && x.CanReconnect))) return;
         _showSetupNotice = false; _reconnect = id; _connecting = true; _accepted = false; _scopes.Clear();
         var existing = _view!.Accounts.SelectMany(x => x.Authorizations).FirstOrDefault(x => x.Id == id);
         foreach (var scope in existing?.GrantedScopeSets ?? []) _scopes.Add(scope);
         foreach (var scope in _view.ScopeSets.Where(x => x.Required)) _scopes.Add(scope.Id);
+        if (id is null)
+        {
+            // The user's initiating click acknowledges the visible current purpose/policies.
+            // Only required scopes are included; the provider still owns actual consent.
+            _connecting = false; _accepted = true;
+            await Connect();
+        }
     }
     private async Task Connect() => await Perform(async () =>
     {
@@ -249,7 +292,9 @@
         "update_review_required" => "Review the verified update in Administration before activating it.",
         "plugin_paused" => "This plugin is paused or being removed. Account access is stopped; an administrator can review its controls below.",
         "assigned_accounts_only" => "You can reconnect the accounts assigned to you. Ask an administrator to connect another account.",
-        _ when reason?.StartsWith("provider_", StringComparison.Ordinal) == true => "An administrator needs to finish the connection settings. Ordinary account owners do not need technical credentials. Refresh this page after setup is complete.",
+        "callback_configuration_required" => "A deployment administrator needs to configure the callback and return addresses before account sign-in can start.",
+        "managed_connection_unavailable" => "The managed connection service is unavailable or this deployment is not paired yet. An administrator can review connection service setup. No provider credentials are needed on this instance.",
+        _ when reason?.StartsWith("provider_", StringComparison.Ordinal) == true => "A deployment administrator needs to register the application with the provider and finish connection setup once. Account owners won’t need credentials or API keys.",
         _ when build == "Failed" => "Connector verification failed. Open verification diagnostics below for the cause, then retry verification after correcting it.",
         _ when build == "Revoked" => "This connector package was revoked. An administrator must install an approved replacement.",
         _ when build == "Built" => "The verified connector identity is incomplete. An administrator needs to review this installation.",

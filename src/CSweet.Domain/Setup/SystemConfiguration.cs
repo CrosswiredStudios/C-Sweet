@@ -2,6 +2,8 @@ namespace CSweet.Domain.Setup;
 
 public sealed class SystemConfiguration
 {
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
+    public string? ConnectionServiceSelectionJson { get; set; }
     public Guid Id { get; set; }
     public bool IsFirstRunComplete { get; set; }
     public ExecutionOnboardingMode ExecutionOnboardingMode { get; set; }

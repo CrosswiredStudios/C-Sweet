@@ -12,7 +12,8 @@ public sealed class PluginOAuthTokenBroker(
     IPluginSecretStore secrets,
     CSweetDbContext db,
     IHttpClientFactory httpClientFactory,
-    IPluginProviderProfileRegistry providerProfiles) : IPluginOAuthTokenBroker
+    IPluginProviderProfileRegistry providerProfiles,
+    IManagedPluginConnectionGateway? managed = null) : IPluginOAuthTokenBroker
 {
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> RefreshLocks = new();
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -20,6 +21,9 @@ public sealed class PluginOAuthTokenBroker(
     public async Task<string?> GetAccessTokenAsync(Guid installationId, PluginConnection connection,
         CancellationToken cancellationToken = default)
     {
+        // Backend switches require new consent; an old local token must never become a managed fallback.
+        if (managed?.UsesManaged(connection.ProviderProfile) == true) return null;
+        if (await secrets.GetAsync(installationId, $"managed.context.{connection.Id:N}", cancellationToken) is not null) return null;
         if (connection.AccountGroupId is not null)
             return await new PluginAccountTokenBroker(db, secrets, httpClientFactory, providerProfiles).GetAsync(installationId, connection.Id, cancellationToken);
         var key = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, cancellationToken);
