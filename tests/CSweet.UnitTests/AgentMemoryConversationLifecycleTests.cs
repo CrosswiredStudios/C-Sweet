@@ -220,7 +220,7 @@ public sealed partial class AgentMemoryServiceTests
     [InlineData("nonhuman")]
     [InlineData("sender")]
     [InlineData("role")]
-    public async Task ConversationLifecycleCaptureRejectsIneligibleContextBeforeWriting(string changed)
+    public async Task ConversationLifecycleCaptureDoesNotWriteIneligibleContext(string changed)
     {
         await using var fixture = await DurabilityFixture.CreateAsync();
         await using var db = fixture.Context();
@@ -233,7 +233,17 @@ public sealed partial class AgentMemoryServiceTests
         if (changed == "sender") message.SenderOrganizationUserId = fixture.EmployeeId;
         if (changed == "role") message.Role = (ConversationRole)99;
         await db.SaveChangesAsync();
-        await Assert.ThrowsAnyAsync<Exception>(() => fixture.Service(db, new UsageProviderFactory()).CaptureMessageAsync(fixture.MessageId));
+        var service = fixture.Service(db, new UsageProviderFactory());
+        if (changed is "kind" or "nonhuman")
+        {
+            // Fresh business/agent messages are valid prompt inputs, but not personal
+            // memory sources. Skip capture without manufacturing an erasure fence.
+            await service.CaptureMessageAsync(fixture.MessageId);
+            Assert.Empty(await db.MemorySourceInvalidations.ToListAsync());
+            Assert.Empty(await db.MemoryCaptureExclusions.ToListAsync());
+        }
+        else
+            await Assert.ThrowsAnyAsync<Exception>(() => service.CaptureMessageAsync(fixture.MessageId));
         Assert.Empty((await fixture.Store.ExportAsync(fixture.Partition)).Episodes);
         Assert.Empty(await db.AgentMemoryNamespaces.ToListAsync());
     }
