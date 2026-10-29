@@ -1,0 +1,81 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using CSweet.Contracts.Plugins
+@using Microsoft.AspNetCore.Components.Forms
+@inject HttpClient Http
+
+<MudExpansionPanels Class="my-4">
+<MudExpansionPanel Text="Administer a service you own">
+    <MudText>Customer pairing does not grant service administration. To manage your own service with this C-Sweet login, prepare a separate owner key and approve its public bootstrap request locally on that server.</MudText>
+    <MudAlert Severity="Severity.Warning">The owner server explicitly grants permissions to your C-Sweet user ID. Trusting this installation lets its backend attest your session; it is not independent proof of human approval. Keep local server recovery available if C-Sweet is offline.</MudAlert>
+    <MudButton Disabled="_busy" OnClick="Prepare">Prepare owner bootstrap</MudButton>
+    <MudButton Disabled="_busy" OnClick="Access">Check my service permissions</MudButton>
+    @if (_bootstrap is not null)
+    {
+        <MudText>Review these public details on the service machine. Global scope is powerful: narrow capabilities and tenant scope before local approval if appropriate. This has not granted access.</MudText>
+        <MudTextField T="string" Value="_bootstrap" ReadOnly="true" Lines="8" Label="Public local-bootstrap request" />
+    }
+    @if (_access is not null)
+    {
+        <MudText>Actor: @_access.ActorId · Tenant scope: @_access.TenantScope · Permission revision: @_access.GrantRevision</MudText>
+        @if (_access.Capabilities.Contains("credentials.import"))
+        {
+            <MudText Typo="Typo.h6">Import provider application credentials</MudText>
+            <MudTextField T="string" Label="Import format" @bind-Value="_format" />
+            <MudTextField T="string" Label="Reviewed provider profile ID" @bind-Value="_profile" />
+            <InputFile OnChange="LoadCredential" accept="application/json" />
+            <MudText>The file stays in memory and is sent only to the bound owner service when you choose Import. Secrets are not shown in results.</MudText>
+            <MudButton Disabled="@(_busy || _credential is null)" OnClick="Import">Import credentials</MudButton>
+        }
+        @if (_access.Capabilities.Contains("packages.approve"))
+        {
+            <MudText Typo="Typo.h6">Approve reviewed connector package</MudText>
+            <MudText>Review the immutable package digest, manifest, source commit and profile revision. Paste the public approval request from the release review.</MudText>
+            <MudTextField T="string" Label="Reviewed package approval JSON" @bind-Value="_package" Lines="5" />
+            <MudButton Disabled="_busy" OnClick="Approve">Approve this package binding</MudButton>
+        }
+        @if (_access.Capabilities.Contains("deployments.enroll"))
+        {
+            <MudText Typo="Typo.h6">Enroll a customer installation</MudText>
+            <MudTextField T="string" Label="Tenant ID" @bind-Value="_tenant" />
+            <MudTextField T="string" Label="Installation name" @bind-Value="_name" />
+            <MudTextField T="string" Label="Public key from customer pairing" @bind-Value="_key" />
+            <MudTextField T="string" Label="Key ID" @bind-Value="_keyId" />
+            <MudTextField T="string" Label="Exact HTTPS browser return URI" @bind-Value="_returnUri" />
+            <MudButton Disabled="_busy" OnClick="Enroll">Approve customer enrollment</MudButton>
+        }
+        @if (_access.Capabilities.Contains("deployments.revoke"))
+        {
+            <MudTextField T="string" Label="Tenant ID for revocation" @bind-Value="_tenant" />
+            <MudTextField T="string" Label="Deployment ID to revoke" @bind-Value="_revokeId" />
+            <MudText>Revocation fences that deployment's connections. Provider cleanup may remain pending.</MudText>
+            <MudButton Color="Color.Error" Disabled="_busy" OnClick="Revoke">Revoke this deployment</MudButton>
+        }
+    }
+    @if (_result is not null) { <MudTextField T="string" Label="Public result" Value="_result" ReadOnly="true" Lines="4" /> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+</MudExpansionPanel>
+</MudExpansionPanels>
+
+@code {
+    private sealed record AccessView(Guid ActorId, long GrantRevision, string TenantScope, string[] Capabilities);
+    private AccessView? _access;
+    private bool _busy;
+    private string? _bootstrap, _result, _error;
+    private string _format = "google-web-client", _profile = "com.csweet.google.youtube", _package = "", _tenant = "", _name = "", _key = "", _keyId = "", _returnUri = "", _revokeId = "";
+    private JsonElement? _credential;
+    private async Task Run(Func<Task> operation) { _busy = true; _error = null; _result = null; try { await operation(); } catch { _error = "Operation unavailable. Check local bootstrap and current permissions. A submitted mutation may have succeeded; check service state before retrying."; _access = null; } finally { _busy = false; } }
+    private Task Prepare() => Run(async () => { using var r = await Http.PostAsync("api/plugins/connection-service/owner/prepare", null); r.EnsureSuccessStatusCode(); var details = await r.Content.ReadFromJsonAsync<OwnerBootstrapDetails>(); _bootstrap = JsonSerializer.Serialize(details, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }); });
+    private Task Access() => Run(async () => { using var r = await Http.PostAsync("api/plugins/connection-service/owner/access", null); r.EnsureSuccessStatusCode(); _access = await r.Content.ReadFromJsonAsync<AccessView>(); });
+    private async Task LoadCredential(InputFileChangeEventArgs e) { _credential = null; try { using var stream = e.File.OpenReadStream(65536); using var document = await JsonDocument.ParseAsync(stream); _credential = document.RootElement.Clone(); } catch { _error = "Choose a provider export JSON file no larger than 64 KiB."; } }
+    private async Task<JsonDocument> Post(string action, object payload)
+    {
+        if (_access is null) throw new InvalidOperationException();
+        using var r = await Http.PostAsJsonAsync("api/plugins/connection-service/owner/" + action, new { grantRevision = _access.GrantRevision, request = payload });
+        r.EnsureSuccessStatusCode(); return await JsonDocument.ParseAsync(await r.Content.ReadAsStreamAsync());
+    }
+    private Task Import() => Run(async () => { try { using var r = await Post("import", new { format = _format, profileId = _profile, document = _credential }); _result = "Profile: " + r.RootElement.GetProperty("profileId").GetString() + "\nCallback: " + r.RootElement.GetProperty("callbackUri").GetString() + "\nRevision: " + r.RootElement.GetProperty("publicRevision").GetInt64(); } finally { _credential = null; } });
+    private Task Approve() => Run(async () => { using var document = JsonDocument.Parse(_package); using var r = await Post("approve", document.RootElement); _result = "Package binding accepted."; });
+    private Task Enroll() => Run(async () => { using var r = await Post("enroll", new { tenantId = _tenant, deployment = new { name = _name, publicKey = _key, keyId = _keyId, returnUris = new[] { _returnUri } } }); _result = "Deployment: " + r.RootElement.GetProperty("deploymentId").GetGuid() + "\nTenant: " + r.RootElement.GetProperty("tenantId").GetString() + "\nRevision: " + r.RootElement.GetProperty("revision").GetInt64(); });
+    private Task Revoke() => Run(async () => { using var r = await Post("revoke", new { tenantId = _tenant, deploymentId = Guid.Parse(_revokeId) }); _result = "Deployment revoked; provider cleanup may still be pending."; });
+}

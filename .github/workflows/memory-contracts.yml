@@ -9,6 +9,7 @@ on:
       - 'src/**/*Memory*'
       - 'tests/CSweet.UnitTests/*Memory*'
       - 'tests/CSweet.UnitTests/*Audit*'
+      - 'tests/CSweet.UnitTests/OrganizationDeletionTests.cs'
       - 'src/CSweet.Infrastructure/Persistence/**'
       - 'src/CSweet.Infrastructure/Llm/**'
       - 'src/CSweet.Api/Chat/**'

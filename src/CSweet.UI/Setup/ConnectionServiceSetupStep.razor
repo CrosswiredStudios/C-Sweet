@@ -1,0 +1,74 @@
+@using CSweet.Contracts.Plugins
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<section>
+    <MudText Typo="Typo.h5">Connect to external services</MudText>
+    <MudText>Choose where C-Sweet handles supported provider connections. Connecting an account still requires that provider's consent. You can skip this and change it in Settings.</MudText>
+    @if (_choice is null)
+    {
+        @if (_error is null) { <MudProgressLinear Indeterminate="true" /> }
+        else
+        {
+            <MudButton OnClick="OnInitializedAsync">Retry</MudButton>
+            @if (OnContinue.HasDelegate)
+            {
+                <MudButton OnClick="OnBack">Back</MudButton>
+                <MudButton OnClick="OnContinue">Leave unchanged and continue</MudButton>
+            }
+        }
+    }
+    else
+    {
+        <MudSelect T="string" Label="Connection service" @bind-Value="_mode" Disabled="_busy">
+            <MudSelectItem T="string" Value='@("Official")'>Official managed service</MudSelectItem>
+            <MudSelectItem T="string" Value='@("SelfHosted")'>Self-hosted service</MudSelectItem>
+            <MudSelectItem T="string" Value='@("Skip")'>Skip for now</MudSelectItem>
+        </MudSelect>
+        @if (_mode == "Official")
+        { <MudText>C-Sweet operates @ManagedServiceTrust.OfficialOrigin and holds provider authorization credentials. Availability and account pairing must be verified.</MudText> }
+        @if (_mode == "SelfHosted")
+        {
+            <MudTextField T="string" Label="Your service HTTPS address" @bind-Value="_origin" Disabled="_busy" />
+            <MudText>Your operator manages provider applications, protected storage, backups and availability. Using a service does not make this installation its administrator.</MudText>
+        }
+        @if (_mode == "Skip") { <MudText>Continue using local C-Sweet features. Managed provider connections will remain unavailable; existing cleanup obligations are preserved.</MudText> }
+        <MudAlert Severity="Severity.Info" Class="my-3">This pilot supports OAuth account setup and resource import. Mobile app pairing is planned and unavailable. General managed uploads and other provider actions are not enabled.</MudAlert>
+        <MudButton Disabled="_busy" OnClick="Save" Variant="Variant.Filled">Save choice</MudButton>
+        <MudButton Disabled="@(_busy || _choice.Mode == "Skip")" OnClick="Probe">Check service</MudButton>
+        @if (_probe is not null) { <MudText>Service status: @ProbeLabel. A successful check does not grant access or finish pairing.</MudText> }
+        <MudText Class="my-3">Moving an already paired installation to another service is not available in this pilot. You can skip and re-enable its current service; existing provider grants are not transferred.</MudText>
+        @if (OnContinue.HasDelegate)
+        {
+            <MudButton Disabled="_busy" OnClick="OnBack">Back</MudButton>
+            <MudButton Disabled="_busy" OnClick="Continue">Continue</MudButton>
+        }
+    }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+</section>
+@code {
+    [Parameter] public EventCallback OnContinue { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+    private ConnectionServiceChoice? _choice;
+    private ConnectionServiceProbe? _probe;
+    private string ProbeLabel => _probe?.State switch { "OAuthSetupAvailable" => "OAuth account setup is available", "Skipped" => "not connected", "Unsupported" => "this service does not support account setup", _ => "currently unavailable or unsupported" };
+    private string _mode = "Skip", _origin = "";
+    private string? _error;
+    private bool _busy;
+    protected override async Task OnInitializedAsync()
+    {
+        try { _choice = await Http.GetFromJsonAsync<ConnectionServiceChoice>("api/plugins/connection-service/selection"); _mode = _choice?.Mode ?? "Skip"; _origin = _choice?.Origin ?? ""; }
+        catch { _error = "Sign in as a current system administrator to review this choice. Local setup remains available."; }
+    }
+    private async Task<bool> Persist()
+    {
+        if (_choice is null) return false;
+        using var response = await Http.PutAsJsonAsync("api/plugins/connection-service/selection", new SaveConnectionServiceChoice(_mode, _origin, _choice.Revision));
+        if (!response.IsSuccessStatusCode) { _error = "Choice could not be saved. Reload if another administrator changed it. An existing pairing must be retired safely before changing its service address."; return false; }
+        _choice = await response.Content.ReadFromJsonAsync<ConnectionServiceChoice>(); _probe = null; await OnSaved.InvokeAsync(); return true;
+    }
+    private async Task Save() { _busy = true; _error = null; try { await Persist(); } catch { _error = "Service choice could not be saved."; } finally { _busy = false; } }
+    private async Task Continue() { _busy = true; _error = null; try { if (await Persist()) await OnContinue.InvokeAsync(); } catch { _error = "Your choice could not be saved. Try again before continuing."; } finally { _busy = false; } }
+    private async Task Probe() { _busy = true; _error = null; try { using var response = await Http.PostAsync("api/plugins/connection-service/probe", null); response.EnsureSuccessStatusCode(); _probe = await response.Content.ReadFromJsonAsync<ConnectionServiceProbe>(); } catch { _error = "The service cannot be checked now. You can continue and pair later."; } finally { _busy = false; } }
+}

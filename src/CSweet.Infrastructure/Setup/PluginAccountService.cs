@@ -15,11 +15,12 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
     IDataProtectionProvider protection, IHttpClientFactory http, IPluginProviderProfileRegistry profiles,
     IConnectorHttpTransport transport, IOptions<PluginConnectionOptions> options, IAuditEventWriter audit,
     IEnumerable<IPluginAccountDataDeletionParticipant>? deletionParticipants = null,IHostEnvironment? environment = null,
-    IManagedPluginConnectionGateway? managed = null)
+    IManagedPluginConnectionGateway? managed = null, ConnectionServiceSelectionStore? selections = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly IDataProtector _state = protection.CreateProtector("CSweet.PluginAccountOAuth.State.v1");
     private PluginAccountAccessService Access => new(db);
+    private ManagedPluginConnectionOptions ManagedSettings => selections?.Effective(options.Value.Managed) ?? options.Value.Managed;
     private bool DevelopmentPreview=>options.Value.AllowDevelopmentLifecyclePreview && environment?.IsDevelopment()==true;
     private string[] MissingDeletionStores=>new[]{"external:backups","external:processors","external:memory","external:runtime","external:retained-evidence"}
         .Except((deletionParticipants ?? []).Where(p=>p.IsConfigured).Select(p=>p.Store),StringComparer.Ordinal).ToArray();
@@ -112,8 +113,8 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
                 s.Status == "AwaitingConsent" && s.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired" : s.Status,
                 List<ConnectorAccountChoice>(s.ObservedResourcesJson).Length, s.FailureCode, s.ExpiresAt)).ToArray(), admin)
         { PluginId = manifest.Id, OAuthRedirectUri = redirectUri, ConnectionMode = managedMode ? "Managed" : "CustomerOwned",
-          ManagedServiceOrigin = managedMode && ManagedServiceTrust.Identity(options.Value.Managed.ServiceOrigin) != "Unconfigured"
-              ? ManagedServiceTrust.CanonicalOrigin(options.Value.Managed.ServiceOrigin) : null,
+          ManagedServiceOrigin = managedMode && ManagedServiceTrust.Identity(ManagedSettings.ServiceOrigin) != "Unconfigured"
+              ? ManagedServiceTrust.CanonicalOrigin(ManagedSettings.ServiceOrigin) : null,
           Administration = admin ? await Administration(installation, ct) : null,
           Deletions = admin ? await DeletionViews(installationId,ct) : [],
           CleanupReviews=await CleanupReviews(userId,installationId,ct,groups.Select(g=>g.Id).ToArray()) };

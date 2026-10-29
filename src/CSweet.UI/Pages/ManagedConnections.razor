@@ -1,12 +1,16 @@
 @page "/settings/connections"
 @layout SettingsLayout
 @using CSweet.Contracts.Plugins
+@using CSweet.UI.Setup
 @using System.Net.Http.Json
 @inject HttpClient Http
 
 <PageTitle>Connection service</PageTitle>
 <main class="pa-6" style="max-width:900px;margin:auto">
     <MudText Typo="Typo.h4">Connection service</MudText>
+    <ConnectionServiceSetupStep OnSaved="Reload" />
+    <MudDivider Class="my-5" />
+    <ConnectionServiceOwnerPanel />
     <MudText Class="mb-5">One-time administrator pairing. Account owners connect through their plugins afterward.</MudText>
     @if (_status is not null) { <ManagedServiceOriginNotice Origin="@_status.ServiceOrigin" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
@@ -42,6 +46,7 @@
     private string _deployment = "", _tenant = "";
     private long _revision = 1;
     protected override Task OnInitializedAsync() => Run(async () => _status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status"));
+    private Task Reload() => Run(async () => _status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status"));
     private Task Prepare() => Run(async () => { using var response = await Http.PostAsync("api/plugins/managed-connections/pairing", null); response.EnsureSuccessStatusCode(); _pairing = await response.Content.ReadFromJsonAsync<ManagedConnectionPairing>(); });
     private Task Complete() => Run(async () =>
     {

@@ -14548,6 +14548,8 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CSweet.Domain.Setup.SystemConfiguration", b =>
                 {
+                    b.Property<string>("ConnectionServiceSelectionJson").IsConcurrencyToken().HasColumnType("text");
+
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
