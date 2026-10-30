@@ -20,6 +20,10 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Developer execution plans and progress recovery](developer-execution-workflow.md)
+maps Adrian and Daniel's short persisted plans, evidence-based progress checks and
+checkpoint handoffs for unavailable infrastructure.
+
 [Managed connection service](managed-connection-service-plan.md) plans provider-neutral, plugin-driven
 one-click account connections with a central vault and optional customer-owned credentials. The
 [Google registration checklist](../deployment/google-youtube-connection-setup.md) separates operator
@@ -108,6 +112,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 - [October 19 QwenGames planning stall](./planning-stall-overview-2026-10-19.md) - oversized coverage output, task-budget mismatch, persistent Overview issue cards and proposed resumable planner hardening.
 - [October 17 workspace sync schema recovery](./workspace-sync-schema-recovery-2026-10-17.md) - SDK/gateway request compatibility for source download, checkpoint upload and resource recovery after sprint activation.
 - [October 17 developer validation recovery](./developer-validation-recovery-2026-10-17.md) - quoted validation commands, real assertion exit codes, bounded completion correction and paired developer releases.
+- [October 27 developer gateway recovery](./developer-gateway-checkpoint-recovery-2026-10-27.md) - small-ticket command batches, BOM-free file tools, bounded gateway recovery, paired releases and retained-checkpoint ticket recovery.
+- [Prism Break Sprint 2 readiness](./prism-break-sprint2-readiness-2026-10-27.md) - #54 was never dispatched; truthful decision-gated readiness, durable recovery and unchanged-wake suppression.
 - [Blocked tickets and retry](./blocked-ticket-retry.md) - where blocked sprint cards go, and how moving them back to Ready or pressing Retry restarts them.
 - [Manager project health](./features/producer-project-health.md) - stall detection, bounded diagnostics,
   durable incidents, management escalation and rollout.

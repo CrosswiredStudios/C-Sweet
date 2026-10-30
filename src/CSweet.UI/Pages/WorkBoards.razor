@@ -1573,6 +1573,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        if (_disposed) return;
         var scope = (OrganizationId, BoardId, DirectoryView);
         var requestedItemId = RequestedItemId ?? ItemQuery;
         if (_loadedScope == scope)
@@ -1587,7 +1588,13 @@
             return;
         }
         _requestedItemId = requestedItemId;
+        _boardReadCancellation.Cancel();
+        _boardReadCancellation.Dispose();
+        _boardReadCancellation = new();
+        var cancellationToken = _boardReadCancellation.Token;
         _detail = null;
+        _detailBoard = null;
+        _detailError = null;
         _directory = null;
         _personalTodos = null;
         _itemDetailsOpen = false;
@@ -1595,6 +1602,7 @@
         _loadedScope = scope;
         if (DirectoryView == "personal" && !BoardId.HasValue) { await LoadPersonalTodosAsync(); return; }
         await ReloadAsync();
+        if (cancellationToken.IsCancellationRequested) return;
         if (BoardId.HasValue)
         {
             _detailBoard = _directory?.Boards.SingleOrDefault(x => x.Id == BoardId.Value);
@@ -1604,6 +1612,8 @@
 
     private async Task ReloadAsync()
     {
+        if (_disposed) return;
+        var cancellationToken = _boardReadCancellation.Token;
         if (DirectoryView == "personal" && !BoardId.HasValue) { await LoadPersonalTodosAsync(); return; }
         _loading = true;
         _error = null;
@@ -1617,33 +1627,43 @@
             };
             if (!string.IsNullOrWhiteSpace(_search))
                 query.Add($"search={Uri.EscapeDataString(_search.Trim())}");
-            var response = await Http.GetAsync(
-                $"api/organizations/{OrganizationId:D}/work/boards?{string.Join('&', query)}");
+            using var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards?{string.Join('&', query)}", cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
                 _forbidden = true;
                 return;
             }
             response.EnsureSuccessStatusCode();
-            _directory = await response.Content.ReadFromJsonAsync<WorkBoardDirectoryResponse>();
+            var directory = await response.Content.ReadFromJsonAsync<WorkBoardDirectoryResponse>(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            _directory = directory;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception exception)
         {
             _error = exception.Message;
         }
         finally
         {
-            _loading = false;
-            if (!BoardId.HasValue && DirectoryView != "boards") await LoadPersonalTodosAsync();
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                _loading = false;
+                if (!BoardId.HasValue && DirectoryView != "boards") await LoadPersonalTodosAsync();
+            }
         }
     }
 
     private async Task LoadPersonalTodosAsync()
     {
+        if (_disposed) return;
+        var cancellationToken = _boardReadCancellation.Token;
         try
         {
-            var response = await Http.GetAsync(
-                $"api/organizations/{OrganizationId:D}/work/personal-todos");
+            using var response = await Http.GetAsync(
+                $"api/organizations/{OrganizationId:D}/work/personal-todos", cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (response.StatusCode == HttpStatusCode.Forbidden)
             {
                 _personalTodos = null;
@@ -1651,9 +1671,12 @@
                 return;
             }
             response.EnsureSuccessStatusCode();
-            _personalTodos = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>();
+            var todos = await response.Content.ReadFromJsonAsync<PersonalTodoDirectory>(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            _personalTodos = todos;
             _personalTodoError = null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception exception)
         {
             _personalTodos = null;
@@ -1783,7 +1806,9 @@
         catch (Exception) { _moveError = L["WorkBoards.TheBoardCouldNotBe"]; }
     }
 
-    private async Task LoadBoardAsync()
+    private Task LoadBoardAsync() => RunBoardReadAsync(LoadBoardCoreAsync);
+
+    private async Task LoadBoardCoreAsync(CancellationToken cancellationToken)
     {
         var boardId = BoardId ?? _detailBoard?.Id;
         if (!boardId.HasValue) return;
@@ -1794,8 +1819,8 @@
         _detailError = null;
         try
         {
-            var response = await Http.GetAsync(
-                $"api/organizations/{OrganizationId:D}/work/boards/{boardId.Value:D}");
+            using var response = await GetBoardReadAsync(
+                $"api/organizations/{OrganizationId:D}/work/boards/{boardId.Value:D}", cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 _detailError = response.StatusCode switch
@@ -1809,7 +1834,9 @@
                 return;
             }
 
-            _detail = await response.Content.ReadFromJsonAsync<WorkBoardDetailResponse>();
+            var detail = await response.Content.ReadFromJsonAsync<WorkBoardDetailResponse>(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            _detail = detail;
             if (_detail is null)
             {
                 _detailError = L["WorkBoards.TheServerReturnedAnEmpty"];
@@ -1828,11 +1855,12 @@
                 _detailItem = _detail.Items.FirstOrDefault(x => x.Id == requestedItem);
                 _itemDetailsOpen = _detailItem is not null;
             }
-            await LoadSprintsAsync();
-            await LoadOrchestrationAsync();
+            await LoadSprintsAsync(cancellationToken);
+            await LoadOrchestrationAsync(cancellationToken);
             await ReloadAsync();
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (OperationCanceledException)
         {
             _detailError = L["WorkBoards.TheBoardRequestTimedOut"];
         }
@@ -1846,7 +1874,7 @@
         }
         finally
         {
-            _detailLoading = false;
+            if (!cancellationToken.IsCancellationRequested) _detailLoading = false;
         }
     }
 
@@ -2042,16 +2070,20 @@
         _orchestrationQualityColumnId.HasValue && _orchestrationDoneColumnId.HasValue &&
         _orchestrationQualityCycles is >= 1 and <= 10;
 
-    private async Task LoadOrchestrationAsync()
+    private Task LoadOrchestrationAsync() => LoadOrchestrationAsync(_boardReadCancellation.Token);
+
+    private async Task LoadOrchestrationAsync(CancellationToken cancellationToken)
     {
         if (_detail is null) return;
-        var response = await Http.GetAsync(
-            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/policy");
-        _orchestrationPolicy = response.StatusCode == HttpStatusCode.NotFound
+        using var response = await GetBoardReadAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/orchestration/policy", cancellationToken);
+        var policy = response.StatusCode == HttpStatusCode.NotFound
             ? null
             : response.IsSuccessStatusCode
-                ? await response.Content.ReadFromJsonAsync<WorkOrchestrationPolicyResponse>()
+                ? await response.Content.ReadFromJsonAsync<WorkOrchestrationPolicyResponse>(cancellationToken)
                 : _orchestrationPolicy;
+        cancellationToken.ThrowIfCancellationRequested();
+        _orchestrationPolicy = policy;
     }
 
     private async Task OpenOrchestrationAsync()
@@ -2329,7 +2361,9 @@
     private static IReadOnlyList<string> Lines(string value) =>
         value.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private async Task LoadSprintsAsync()
+    private Task LoadSprintsAsync() => LoadSprintsAsync(_boardReadCancellation.Token);
+
+    private async Task LoadSprintsAsync(CancellationToken cancellationToken)
     {
         if (_detail is null ||
             !_detail.Board.AllowedActions.Contains(WorkSprintActions.Read))
@@ -2337,17 +2371,20 @@
             _sprints = [];
             return;
         }
-        var response = await Http.GetAsync(
-            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints");
+        using var response = await GetBoardReadAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}/sprints", cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadAsStringAsync();
+            var error = await response.Content.ReadAsStringAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             _sprintError = string.IsNullOrWhiteSpace(error)
                 ? $"Sprint information could not be loaded (HTTP {(int)response.StatusCode})."
                 : error;
             return;
         }
-        _sprints = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkSprintResponse>>() ?? [];
+        var sprints = await response.Content.ReadFromJsonAsync<IReadOnlyList<WorkSprintResponse>>(cancellationToken) ?? [];
+        cancellationToken.ThrowIfCancellationRequested();
+        _sprints = sprints;
         _sprintError = null;
     }
 
@@ -3082,14 +3119,21 @@
         }
     }
 
-    private async Task RefreshDetailAsync()
+    private Task RefreshDetailAsync() => RunBoardReadAsync(RefreshDetailCoreAsync);
+
+    private async Task RefreshDetailCoreAsync(CancellationToken cancellationToken)
     {
         if (_detail is null) return;
         var selectedItemId = _selectedItem?.Id;
         var detailItemId = _detailItem?.Id;
-        _detail = await Http.GetFromJsonAsync<WorkBoardDetailResponse>(
-            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}");
-        await LoadSprintsAsync();
+        using var response = await GetBoardReadAsync(
+            $"api/organizations/{OrganizationId:D}/work/boards/{_detail.Board.Id:D}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var detail = await response.Content.ReadFromJsonAsync<WorkBoardDetailResponse>(cancellationToken)
+            ?? throw new InvalidOperationException(L["WorkBoards.TheServerReturnedAnEmpty"]);
+        cancellationToken.ThrowIfCancellationRequested();
+        _detail = detail;
+        await LoadSprintsAsync(cancellationToken);
         if (detailItemId.HasValue)
         {
             _detailItem = _detail?.Items.SingleOrDefault(x => x.Id == detailItemId.Value);
@@ -3101,6 +3145,8 @@
             if (_selectedItem is null) _collaborationOpen = false;
         }
         await ReloadAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        _detailError = null;
     }
 
     private async Task OpenAgentAccessAsync()
@@ -3275,7 +3321,7 @@
 
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
-        if (envelope.OrganizationId != OrganizationId) return;
+        if (_disposed || envelope.OrganizationId != OrganizationId) return;
         var data = envelope.Data;
         if (envelope.EventType == CSweet.WorkManagement.Contracts.WorkstreamEventNames.SprintChangedV1)
         {
@@ -3287,7 +3333,7 @@
             boardIdElement.ValueKind != JsonValueKind.String ||
             !boardIdElement.TryGetGuid(out var boardId)) return;
         var personalBoard = _personalTodos?.Boards.Any(x => x.BoardId == boardId) == true;
-        if (boardId != _detail?.Board.Id && !personalBoard) return;
+        if (boardId != (BoardId ?? _detail?.Board.Id) && !personalBoard) return;
         _realtimeRefreshPending = true;
         if (_realtimeRefreshRunning) return;
         _ = InvokeAsync(RefreshFromRealtimeAsync);
@@ -3295,22 +3341,27 @@
 
     private void OnRealtimeReconnected()
     {
+        if (_disposed) return;
         _realtimeRefreshPending = true;
         if (!_realtimeRefreshRunning) _ = InvokeAsync(RefreshFromRealtimeAsync);
     }
 
     private async Task RefreshFromRealtimeAsync()
     {
-        if (_realtimeRefreshRunning) return;
+        if (_disposed || _realtimeRefreshRunning) return;
         _realtimeRefreshRunning = true;
         try
         {
-            while (_realtimeRefreshPending)
+            while (!_disposed && _realtimeRefreshPending)
             {
+                var cancellationToken = _boardReadCancellation.Token;
                 _realtimeRefreshPending = false;
                 try
                 {
                     if (_detail is not null) await RefreshDetailAsync();
+                    else if (BoardId.HasValue) await LoadBoardAsync();
+                    if (_disposed) return;
+                    if (cancellationToken.IsCancellationRequested) continue;
                     await LoadPersonalTodosAsync();
                     if (_collaborationOpen && _selectedItem is not null)
                         await LoadCollaborationAsync();
@@ -3320,12 +3371,17 @@
                         await LoadSprintReportAsync();
                     if (_automationsOpen)
                         await LoadAutomationsAsync();
-                    StateHasChanged();
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
                 catch (Exception exception)
                 {
-                    _detailError = exception.Message;
+                    if (!cancellationToken.IsCancellationRequested) _detailError = exception is OperationCanceledException
+                        ? L["WorkBoards.TheBoardRequestTimedOut"]
+                        : exception is HttpRequestException
+                            ? L["WorkBoards.TheBoardServiceCouldNot"]
+                            : L["WorkBoards.AnUnexpectedErrorOccurredWhile"];
                 }
+                if (!_disposed) StateHasChanged();
             }
         }
         finally
@@ -3336,6 +3392,10 @@
 
     public ValueTask DisposeAsync()
     {
+        if (_disposed) return ValueTask.CompletedTask;
+        _disposed = true;
+        _boardReadCancellation.Cancel();
+        _boardReadCancellation.Dispose();
         Realtime.EventReceived -= OnRealtimeEvent;
         Realtime.Connected -= OnRealtimeReconnected;
         Realtime.Reconnected -= OnRealtimeReconnected;

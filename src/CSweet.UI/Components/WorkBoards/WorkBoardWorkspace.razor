@@ -119,7 +119,6 @@
                 </details>
             </div>
         </div>
-        @if (_executionLoading) { <div class="board-notice" role="status">@L["WorkBoardWorkspace.CheckingSprintExecution"]</div> }
         @if (_executionError is not null) { <div class="board-error" role="alert">@_executionError <button type="button" @onclick="LoadExecutionAsync">@L["WorkBoardWorkspace.RetryExecution"]</button></div> }
         @if (Busy) { <MudProgressLinear Indeterminate="true" Color="Color.Primary" /> }
         @if (!string.IsNullOrWhiteSpace(MoveError)) { <div class="board-error" role="alert">@MoveError</div> }
@@ -228,7 +227,7 @@
     private WorkBoardView _view = WorkBoardView.Sprint;
     private Guid? _boardId, _sprintId, _dropTarget;
     private string _search = "";
-    private bool _attentionOnly, _compact, _showDescriptions, _showInfo, _executionLoading, _disposed;
+    private bool _attentionOnly, _compact, _showDescriptions, _showInfo, _disposed;
     private bool _actionsOpen, _displayOpen;
     private ElementReference _displaySummary, _actionsSummary;
     private void CloseMenus() => (_actionsOpen, _displayOpen) = (false, false);
@@ -294,9 +293,7 @@
         _loadedSprintId = _sprintId;
         _executionItems = new Dictionary<Guid, Wire.WorkItemExecutionResponse>();
         _executionError = null;
-        _executionLoading = false;
         if (_view != WorkBoardView.Sprint || !CanReadExecution || SelectedSprint is not { Status: "Active" or "Paused" or "Completed" or "Cancelled" } sprint) return;
-        _executionLoading = true;
         try
         {
             using var response = await Http.GetAsync($"api/organizations/{Detail.Board.OrganizationId:D}/work/boards/{Detail.Board.Id:D}/orchestration/sprints/{sprint.Id:D}/execution");
@@ -311,7 +308,6 @@
         {
             if (request == _executionRequest && !_disposed) _executionError = L["WorkBoardWorkspace.ExecutionInformationIsUnavailableAttenti"];
         }
-        finally { if (request == _executionRequest) _executionLoading = false; }
     }
 
     public async Task ShowBacklogAsync() { await SelectViewAsync(WorkBoardView.Backlog); await InvokeAsync(StateHasChanged); }

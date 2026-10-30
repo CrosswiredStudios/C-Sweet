@@ -20,7 +20,7 @@ namespace CSweet.DeliveryWorkflow.Tests;
 
 // These integration checks join the shipping Chief entrypoint to the real broker and
 // platform services. They supplement, rather than replace, installed/UI/model acceptance.
-public sealed class ChiefLeadershipWorkflowTests
+public sealed partial class ChiefLeadershipWorkflowTests
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -149,7 +149,8 @@ public sealed class ChiefLeadershipWorkflowTests
             var model = new Model(question);
             if (outcome == "hire") model.Result = new("NeedsCoverage", "Unresolved", null, "Verified product accountability gap.", "Hire", [],
                 RoleKey: role, RoleTitle: title, RoleObjective: "Own creative and product outcomes.");
-            ChiefOfStaffAgent Agent() => new(model, NullLogger<ChiefOfStaffAgent>.Instance, new Orchestrator());
+            ChiefOfStaffAgent Agent() => new(model, NullLogger<ChiefOfStaffAgent>.Instance,
+                new Orchestrator(() => OperatingFixture(db, f.Organization)));
             async Task Wake()
             {
                 var agent = Agent();
@@ -248,7 +249,7 @@ public sealed class ChiefLeadershipWorkflowTests
             Assert.Equal(outcome == "external" ? "Blocked" : "Complete", finalProduct.ExecutionStatus);
             Assert.Equal(outcome == "external" ? WorkTaskStatus.Blocked : WorkTaskStatus.Completed,
                 (await db.CoreWorkTasks.SingleAsync(x => x.Id == product.WorkItemId)).Status);
-            Assert.Equal(outcome == "external" ? 1 : creative ? 2 : outcome == "hire" ? 3 : 2, model.Calls);
+            Assert.Equal(outcome == "external" ? 1 : creative ? 1 : outcome == "hire" ? domain == "product" ? 2 : 3 : 2, model.Calls);
             Assert.Equal(outcome == "hire" ? 1 : 0, await db.WorkforcePlans.CountAsync());
             Assert.Equal(outcome == "hire" || outcome == "external" ? 2 : 3, await db.ChiefFocusPrompts.CountAsync());
             Assert.Equal(outcome == "external" ? 1 : 2, await db.ChiefFocusRecords.CountAsync());
@@ -268,9 +269,18 @@ public sealed class ChiefLeadershipWorkflowTests
         public object? GetService(Type serviceType, object? key = null) => null;
         public void Dispose() { }
     }
-    private sealed class Orchestrator : IChiefOfStaffOrchestrator
+    private static ChiefOperatingContext OperatingFixture(CSweetDbContext db, Guid organization) => new(null, null,
+        new OrganizationSnapshotResponse(organization, "Active", db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization)
+            .Select(x => new OrganizationPerson(x.Id, x.DisplayName, x.EmployeeType.ToString(), x.RoleId, x.ReportsToOrganizationUserId,
+                x.AgentInstallationId, x.IsActive)).ToArray(), [], [],
+            db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organization)
+                .Select(x => new WorkstreamSummary(x.Id, x.Name, x.Outcome, x.Status.ToString(), x.LifecycleStage,
+                    x.AccountableManagerOrganizationUserId, x.TargetDate, x.BudgetAmount, x.BudgetCurrency)).ToArray(), [], DateTimeOffset.UtcNow),
+        null, null, null, []);
+
+    private sealed class Orchestrator(Func<ChiefOperatingContext>? assemble = null) : IChiefOfStaffOrchestrator
     {
-        public Task<ChiefOperatingContext> AssembleContextAsync(AgentRuntimeContext context, CancellationToken token) => Task.FromResult(new ChiefOperatingContext(null, null, null, null, null, null, []));
+        public Task<ChiefOperatingContext> AssembleContextAsync(AgentRuntimeContext context, CancellationToken token) => Task.FromResult(assemble?.Invoke() ?? new ChiefOperatingContext(null, null, null, null, null, null, []));
         public string BuildGroundedPrompt(string prompt, string capability, ChiefOperatingContext context, AgentSettings settings) => prompt;
         public Task CaptureExplicitFactsAsync(IChatClient model, AssistantCapabilityInput input, ChiefOperatingContext context, AgentRuntimeContext runtime, CancellationToken token) => Task.CompletedTask;
     }

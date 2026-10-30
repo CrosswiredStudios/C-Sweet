@@ -62,6 +62,20 @@ and `sprint` query parameters select an authorized project board and optionally
 open a ticket or sprint. Board operations continue to use their own grants;
 project membership does not confer board access.
 
+`WorkBoards.GetBoardReadAsync` retries board detail, sprint and orchestration-policy
+reads after timeouts, transport failures, HTTP 408 and server errors, with at most
+three retries after 1, 2 and 4 seconds. Authorization and not-found responses remain
+terminal; mutations are not retried by this helper. `RunBoardReadAsync` serializes
+board loads and refreshes and cancels pending reads/backoff when the board scope
+changes or the component is disposed. Background retries retain the loaded board.
+`RefreshDetailCoreAsync` clears stale load errors after a successful refresh.
+`OnRealtimeEvent` matches the requested board ID even before detail has loaded,
+and `RefreshFromRealtimeAsync` reloads missing detail on scoped board/sprint events
+or connection recovery. After retries are exhausted, the error and manual Retry
+remain available; the next event/reconnect can recover automatically.
+`WorkBoardPageTests` covers transient and exhausted timeouts, scoped event/reconnect
+recovery, retained board content, terminal access errors and disposal during backoff.
+
 `CurrentActivityNavigation.WorkItemHref` links project tasks directly to
 `projects/{projectId}?tab=work&board={boardId}&item={itemId}` for both the activity
 card and provider popover. `WorkBoards.OpenBoardAsync` uses the project Work section

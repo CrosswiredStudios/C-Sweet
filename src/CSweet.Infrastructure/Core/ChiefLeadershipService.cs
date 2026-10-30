@@ -135,6 +135,25 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                 row.AnswerDecisionId = decision.Id;
                 switch (decision.SelectedOptionId)
                 {
+                    case { } option when option.StartsWith("confirm-owner:", StringComparison.Ordinal):
+                        var currentAssignments = await AssignmentsAsync(organization, token);
+                        var accepted = row.AcceptedResultJson is null ? null : JsonSerializer.Deserialize<ChiefCoverageResult>(row.AcceptedResultJson, Json);
+                        if (Guid.TryParseExact(option[14..], "N", out var employee) && accepted is { HumanRequired: false } &&
+                            currentAssignments.Any(x => x.OrganizationUserId == employee && CoversDomain(x, row)))
+                        {
+                            row.AccountableOwnerId = employee;
+                            row.CoverageModel = currentAssignments.Single(x => x.OrganizationUserId == employee).Human ? "Combined" : "Agent";
+                            row.CoverageStatus = "AdequatelyCovered"; row.ExecutionStatus = "Complete";
+                            row.NextAction = "None"; row.BlockCode = null;
+                            row.Rationale = "The owner confirmed the current employee's accountability and capacity for this responsibility.";
+                        }
+                        else
+                        {
+                            row.ExecutionStatus = "Blocked"; row.BlockCode = "leadership.evidence_missing";
+                            row.CoverageStatus = "AtRisk"; row.AccountableOwnerId = null;
+                            row.Rationale = "The selected employee's current assignment changed. Reassess before confirming coverage.";
+                        }
+                        break;
                     case "owner":
                         row.AccountableOwnerId = source.Owner.Id; row.CoverageModel = "Owner"; row.CoverageStatus = "AdequatelyCovered";
                         row.ExecutionStatus = "Complete"; row.Rationale = "The owner explicitly accepted accountability for this domain."; break;
@@ -144,6 +163,9 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                     case "external":
                         row.CoverageStatus = "NeedsCoverage"; row.ExecutionStatus = "Blocked"; row.BlockCode = "leadership.external_confirmation_required";
                         row.Rationale = "An external professional was requested; the engagement and coverage remain unverified."; break;
+                    case "reassign":
+                        row.CoverageStatus = "AtRisk"; row.ExecutionStatus = "Blocked"; row.BlockCode = "leadership.ownership_review_required";
+                        row.Rationale = "The owner requested a different accountable manager. Review the assignment before transferring responsibility or hiring."; break;
                     default:
                         row.ExecutionStatus = "Blocked"; row.BlockCode = "leadership.owner_detail_requires_review";
                         row.Rationale = "The owner's custom answer is retained in its immutable decision for review; no coverage or hiring was inferred."; break;
@@ -253,6 +275,7 @@ public sealed partial class ChiefLeadershipService(CSweetDbContext db, TimeProvi
                     $"chief-recover-answer:{answer.Id:N}", answer.Id), token);
         }
         var rows = await RowsAsync(agenda, token);
+        await RefreshLegacyCoverageQuestionsAsync(agenda, chief, rows, token);
         // The previous Game Studio override could save a noncreative owner focus
         // while readying an untouched Director assessment instead. Repair only that
         // unscheduled state; an accepted result, native question or hire is retained.

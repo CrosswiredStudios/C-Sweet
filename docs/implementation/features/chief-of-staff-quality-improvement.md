@@ -11,6 +11,47 @@ See [implementation evidence and remaining work](chief-of-staff-quality-improvem
 
 Prepared: October 21, 2026.
 
+## October 27: existing leadership and contextual coverage decisions
+
+`ChiefOfStaffAgent.InterpretCoverageAsync` in Chief 2.15.3 reads current leadership assignments
+alongside the organization snapshot before asking the owner. It reviews active projects managed
+directly or through reporting relationships, excludes completed/cancelled projects, and considers
+related operating signals, blocked projects and elapsed target dates. A single current manager
+for Product, Offering, Creative or Game Studio Creative & Product establishes ordinary role
+accountability when that review finds no reported conflict. Missing numeric capacity metrics
+and project count alone do not establish overload. Unavailable or inconsistent platform reads
+produce recoverable blocked work. Other needs, including licensed professional requirements,
+remain subject to the bounded evidence-based interpretation.
+
+`ChiefLeadershipService.CoverageChoicesAsync` resolves eligible employees from current,
+organization-scoped roles. Coverage cards offer named confirmation, owner takeover, ownership
+review and deferral as appropriate. Human-required questions offer qualified external coverage
+and deferral; an owner click does not establish a professional license. `CoveragePrompt` presents
+the accepted rationale and an accountability/engagement question matching those actual outcomes,
+rather than pairing arbitrary model wording with generic ownership buttons. The original typed
+question remains in `ChiefCoverageRecord.AcceptedResultJson` for diagnostic history.
+
+`CaptureAsync` consumes immutable authenticated option IDs, rechecks the selected employee's
+current domain assignment and completes coverage for that employee. Reassignment requests remain
+tracked ownership reviews without assuming a replacement or hire. `RefreshLegacyCoverageQuestionsAsync`
+supersedes only pending cards using the former fixed template when contextual choices differ.
+Answered cards and their original payloads remain intact; duplicate reconnects reuse the replacement.
+Current leadership positions honor `StartsAt` and future `EndsAt`, excluding future and ended roles.
+
+Regression coverage: `ChiefLeadershipQuestionTests`, `ChiefLeadershipTests`, and
+`ChiefLeadershipExistingManagerWorkflowTests` exercise the owner choices, stale assignments,
+professional boundaries, workload review, old pending cards, real broker calls and restart recovery.
+Ship the matching platform and published Chief release through Installed Agents. No public
+contract or SDK change is required.
+
+Verification on October 27: 172 Chief tests passed against published SDK/memory dependencies,
+99 affected platform tests passed, and 10 agent/broker workflow tests passed. Two live-model
+tests and ten opt-in PostgreSQL tests were skipped because their environment settings were
+not supplied. Sandboxed VSTest child-process discovery stalled; bounded runs outside that
+sandbox completed. Chief 2.15.3 was packed, its NuGet metadata version verified, and its
+Linux x64 `.csab` bundle passed `pack-csab.py verify`. These are local verification artifacts;
+publication, Installed Agents update and live UI/model acceptance remain deployment steps.
+
 ## Objective and delivery order
 
 Make the Chief reliably carry an executive decision through to an observable outcome.

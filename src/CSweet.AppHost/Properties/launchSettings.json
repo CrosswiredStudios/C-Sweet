@@ -5,13 +5,14 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
-      "launchUrl": "http://localhost:5097",
+      "launchUrl": "https://localhost:7125",
       "applicationUrl": "https://localhost:17201;http://localhost:15201",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "DOTNET_ENVIRONMENT": "Development",
         "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21201",
-        "DOTNET_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22201"
+        "DOTNET_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22201",
+        "CSweet__App__LaunchProfile": "https"
       }
     },
     "https-wasm-debug": {

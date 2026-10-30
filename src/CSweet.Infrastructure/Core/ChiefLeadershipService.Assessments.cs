@@ -12,7 +12,9 @@ public sealed partial class ChiefLeadershipService
     {
         var people = await db.CoreOrganizationUsers.AsNoTracking().Include(x => x.AgentInstallation).ThenInclude(x => x!.PackageVersion)
             .Where(x => x.OrganizationId == organization && x.IsActive && x.ArchivedAt == null).OrderBy(x => x.Id).ToListAsync(token);
-        var positions = await db.LeadershipAssignments.AsNoTracking().Where(x => x.OrganizationId == organization && x.EndsAt == null).ToListAsync(token);
+        var now = clock.GetUtcNow();
+        var positions = await db.LeadershipAssignments.AsNoTracking().Where(x => x.OrganizationId == organization &&
+            x.StartsAt <= now && (x.EndsAt == null || x.EndsAt > now)).ToListAsync(token);
         return people.Select(person =>
         {
             var roles = positions.Where(x => x.OrganizationUserId == person.Id).Select(x => x.PositionKey).ToList();
@@ -41,8 +43,12 @@ public sealed partial class ChiefLeadershipService
         var objectives = await db.CoreStrategicObjectives.AsNoTracking().Where(x => x.OrganizationId == organization)
             .OrderBy(x => x.Id).Select(x => new { x.Id, x.Title, x.Description, x.Status }).ToListAsync(token);
         var workstreams = await db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organization)
-            .OrderBy(x => x.Id).Select(x => new { x.Id, x.Revision, x.AccountableManagerOrganizationUserId, x.Status, x.BudgetAmount, x.BudgetCurrency }).ToListAsync(token);
-        return Digest(new { business, finance, people, assignments, objectives, workstreams });
+            .OrderBy(x => x.Id).Select(x => new { x.Id, x.Revision, x.AccountableManagerOrganizationUserId, x.Status, x.TargetDate,
+                x.BudgetAmount, x.BudgetCurrency }).ToListAsync(token);
+        var now = clock.GetUtcNow();
+        var overdue = workstreams.Where(x => x.TargetDate < now && x.Status is not (WorkstreamStatus.Completed or WorkstreamStatus.Cancelled))
+            .Select(x => x.Id).ToArray();
+        return Digest(new { business, finance, people, assignments, objectives, workstreams, overdue });
     }
 
     private async Task<ChiefLeadershipSnapshot> SnapshotAsync(ChiefLeadershipAgenda agenda, OrganizationUser chief, ReadChiefLeadershipRequest request, CancellationToken token)
@@ -164,10 +170,9 @@ public sealed partial class ChiefLeadershipService
                 var message = await communication.SendAsync(organization, focus.ConversationId, chief.Id,
                     new CSweet.Contracts.Communications.SendCommunicationMessageRequest("I need one detail to establish appropriate leadership coverage.", key), token)
                     ?? throw new InvalidOperationException("The owner conversation is unavailable.");
+                var choices = await CoverageChoicesAsync(organization, row, result, snapshot.Assignments, token);
                 var question = await decisions.CreateAsync(new(organization, focus.ConversationId, null, message.Message.Id, installation,
-                    result.Question, [new("owner", "I will own this", "I accept accountability for this responsibility."),
-                        new("external", "Use an external professional", "Track the need; an engagement still requires confirmation."),
-                        new("defer", "Review later", "Defer this domain for 30 days.")], "owner", key), token);
+                    CoveragePrompt(row, result), choices, choices[0].Id, key), token);
                 db.ChiefFocusPrompts.Add(new() { Id = question.Id, OrganizationId = organization, InstallationId = installation,
                     ConversationId = focus.ConversationId, ProfileKey = agenda.ProfileKey, ProfileVersion = agenda.ProfileVersion,
                     ExpectedFocusRevision = agenda.FocusRevision, AssessmentId = row.Id, Purpose = "Coverage", IdempotencyKey = key });
