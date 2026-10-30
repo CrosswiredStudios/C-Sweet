@@ -7,8 +7,12 @@ fake-auth browser acceptance harness. No provider email/identity endpoint is cal
 After explicit authorization for live reads, run from the workspace:
 
 ```sh
-dotnet C-Sweet/tools/CSweet.RemoteMcp.Probe/bin/Debug/net10.0/CSweet.RemoteMcp.Probe.dll
+dotnet C-Sweet/tools/CSweet.RemoteMcp.Probe/bin/Debug/net10.0/CSweet.RemoteMcp.Probe.dll \
+  --manifest CSweet.Plugin.RealtyLeadsAI/csweet-plugin.json
 ```
+
+The endpoint, key header and remote tool names come only from that reviewed manifest
+(protocol 2.6); the probe has no built-in transport policy.
 
 Enter the temporary key only at the hidden local terminal prompt. Do not put it in
 chat, commands/arguments, shell history, environment variables, files or logs. The
@@ -29,8 +33,8 @@ in `finally`, and successful cleanup verifies denial before any further transpor
 Process exit removes ephemeral state; managed strings are not guaranteed to be
 zeroed immediately while the trusted process is alive.
 
-Only the production broker constructs outbound HTTPS requests to the fixed endpoint
-https://realtyleads.ai/mcp, with normal TLS validation. No listener, database,
+Only the production broker constructs outbound HTTPS requests, to the reviewed
+manifest's endpoint (https://realtyleads.ai/mcp for RealtyLeadsAI 0.2.0), with normal TLS validation. No listener, database,
 container, compute node, persistent C-Sweet grant or deployment is created. The
 provider's key remains valid until the human revokes it at RealtyLeadsAI. A generic
 failure does not prove an admin-role rejection or a particular account identity.

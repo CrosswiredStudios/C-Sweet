@@ -2,20 +2,30 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.Http.Json;
 using System.Text;
+using System.Net.Http.Headers;
 using System.Text.Json;
+using CSweet.Agent.SDK;
 
 namespace CSweet.RemoteMcp;
 
 /// <summary>Called only after the host resolves the account from an authenticated consumer binding, never from tool arguments.</summary>
+/// <remarks>Endpoint, header, tool mapping and schemas come only from the installed provider's reviewed manifest.</remarks>
 public sealed class RemoteMcpBroker
 {
+    public const int MaximumResponseBytes = 1_048_576;
+    public const int MaximumListedTools = 256;
     private readonly AccountVault vault;
+    private readonly ReviewedRemoteMcpProfile profile;
     private readonly Func<HttpMessageHandler> handler;
-    public RemoteMcpBroker(AccountVault vault) : this(vault, CreateHandler) { }
-    internal RemoteMcpBroker(AccountVault vault, Func<HttpMessageHandler> handler) { this.vault = vault; this.handler = handler; }
+    public RemoteMcpBroker(AccountVault vault, ReviewedRemoteMcpProfile profile) : this(vault, profile, () => CreateHandler(profile.Host)) { }
+    internal RemoteMcpBroker(AccountVault vault, ReviewedRemoteMcpProfile profile, Func<HttpMessageHandler> handler)
+    {
+        this.vault = vault; this.profile = profile ?? throw new ArgumentNullException(nameof(profile)); this.handler = handler;
+    }
     public async Task<JsonElement> ReadAsync(AccountScope scope, AccountReference account, Guid consumer, string capability, JsonElement input, CancellationToken ct = default, Func<CancellationToken, Task>? revalidate = null)
     {
-        RealtyPolicy.ValidateInput(capability, input);
+        var tool = profile.Tool(capability);
+        profile.ValidateInput(capability, input);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
         var token = deadline.Token;
@@ -32,12 +42,13 @@ public sealed class RemoteMcpBroker
         async Task<JsonElement> Rpc(string method, object args, int? id)
         {
             stage = method switch { "initialize" => RemoteMcpStage.Initialize, "notifications/initialized" => RemoteMcpStage.Initialized,
-                "tools/list" => RemoteMcpStage.ToolsList, _ => capability == RealtyPolicy.Search ? RemoteMcpStage.Search : RemoteMcpStage.Lookup };
+                "tools/list" => RemoteMcpStage.ToolsList, _ => RemoteMcpStage.ToolCall };
             responseStatus = null;
             _ = await Require();
-            using var request = new HttpRequestMessage(HttpMethod.Post, RealtyPolicy.Endpoint);
-            request.Headers.Add("X-Api-Key", key);
-            request.Headers.Add("MCP-Protocol-Version", RealtyPolicy.Protocol);
+            using var request = new HttpRequestMessage(HttpMethod.Post, profile.Endpoint);
+            if (profile.Bearer) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            else request.Headers.Add(profile.Header, key);
+            request.Headers.Add("MCP-Protocol-Version", profile.Protocol);
             request.Headers.Accept.ParseAdd("application/json, text/event-stream");
             request.Content = id is null ? JsonContent.Create(new { jsonrpc = "2.0", method, @params = args })
                 : JsonContent.Create(new { jsonrpc = "2.0", id, method, @params = args });
@@ -54,14 +65,14 @@ public sealed class RemoteMcpBroker
                 if (response.StatusCode is not (HttpStatusCode.Accepted or HttpStatusCode.NoContent)) throw Withheld();
                 return default;
             }
-            if (response.Content.Headers.ContentLength > 1_048_576) throw Withheld();
+            if (response.Content.Headers.ContentLength > MaximumResponseBytes) throw Withheld();
             using var stream = await response.Content.ReadAsStreamAsync(token);
             using var bytes = new MemoryStream();
             var buffer = new byte[8192];
             int read;
             while ((read = await stream.ReadAsync(buffer, token)) > 0)
             {
-                if (bytes.Length + read > 1_048_576) throw Withheld();
+                if (bytes.Length + read > MaximumResponseBytes) throw Withheld();
                 bytes.Write(buffer, 0, read);
             }
             var text = new UTF8Encoding(false, true).GetString(bytes.ToArray());
@@ -79,20 +90,21 @@ public sealed class RemoteMcpBroker
         }
         try
         {
-            var initialized = await Rpc("initialize", new { protocolVersion = RealtyPolicy.Protocol, capabilities = new { }, clientInfo = new { name = "CSweet-trusted-broker", version = "0.1.0" } }, 1);
-            if (initialized.GetProperty("protocolVersion").GetString() != RealtyPolicy.Protocol) throw Withheld();
+            var initialized = await Rpc("initialize", new { protocolVersion = profile.Protocol, capabilities = new { }, clientInfo = new { name = "CSweet-trusted-broker", version = "0.2.0" } }, 1);
+            if (initialized.GetProperty("protocolVersion").GetString() != profile.Protocol) throw Withheld();
             await Rpc("notifications/initialized", new { }, null);
             var listing = await Rpc("tools/list", new { }, 2);
-            ValidateTools(listing);
-            var result = await Rpc("tools/call", new { name = RealtyPolicy.RemoteName(capability), arguments = input }, 3);
+            ValidateTools(listing, tool);
+            var result = await Rpc("tools/call", new { name = tool.RemoteTool, arguments = input }, 3);
             if (result.TryGetProperty("isError", out var error) && error.GetBoolean()) throw Withheld();
             var content = result.GetProperty("content");
             if (content.GetArrayLength() != 1 || content[0].GetProperty("type").GetString() != "text") throw Withheld();
-            using var leads = JsonDocument.Parse(content[0].GetProperty("text").GetString()!, new JsonDocumentOptions { MaxDepth = 8 });
-            CheckEcho(leads.RootElement, key);
-            ValidateLeads(leads.RootElement, capability);
+            // Closed schemas are at most eight levels deep; parsing deeper content is rejected before schema checks.
+            using var output = JsonDocument.Parse(content[0].GetProperty("text").GetString()!, new JsonDocumentOptions { MaxDepth = ClosedJsonSchema.MaximumDepth + 2 });
+            CheckEcho(output.RootElement, key);
+            if (!profile.IsReviewedOutput(capability, output.RootElement)) throw Withheld();
             _ = await Require();
-            return leads.RootElement.Clone();
+            return output.RootElement.Clone();
         }
         catch (RemoteMcpFailureException) { throw; }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -114,56 +126,29 @@ public sealed class RemoteMcpBroker
                 e is JsonException ? RemoteMcpFailureCategory.InvalidJson : stage switch {
                     RemoteMcpStage.Initialize => RemoteMcpFailureCategory.ProtocolMismatch,
                     RemoteMcpStage.ToolsList => RemoteMcpFailureCategory.ToolSchemaRejected,
-                    RemoteMcpStage.Search or RemoteMcpStage.Lookup => RemoteMcpFailureCategory.ResultSchemaRejected,
+                    RemoteMcpStage.ToolCall => RemoteMcpFailureCategory.ResultSchemaRejected,
                     _ => RemoteMcpFailureCategory.ResponseRejected }, responseStatus);
         }
     }
 
-    private static void ValidateTools(JsonElement listing)
+    /// <summary>
+    /// The mapped tool must be advertised exactly once with input properties compatible with the reviewed schema.
+    /// Other advertised tools are ignored and can never be called: the call name comes only from the reviewed mapping.
+    /// </summary>
+    private static void ValidateTools(JsonElement listing, RemoteMcpToolPolicy tool)
     {
-        if (listing.TryGetProperty("nextCursor", out _) || !listing.TryGetProperty("tools", out var tools) || tools.ValueKind != JsonValueKind.Array || tools.GetArrayLength() != 2) throw Withheld();
-        var seen = new HashSet<string>();
-        foreach (var tool in tools.EnumerateArray())
+        if (listing.TryGetProperty("nextCursor", out _) || !listing.TryGetProperty("tools", out var tools) || tools.ValueKind != JsonValueKind.Array ||
+            tools.GetArrayLength() is 0 or > MaximumListedTools) throw Withheld();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        JsonElement? match = null;
+        foreach (var listed in tools.EnumerateArray())
         {
-            var name = tool.GetProperty("name").GetString()!;
-            if (!seen.Add(name) || name is not ("search_inheritance_leads" or "get_inheritance_lead_by_id")) throw Withheld();
-            var schema = tool.GetProperty("inputSchema");
-            if (schema.GetProperty("type").GetString() != "object") throw Withheld();
-            var properties = schema.GetProperty("properties");
-            var expected = name == "get_inheritance_lead_by_id" ? new[] { "id" } : ["state", "county", "city", "status", "minScore", "limit"];
-            if (properties.ValueKind != JsonValueKind.Object || !properties.EnumerateObject().Select(x => x.Name).Order().SequenceEqual(expected.Order())) throw Withheld();
-            foreach (var p in properties.EnumerateObject())
-            {
-                var type = p.Value.GetProperty("type");
-                var expectedType = p.Name == "limit" ? "integer" : p.Name == "minScore" ? "number" : "string";
-                if (type.ValueKind == JsonValueKind.String ? type.GetString() != expectedType :
-                    type.ValueKind != JsonValueKind.Array || !type.EnumerateArray().Select(x => x.GetString()).Order().SequenceEqual(new[] { expectedType, "null" }.Order())) throw Withheld();
-            }
-            if (name == "get_inheritance_lead_by_id" && (!schema.TryGetProperty("required", out var required) || required.GetArrayLength() != 1 || required[0].GetString() != "id")) throw Withheld();
+            if (listed.ValueKind != JsonValueKind.Object || !listed.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String ||
+                !seen.Add(name.GetString()!)) throw Withheld();
+            if (name.GetString() == tool.RemoteTool) match = listed;
         }
-    }
-    private static void ValidateLeads(JsonElement root, string capability)
-    {
-        if (capability == RealtyPolicy.Search)
-        {
-            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() > 100) throw Withheld();
-            foreach (var lead in root.EnumerateArray()) ValidateLead(lead);
-        }
-        else ValidateLead(root);
-    }
-    private static void ValidateLead(JsonElement lead)
-    {
-        string[] fields = ["inheritanceLeadId", "propertyId", "address", "ownerName", "status", "score", "deceasedId", "deceasedName", "cityName", "countyName", "stateAbbreviation"];
-        if (lead.ValueKind != JsonValueKind.Object || !lead.EnumerateObject().Select(x => x.Name).Order().SequenceEqual(fields.Order())) throw Withheld();
-        foreach (var p in lead.EnumerateObject())
-        {
-            if (p.Value.ValueKind == JsonValueKind.Null) continue;
-            if (p.Name == "score")
-            {
-                if (p.Value.ValueKind != JsonValueKind.Number || !p.Value.TryGetDouble(out var score) || !double.IsFinite(score)) throw Withheld();
-            }
-            else if (p.Value.ValueKind != JsonValueKind.String || p.Value.GetString()!.Length > 4096) throw Withheld();
-        }
+        if (match is not { } advertised || !advertised.TryGetProperty("inputSchema", out var schema) ||
+            !ClosedJsonSchema.IsCompatibleRemoteInput(tool.InputSchema, schema)) throw Withheld();
     }
     private static void CheckEcho(JsonElement element, string key)
     {
@@ -193,12 +178,12 @@ public sealed class RemoteMcpBroker
         if (data.Count == 0 || !completed) throw Withheld();
         return string.Join('\n', data);
     }
-    private static HttpMessageHandler CreateHandler() => new SocketsHttpHandler
+    private static HttpMessageHandler CreateHandler(string host) => new SocketsHttpHandler
     {
         AllowAutoRedirect = false, UseCookies = false, UseProxy = false, AutomaticDecompression = DecompressionMethods.None,
         ConnectCallback = async (context, ct) =>
         {
-            if (context.DnsEndPoint.Host != "realtyleads.ai" || context.DnsEndPoint.Port != 443) throw Withheld();
+            if (!string.Equals(context.DnsEndPoint.Host, host, StringComparison.OrdinalIgnoreCase) || context.DnsEndPoint.Port != 443) throw Withheld();
             var addresses = SelectPublicIPv4(await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct));
             var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
             try { await socket.ConnectAsync(new IPEndPoint(addresses[0], 443), ct); return new NetworkStream(socket, ownsSocket: true); }

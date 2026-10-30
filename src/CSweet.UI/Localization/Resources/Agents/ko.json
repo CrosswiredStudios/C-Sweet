@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "게시",
   "Agents.Import.Permissions": "권한",
   "Agents.Import.NetworkAccess": "네트워크 액세스",
+  "Agents.Import.RemoteMcpEndpoint.Title": "검토된 원격 엔드포인트",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "이 플러그인에 연결한 계정 키는 C-Sweet이 {host}에만 전송합니다. 이 엔드포인트를 신뢰하는 경우에만 설치를 승인하세요.",
   "Agents.Import.Tab.AgentSettings": "에이전트 설정",
   "Agents.Import.ConfigureAgent": "{name} 구성",
   "Agents.Import.ConfigureHint": "설치하기 전에 이 에이전트가 선언한 모델 공급자와 기타 설정을 선택하세요.",

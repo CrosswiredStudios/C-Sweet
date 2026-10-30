@@ -3,7 +3,7 @@
   "kind": "remote-mcp",
   "id": "com.crosswiredstudios.plugin.realtyleads",
   "name": "RealtyLeadsAI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": {
     "id": "com.crosswiredstudios",
     "name": "CrosswiredStudios"
@@ -16,7 +16,7 @@
     "maximumConcurrentJobs": 1
   },
   "protocol": {
-    "minimumVersion": "2.5",
+    "minimumVersion": "2.6",
     "maximumVersion": "2.x"
   },
   "provides": [
@@ -81,61 +81,71 @@
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 64
             },
             "propertyId": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 64
             },
             "address": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 4096
             },
             "ownerName": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 4096
             },
             "status": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 256
             },
             "deceasedId": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 64
             },
             "deceasedName": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 4096
             },
             "cityName": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 256
             },
             "countyName": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 256
             },
             "stateAbbreviation": {
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "maxLength": 64
             },
             "score": {
               "type": [
@@ -186,61 +196,71 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 64
           },
           "propertyId": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 64
           },
           "address": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 4096
           },
           "ownerName": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 4096
           },
           "status": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 256
           },
           "deceasedId": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 64
           },
           "deceasedName": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 4096
           },
           "cityName": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 256
           },
           "countyName": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 256
           },
           "stateAbbreviation": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "maxLength": 64
           },
           "score": {
             "type": [
@@ -279,7 +299,7 @@
   },
   "ui": [],
   "reviewedRemoteMcp": {
-    "profile": "realtyleads.read.v1",
+    "profile": "realtyleads.read.v2",
     "endpoint": "https://realtyleads.ai/mcp",
     "authentication": "api-key",
     "header": "X-Api-Key",
@@ -287,6 +307,18 @@
     "transport": "stateless-post",
     "protocolVersions": [
       "2025-03-26"
+    ],
+    "tools": [
+      {
+        "capability": "realtyleads.inheritance.search.v1",
+        "remoteTool": "search_inheritance_leads",
+        "effect": "read"
+      },
+      {
+        "capability": "realtyleads.inheritance.lookup.v1",
+        "remoteTool": "get_inheritance_lead_by_id",
+        "effect": "read"
+      }
     ]
   }
 }

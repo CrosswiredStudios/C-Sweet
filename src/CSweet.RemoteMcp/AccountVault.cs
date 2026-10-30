@@ -52,11 +52,14 @@ public sealed class AccountVault(IAccountRepository repository, IDataProtectionP
     }
     public Task<AccountReference> RevokeAsync(AccountScope scope, AccountReference account, CancellationToken ct = default) =>
         Change(scope, account, _ => new State("", true, []), ct);
-    public Task<AccountReference> GrantAsync(AccountScope scope, AccountReference account, Guid consumer, CancellationToken ct = default)
+    /// <summary>Grants one consumer exactly the reviewed capabilities supplied by the host. Any previous consumer is replaced.</summary>
+    public Task<AccountReference> GrantAsync(AccountScope scope, AccountReference account, Guid consumer, IReadOnlyCollection<string> capabilities, CancellationToken ct = default)
     {
-        if (consumer == Guid.Empty) throw Denied();
-        return Change(scope, account, state => state.Revoked ? throw Denied() : state with
-        { Grants = [new(consumer, RealtyPolicy.Search), new(consumer, RealtyPolicy.Lookup)] }, ct);
+        ArgumentNullException.ThrowIfNull(capabilities);
+        if (consumer == Guid.Empty || capabilities.Count is 0 or > 64 || capabilities.Any(string.IsNullOrWhiteSpace) ||
+            capabilities.Distinct(StringComparer.Ordinal).Count() != capabilities.Count) throw Denied();
+        var grants = capabilities.Order(StringComparer.Ordinal).Select(c => new AccountGrant(consumer, c)).ToArray();
+        return Change(scope, account, state => state.Revoked ? throw Denied() : state with { Grants = grants }, ct);
     }
     public async Task<(AccountReference Reference, bool Revoked, IReadOnlyList<AccountGrant> Grants)> InspectAsync(AccountScope scope, Guid id, CancellationToken ct = default)
     {

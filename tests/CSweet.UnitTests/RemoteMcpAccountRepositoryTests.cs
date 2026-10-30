@@ -49,7 +49,7 @@ public sealed class RemoteMcpAccountRepositoryTests
         {
             var repository = new RemoteMcpAccountRepository(db, scope);
             Assert.NotNull(await repository.ReadAsync(account.Id, default));
-            var granted = await new AccountVault(repository, protection).GrantAsync(scope, account, Guid.NewGuid());
+            var granted = await new AccountVault(repository, protection).GrantAsync(scope, account, Guid.NewGuid(), ["realtyleads.inheritance.search.v1", "realtyleads.inheritance.lookup.v1"]);
             Assert.Equal(2, granted.Generation);
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new AccountVault(repository, protection).RevokeAsync(scope, account));
         }
@@ -59,7 +59,7 @@ public sealed class RemoteMcpAccountRepositoryTests
             Assert.Null(await new RemoteMcpAccountRepository(db, scope with { Business = Guid.NewGuid() }).ReadAsync(account.Id, default));
         }
     }
-    [Fact] public void ReviewedImportAcceptsOnlyTheVersionedClosedProfile()
+    [Fact] public void ReviewedImportAcceptsAnyPublisherEndpointButKeepsTheModeClosed()
     {
         var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "realtyleads-plugin.json"));
         var reader = new PluginManifestReader();
@@ -68,9 +68,20 @@ public sealed class RemoteMcpAccountRepositoryTests
         var manifest = System.Text.Json.JsonSerializer.Deserialize<CSweet.Contracts.Plugins.PluginManifest>(json,
             new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
         AgentImportPreviewService.ValidateManifest(manifest);
-        foreach (var invalid in new[] { json.Replace("https://realtyleads.ai/mcp", "https://evil.example/mcp"),
-            json.Replace("\"minimumVersion\": \"2.5\"", "\"minimumVersion\": \"2.0\""),
-            json.Replace("X-Api-Key", "Authorization"), json.Replace("\"kind\": \"remote-mcp\"", "\"kind\": \"connector\"") })
+        // Publisher-declared endpoints are accepted at import; a human approves the endpoint at install review.
+        var otherPublisher = json.Replace("https://realtyleads.ai/mcp", "https://api.acme.example/mcp");
+        Assert.Equal("remote-mcp", reader.Read(System.Text.Encoding.UTF8.GetBytes(otherPublisher), "csweet-plugin.json").Kind);
+        foreach (var invalid in new[] {
+            json.Replace("https://realtyleads.ai/mcp", "http://realtyleads.ai/mcp"),
+            json.Replace("https://realtyleads.ai/mcp", "https://203.0.113.10/mcp"),
+            json.Replace("\"minimumVersion\": \"2.6\"", "\"minimumVersion\": \"2.0\""),
+            json.Replace("\"minimumVersion\": \"2.6\"", "\"minimumVersion\": \"2.5\""),
+            json.Replace("X-Api-Key", "Authorization"),
+            json.Replace("\"effect\": \"read\"", "\"effect\": \"write\""),
+            json.Replace("\"kind\": \"remote-mcp\"", "\"kind\": \"connector\"") })
+        {
+            Assert.NotEqual(json, invalid);
             Assert.Throws<System.Text.Json.JsonException>(() => reader.Read(System.Text.Encoding.UTF8.GetBytes(invalid), "csweet-plugin.json"));
+        }
     }
 }

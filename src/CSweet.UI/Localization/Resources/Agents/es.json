@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "Publicaciones",
   "Agents.Import.Permissions": "Permisos",
   "Agents.Import.NetworkAccess": "Acceso a la red",
+  "Agents.Import.RemoteMcpEndpoint.Title": "Punto de conexión remoto revisado",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "C-Sweet enviará las claves de cuenta que conecte para este complemento solo a {host}. Apruebe la instalación solo si confía en este punto de conexión.",
   "Agents.Import.Tab.AgentSettings": "Configuración del agente",
   "Agents.Import.ConfigureAgent": "Configurar {name}",
   "Agents.Import.ConfigureHint": "Elige el proveedor de modelos y las demás opciones que declara este agente antes de la instalación.",

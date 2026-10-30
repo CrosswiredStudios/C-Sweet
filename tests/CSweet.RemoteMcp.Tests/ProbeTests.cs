@@ -8,6 +8,7 @@ namespace CSweet.RemoteMcp.Tests;
 public sealed class ProbeTests
 {
     private const string Key = "synthetic-probe-key-only-0001";
+    private static readonly ReviewedRemoteMcpProfile Profile = ReviewedRemoteMcpProfile.FromManifestJson(BrokerTests.ManifestJson);
     [Theory]
     [InlineData("one", "passed", 1, true, 8)]
     [InlineData("empty", "passed", 0, false, 4)]
@@ -19,15 +20,25 @@ public sealed class ProbeTests
     public async Task BoundedProbeUsesRealBrokerAndAlwaysRevokes(string mode, string status, int count, bool lookup, int requests)
     {
         var state = new State(mode);
-        var outcome = await new ProbeRunner().RunAsync(Key, default, vault => new RemoteMcpBroker(vault, () => new Fake(state)));
+        var outcome = await new ProbeRunner().RunAsync(Profile, Key, default, vault => new RemoteMcpBroker(vault, Profile, () => new Fake(state)));
         Assert.Equal(status, outcome.Status); Assert.Equal(count, outcome.SearchCount); Assert.Equal(lookup, outcome.LookupSucceeded);
         Assert.True(outcome.RevocationVerified); Assert.Equal(requests, state.Requests);
         Assert.DoesNotContain(Key, outcome.ToString()); Assert.DoesNotContain("Fixture private address", outcome.ToString());
     }
+    [Fact] public async Task ProfileWithoutTheProbeCapabilitiesIsRejectedBeforeTransport()
+    {
+        var other = System.Text.Json.Nodes.JsonNode.Parse(BrokerTests.ManifestJson)!.AsObject();
+        other["provides"]![0]!["name"] = "acme.other.search.v1";
+        other["reviewedRemoteMcp"]!["tools"]![0]!["capability"] = "acme.other.search.v1";
+        var state = new State("one");
+        var result = await new ProbeRunner().RunAsync(ReviewedRemoteMcpProfile.FromManifestJson(other.ToJsonString()), Key, default,
+            vault => new RemoteMcpBroker(vault, Profile, () => new Fake(state)));
+        Assert.Equal("ProfileRejected", result.FailureCategory); Assert.Equal(0, state.Requests);
+    }
     [Fact] public async Task InvalidKeyNeverOpensTransport()
     {
         var state = new State("one");
-        var result = await new ProbeRunner().RunAsync("bad", default, vault => new RemoteMcpBroker(vault, () => new Fake(state)));
+        var result = await new ProbeRunner().RunAsync(Profile, "bad", default, vault => new RemoteMcpBroker(vault, Profile, () => new Fake(state)));
         Assert.Equal("failed", result.Status); Assert.Equal(0, state.Requests);
     }
     [Theory]
@@ -42,7 +53,7 @@ public sealed class ProbeTests
     public async Task DiagnosticsAreActionableAndNeverContainRemoteContent(string mode, string category, string stage, int? httpStatus)
     {
         var state = new State(mode);
-        var result = await new ProbeRunner().RunAsync(Key, default, vault => new RemoteMcpBroker(vault, () => new Fake(state)));
+        var result = await new ProbeRunner().RunAsync(Profile, Key, default, vault => new RemoteMcpBroker(vault, Profile, () => new Fake(state)));
         Assert.Equal("failed", result.Status); Assert.Equal(category, result.FailureCategory);
         Assert.Equal(stage, result.FailureStage); Assert.Equal(httpStatus, result.HttpStatus);
         Assert.True(result.RevocationVerified); Assert.DoesNotContain(Key, JsonSerializer.Serialize(result));
@@ -51,7 +62,7 @@ public sealed class ProbeTests
     {
         using var cancel = new CancellationTokenSource();
         var state = new State("cancel") { Cancel = cancel.Cancel };
-        var result = await new ProbeRunner().RunAsync(Key, cancel.Token, vault => new RemoteMcpBroker(vault, () => new Fake(state)));
+        var result = await new ProbeRunner().RunAsync(Profile, Key, cancel.Token, vault => new RemoteMcpBroker(vault, Profile, () => new Fake(state)));
         Assert.Equal("cancelled", result.Status); Assert.True(result.RevocationVerified); Assert.Equal(1, state.Requests);
     }
     [Fact] public void DualStackDnsPinsOnlyPublicIPv4AndRejectsUnsafeARecords()
@@ -82,7 +93,7 @@ public sealed class ProbeTests
             var root = document.RootElement; var method = root.GetProperty("method").GetString();
             if (method == "notifications/initialized") return new(HttpStatusCode.Accepted);
             object result;
-            if (method == "initialize") result = new { protocolVersion = state.Mode == "protocol" ? "unexpected" : RealtyPolicy.Protocol };
+            if (method == "initialize") result = new { protocolVersion = state.Mode == "protocol" ? "unexpected" : "2025-03-26" };
             else if (method == "tools/list") result = new { tools = new object[] {
                 new { name = "search_inheritance_leads", inputSchema = new { type = "object", properties = new { state = new { type = "string" }, county = new { type = "string" }, city = new { type = "string" }, status = new { type = "string" }, minScore = new { type = "number" }, limit = new { type = "integer" } } } },
                 new { name = "get_inheritance_lead_by_id", inputSchema = new { type = "object", properties = new { id = new { type = "string" } }, required = new[] { "id" } } } } };

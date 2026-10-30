@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "パブリケーション",
   "Agents.Import.Permissions": "権限",
   "Agents.Import.NetworkAccess": "ネットワークアクセス",
+  "Agents.Import.RemoteMcpEndpoint.Title": "審査済みのリモートエンドポイント",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "このプラグインに接続したアカウントキーは、C-Sweet から {host} にのみ送信されます。このエンドポイントを信頼できる場合にのみインストールを承認してください。",
   "Agents.Import.Tab.AgentSettings": "エージェント設定",
   "Agents.Import.ConfigureAgent": "{name} を構成",
   "Agents.Import.ConfigureHint": "インストールの前に、このエージェントが宣言しているモデルプロバイダーとその他の設定を選択してください。",

@@ -1,0 +1,324 @@
+{
+  "manifestVersion": "2.0",
+  "kind": "remote-mcp",
+  "id": "com.crosswiredstudios.plugin.realtyleads",
+  "name": "RealtyLeadsAI",
+  "version": "0.2.0",
+  "publisher": {
+    "id": "com.crosswiredstudios",
+    "name": "CrosswiredStudios"
+  },
+  "runtime": {
+    "type": "host-remote-mcp",
+    "workspaceAccess": "None",
+    "supportsMultipleInstallations": false,
+    "defaultActivationMode": "OnDemand",
+    "maximumConcurrentJobs": 1
+  },
+  "protocol": {
+    "minimumVersion": "2.6",
+    "maximumVersion": "2.x"
+  },
+  "provides": [
+    {
+      "name": "realtyleads.inheritance.search.v1",
+      "description": "Search subscribed inheritance leads.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "county": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          },
+          "minScore": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "array",
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inheritanceLeadId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "propertyId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "address": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 4096
+            },
+            "ownerName": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 4096
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 256
+            },
+            "deceasedId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "deceasedName": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 4096
+            },
+            "cityName": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 256
+            },
+            "countyName": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 256
+            },
+            "stateAbbreviation": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 64
+            },
+            "score": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "inheritanceLeadId",
+            "propertyId",
+            "address",
+            "ownerName",
+            "status",
+            "deceasedId",
+            "deceasedName",
+            "cityName",
+            "countyName",
+            "stateAbbreviation",
+            "score"
+          ]
+        }
+      },
+      "executionTimeoutSeconds": 30,
+      "idempotency": "none"
+    },
+    {
+      "name": "realtyleads.inheritance.lookup.v1",
+      "description": "Look up a subscribed inheritance lead.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "inheritanceLeadId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "propertyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          },
+          "ownerName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "deceasedId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "deceasedName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4096
+          },
+          "cityName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "countyName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "stateAbbreviation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "inheritanceLeadId",
+          "propertyId",
+          "address",
+          "ownerName",
+          "status",
+          "deceasedId",
+          "deceasedName",
+          "cityName",
+          "countyName",
+          "stateAbbreviation",
+          "score"
+        ]
+      },
+      "executionTimeoutSeconds": 30,
+      "idempotency": "none"
+    }
+  ],
+  "requires": [],
+  "events": {
+    "subscribes": []
+  },
+  "configuration": [],
+  "credentials": [],
+  "webAccess": {
+    "mode": "None",
+    "rules": []
+  },
+  "ui": [],
+  "reviewedRemoteMcp": {
+    "profile": "realtyleads.read.v2",
+    "endpoint": "https://realtyleads.ai/mcp",
+    "authentication": "api-key",
+    "header": "X-Api-Key",
+    "accountBinding": "owner-business-installation.v1",
+    "transport": "stateless-post",
+    "protocolVersions": [
+      "2025-03-26"
+    ],
+    "tools": [
+      {
+        "capability": "realtyleads.inheritance.search.v1",
+        "remoteTool": "search_inheritance_leads",
+        "effect": "read"
+      },
+      {
+        "capability": "realtyleads.inheritance.lookup.v1",
+        "remoteTool": "get_inheritance_lead_by_id",
+        "effect": "read"
+      }
+    ]
+  }
+}

@@ -3,14 +3,25 @@
 @using CSweet.Contracts.Plugins
 @using CSweet.UI.Services
 @inject RemoteMcpAccountApiClient Api
-<PageTitle>RealtyLeadsAI account access</PageTitle>
+<PageTitle>@ProviderName account access</PageTitle>
 <MudContainer MaxWidth="MaxWidth.Medium" Class="pa-6">
-    <MudText Typo="Typo.h4">RealtyLeadsAI account access</MudText>
-    <MudText>Your key is stored encrypted by C-Sweet. Agents receive lead results only. Connecting does not grant an agent access.</MudText>
-    <MudAlert Severity="Severity.Info" Class="my-4">Use a subscription-scoped RealtyLeadsAI account. Company identity is enforced by RealtyLeadsAI and is not verified or matched to this C-Sweet business.</MudAlert>
+    <MudText Typo="Typo.h4">@ProviderName account access</MudText>
+    <MudText>Your key is stored encrypted by C-Sweet. Agents receive reviewed read results only. Connecting does not grant an agent access.</MudText>
+    <MudAlert Severity="Severity.Info" Class="my-4">Account and company identity are enforced by @ProviderName and are not verified or matched to this C-Sweet business.</MudAlert>
     @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
     @if (_view is not null)
     {
+        @if (!string.IsNullOrEmpty(_view.EndpointHost))
+        {
+            <MudText Typo="Typo.body2" Class="mb-2">C-Sweet sends this key only to <strong>@_view.EndpointHost</strong>, the endpoint approved at install review.</MudText>
+        }
+        @if (_view.Tools.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2">A grant allows these reviewed reads</MudText>
+            <ul class="mb-4">
+                @foreach (var tool in _view.Tools) { <li>@tool.Description <code>@tool.Capability</code></li> }
+            </ul>
+        }
         <MudTextField T="string" @bind-Value="_key" Immediate="true" InputType="InputType.Password" Label="API key" autocomplete="off" maxlength="256" Disabled="_busy" />
         <MudButton OnClick="Connect" Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))">Store a new connection</MudButton>
         <MudText Typo="Typo.caption">The key is never displayed again. It is checked by the provider when an approved agent reads leads. Changing or revoking access stops the previously authorized agent’s active and queued work; submit new work after reviewing access.</MudText>
@@ -24,7 +35,7 @@
                     <MudSelect T="Guid" @bind-Value="_consumer" Label="Agent to authorize" Disabled="_busy">
                         @foreach (var consumer in _view.Consumers) { <MudSelectItem T="Guid" Value="consumer.Id">@consumer.Name</MudSelectItem> }
                     </MudSelect>
-                    <MudCheckBox T="bool" @bind-Value="_approved" Disabled="_busy" Label="Allow this agent to search and look up my subscribed inheritance leads in this business." />
+                    <MudCheckBox T="bool" @bind-Value="_approved" Disabled="_busy" Label="@($"Allow this agent to perform the reviewed {ProviderName} reads listed above with my account in this business.")" />
                     <MudButton Disabled="@(_busy || !_approved || _consumer == Guid.Empty)" OnClick="@(() => Grant(connection))">Grant read access</MudButton>
                     <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => Revoke(connection))">Revoke access and remove stored key</MudButton>
                 }
@@ -37,6 +48,7 @@
     [Parameter] public Guid BusinessId { get; set; }
     [Parameter] public Guid ProviderId { get; set; }
     private RemoteMcpAccountView? _view;
+    private string ProviderName => string.IsNullOrWhiteSpace(_view?.ProviderName) ? "Provider" : _view!.ProviderName;
     private string _key = "";
     private string? _error;
     private Guid _consumer;
