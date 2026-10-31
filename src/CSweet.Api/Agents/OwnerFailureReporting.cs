@@ -7,6 +7,7 @@ namespace CSweet.Api.Agents;
 public static class OwnerFailureReporting
 {
     public const string StatusHeader = "X-CSweet-Owner-Status";
+    public const string SourceHeader = "X-CSweet-Owner-Diagnostic-Source";
     public static void Report(HttpContext context, Exception error, long started, ILogger logger)
     {
         var operation = context.Request.Path.Value switch {
@@ -15,7 +16,9 @@ public static class OwnerFailureReporting
             "/api/plugins/connection-service/owner/enroll" => "enroll", "/api/plugins/connection-service/owner/revoke" => "revoke", _ => null
         };
         if (operation is null) return;
-        var status = error is HttpRequestException { StatusCode: { } code } && (int)code is >= 400 and <= 599 ? code : error is OperationCanceledException ? HttpStatusCode.GatewayTimeout : HttpStatusCode.BadGateway;
+        var remoteStatus = error is HttpRequestException { StatusCode: { } code } && (int)code is >= 400 and <= 599 ? (int?)code : null;
+        // Without an observed remote status use the existing local HTTP400; do not invent an upstream response.
+        var status = (HttpStatusCode)(remoteStatus ?? 400);
         var type = error switch {
             HttpRequestException => "HttpRequestException", OperationCanceledException => "OperationCanceledException", ArgumentException => "ArgumentException",
             InvalidOperationException => "InvalidOperationException", System.Text.Json.JsonException => "JsonException", System.Security.Cryptography.CryptographicException => "CryptographicException",
@@ -36,8 +39,9 @@ public static class OwnerFailureReporting
         var elapsed = (int)Math.Min(OwnerFailureDiagnostic.MaximumElapsedMilliseconds, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         var diagnostic = remote ?? new(status == HttpStatusCode.Forbidden ? "authorization" : "operation", OwnerFailureDiagnostic.CodeFor(status), status == HttpStatusCode.Forbidden ? "UnauthorizedAccessException" : type, Guid.NewGuid().ToString("N"), elapsed);
         context.Response.Headers[StatusHeader] = ((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        context.Response.Headers[SourceHeader] = remote is null ? "client" : "service";
         context.Response.Headers[OwnerFailureDiagnostic.Header] = diagnostic.Encode(status);
-        logger.LogWarning("Owner client failed: operation={Operation} status={Status} stage={Stage} code={Code} exceptionType={ExceptionType} correlationId={CorrelationId} serviceElapsedMs={ServiceElapsedMilliseconds} clientExceptionType={ClientExceptionType} clientElapsedMs={ClientElapsedMilliseconds}",
-            operation, (int)status, diagnostic.Stage, diagnostic.Code, diagnostic.ExceptionType, diagnostic.CorrelationId, remote?.ElapsedMilliseconds, type, elapsed);
+        logger.LogWarning("Owner client failed: operation={Operation} status={Status} remoteStatus={RemoteStatus} stage={Stage} code={Code} exceptionType={ExceptionType} correlationId={CorrelationId} serviceElapsedMs={ServiceElapsedMilliseconds} clientExceptionType={ClientExceptionType} clientElapsedMs={ClientElapsedMilliseconds}",
+            operation, (int)status, remoteStatus, diagnostic.Stage, diagnostic.Code, diagnostic.ExceptionType, diagnostic.CorrelationId, remote?.ElapsedMilliseconds, type, elapsed);
     }
 }

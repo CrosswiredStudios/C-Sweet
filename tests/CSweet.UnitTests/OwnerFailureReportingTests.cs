@@ -22,7 +22,7 @@ public sealed class OwnerFailureReportingTests
         OwnerFailureReporting.Report(context, error, Stopwatch.GetTimestamp(), logger);
         using var response = LocalResponse(context);
         var shown = Assert.Throws<OwnerPanelOperationException>(() => OwnerFailureDisplay.EnsureSuccess(response));
-        Assert.Contains($"HTTP {status}", shown.Message); Assert.Contains($"stage {stage}", shown.Message);
+        Assert.Contains($"HTTP status {status}", shown.Message); Assert.Contains($"stage {stage}", shown.Message);
         Assert.Contains(hint.CorrelationId, shown.Message + string.Join("\n", logger.Messages));
         Assert.Contains("check service state before retrying", shown.Message);
         Assert.Contains("clientExceptionType=HttpRequestException", string.Join("\n", logger.Messages));
@@ -66,6 +66,7 @@ public sealed class OwnerFailureReportingTests
     {
         using var response = new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("SENSITIVE_RESPONSE_BODY") };
         response.Headers.Add(OwnerFailureDisplay.StatusHeader, "400");
+        response.Headers.Add(OwnerFailureDisplay.SourceHeader, "client");
         if (metadata is not null) response.Headers.TryAddWithoutValidation(OwnerFailureDiagnostic.Header, metadata);
         var shown = Assert.Throws<OwnerPanelOperationException>(() => OwnerFailureDisplay.EnsureSuccess(response));
         Assert.DoesNotContain("Diagnostic:", shown.Message); Assert.DoesNotContain("SENSITIVE", shown.Message);
@@ -82,17 +83,31 @@ public sealed class OwnerFailureReportingTests
     {
         using var response = new HttpResponseMessage(HttpStatusCode.BadRequest);
         response.Headers.TryAddWithoutValidation(OwnerFailureDisplay.StatusHeader, status);
+        response.Headers.Add(OwnerFailureDisplay.SourceHeader, "client");
         response.Headers.Add(OwnerFailureDiagnostic.Header, new OwnerFailureDiagnostic("name", "request_rejected", "ArgumentException", new string('a', 32), 1).Encode(HttpStatusCode.BadRequest));
         Assert.DoesNotContain("Diagnostic:", Assert.Throws<OwnerPanelOperationException>(() => OwnerFailureDisplay.EnsureSuccess(response)).Message);
     }
 
+    [Fact]
+    public void UiRejectsUnknownOrRepeatedDiagnosticSources()
+    {
+        using var response = new HttpResponseMessage(HttpStatusCode.BadRequest);
+        response.Headers.Add(OwnerFailureDisplay.StatusHeader, "400");
+        response.Headers.Add(OwnerFailureDiagnostic.Header, new OwnerFailureDiagnostic("name", "request_rejected", "ArgumentException", new string('a', 32), 1).Encode(HttpStatusCode.BadRequest));
+        response.Headers.TryAddWithoutValidation(OwnerFailureDisplay.SourceHeader, "SENSITIVE_SOURCE");
+        Assert.DoesNotContain("Diagnostic:", Assert.Throws<OwnerPanelOperationException>(() => OwnerFailureDisplay.EnsureSuccess(response)).Message);
+        response.Headers.Remove(OwnerFailureDisplay.SourceHeader);
+        response.Headers.TryAddWithoutValidation(OwnerFailureDisplay.SourceHeader, new[] { "service", "client" });
+        Assert.DoesNotContain("Diagnostic:", Assert.Throws<OwnerPanelOperationException>(() => OwnerFailureDisplay.EnsureSuccess(response)).Message);
+    }
     [Fact]
     public void CancellationHasSafeTimeoutHintsAndUnknownRoutesDoNotReflectInput()
     {
         var context = new DefaultHttpContext(); context.Request.Path = "/api/plugins/connection-service/owner/enroll";
         var logger = new CapturedLogger();
         OwnerFailureReporting.Report(context, new OperationCanceledException("SENSITIVE"), Stopwatch.GetTimestamp(), logger);
-        Assert.Equal("504", context.Response.Headers[OwnerFailureReporting.StatusHeader].ToString());
+        Assert.Equal("400", context.Response.Headers[OwnerFailureReporting.StatusHeader].ToString());
+        Assert.Contains(logger.Messages, x => x.Contains("exceptionType=OperationCanceledException", StringComparison.Ordinal));
         Assert.DoesNotContain("SENSITIVE", string.Join("\n", logger.Messages));
         var unknown = new DefaultHttpContext(); unknown.Request.Path = "/SENSITIVE";
         OwnerFailureReporting.Report(unknown, new InvalidOperationException("SENSITIVE"), Stopwatch.GetTimestamp(), logger);
