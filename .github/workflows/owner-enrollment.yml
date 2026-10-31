@@ -1,0 +1,29 @@
+name: Owner enrollment form
+on:
+  pull_request:
+    paths:
+      - 'src/CSweet.UI/Setup/ConnectionServiceOwnerPanel.razor'
+      - 'tests/CSweet.UnitTests/ConnectionServiceOwnerPanelTests.cs'
+      - 'Directory.*.props'
+      - '.github/workflows/owner-enrollment.yml'
+permissions:
+  contents: read
+jobs:
+  component-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Test owner form, gateway, safe diagnostics and settings
+        run: >-
+          dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
+          --configuration Release
+          --filter 'FullyQualifiedName~ConnectionServiceOwnerPanelTests|FullyQualifiedName~ConnectionServiceOwnerGatewayTests|FullyQualifiedName~OwnerFailureReportingTests|FullyQualifiedName~SettingsWorkspaceRenderingTests'
+          -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
+          -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
+          -p:UseLocalIsolation=false -p:UseSharedCompilation=false -m:1 -nr:false
