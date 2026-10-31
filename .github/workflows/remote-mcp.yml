@@ -1,12 +1,14 @@
-name: RealtyLeads trusted MCP
+name: Reviewed remote MCP
 on:
   pull_request:
     paths:
       - 'src/**'
       - 'tests/CSweet.RemoteMcp.Tests/**'
       - 'tests/CSweet.UnitTests/*RemoteMcp*'
+      - 'tests/CSweet.UnitTests/Fixtures/realtyleads-*'
+      - 'tools/CSweet.RemoteMcp.Probe/**'
       - 'Directory.Packages.props'
-      - '.github/workflows/realtyleads-mcp.yml'
+      - '.github/workflows/remote-mcp.yml'
 permissions:
   contents: read
 jobs:
@@ -16,6 +18,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Host source contains no provider-specific remote MCP policy
+        run: |
+          # Remote MCP policy must come from reviewed manifests. Provider names belong in fixtures, not host code.
+          if git grep -n -i -E 'realtyleads|realty\.?policy' -- 'src/*.cs' 'src/*.razor'; then
+            echo "::error::Provider-specific remote MCP code found in src/. Derive policy from the reviewed manifest instead."
+            exit 1
+          fi
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'

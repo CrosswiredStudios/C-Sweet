@@ -311,7 +311,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             errors.Add("Agent manifest protocol minimumVersion and maximumVersion are required.");
         }
-        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3" or "2.4" or "2.5") ||
+        else if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3" or "2.4" or "2.5" or "2.6") ||
                  !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
         {
             errors.Add("Executable plugins must require MCP runtime protocol 2.0 through 2.x.");
@@ -448,6 +448,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
             Setup = manifest.Setup,
             Accounts = manifest.Accounts,
             ToolchainAdapters = manifest.ToolchainAdapters,
+            RemoteMcpEndpoint = manifest.Kind == "remote-mcp" ? manifest.ReviewedRemoteMcp?.Endpoint : null,
             DefaultTickFrequencySeconds = manifest.Runtime.DefaultTickFrequencySeconds,
             PackageSourceMode = source.SourceType == "PluginBundle" ? "PluginBundle" : prebuilt ? "PrebuiltRelease" : "SourceBuild",
             ReleaseTag = version.ReleaseTag,

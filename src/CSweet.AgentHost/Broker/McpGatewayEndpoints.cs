@@ -298,6 +298,17 @@ public static class McpGatewayEndpoints
         }));
     }
 
+    /// <summary>Routes by the installed package's declared kind, never by a provider identity.</summary>
+    private static async Task<bool> IsReviewedRemoteMcpProviderAsync(CSweetDbContext db, Guid provider, CancellationToken cancellationToken)
+    {
+        var manifestJson = await db.AgentInstallations.AsNoTracking().Where(x => x.Id == provider)
+            .Select(x => x.PackageVersion!.ManifestJson).SingleOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrEmpty(manifestJson)) return false;
+        // Read kind exactly as the tool catalog does, so routing and catalog exposure cannot disagree.
+        return JsonSerializer.Deserialize<CSweet.Contracts.Plugins.PluginManifest>(manifestJson,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))?.Kind == "remote-mcp";
+    }
+
     internal static async Task<IResult> CallToolAsync(
         JsonElement? id,
         JsonElement root,
@@ -344,8 +355,7 @@ public static class McpGatewayEndpoints
         CapabilityResult? terminal;
         if (inputFailure is not null)
             terminal = inputFailure;
-        else if (tool.ProviderInstallationId is { } remoteProvider && await db.AgentInstallations.AnyAsync(x =>
-                x.Id == remoteProvider && x.PackageVersion!.AgentId == "com.crosswiredstudios.plugin.realtyleads", cancellationToken))
+        else if (tool.ProviderInstallationId is { } remoteProvider && await IsReviewedRemoteMcpProviderAsync(db, remoteProvider, cancellationToken))
         {
             var result = await remoteMcp.ReadAsync(Guid.Parse(session.BusinessId), Guid.Parse(session.InstallationId),
                 tool.Capability, arguments, cancellationToken);

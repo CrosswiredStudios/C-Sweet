@@ -369,4 +369,12 @@ public sealed record PluginReviewedRemoteMcpManifest
     public string AccountBinding { get; init; } = "";
     public string Transport { get; init; } = "";
     public IReadOnlyList<string> ProtocolVersions { get; init; } = [];
+    public IReadOnlyList<PluginReviewedRemoteMcpTool> Tools { get; init; } = [];
+}
+
+public sealed record PluginReviewedRemoteMcpTool
+{
+    public string Capability { get; init; } = "";
+    public string RemoteTool { get; init; } = "";
+    public string Effect { get; init; } = "";
 }

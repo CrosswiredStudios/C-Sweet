@@ -410,6 +410,8 @@
   "Agents.Import.Publications": "0855684c1444",
   "Agents.Import.Permissions": "d06d55570938",
   "Agents.Import.NetworkAccess": "5e5da2cd3c81",
+  "Agents.Import.RemoteMcpEndpoint.Title": "9780800e3471",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "dbfcd1a32aa3",
   "Agents.Import.Tab.AgentSettings": "b02d736ffdca",
   "Agents.Import.ConfigureAgent": "364154b47d51",
   "Agents.Import.ConfigureHint": "770641b525f9",

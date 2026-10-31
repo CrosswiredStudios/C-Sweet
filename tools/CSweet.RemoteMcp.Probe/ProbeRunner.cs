@@ -6,11 +6,20 @@ namespace CSweet.RemoteMcp.Probe;
 
 // Trusted-host test utility, never deployed as a workload or exposed as a model tool.
 public sealed record ProbeOutcome(string Status, int SearchCount, bool LookupSucceeded, bool RevocationVerified, string? FailureCategory = null, string? FailureStage = null, int? HttpStatus = null);
+/// <summary>
+/// One-shot RealtyLeads search/lookup probe. The endpoint, header and tool mapping come only from the reviewed
+/// provider manifest supplied by the operator; this tool never constructs its own transport policy.
+/// </summary>
 public sealed class ProbeRunner
 {
-    public async Task<ProbeOutcome> RunAsync(string key, CancellationToken ct,
+    public const string Search = "realtyleads.inheritance.search.v1";
+    public const string Lookup = "realtyleads.inheritance.lookup.v1";
+    public async Task<ProbeOutcome> RunAsync(ReviewedRemoteMcpProfile profile, string key, CancellationToken ct,
         Func<AccountVault, RemoteMcpBroker>? syntheticBrokerFactory = null)
     {
+        ArgumentNullException.ThrowIfNull(profile);
+        if (!profile.Declares(Search) || !profile.Declares(Lookup))
+            return new("failed", 0, false, false, "ProfileRejected");
         var repository = new MemoryRepository();
         var vault = new AccountVault(repository, new EphemeralDataProtectionProvider());
         var scope = new AccountScope(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
@@ -18,14 +27,14 @@ public sealed class ProbeRunner
         AccountReference? account = null;
         string? category = null, stage = null; int? httpStatus = null;
         var status = "failed"; var count = 0; var lookup = false; var revoked = false;
-        var broker = syntheticBrokerFactory?.Invoke(vault) ?? new RemoteMcpBroker(vault);
+        var broker = syntheticBrokerFactory?.Invoke(vault) ?? new RemoteMcpBroker(vault, profile);
         try
         {
             ct.ThrowIfCancellationRequested();
             account = await vault.ConnectAsync(scope, key, ct);
             key = "";
-            account = await vault.GrantAsync(scope, account, consumer, ct);
-            var result = await broker.ReadAsync(scope, account, consumer, RealtyPolicy.Search,
+            account = await vault.GrantAsync(scope, account, consumer, [Search, Lookup], ct);
+            var result = await broker.ReadAsync(scope, account, consumer, Search,
                 JsonSerializer.SerializeToElement(new { limit = 1 }), ct);
             var found = result.GetArrayLength();
             if (found > 1) throw new InvalidOperationException();
@@ -34,7 +43,7 @@ public sealed class ProbeRunner
             {
                 var id = result[0].GetProperty("inheritanceLeadId").GetString();
                 if (!Guid.TryParseExact(id, "D", out _)) throw new InvalidOperationException();
-                var detail = await broker.ReadAsync(scope, account, consumer, RealtyPolicy.Lookup,
+                var detail = await broker.ReadAsync(scope, account, consumer, Lookup,
                     JsonSerializer.SerializeToElement(new { id }), ct);
                 if (detail.GetProperty("inheritanceLeadId").GetString() != id) throw new InvalidOperationException();
                 lookup = true;
@@ -57,7 +66,7 @@ public sealed class ProbeRunner
                     await vault.RevokeAsync(scope, account, cleanup.Token);
                     try
                     {
-                        await broker.ReadAsync(scope, account, consumer, RealtyPolicy.Search,
+                        await broker.ReadAsync(scope, account, consumer, Search,
                             JsonSerializer.SerializeToElement(new { limit = 1 }), cleanup.Token);
                     }
                     catch (UnauthorizedAccessException) { revoked = true; }

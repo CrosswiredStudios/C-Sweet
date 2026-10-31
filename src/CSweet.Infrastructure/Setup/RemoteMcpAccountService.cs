@@ -19,6 +19,12 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
     private static UnauthorizedAccessException Denied() => new("The connection or its approved business access is unavailable.");
     private static PluginManifest Manifest(AgentInstallation installation) => JsonSerializer.Deserialize<PluginManifest>(installation.PackageVersion!.ManifestJson, Json) ?? throw Denied();
     private static string[] Values(string? json) => JsonSerializer.Deserialize<string[]>(json ?? "[]") ?? [];
+    /// <summary>The broker policy comes only from the installed provider's reviewed manifest (pinned by package digest).</summary>
+    internal static ReviewedRemoteMcpProfile Profile(AgentInstallation provider)
+    {
+        try { return ReviewedRemoteMcpProfile.FromManifestJson(provider.PackageVersion!.ManifestJson); }
+        catch (InvalidOperationException) { throw Denied(); }
+    }
     private async Task<AgentInstallation> Provider(Guid business, Guid provider, CancellationToken ct, bool management = false)
     {
         var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Include(x => x.Grant)
@@ -36,18 +42,27 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
             !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.ApplicationUserId == owner && x.OrganizationId == business &&
                 x.IsActive && x.EmployeeType == EmployeeType.Human && x.PermissionLevel >= OrganizationPermissionLevel.Manager, ct)) throw Denied();
     }
-    private async Task<AgentInstallation> Consumer(Guid business, Guid consumer, AgentInstallation provider, CancellationToken ct)
+    private async Task<AgentInstallation> Consumer(Guid business, Guid consumer, AgentInstallation provider, CancellationToken ct) =>
+        (await ConsumerWithCapabilities(business, consumer, provider, ct)).Installation;
+
+    /// <summary>
+    /// The consumer's requirements for this dependency define what a grant covers. Every one must be reviewed in the
+    /// provider manifest, approved in the consumer's installation grant and provided by the provider's grant.
+    /// </summary>
+    private async Task<(AgentInstallation Installation, string[] Capabilities)> ConsumerWithCapabilities(Guid business, Guid consumer, AgentInstallation provider, CancellationToken ct)
     {
         var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).Include(x => x.Grant)
             .SingleOrDefaultAsync(x => x.Id == consumer && x.BusinessId == business.ToString("D") && x.IsEnabled &&
                 x.RevisionStatus == PluginRevisionStatus.Active, ct) ?? throw Denied();
-        var manifest = Manifest(installation); var profile = Manifest(provider);
-        var dependency = manifest.Dependencies.SingleOrDefault(x => x.PluginId == profile.Id && x.PublisherId == profile.Publisher.Id) ?? throw Denied();
-        if (!Version.TryParse(profile.Version, out var version) || !Version.TryParse(dependency.MinimumVersion, out var min) ||
+        var manifest = Manifest(installation); var providerManifest = Manifest(provider); var profile = Profile(provider);
+        var dependency = manifest.Dependencies.SingleOrDefault(x => x.PluginId == providerManifest.Id && x.PublisherId == providerManifest.Publisher.Id) ?? throw Denied();
+        var capabilities = manifest.Requires.Where(r => r.Dependency == dependency.Id).Select(r => r.Name).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        if (!Version.TryParse(providerManifest.Version, out var version) || !Version.TryParse(dependency.MinimumVersion, out var min) ||
             !Version.TryParse(dependency.MaximumVersionExclusive, out var max) || version < min || version >= max || installation.Grant is null ||
-            new[] { RealtyPolicy.Search, RealtyPolicy.Lookup }.Any(c => !manifest.Requires.Any(r => r.Name == c && r.Dependency == dependency.Id) ||
-                !Values(installation.Grant.RequiredCapabilitiesJson).Contains(c) || !Values(provider.Grant!.ProvidedCapabilitiesJson).Contains(c))) throw Denied();
-        return installation;
+            capabilities.Length == 0 ||
+            capabilities.Any(c => !profile.Declares(c) || !Values(installation.Grant.RequiredCapabilitiesJson).Contains(c) ||
+                !Values(provider.Grant!.ProvidedCapabilitiesJson).Contains(c))) throw Denied();
+        return (installation, capabilities);
     }
     public async Task<RemoteMcpAccountView> GetAsync(Guid owner, Guid business, Guid provider, CancellationToken ct)
     {
@@ -68,7 +83,14 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
         foreach (var candidate in candidates)
             try { await Consumer(business, candidate.Id, installation, ct); consumers.Add(new(candidate.Id, candidate.PackageVersion!.AgentName)); }
             catch (UnauthorizedAccessException) { }
-        return new(installation.PackageVersion!.PackageDigest!, connections, consumers);
+        var profile = Profile(installation);
+        return new(installation.PackageVersion!.PackageDigest!, connections, consumers)
+        {
+            ProviderName = profile.ProviderName,
+            EndpointHost = profile.Host,
+            Tools = profile.Tools.OrderBy(t => t.Capability, StringComparer.Ordinal)
+                .Select(t => new RemoteMcpToolView(t.Capability, t.Description)).ToArray()
+        };
     }
     public async Task<RemoteMcpConnectionView> ConnectAsync(Guid owner, Guid business, Guid provider, RemoteMcpKeyRequest request, CancellationToken ct)
     {
@@ -90,17 +112,17 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
     {
         await RequireOwner(db, owner, business, ct); var installation = await Provider(business, provider, ct);
         if (request.PackageDigest != installation.PackageVersion!.PackageDigest) throw Denied();
-        var consumer = await Consumer(business, request.ConsumerInstallationId, installation, ct);
+        var (consumer, capabilities) = await ConsumerWithCapabilities(business, request.ConsumerInstallationId, installation, ct);
         var dependency = Manifest(consumer).Dependencies.Single(x => x.PluginId == Manifest(installation).Id);
         await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
         var scope = Scope(owner, business, provider);
-        var granted = await Vault(scope).GrantAsync(scope, new(connection, request.ExpectedGeneration), consumer.Id, ct);
+        var granted = await Vault(scope).GrantAsync(scope, new(connection, request.ExpectedGeneration), consumer.Id, capabilities, ct);
         await Invalidate(business, provider, connection, ct);
         // One explicit account choice per consumer/dependency. Never let agent arguments choose among accounts.
         var old = await db.AgentCapabilityBindings.Where(x => x.RequesterInstallationId == consumer.Id && x.DependencyId == dependency.Id && x.RevokedAt == null).ToArrayAsync(ct);
         foreach (var binding in old) binding.RevokedAt = DateTimeOffset.UtcNow;
         await FenceConsumers(old.Select(b => b.RequesterInstallationId).Distinct().ToArray(), business, ct);
-        foreach (var capability in new[] { RealtyPolicy.Search, RealtyPolicy.Lookup })
+        foreach (var capability in capabilities)
         {
             var id = Guid.NewGuid();
             db.AgentCapabilityBindings.Add(new() { Id = id, OrganizationId = business.ToString("D"), RequesterInstallationId = consumer.Id,
@@ -142,7 +164,7 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
         var inbox = new AgentWorkInbox(db, protection, TimeProvider.System);
         foreach (var id in queued) await inbox.CancelAsync(id, "Native account access changed; submit new work after reviewing access.", ct);
     }
-    private async Task<(AgentCapabilityBinding Binding, Selection Selection)> Resolve(Guid business, Guid consumer, string capability, CancellationToken ct)
+    private async Task<(AgentCapabilityBinding Binding, Selection Selection, AgentInstallation Provider)> Resolve(Guid business, Guid consumer, string capability, CancellationToken ct)
     {
         var bindings = await db.AgentCapabilityBindings.AsNoTracking().Where(x => x.OrganizationId == business.ToString("D") &&
             x.RequesterInstallationId == consumer && x.Capability == capability && x.RevokedAt == null).ToArrayAsync(ct);
@@ -154,13 +176,13 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
             x.OrganizationId == business && x.AgentInstallationId == provider.Id, ct) ?? throw Denied();
         var selection = JsonSerializer.Deserialize<Selection>(row.PayloadJson, Json) ?? throw Denied();
         await RequireOwner(db, selection.Owner, business, ct);
-        return (binding, selection);
+        return (binding, selection, provider);
     }
     public async Task<bool> IsAvailableAsync(Guid business, Guid consumer, string capability, CancellationToken ct)
     {
         try
         {
-            var (binding, selection) = await Resolve(business, consumer, capability, ct);
+            var (binding, selection, _) = await Resolve(business, consumer, capability, ct);
             var scope = Scope(selection.Owner, business, binding.ProviderInstallationId);
             var info = await Vault(scope).InspectAsync(scope, selection.Connection, ct);
             return !info.Revoked && info.Reference.Generation == selection.Generation && info.Grants.Contains(new(consumer, capability));
@@ -168,10 +190,11 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
         catch (UnauthorizedAccessException) { return false; }
     }
     public async Task<JsonElement> ReadAsync(Guid business, Guid consumer, string capability, JsonElement input, CancellationToken ct,
-        Func<AccountVault, RemoteMcpBroker>? brokerFactory = null)
+        Func<AccountVault, ReviewedRemoteMcpProfile, RemoteMcpBroker>? brokerFactory = null)
     {
-        RealtyPolicy.ValidateInput(capability, input);
-        var (binding, selection) = await Resolve(business, consumer, capability, ct);
+        var (binding, selection, provider) = await Resolve(business, consumer, capability, ct);
+        var profile = Profile(provider);
+        profile.ValidateInput(capability, input);
         var scope = Scope(selection.Owner, business, binding.ProviderInstallationId);
         async Task Revalidate(CancellationToken token)
         {
@@ -179,7 +202,7 @@ public sealed class RemoteMcpAccountService(CSweetDbContext db, IDataProtectionP
             if (current.Binding.Id != binding.Id || current.Selection != selection) throw Denied();
         }
         var vault = Vault(scope);
-        return await (brokerFactory?.Invoke(vault) ?? new RemoteMcpBroker(vault)).ReadAsync(scope,
+        return await (brokerFactory?.Invoke(vault, profile) ?? new RemoteMcpBroker(vault, profile)).ReadAsync(scope,
             new(selection.Connection, selection.Generation), consumer, capability, input, ct, Revalidate);
     }
 }

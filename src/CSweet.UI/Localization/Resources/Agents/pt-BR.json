@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "Publicações",
   "Agents.Import.Permissions": "Permissões",
   "Agents.Import.NetworkAccess": "Acesso à rede",
+  "Agents.Import.RemoteMcpEndpoint.Title": "Endpoint remoto revisado",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "O C-Sweet enviará as chaves de conta que você conectar a este plugin somente para {host}. Aprove a instalação apenas se confiar neste endpoint.",
   "Agents.Import.Tab.AgentSettings": "Configurações do agente",
   "Agents.Import.ConfigureAgent": "Configurar {name}",
   "Agents.Import.ConfigureHint": "Escolha o provedor de modelo e as demais configurações declaradas por este agente antes da instalação.",

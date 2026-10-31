@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "المنشورات",
   "Agents.Import.Permissions": "الأذونات",
   "Agents.Import.NetworkAccess": "الوصول إلى الشبكة",
+  "Agents.Import.RemoteMcpEndpoint.Title": "نقطة النهاية البعيدة المراجَعة",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "سيرسل C-Sweet مفاتيح الحسابات التي تربطها بهذه الإضافة إلى {host} فقط. وافق على التثبيت فقط إذا كنت تثق بنقطة النهاية هذه.",
   "Agents.Import.Tab.AgentSettings": "إعدادات الوكيل",
   "Agents.Import.ConfigureAgent": "تكوين {name}",
   "Agents.Import.ConfigureHint": "اختر موفّر النموذج والإعدادات الأخرى التي يُعلنها هذا الوكيل قبل التثبيت.",

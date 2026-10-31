@@ -34,6 +34,8 @@ public sealed record AgentImportPreviewResponse(
     public PluginSetupManifest? Setup { get; init; }
     public PluginAccountManagement? Accounts { get; init; }
     public PluginToolchainAdapters ToolchainAdapters { get; init; } = new();
+    /// <summary>For reviewed remote MCP providers, the publisher-declared endpoint that will receive connected account keys.</summary>
+    public string? RemoteMcpEndpoint { get; init; }
     public int? DefaultTickFrequencySeconds { get; init; }
     public string PackageSourceMode { get; init; } = "SourceBuild";
     public string? BundleDigest { get; init; }

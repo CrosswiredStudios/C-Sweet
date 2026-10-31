@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "Публикации",
   "Agents.Import.Permissions": "Разрешения",
   "Agents.Import.NetworkAccess": "Доступ к сети",
+  "Agents.Import.RemoteMcpEndpoint.Title": "Проверенная удалённая конечная точка",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "C-Sweet будет отправлять ключи учётных записей, подключённые для этого плагина, только на {host}. Одобряйте установку, только если доверяете этой конечной точке.",
   "Agents.Import.Tab.AgentSettings": "Настройки агента",
   "Agents.Import.ConfigureAgent": "Настройка: {name}",
   "Agents.Import.ConfigureHint": "Перед установкой выберите поставщика моделей и другие настройки, объявленные этим агентом.",

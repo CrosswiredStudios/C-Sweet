@@ -425,6 +425,14 @@
                     </MudTabPanel>
                     <MudTabPanel Text="@L["Agents.Import.Tab.AccessReview"]" Icon="@Icons.Material.Filled.Security">
                         <div class="agent-import-tab-content agent-import-access-grid">
+                            @if (!string.IsNullOrWhiteSpace(_importPreview.RemoteMcpEndpoint))
+                            {
+                                <MudAlert Severity="Severity.Warning" Dense="true" Class="agent-import-remote-endpoint">
+                                    <strong>@L["Agents.Import.RemoteMcpEndpoint.Title"]</strong>
+                                    <div>@L.Format("Agents.Import.RemoteMcpEndpoint.Detail", new { host = RemoteMcpEndpointHost(_importPreview.RemoteMcpEndpoint) })</div>
+                                    <code>@_importPreview.RemoteMcpEndpoint</code>
+                                </MudAlert>
+                            }
                             @ApprovalSection(L["Agents.Import.Capabilities"], _importPreview.Capabilities, _approvedCapabilities)
                             @ApprovalSection(L["Agents.Import.PlatformAccess"], _importPreview.RequestedCapabilities, _approvedRequestedCapabilities)
                             @ApprovalSection(L["Agents.Import.Subscriptions"], _importPreview.RequestedSubscriptions, _approvedSubscriptions)
@@ -759,6 +767,8 @@
     private string _importRef = string.Empty;
     private string? _importError;
     private AgentImportPreviewResponse? _importPreview;
+    private static string RemoteMcpEndpointHost(string endpoint) =>
+        Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ? uri.Host : endpoint;
     private int _importTabIndex;
     private string _installBusinessId = "default";
     private string _installActivationMode = "OnDemand";

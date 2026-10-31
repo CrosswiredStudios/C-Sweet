@@ -1,6 +1,6 @@
 namespace CSweet.RemoteMcp;
 
-public enum RemoteMcpStage { Dns, Initialize, Initialized, ToolsList, Search, Lookup }
+public enum RemoteMcpStage { Dns, Initialize, Initialized, ToolsList, ToolCall }
 public enum RemoteMcpFailureCategory
 {
     AuthenticationRejected, AccessPolicyRejected, RedirectRejected, RateLimited, ProviderHttpError, HttpRejected,

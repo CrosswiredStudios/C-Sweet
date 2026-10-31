@@ -61,8 +61,8 @@ AgentTestRuntime TestRuntime()
     return new AgentTestRuntime().RegisterCapability<LeadSearch, InheritanceLead[]>(RealtyLeadsAgent.ProviderSearch, async (query, ct) =>
     {
         var json = JsonSerializer.SerializeToElement(query, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var result = await fixture.Service.ReadAsync(fixture.Business, fixture.Consumer.Id, RealtyPolicy.Search, json, ct,
-            vault => new RemoteMcpBroker(vault, () => new RemoteMcpNativeFlowTests.FakeMcp()));
+        var result = await fixture.Service.ReadAsync(fixture.Business, fixture.Consumer.Id, RealtyLeadsAgent.ProviderSearch, json, ct,
+            (vault, profile) => new RemoteMcpBroker(vault, profile, () => new RemoteMcpNativeFlowTests.FakeMcp()));
         return result.Deserialize<InheritanceLead[]>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     });
 }

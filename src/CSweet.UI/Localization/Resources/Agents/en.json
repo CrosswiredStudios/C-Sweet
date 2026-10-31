@@ -421,6 +421,8 @@
   "Agents.Import.Publications": "Publications",
   "Agents.Import.Permissions": "Permissions",
   "Agents.Import.NetworkAccess": "Network access",
+  "Agents.Import.RemoteMcpEndpoint.Title": "Reviewed remote endpoint",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "C-Sweet will send account keys you connect for this plugin only to {host}. Approve this install only if you trust this endpoint.",
   "Agents.Import.Tab.AgentSettings": "Agent settings",
   "Agents.Import.ConfigureAgent": "Configure {name}",
   "Agents.Import.ConfigureHint": "Choose the model provider and other settings declared by this agent before installation.",

@@ -411,6 +411,8 @@
   "Agents.Import.Publications": "发布",
   "Agents.Import.Permissions": "权限",
   "Agents.Import.NetworkAccess": "网络访问",
+  "Agents.Import.RemoteMcpEndpoint.Title": "已审核的远程端点",
+  "Agents.Import.RemoteMcpEndpoint.Detail": "C-Sweet 只会将你为此插件连接的账户密钥发送到 {host}。仅当你信任此端点时才批准安装。",
   "Agents.Import.Tab.AgentSettings": "智能体设置",
   "Agents.Import.ConfigureAgent": "配置 {name}",
   "Agents.Import.ConfigureHint": "安装前，请选择此智能体声明的模型提供商及其他设置。",
