@@ -131,3 +131,12 @@ Before release:
    verification, API eligibility, real revocation or physical backup erasure.
 
 See the service README, `releases/0.3.0.md` and `docs/remaining-work.md` for exact scope.
+# Owner-control failure diagnostics (pending Protocol 0.5.0 publication)
+
+`OwnerFailureReporting` records fixed operation/stage/code/type labels, HTTP status, a generated
+correlation ID and bounded elapsed time. `OwnerFailureDisplay` shows validated diagnostic hints
+only in the service-owner administrator panel. Neither component reads or forwards remote failure
+bodies, headers containing authority, proofs, keys or raw exception messages. Optional remote
+metadata is validated twice and cannot grant authority or establish whether a mutation committed.
+Legacy services remain usable with local status/type/correlation hints. The existing local failure
+status/body and check-state-before-retrying behavior are preserved; no operation is retried.
