@@ -130,7 +130,8 @@ builder.Services.AddCors(options =>
         policy.SetIsOriginAllowed(IsDevelopmentLoopbackOrigin)
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials()
+            .WithOwnerFailureHeaders();
     });
 });
 

@@ -10,6 +10,17 @@ namespace CSweet.UnitTests;
 
 public sealed class OwnerFailureReportingTests
 {
+    [Fact]
+    public void ExistingCorsOriginAndCredentialsPolicyExposesOnlySafeDiagnosticHeaders()
+    {
+        var policy = new Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder()
+            .WithOrigins("https://localhost:7125").AllowCredentials().WithOwnerFailureHeaders().Build();
+        Assert.Equal(new[] { "https://localhost:7125" }, policy.Origins);
+        Assert.True(policy.SupportsCredentials); Assert.False(policy.AllowAnyOrigin);
+        Assert.Equal(new[] { OwnerFailureReporting.StatusHeader, OwnerFailureReporting.SourceHeader, OwnerFailureDiagnostic.Header }, policy.ExposedHeaders);
+        Assert.DoesNotContain("Authorization", policy.ExposedHeaders);
+        Assert.DoesNotContain("Set-Cookie", policy.ExposedHeaders);
+    }
     [Theory]
     [InlineData(400, "name", "request_rejected", "ArgumentException")]
     [InlineData(403, "authorization", "not_authorized", "UnauthorizedAccessException")]

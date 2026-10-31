@@ -8,6 +8,8 @@ public static class OwnerFailureReporting
 {
     public const string StatusHeader = "X-CSweet-Owner-Status";
     public const string SourceHeader = "X-CSweet-Owner-Diagnostic-Source";
+    public static Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder WithOwnerFailureHeaders(this Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder policy)
+        => policy.WithExposedHeaders(StatusHeader, SourceHeader, OwnerFailureDiagnostic.Header);
     public static void Report(HttpContext context, Exception error, long started, ILogger logger)
     {
         var operation = context.Request.Path.Value switch {
