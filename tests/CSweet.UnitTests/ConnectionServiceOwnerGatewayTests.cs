@@ -42,7 +42,40 @@ public sealed class ConnectionServiceOwnerGatewayTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
-    private sealed class Factory(Handler handler) : IHttpClientFactory { public HttpClient CreateClient(string name) => new(handler, false); }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnerFailureDoesNotRetryOrReplacePreparedIdentity(bool diagnostics)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "csweet-owner-failure-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+            var selection = new ConnectionServiceSelectionStore(db, Options.Create(new PluginConnectionOptions { Managed = new() { Enabled = true, ServiceOrigin = "https://owner.example.test" } }));
+            var handler = new FailureHandler(diagnostics); var path = Path.Combine(directory, "owner.json");
+            var gateway = new ConnectionServiceOwnerGateway(new Factory(handler), new EphemeralDataProtectionProvider(), Options.Create(new ConnectionServiceOwnerOptions { RegistrationPath = path }), selection);
+            var actor = Guid.NewGuid(); var before = await gateway.Prepare(actor, default);
+            var error = await Assert.ThrowsAsync<OwnerOperationException>(() => gateway.Enroll(actor, 1, new("tenant", new("customer", before.PublicKey, "key", ["https://return.example.test/"])), default));
+            Assert.Equal(HttpStatusCode.BadRequest, error.StatusCode);
+            Assert.Equal(diagnostics, error.Diagnostic is not null);
+            Assert.Equal(1, handler.Calls);
+            Assert.Equal(before, await gateway.Prepare(actor, default));
+            Assert.DoesNotContain("SENSITIVE", error.ToString());
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+    private sealed class Factory(HttpMessageHandler handler) : IHttpClientFactory { public HttpClient CreateClient(string name) => new(handler, false); }
+    private sealed class FailureHandler(bool diagnostics) : HttpMessageHandler
+    {
+        public int Calls;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Calls++;
+            var response = new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("SENSITIVE_RESPONSE_BODY") };
+            if (diagnostics) response.Headers.Add(OwnerFailureDiagnostic.Header, new OwnerFailureDiagnostic("name", "request_rejected", "ArgumentException", new string('a', 32), 94).Encode(response.StatusCode));
+            return Task.FromResult(response);
+        }
+    }
     private sealed class Handler : HttpMessageHandler
     {
         public CSweet.Contracts.Plugins.OwnerBootstrapDetails Bootstrap { get; set; } = null!;

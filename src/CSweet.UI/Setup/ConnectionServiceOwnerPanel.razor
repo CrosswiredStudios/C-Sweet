@@ -64,15 +64,15 @@
     private string? _bootstrap, _result, _error;
     private string _format = "google-web-client", _profile = "com.csweet.google.youtube", _package = "", _tenant = "", _name = "", _key = "", _keyId = "", _returnUri = "", _revokeId = "";
     private JsonElement? _credential;
-    private async Task Run(Func<Task> operation) { _busy = true; _error = null; _result = null; try { await operation(); } catch { _error = "Operation unavailable. Check local bootstrap and current permissions. A submitted mutation may have succeeded; check service state before retrying."; _access = null; } finally { _busy = false; } }
-    private Task Prepare() => Run(async () => { using var r = await Http.PostAsync("api/plugins/connection-service/owner/prepare", null); r.EnsureSuccessStatusCode(); var details = await r.Content.ReadFromJsonAsync<OwnerBootstrapDetails>(); _bootstrap = JsonSerializer.Serialize(details, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }); });
-    private Task Access() => Run(async () => { using var r = await Http.PostAsync("api/plugins/connection-service/owner/access", null); r.EnsureSuccessStatusCode(); _access = await r.Content.ReadFromJsonAsync<AccessView>(); });
+    private async Task Run(Func<Task> operation) { _busy = true; _error = null; _result = null; try { await operation(); } catch (OwnerPanelOperationException failure) { _error = failure.Message; _access = null; } catch { _error = "Operation unavailable. Check local bootstrap and current permissions. A submitted mutation may have succeeded; check service state before retrying."; _access = null; } finally { _busy = false; } }
+    private Task Prepare() => Run(async () => { using var r = await Http.PostAsync("api/plugins/connection-service/owner/prepare", null); OwnerFailureDisplay.EnsureSuccess(r); var details = await r.Content.ReadFromJsonAsync<OwnerBootstrapDetails>(); _bootstrap = JsonSerializer.Serialize(details, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true }); });
+    private Task Access() => Run(async () => { using var r = await Http.PostAsync("api/plugins/connection-service/owner/access", null); OwnerFailureDisplay.EnsureSuccess(r); _access = await r.Content.ReadFromJsonAsync<AccessView>(); });
     private async Task LoadCredential(InputFileChangeEventArgs e) { _credential = null; try { using var stream = e.File.OpenReadStream(65536); using var document = await JsonDocument.ParseAsync(stream); _credential = document.RootElement.Clone(); } catch { _error = "Choose a provider export JSON file no larger than 64 KiB."; } }
     private async Task<JsonDocument> Post(string action, object payload)
     {
         if (_access is null) throw new InvalidOperationException();
         using var r = await Http.PostAsJsonAsync("api/plugins/connection-service/owner/" + action, new { grantRevision = _access.GrantRevision, request = payload });
-        r.EnsureSuccessStatusCode(); return await JsonDocument.ParseAsync(await r.Content.ReadAsStreamAsync());
+        OwnerFailureDisplay.EnsureSuccess(r); return await JsonDocument.ParseAsync(await r.Content.ReadAsStreamAsync());
     }
     private Task Import() => Run(async () => { try { using var r = await Post("import", new { format = _format, profileId = _profile, document = _credential }); _result = "Profile: " + r.RootElement.GetProperty("profileId").GetString() + "\nCallback: " + r.RootElement.GetProperty("callbackUri").GetString() + "\nRevision: " + r.RootElement.GetProperty("publicRevision").GetInt64(); } finally { _credential = null; } });
     private Task Approve() => Run(async () => { using var document = JsonDocument.Parse(_package); using var r = await Post("approve", document.RootElement); _result = "Package binding accepted."; });

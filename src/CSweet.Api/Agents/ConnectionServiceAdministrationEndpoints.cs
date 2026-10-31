@@ -31,9 +31,13 @@ public static class ConnectionServiceAdministrationEndpoints
             }
             http.Items["connection-service-actor"] = user.Id;
             http.Response.Headers.CacheControl = "no-store";
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try { return await next(context); }
             catch (Exception error) when (error is OperationCanceledException or InvalidOperationException or ArgumentException or System.Security.Cryptography.CryptographicException or IOException or System.Text.Json.JsonException or HttpRequestException or Microsoft.EntityFrameworkCore.DbUpdateException)
-            { return Results.BadRequest(new { error = "connection_service_operation_unavailable", message = "Check the selected service, current permissions and local bootstrap. A submitted change may have succeeded; check service state before retrying." }); }
+            {
+                OwnerFailureReporting.Report(http, error, started, http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("CSweet.OwnerControl"));
+                return Results.BadRequest(new { error = "connection_service_operation_unavailable", message = "Check the selected service, current permissions and local bootstrap. A submitted change may have succeeded; check service state before retrying." });
+            }
         });
         static Guid Actor(HttpContext http) => (Guid)http.Items["connection-service-actor"]!;
         group.MapGet("/selection", (ConnectionServiceSelectionStore store) => store.Current());
