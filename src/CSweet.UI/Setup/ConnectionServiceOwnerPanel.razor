@@ -37,11 +37,11 @@
         @if (_access.Capabilities.Contains("deployments.enroll"))
         {
             <MudText Typo="Typo.h6">Enroll a customer installation</MudText>
-            <MudTextField T="string" Label="Tenant ID" @bind-Value="_tenant" />
-            <MudTextField T="string" Label="Installation name" @bind-Value="_name" />
-            <MudTextField T="string" Label="Public key from customer pairing" @bind-Value="_key" />
-            <MudTextField T="string" Label="Key ID" @bind-Value="_keyId" />
-            <MudTextField T="string" Label="Exact HTTPS browser return URI" @bind-Value="_returnUri" />
+            <MudTextField T="string" Label="Tenant ID" @bind-Value="_tenant" Immediate="true" />
+            <MudTextField T="string" Label="Installation name" @bind-Value="_name" Immediate="true" />
+            <MudTextField T="string" Label="Public key from customer pairing" @bind-Value="_key" Immediate="true" />
+            <MudTextField T="string" Label="Key ID" @bind-Value="_keyId" Immediate="true" />
+            <MudTextField T="string" Label="Exact HTTPS browser return URI" @bind-Value="_returnUri" Immediate="true" />
             <MudButton Disabled="_busy" OnClick="Enroll">Approve customer enrollment</MudButton>
         }
         @if (_access.Capabilities.Contains("deployments.revoke"))
@@ -76,6 +76,24 @@
     }
     private Task Import() => Run(async () => { try { using var r = await Post("import", new { format = _format, profileId = _profile, document = _credential }); _result = "Profile: " + r.RootElement.GetProperty("profileId").GetString() + "\nCallback: " + r.RootElement.GetProperty("callbackUri").GetString() + "\nRevision: " + r.RootElement.GetProperty("publicRevision").GetInt64(); } finally { _credential = null; } });
     private Task Approve() => Run(async () => { using var document = JsonDocument.Parse(_package); using var r = await Post("approve", document.RootElement); _result = "Package binding accepted."; });
-    private Task Enroll() => Run(async () => { using var r = await Post("enroll", new { tenantId = _tenant, deployment = new { name = _name, publicKey = _key, keyId = _keyId, returnUris = new[] { _returnUri } } }); _result = "Deployment: " + r.RootElement.GetProperty("deploymentId").GetGuid() + "\nTenant: " + r.RootElement.GetProperty("tenantId").GetString() + "\nRevision: " + r.RootElement.GetProperty("revision").GetInt64(); });
+    private Task Enroll()
+    {
+        // Match the service's identifier alphabet and length without trimming or changing tenant identity.
+        if (string.IsNullOrEmpty(_tenant) || _tenant.Length > 128 || !char.IsAsciiLetterOrDigit(_tenant[0]) ||
+            _tenant.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')))
+        {
+            _result = null;
+            _error = "Enter a tenant ID of 1–128 ASCII letters, digits, dots, underscores or hyphens, starting with a letter or digit.";
+            return Task.CompletedTask;
+        }
+        if (_access is null || !_access.Capabilities.Contains("deployments.enroll") ||
+            (_access.TenantScope != "*" && !string.Equals(_access.TenantScope, _tenant, StringComparison.Ordinal)))
+        {
+            _result = null;
+            _error = "The tenant ID must match your current service enrollment permission. Check your service permissions before submitting.";
+            return Task.CompletedTask;
+        }
+        return Run(async () => { using var r = await Post("enroll", new { tenantId = _tenant, deployment = new { name = _name, publicKey = _key, keyId = _keyId, returnUris = new[] { _returnUri } } }); _result = "Deployment: " + r.RootElement.GetProperty("deploymentId").GetGuid() + "\nTenant: " + r.RootElement.GetProperty("tenantId").GetString() + "\nRevision: " + r.RootElement.GetProperty("revision").GetInt64(); });
+    }
     private Task Revoke() => Run(async () => { using var r = await Post("revoke", new { tenantId = _tenant, deploymentId = Guid.Parse(_revokeId) }); _result = "Deployment revoked; provider cleanup may still be pending."; });
 }
