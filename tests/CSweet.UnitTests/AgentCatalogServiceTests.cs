@@ -548,6 +548,78 @@ public sealed class AgentCatalogServiceTests
         Assert.Equal(AgentAvailabilityState.InstalledEnabled, agent.Availability);
     }
 
+    [Fact]
+    public async Task ApprovedDefinitions_AreHireableFromEveryOrganization_AndInstalledCopiesShadowThem()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var hiringOrganization = Guid.NewGuid();
+        var otherOrganization = Guid.NewGuid();
+        var installation = Installation(hiringOrganization, "Lead Analyst");
+        var definition = Definition(installation.PackageVersion!, AgentDefinitionStatus.Available, available: true);
+        installation.AgentDefinitionId = definition.Id;
+        db.AddRange(installation, definition,
+            Definition(Installation(otherOrganization, "Still building").PackageVersion!, AgentDefinitionStatus.Building, available: false),
+            Definition(Installation(otherOrganization, "Switched off").PackageVersion!, AgentDefinitionStatus.Disabled, available: true));
+        await db.SaveChangesAsync();
+        var service = new AgentCatalogService(
+            [new InstalledAgentCatalogProvider(db), new ApprovedDefinitionAgentCatalogProvider(db)],
+            NullLogger<AgentCatalogService>.Instance);
+
+        var elsewhere = Assert.Single((await service.GetAvailableAgentsAsync(otherOrganization, new())).Agents);
+        Assert.Equal(AgentCatalogSource.ApprovedDefinition, elsewhere.Source);
+        Assert.Equal($"definition:{definition.Id:N}", elsewhere.AgentReference);
+        Assert.Equal(AgentAvailabilityState.AvailableToInstall, elsewhere.Availability);
+        Assert.Equal(installation.PackageVersion!.PackageSource!.RepositoryUrl, elsewhere.RepositoryUrl);
+        Assert.Equal(installation.PackageVersion.AgentId, elsewhere.AgentId);
+        Assert.Equal(["product.strategy"], elsewhere.Capabilities);
+        Assert.Null(elsewhere.InstallationId);
+
+        var here = Assert.Single((await service.GetAvailableAgentsAsync(hiringOrganization, new())).Agents);
+        Assert.Equal(AgentCatalogSource.Installed, here.Source);
+        Assert.Equal(installation.Id, here.InstallationId);
+        Assert.Contains(AgentCatalogSource.ApprovedDefinition, here.AlternateSources);
+
+        var resolved = Assert.IsType<AvailableAgent>(await service.ResolveAsync(otherOrganization, elsewhere.AgentReference));
+        Assert.Equal(elsewhere.AgentReference, resolved.AgentReference);
+        Assert.Null(await service.ResolveAsync(otherOrganization, $"definition:{Guid.NewGuid():N}"));
+    }
+
+    [Fact]
+    public async Task ApprovedDefinitions_SkipArchiveAndBundledSources()
+    {
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var archive = Installation(Guid.NewGuid(), "Archive import").PackageVersion!;
+        archive.PackageSource!.Host = "local";
+        archive.PackageSource.SourceType = "Archive";
+        var bundled = Installation(Guid.NewGuid(), "Bundled").PackageVersion!;
+        bundled.PackageSource!.IsBundled = true;
+        db.AddRange(Definition(archive, AgentDefinitionStatus.Available, available: true),
+            Definition(bundled, AgentDefinitionStatus.Available, available: true));
+        await db.SaveChangesAsync();
+
+        var result = await new ApprovedDefinitionAgentCatalogProvider(db).SearchAsync(null, new());
+
+        Assert.Empty(result.Agents);
+        Assert.True(result.Health.Available);
+    }
+
+    private static AgentDefinition Definition(AgentPackageVersion package, AgentDefinitionStatus status, bool available) => new()
+    {
+        Id = Guid.NewGuid(),
+        PackageSourceId = package.PackageSourceId,
+        PackageSource = package.PackageSource,
+        AgentId = package.AgentId,
+        PackageVersionId = package.Id,
+        PackageVersion = package,
+        Status = status,
+        IsAvailableForHire = available,
+        DefaultProvidedCapabilitiesJson = "[\"product.strategy\"]",
+        CreatedAt = DateTimeOffset.UtcNow,
+        UpdatedAt = DateTimeOffset.UtcNow
+    };
+
     private static AvailableAgent Agent(string reference, AgentCatalogSource source) => new(
         reference,
         "com.csweet.product-manager",

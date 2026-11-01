@@ -386,6 +386,7 @@ public static class DependencyInjection
             builder.Services.AddScoped<IAgentCatalogProvider>(
                 services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
         builder.Services.AddScoped<IAgentCatalogProvider, FirstPartyAgentCatalogProvider>();
+        builder.Services.AddScoped<IAgentCatalogProvider, ApprovedDefinitionAgentCatalogProvider>();
         builder.Services.AddScoped<IAgentCatalogProvider, MarketplaceAgentCatalogProvider>();
         builder.Services.AddScoped<IAgentCatalogService, AgentCatalogService>();
         builder.Services.AddScoped<IAgentCatalogProfileService, AgentCatalogProfileService>();

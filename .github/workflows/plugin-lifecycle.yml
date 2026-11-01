@@ -11,6 +11,7 @@ on:
       - 'tests/CSweet.UnitTests/AgentInstallationServiceTests.cs'
       - 'tests/CSweet.UnitTests/AgentCatalogServiceTests.cs'
       - 'Directory.Packages.props'
+      - 'src/CSweet.Api/first-party-agents.json'
       - '.github/workflows/plugin-lifecycle.yml'
 permissions:
   contents: read
@@ -24,4 +25,4 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests'
+      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests|FullyQualifiedName~AgentCatalogConfiguration'

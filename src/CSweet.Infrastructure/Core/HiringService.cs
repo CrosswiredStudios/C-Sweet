@@ -622,6 +622,7 @@ public sealed partial class HiringService(
             AgentCatalogSource.LocalDirectory => "LocalDirectoryCatalog",
             AgentCatalogSource.FirstPartyCatalog => "CSweetEmbeddedCatalog",
             AgentCatalogSource.Marketplace => "CSweetMarketplace",
+            AgentCatalogSource.ApprovedDefinition => "ApprovedDefinitionCatalog",
             _ => throw new InvalidOperationException("The selected catalog source is unsupported.")
         };
         var candidate = new WorkforceCandidate
@@ -2132,7 +2133,7 @@ CompleteWorkflow:
         return new(CandidateReference(candidate.Id), candidate.Source, candidate.DisplayName,
             metadata.ResourceType ?? (candidate.IsHuman ? "Human" : "Agent"), ReadStrings(candidate.CapabilitiesJson),
             metadata.Credentials, candidate.Score, candidate.EstimatedCost, candidate.Currency,
-            candidate.Source is "CurrentStaff" or "InstalledPlugin" or "CSweetEmbeddedCatalog"
+            candidate.Source is "CurrentStaff" or "InstalledPlugin" or "CSweetEmbeddedCatalog" or "ApprovedDefinitionCatalog"
                 ? "Platform verified"
                 : "Provider supplied",
             candidate.IsAvailable,
@@ -2142,7 +2143,9 @@ CompleteWorkflow:
                     ? "On staff"
                     : candidate.Source == "CSweetEmbeddedCatalog"
                         ? "Embedded source available"
-                        : "Not installed",
+                        : candidate.Source == "ApprovedDefinitionCatalog"
+                            ? "Approved on this host"
+                            : "Not installed",
             metadata.RequiredGrants, metadata.Rationale ?? string.Empty);
     }
 
@@ -2221,7 +2224,7 @@ CompleteWorkflow:
             snapshot.RoleTitle,
             snapshot.ReportsToOrganizationUserId,
             candidate.Source,
-            candidate.Source is "CurrentStaff" or "InstalledPlugin" or "CSweetEmbeddedCatalog"
+            candidate.Source is "CurrentStaff" or "InstalledPlugin" or "CSweetEmbeddedCatalog" or "ApprovedDefinitionCatalog"
                 ? "Platform verified"
                 : "Provider supplied",
             candidate.EstimatedCost,
@@ -2272,7 +2275,7 @@ CompleteWorkflow:
         catch (JsonException) { return new(); }
     }
     private static bool IsInstallableAgentCatalogSource(string source) =>
-        source is "CSweetEmbeddedCatalog" or "CSweetMarketplace" or "LocalDirectoryCatalog";
+        source is "CSweetEmbeddedCatalog" or "CSweetMarketplace" or "LocalDirectoryCatalog" or "ApprovedDefinitionCatalog";
 
     private static void ValidateCatalogPreview(
         AgentImportPreviewResponse preview,

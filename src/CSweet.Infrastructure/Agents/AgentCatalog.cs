@@ -207,6 +207,7 @@ public sealed class AgentCatalogService(
             AgentCatalogSource.Installed => 0.05m,
             AgentCatalogSource.LocalDirectory => 0.04m,
             AgentCatalogSource.FirstPartyCatalog => 0.03m,
+            AgentCatalogSource.ApprovedDefinition => 0.03m,
             _ => 0.01m
         };
         if (agent.Rating is { } rating) score += Math.Clamp(rating / 200m, 0m, 0.05m);
@@ -267,8 +268,9 @@ public sealed class AgentCatalogService(
     {
         AgentCatalogSource.Installed => 0,
         AgentCatalogSource.FirstPartyCatalog => 1,
-        AgentCatalogSource.LocalDirectory => 2,
-        AgentCatalogSource.Marketplace => 3,
+        AgentCatalogSource.ApprovedDefinition => 2,
+        AgentCatalogSource.LocalDirectory => 3,
+        AgentCatalogSource.Marketplace => 4,
         _ => 9
     };
 
@@ -281,6 +283,7 @@ public sealed class AgentCatalogService(
             "installed" => AgentCatalogSource.Installed,
             "local" => AgentCatalogSource.LocalDirectory,
             "first-party" => AgentCatalogSource.FirstPartyCatalog,
+            ApprovedDefinitionAgentCatalogProvider.ReferencePrefix => AgentCatalogSource.ApprovedDefinition,
             "marketplace" => AgentCatalogSource.Marketplace,
             _ => throw new ArgumentException("The agent reference is invalid.", nameof(reference))
         };
@@ -462,6 +465,100 @@ public sealed class FirstPartyAgentCatalogProvider(IOptions<MarketplaceOptions> 
         id = Guid.Empty;
         return reference.StartsWith($"{prefix}:", StringComparison.Ordinal) &&
                Guid.TryParseExact(reference[(prefix.Length + 1)..], "N", out id);
+    }
+}
+
+/// <summary>
+/// Lists the agent definitions the host owner imported and approved on the Installed Agents page so
+/// every organization can hire them. A hire resolves the repository URL back to the approved
+/// package (<c>HiringService</c> matches definitions by repository and agent id), so nothing is
+/// imported twice and the owner's review stays authoritative.
+/// </summary>
+public sealed class ApprovedDefinitionAgentCatalogProvider(CSweetDbContext db) : IAgentCatalogProvider
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    public const string ReferencePrefix = "definition";
+    public AgentCatalogSource Source => AgentCatalogSource.ApprovedDefinition;
+
+    public async Task<AgentCatalogProviderResult> SearchAsync(
+        Guid? organizationId,
+        AvailableAgentSearchQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        var definitions = await Hireable().ToListAsync(cancellationToken);
+        return new(definitions.Select(Map).ToArray(), new(Source, true));
+    }
+
+    public async Task<AvailableAgent?> ResolveAsync(
+        Guid? organizationId,
+        string agentReference,
+        CancellationToken cancellationToken = default)
+    {
+        if (!agentReference.StartsWith($"{ReferencePrefix}:", StringComparison.Ordinal) ||
+            !Guid.TryParseExact(agentReference[(ReferencePrefix.Length + 1)..], "N", out var id))
+            return null;
+        var definition = await Hireable().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        return definition is null ? null : Map(definition);
+    }
+
+    // Only definitions whose approved package can be hired today, from a repository the hiring
+    // flow can resolve. Building, incomplete, failed and disabled definitions stay on the
+    // Installed Agents page until the owner finishes with them; archive imports have no
+    // repository URL for a business to hire by.
+    private IQueryable<AgentDefinition> Hireable() => db.AgentDefinitions.AsNoTracking()
+        .Include(x => x.PackageVersion)
+        .Include(x => x.PackageSource)
+        .Where(x => x.IsAvailableForHire && x.Status == AgentDefinitionStatus.Available &&
+                    x.PackageSource!.Host == "github.com" && !x.PackageSource.IsBundled &&
+                    x.PackageVersion!.PluginKind == PluginKind.Agent)
+        .OrderBy(x => x.PackageVersion!.AgentName);
+
+    private static AvailableAgent Map(AgentDefinition definition)
+    {
+        var package = definition.PackageVersion!;
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(package.ManifestJson, JsonOptions) ?? new();
+        return new(
+            $"{ReferencePrefix}:{definition.Id:N}",
+            package.AgentId,
+            AgentCatalogSource.ApprovedDefinition,
+            [],
+            AgentAvailabilityState.AvailableToInstall,
+            null,
+            string.IsNullOrWhiteSpace(manifest.Name) ? package.AgentName : manifest.Name,
+            manifest.Catalog.Summary ?? $"{package.AgentName} agent approved on this host.",
+            package.PublisherName,
+            manifest.Catalog.Category ?? "Installed",
+            manifest.Catalog.RoleAliases,
+            manifest.Catalog.Keywords,
+            ReadList(definition.DefaultProvidedCapabilitiesJson),
+            null,
+            null,
+            null,
+            0,
+            manifest.Catalog.DocumentationUrl ?? $"{definition.PackageSource!.RepositoryUrl}#readme",
+            definition.PackageSource!.RepositoryUrl,
+            0.75m,
+            "Host approved",
+            manifest.Catalog.Role?.Key,
+            manifest.Catalog.Role?.Name,
+            manifest.Catalog.License?.SpdxId,
+            manifest.Catalog.License?.Url,
+            manifest.Catalog.IconUrls,
+            manifest.RolePolicy?.DeclaredRoleKeys ?? [],
+            manifest.RolePolicy?.SpecializationKeys ?? [])
+        {
+            ImageUrl = manifest.Catalog.ImageUrl,
+            CompanyLogoUrl = manifest.Catalog.CompanyLogoUrl,
+            AccentColor = manifest.Catalog.AccentColor,
+            LongDescription = manifest.Catalog.LongDescription,
+        };
+    }
+
+    private static IReadOnlyList<string> ReadList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<IReadOnlyList<string>>(json, JsonOptions) ?? []; }
+        catch (JsonException) { return []; }
     }
 }
 

@@ -11,6 +11,12 @@ The marketplace is optional for self-hosted installations. The open-source core 
 The checked-in catalog is `src/CSweet.Api/first-party-agents.json`. Every first-party agent must have an available listing with its hosted GitHub repository URL, agent ID, role, and specializations. Hiring previews the repository manifest and pins the resolved commit before building through Office, as it does for Chief of Staff. The project's build path comes from that repository's manifest.
 
 Hiring does not scan local agent folders or sibling checkouts. Add new agents to this catalog when their repositories are ready; a local checkout alone does not make an agent available for hiring. Refresh candidate searches after updating the catalog; previously selected local-source candidates need to be replaced with the first-party listing.
+
+## Host-approved agent sources
+
+Agents the host owner imports on **Settings → Installed Agents** become approved definitions (`AgentDefinition`). `ApprovedDefinitionAgentCatalogProvider` lists every definition that is `Available` and hireable, from a GitHub source, under `AgentCatalogSource.ApprovedDefinition` (reference `definition:<id>`), so each organization's marketplace can hire it without a `first-party-agents.json` entry. Hiring resolves the listing's repository URL and agent ID back to the approved package through `HiringService`, so the owner's review and the pinned package stay authoritative; only the Installed Agents update flow replaces it. Building, incomplete, failed and disabled definitions are not listed, and an organization that already hired the agent sees its installed copy instead.
+
+The local directory (`Plugins/Agents` under the API content root) is a developer source, registered only in Development or with `CSweet:AgentCatalog:LocalDirectoryEnabled`; see `Plugins/Agents/README.md`.
 ## Marketplace offering types
 
 ### Local open-source worker
