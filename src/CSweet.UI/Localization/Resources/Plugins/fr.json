@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "Métadonnées :",
   "PermissionList.RepositoryAdministration": "Administration du dépôt :",
   "PermissionList.ReadWrite": "Lecture et écriture",
-  "PermissionList.ReadOnly": "Lecture seule"
+  "PermissionList.ReadOnly": "Lecture seule",
+  "Plugins.Installed.CheckForUpdates": "Rechercher des mises à jour",
+  "Plugins.Installed.CheckForUpdatesFor": "Rechercher des mises à jour pour {name}",
+  "Plugins.Installed.UpdateTo": "Mettre à jour vers v{version}",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} disponible — vérifier",
+  "Plugins.Installed.UpToDate": "À jour",
+  "Plugins.Installed.NoUpdates": "Tous les plugins installés sont à jour.",
+  "Plugins.Installed.UpdatesAvailable": "{count} mise(s) à jour de plugin disponible(s).",
+  "Plugins.Installed.UpdateTimedOut": "La mise à jour préparée n'a pas terminé sa vérification à temps. Actualisez la page et réessayez.",
+  "Plugins.Installed.UpdateVerificationFailed": "La mise à jour préparée a échoué à la vérification : {detail}",
+  "Plugins.Installed.Updated": "Mis à jour vers v{version}.",
+  "Plugins.Installed.UpdatedReconnect": "Mis à jour vers v{version}. Les clés enregistrées et les autorisations des agents ne sont pas reportées sur une nouvelle révision : ouvrez Comptes à clé API pour enregistrer la clé et autoriser à nouveau les agents.",
+  "Plugins.Installed.ApiKeyAccounts": "Comptes à clé API"
 }

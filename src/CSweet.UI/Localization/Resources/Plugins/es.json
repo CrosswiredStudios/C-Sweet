@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "Metadatos:",
   "PermissionList.RepositoryAdministration": "Administración del repositorio:",
   "PermissionList.ReadWrite": "Lectura y escritura",
-  "PermissionList.ReadOnly": "Solo lectura"
+  "PermissionList.ReadOnly": "Solo lectura",
+  "Plugins.Installed.CheckForUpdates": "Buscar actualizaciones",
+  "Plugins.Installed.CheckForUpdatesFor": "Buscar actualizaciones de {name}",
+  "Plugins.Installed.UpdateTo": "Actualizar a v{version}",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} disponible — revisar",
+  "Plugins.Installed.UpToDate": "Actualizado",
+  "Plugins.Installed.NoUpdates": "Todos los plugins instalados están actualizados.",
+  "Plugins.Installed.UpdatesAvailable": "{count} actualización(es) de plugins disponible(s).",
+  "Plugins.Installed.UpdateTimedOut": "La actualización preparada no terminó de verificarse a tiempo. Actualice la página e inténtelo de nuevo.",
+  "Plugins.Installed.UpdateVerificationFailed": "La actualización preparada no superó la verificación: {detail}",
+  "Plugins.Installed.Updated": "Actualizado a v{version}.",
+  "Plugins.Installed.UpdatedReconnect": "Actualizado a v{version}. Las claves guardadas y los permisos de los agentes no se transfieren a una revisión nueva: abra Cuentas con clave de API para guardar la clave y volver a autorizar a los agentes.",
+  "Plugins.Installed.ApiKeyAccounts": "Cuentas con clave de API"
 }

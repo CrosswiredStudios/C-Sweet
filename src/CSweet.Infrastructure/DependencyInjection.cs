@@ -375,6 +375,13 @@ public static class DependencyInjection
         builder.Services.AddScoped<LocalDirectoryAgentCatalogProvider>();
         builder.Services.AddScoped<ILocalAgentSourceArchiveService>(
             services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
+        // The local directory is a developer source: on by default only in Development, and never on a host
+        // unless CSweet:AgentCatalog:LocalDirectoryEnabled says so. Installing from it still goes through the
+        // same manifest review, grants and owner approval as any other source.
+        var catalogOptions = builder.Configuration.GetSection(AgentCatalogOptions.SectionName).Get<AgentCatalogOptions>() ?? new();
+        if (catalogOptions.LocalDirectoryEnabled ?? builder.Environment.IsDevelopment())
+            builder.Services.AddScoped<IAgentCatalogProvider>(
+                services => services.GetRequiredService<LocalDirectoryAgentCatalogProvider>());
         builder.Services.AddScoped<IAgentCatalogProvider, FirstPartyAgentCatalogProvider>();
         builder.Services.AddScoped<IAgentCatalogProvider, MarketplaceAgentCatalogProvider>();
         builder.Services.AddScoped<IAgentCatalogService, AgentCatalogService>();

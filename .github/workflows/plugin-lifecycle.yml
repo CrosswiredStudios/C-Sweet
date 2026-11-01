@@ -1,0 +1,27 @@
+name: Plugin lifecycle
+on:
+  pull_request:
+    paths:
+      - 'src/CSweet.Infrastructure/Setup/AgentInstallationService.cs'
+      - 'src/CSweet.Infrastructure/Agents/**'
+      - 'src/CSweet.Infrastructure/DependencyInjection.cs'
+      - 'src/CSweet.UI/Pages/Plugins.razor*'
+      - 'src/CSweet.UI/Pages/RemoteMcpAccounts.razor*'
+      - 'src/CSweet.UI/Localization/Resources/Plugins/**'
+      - 'tests/CSweet.UnitTests/AgentInstallationServiceTests.cs'
+      - 'tests/CSweet.UnitTests/AgentCatalogServiceTests.cs'
+      - 'Directory.Packages.props'
+      - '.github/workflows/plugin-lifecycle.yml'
+permissions:
+  contents: read
+jobs:
+  install-update-remove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests|FullyQualifiedName~AgentCatalogConfiguration'

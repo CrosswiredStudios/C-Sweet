@@ -25,6 +25,8 @@ public sealed class AgentCatalogOptions
     public const string SectionName = "CSweet:AgentCatalog";
 
     public string LocalDirectoryPath { get; set; } = Path.Combine("Plugins", "Agents");
+    /// <summary>Lists local agent folders in the catalog. Null means "only in the Development environment".</summary>
+    public bool? LocalDirectoryEnabled { get; set; }
     public int MaximumSourceSizeMb { get; set; } = 100;
     public int MaximumFileCount { get; set; } = 10_000;
 }

@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "Метаданные:",
   "PermissionList.RepositoryAdministration": "Администрирование репозитория:",
   "PermissionList.ReadWrite": "Чтение и запись",
-  "PermissionList.ReadOnly": "Только чтение"
+  "PermissionList.ReadOnly": "Только чтение",
+  "Plugins.Installed.CheckForUpdates": "Проверить обновления",
+  "Plugins.Installed.CheckForUpdatesFor": "Проверить обновления для {name}",
+  "Plugins.Installed.UpdateTo": "Обновить до v{version}",
+  "Plugins.Installed.UpdateReviewVersion": "Доступна v{version} — проверить",
+  "Plugins.Installed.UpToDate": "Актуально",
+  "Plugins.Installed.NoUpdates": "Все установленные плагины актуальны.",
+  "Plugins.Installed.UpdatesAvailable": "Доступно обновлений плагинов: {count}.",
+  "Plugins.Installed.UpdateTimedOut": "Подготовленное обновление не прошло проверку вовремя. Обновите страницу и повторите попытку.",
+  "Plugins.Installed.UpdateVerificationFailed": "Подготовленное обновление не прошло проверку: {detail}",
+  "Plugins.Installed.Updated": "Обновлено до v{version}.",
+  "Plugins.Installed.UpdatedReconnect": "Обновлено до v{version}. Сохранённые ключи и разрешения агентов не переносятся в новую ревизию: откройте «Учётные записи с API-ключом», чтобы сохранить ключ и снова выдать разрешения агентам.",
+  "Plugins.Installed.ApiKeyAccounts": "Учётные записи с API-ключом"
 }

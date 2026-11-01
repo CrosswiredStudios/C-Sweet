@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "元数据：",
   "PermissionList.RepositoryAdministration": "仓库管理：",
   "PermissionList.ReadWrite": "读写",
-  "PermissionList.ReadOnly": "只读"
+  "PermissionList.ReadOnly": "只读",
+  "Plugins.Installed.CheckForUpdates": "检查更新",
+  "Plugins.Installed.CheckForUpdatesFor": "检查 {name} 的更新",
+  "Plugins.Installed.UpdateTo": "更新到 v{version}",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} 可用 — 审核",
+  "Plugins.Installed.UpToDate": "已是最新",
+  "Plugins.Installed.NoUpdates": "所有已安装的插件均为最新版本。",
+  "Plugins.Installed.UpdatesAvailable": "有 {count} 个插件更新可用。",
+  "Plugins.Installed.UpdateTimedOut": "暂存的更新未能及时完成验证。请刷新后重试。",
+  "Plugins.Installed.UpdateVerificationFailed": "暂存的更新未通过验证：{detail}",
+  "Plugins.Installed.Updated": "已更新到 v{version}。",
+  "Plugins.Installed.UpdatedReconnect": "已更新到 v{version}。已保存的密钥和代理授权不会转移到新修订版：请打开“API 密钥账户”重新保存密钥并再次授权代理。",
+  "Plugins.Installed.ApiKeyAccounts": "API 密钥账户"
 }

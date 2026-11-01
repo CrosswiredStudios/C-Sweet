@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "메타데이터:",
   "PermissionList.RepositoryAdministration": "리포지토리 관리:",
   "PermissionList.ReadWrite": "읽기 및 쓰기",
-  "PermissionList.ReadOnly": "읽기 전용"
+  "PermissionList.ReadOnly": "읽기 전용",
+  "Plugins.Installed.CheckForUpdates": "업데이트 확인",
+  "Plugins.Installed.CheckForUpdatesFor": "{name} 업데이트 확인",
+  "Plugins.Installed.UpdateTo": "v{version}(으)로 업데이트",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} 사용 가능 — 검토",
+  "Plugins.Installed.UpToDate": "최신 상태",
+  "Plugins.Installed.NoUpdates": "설치된 모든 플러그인이 최신 상태입니다.",
+  "Plugins.Installed.UpdatesAvailable": "플러그인 업데이트 {count}개를 사용할 수 있습니다.",
+  "Plugins.Installed.UpdateTimedOut": "준비된 업데이트가 제시간에 검증을 마치지 못했습니다. 새로 고친 후 다시 시도하세요.",
+  "Plugins.Installed.UpdateVerificationFailed": "준비된 업데이트가 검증에 실패했습니다: {detail}",
+  "Plugins.Installed.Updated": "v{version}(으)로 업데이트되었습니다.",
+  "Plugins.Installed.UpdatedReconnect": "v{version}(으)로 업데이트되었습니다. 저장된 키와 에이전트 권한은 새 리비전으로 이전되지 않습니다. API 키 계정을 열어 키를 저장하고 에이전트에 다시 권한을 부여하세요.",
+  "Plugins.Installed.ApiKeyAccounts": "API 키 계정"
 }

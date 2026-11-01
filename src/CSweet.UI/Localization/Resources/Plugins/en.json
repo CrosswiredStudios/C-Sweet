@@ -251,5 +251,17 @@
   "Plugins.Import.BundleInstalled": "Verified plugin bundle installed. Its runtime will start when ready.",
   "Plugins.Import.Error.BundleType": "Choose a C-Sweet plugin bundle (.cspb).",
   "Plugins.Import.Error.BundleSize": "Plugin bundle exceeds the 512 MB limit.",
-  "Plugins.Import.Error.Agent": "Agent packages belong in Installed Agents. Choose a service or connector plugin."
+  "Plugins.Import.Error.Agent": "Agent packages belong in Installed Agents. Choose a service or connector plugin.",
+  "Plugins.Installed.CheckForUpdates": "Check for updates",
+  "Plugins.Installed.CheckForUpdatesFor": "Check for updates for {name}",
+  "Plugins.Installed.UpdateTo": "Update to v{version}",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} available — review",
+  "Plugins.Installed.UpToDate": "Up to date",
+  "Plugins.Installed.NoUpdates": "All installed plugins are up to date.",
+  "Plugins.Installed.UpdatesAvailable": "{count} plugin update(s) available.",
+  "Plugins.Installed.UpdateTimedOut": "The staged update did not finish verifying in time. Refresh and try again.",
+  "Plugins.Installed.UpdateVerificationFailed": "The staged update failed verification: {detail}",
+  "Plugins.Installed.Updated": "Updated to v{version}.",
+  "Plugins.Installed.UpdatedReconnect": "Updated to v{version}. Stored keys and agent grants are not carried over to a new revision: open API-key accounts to store the key and grant agents again.",
+  "Plugins.Installed.ApiKeyAccounts": "API-key accounts"
 }

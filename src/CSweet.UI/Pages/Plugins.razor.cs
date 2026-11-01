@@ -304,6 +304,69 @@ public partial class Plugins
         finally { _busy = false; }
     }
 
+    // ---- Updates: the same release check the Agents page uses, applied to repository-sourced plugins ----
+    private readonly Dictionary<Guid, AgentUpdateAvailabilityResponse> _updates = new();
+    private bool _checkingUpdates;
+    private static readonly TimeSpan StagedBuildTimeout = TimeSpan.FromMinutes(5);
+
+    private AgentUpdateAvailabilityResponse? UpdateFor(AgentInstallationResponse installation) =>
+        _updates.TryGetValue(installation.Id, out var update) && update.UpdateAvailable && update.AvailablePackageVersionId is not null ? update : null;
+
+    /// <summary>
+    /// Brokered connectors (remote MCP providers) have no runtime, no account review and no capability bindings of
+    /// their own, so a staged revision can be approved here with the grants the current revision already has.
+    /// Enterprise account plugins and services keep their impact-reviewed update page.
+    /// </summary>
+    private static bool CanUpdateInPlace(AgentInstallationResponse installation) =>
+        installation.PluginKind == "Connector" && installation.Accounts is null && installation.RevisionStatus == "Active" && !installation.RemovalPending;
+
+    private async Task CheckUpdatesAsync()
+    {
+        if (_busy || _checkingUpdates) return;
+        _checkingUpdates = true;
+        try
+        {
+            var installed = _installations.Select(x => x.Id).ToHashSet();
+            foreach (var update in await AgentApi.CheckUpdatesAsync())
+                if (installed.Contains(update.InstallationId)) _updates[update.InstallationId] = update;
+            foreach (var id in installed) _updates.TryAdd(id, new(id, "", "", "", "", "", false, null, null, null, DateTimeOffset.UtcNow));
+            var available = _installations.Count(x => UpdateFor(x) is not null);
+            ShowSuccess(available == 0 ? L["Plugins.Installed.NoUpdates"] : L.Format("Plugins.Installed.UpdatesAvailable", new { count = available }));
+        }
+        catch (Exception exception) { ShowError(exception); }
+        finally { _checkingUpdates = false; }
+    }
+
+    private async Task UpdateInstallationAsync(AgentInstallationResponse installation, AgentUpdateAvailabilityResponse update)
+    {
+        if (!CanUpdateInPlace(installation) || update.AvailablePackageVersionId is not { } packageVersionId) return;
+        _busy = true;
+        try
+        {
+            var staged = await PluginApi.StageUpdateAsync(installation.Id, packageVersionId);
+            var deadline = DateTimeOffset.UtcNow + StagedBuildTimeout;
+            while (staged.Build?.Status is not ("Succeeded" or "Failed" or "Cancelled"))
+            {
+                if (DateTimeOffset.UtcNow > deadline) throw new InvalidOperationException(L["Plugins.Installed.UpdateTimedOut"]);
+                await Task.Delay(TimeSpan.FromSeconds(3));
+                staged = await AgentApi.GetInstallationAsync(staged.Id) ?? staged;
+            }
+            if (staged.Build.Status != "Succeeded")
+                throw new InvalidOperationException(L.Format("Plugins.Installed.UpdateVerificationFailed", new { detail = staged.Build.FailureMessage ?? staged.Build.Status }));
+            // Grants are re-approved explicitly: the same reviewed capabilities the owner granted to the current revision.
+            await PluginApi.ApproveUpdateAsync(staged.Id, new InstallAgentRequest(installation.BusinessId, "OnDemand", 3600, "Skip",
+                installation.GrantedCapabilities, installation.GrantedSubscriptions, installation.GrantedPublications, installation.GrantedPermissions,
+                installation.GrantedNetworkAccess, 0, 0, 0) { PluginScope = installation.InstallationScope });
+            _updates.Remove(installation.Id);
+            ShowSuccess(installation.HasNativeApiKeyAccounts
+                ? L.Format("Plugins.Installed.UpdatedReconnect", new { version = update.AvailableVersion })
+                : L.Format("Plugins.Installed.Updated", new { version = update.AvailableVersion }));
+            await LoadAsync();
+        }
+        catch (Exception exception) { ShowError(exception); }
+        finally { _busy = false; }
+    }
+
     private async Task ToggleAsync(AgentInstallationResponse installation)
     {
         _busy = true;
