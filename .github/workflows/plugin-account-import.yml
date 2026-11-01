@@ -5,12 +5,16 @@ on:
       - 'src/CSweet.Contracts/Plugins/**'
       - 'src/CSweet.Domain/Setup/PluginAccount*'
       - 'src/CSweet.Infrastructure/Setup/PluginAccount*'
+      - 'src/CSweet.Infrastructure/Setup/ManagedConnectionHostConfiguration.cs'
+      - 'src/CSweet.Infrastructure/DependencyInjection.cs'
+      - 'src/CSweet.AppHost/**'
       - 'src/CSweet.Infrastructure/Persistence/**'
       - 'src/CSweet.Api/Agents/PluginAccountEndpoints.cs'
       - 'src/CSweet.UI/Pages/PluginManage.razor'
       - 'src/CSweet.UI/Components/PluginImportDiagnostics.razor'
       - 'src/CSweet.UI/Services/PluginAccountApiClient.cs'
       - 'tests/CSweet.UnitTests/*Plugin*'
+      - 'tests/CSweet.UnitTests/AppHostManagedConnectionConfigurationTests.cs'
       - 'Directory.*.props'
       - '.github/workflows/plugin-account-import.yml'
 permissions:
@@ -34,7 +38,13 @@ jobs:
         run: >-
           dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
           --configuration Release
-          --filter 'FullyQualifiedName~PluginAccount|FullyQualifiedName~PluginImport|FullyQualifiedName~ManagedPluginAccountFlowTests|FullyQualifiedName~PluginManageConnectionTests|FullyQualifiedName~PluginSetupEndpointStartupTests'
+          --filter 'FullyQualifiedName~PluginAccount|FullyQualifiedName~PluginImport|FullyQualifiedName~ManagedPluginAccountFlowTests|FullyQualifiedName~PluginManageConnectionTests|FullyQualifiedName~PluginSetupEndpointStartupTests|FullyQualifiedName~AppHostManagedConnectionConfigurationTests|FullyQualifiedName~ManagedDeploymentPairingTests|FullyQualifiedName~AppHostExecutionGatewayWiringTests'
+          -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
+          -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
+          -p:UseLocalIsolation=false -p:UseSharedCompilation=false -m:1 -nr:false
+      - name: Compile shared AppHost configuration wiring
+        run: >-
+          dotnet build src/CSweet.AppHost/CSweet.AppHost.csproj --configuration Release --no-dependencies
           -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
           -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
           -p:UseLocalIsolation=false -p:UseSharedCompilation=false -m:1 -nr:false
