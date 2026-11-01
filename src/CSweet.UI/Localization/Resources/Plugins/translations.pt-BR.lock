@@ -189,5 +189,17 @@
   "PermissionList.Metadata": "0ab6539c6aa5",
   "PermissionList.RepositoryAdministration": "2cbd81a0cf91",
   "PermissionList.ReadWrite": "6106d0fccefb",
-  "PermissionList.ReadOnly": "9b19a5a212de"
+  "PermissionList.ReadOnly": "9b19a5a212de",
+  "Plugins.Installed.CheckForUpdates": "736b9062b336",
+  "Plugins.Installed.CheckForUpdatesFor": "b3e0df898f55",
+  "Plugins.Installed.UpdateTo": "e248a79033f8",
+  "Plugins.Installed.UpdateReviewVersion": "720f5d67ee1f",
+  "Plugins.Installed.UpToDate": "82fb1d5144a8",
+  "Plugins.Installed.NoUpdates": "1436d6aa3f9d",
+  "Plugins.Installed.UpdatesAvailable": "9d8e23de1965",
+  "Plugins.Installed.UpdateTimedOut": "9daf848dbd4c",
+  "Plugins.Installed.UpdateVerificationFailed": "f9683db284dd",
+  "Plugins.Installed.Updated": "6d83df49f4b2",
+  "Plugins.Installed.UpdatedReconnect": "1515ccfb0032",
+  "Plugins.Installed.ApiKeyAccounts": "33df8190e5b0"
 }

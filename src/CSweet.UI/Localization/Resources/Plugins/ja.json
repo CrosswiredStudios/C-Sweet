@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "メタデータ:",
   "PermissionList.RepositoryAdministration": "リポジトリの管理:",
   "PermissionList.ReadWrite": "読み取りと書き込み",
-  "PermissionList.ReadOnly": "読み取り専用"
+  "PermissionList.ReadOnly": "読み取り専用",
+  "Plugins.Installed.CheckForUpdates": "更新を確認",
+  "Plugins.Installed.CheckForUpdatesFor": "{name} の更新を確認",
+  "Plugins.Installed.UpdateTo": "v{version} に更新",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} が利用可能 — 確認",
+  "Plugins.Installed.UpToDate": "最新です",
+  "Plugins.Installed.NoUpdates": "インストール済みのプラグインはすべて最新です。",
+  "Plugins.Installed.UpdatesAvailable": "{count} 件のプラグイン更新があります。",
+  "Plugins.Installed.UpdateTimedOut": "ステージされた更新の検証が時間内に完了しませんでした。ページを更新してもう一度お試しください。",
+  "Plugins.Installed.UpdateVerificationFailed": "ステージされた更新は検証に失敗しました: {detail}",
+  "Plugins.Installed.Updated": "v{version} に更新しました。",
+  "Plugins.Installed.UpdatedReconnect": "v{version} に更新しました。保存済みのキーとエージェントの許可は新しいリビジョンに引き継がれません。API キーアカウントを開いてキーを保存し、エージェントに再度許可してください。",
+  "Plugins.Installed.ApiKeyAccounts": "API キーアカウント"
 }

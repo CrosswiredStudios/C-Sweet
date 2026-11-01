@@ -853,6 +853,51 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
+    public async Task RemoveAsync_ActiveDependentAgentsBlockRemovalByName()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext, supportsMultipleInstallations: true);
+        var service = CreateService(dbContext);
+        var provider = await service.InstallAsync(package.Id, ValidRequest());
+        var consumer = await service.InstallAsync(package.Id, ValidRequest());
+        dbContext.AgentCapabilityBindings.Add(new AgentCapabilityBinding
+        {
+            Id = Guid.NewGuid(), OrganizationId = ValidRequest().BusinessId, RequesterInstallationId = consumer.Id,
+            ProviderInstallationId = provider.Id, Capability = "example.read.v1", ApprovedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<AgentInstallationException>(() => service.RemoveAsync(provider.Id));
+
+        Assert.Contains(package.AgentName, exception.Message);
+        Assert.Contains("depend on this plugin", exception.Message);
+        Assert.Equal(2, await dbContext.AgentInstallations.CountAsync());
+        Assert.True((await dbContext.AgentInstallations.SingleAsync(x => x.Id == provider.Id)).IsEnabled);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_RevokedBindingsDoNotKeepTheInstallationAlive()
+    {
+        await using var dbContext = CreateDbContext();
+        var package = await SeedAsync(dbContext, supportsMultipleInstallations: true);
+        var service = CreateService(dbContext);
+        var provider = await service.InstallAsync(package.Id, ValidRequest());
+        var consumer = await service.InstallAsync(package.Id, ValidRequest());
+        dbContext.AgentCapabilityBindings.Add(new AgentCapabilityBinding
+        {
+            Id = Guid.NewGuid(), OrganizationId = ValidRequest().BusinessId, RequesterInstallationId = consumer.Id,
+            ProviderInstallationId = provider.Id, Capability = "example.read.v1", ApprovedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            RevokedAt = DateTimeOffset.UtcNow
+        });
+        await dbContext.SaveChangesAsync();
+
+        await service.RemoveAsync(provider.Id);
+
+        Assert.Single(await dbContext.AgentInstallations.ToListAsync());
+        Assert.Empty(await dbContext.AgentCapabilityBindings.ToListAsync());
+    }
+
+    [Fact]
     public async Task RemoveAsync_LastInstallation_RemovesPackageSourceAndRelatedRecords()
     {
         await using var dbContext = CreateDbContext();

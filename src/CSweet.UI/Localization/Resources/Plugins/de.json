@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "Metadaten:",
   "PermissionList.RepositoryAdministration": "Repository-Administration:",
   "PermissionList.ReadWrite": "Lesen und Schreiben",
-  "PermissionList.ReadOnly": "Schreibgeschützt"
+  "PermissionList.ReadOnly": "Schreibgeschützt",
+  "Plugins.Installed.CheckForUpdates": "Nach Updates suchen",
+  "Plugins.Installed.CheckForUpdatesFor": "Nach Updates für {name} suchen",
+  "Plugins.Installed.UpdateTo": "Auf v{version} aktualisieren",
+  "Plugins.Installed.UpdateReviewVersion": "v{version} verfügbar — prüfen",
+  "Plugins.Installed.UpToDate": "Aktuell",
+  "Plugins.Installed.NoUpdates": "Alle installierten Plugins sind aktuell.",
+  "Plugins.Installed.UpdatesAvailable": "{count} Plugin-Update(s) verfügbar.",
+  "Plugins.Installed.UpdateTimedOut": "Die bereitgestellte Aktualisierung wurde nicht rechtzeitig verifiziert. Aktualisieren Sie die Seite und versuchen Sie es erneut.",
+  "Plugins.Installed.UpdateVerificationFailed": "Die bereitgestellte Aktualisierung hat die Verifizierung nicht bestanden: {detail}",
+  "Plugins.Installed.Updated": "Auf v{version} aktualisiert.",
+  "Plugins.Installed.UpdatedReconnect": "Auf v{version} aktualisiert. Gespeicherte Schlüssel und Agentenfreigaben werden nicht in eine neue Revision übernommen: Öffnen Sie API-Schlüssel-Konten, um den Schlüssel zu speichern und Agenten erneut freizugeben.",
+  "Plugins.Installed.ApiKeyAccounts": "API-Schlüssel-Konten"
 }

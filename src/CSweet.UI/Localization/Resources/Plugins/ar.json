@@ -190,5 +190,17 @@
   "PermissionList.Metadata": "البيانات الوصفية:",
   "PermissionList.RepositoryAdministration": "إدارة المستودع:",
   "PermissionList.ReadWrite": "القراءة والكتابة",
-  "PermissionList.ReadOnly": "للقراءة فقط"
+  "PermissionList.ReadOnly": "للقراءة فقط",
+  "Plugins.Installed.CheckForUpdates": "التحقق من التحديثات",
+  "Plugins.Installed.CheckForUpdatesFor": "التحقق من تحديثات {name}",
+  "Plugins.Installed.UpdateTo": "التحديث إلى الإصدار v{version}",
+  "Plugins.Installed.UpdateReviewVersion": "الإصدار v{version} متاح — راجِع",
+  "Plugins.Installed.UpToDate": "محدَّث",
+  "Plugins.Installed.NoUpdates": "جميع المكوّنات الإضافية المثبّتة محدَّثة.",
+  "Plugins.Installed.UpdatesAvailable": "تتوفر {count} من تحديثات المكوّنات الإضافية.",
+  "Plugins.Installed.UpdateTimedOut": "لم يكتمل التحقق من التحديث المُعدّ في الوقت المحدد. حدِّث الصفحة وحاول مرة أخرى.",
+  "Plugins.Installed.UpdateVerificationFailed": "فشل التحقق من التحديث المُعدّ: {detail}",
+  "Plugins.Installed.Updated": "تم التحديث إلى الإصدار v{version}.",
+  "Plugins.Installed.UpdatedReconnect": "تم التحديث إلى الإصدار v{version}. لا تُنقل المفاتيح المخزَّنة وأذونات الوكلاء إلى مراجعة جديدة: افتح حسابات مفتاح API لتخزين المفتاح ومنح الوكلاء الإذن مجددًا.",
+  "Plugins.Installed.ApiKeyAccounts": "حسابات مفتاح API"
 }

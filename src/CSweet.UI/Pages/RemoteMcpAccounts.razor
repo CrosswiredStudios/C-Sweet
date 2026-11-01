@@ -1,49 +1,83 @@
 @page "/businesses/{BusinessId:guid}/plugins/{ProviderId:guid}/api-key-accounts"
+@layout SettingsLayout
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using CSweet.Contracts.Plugins
 @using CSweet.UI.Services
 @inject RemoteMcpAccountApiClient Api
 <PageTitle>@ProviderName account access</PageTitle>
-<MudContainer MaxWidth="MaxWidth.Medium" Class="pa-6">
-    <MudText Typo="Typo.h4">@ProviderName account access</MudText>
-    <MudText>Your key is stored encrypted by C-Sweet. Agents receive reviewed read results only. Connecting does not grant an agent access.</MudText>
-    <MudAlert Severity="Severity.Info" Class="my-4">Account and company identity are enforced by @ProviderName and are not verified or matched to this C-Sweet business.</MudAlert>
-    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
-    @if (_view is not null)
+<main class="plugin-manage remote-mcp-accounts">
+    <MudLink Href="/settings/plugins">← Plugins</MudLink>
+    <header class="manage-heading">
+        <div>
+            <MudText Typo="Typo.overline" Color="Color.Primary">API-key account</MudText>
+            <MudText Typo="Typo.h4">@ProviderName account access</MudText>
+            <MudText Color="Color.Secondary">Your key is stored encrypted by C-Sweet and sent only to the endpoint approved at install review. Agents receive reviewed read results, never the key. Storing a key grants no agent access until you grant it below.</MudText>
+        </div>
+    </header>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert" Class="mb-4">@_error</MudAlert> }
+    @if (_view is null)
     {
-        @if (!string.IsNullOrEmpty(_view.EndpointHost))
-        {
-            <MudText Typo="Typo.body2" Class="mb-2">C-Sweet sends this key only to <strong>@_view.EndpointHost</strong>, the endpoint approved at install review.</MudText>
-        }
-        @if (_view.Tools.Count > 0)
-        {
-            <MudText Typo="Typo.subtitle2">A grant allows these reviewed reads</MudText>
-            <ul class="mb-4">
-                @foreach (var tool in _view.Tools) { <li>@tool.Description <code>@tool.Capability</code></li> }
-            </ul>
-        }
-        <MudTextField T="string" @bind-Value="_key" Immediate="true" InputType="InputType.Password" Label="API key" autocomplete="off" maxlength="256" Disabled="_busy" />
-        <MudButton OnClick="Connect" Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))">Store a new connection</MudButton>
-        <MudText Typo="Typo.caption">The key is never displayed again. It is checked by the provider when an approved agent reads leads. Changing or revoking access stops the previously authorized agent’s active and queued work; submit new work after reviewing access.</MudText>
+        @if (_error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading account access" /> }
+    }
+    else
+    {
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4 mb-4">
+            <MudText Typo="Typo.subtitle1">What a grant allows</MudText>
+            @if (!string.IsNullOrEmpty(_view.EndpointHost))
+            {
+                <MudText Typo="Typo.body2" Class="mb-2">Endpoint: <strong>@_view.EndpointHost</strong> (approved at install review).</MudText>
+            }
+            @if (_view.Tools.Count > 0)
+            {
+                <ul class="remote-mcp-tools">
+                    @foreach (var tool in _view.Tools) { <li>@tool.Description <code>@tool.Capability</code></li> }
+                </ul>
+            }
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">Account and company identity are enforced by @ProviderName and are not verified or matched to this C-Sweet business.</MudAlert>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Elevation="0" Class="pa-4 mb-4">
+            <MudText Typo="Typo.subtitle1">@(_view.Connections.Any(c => !c.Revoked) ? "Replace the stored key" : "Store a key")</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">The key is never displayed again. Changing or revoking it stops any authorized agent's active and queued work; submit new work after reviewing access.</MudText>
+            <div class="remote-mcp-key-row">
+                <MudTextField T="string" @bind-Value="_key" Immediate="true" InputType="InputType.Password" Label="API key" Variant="Variant.Outlined" autocomplete="off" maxlength="256" Disabled="_busy" />
+                @if (_view.Connections.Any(c => !c.Revoked))
+                {
+                    var current = _view.Connections.First(c => !c.Revoked);
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))" OnClick="@(() => Rotate(current))">Replace key and clear grants</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Key" Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))" OnClick="Connect">Store key</MudButton>
+                }
+            </div>
+        </MudPaper>
+
         @foreach (var connection in _view.Connections)
         {
-            <MudPaper Class="pa-4 my-4" Outlined="true">
-                <MudText Typo="Typo.h6">Connection @connection.Id.ToString("N")[..8]</MudText>
-                <MudText>@(connection.Revoked ? "Revoked" : connection.ConsumerInstallationId is null ? "Stored · no agent access" : "Access granted to the selected agent")</MudText>
+            <MudPaper Outlined="true" Elevation="0" Class="pa-4 mb-4">
+                <div class="remote-mcp-connection-heading">
+                    <MudText Typo="Typo.subtitle1">Connection @connection.Id.ToString("N")[..8]</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="@(connection.Revoked ? Color.Default : connection.ConsumerInstallationId is null ? Color.Warning : Color.Success)">
+                        @(connection.Revoked ? "Revoked" : connection.ConsumerInstallationId is null ? "Stored · no agent access" : "Access granted")
+                    </MudChip>
+                </div>
                 @if (!connection.Revoked)
                 {
-                    <MudSelect T="Guid" @bind-Value="_consumer" Label="Agent to authorize" Disabled="_busy">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">Choose the one agent that may perform the reviewed reads above with this account in this business.</MudText>
+                    <MudSelect T="Guid" @bind-Value="_consumer" Label="Agent to authorize" Variant="Variant.Outlined" Disabled="_busy">
                         @foreach (var consumer in _view.Consumers) { <MudSelectItem T="Guid" Value="consumer.Id">@consumer.Name</MudSelectItem> }
                     </MudSelect>
                     <MudCheckBox T="bool" @bind-Value="_approved" Disabled="_busy" Label="@($"Allow this agent to perform the reviewed {ProviderName} reads listed above with my account in this business.")" />
-                    <MudButton Disabled="@(_busy || !_approved || _consumer == Guid.Empty)" OnClick="@(() => Grant(connection))">Grant read access</MudButton>
-                    <MudButton Disabled="_busy" Color="Color.Error" OnClick="@(() => Revoke(connection))">Revoke access and remove stored key</MudButton>
+                    <div class="remote-mcp-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.VerifiedUser" Disabled="@(_busy || !_approved || _consumer == Guid.Empty)" OnClick="@(() => Grant(connection))">Grant read access</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.LinkOff" Disabled="_busy" OnClick="@(() => Revoke(connection))">Revoke access and remove stored key</MudButton>
+                    </div>
                 }
-                <MudButton Disabled="@(_busy || string.IsNullOrWhiteSpace(_key))" OnClick="@(() => Rotate(connection))">Replace key and clear grants</MudButton>
             </MudPaper>
         }
     }
-</MudContainer>
+</main>
 @code {
     [Parameter] public Guid BusinessId { get; set; }
     [Parameter] public Guid ProviderId { get; set; }

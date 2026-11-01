@@ -1093,6 +1093,23 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 $"This agent is assigned to {assignedEmployees.Count} employee(s): {names}{remainder}. " +
                 "Remove those employees from the Employees page before removing the agent installation.");
         }
+        // Consumers bind their declared capabilities to this installation as provider. Those rows carry a
+        // foreign key here, so removal would fail in the database; say which agents depend on it instead.
+        var dependents = await _dbContext.AgentCapabilityBindings
+            .AsNoTracking()
+            .Where(x => x.ProviderInstallationId == installation.Id && x.RequesterInstallationId != installation.Id && x.RevokedAt == null)
+            .Select(x => x.RequesterInstallation!.PackageVersion!.AgentName)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToListAsync(cancellationToken);
+        if (dependents.Count > 0)
+        {
+            var names = string.Join(", ", dependents.Take(3));
+            var remainder = dependents.Count > 3 ? $" and {dependents.Count - 3} more" : string.Empty;
+            throw new AgentInstallationException(
+                $"{dependents.Count} installed agent(s) depend on this plugin's capabilities: {names}{remainder}. " +
+                "Update this plugin instead of removing it, or remove those agents first.");
+        }
         var removePackage =
             !await _dbContext.AgentInstallations.AnyAsync(
                 x => x.PackageVersionId == package.Id && x.Id != installation.Id,
@@ -1155,6 +1172,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 (x.Kind == "remote-mcp-account.v1" || x.Kind == RemoteMcpAccountService.BindingKind)).ToArrayAsync(cancellationToken);
             _dbContext.PluginOperationalStates.RemoveRange(remoteState);
         }
+        // Active dependents were refused above; revoked bindings are history and must not keep the row alive.
+        var staleBindings = await _dbContext.AgentCapabilityBindings
+            .Where(x => x.ProviderInstallationId == installation.Id || x.RequesterInstallationId == installation.Id)
+            .ToArrayAsync(cancellationToken);
+        _dbContext.AgentCapabilityBindings.RemoveRange(staleBindings);
         _dbContext.AgentInstallations.Remove(installation);
         if (removePackage)
         {

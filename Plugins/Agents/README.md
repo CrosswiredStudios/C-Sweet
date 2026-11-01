@@ -1,5 +1,12 @@
 # Local agent catalog
 
+The API scans `CSweet:AgentCatalog:LocalDirectoryPath` (default `Plugins/Agents`) relative to its
+content root, so for a source checkout the folder is `src/CSweet.Api/Plugins/Agents`, not this one;
+set an absolute path to use another location. The source is listed only in the Development environment
+unless `CSweet:AgentCatalog:LocalDirectoryEnabled` is `true`. Only `kind: "agent"` manifests are listed;
+provider plugins (`remote-mcp`, `connector`) are installed by immutable repository import instead.
+`src/CSweet.Api/Plugins/**` is excluded from the host build, so clones placed there do not compile into the API.
+
 Place each locally developed agent in its own immediate child folder:
 
 ```text
