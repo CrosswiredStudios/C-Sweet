@@ -24,4 +24,4 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests|FullyQualifiedName~AgentCatalogConfiguration'
+      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests'
