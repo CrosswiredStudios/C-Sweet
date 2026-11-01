@@ -30,22 +30,30 @@ public sealed class PluginAccountApiClient(HttpClient http) : IPluginAccountApiC
     public async Task RetryAsync(Guid id, Guid setupId, CancellationToken ct = default) => await Send<object>(HttpMethod.Post, Path(id) + $"/setup/{setupId:D}/retry", null, ct);
     public async Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid id, Guid setupId, long expectedRevision, CancellationToken ct = default)
     {
+        // ResponseHeadersRead stops HttpClient.Timeout at the headers. Keep a separate
+        // end-to-end budget alive through stream acquisition and every receipt-body read.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var timeout = http.Timeout;
+        if (timeout == Timeout.InfiniteTimeSpan || timeout > TimeSpan.FromSeconds(30)) timeout = TimeSpan.FromSeconds(30);
+        deadline.CancelAfter(timeout);
+        var operationToken = deadline.Token;
         using var request = new HttpRequestMessage(HttpMethod.Post, Path(id) + $"/setup/{setupId:D}/retry")
         { Content = JsonContent.Create(new ResumePluginImportRequest(expectedRevision)) };
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, operationToken);
         if (!response.IsSuccessStatusCode)
             throw new ApiClientException(response.StatusCode, "The import resume was not confirmed. Refresh its status before reviewing another attempt.");
         if (response.StatusCode == System.Net.HttpStatusCode.NoContent) return null; // Legacy server: never invent an acknowledgment.
         using var bytes = new MemoryStream();
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        await using var stream = await response.Content.ReadAsStreamAsync(operationToken).WaitAsync(operationToken);
         var buffer = new byte[512];
         while (true)
         {
-            var count = await stream.ReadAsync(buffer, ct);
+            var count = await stream.ReadAsync(buffer, operationToken).AsTask().WaitAsync(operationToken);
             if (count == 0) break;
             if (bytes.Length + count > 2048) throw new InvalidOperationException("The import acknowledgment is unavailable.");
             bytes.Write(buffer, 0, count);
         }
+        operationToken.ThrowIfCancellationRequested();
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(bytes.ToArray(), new() { MaxDepth = 4 });

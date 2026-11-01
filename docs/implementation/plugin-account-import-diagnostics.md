@@ -35,3 +35,5 @@ These are synthetic tests. They do not retry the live QFN import, verify Google 
 ## Deployment boundary
 
 This PR only prepares source and tests. Deploying it requires approval for the normal host database migration and coordinated API, UI and AgentHost update. Apply the additive migration before starting binaries that query its new column. Older binaries tolerate the nullable column, but an older worker does not write new checkpoints; the UI therefore labels diagnostics that disagree with a saved terminal setup state as historical. No migration, restart, service/protocol release or live import is performed by this change.
+
+The production resume client bounds headers, stream acquisition and receipt-body reads with a linked cancellation deadline: at most 30 seconds, or the shorter configured HTTP timeout. Explicit body waits remain bounded even if a stream ignores cancellation. Caller cancellation is preserved. An expired deadline follows the uncertain-acknowledgment UI path, releases the busy state and permits status refresh without another POST.

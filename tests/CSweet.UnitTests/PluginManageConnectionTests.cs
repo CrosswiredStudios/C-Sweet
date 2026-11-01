@@ -182,12 +182,20 @@ public sealed class PluginManageConnectionTests
         Assert.DoesNotContain("Your progress is saved. Resume the import", html);
     }
 
-    [Fact]
-    public async Task UncertainResumeDoesNotRetryOrRenderTransportSecrets()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UncertainResumeDoesNotRetryOrRenderTransportSecrets(bool timedOut)
     {
         var api = new Api(); var setup = FailedSetup(); api.View = api.View with { SetupSessions = [setup] };
-        api.Resume = (_, _) => Task.FromException<PluginImportResumeReceipt?>(new HttpRequestException("CANARY proof=private"));
-        var html = await Render(api, async page => { await Invoke(page, "Retry", setup.Id); await Invoke(page, "Retry", setup.Id); });
+        api.Resume = (_, _) => timedOut ? Task.FromCanceled<PluginImportResumeReceipt?>(new CancellationToken(true)) :
+            Task.FromException<PluginImportResumeReceipt?>(new HttpRequestException("CANARY proof=private"));
+        var html = await Render(api, async page =>
+        {
+            await Invoke(page, "Retry", setup.Id);
+            Assert.False((bool)typeof(PluginManage).GetField("_busy", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!);
+            await Invoke(page, "Retry", setup.Id);
+        });
         Assert.Equal(1, api.ResumeCalls); Assert.Contains("acknowledgment unavailable", html);
         Assert.Contains("No automatic retry", html); Assert.DoesNotContain("CANARY", html);
         Assert.DoesNotContain("Resume accepted", html);

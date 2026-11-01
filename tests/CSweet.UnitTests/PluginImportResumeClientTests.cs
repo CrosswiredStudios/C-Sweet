@@ -9,6 +9,47 @@ namespace CSweet.UnitTests;
 
 public sealed class PluginImportResumeClientTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResumeBodyDeadlineCoversStalledSuccessfulResponseWithoutRetry(bool ignoreReadCancellation)
+    {
+        using var stalled = new StalledStream(ignoreReadCancellation);
+        using var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = new StreamContent(stalled) });
+        using var http = new HttpClient(handler, false) { BaseAddress = new("https://synthetic.invalid/"), Timeout = TimeSpan.FromMilliseconds(300) };
+        using var caller = new CancellationTokenSource();
+        var pending = new PluginAccountApiClient(http).ResumeImportAsync(Guid.NewGuid(), Guid.NewGuid(), 7, caller.Token);
+        try
+        {
+            await stalled.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            var completed = await Task.WhenAny(pending, Task.Delay(TimeSpan.FromSeconds(2)));
+            Assert.Same(pending, completed);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+            Assert.False(caller.IsCancellationRequested); Assert.True(stalled.Disposed);
+            Assert.Equal(1, handler.Requests);
+        }
+        finally
+        {
+            caller.Cancel();
+            try { await pending; } catch (OperationCanceledException) { }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResumeBodyDeadlinePreservesCallerCancellation(bool ignoreReadCancellation)
+    {
+        using var stalled = new StalledStream(ignoreReadCancellation);
+        using var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = new StreamContent(stalled) });
+        using var http = new HttpClient(handler, false) { BaseAddress = new("https://synthetic.invalid/"), Timeout = Timeout.InfiniteTimeSpan };
+        using var caller = new CancellationTokenSource();
+        var pending = new PluginAccountApiClient(http).ResumeImportAsync(Guid.NewGuid(), Guid.NewGuid(), 7, caller.Token);
+        await stalled.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2)); caller.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.True(caller.IsCancellationRequested); Assert.True(stalled.Disposed); Assert.Equal(1, handler.Requests);
+    }
+
     [Fact]
     public async Task OneSubmissionReturnsBoundedReceiptAndSendsExpectedRevision()
     {
@@ -68,5 +109,32 @@ public sealed class PluginImportResumeClientTests
         public int Requests; public string? LastBody;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         { Requests++; LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct); return response(request); }
+    }
+
+    private sealed class StalledStream(bool ignoreReadCancellation) : Stream
+    {
+        private readonly CancellationTokenSource disposed = new();
+        public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Disposed { get; private set; }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            using var read = CancellationTokenSource.CreateLinkedTokenSource(ignoreReadCancellation ? CancellationToken.None : ct, disposed.Token);
+            ReadStarted.TrySetResult(); await Task.Delay(Timeout.InfiniteTimeSpan, read.Token); return 0;
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if (!Disposed) { Disposed = true; disposed.Cancel(); disposed.Dispose(); }
+            base.Dispose(disposing);
+        }
+        public override void Flush() => throw new NotSupportedException();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
