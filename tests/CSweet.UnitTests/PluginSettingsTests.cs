@@ -1,4 +1,7 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json;
 using CSweet.Contracts.Agents;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Plugins;
@@ -45,6 +48,24 @@ public sealed class PluginSettingsTests
         Assert.Contains("Plugin installation is unavailable from this server", html);
         Assert.DoesNotContain("/settings/agents/runtime", html);
     }
+    [Fact]
+    public async Task CheckingForUpdatesOffersInPlaceUpdateOnlyForBrokeredConnectorsWithoutAccounts()
+    {
+        var connector = Api.Installation("Connector");
+        var service = Api.Installation("Service");
+        var api = new Api { Installations = [connector, service], Updates = [connector.Id, service.Id] };
+        var html = await Render(api, page => Invoke(page, "CheckUpdatesAsync"));
+        Assert.Contains("Update to v2.0.0", html);
+        Assert.Contains("v2.0.0 available", html);
+        Assert.Contains("2 plugin update(s) available", html);
+        Assert.Contains($"/settings/plugins/{service.Id}", html);
+        Assert.Null(api.UpdateRequest);
+
+        var quiet = await Render(new Api { Installations = [connector] }, page => Invoke(page, "CheckUpdatesAsync"));
+        Assert.Contains("Up to date", quiet);
+        Assert.DoesNotContain("Update to v", quiet);
+    }
+
     [Fact]
     public async Task InstalledTabExcludesAgentsAndShowsNonAgentVersionsAndManagement()
     {
@@ -268,6 +289,7 @@ public sealed class PluginSettingsTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IPluginApiClient>(api);
+        services.AddSingleton<IAgentApiClient>(new AgentApiClient(new HttpClient(new AgentApi(api)) { BaseAddress = new Uri("http://localhost") }));
         services.AddSingleton<IBusinessContext, StubBusinessContext>(); services.AddSingleton<NavigationManager, Navigation>();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         var activator = new Activator(); services.AddSingleton<IComponentActivator>(activator);
@@ -300,11 +322,37 @@ public sealed class PluginSettingsTests
             return component;
         }
     }
+    /// <summary>The agent API behind the Plugins page's update check: only check-updates and reads are answered.</summary>
+    private sealed class AgentApi(Api api) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Post && path == "/api/agents/installations/check-updates")
+            {
+                var updates = (api.Installations ?? []).Select(x => new AgentUpdateAvailabilityResponse(x.Id, x.AgentId, x.AgentName, x.BusinessId,
+                    x.AgentVersion, x.CommitSha, api.Updates.Contains(x.Id), api.Updates.Contains(x.Id) ? Guid.NewGuid() : null,
+                    api.Updates.Contains(x.Id) ? "2.0.0" : null, api.Updates.Contains(x.Id) ? new string('c', 40) : null, DateTimeOffset.UtcNow)).ToArray();
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(updates) });
+            }
+            if (request.Method == HttpMethod.Get && path.StartsWith("/api/agents/installations/", StringComparison.Ordinal) &&
+                Guid.TryParse(path["/api/agents/installations/".Length..], out var id))
+            {
+                var installation = (api.Installations ?? []).FirstOrDefault(x => x.Id == id);
+                return Task.FromResult(installation is null ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                    : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(installation) });
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
     private sealed class Api : IPluginApiClient
     {
         public ManagedConnectionStatus ManagedStatus { get; init; } = new(false, false, "", "");
         public Task<ManagedConnectionStatus> GetManagedConnectionStatusAsync(CancellationToken token = default) => Task.FromResult(ManagedStatus);
         public IReadOnlyList<AgentInstallationResponse>? Installations { get; init; }
+        /// <summary>Installations the agent API reports a 2.0.0 release for.</summary>
+        public IReadOnlyList<Guid> Updates { get; init; } = [];
         public bool ImportsEnabled { get; init; } = true;
         public Task<PluginInstallationPolicyResponse> GetInstallationPolicyAsync(CancellationToken token = default) => Task.FromResult(new PluginInstallationPolicyResponse(ImportsEnabled));
         public string PreviewKind { get; init; } = "Service";
