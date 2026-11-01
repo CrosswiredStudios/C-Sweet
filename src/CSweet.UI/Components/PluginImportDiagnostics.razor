@@ -1,0 +1,43 @@
+@using CSweet.Contracts.Plugins
+
+@if (Receipt is { } receipt && receipt.SetupId == Setup.Id && Setup.Revision < receipt.Revision)
+{
+    <p role="status">Resume accepted. Waiting for the saved import status.</p>
+    <small>Reference @receipt.CorrelationId.ToString("N") · accepted revision @receipt.Revision</small>
+}
+else if (Setup.Import is { } progress && progress.IsSafe())
+{
+    @if (IsCurrent(progress))
+    { <p role="status">Import @progress.State.ToLowerInvariant() · @StageName(progress.Stage)</p> }
+    else
+    { <p>Last recorded import checkpoint: @progress.State.ToLowerInvariant() · @StageName(progress.Stage). The current setup state above takes precedence.</p> }
+    <details class="import-diagnostics">
+        <summary>Import diagnostic details</summary>
+        <p>Reference @progress.CorrelationId.ToString("N") · attempt @progress.Attempt · saved revision @Setup.Revision</p>
+        @if (Receipt is { } accepted && accepted.CorrelationId == progress.CorrelationId)
+        { <p>Resume accepted at revision @accepted.Revision.</p> }
+        @if (progress.QueuedAt is { } queued) { <p>Queued @queued.ToUniversalTime().ToString("O")</p> }
+        @if (progress.StartedAt is { } started) { <p>Started @started.ToUniversalTime().ToString("O")</p> }
+        @if (progress.FinishedAt is { } finished) { <p>Finished @finished.ToUniversalTime().ToString("O")</p> }
+        @if (progress.FailureKind is { } kind) { <p>Failure: @kind · @progress.ExceptionType</p> }
+        @if (progress.HttpStatus is { } status) { <p>@progress.HttpStatusSource HTTP status: @status</p> }
+        @if (progress.HttpStatusSource == "ManagedService")
+        { <p>This is the connection service response. It does not identify Google's response.</p> }
+    </details>
+}
+
+@code {
+    [Parameter, EditorRequired] public PluginAccountSetupView Setup { get; set; } = null!;
+    [Parameter] public PluginImportResumeReceipt? Receipt { get; set; }
+    private bool IsCurrent(PluginAccountImportProgress progress) =>
+        Setup.Status == "Importing" && progress.State is "Queued" or "Running" or "Interrupted" ||
+        Setup.Status == "ImportFailed" && progress.State == "Failed" ||
+        Setup.Status is "Ready" or "NoResources" && progress.State == "Completed";
+    private static string StageName(string stage) => stage switch
+    {
+        "Queued" => "waiting for the import worker", "Authority" => "checking connection authority",
+        "ManagedDiscovery" => "reading from the connection service", "IdentityRead" => "verifying the provider account",
+        "ResourceRead" => "discovering accessible resources", "ResponseValidation" => "validating discovery results",
+        "Persistence" => "saving verified resources", "Complete" => "finished", _ => "status unavailable"
+    };
+}

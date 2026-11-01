@@ -163,6 +163,98 @@ public sealed class PluginManageConnectionTests
         Assert.Contains("The secure sign-in address is unavailable.", html);
     }
 
+    [Fact]
+    public async Task ResumeAcknowledgmentIsShownWhileReadStatusIsStaleAndDoubleClicksSubmitOnce()
+    {
+        var api = new Api(); var setup = FailedSetup(); api.View = api.View with { SetupSessions = [setup] };
+        var receipt = new PluginImportResumeReceipt(setup.Id, 8, Guid.NewGuid());
+        var pending = new TaskCompletionSource<PluginImportResumeReceipt?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Resume = (_, _) => pending.Task;
+        var html = await Render(api, async page =>
+        {
+            var first = Invoke(page, "Retry", setup.Id); await Task.Yield();
+            await Invoke(page, "Retry", setup.Id); Assert.Equal(1, api.ResumeCalls);
+            pending.SetResult(receipt); await first;
+            await Invoke(page, "Retry", setup.Id); Assert.Equal(1, api.ResumeCalls);
+        });
+        Assert.Equal(7, api.ExpectedRevision); Assert.Contains("Resume accepted", html);
+        Assert.Contains("Waiting for the saved import status", html); Assert.Contains(receipt.CorrelationId.ToString("N"), html);
+        Assert.DoesNotContain("Your progress is saved. Resume the import", html);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UncertainResumeDoesNotRetryOrRenderTransportSecrets(bool timedOut)
+    {
+        var api = new Api(); var setup = FailedSetup(); api.View = api.View with { SetupSessions = [setup] };
+        api.Resume = (_, _) => timedOut ? Task.FromCanceled<PluginImportResumeReceipt?>(new CancellationToken(true)) :
+            Task.FromException<PluginImportResumeReceipt?>(new HttpRequestException("CANARY proof=private"));
+        var html = await Render(api, async page =>
+        {
+            await Invoke(page, "Retry", setup.Id);
+            Assert.False((bool)typeof(PluginManage).GetField("_busy", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!);
+            await Invoke(page, "Retry", setup.Id);
+        });
+        Assert.Equal(1, api.ResumeCalls); Assert.Contains("acknowledgment unavailable", html);
+        Assert.Contains("No automatic retry", html); Assert.DoesNotContain("CANARY", html);
+        Assert.DoesNotContain("Resume accepted", html);
+    }
+
+    [Fact]
+    public async Task AcceptedResumeSurvivesReadFailureWithoutExposingReadException()
+    {
+        var api = new Api(); var setup = FailedSetup(); api.View = api.View with { SetupSessions = [setup] };
+        api.Resume = (_, _) => { api.ReadFailure = new InvalidOperationException("CANARY token=private"); return Task.FromResult<PluginImportResumeReceipt?>(new(setup.Id, 8, Guid.NewGuid())); };
+        var html = await Render(api, page => Invoke(page, "Retry", setup.Id));
+        Assert.Equal(1, api.ResumeCalls); Assert.Contains("Resume accepted", html); Assert.DoesNotContain("CANARY", html);
+        Assert.Contains("Account status is unavailable", html);
+    }
+
+    [Fact]
+    public async Task ReloadedPageUsesDurableQueuedProgressAndNeverSubmitsOnRender()
+    {
+        var api = new Api(); var setup = FailedSetup(); var correlation = Guid.NewGuid();
+        api.View = api.View with { SetupSessions = [setup with { Status = "Importing", Revision = 8,
+            Import = new(correlation, "Queued", "Queued", 0, DateTimeOffset.UtcNow) }] };
+        var first = await Render(api); var second = await Render(api);
+        Assert.Equal(0, api.ResumeCalls); Assert.Contains(correlation.ToString("N"), first); Assert.Contains("Import queued", second);
+        Assert.DoesNotContain("Resume accepted at revision", first);
+    }
+
+    [Fact]
+    public async Task UnsafeCrossBoundaryDiagnosticLabelsAreNotRendered()
+    {
+        var api = new Api(); var setup = FailedSetup();
+        api.View = api.View with { SetupSessions = [setup with { Import = setup.Import! with { ExceptionType = "CANARY.UntrustedType", Stage = "CANARY body" } }] };
+        var html = await Render(api); Assert.DoesNotContain("CANARY", html); Assert.DoesNotContain("Import diagnostic details", html);
+    }
+
+    [Fact]
+    public async Task CompletedImportShowsSuccessRatherThanGenericConnectionFailure()
+    {
+        var api = new Api(); var setup = FailedSetup();
+        api.View = api.View with { SetupSessions = [setup with { Status = "Ready", Import = setup.Import! with
+            { State = "Completed", Stage = "Complete", FailureKind = null, ExceptionType = null, HttpStatus = null, HttpStatusSource = null } }] };
+        var html = await Render(api); Assert.Contains("Account connected", html); Assert.Contains("Import completed", html);
+        Assert.DoesNotContain("The provider connection did not complete", html);
+    }
+
+    [Theory]
+    [InlineData("Ready", "Queued")]
+    [InlineData("Cancelled", "Running")]
+    public async Task HistoricalCheckpointNeverOverridesSavedTerminalSetupState(string setupState, string diagnosticState)
+    {
+        var api = new Api(); var setup = FailedSetup();
+        api.View = api.View with { SetupSessions = [setup with { Status = setupState, Import = setup.Import! with { State = diagnosticState } }] };
+        var html = await Render(api); Assert.Contains("Last recorded import checkpoint", html);
+        Assert.Contains("current setup state above takes precedence", html);
+    }
+
+    private static PluginAccountSetupView FailedSetup() => new(Guid.NewGuid(), "ImportFailed", 0, "discovery_failed", DateTimeOffset.UtcNow.AddMinutes(10))
+    { Revision = 7, Import = new(Guid.NewGuid(), "Failed", "ManagedDiscovery", 1, StartedAt: DateTimeOffset.UtcNow, FinishedAt: DateTimeOffset.UtcNow,
+        FailureKind: "http_error", ExceptionType: "HttpRequestException", HttpStatus: 503, HttpStatusSource: "ManagedService") };
+
     private static Task Invoke(PluginManage page, string method, params object?[] args) =>
         (Task)typeof(PluginManage).GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, args)!;
 
@@ -197,7 +289,11 @@ public sealed class PluginManageConnectionTests
              new() { Id = "optional", Label = "Optional changes", Purpose = "Change workspace content" }], [], [], false);
         public ConnectPluginAccountRequest? Request; public string? Failure; public int Starts;
         public string AuthorizationUrl = "https://identity.example.com/authorize?state=opaque";
-        public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => Task.FromResult(View);
+        public int ResumeCalls; public long ExpectedRevision; public Exception? ReadFailure;
+        public Func<Guid,long,Task<PluginImportResumeReceipt?>>? Resume;
+        public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => ReadFailure is null ? Task.FromResult(View) : Task.FromException<PluginAccountManagementView>(ReadFailure);
+        public Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid id, Guid setup, long expectedRevision, CancellationToken ct = default)
+        { ResumeCalls++; ExpectedRevision = expectedRevision; return Resume?.Invoke(setup, expectedRevision) ?? Task.FromResult<PluginImportResumeReceipt?>(null); }
         public Task<BeginPluginAccountResponse> ConnectAsync(Guid id, ConnectPluginAccountRequest request, CancellationToken ct = default)
         { Starts++; Request = request; return Failure is null ? Task.FromResult(new BeginPluginAccountResponse(Guid.NewGuid(), AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10))) : Task.FromException<BeginPluginAccountResponse>(new InvalidOperationException(Failure)); }
         public Task RetryAsync(Guid id, Guid setup, CancellationToken ct = default) => throw new NotSupportedException();

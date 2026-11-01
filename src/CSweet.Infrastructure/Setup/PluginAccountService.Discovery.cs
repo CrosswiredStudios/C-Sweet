@@ -55,10 +55,22 @@ public sealed partial class PluginAccountService
     }
     public async Task RetryImportAsync(Guid userId, Guid installationId, Guid setupId, CancellationToken ct)
     {
-        var session = await db.PluginAccountSetupSessions.SingleAsync(x => x.Id == setupId && x.PluginInstallationId == installationId && x.ApplicationUserId == userId, ct);
+        await ResumeImportAsync(userId, installationId, setupId, null, ct);
+    }
+
+    public async Task<PluginImportResumeReceipt> ResumeImportAsync(Guid userId, Guid installationId, Guid setupId, long? expectedRevision, CancellationToken ct)
+    {
+        var session = await db.PluginAccountSetupSessions.SingleOrDefaultAsync(x => x.Id == setupId && x.PluginInstallationId == installationId && x.ApplicationUserId == userId, ct)
+            ?? throw new UnauthorizedAccessException("This import is unavailable to the current account.");
         await Current(session, ct);
+        if (expectedRevision is <= 0) throw new ArgumentException("A current import revision is required.");
+        if (expectedRevision is { } expected && session.Revision != expected)
+            throw new InvalidOperationException("The import changed. Refresh its status before reviewing another resume.");
         if (session.Status != "ImportFailed") throw new InvalidOperationException("This connection does not need an import retry.");
+        var correlation = Guid.NewGuid();
+        WriteImportProgress(session, new(correlation, "Queued", "Queued", 0, DateTimeOffset.UtcNow));
         session.Status = "Importing"; session.FailureCode = null; session.Revision++; await db.SaveChangesAsync(ct);
+        return new(session.Id, session.Revision, correlation);
     }
 
     public async Task ImportAsync(Guid setupId, CancellationToken ct)
@@ -66,6 +78,7 @@ public sealed partial class PluginAccountService
         var s = await db.PluginAccountSetupSessions.SingleOrDefaultAsync(x => x.Id == setupId, ct);
         if (s is null || s.Status != "Importing" || s.LeaseUntil > DateTimeOffset.UtcNow) return;
         var owner = Guid.NewGuid(); s.LeaseOwner = owner; s.LeaseUntil = DateTimeOffset.UtcNow.AddMinutes(2); s.Revision++;
+        StartImportProgress(s);
         try { await db.SaveChangesAsync(ct); } catch (DbUpdateConcurrencyException) { return; }
         try
         {
@@ -93,6 +106,7 @@ public sealed partial class PluginAccountService
                         !await db.PluginConnections.AsNoTracking().AnyAsync(x => x.Id == s.ConnectionId && x.Status == PluginConnectionStatus.Connected &&
                             x.AuthorizationRevision == authorization.AuthorizationRevision, cancel)) throw new UnauthorizedAccessException("The account import authority changed.");
                 }
+                await SaveImportStage(s, capability == a.Identity?.Capability ? "IdentityRead" : "ResourceRead", ct);
                 var response = await transport.SendAsync(s.PluginInstallationId, s.ConnectionId, request, Revalidate, ct);
                 if (response.StatusCode is 401 or 403 && s.IsMaintenance)
                 {
@@ -101,7 +115,8 @@ public sealed partial class PluginAccountService
                     await db.SaveChangesAsync(ct);
                     throw new UnauthorizedAccessException("Account consent needs attention.");
                 }
-                if (response.StatusCode is < 200 or >= 300) throw new InvalidOperationException("The provider could not complete account discovery.");
+                if (response.StatusCode is < 200 or >= 300) throw new ProviderImportException(response.StatusCode);
+                ImportStage(s, "ResponseValidation");
                 using var document = JsonDocument.Parse(response.Body, new JsonDocumentOptions { MaxDepth = 32 });
                 _ = ConnectorRequestMaterializer.Canonical(document.RootElement); RequestSchemaValidator.Validate(document.RootElement, op.OutputSchema);
                 await Revalidate(ct); return document.RootElement.Clone();
@@ -137,13 +152,19 @@ public sealed partial class PluginAccountService
             }
             throw new InvalidOperationException("The discovery page budget was exceeded.");
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException error) when (ct.IsCancellationRequested)
+        {
+            await RecordInterruptedImport(s.Id, owner, ImportProgress(s), error);
+            throw;
+        }
         catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException or JsonException or HttpRequestException)
         {
+            var progress = ImportProgress(s);
             db.ChangeTracker.Clear();
             s = await db.PluginAccountSetupSessions.SingleAsync(x => x.Id == setupId, ct);
             if (s.Status != "Importing" || s.LeaseOwner != owner) return;
             s.Status = "ImportFailed"; s.FailureCode = error is UnauthorizedAccessException ? "connection_changed" : "discovery_failed";
+            FinishImportProgress(s, "Failed", error, progress);
             if(s.IsMaintenance && error is UnauthorizedAccessException)
             {
                 var authorization=await db.PluginConnections.SingleAsync(x=>x.Id==s.ConnectionId,ct);
@@ -152,10 +173,16 @@ public sealed partial class PluginAccountService
             s.LeaseOwner = null; s.LeaseUntil = null; s.Revision++;
             try { await db.SaveChangesAsync(ct); } catch (DbUpdateConcurrencyException) { }
         }
+        catch (Exception error)
+        {
+            await RecordInterruptedImport(s.Id, owner, ImportProgress(s), error);
+            throw; // Keep the pre-existing durable lease recovery; never hide an unexpected failure.
+        }
     }
 
     private async Task FinishImport(PluginAccountSetupSession s, IReadOnlyList<ConnectorAccountChoice> rows, CancellationToken ct)
     {
+        ImportStage(s, "Persistence");
         await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
         var (_, manifest, _) = await Current(s, ct);
         var connection = await db.PluginConnections.SingleAsync(x => x.Id == s.ConnectionId && x.AgentInstallationId == s.PluginInstallationId, ct);
@@ -259,6 +286,7 @@ public sealed partial class PluginAccountService
                 if (Guid.TryParse(business.Key, out var org)) await ConnectorStandingPolicyService.RevokeForConsumersAsync(db, org, business.Select(x => x.RequesterInstallationId).Distinct().ToArray(), ct);
             // Local retirement only: revoking a superseded provider token could revoke the new grant too.
         }
+        FinishImportProgress(s, "Completed");
         s.AccountGroupId = group.Id; s.Status = rows.Count == 0 ? "NoResources" : "Ready"; s.LeaseOwner = null; s.LeaseUntil = null; s.Revision++;
         connection.NextInventoryCheckAt=now.AddHours(manifest.Accounts!.Lifecycle.AuthorizationCheckHours);
         await db.SaveChangesAsync(ct);

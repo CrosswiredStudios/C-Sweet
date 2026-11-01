@@ -87,8 +87,9 @@ public static class PluginAccountEndpoints
             [FromServices] ManagedPluginConnectionGateway gateway, CancellationToken ct) =>
         { await gateway.CompletePairing(new(request.DeploymentId, request.TenantId, request.Revision), ct); return Results.NoContent(); });
         group.MapPost("/setup/{setupId:guid}/retry", async (Guid installationId, Guid setupId, HttpContext http,
+            [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] ResumePluginImportRequest? request,
             [FromServices] PluginAccountService accounts, CancellationToken ct) =>
-        { await accounts.RetryImportAsync(http.User.GetApplicationUserId()!.Value, installationId, setupId, ct); return Results.NoContent(); });
+            Results.Ok(await accounts.ResumeImportAsync(http.User.GetApplicationUserId()!.Value, installationId, setupId, request?.ExpectedRevision, ct)));
         group.MapPut("/{accountId:guid}/business-access", async (Guid installationId, Guid accountId, SavePluginAccountGrantRequest request, HttpContext http,
             [FromServices] PluginAccountService accounts, CancellationToken ct) =>
         { await accounts.SaveGrantAsync(http.User.GetApplicationUserId()!.Value, installationId, accountId, request, ct); return Results.NoContent(); });

@@ -20,6 +20,7 @@ public sealed class PluginAccountSetupSession
     public string RedirectUri { get; set; } = string.Empty;
     public string Status { get; set; } = "AwaitingConsent";
     public string? FailureCode { get; set; }
+    public string? ImportDiagnosticsJson { get; set; }
     public string ObservedResourcesJson { get; set; } = "[]";
     public string? PageToken { get; set; }
     public string SeenPageTokensJson { get; set; } = "[]";

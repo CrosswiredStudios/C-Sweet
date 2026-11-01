@@ -48,13 +48,16 @@
                 { <MudLink Href="/settings/plugins#provider-administration">Open administrator connection settings</MudLink> }
             </MudAlert>
         }
-        @foreach (var setup in _view.SetupSessions.Where(x => x.Status is "AwaitingConsent" or "Importing" or "ImportFailed" or "Cancelled" or "Expired" or "Failed" or "NoResources").Take(3))
+        @foreach (var setup in _view.SetupSessions.Where(x => x.Import is not null || x.Status is "AwaitingConsent" or "Importing" or "ImportFailed" or "Cancelled" or "Expired" or "Failed" or "NoResources").Take(3))
         {
             <MudPaper Outlined="true" Class="manage-card" role="status">
-                <MudText Typo="Typo.subtitle1">@SetupTitle(setup.Status)</MudText>
-                <MudText>@SetupMessage(setup)</MudText>
+                <MudText Typo="Typo.subtitle1">@(WaitingForResume(setup) ? "Resume accepted" : SetupTitle(setup.Status))</MudText>
+                <MudText>@(WaitingForResume(setup) ? "Waiting for the latest saved import status. No additional request was sent." : SetupMessage(setup))</MudText>
+                <CSweet.UI.Components.PluginImportDiagnostics Setup="setup" Receipt="@_resumeReceipts.GetValueOrDefault(setup.Id)" />
+                @if (_unconfirmedResumes.Contains(setup.Id))
+                { <MudText>Resume acknowledgment unavailable. Refresh the status before reviewing another attempt. No automatic retry was sent.</MudText><MudButton Disabled="_busy" OnClick="Reload">Refresh import status</MudButton> }
                 @if (setup.Status == "Importing") { <MudProgressLinear Indeterminate="true" aria-label="Importing accessible resources" /> }
-                @if (setup.Status == "ImportFailed") { <MudButton Disabled="_busy" OnClick="@(() => Retry(setup.Id))">Resume import</MudButton> }
+                @if (setup.Status == "ImportFailed") { <MudButton Disabled="@(_busy || !CanResume(setup))" OnClick="@(() => Retry(setup.Id))">Resume import</MudButton> }
             </MudPaper>
         }
         @if (!_connecting && _view.CanConnect && _view.Accounts.Count > 0 && _view.Administration is not { Retired:true } and not { RemovalPending:true })
@@ -229,11 +232,11 @@
     private async Task Poll()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
-        try { while (await timer.WaitForNextTickAsync(_stop.Token)) if (!_busy && (_view?.BuildStatus != "Built" || _view.SetupSessions.Any(s => s.Status == "Importing") || _view.Deletions.Any(d=>!d.AllCopiesDeleted)))
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) if (!_busy && (_view?.BuildStatus != "Built" || _view.SetupSessions.Any(s => s.Status == "Importing" || WaitingForResume(s)) || _view.Deletions.Any(d=>!d.AllCopiesDeleted)))
             await InvokeAsync(async () => { await Reload(); StateHasChanged(); }); }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
     }
-    private async Task Reload() { try { _view = await AccountsApi.GetAsync(InstallationId, _stop.Token); _error = null; } catch (Exception e) when (e is not OperationCanceledException) { _error = e.Message; } }
+    private async Task Reload() { try { _view = await AccountsApi.GetAsync(InstallationId, _stop.Token); _error = null; } catch (Exception e) when (e is not OperationCanceledException) { _error = "Account status is unavailable. Refresh it before reviewing another action."; } }
     private async Task OpenConnect(Guid? id)
     {
         if (_busy || _view is null || (id is null ? !_view.CanConnect : !_view.Accounts.SelectMany(x => x.Authorizations).Any(x => x.Id == id && x.CanReconnect))) return;
@@ -255,7 +258,41 @@
         if (!Uri.TryCreate(response.AuthorizationUrl, UriKind.Absolute, out var url) || url.Scheme != "https") throw new InvalidOperationException("The secure sign-in address is unavailable.");
         Navigation.NavigateTo(response.AuthorizationUrl, forceLoad: true);
     });
-    private async Task Retry(Guid setupId) => await Perform(async () => { await AccountsApi.RetryAsync(InstallationId, setupId, _stop.Token); await Reload(); });
+    private readonly Dictionary<Guid, PluginImportResumeReceipt> _resumeReceipts = [];
+    private readonly Dictionary<Guid, long> _resumeSubmissions = [];
+    private readonly HashSet<Guid> _unconfirmedResumes = [];
+    private bool WaitingForResume(PluginAccountSetupView setup) => _resumeReceipts.TryGetValue(setup.Id, out var receipt) && setup.Revision < receipt.Revision;
+    private bool CanResume(PluginAccountSetupView setup) => !WaitingForResume(setup) &&
+        (!_resumeSubmissions.TryGetValue(setup.Id, out var submitted) || setup.Revision > submitted);
+    private async Task Retry(Guid setupId)
+    {
+        if (_busy) return;
+        var setup = _view?.SetupSessions.SingleOrDefault(x => x.Id == setupId);
+        if (setup is null || setup.Status != "ImportFailed" || !CanResume(setup)) return;
+        _busy = true; _error = null; _notice = null; _resumeSubmissions[setup.Id] = setup.Revision;
+        try
+        {
+            var receipt = await AccountsApi.ResumeImportAsync(InstallationId, setup.Id, setup.Revision, _stop.Token);
+            if (receipt is not null && receipt.SetupId == setup.Id && receipt.Revision > setup.Revision && receipt.CorrelationId != Guid.Empty)
+            { _resumeReceipts[setup.Id] = receipt; _unconfirmedResumes.Remove(setup.Id); }
+            else _unconfirmedResumes.Add(setup.Id);
+            await RefreshAfterResume();
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { /* Navigation is not a retry. */ }
+        catch (Exception)
+        {
+            _unconfirmedResumes.Add(setup.Id);
+            _error = "The import resume could not be confirmed. Refresh its status before reviewing another attempt. No automatic retry was sent.";
+            await RefreshAfterResume();
+        }
+        finally { _busy = false; }
+    }
+    private async Task RefreshAfterResume()
+    {
+        try { await Reload(); }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception) { _error = "The latest import status is unavailable. Refresh it before reviewing another attempt."; }
+    }
     private void EditAccess(PluginManagedAccount account) { _editing = account; _business = null; _grantScope = "SelectedResources"; _future = false; _resources.Clear(); _permissions.Clear(); }
     private void BusinessChanged(Guid? id)
     {
@@ -300,7 +337,7 @@
         _ when build == "Built" => "The verified connector identity is incomplete. An administrator needs to review this installation.",
         _ => "Verifying the approved connector’s declarations. No VM or agent build is required. This page refreshes automatically; if verification does not finish, open diagnostics below and check that the background worker is running."
     };
-    private static string SetupTitle(string status) => status switch { "Importing" => "Importing accessible resources", "ImportFailed" => "Import paused", "AwaitingConsent" => "Waiting for secure sign-in", "Cancelled" => "Connection cancelled", "Expired" => "Sign-in expired", "NoResources" => "Connected — no accessible resources", _ => "Connection needs attention" };
-    private string SetupMessage(PluginAccountSetupView s) => s.Status switch { "Importing" => $"{s.ImportedCount} found so far. You can leave this page; import progress is saved.", "ImportFailed" => "Your progress is saved. Resume the import, or reconnect if access has changed.", "Cancelled" or "Expired" => "No business access was granted. Choose Connect account to try again.", "AwaitingConsent" => "Complete sign-in in the provider page, or start a new connection if you closed it.", "NoResources" => $"The provider returned no accessible {_view!.Declaration.ResourcesLabel.ToLowerInvariant()}. Try authorizing the intended account or resource.", _ => "The provider connection did not complete. Review the requested permissions and try again." };
+    private static string SetupTitle(string status) => status switch { "Ready" => "Account connected", "Importing" => "Importing accessible resources", "ImportFailed" => "Import paused", "AwaitingConsent" => "Waiting for secure sign-in", "Cancelled" => "Connection cancelled", "Expired" => "Sign-in expired", "NoResources" => "Connected — no accessible resources", _ => "Connection needs attention" };
+    private string SetupMessage(PluginAccountSetupView s) => s.Status switch { "Ready" => "Accessible resources were imported. Review business access separately.", "Importing" => $"{s.ImportedCount} found so far. You can leave this page; import progress is saved.", "ImportFailed" => "Your progress is saved. Resume the import, or reconnect if access has changed.", "Cancelled" or "Expired" => "No business access was granted. Choose Connect account to try again.", "AwaitingConsent" => "Complete sign-in in the provider page, or start a new connection if you closed it.", "NoResources" => $"The provider returned no accessible {_view!.Declaration.ResourcesLabel.ToLowerInvariant()}. Try authorizing the intended account or resource.", _ => "The provider connection did not complete. Review the requested permissions and try again." };
     public async ValueTask DisposeAsync() { _stop.Cancel(); if (_polling is not null) await _polling; _stop.Dispose(); }
 }
