@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup><UsesOfficeContracts>true</UsesOfficeContracts></PropertyGroup>
+  <!-- The local agent catalog (CSweet:AgentCatalog:LocalDirectoryPath, default Plugins/Agents) lives under this project; keep its sources out of the host build. -->
+  <PropertyGroup><DefaultItemExcludes>$(DefaultItemExcludes);Plugins/**</DefaultItemExcludes></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CSweet.Application\CSweet.Application.csproj" />
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />

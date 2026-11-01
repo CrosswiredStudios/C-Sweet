@@ -740,6 +740,78 @@
           "Availability": "Available",
           "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Platform.YouTube",
           "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.Platform.YouTube#readme"
+        },
+        {
+          "Id": "6f2b4b4e-3b1a-4c1e-9d2e-7a0b0c2e5a01",
+          "AgentId": "com.crosswiredstudios.agent.realtyleads",
+          "ListingSlug": "realtyleads-lead-research-analyst",
+          "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
+          "AccentColor": "#1C6252",
+          "Name": "RealtyLeadsAI Lead Research Analyst",
+          "Summary": "Runs bounded RealtyLeadsAI inheritance-lead research from manager assignments or chat and delivers lead briefs. Requires the RealtyLeadsAI plugin and an explicit account grant.",
+          "Category": "Research",
+          "RoleKey": "research-analyst",
+          "RoleName": "Lead Research Analyst",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "realtyleads.research.search.v1",
+            "realtyleads.research.lookup.v1"
+          ],
+          "RoleAliases": [
+            "Lead Research Analyst",
+            "Research Analyst"
+          ],
+          "SpecializationKeys": [
+            "real-estate-lead-research"
+          ],
+          "Keywords": [
+            "real-estate",
+            "leads",
+            "research",
+            "inheritance",
+            "realtyleads"
+          ],
+          "IsFeatured": false,
+          "ManualSelectionOnly": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.RealtyLeadsAI",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.RealtyLeadsAI#readme"
+        },
+        {
+          "Id": "6f2b4b4e-3b1a-4c1e-9d2e-7a0b0c2e5a02",
+          "AgentId": "com.crosswiredstudios.agent.realtyleads.acquisitions",
+          "ListingSlug": "realtyleads-acquisitions-manager",
+          "CompanyLogoUrl": "_content/CSweet.UI/images/csweet-icon.svg",
+          "AccentColor": "#1C6252",
+          "Name": "RealtyLeadsAI Acquisitions Manager",
+          "Summary": "Turns owner goals into lead research assignments for the Lead Research Analyst, tracks each lead through a pipeline, and drafts outreach for owner approval.",
+          "Category": "Research",
+          "RoleKey": "acquisitions-manager",
+          "RoleName": "Acquisitions Manager",
+          "LicenseSpdxId": "MIT",
+          "IconUrls": [],
+          "Capabilities": [
+            "acquisitions.pipeline.summary.v1"
+          ],
+          "RoleAliases": [
+            "Acquisitions Manager"
+          ],
+          "SpecializationKeys": [
+            "real-estate-acquisitions"
+          ],
+          "Keywords": [
+            "real-estate",
+            "acquisitions",
+            "pipeline",
+            "leads",
+            "realtyleads"
+          ],
+          "IsFeatured": false,
+          "ManualSelectionOnly": true,
+          "Availability": "Available",
+          "RepositoryUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.RealtyLeadsAI.Acquisitions",
+          "DocumentationUrl": "https://github.com/CrosswiredStudios/CSweet.Agent.RealtyLeadsAI.Acquisitions#readme"
         }
       ]
     }
