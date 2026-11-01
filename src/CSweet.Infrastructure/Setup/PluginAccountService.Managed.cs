@@ -89,8 +89,10 @@ public sealed partial class PluginAccountService
     {
         await Current(session, ct); var context = await ManagedAttempt(session, ct);
         if (context.RemoteConnectionId is not { } connectionId) throw new UnauthorizedAccessException("Managed consent has not completed.");
+        await SaveImportStage(session, "ManagedDiscovery", ct);
         var inventory = await managed!.Discover(connectionId, ct,
             context.ServiceOrigin ?? throw new UnauthorizedAccessException("The connection service origin is unavailable.")); await Current(session, ct);
+        ImportStage(session, "ResponseValidation");
         if (inventory.ConnectionId != connectionId || inventory.Status is not ("AuthorizedPendingDiscovery" or "Ready")) throw new UnauthorizedAccessException("Managed discovery is unavailable.");
         var (_, manifest, _) = await Context(session.PluginInstallationId, ct);
         if (inventory.Resources.Count > manifest.Accounts!.MaximumResources || inventory.Resources.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != inventory.Resources.Count)
@@ -101,7 +103,7 @@ public sealed partial class PluginAccountService
         session.VerifiedSubject = inventory.Subject; session.VerifiedName = inventory.Name; session.IdentityAuthority = inventory.IdentityAuthority;
         session.ObservedResourcesJson = JsonSerializer.Serialize(rows, Json); session.PagesImported++; session.Revision++;
         if (inventory.Status == "Ready") await FinishImport(session, rows, ct);
-        else { session.LeaseOwner = null; session.LeaseUntil = null; await db.SaveChangesAsync(ct); }
+        else { FinishImportProgress(session, "Queued"); session.LeaseOwner = null; session.LeaseUntil = null; await db.SaveChangesAsync(ct); }
     }
     private async Task<bool> RetireManaged(PluginAccountSetupSession completed, CancellationToken ct)
     {

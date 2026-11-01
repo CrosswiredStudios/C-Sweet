@@ -326,12 +326,14 @@ public sealed class PluginAccountFlowTests
     internal sealed class DiscoveryTransport : IConnectorHttpTransport
     {
         public bool OmitSecondResource {get;set;}
+        public int? ResourceStatus { get; set; }
         public string Subject { get; set; } = "immutable-provider-subject"; public bool FailSecondPage { get; set; }
         public int Pages { get; private set; } public int FirstPageRequests { get; private set; }
         public async Task<ConnectorProviderResponse> SendAsync(Guid connector, Guid connection, ConnectorPreparedRequest request, Func<CancellationToken,Task> revalidate, CancellationToken ct)
         {
             await revalidate(ct);
             if (request.Url.Contains("/identity")) return new(200, JsonSerializer.SerializeToUtf8Bytes(new { sub = Subject, name = "Example account" }));
+            if (ResourceStatus is { } status) return new(status, Encoding.UTF8.GetBytes("CANARY raw provider body"));
             Pages++; var second = request.Url.Contains("pageToken=page-two"); if (!second) FirstPageRequests++;
             if (second && FailSecondPage) throw new HttpRequestException("simulated interruption");
             return new(200, Encoding.UTF8.GetBytes(second ? OmitSecondResource ? """{"items":[]}""" : """{"items":[{"id":"workspace-b","name":"Workspace B"}]}""" : """{"items":[{"id":"workspace-a","name":"Workspace A"}],"next":"page-two"}"""));

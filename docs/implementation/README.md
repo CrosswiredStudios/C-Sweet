@@ -252,3 +252,5 @@ The first full vertical slice is complete when:
 - [Coding workload resources and recovery](coding-workload-resources.md) — resource policy, checkpointed VM replacement, guest memory evidence and rollout acceptance.
 
 - [Video game portfolio leadership](features/video-game-director.md) — Director/Creative Director/Producer ownership, pitch approvals, shared teams and CEO reporting.
+
+[Account import diagnostics](plugin-account-import-diagnostics.md) explains resume acknowledgments, worker attempts, safe failure metadata and upstream visibility limits.

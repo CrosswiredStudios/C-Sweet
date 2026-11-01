@@ -8,6 +8,9 @@ public interface IPluginAccountApiClient
     Task<PluginAccountManagementView> GetAsync(Guid installationId, CancellationToken ct = default);
     Task<BeginPluginAccountResponse> ConnectAsync(Guid installationId, ConnectPluginAccountRequest request, CancellationToken ct = default);
     Task RetryAsync(Guid installationId, Guid setupId, CancellationToken ct = default);
+    // Compatibility for existing in-process/custom clients. Null means no durable acknowledgment was available.
+    async Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid installationId, Guid setupId, long expectedRevision, CancellationToken ct = default)
+    { await RetryAsync(installationId, setupId, ct); return null; }
     Task SaveGrantAsync(Guid installationId, Guid accountId, SavePluginAccountGrantRequest request, CancellationToken ct = default);
     Task RevokeGrantAsync(Guid installationId, Guid grantId, long revision, CancellationToken ct = default);
     Task<PluginAccountImpactView> GetDisconnectImpactAsync(Guid installationId, Guid accountId, CancellationToken ct = default);
@@ -25,6 +28,38 @@ public sealed class PluginAccountApiClient(HttpClient http) : IPluginAccountApiC
     public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => Send<PluginAccountManagementView>(HttpMethod.Get, Path(id) + "/", null, ct);
     public Task<BeginPluginAccountResponse> ConnectAsync(Guid id, ConnectPluginAccountRequest request, CancellationToken ct = default) => Send<BeginPluginAccountResponse>(HttpMethod.Post, Path(id) + "/connect", request, ct);
     public async Task RetryAsync(Guid id, Guid setupId, CancellationToken ct = default) => await Send<object>(HttpMethod.Post, Path(id) + $"/setup/{setupId:D}/retry", null, ct);
+    public async Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid id, Guid setupId, long expectedRevision, CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, Path(id) + $"/setup/{setupId:D}/retry")
+        { Content = JsonContent.Create(new ResumePluginImportRequest(expectedRevision)) };
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode)
+            throw new ApiClientException(response.StatusCode, "The import resume was not confirmed. Refresh its status before reviewing another attempt.");
+        if (response.StatusCode == System.Net.HttpStatusCode.NoContent) return null; // Legacy server: never invent an acknowledgment.
+        using var bytes = new MemoryStream();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var buffer = new byte[512];
+        while (true)
+        {
+            var count = await stream.ReadAsync(buffer, ct);
+            if (count == 0) break;
+            if (bytes.Length + count > 2048) throw new InvalidOperationException("The import acknowledgment is unavailable.");
+            bytes.Write(buffer, 0, count);
+        }
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(bytes.ToArray(), new() { MaxDepth = 4 });
+            var root = document.RootElement;
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                root.EnumerateObject().Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != root.EnumerateObject().Count())
+                throw new System.Text.Json.JsonException();
+            var receipt = System.Text.Json.JsonSerializer.Deserialize<PluginImportResumeReceipt>(root.GetRawText(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            if (receipt is null || receipt.SetupId != setupId || receipt.CorrelationId == Guid.Empty || receipt.Revision <= expectedRevision)
+                throw new System.Text.Json.JsonException();
+            return receipt;
+        }
+        catch (System.Text.Json.JsonException) { throw new InvalidOperationException("The import acknowledgment is unavailable."); }
+    }
     public async Task SaveGrantAsync(Guid id, Guid accountId, SavePluginAccountGrantRequest request, CancellationToken ct = default) => await Send<object>(HttpMethod.Put, Path(id) + $"/{accountId:D}/business-access", request, ct);
     public async Task RevokeGrantAsync(Guid id, Guid grantId, long revision, CancellationToken ct = default) => await Send<object>(HttpMethod.Delete, Path(id) + $"/business-access/{grantId:D}?revision={revision}", null, ct);
     public Task<PluginAccountImpactView> GetDisconnectImpactAsync(Guid id, Guid accountId, CancellationToken ct = default) => Send<PluginAccountImpactView>(HttpMethod.Get, Path(id) + $"/{accountId:D}/disconnect-impact", null, ct);

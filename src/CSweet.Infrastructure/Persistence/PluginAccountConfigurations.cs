@@ -47,6 +47,7 @@ public sealed partial class CSweetDbContext
             e.Property(x => x.RedirectUri).HasMaxLength(2048);
             e.Property(x => x.Status).HasMaxLength(32);
             e.Property(x => x.FailureCode).HasMaxLength(64);
+            e.Property(x => x.ImportDiagnosticsJson).HasColumnType("text");
             e.Property(x => x.PageToken).HasMaxLength(2048);
             e.Property(x => x.SeenPageTokensJson).HasColumnType("text");
             e.Property(x => x.VerifiedSubject).HasMaxLength(512);

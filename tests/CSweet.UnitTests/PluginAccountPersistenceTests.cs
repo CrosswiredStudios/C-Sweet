@@ -45,6 +45,12 @@ public sealed class PluginAccountPersistenceTests
         var cleanupSql=db.GetService<IMigrator>().GenerateScript(migrations[cleanupIndex-1],migrations[cleanupIndex]);
         Assert.Contains("CREATE TABLE \"PluginAccountCleanupReceipts\"",cleanupSql);
         Assert.Contains("plugin_cleanup_receipt_immutable",cleanupSql);Assert.DoesNotContain("DROP TABLE",cleanupSql);
+        var diagnosticsIndex = Array.FindIndex(migrations, x => x.EndsWith("_PluginImportDiagnostics", StringComparison.Ordinal));
+        Assert.True(diagnosticsIndex > cleanupIndex);
+        var diagnosticsSql = db.GetService<IMigrator>().GenerateScript(migrations[diagnosticsIndex - 1], migrations[diagnosticsIndex]);
+        Assert.Contains("ADD \"ImportDiagnosticsJson\" text", diagnosticsSql);
+        Assert.DoesNotContain("DROP TABLE", diagnosticsSql); Assert.DoesNotContain("UPDATE ", diagnosticsSql);
+        Assert.True(db.Model.FindEntityType(typeof(PluginAccountSetupSession))!.FindProperty("ImportDiagnosticsJson")!.IsNullable);
         foreach (var type in new[] { typeof(PluginAccountGroup), typeof(PluginAccountResource), typeof(PluginAccountBusinessGrant) })
             Assert.True(db.Model.FindEntityType(type)!.FindProperty("Revision")!.IsConcurrencyToken);
         Assert.True(db.Model.FindEntityType(typeof(PluginConnection))!.FindProperty("AuthorizationRevision")!.IsConcurrencyToken);

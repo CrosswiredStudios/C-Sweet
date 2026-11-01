@@ -22,7 +22,13 @@ public sealed record PluginManagedAuthorization(Guid Id, string State, IReadOnly
 {
     public IReadOnlyList<Guid> ResourceIds { get; init; } = [];
 }
-public sealed record PluginAccountSetupView(Guid Id, string Status, int ImportedCount, string? FailureCode, DateTimeOffset ExpiresAt);
+public sealed record PluginAccountSetupView(Guid Id, string Status, int ImportedCount, string? FailureCode, DateTimeOffset ExpiresAt)
+{
+    public long Revision { get; init; }
+    public PluginAccountImportProgress? Import { get; init; }
+}
+public sealed record ResumePluginImportRequest(long ExpectedRevision);
+public sealed record PluginImportResumeReceipt(Guid SetupId, long Revision, Guid CorrelationId);
 public sealed record PluginBusinessAccountGrantView(Guid Id, Guid OrganizationId, string Scope, IReadOnlyList<Guid> ResourceIds,
     IReadOnlyList<string> PermissionIds, long Revision, bool Revoked = false);
 public sealed record ConnectPluginAccountRequest(IReadOnlyList<string> ScopeSetIds, string PolicyVersion, bool AcceptPolicies, string PackageDigest,

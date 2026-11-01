@@ -13022,6 +13022,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<string>("ImportDiagnosticsJson")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsMaintenance")
                         .HasColumnType("boolean");
 
