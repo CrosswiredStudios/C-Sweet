@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using CSweet.Infrastructure.Setup;
 var builder = DistributedApplication.CreateBuilder(args);
+var sharedManagedEnvironment = ManagedConnectionHostConfiguration.ReadEnvironment(builder.Configuration);
 
 // Visual Studio can start the AppHost debug session without providing the
 // DEBUG_SESSION_INFO payload Aspire needs to launch child projects through the
@@ -111,6 +113,13 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WaitFor(postgres)
     .WaitFor(agentHost)
     .WaitForCompletion(migrator);
+// Both the human-facing API and the import worker use the same existing deployment identity.
+// Only the reviewed client settings are forwarded; owner-control/provider credentials are excluded.
+foreach (var setting in sharedManagedEnvironment)
+{
+    api.WithEnvironment(setting.Key, setting.Value);
+    agentHost.WithEnvironment(setting.Key, setting.Value);
+}
 if (OperatingSystem.IsWindows())
 {
     var workspaceRoot = Directory.GetParent(repositoryRoot)?.FullName;

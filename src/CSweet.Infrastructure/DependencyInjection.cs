@@ -206,6 +206,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
         builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
         builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
+        builder.Services.PostConfigure<PluginConnectionOptions>(settings => ManagedConnectionHostConfiguration.RequireMatch(
+            builder.Configuration[ManagedConnectionHostConfiguration.HashKey], settings.Managed.Enabled,
+            settings.Managed.ServiceOrigin, settings.Managed.ReturnUri, settings.Managed.RegistrationPath, settings.Managed.CustomerOwnedProfiles));
         builder.Services.AddScoped<ConnectionServiceSelectionStore>();
         builder.Services.Configure<ConnectionServiceNetworkOptions>(builder.Configuration.GetSection(ConnectionServiceNetworkOptions.Section));
         builder.Services.Configure<ConnectionServiceOwnerOptions>(builder.Configuration.GetSection(ConnectionServiceOwnerOptions.Section));

@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <Content Include="appsettings*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../CSweet.Infrastructure/Setup/ManagedConnectionHostConfiguration.cs" Link="ManagedConnectionHostConfiguration.cs" />
   </ItemGroup>
 
 </Project>
