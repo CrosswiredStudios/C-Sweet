@@ -485,6 +485,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 AgentCatalogSource.LocalDirectory => "LocalDirectoryCatalog",
                 AgentCatalogSource.FirstPartyCatalog => "CSweetEmbeddedCatalog",
                 AgentCatalogSource.Marketplace => "CSweetMarketplace",
+                AgentCatalogSource.ApprovedDefinition => "ApprovedDefinitionCatalog",
                 _ => throw new InvalidOperationException("The agent catalog source is unsupported.")
             };
             var externalId = agent.InstallationId?.ToString("D") ?? agent.AgentReference;
