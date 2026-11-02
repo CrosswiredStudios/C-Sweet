@@ -28,6 +28,12 @@ public sealed partial class PluginAccountService
             : new PluginAccountGroup { Id = Guid.NewGuid(), PluginInstallationId = installation.Id, ProviderProfile = declaration.ProviderProfile,
                 DisplayName = manifest.Accounts.AccountLabel, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
         if (group.State is PluginAccountState.Disconnecting or PluginAccountState.Disconnected) throw new InvalidOperationException("Account disconnection must finish first.");
+        if (previous is not null && group.State == PluginAccountState.ConnectionRequired)
+        {
+            if (!await CanRecoverUnverifiedManaged(user, group, previous, installation, declaration, available.BindingHash, ct)) throw new InvalidOperationException("This account is not available for fresh-consent recovery. Review its current status.");
+            var existingSets = declaration.ScopeSets.Where(x => !x.Scopes.Except(List<string>(previous.GrantedScopesJson), StringComparer.Ordinal).Any()).Select(x => x.Id);
+            if (!requested.ToHashSet(StringComparer.Ordinal).SetEquals(existingSets)) throw new ArgumentException("Recover this account with its existing permission sets. Additional access needs a separate review.");
+        }
         if (previous is null) db.PluginAccountGroups.Add(group);
         var connection = new PluginConnection { Id = Guid.NewGuid(), AgentInstallationId = installation.Id, AccountGroupId = group.Id,
             DeclarationId = declaration.Id, ProviderProfile = declaration.ProviderProfile, CredentialProfileHash = available.BindingHash,
@@ -127,7 +133,7 @@ public sealed partial class PluginAccountService
                 else
                 {
                     var receipt = await managed.Supersede(oldRemote, newRemote, ct, prior.ServiceOrigin);
-                    if (receipt.ConnectionId != oldRemote || receipt.Status != "Superseded") return false;
+                    if (receipt.ConnectionId != oldRemote || receipt.Status is not ("Superseded" or "Revoked") || receipt.GrantedScopeSets.Count != 0 || receipt.Revision < 1) return false;
                 }
             }
             else

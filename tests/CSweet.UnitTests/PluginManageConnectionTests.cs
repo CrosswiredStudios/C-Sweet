@@ -16,6 +16,23 @@ namespace CSweet.UnitTests;
 
 public sealed class PluginManageConnectionTests
 {
+    [Fact]
+    public async Task RevokedRecoveryOpensReviewedFreshConsentWithoutStartingOAuthOrEnablingAdditionalSets()
+    {
+        var api = new Api(); var authorization = Guid.NewGuid();
+        api.View = api.View with { Accounts = [new(Guid.NewGuid(), "Unverified account", "ConnectionRequired", 1, false, [],
+            [new(authorization, "Connected", ["base"], true) { RequiresFreshConsentRecovery = true }], [])] };
+        var html = await Render(api, async page => {
+            await Invoke(page, "OpenConnect", (Guid?)authorization);
+            typeof(PluginManage).GetMethod("ToggleScope", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, ["optional", true]);
+            var selected = (HashSet<string>)typeof(PluginManage).GetField("_scopes", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!;
+            Assert.Equal(["base"], selected);
+        });
+        Assert.Contains("Reconnect with fresh consent", html); Assert.Contains("Erased credentials will not be restored", html);
+        Assert.Contains("I have reviewed the access", html); Assert.Equal(0, api.Starts); Assert.Null(api.Request);
+        Assert.Contains("Choose what to enable", html);
+        Assert.Matches("<input[^>]*disabled[^>]*>", html);
+    }
     [Theory]
     [InlineData("https://connections.c-sweet.com", "Official C-Sweet service address")]
     [InlineData("https://custom.example", "Custom self-hosted service")]

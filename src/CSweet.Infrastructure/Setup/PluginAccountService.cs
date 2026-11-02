@@ -48,11 +48,13 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
         var canConnect = installation.IsEnabled && installation.RevisionStatus == PluginRevisionStatus.Active && build == "Built" && !string.IsNullOrWhiteSpace(installation.PackageVersion.PackageDigest);
         string? readiness = canConnect ? null : "build_pending";
         var managedMode = managed?.UsesManaged(declaration.ProviderProfile) == true;
+        string? managedBindingHash = null;
         if (canConnect && managedMode)
         {
             try
             {
                 var availability = await managed!.Availability(installation.PackageVersion.PackageDigest!, ct);
+                managedBindingHash = availability.BindingHash;
                 if (availability.ProfileId != declaration.ProviderProfile) throw new InvalidOperationException("The managed application binding differs from this package.");
             }
             catch (Exception error) when (error is HttpRequestException or InvalidOperationException or System.Security.Cryptography.CryptographicException)
@@ -97,10 +99,14 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
             var grants = admin ? await db.PluginAccountBusinessGrants.AsNoTracking().Where(x => x.AccountGroupId == group.Id).ToArrayAsync(ct) : [];
             var authorizationIds = authorizations.Select(x => x.Id).ToArray();
             var proofs = await db.PluginAccountResourceAuthorizations.AsNoTracking().Where(x => authorizationIds.Contains(x.ConnectionId)).ToArrayAsync(ct);
+            var recoverable = new HashSet<Guid>();
+            if (managedMode && installation.IsEnabled && build == "Built" && readiness is null or "assigned_accounts_only")
+                foreach (var authorization in authorizations)
+                    if (await CanRecoverUnverifiedManaged(userId, group, authorization, installation, declaration, managedBindingHash, ct)) recoverable.Add(authorization.Id);
             rows.Add(new(group.Id, group.DisplayName, group.State.ToString(), group.Revision, group.IdentityKind == PluginAccountIdentityKind.ProviderSubject,
                 resources, authorizations.Select(c => new PluginManagedAuthorization(c.Id, c.Status.ToString(),
-                    declaration.ScopeSets.Where(s => !s.Scopes.Except(List<string>(c.GrantedScopesJson), StringComparer.Ordinal).Any()).Select(s => s.Id).ToArray(), group.State == PluginAccountState.Connected && installation.IsEnabled && build=="Built" && readiness is null or "assigned_accounts_only")
-                    { ResourceIds = proofs.Where(p => p.ConnectionId == c.Id).Select(p => p.ResourceId).ToArray() }).ToArray(),
+                    declaration.ScopeSets.Where(s => !s.Scopes.Except(List<string>(c.GrantedScopesJson), StringComparer.Ordinal).Any()).Select(s => s.Id).ToArray(), (group.State == PluginAccountState.Connected || recoverable.Contains(c.Id)) && installation.IsEnabled && build=="Built" && readiness is null or "assigned_accounts_only")
+                    { ResourceIds = proofs.Where(p => p.ConnectionId == c.Id).Select(p => p.ResourceId).ToArray(), RequiresFreshConsentRecovery = recoverable.Contains(c.Id) }).ToArray(),
                 grants.Select(g => new PluginBusinessAccountGrantView(g.Id, g.OrganizationId, g.Scope.ToString(), List<Guid>(g.SelectedResourceIdsJson),
                     manifest.Accounts!.Permissions.Where(p => p.Capabilities.All(c => List<string>(g.CapabilitiesJson).Contains(c))).Select(p => p.Id).ToArray(), g.Revision, g.RevokedAt != null)).ToArray()));
         }
