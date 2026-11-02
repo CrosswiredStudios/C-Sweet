@@ -18,7 +18,7 @@ public interface IConnectorMediaTransport
 }
 
 /// <summary>Host-only bounded exchanges. A durable worker, not this transport, owns retry decisions.</summary>
-public sealed class ConnectorMediaTransport(CSweetDbContext db, IPluginOAuthTokenBroker tokens) : IConnectorMediaTransport
+public sealed class ConnectorMediaTransport(CSweetDbContext db, IPluginOAuthTokenBroker tokens, IManagedConnectorRelay? managed = null) : IConnectorMediaTransport
 {
     private const int MaximumResponseBytes = 4 * 1024 * 1024;
 
@@ -26,6 +26,8 @@ public sealed class ConnectorMediaTransport(CSweetDbContext db, IPluginOAuthToke
         string? sessionLocation, long offset, ReadOnlyMemory<byte> chunk, long maximumSentBytes,
         Func<CancellationToken, Task> revalidate, CancellationToken ct)
     {
+        if (managed is not null && await managed.IsManagedAsync(plan.ConnectorInstallationId, plan.ConnectionId, ct))
+            return await managed.MediaAsync(plan, step, sessionLocation, offset, chunk, maximumSentBytes, revalidate, ct);
         using var outbound = ConnectorResumableProtocol.CreateRequest(plan, step, sessionLocation, offset, chunk);
         var uri = outbound.RequestUri!;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

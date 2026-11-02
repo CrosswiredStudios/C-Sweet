@@ -8,7 +8,7 @@ namespace CSweet.Infrastructure.Setup;
 
 /// <summary>Bounded read-only slice of the connector execution protocol. Mutations cannot enter this path.</summary>
 public sealed class ConnectorReadExecutor(CSweetDbContext db, ConnectorPlanService plans, IConnectorHttpTransport transport,
-    IPluginSecretStore secrets, IAuditEventWriter audit)
+    IPluginSecretStore secrets, IAuditEventWriter audit, IManagedConnectorRelay? managed = null)
 {
     public async Task<JsonElement> ExecuteAsync(Guid organizationId, Guid requesterId, string capability,
         JsonElement input, string idempotencyKey, CancellationToken token)
@@ -33,24 +33,30 @@ public sealed class ConnectorReadExecutor(CSweetDbContext db, ConnectorPlanServi
         await db.SaveChangesAsync(token); // Optimistic claim: competing contexts cannot claim the same revision.
         async Task Revalidate(CancellationToken cancellation) =>
             _ = await plans.RevalidateAsync(organizationId, requesterId, execution.Id, execution.PlanHash, cancellation);
-        foreach (var resource in frozen.Request.ResourceChecks)
+        ConnectorProviderResponse response;
+        if (managed is not null && await managed.IsManagedAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, token))
+            response = await managed.ReadAsync(frozen, execution.PlanHash, Revalidate, token);
+        else
         {
-            var check = resource.Declaration;
-            var query = check.QueryConstants.Append(new KeyValuePair<string, string>(check.ResourceQuery, resource.ResourceId));
-            var ownershipRequest = frozen.Request with
+            foreach (var resource in frozen.Request.ResourceChecks)
             {
-                Method = "GET", Url = ConnectorRequestMaterializer.Query(check.Endpoint, query), Body = null,
-                ResourceChecks = [], SecretResponseFields = [], IfMatch = null
-            };
-            var ownership = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId,
-                ownershipRequest, Revalidate, token);
-            if (ownership.StatusCode != 200) throw new UnauthorizedAccessException("The provider could not validate resource ownership.");
-            using var document = Parse(ownership.Body);
-            var owner = ConnectorRequestMaterializer.At(document.RootElement, check.OwnerPointer);
-            if (owner is not { ValueKind: JsonValueKind.String } || owner.Value.GetString() != frozen.ResourceId)
-                throw new UnauthorizedAccessException("The provider resource does not belong to the confirmed account.");
+                var check = resource.Declaration;
+                var query = check.QueryConstants.Append(new KeyValuePair<string, string>(check.ResourceQuery, resource.ResourceId));
+                var ownershipRequest = frozen.Request with
+                {
+                    Method = "GET", Url = ConnectorRequestMaterializer.Query(check.Endpoint, query), Body = null,
+                    ResourceChecks = [], SecretResponseFields = [], IfMatch = null
+                };
+                var ownership = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId,
+                    ownershipRequest, Revalidate, token);
+                if (ownership.StatusCode != 200) throw new UnauthorizedAccessException("The provider could not validate resource ownership.");
+                using var document = Parse(ownership.Body);
+                var owner = ConnectorRequestMaterializer.At(document.RootElement, check.OwnerPointer);
+                if (owner is not { ValueKind: JsonValueKind.String } || owner.Value.GetString() != frozen.ResourceId)
+                    throw new UnauthorizedAccessException("The provider resource does not belong to the confirmed account.");
+            }
+            response = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, frozen.Request, Revalidate, token);
         }
-        var response = await transport.SendAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, frozen.Request, Revalidate, token);
         if (response.StatusCode is < 200 or >= 300)
             throw new InvalidOperationException($"The provider read failed with status {response.StatusCode}; no response content was released.");
         ConnectorResponseResourceValidator.Validate(response.Body, frozen.Request);

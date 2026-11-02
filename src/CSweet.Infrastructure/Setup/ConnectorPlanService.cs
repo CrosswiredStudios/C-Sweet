@@ -14,7 +14,10 @@ public sealed record FrozenConnectorPlan(Guid OrganizationId, Guid RequesterInst
     string ResourceId, string IdempotencyKey, string InputHash, ConnectorPreparedRequest Request,
     ConnectorMediaBinding? Media,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    PluginAccountAuthoritySnapshot? AccountAuthority = null);
+    PluginAccountAuthoritySnapshot? AccountAuthority = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    JsonElement? OriginalInput = null)
+{ public override string ToString() => "Frozen connector plan [content redacted]"; }
 
 /// <summary>Freezes authority and request content before any provider effect. This service never sends HTTP.</summary>
 public sealed class ConnectorPlanService(CSweetDbContext db)
@@ -49,7 +52,7 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         var frozen = new FrozenConnectorPlan(organizationId, requesterId, authority.Connector.Id,
             authority.Connection.Id, authority.Requester.Grant!.GrantRevision, authority.Connector.Grant!.GrantRevision,
             authority.Connector.PackageVersion!.PackageDigest!, capability, authority.ResourceId,
-            idempotencyKey, inputHash, request, media, authority.AccountAuthority);
+            idempotencyKey, inputHash, request, media, authority.AccountAuthority, input.Clone());
         var element = JsonSerializer.SerializeToElement(frozen, JsonOptions);
         var hash = ConnectorRequestMaterializer.Hash(element);
         var existing = await db.ConnectorExecutions.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&

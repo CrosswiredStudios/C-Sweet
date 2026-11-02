@@ -29,6 +29,9 @@ one-click account connections with a central vault and optional customer-owned c
 [Google registration checklist](../deployment/google-youtube-connection-setup.md) separates operator
 registration, development testing and production review from ordinary customer consent.
 
+[Managed provider execution](managed-provider-execution.md) maps service-owned read/media relay,
+Core approval and attachment provenance, native account authority and staged adoption boundaries.
+
 [Build provider setup](toolchain-build-setup.md) maps business-scoped toolchain installation, the administrator certification screen, exact provider/image selection and real fixture validation.
 
 [Game studio startup recovery](game-studio-startup-recovery.md) maps Producer ownership, metadata validation, revised proposal recovery and platform token-budget configuration boundaries.

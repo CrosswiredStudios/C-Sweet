@@ -12,7 +12,7 @@ namespace CSweet.Infrastructure.Setup;
 /// <summary>One fenced exchange per dispatch. The durable job owns progress; no runtime holds a transfer.</summary>
 public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorActionApprovalService approvals,
     IConnectorMediaTransport transport, IConnectorHttpTransport reads, IMediaAssetService assets,
-    IPluginSecretStore secrets, IAuditEventWriter audit)
+    IPluginSecretStore secrets, IAuditEventWriter audit, IManagedConnectorRelay? managed = null)
 {
     public const string ActiveKind = "host-connector-media-active";
     public const string FinishedKind = "host-connector-media-finished";
@@ -31,12 +31,28 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
             x.ConnectorInstallationId == job.AgentInstallationId, ct);
         if (job.Kind == FinishedKind)
         {
-            await secrets.RemoveAsync(execution.ConnectorInstallationId, $"response.media-session.{execution.Id:N}", ct);
-            job.AvailableAt = null; job.Revision++; job.UpdatedAt = now; await db.SaveChangesAsync(ct); return true;
+            try
+            {
+                var saved = await secrets.GetAsync(execution.ConnectorInstallationId, $"response.media-session.{execution.Id:N}", ct);
+                if (execution.Status != "Completed" && saved is not null && ManagedMediaHandle.IsHandle(saved))
+                {
+                    if (managed is null) throw new InvalidOperationException("Managed media cleanup is unavailable.");
+                    await managed.CancelAsync(execution.ConnectorInstallationId, execution.ConnectionId, saved, ct);
+                }
+                await secrets.RemoveAsync(execution.ConnectorInstallationId, $"response.media-session.{execution.Id:N}", ct);
+                job.AvailableAt = null; job.Revision++; job.UpdatedAt = now; await db.SaveChangesAsync(ct); return true;
+            }
+            catch (Exception error) when (error is HttpRequestException or IOException or UnauthorizedAccessException or InvalidOperationException ||
+                error is OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                // Retain the protected handle and a durable cleanup obligation; do not claim
+                // remote cancellation or retry an upload when cleanup is unavailable.
+                job.AvailableAt = now.AddMinutes(5); job.Revision++; job.UpdatedAt = now; await db.SaveChangesAsync(ct); return true;
+            }
         }
         if (execution.Status != "Executing")
         {
-            job.Kind = FinishedKind; job.AvailableAt = null; job.Revision++;
+            job.Kind = FinishedKind; job.AvailableAt = await CleanupAt(execution, ct); job.Revision++;
             await db.SaveChangesAsync(ct); return true;
         }
         var observedRevision = execution.Revision;
@@ -50,7 +66,7 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
             {
                 // A failed preflight on an already-started job must not become an endless retry loop.
                 execution.Status = "Indeterminate"; execution.Revision++; execution.UpdatedAt = DateTimeOffset.UtcNow;
-                job.Kind = FinishedKind; job.AvailableAt = null; job.Revision++;
+                job.Kind = FinishedKind; job.AvailableAt = await CleanupAt(execution, ct); job.Revision++;
                 await approvals.QueueExecutionEventAsync(execution, ct);
                 await db.SaveChangesAsync(ct);
             }
@@ -102,6 +118,7 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
             if (session is null && progress.Phase != "Begin")
                 throw new InvalidOperationException("The interrupted upload has no recoverable session; do not start a replacement.");
             var step = progress.Phase switch { "Begin" => ConnectorMediaStep.Begin, "Probe" => ConnectorMediaStep.Probe, _ => ConnectorMediaStep.Chunk };
+            if (managed is null || !await managed.IsManagedAsync(frozen.ConnectorInstallationId, frozen.ConnectionId, ct))
             foreach (var resource in frozen.Request.ResourceChecks)
             {
                 var check = resource.Declaration;
@@ -143,7 +160,7 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
             {
                 if (response.StatusCode is not (200 or 201) || response.SessionLocation is null)
                     throw new InvalidOperationException("Upload initiation was not confirmed; do not initiate again.");
-                _ = ConnectorResumableProtocol.ValidateSession(frozen, response.SessionLocation);
+                ConnectorResumableProtocol.ValidateSavedSession(frozen, response.SessionLocation);
                 try
                 {
                     await secrets.SetAsync(frozen.ConnectorInstallationId, secretKey, response.SessionLocation, ct);
@@ -225,7 +242,7 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
             {
                 execution.Status = sent || progress.MaximumSentBytes > 0 || progress.InFlight ? "Indeterminate" : "Blocked";
                 execution.ResultJson = null; execution.Revision++; execution.UpdatedAt = DateTimeOffset.UtcNow;
-                Save(job, progress with { Phase = execution.Status, InFlight = false }, null); job.Kind = FinishedKind;
+                Save(job, progress with { Phase = execution.Status, InFlight = false }, await CleanupAt(execution, CancellationToken.None)); job.Kind = FinishedKind;
                 await approvals.QueueExecutionEventAsync(execution, CancellationToken.None);
             }
             await db.SaveChangesAsync(CancellationToken.None);
@@ -236,6 +253,13 @@ public sealed class ConnectorMediaTransferService(CSweetDbContext db, ConnectorA
     private Task<byte[]> ReadChunkAsync(FrozenConnectorPlan plan, long offset, CancellationToken ct) =>
         MediaAssetIntegrity.ReadRangeAsync(db, assets, plan.OrganizationId, plan.Media!, offset,
             ConnectorResumableProtocol.ChunkSize, ct);
+
+    private async Task<DateTimeOffset?> CleanupAt(ConnectorExecution execution, CancellationToken ct)
+    {
+        if (managed is null) return null;
+        var saved = await secrets.GetAsync(execution.ConnectorInstallationId, $"response.media-session.{execution.Id:N}", ct);
+        return saved is not null && ManagedMediaHandle.IsHandle(saved) ? DateTimeOffset.UtcNow : null;
+    }
 
     private static DateTimeOffset Backoff(int failures) => DateTimeOffset.UtcNow.AddSeconds(Math.Min(900, 5 * Math.Pow(2, failures)));
     private static DateTimeOffset Later(DateTimeOffset? provider, DateTimeOffset local) => provider > local ? provider.Value : local;

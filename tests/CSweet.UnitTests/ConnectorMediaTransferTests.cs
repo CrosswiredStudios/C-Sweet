@@ -222,7 +222,7 @@ public sealed class ConnectorMediaTransferTests
         Assert.Contains("provider-secret", f.Provider.Secrets.Values);
     }
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
         public const string Session = "https://api.example.com/items?upload_id=opaque-secret";
@@ -245,7 +245,7 @@ public sealed class ConnectorMediaTransferTests
                 binding.PayloadHash, binding.ExpectedRevision, binding.IdempotencyKey, "decision", binding.ResourceId), default);
         }
         public ValueTask DisposeAsync() => Inner.DisposeAsync();
-        public static async Task<Fixture> Create(bool secret = false, bool responseBinding = false)
+        public static async Task<Fixture> Create(bool secret = false, bool responseBinding = false, bool native = false)
         {
             var inner = await ConnectorPlanServiceTests.Fixture.Create(responseBinding: responseBinding);
             var provider = new Provider();
@@ -261,6 +261,7 @@ public sealed class ConnectorMediaTransferTests
                     Http = manifest.ProviderOperations[0].Http! with { Method = "POST", MediaInput = "/asset",
                         MediaProtocol = ConnectorResumableProtocol.Name, SecretResponseFields = secret ? ["/secret"] : [] } }] };
             inner.Connector.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest, Json);
+            if (native) _ = await PluginAccountAuthorityTests.Fixture.Create(inner);
             var manager = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = inner.Organization, DisplayName = "Manager", EmployeeType = EmployeeType.Human };
             inner.Db.CoreOrganizationUsers.AddRange(manager, new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = inner.Organization,
                 DisplayName = "Specialist", EmployeeType = EmployeeType.Agent, AgentInstallationId = inner.Requester.Id, ReportsToOrganizationUserId = manager.Id });
@@ -273,7 +274,7 @@ public sealed class ConnectorMediaTransferTests
         }
     }
 
-    private sealed class Provider : IConnectorMediaTransport, IConnectorHttpTransport, IMediaAssetService, IPluginSecretStore, IAuditEventWriter
+    internal sealed class Provider : IConnectorMediaTransport, IConnectorHttpTransport, IMediaAssetService, IPluginSecretStore, IAuditEventWriter
     {
         public byte[] Bytes { get; } = [1, 2, 3, 4, 5];
         public MediaAsset Asset { get; } = new() { Id = Guid.NewGuid(), FileName = "video.mp4", ContentType = "video/mp4", SizeBytes = 5,
