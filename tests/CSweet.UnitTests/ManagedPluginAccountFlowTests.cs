@@ -182,6 +182,10 @@ public sealed class ManagedPluginAccountFlowTests
         private Guid session = Guid.NewGuid(), connection = Guid.NewGuid();
         public BeginConnection? Start; public bool Unavailable, Cancelled, CleanupUnavailable; public int Redemptions;
         public bool ManagedMode = true;
+        public string RetirementStatus = "Superseded";
+        public bool WrongRetirementId;
+        public Exception? SnapshotFailure;
+        public int Beginnings, Snapshots;
         public string RevocationStatus = "Revoked";
         public string Origin = "https://managed.example";
         public int Retirements; public Guid CancelledAttempt;
@@ -191,7 +195,7 @@ public sealed class ManagedPluginAccountFlowTests
         public Task<string> BoundServiceOrigin(CancellationToken ct) => Task.FromResult(Origin);
         public string ReturnUri => "https://customer.example/settings/plugins/managed-return";
         public Task<ProfileAvailability> Availability(string digest, CancellationToken ct) => Unavailable ? Task.FromException<ProfileAvailability>(new HttpRequestException()) : Task.FromResult(new ProfileAvailability(profile, 1, new string('b', 64), "https://managed.example/oauth/callback/profile"));
-        public Task<ConnectionAttempt> Begin(BeginConnection request, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal(Origin, expectedServiceOrigin); session = Guid.NewGuid(); connection = Guid.NewGuid(); Start = request; return Task.FromResult(new ConnectionAttempt(session, "Created", "https://managed.example/connect/opaque", DateTimeOffset.UtcNow.AddMinutes(10))); }
+        public Task<ConnectionAttempt> Begin(BeginConnection request, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal(Origin, expectedServiceOrigin); Beginnings++; session = Guid.NewGuid(); connection = Guid.NewGuid(); Start = request; return Task.FromResult(new ConnectionAttempt(session, "Created", "https://managed.example/connect/opaque", DateTimeOffset.UtcNow.AddMinutes(10))); }
         public Task<ConnectionReceipt> Redeem(RedeemConnection request, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal(Origin, expectedServiceOrigin); Redemptions++; return Task.FromResult(new ConnectionReceipt(session, connection, "AuthorizedPendingDiscovery", null, ["base"])); }
         public Task<ConnectionReceipt> Recover(Guid id, RecoverConnection request, CancellationToken ct, string? expectedServiceOrigin = null) => Task.FromResult(new ConnectionReceipt(session, connection, "AuthorizedPendingDiscovery", null, ["base"]));
         public async Task<ConnectionInventory> Discover(Guid id, CancellationToken ct, string? expectedServiceOrigin = null)
@@ -203,8 +207,8 @@ public sealed class ManagedPluginAccountFlowTests
         }
         public Task<ConnectionReceipt> Cancel(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) { Cancelled = true; return Task.FromResult(new ConnectionReceipt(session, connection, "Cancelled", null, [])); }
         public Task<ConnectionReceipt> CancelAttempt(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal("https://managed.example", expectedServiceOrigin); if (CleanupUnavailable) throw new HttpRequestException("Synthetic cleanup interruption"); CancelledAttempt = id; return Cancel(id, ct, expectedServiceOrigin); }
-        public Task<ConnectionSnapshot> Supersede(Guid previous, Guid replacement, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal("https://managed.example", expectedServiceOrigin); Assert.NotEqual(previous, replacement); Retirements++; return Task.FromResult(new ConnectionSnapshot(previous, "Superseded", 3, [])); }
-        public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal("https://managed.example", expectedServiceOrigin); return Task.FromResult(new ConnectionSnapshot(id, RevocationStatus, 3, [])); }
+        public Task<ConnectionSnapshot> Supersede(Guid previous, Guid replacement, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal("https://managed.example", expectedServiceOrigin); Assert.NotEqual(previous, replacement); Retirements++; return Task.FromResult(new ConnectionSnapshot(WrongRetirementId ? Guid.NewGuid() : previous, RetirementStatus, 3, [])); }
+        public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) { Assert.Equal("https://managed.example", expectedServiceOrigin); Snapshots++; return SnapshotFailure is not null ? Task.FromException<ConnectionSnapshot>(SnapshotFailure) : Task.FromResult(new ConnectionSnapshot(id, RevocationStatus, 3, [])); }
         public Task<ConnectionSnapshot> Disconnect(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => Snapshot(id, ct, expectedServiceOrigin);
     }
 }

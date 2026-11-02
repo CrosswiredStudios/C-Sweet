@@ -73,7 +73,7 @@
                 @foreach (var scope in _view.ScopeSets)
                 {
                     <MudCheckBox T="bool" Value="@(_scopes.Contains(scope.Id) || scope.Required)" ValueChanged="@(value => ToggleScope(scope.Id, value))"
-                        Disabled="@(scope.Required || _busy)" Label="@(scope.Label + (scope.Required ? " (included)" : ""))" />
+                        Disabled="@(scope.Required || _busy || _recovering)" Label="@(scope.Label + (scope.Required ? " (included)" : ""))" />
                     <MudText Typo="Typo.body2" Color="Color.Secondary">@scope.Purpose</MudText>
                 }
                 <MudAlert Severity="Severity.Info" Class="mt-3">You’ll sign in on the provider’s own page. Your password stays with the provider. Connecting an account does not give any business or agent access.</MudAlert>
@@ -125,7 +125,9 @@
                 {
                     <div class="resource-row"><div><MudText Typo="Typo.subtitle2">@AuthorizationResources(account, authorization)</MudText>
                         <MudText Typo="Typo.body2" Color="Color.Secondary">@AuthorizationPermissions(authorization) · @(authorization.State == "Connected" ? "Connected" : "Sign-in needs attention")</MudText></div>
-                        <MudButton Disabled="@(_busy || !authorization.CanReconnect)" OnClick="@(() => OpenConnect(authorization.Id))">Reconnect / change permissions</MudButton></div>
+                        <MudButton Disabled="@(_busy || !authorization.CanReconnect)" OnClick="@(() => OpenConnect(authorization.Id))">@(authorization.RequiresFreshConsentRecovery ? "Reconnect with fresh consent" : "Reconnect / change permissions")</MudButton>
+                        @if (authorization.RequiresFreshConsentRecovery)
+                        { <MudText Typo="Typo.body2">The old authorization is no longer usable and this account was never verified. Sign in again with the same permissions. Erased credentials will not be restored.</MudText> }</div>
                 }
                 <MudText Typo="Typo.subtitle1" Class="mt-3">@_view.Declaration.ResourcesLabel (@account.Resources.Count)</MudText>
                 @if (account.Resources.Count > 10)
@@ -218,7 +220,7 @@
     private PluginBusinessAccountGrantView? _revokeGrant;
     private readonly CancellationTokenSource _stop = new();
     private Task? _polling;
-    private bool _busy, _connecting, _accepted, _future, _settingsOpen;
+    private bool _busy, _connecting, _accepted, _future, _settingsOpen, _recovering;
     private bool _showSetupNotice = true;
     private string? _error, _notice, _resourceSearch;
     private Guid? _reconnect, _business;
@@ -242,6 +244,7 @@
         if (_busy || _view is null || (id is null ? !_view.CanConnect : !_view.Accounts.SelectMany(x => x.Authorizations).Any(x => x.Id == id && x.CanReconnect))) return;
         _showSetupNotice = false; _reconnect = id; _connecting = true; _accepted = false; _scopes.Clear();
         var existing = _view!.Accounts.SelectMany(x => x.Authorizations).FirstOrDefault(x => x.Id == id);
+        _recovering = existing?.RequiresFreshConsentRecovery == true;
         foreach (var scope in existing?.GrantedScopeSets ?? []) _scopes.Add(scope);
         foreach (var scope in _view.ScopeSets.Where(x => x.Required)) _scopes.Add(scope.Id);
         if (id is null)
@@ -318,7 +321,7 @@
         _disconnectAccount = null; _impact = null; await Reload(); _notice = "Account access stopped. Provider revocation and data deletion were queued.";
     });
     private async Task Perform(Func<Task> action) { if (_busy) return; _busy = true; _showSetupNotice = false; _error = null; _notice = null; try { await action(); } catch (Exception e) when (e is not OperationCanceledException) { _error = e.Message; } finally { _busy = false; } }
-    private void ToggleScope(string id, bool value) { if (value) _scopes.Add(id); else _scopes.Remove(id); }
+    private void ToggleScope(string id, bool value) { if (_recovering) return; if (value) _scopes.Add(id); else _scopes.Remove(id); }
     private void ToggleResource(Guid id, bool value) { if (value) _resources.Add(id); else _resources.Remove(id); }
     private void TogglePermission(string id, bool value) { if (value) _permissions.Add(id); else _permissions.Remove(id); }
     private string BusinessName(Guid id) => Businesses.Businesses.FirstOrDefault(x => x.Id == id)?.Name ?? "Business";

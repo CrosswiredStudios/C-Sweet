@@ -20,6 +20,7 @@ public sealed record PluginManagedAccount(Guid Id, string Name, string State, lo
 public sealed record PluginManagedResource(Guid Id, string ExternalId, string Name, string? Handle, bool Available);
 public sealed record PluginManagedAuthorization(Guid Id, string State, IReadOnlyList<string> GrantedScopeSets, bool CanReconnect)
 {
+    public bool RequiresFreshConsentRecovery { get; init; }
     public IReadOnlyList<Guid> ResourceIds { get; init; } = [];
 }
 public sealed record PluginAccountSetupView(Guid Id, string Status, int ImportedCount, string? FailureCode, DateTimeOffset ExpiresAt)
