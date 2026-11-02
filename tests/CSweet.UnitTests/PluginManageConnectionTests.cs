@@ -51,7 +51,7 @@ public sealed class PluginManageConnectionTests
         Assert.Contains("Read selected workspaces", html);
         Assert.Contains("https://example.com/privacy", html);
         Assert.Contains("https://example.com/terms", html);
-        Assert.Contains("By choosing Connect account", html);
+        Assert.Contains("Review the access and policies", html);
         Assert.Contains("What am I allowing?", html);
         Assert.Matches("<details class=\"connection-access\"[^>]*>", html);
         Assert.DoesNotMatch("<details class=\"connection-access\"[^>]* open", html);
@@ -97,10 +97,10 @@ public sealed class PluginManageConnectionTests
     }
 
     [Fact]
-    public async Task FirstConnectClickStartsOnlyRequiredAccessAndNavigatesToProvider()
+    public async Task ReviewedConnectStartsOnlyRequiredAccessAndNavigatesToProvider()
     {
         var api = new Api(); var navigation = new Navigation();
-        await Render(api, page => Invoke(page, "OpenConnect", (object?)null), navigation);
+        await Render(api, async page => { await Invoke(page, "OpenConnect", (object?)null); await AcceptAndConnect(page); }, navigation);
         Assert.Equal(new[] { "base" }, api.Request!.ScopeSetIds);
         Assert.Equal("policy-v2", api.Request.PolicyVersion);
         Assert.True(api.Request.AcceptPolicies);
@@ -133,6 +133,7 @@ public sealed class PluginManageConnectionTests
         {
             await Invoke(page, "OpenConnect", authorization);
             await Invoke(page, "OpenConnect", (object?)null);
+            await AcceptAndConnect(page);
         });
         Assert.Equal(new[] { "base" }, api.Request!.ScopeSetIds);
         Assert.Null(api.Request.ReconnectConnectionId);
@@ -157,25 +158,25 @@ public sealed class PluginManageConnectionTests
     }
 
     [Fact]
-    public async Task FailedConsentStartLeavesAnInlineErrorAndCanBeRetried()
+    public async Task UncertainConsentStartRequiresStatusRefreshAndFreshReviewBeforeRetry()
     {
-        var api = new Api { Failure = "The provider is temporarily unavailable." };
+        var api = new Api { Failure = "CANARY access_token=private" };
         var html = await Render(api, async page =>
         {
-            await Invoke(page, "OpenConnect", (object?)null);
-            Assert.Equal(api.Failure, typeof(PluginManage).GetField("_error", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page));
+            await Invoke(page, "OpenConnect", (object?)null); await AcceptAndConnect(page);
+            await Invoke(page, "Connect"); Assert.Equal(1, api.Starts);
             api.Failure = null;
-            await Invoke(page, "OpenConnect", (object?)null);
+            await Invoke(page, "Reload"); await Invoke(page, "Connect"); Assert.Equal(1, api.Starts);
+            await AcceptAndConnect(page);
         });
-        Assert.Equal(2, api.Starts);
-        Assert.DoesNotContain("The provider is temporarily unavailable.", html);
+        Assert.Equal(2, api.Starts); Assert.DoesNotContain("CANARY", html);
     }
 
     [Fact]
     public async Task NonHttpsConsentResponseCannotNavigate()
     {
         var api = new Api { AuthorizationUrl = "http://identity.example.com/authorize" }; var navigation = new Navigation();
-        var html = await Render(api, page => Invoke(page, "OpenConnect", (object?)null), navigation);
+        var html = await Render(api, async page => { await Invoke(page, "OpenConnect", (object?)null); await AcceptAndConnect(page); }, navigation);
         Assert.Null(navigation.Target);
         Assert.Contains("The secure sign-in address is unavailable.", html);
     }
@@ -268,9 +269,155 @@ public sealed class PluginManageConnectionTests
         Assert.Contains("current setup state above takes precedence", html);
     }
 
+    [Fact]
+    public async Task FirstClickOnlyOpensReviewAndBackDiscardsUnsubmittedConsent()
+    {
+        var api = new Api();
+        var html = await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null);
+            await Invoke(page, "Connect"); Assert.Equal(0, api.Starts);
+            typeof(PluginManage).GetField("_accepted", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, true);
+            typeof(PluginManage).GetMethod("CancelConnect", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null);
+            await Invoke(page, "OpenConnect", (object?)null);
+            await Invoke(page, "Connect");
+        });
+        Assert.Equal(0, api.Starts); Assert.Contains("I have reviewed the access", html);
+        Assert.DoesNotContain("Connect your first account", html);
+    }
+
+    [Fact]
+    public async Task RepeatedConsentClicksSubmitOnceEvenBeforeNavigationCompletes()
+    {
+        var api = new Api(); var pending = new TaskCompletionSource<BeginPluginAccountResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Begin = () => pending.Task;
+        await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null);
+            var first = AcceptAndConnect(page); await Task.Yield();
+            await Invoke(page, "Connect"); Assert.Equal(1, api.Starts);
+            pending.SetResult(new(Guid.NewGuid(), api.AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10)));
+            await first; await Invoke(page, "Connect");
+        });
+        Assert.Equal(1, api.Starts);
+    }
+
+    [Fact]
+    public async Task NewPluginNavigationDiscardsAnOldConsentResponseAndLocalSelection()
+    {
+        var api = new Api(); var navigation = new Navigation();
+        var pending = new TaskCompletionSource<BeginPluginAccountResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Begin = () => pending.Task;
+        var html = await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null); var first = AcceptAndConnect(page);
+            api.View = api.View with { InstallationId = Guid.NewGuid(), Name = "Other plugin" };
+            typeof(PluginManage).GetProperty(nameof(PluginManage.InstallationId))!.SetValue(page, api.View.InstallationId);
+            await Invoke(page, "OnParametersSetAsync");
+            pending.SetResult(new(Guid.NewGuid(), api.AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10)));
+            await first;
+        }, navigation);
+        Assert.Null(navigation.Target); Assert.Contains("Other plugin", html);
+        Assert.DoesNotContain("I have reviewed the access", html); Assert.Equal(1, api.Starts);
+    }
+
+    [Fact]
+    public async Task OlderStatusReadCannotReplaceANewerRefresh()
+    {
+        var api = new Api();
+        var html = await Render(api, async page =>
+        {
+            var old = api.View; var pending = new TaskCompletionSource<PluginAccountManagementView>(TaskCreationOptions.RunContinuationsAsynchronously);
+            api.Read = _ => pending.Task; var first = Invoke(page, "Reload");
+            api.View = api.View with { Name = "Latest package status" }; api.Read = null;
+            await Invoke(page, "Reload"); pending.SetResult(old); await first;
+        });
+        Assert.Contains("Latest package status", html);
+    }
+
+    [Fact]
+    public async Task PackageChangeInvalidatesThePolicyReview()
+    {
+        var api = new Api();
+        await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null);
+            typeof(PluginManage).GetField("_accepted", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, true);
+            api.View = api.View with { PackageDigest = new string('b', 64) };
+            await Invoke(page, "Reload"); await Invoke(page, "Connect");
+        });
+        Assert.Equal(0, api.Starts);
+    }
+
+    [Fact]
+    public async Task NewSuccessKeepsHistoricalFailuresInCollapsedHistory()
+    {
+        var api = new Api(); var failed = FailedSetup();
+        api.View = api.View with { SetupSessions = [failed with { Id = Guid.NewGuid(), Status = "Ready", Import = null }, failed] };
+        var html = await Render(api);
+        var history = html.IndexOf("<details class=\"setup-history\"", StringComparison.Ordinal);
+        Assert.True(history > 0); Assert.Contains("Account connected", html[..history]);
+        Assert.DoesNotContain("Import paused", html[..history]); Assert.Contains("Import paused", html[history..]);
+        Assert.DoesNotMatch("<details class=\"setup-history\"[^>]* open", html);
+        Assert.Equal(0, api.ResumeCalls);
+    }
+
+    [Theory]
+    [InlineData("AwaitingConsent", "Waiting for secure sign-in")]
+    [InlineData("Expired", "Sign-in expired")]
+    [InlineData("NoResources", "no accessible resources")]
+    [InlineData("Cancelled", "Connection cancelled")]
+    public async Task ReentryUsesSavedStatusWithoutConsentOrGrantSideEffects(string status, string title)
+    {
+        var api = new Api(); api.View = api.View with { SetupSessions = [FailedSetup() with { Status = status, Import = null }] };
+        var html = await Render(api);
+        Assert.Contains(title, html); Assert.Null(api.Request); Assert.Equal(0, api.ResumeCalls);
+        if (status == "AwaitingConsent") Assert.DoesNotContain("Connect your first account", html);
+    }
+
+    [Fact]
+    public async Task ExpiredSignInWindowOffersANewReviewedConnectionWithoutSubmittingIt()
+    {
+        var api = new Api(); api.View = api.View with { SetupSessions = [FailedSetup() with { Status = "AwaitingConsent", ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1), Import = null }] };
+        var html = await Render(api);
+        Assert.Contains("Sign-in expired", html); Assert.Contains("Connect your first account", html); Assert.Null(api.Request);
+    }
+
+    [Fact]
+    public async Task UnusableConnectionReturnsToRequirementsAndExpandsItsRecoveryDetails()
+    {
+        var api = new Api();
+        api.View = api.View with { CanAdminister = true, Declaration = api.View.Declaration with { Permissions = [new() { Id = "read" }] },
+            Accounts = [new(Guid.NewGuid(), "Recover account", "ConnectionRequired", 7, false, [], [new(Guid.NewGuid(), "Revoked", ["base"], true)], [])] };
+        var html = await Render(api, page =>
+        {
+            Assert.Equal(PluginSetupSectionKind.Requirements, typeof(PluginManage).GetProperty("CurrentSection", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page));
+            return Task.CompletedTask;
+        });
+        Assert.Matches("<details class=\"account-detail\"[^>]* open", html); Assert.Null(api.Request);
+    }
+
+    [Fact]
+    public async Task MultipleAccountsOpenOnlyOneAccountWithoutGrantingAccess()
+    {
+        var api = new Api();
+        var account = new PluginManagedAccount(Guid.NewGuid(), "First account", "Connected", 2, true, [], [], []);
+        api.View = api.View with { Accounts = [account, account with { Id = Guid.NewGuid(), Name = "Second account" }] };
+        var html = await Render(api);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(html, "<details class=\"account-panel\"").Count);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "<details class=\"account-panel\"[^>]* open"));
+        Assert.Null(api.Request);
+    }
+
     private static PluginAccountSetupView FailedSetup() => new(Guid.NewGuid(), "ImportFailed", 0, "discovery_failed", DateTimeOffset.UtcNow.AddMinutes(10))
     { Revision = 7, Import = new(Guid.NewGuid(), "Failed", "ManagedDiscovery", 1, StartedAt: DateTimeOffset.UtcNow, FinishedAt: DateTimeOffset.UtcNow,
         FailureKind: "http_error", ExceptionType: "HttpRequestException", HttpStatus: 503, HttpStatusSource: "ManagedService") };
+
+    private static async Task AcceptAndConnect(PluginManage page)
+    {
+        typeof(PluginManage).GetField("_accepted", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, true);
+        await Invoke(page, "Connect");
+    }
 
     private static Task Invoke(PluginManage page, string method, params object?[] args) =>
         (Task)typeof(PluginManage).GetMethod(method, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, args)!;
@@ -308,11 +455,13 @@ public sealed class PluginManageConnectionTests
         public string AuthorizationUrl = "https://identity.example.com/authorize?state=opaque";
         public int ResumeCalls; public long ExpectedRevision; public Exception? ReadFailure;
         public Func<Guid,long,Task<PluginImportResumeReceipt?>>? Resume;
-        public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => ReadFailure is null ? Task.FromResult(View) : Task.FromException<PluginAccountManagementView>(ReadFailure);
+        public Func<Guid, Task<PluginAccountManagementView>>? Read;
+        public Func<Task<BeginPluginAccountResponse>>? Begin;
+        public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => Read?.Invoke(id) ?? (ReadFailure is null ? Task.FromResult(View) : Task.FromException<PluginAccountManagementView>(ReadFailure));
         public Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid id, Guid setup, long expectedRevision, CancellationToken ct = default)
         { ResumeCalls++; ExpectedRevision = expectedRevision; return Resume?.Invoke(setup, expectedRevision) ?? Task.FromResult<PluginImportResumeReceipt?>(null); }
         public Task<BeginPluginAccountResponse> ConnectAsync(Guid id, ConnectPluginAccountRequest request, CancellationToken ct = default)
-        { Starts++; Request = request; return Failure is null ? Task.FromResult(new BeginPluginAccountResponse(Guid.NewGuid(), AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10))) : Task.FromException<BeginPluginAccountResponse>(new InvalidOperationException(Failure)); }
+        { Starts++; Request = request; return Begin?.Invoke() ?? (Failure is null ? Task.FromResult(new BeginPluginAccountResponse(Guid.NewGuid(), AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10))) : Task.FromException<BeginPluginAccountResponse>(new InvalidOperationException(Failure))); }
         public Task RetryAsync(Guid id, Guid setup, CancellationToken ct = default) => throw new NotSupportedException();
         public Task SaveGrantAsync(Guid id, Guid account, SavePluginAccountGrantRequest request, CancellationToken ct = default) => throw new NotSupportedException();
         public Task RevokeGrantAsync(Guid id, Guid grant, long revision, CancellationToken ct = default) => throw new NotSupportedException();

@@ -147,6 +147,24 @@ public sealed class PluginSettingsTests
         });
     }
 
+    [Theory]
+    [InlineData(false, "Ready", null)]
+    [InlineData(false, "ConfigurationRequired", "settings")]
+    [InlineData(true, "Ready", null)]
+    public async Task OtherSetupArchetypesKeepTheirOwnManagementWithoutOAuthSteps(bool apiKey, string state, string? flow)
+    {
+        var installation = Api.Installation("Connector") with { HasNativeApiKeyAccounts = apiKey, SetupState = state, SetupFlowId = flow };
+        var html = await Render(new Api { Installations = [installation] }, page =>
+        {
+            Call(page, "Manage", installation);
+            Assert.Equal(installation.Id, typeof(Plugins).GetField("_managedId", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page));
+            return Task.CompletedTask;
+        });
+        Assert.DoesNotContain("Continue to secure sign-in", html);
+        Assert.DoesNotContain("Setup progress", html);
+        if (apiKey) Assert.Contains($"/businesses/{installation.BusinessId}/plugins/{installation.Id}/api-key-accounts", html);
+    }
+
     [Fact]
     public async Task BundleMethodShowsCspbInputAndPreviewRequiresAFile()
     {
@@ -268,6 +286,7 @@ public sealed class PluginSettingsTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IPluginApiClient>(api);
+        services.AddSingleton<IAgentApiClient>(CreateAgentClient());
         services.AddSingleton<IBusinessContext, StubBusinessContext>(); services.AddSingleton<NavigationManager, Navigation>();
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         var activator = new Activator(); services.AddSingleton<IComponentActivator>(activator);
@@ -354,6 +373,14 @@ public sealed class PluginSettingsTests
     {
         public Navigation() => Initialize("https://host.example/", "https://host.example/settings/plugins");
         protected override void NavigateToCore(string uri, bool forceLoad) { }
+    }
+    // Fail closed: setup tests cannot install, hire, update, or message agents.
+    public static IAgentApiClient CreateAgentClient() => DispatchProxy.Create<IAgentApiClient, SetupAgentClient>();
+    public class SetupAgentClient : DispatchProxy
+    {
+        protected override object? Invoke(MethodInfo? target, object?[]? args) => target?.Name == nameof(IAgentApiClient.CheckUpdatesAsync)
+            ? Task.FromResult<IReadOnlyList<AgentUpdateAvailabilityResponse>>([])
+            : throw new NotSupportedException("Agent operations are outside the setup fixture.");
     }
     private sealed class NoJavaScript : IJSRuntime
     {

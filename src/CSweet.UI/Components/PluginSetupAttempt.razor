@@ -1,0 +1,47 @@
+@using CSweet.Contracts.Plugins
+
+<MudPaper Outlined="true" Class="manage-card setup-attempt" role="status">
+    <MudText Typo="Typo.h6">@(Waiting ? "Resume accepted" : Title)</MudText>
+    <MudText>@(Waiting ? "Waiting for the latest saved import status. No additional request was sent." : Message)</MudText>
+    <PluginImportDiagnostics Setup="Setup" Receipt="Receipt" />
+    @if (Unconfirmed)
+    { <MudText>Resume acknowledgment unavailable. Refresh the status before reviewing another attempt. No automatic retry was sent.</MudText> }
+    @if (Setup.Status == "Importing")
+    { <MudProgressLinear Indeterminate="true" aria-label="Importing accessible resources" /> }
+    @if (ShowActions)
+    {
+        <div class="manage-actions mt-3">
+            @if (Setup.Status == "ImportFailed")
+            { <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Busy || !CanResume)" OnClick="@(() => Resume.InvokeAsync(Setup.Id))">Resume import</MudButton> }
+            @if (Setup.Status is "Importing" or "AwaitingConsent" or "ImportFailed" || Waiting || Unconfirmed)
+            { <MudButton Disabled="Busy" OnClick="Refresh">Refresh status</MudButton> }
+        </div>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public PluginAccountSetupView Setup { get; set; } = null!;
+    [Parameter] public string ResourcesLabel { get; set; } = "resources";
+    [Parameter] public PluginImportResumeReceipt? Receipt { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public bool CanResume { get; set; }
+    [Parameter] public bool Unconfirmed { get; set; }
+    [Parameter] public bool ShowActions { get; set; } = true;
+    [Parameter] public EventCallback<Guid> Resume { get; set; }
+    [Parameter] public EventCallback Refresh { get; set; }
+    private bool Waiting => Receipt is { } receipt && receipt.SetupId == Setup.Id && Setup.Revision < receipt.Revision;
+    private string Title => Setup.Status switch {
+        "Ready" => "Account connected", "Importing" => "Finding accessible resources", "ImportFailed" => "Import paused",
+        "AwaitingConsent" when Setup.ExpiresAt <= DateTimeOffset.UtcNow => "Sign-in expired",
+        "AwaitingConsent" => "Waiting for secure sign-in", "Cancelled" => "Connection cancelled", "Expired" => "Sign-in expired",
+        "NoResources" => "Connected — no accessible resources", _ => "Connection needs attention" };
+    private string Message => Setup.Status switch {
+        "Ready" => "Accessible resources were imported. Review business access separately.",
+        "Importing" => $"{Setup.ImportedCount} found so far. You can leave this page; import progress is saved.",
+        "ImportFailed" => "Your progress is saved. Resume the import, or reconnect if access has changed.",
+        "Cancelled" or "Expired" => "No business access was granted. Choose Connect account to try again.",
+        "AwaitingConsent" when Setup.ExpiresAt <= DateTimeOffset.UtcNow => "The sign-in window has ended. Refresh the saved status before starting another connection.",
+        "AwaitingConsent" => "Complete sign-in on the provider page, then refresh this status. Connecting does not grant business or agent access.",
+        "NoResources" => $"The provider returned no accessible {ResourcesLabel.ToLowerInvariant()}. Try authorizing the intended account or resource.",
+        _ => "The provider connection did not complete. Review the requested permissions and try again." };
+}

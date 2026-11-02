@@ -1,0 +1,18 @@
+@using CSweet.UI.Services
+
+<ol class="setup-progress" aria-label="Setup progress">
+    @for (var index = 0; index < Sections.Count; index++)
+    {
+        var section = Sections[index];
+        <li class="@(section.Kind == Current ? "current" : section.Complete ? "complete" : "")" aria-current="@(section.Kind == Current ? "step" : null)">
+            <span class="step-number" aria-hidden="true">@(section.Complete && section.Kind != Current ? "✓" : (index + 1).ToString())</span>
+            <span>@section.Label</span>
+            <span class="sr-only">@(section.Kind == Current ? "Current step" : section.Complete ? "Complete" : "Upcoming")</span>
+        </li>
+    }
+</ol>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PluginSetupSection> Sections { get; set; } = [];
+    [Parameter] public PluginSetupSectionKind Current { get; set; }
+}

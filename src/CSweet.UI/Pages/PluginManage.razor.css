@@ -11,4 +11,12 @@
 .access-editor { padding: 20px; margin-top: 16px; border: 1px solid var(--mud-palette-divider); border-radius: 12px; }
 .plugin-manage ::deep .empty-state { display: grid; gap: 20px; justify-items: start; padding: 36px; }
 .policy-links { font-size: 0.9rem; }
+.account-panel { border: 1px solid var(--mud-palette-divider); border-radius: 16px; background: var(--mud-palette-surface); }
+.account-panel > summary { cursor: pointer; padding: 20px 24px; font-weight: 600; }
+.account-state { float: right; margin-left: 16px; color: var(--mud-palette-text-secondary); font-size: .85rem; font-weight: 400; }
+.account-detail { padding: 14px 0; border-bottom: 1px solid var(--mud-palette-divider); }
+.account-detail > summary, .setup-history > summary { cursor: pointer; color: var(--mud-palette-text-secondary); }
+.account-controls { margin-top: 16px; border-bottom: 0; }
+.setup-history { display: grid; gap: 12px; }
+.setup-history ::deep .setup-attempt { margin-top: 12px; }
 @media (max-width: 640px) { .plugin-manage { padding: 12px; } .plugin-manage ::deep .manage-card { padding: 16px; } .manage-actions { align-items: stretch; flex-direction: column; } }
