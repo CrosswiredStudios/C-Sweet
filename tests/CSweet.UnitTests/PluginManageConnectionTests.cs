@@ -5,6 +5,7 @@ using CSweet.UI.Localization;
 using CSweet.UI.Pages;
 using CSweet.UI.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Routing;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -397,6 +398,45 @@ public sealed class PluginManageConnectionTests
             await Invoke(page, "Connect");
         });
         Assert.Equal(1, api.Starts);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task RouterParameterReadSurvivesEitherLocationSubscriberOrderAndStillDiscardsOldConsent(bool routerFirst, bool differentInstallation)
+    {
+        var api = new Api(); var navigation = new Navigation(); PluginManage? currentPage = null; Task? routing = null;
+        var read = new TaskCompletionSource<PluginAccountManagementView>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var consent = new TaskCompletionSource<BeginPluginAccountResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var setup = Guid.NewGuid();
+        var next = api.View with { InstallationId = differentInstallation ? Guid.NewGuid() : api.View.InstallationId, Name = "New route loaded" };
+        EventHandler<LocationChangedEventArgs> router = (_, _) =>
+        {
+            if (currentPage is null) return;
+            typeof(PluginManage).GetProperty(nameof(PluginManage.InstallationId))!.SetValue(currentPage, next.InstallationId);
+            typeof(PluginManage).GetProperty(nameof(PluginManage.SetupId))!.SetValue(currentPage, (Guid?)setup);
+            // Like an earlier Router subscriber, synchronously deliver parameters until
+            // the route's API read yields, then allow later location subscribers to run.
+            routing = Invoke(currentPage, "OnParametersSetAsync");
+        };
+        if (routerFirst) navigation.LocationChanged += router;
+        var html = await Render(api, async page =>
+        {
+            currentPage = page;
+            if (!routerFirst) navigation.LocationChanged += router;
+            api.Begin = () => consent.Task;
+            await Invoke(page, "OpenConnect", (object?)null); var oldConsent = AcceptAndConnect(page);
+            api.Read = _ => read.Task;
+            navigation.ChangeLocation($"https://host.example/settings/plugins/{next.InstallationId:D}?setup={setup:D}");
+            Assert.NotNull(routing); Assert.False(routing!.IsCompleted);
+            read.SetResult(next); await routing;
+            consent.SetResult(new(Guid.NewGuid(), api.AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10)));
+            await oldConsent;
+            Assert.Same(next, typeof(PluginManage).GetField("_view", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page));
+        }, navigation);
+        Assert.Contains("New route loaded", html); Assert.Null(navigation.Target); Assert.Equal(1, api.Starts);
     }
 
     [Fact]

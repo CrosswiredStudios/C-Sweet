@@ -36,8 +36,10 @@ approval remain separate from account connection and business grants.
 `OnParametersSetAsync`, navigation generations, route cancellation and sequenced
 reads discard responses from older routes or refreshes. Setup-query and URI changes
 invalidate same-installation reviews, including Back/Forward navigation. Location
-changes immediately advance the response generation, even before router parameter
-delivery or a return to the original URI. Consent responses also check the current URI before provider navigation, and disposal
+changes immediately advance the action-response generation, even before router parameter
+delivery or a return to the original URI. Reads use a separate route generation advanced
+by parameter delivery and disposal, so a later location subscriber cannot discard the
+new route's pending read. Consent responses also check the current URI before provider navigation, and disposal
 invalidates outstanding response generations even when cancellation is ignored.
 Package changes invalidate open reviews. Transport exception bodies are not displayed.
 

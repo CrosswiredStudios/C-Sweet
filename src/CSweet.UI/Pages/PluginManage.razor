@@ -230,7 +230,7 @@
     private Guid? _loadedInstallation, _loadedSetup, _focusedAccount;
     private string? _loadedLocation;
     private bool _disposed;
-    private long _navigationVersion, _readVersion, _busyNavigation;
+    private long _navigationVersion, _routeVersion, _readVersion, _busyNavigation;
     private CancellationTokenSource _routeStop = new();
     private PluginAccountSetupView? CurrentAttempt => _view is null ? null : PluginSetupPresentation.CurrentAttempt(_view, SetupId);
     private bool ConnectionPending => CurrentAttempt is { Status: "Importing" } || CurrentAttempt is { Status: "AwaitingConsent" } pending && pending.ExpiresAt > DateTimeOffset.UtcNow;
@@ -259,14 +259,14 @@
     private void LocationChanged(object? sender, LocationChangedEventArgs args)
     {
         if (_disposed) return;
-        // Invalidate immediately, even if Back/Forward returns to the original URI
+        // Invalidate actions immediately, even if Back/Forward returns to the original URI
         // before the router delivers parameters or disposes this component.
         _navigationVersion++; _accepted = _connecting = false;
     }
     protected override async Task OnParametersSetAsync()
     {
         if (_disposed || _loadedInstallation == InstallationId && _loadedSetup == SetupId && _loadedLocation == Navigation.Uri) return;
-        _loadedInstallation = InstallationId; _loadedSetup = SetupId; _loadedLocation = Navigation.Uri; _navigationVersion++;
+        _loadedInstallation = InstallationId; _loadedSetup = SetupId; _loadedLocation = Navigation.Uri; _navigationVersion++; _routeVersion++;
         _routeStop.Cancel(); _routeStop.Dispose(); _routeStop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
         _view = null; _editing = null; _revokeGrant = null; _disconnectAccount = null; _impact = null; _focusedAccount = null;
         _connecting = _accepted = _busy = _recovering = _settingsOpen = _future = _connectUnconfirmed = _statusUnavailable = false;
@@ -285,11 +285,13 @@
     private async Task Reload()
     {
         if (_disposed) return;
-        var navigation = _navigationVersion; var read = ++_readVersion; var id = InstallationId;
+        // An earlier Router subscriber may already have delivered these parameters.
+        // A later LocationChanged handler invalidates actions, not this route's read.
+        var route = _routeVersion; var read = ++_readVersion; var id = InstallationId;
         try
         {
             var view = await AccountsApi.GetAsync(id, _routeStop.Token);
-            if (navigation != _navigationVersion || read != _readVersion || view.InstallationId != id) return;
+            if (route != _routeVersion || read != _readVersion || view.InstallationId != id) return;
             if (_view is { } previous && previous.PackageDigest != view.PackageDigest)
             { _connecting = _accepted = _recovering = false; _reconnect = null; _scopes.Clear(); _editing = null; _disconnectAccount = null; _impact = null; _revokeGrant = null; }
             _view = view; _error = null; _statusUnavailable = false;
@@ -299,8 +301,8 @@
             // A changed package or account revision requires a fresh review before any action.
             if (_editing is { } editing && !view.Accounts.Any(a => a.Id == editing.Id && a.Revision == editing.Revision)) _editing = null;
         }
-        catch (OperationCanceledException) when (_stop.IsCancellationRequested || navigation != _navigationVersion) { }
-        catch (Exception) { if (navigation == _navigationVersion && read == _readVersion) { _statusUnavailable = true; _error = "Account status is unavailable. Refresh it before reviewing another action."; } }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested || route != _routeVersion) { }
+        catch (Exception) { if (route == _routeVersion && read == _readVersion) { _statusUnavailable = true; _error = "Account status is unavailable. Refresh it before reviewing another action."; } }
     }
     private async Task OpenConnect(Guid? id)
     {
@@ -451,7 +453,7 @@
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        _disposed = true; _navigationVersion++; _accepted = _connecting = false;
+        _disposed = true; _navigationVersion++; _routeVersion++; _accepted = _connecting = false;
         Navigation.LocationChanged -= LocationChanged;
         _stop.Cancel(); _routeStop.Cancel();
         if (_polling is not null) await _polling;
