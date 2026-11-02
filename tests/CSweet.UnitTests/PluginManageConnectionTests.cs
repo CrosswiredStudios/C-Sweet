@@ -321,6 +321,84 @@ public sealed class PluginManageConnectionTests
         Assert.DoesNotContain("I have reviewed the access", html); Assert.Equal(1, api.Starts);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SameInstallationSetupQueryChangeDiscardsLateConsentIncludingBackNavigation(bool backToOriginalQuery)
+    {
+        var api = new Api(); var navigation = new Navigation();
+        var pending = new TaskCompletionSource<BeginPluginAccountResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Begin = () => pending.Task;
+        await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null); var first = AcceptAndConnect(page);
+            typeof(PluginManage).GetProperty(nameof(PluginManage.SetupId))!.SetValue(page, (Guid?)Guid.NewGuid());
+            await Invoke(page, "OnParametersSetAsync");
+            Assert.True(api.ConnectCancellation.IsCancellationRequested);
+            Assert.False((bool)typeof(PluginManage).GetField("_accepted", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!);
+            if (backToOriginalQuery)
+            {
+                typeof(PluginManage).GetProperty(nameof(PluginManage.SetupId))!.SetValue(page, null);
+                await Invoke(page, "OnParametersSetAsync");
+            }
+            pending.SetResult(new(Guid.NewGuid(), api.AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10)));
+            await first;
+        }, navigation);
+        Assert.Null(navigation.Target); Assert.Equal(1, api.Starts); Assert.True(api.ConnectCancellation.IsCancellationRequested);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LocationChangeDiscardsLateConsentBeforeParameterLifecycleRuns(bool backToOriginalLocation)
+    {
+        var api = new Api(); var navigation = new Navigation();
+        var pending = new TaskCompletionSource<BeginPluginAccountResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Begin = () => pending.Task;
+        await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null); var first = AcceptAndConnect(page);
+            var originalLocation = navigation.Uri;
+            navigation.ChangeLocation($"https://host.example/settings/plugins/{api.View.InstallationId:D}?setup={Guid.NewGuid():D}");
+            if (backToOriginalLocation) navigation.ChangeLocation(originalLocation);
+            pending.SetResult(new(Guid.NewGuid(), api.AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10)));
+            await first;
+            Assert.False((bool)typeof(PluginManage).GetField("_busy", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page)!);
+        }, navigation);
+        Assert.Null(navigation.Target); Assert.Equal(1, api.Starts);
+    }
+
+    [Fact]
+    public async Task DisposalDiscardsNonCooperativeLateConsentAndIsIdempotent()
+    {
+        var api = new Api(); var navigation = new Navigation();
+        var pending = new TaskCompletionSource<BeginPluginAccountResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Begin = () => pending.Task;
+        await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null); var first = AcceptAndConnect(page);
+            await page.DisposeAsync();
+            Assert.True(api.ConnectCancellation.IsCancellationRequested);
+            pending.SetResult(new(Guid.NewGuid(), api.AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10)));
+            await first; await page.DisposeAsync();
+        }, navigation);
+        Assert.Null(navigation.Target); Assert.Equal(1, api.Starts); Assert.True(api.ConnectCancellation.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task UnchangedParametersPreserveTheCurrentReview()
+    {
+        var api = new Api();
+        await Render(api, async page =>
+        {
+            await Invoke(page, "OpenConnect", (object?)null);
+            typeof(PluginManage).GetField("_accepted", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, true);
+            await Invoke(page, "OnParametersSetAsync");
+            await Invoke(page, "Connect");
+        });
+        Assert.Equal(1, api.Starts);
+    }
+
     [Fact]
     public async Task OlderStatusReadCannotReplaceANewerRefresh()
     {
@@ -457,11 +535,12 @@ public sealed class PluginManageConnectionTests
         public Func<Guid,long,Task<PluginImportResumeReceipt?>>? Resume;
         public Func<Guid, Task<PluginAccountManagementView>>? Read;
         public Func<Task<BeginPluginAccountResponse>>? Begin;
+        public CancellationToken ConnectCancellation;
         public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => Read?.Invoke(id) ?? (ReadFailure is null ? Task.FromResult(View) : Task.FromException<PluginAccountManagementView>(ReadFailure));
         public Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid id, Guid setup, long expectedRevision, CancellationToken ct = default)
         { ResumeCalls++; ExpectedRevision = expectedRevision; return Resume?.Invoke(setup, expectedRevision) ?? Task.FromResult<PluginImportResumeReceipt?>(null); }
         public Task<BeginPluginAccountResponse> ConnectAsync(Guid id, ConnectPluginAccountRequest request, CancellationToken ct = default)
-        { Starts++; Request = request; return Begin?.Invoke() ?? (Failure is null ? Task.FromResult(new BeginPluginAccountResponse(Guid.NewGuid(), AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10))) : Task.FromException<BeginPluginAccountResponse>(new InvalidOperationException(Failure))); }
+        { Starts++; Request = request; ConnectCancellation = ct; return Begin?.Invoke() ?? (Failure is null ? Task.FromResult(new BeginPluginAccountResponse(Guid.NewGuid(), AuthorizationUrl, DateTimeOffset.UtcNow.AddMinutes(10))) : Task.FromException<BeginPluginAccountResponse>(new InvalidOperationException(Failure))); }
         public Task RetryAsync(Guid id, Guid setup, CancellationToken ct = default) => throw new NotSupportedException();
         public Task SaveGrantAsync(Guid id, Guid account, SavePluginAccountGrantRequest request, CancellationToken ct = default) => throw new NotSupportedException();
         public Task RevokeGrantAsync(Guid id, Guid grant, long revision, CancellationToken ct = default) => throw new NotSupportedException();
@@ -485,6 +564,7 @@ public sealed class PluginManageConnectionTests
         public string? Target; public bool ForceLoad;
         public Navigation() => Initialize("https://host.example/", "https://host.example/settings/plugins");
         protected override void NavigateToCore(string uri, bool forceLoad) { Target = uri; ForceLoad = forceLoad; }
+        public void ChangeLocation(string uri) { Uri = uri; NotifyLocationChanged(false); }
     }
     private sealed class StubBusinesses : IBusinessContext
     {

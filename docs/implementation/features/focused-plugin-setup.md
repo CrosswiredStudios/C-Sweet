@@ -34,8 +34,12 @@ show their declared allowed abilities. Agent hiring, resource binding and action
 approval remain separate from account connection and business grants.
 
 `OnParametersSetAsync`, navigation generations, route cancellation and sequenced
-reads discard responses from older routes or refreshes. Package changes invalidate
-open reviews. Transport exception bodies are not displayed.
+reads discard responses from older routes or refreshes. Setup-query and URI changes
+invalidate same-installation reviews, including Back/Forward navigation. Location
+changes immediately advance the response generation, even before router parameter
+delivery or a return to the original URI. Consent responses also check the current URI before provider navigation, and disposal
+invalidates outstanding response generations even when cancellation is ignored.
+Package changes invalidate open reviews. Transport exception bodies are not displayed.
 
 ## Current coverage and adapter boundary
 

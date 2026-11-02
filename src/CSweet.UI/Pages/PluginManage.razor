@@ -227,8 +227,10 @@
     [Parameter] public Guid InstallationId { get; set; }
     [SupplyParameterFromQuery(Name = "setup")] public Guid? SetupId { get; set; }
     private PluginAccountManagementView? _view;
-    private Guid? _loadedInstallation, _focusedAccount;
-    private long _navigationVersion, _readVersion;
+    private Guid? _loadedInstallation, _loadedSetup, _focusedAccount;
+    private string? _loadedLocation;
+    private bool _disposed;
+    private long _navigationVersion, _readVersion, _busyNavigation;
     private CancellationTokenSource _routeStop = new();
     private PluginAccountSetupView? CurrentAttempt => _view is null ? null : PluginSetupPresentation.CurrentAttempt(_view, SetupId);
     private bool ConnectionPending => CurrentAttempt is { Status: "Importing" } || CurrentAttempt is { Status: "AwaitingConsent" } pending && pending.ExpiresAt > DateTimeOffset.UtcNow;
@@ -240,7 +242,7 @@
     private readonly CancellationTokenSource _stop = new();
     private Task? _polling;
     private bool _busy, _connecting, _accepted, _future, _settingsOpen, _recovering, _connectUnconfirmed, _statusUnavailable;
-        private string? _error, _notice, _resourceSearch;
+    private string? _error, _notice, _resourceSearch;
     private Guid? _reconnect, _business;
     private Guid? _disconnectAccount;
     private PluginAccountImpactView? _impact;
@@ -248,11 +250,23 @@
     private readonly HashSet<string> _scopes = [], _permissions = [];
     private readonly HashSet<Guid> _resources = [];
     private bool CanSave => _view?.CanAdminister == true && _editing is not null && _business.HasValue && _permissions.Count > 0 && (_grantScope == "WholeAccount" ? _future : _resources.Count > 0);
-    protected override async Task OnInitializedAsync() { await Businesses.InitializeAsync(); _polling = Poll(); }
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += LocationChanged;
+        await Businesses.InitializeAsync();
+        if (!_disposed) _polling = Poll();
+    }
+    private void LocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        if (_disposed) return;
+        // Invalidate immediately, even if Back/Forward returns to the original URI
+        // before the router delivers parameters or disposes this component.
+        _navigationVersion++; _accepted = _connecting = false;
+    }
     protected override async Task OnParametersSetAsync()
     {
-        if (_loadedInstallation == InstallationId) return;
-        _loadedInstallation = InstallationId; _navigationVersion++;
+        if (_disposed || _loadedInstallation == InstallationId && _loadedSetup == SetupId && _loadedLocation == Navigation.Uri) return;
+        _loadedInstallation = InstallationId; _loadedSetup = SetupId; _loadedLocation = Navigation.Uri; _navigationVersion++;
         _routeStop.Cancel(); _routeStop.Dispose(); _routeStop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
         _view = null; _editing = null; _revokeGrant = null; _disconnectAccount = null; _impact = null; _focusedAccount = null;
         _connecting = _accepted = _busy = _recovering = _settingsOpen = _future = _connectUnconfirmed = _statusUnavailable = false;
@@ -270,6 +284,7 @@
     }
     private async Task Reload()
     {
+        if (_disposed) return;
         var navigation = _navigationVersion; var read = ++_readVersion; var id = InstallationId;
         try
         {
@@ -289,7 +304,7 @@
     }
     private async Task OpenConnect(Guid? id)
     {
-        if (_busy || _statusUnavailable || _view is null || (id is null ? !_view.CanConnect : !_view.Accounts.SelectMany(x => x.Authorizations).Any(x => x.Id == id && x.CanReconnect))) return;
+        if (_disposed || _loadedLocation != Navigation.Uri || _busy || _statusUnavailable || _view is null || (id is null ? !_view.CanConnect : !_view.Accounts.SelectMany(x => x.Authorizations).Any(x => x.Id == id && x.CanReconnect))) return;
         _editing = null; _reconnect = id; _connecting = true; _accepted = false; _scopes.Clear();
         var existing = _view!.Accounts.SelectMany(x => x.Authorizations).FirstOrDefault(x => x.Id == id);
         _recovering = existing?.RequiresFreshConsentRecovery == true;
@@ -304,14 +319,16 @@
     }
     private async Task Connect()
     {
-        if (_busy || _connectUnconfirmed || _statusUnavailable || !_connecting || !_accepted || _view is null) return;
-        var view = _view; var navigation = _navigationVersion; var id = InstallationId;
+        if (_disposed || _loadedLocation != Navigation.Uri || _busy || _connectUnconfirmed || _statusUnavailable || !_connecting || !_accepted || _view is null) return;
+        var view = _view; var navigation = _navigationVersion; var location = Navigation.Uri; var id = InstallationId;
         if (_reconnect is null ? !view.CanConnect : !view.Accounts.SelectMany(a => a.Authorizations).Any(a => a.Id == _reconnect && a.CanReconnect)) return;
         await Perform(async () =>
         {
             _connectUnconfirmed = true;
             var response = await AccountsApi.ConnectAsync(id, new(_scopes.ToArray(), view.Declaration.PolicyVersion, true, view.PackageDigest, _reconnect), _routeStop.Token);
-            if (navigation != _navigationVersion || _view?.PackageDigest != view.PackageDigest) return;
+            // A location change can precede parameter delivery or disposal. Cancellation alone
+            // cannot fence a provider response that ignores its token or has already completed.
+            if (_disposed || navigation != _navigationVersion || Navigation.Uri != location || _view?.PackageDigest != view.PackageDigest) return;
             if (!Uri.TryCreate(response.AuthorizationUrl, UriKind.Absolute, out var url) || url.Scheme != "https")
             { _error = "The secure sign-in address is unavailable. Refresh status before trying again."; return; }
             Navigation.NavigateTo(response.AuthorizationUrl, forceLoad: true);
@@ -325,11 +342,11 @@
         (!_resumeSubmissions.TryGetValue(setup.Id, out var submitted) || setup.Revision > submitted);
     private async Task Retry(Guid setupId)
     {
-        if (_busy || _statusUnavailable) return;
+        if (_disposed || _busy || _statusUnavailable) return;
         var setup = _view?.SetupSessions.SingleOrDefault(x => x.Id == setupId);
         if (setup is null || setup.Status != "ImportFailed" || !CanResume(setup)) return;
         var navigation = _navigationVersion;
-        _busy = true; _error = null; _notice = null; _resumeSubmissions[setup.Id] = setup.Revision;
+        _busyNavigation = navigation; _busy = true; _error = null; _notice = null; _resumeSubmissions[setup.Id] = setup.Revision;
         try
         {
             var receipt = await AccountsApi.ResumeImportAsync(InstallationId, setup.Id, setup.Revision, _routeStop.Token);
@@ -347,7 +364,7 @@
             _error = "The import resume could not be confirmed. Refresh its status before reviewing another attempt. No automatic retry was sent.";
             await RefreshAfterResume();
         }
-        finally { if (navigation == _navigationVersion) _busy = false; }
+        finally { if (_busyNavigation == navigation) _busy = false; }
     }
     private async Task RefreshAfterResume()
     {
@@ -355,7 +372,7 @@
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
         catch (Exception) { _error = "The latest import status is unavailable. Refresh it before reviewing another attempt."; }
     }
-    private void EditAccess(PluginManagedAccount account) { if (_busy || _statusUnavailable || _view?.CanAdminister != true || account.State != "Connected") return; _focusedAccount = account.Id; _editing = account; _business = null; _grantScope = "SelectedResources"; _future = false; _resources.Clear(); _permissions.Clear(); }
+    private void EditAccess(PluginManagedAccount account) { if (_disposed || _busy || _statusUnavailable || _view?.CanAdminister != true || account.State != "Connected") return; _focusedAccount = account.Id; _editing = account; _business = null; _grantScope = "SelectedResources"; _future = false; _resources.Clear(); _permissions.Clear(); }
     private void BusinessChanged(Guid? id)
     {
         _business = id; _resources.Clear(); _permissions.Clear();
@@ -404,13 +421,13 @@
     });
     private async Task Perform(Func<Task> action)
     {
-        if (_busy || _statusUnavailable) return;
+        if (_disposed || _busy || _statusUnavailable) return;
         var navigation = _navigationVersion;
-        _busy = true; _error = null; _notice = null;
+        _busyNavigation = navigation; _busy = true; _error = null; _notice = null;
         try { await action(); }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested || navigation != _navigationVersion) { }
         catch (Exception) { if (navigation == _navigationVersion) _error = "The action could not be confirmed. Refresh status before reviewing another attempt. No automatic retry was sent."; }
-        finally { if (navigation == _navigationVersion) _busy = false; }
+        finally { if (_busyNavigation == navigation) _busy = false; }
     }
     private void ToggleScope(string id, bool value) { if (_recovering) return; if (value) _scopes.Add(id); else _scopes.Remove(id); }
     private void ToggleResource(Guid id, bool value) { if (value) _resources.Add(id); else _resources.Remove(id); }
@@ -431,5 +448,13 @@
         _ when build == "Built" => "The verified connector identity is incomplete. An administrator needs to review this installation.",
         _ => "Verifying the approved connector’s declarations. No VM or agent build is required. This page refreshes automatically; if verification does not finish, open diagnostics below and check that the background worker is running."
     };
-    public async ValueTask DisposeAsync() { _stop.Cancel(); _routeStop.Cancel(); if (_polling is not null) await _polling; _routeStop.Dispose(); _stop.Dispose(); }
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true; _navigationVersion++; _accepted = _connecting = false;
+        Navigation.LocationChanged -= LocationChanged;
+        _stop.Cancel(); _routeStop.Cancel();
+        if (_polling is not null) await _polling;
+        _routeStop.Dispose(); _stop.Dispose();
+    }
 }
