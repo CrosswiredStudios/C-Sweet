@@ -63,7 +63,8 @@ public sealed class ManagedConnectorRelay(CSweetDbContext db, IPluginSecretStore
         else
         {
             var handle = ManagedMediaHandle.Require(session ?? "");
-            if (handle.BindingHash != binding) throw new UnauthorizedAccessException("The saved media session belongs to a different plan.");
+            if (handle.BindingHash != binding || handle.ConnectorId != plan.ConnectorInstallationId || handle.ConnectionId != plan.ConnectionId ||
+                handle.ServiceOrigin != context.ServiceOrigin) throw new UnauthorizedAccessException("The saved media session belongs to a different plan.");
             result = step switch
             {
                 ConnectorMediaStep.Probe when offset == 0 && chunk.IsEmpty => await gateway.ProbeMedia(handle.TransferId, binding, context.ServiceOrigin!, ct),
@@ -78,13 +79,16 @@ public sealed class ManagedConnectorRelay(CSweetDbContext db, IPluginSecretStore
         await Execution(plan, hash, true, ct); await revalidate(ct);
         var retry = result.RetryAt is { } retryAt ? DateTimeOffset.FromUnixTimeSeconds(retryAt) : (DateTimeOffset?)null;
         return step == ConnectorMediaStep.Begin
-            ? new(201, [], ManagedMediaHandle.Format(result.TransferId, binding), null, retry)
+            ? new(201, [], ManagedMediaHandle.Format(result.TransferId, binding, plan.ConnectorInstallationId, plan.ConnectionId, context.ServiceOrigin!), null, retry)
             : new(result.StatusCode, result.Result is { } value ? JsonSerializer.SerializeToUtf8Bytes(value) : [], null, result.CommittedBytes, retry);
     }
     public async Task CancelAsync(Guid connector, Guid connection, string session, CancellationToken ct)
     {
-        var handle = ManagedMediaHandle.Require(session); var context = await Context(connector, connection, ct, cleanup: true);
-        var receipt = await gateway.CancelMedia(handle.TransferId, handle.BindingHash, context.ServiceOrigin!, ct);
+        // Revocation deliberately removes managed.context. The protected transfer handle retains
+        // only the original cleanup destination/correlation, never provider or execution authority.
+        var handle = ManagedMediaHandle.Require(session);
+        if (handle.ConnectorId != connector || handle.ConnectionId != connection) throw new UnauthorizedAccessException();
+        var receipt = await gateway.CancelMedia(handle.TransferId, handle.BindingHash, handle.ServiceOrigin, ct);
         if (receipt.TransferId != handle.TransferId || receipt.BindingHash != handle.BindingHash || receipt.State != "Cancelled") throw new UnauthorizedAccessException();
     }
     private async Task<ConnectorExecution> Execution(FrozenConnectorPlan plan, string hash, bool mutation, CancellationToken ct)
@@ -104,29 +108,45 @@ public sealed class ManagedConnectorRelay(CSweetDbContext db, IPluginSecretStore
     private static ManagedReadRequest Operation(FrozenConnectorPlan plan, string hash) => new(plan.OrganizationId.ToString("D"),
         plan.ConnectorInstallationId, plan.RequesterInstallationId, plan.PackageDigest, plan.Capability, plan.ResourceId,
         plan.OriginalInput!.Value, hash, DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeSeconds());
-    private async Task<ManagedAccountAttempt> Context(Guid connector, Guid connection, CancellationToken ct, bool cleanup = false)
+    private async Task<ManagedAccountAttempt> Context(Guid connector, Guid connection, CancellationToken ct)
     {
         var json = await secrets.GetAsync(connector, $"managed.context.{connection:N}", ct) ?? throw new UnauthorizedAccessException("The managed context is unavailable.");
         var context = JsonSerializer.Deserialize<ManagedAccountAttempt>(json, Json) ?? throw new UnauthorizedAccessException();
         if (context.RemoteConnectionId is null || context.RemoteConnectionId == Guid.Empty || context.ServiceOrigin is null ||
             ManagedServiceTrust.CanonicalOrigin(context.ServiceOrigin) != context.ServiceOrigin ||
-            !cleanup && await gateway.BoundServiceOrigin(ct) != context.ServiceOrigin) throw new UnauthorizedAccessException("The managed origin changed.");
+            await gateway.BoundServiceOrigin(ct) != context.ServiceOrigin) throw new UnauthorizedAccessException("The managed origin changed.");
         return context;
     }
 }
 
-internal sealed record ManagedMediaHandle(Guid TransferId, string BindingHash)
+internal sealed record ManagedMediaHandle(Guid TransferId, string BindingHash, Guid ConnectorId, Guid ConnectionId, string ServiceOrigin)
 {
-    private const string Prefix = "csweet-managed-media:v1:";
-    internal static bool IsHandle(string value) => value.StartsWith(Prefix, StringComparison.Ordinal);
-    internal static string Format(Guid id, string binding) => Prefix + id.ToString("N") + ":" + binding;
+    private const string Prefix = "csweet-managed-media:v2:";
+    internal static bool IsHandle(string value) => value.StartsWith("csweet-managed-media:", StringComparison.Ordinal);
+    internal static string Format(Guid id, string binding, Guid connector, Guid connection, string origin)
+    {
+        var value = Prefix + id.ToString("N") + ":" + binding + ":" + connector.ToString("N") + ":" + connection.ToString("N") + ":" +
+            Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(origin));
+        _ = Require(value); return value;
+    }
     internal static ManagedMediaHandle Require(string value)
     {
-        if (!IsHandle(value)) throw new UnauthorizedAccessException("A saved managed media handle is required.");
+        if (!value.StartsWith(Prefix, StringComparison.Ordinal) || value.Length > 2048) throw new UnauthorizedAccessException("A saved managed media handle is required.");
         var parts = value[Prefix.Length..].Split(':');
-        if (parts.Length != 2 || !Guid.TryParseExact(parts[0], "N", out var id) || id == Guid.Empty || parts[1].Length != 64 ||
+        if (parts.Length != 5 || !Guid.TryParseExact(parts[0], "N", out var id) || id == Guid.Empty || parts[1].Length != 64 ||
+            !Guid.TryParseExact(parts[2], "N", out var connector) || connector == Guid.Empty ||
+            !Guid.TryParseExact(parts[3], "N", out var connection) || connection == Guid.Empty ||
             parts[1].Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f'))) throw new UnauthorizedAccessException("Invalid managed media handle.");
-        return new(id, parts[1]);
+        try
+        {
+            var bytes = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlDecode(parts[4]);
+            var origin = new System.Text.UTF8Encoding(false, true).GetString(bytes);
+            if (ManagedServiceTrust.CanonicalOrigin(origin) != origin ||
+                Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(bytes) != parts[4]) throw new InvalidOperationException();
+            return new(id, parts[1], connector, connection, origin);
+        }
+        catch (Exception error) when (error is FormatException or ArgumentException or InvalidOperationException)
+        { throw new UnauthorizedAccessException("Invalid managed media handle."); }
     }
     public override string ToString() => "Managed media handle [redacted]";
 }

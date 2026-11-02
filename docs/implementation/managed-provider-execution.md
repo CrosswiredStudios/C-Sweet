@@ -32,6 +32,19 @@ replacement initiation. It accepts only a strictly parsed handle and binds it to
 remote connection/plan/media receipt. Failed managed transfers retain a durable cancellation
 cleanup obligation. Local cancellation does not assert a provider deleted or aborted content.
 
+The protected v2 handle retains the exact canonical service origin, connector/connection
+IDs, transfer ID and binding hash independently of `managed.context`. `CancelAsync` validates
+these correlations and uses the original paired deployment's cleanup path after account
+revocation/deletion has erased its context and frozen plan. It cannot authorize new execution,
+redirect cleanup to a newly configured service, or certify retained-backup deletion. Unsupported
+legacy handles fail closed rather than inventing missing provenance; this relay is unreleased.
+
+Pairing is tenant-specific. A system-wide connector installation (`BusinessId = enterprise`)
+does not give its paired deployment access to every business. The service independently
+requires the requested business tenant to match that deployment and its explicit policy;
+another business remains rejected and needs its own authorized deployment. Never relax
+that check to accommodate sharing a connector installation across businesses.
+
 ## Adoption prerequisites
 
 - Review the service read/media changes and explicit additive service schema upgrade first.

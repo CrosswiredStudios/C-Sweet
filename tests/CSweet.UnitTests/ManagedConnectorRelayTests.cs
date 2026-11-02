@@ -3,7 +3,11 @@ using CSweet.Application.Setup;
 using CSweet.ConnectionService.Protocol;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Setup;
+using CSweet.Infrastructure.Auth;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
@@ -100,6 +104,90 @@ public sealed class ManagedConnectorRelayTests
         Assert.DoesNotContain(f.Provider.Secrets.Keys, x => x.StartsWith("response.media-session.", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisconnectAndPendingDeletionRemoveAccountContextButMediaWorkerStillFinishesCancellation(bool interrupted)
+    {
+        await using var f = await ConnectorMediaTransferTests.Fixture.Create(native: true); var gateway = new Gateway();
+        var db = f.Inner.Db; var connector = f.Inner.Connector.Id; var connection = f.Inner.Connection.Id;
+        var group = await db.PluginAccountGroups.SingleAsync(); var admin = Guid.NewGuid();
+        var role = new IdentityRole<Guid> { Id = Guid.NewGuid(), Name = AuthenticationService.AdministratorRole };
+        db.Roles.Add(role); db.Users.Add(new ApplicationUser { Id = admin, UserName = "synthetic-admin" });
+        db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = admin, RoleId = role.Id });
+        var setup = new PluginAccountSetupSession { Id = Guid.NewGuid(), PluginInstallationId = connector, ConnectionId = connection,
+            AccountGroupId = group.Id, Status = "Ready", CreatedAt = DateTimeOffset.UtcNow, ExpiresAt = DateTimeOffset.UtcNow.AddHours(1) };
+        db.PluginAccountSetupSessions.Add(setup);
+        f.Provider.Secrets[$"managed.context.{connection:N}"] = JsonSerializer.Serialize(
+            new ManagedAccountAttempt(gateway.RemoteSession, gateway.RemoteConnection, "synthetic-verifier", gateway.Origin), Json);
+        await db.SaveChangesAsync(); await f.Approve();
+        var relay = new ManagedConnectorRelay(db, f.Provider, gateway, f.Inner.Service, f.Approval);
+        var worker = new ConnectorMediaTransferService(db, f.Approval, new ConnectorMediaTransport(db, new ForbiddenTokens(), relay),
+            new ForbiddenTransport(), f.Provider, f.Provider, f.Provider, relay);
+        await worker.StartAsync(f.Plan, default);
+        var saved = f.Provider.Secrets[$"response.media-session.{f.Plan.Id:N}"];
+        using var http = new PluginAccountFlowTests.IdentityHttp();
+        var accounts = new PluginAccountService(db, f.Provider, new EphemeralDataProtectionProvider(), http,
+            new PluginAccountFlowTests.Profiles(), new ForbiddenTransport(), Options.Create(new PluginConnectionOptions()), f.Provider, managed: gateway);
+        var impact = await accounts.GetDisconnectImpactAsync(admin, connector, group.Id, default);
+        await accounts.DisconnectAsync(admin, connector, group.Id, new(impact.AccountRevision, impact.ReviewHash), default);
+        await accounts.ProcessPendingAsync(default);
+        Assert.Equal(1, gateway.AttemptCancellations); Assert.Equal(setup.Id, gateway.CancelledAttempt);
+        Assert.Equal("RevokedDataDeletionPending", (await db.PluginAccountRevocationJobs.SingleAsync()).Status);
+        Assert.False(f.Provider.Secrets.ContainsKey($"managed.context.{connection:N}"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => relay.IsManagedAsync(connector, connection, default));
+        Assert.Equal("Erased", f.Plan.Status); Assert.Equal("{}", f.Plan.PlanJson);
+        Assert.Equal(saved, f.Provider.Secrets[$"response.media-session.{f.Plan.Id:N}"]);
+        Assert.Contains(await db.PluginAccountDataCopies.ToArrayAsync(), x => x.Store == "external:managed-service-backups" && x.DeletedAt is null);
+        // A mode/origin change affects new execution, never the original protected cleanup destination.
+        gateway.Origin = "https://new-service.example";
+        gateway.FailCancellationOnce = interrupted;
+        await f.MakeDue(); Assert.True(await worker.ProcessNextAsync(default));
+        if (interrupted)
+        {
+            Assert.NotNull(f.Job.AvailableAt); Assert.Equal(saved, f.Provider.Secrets[$"response.media-session.{f.Plan.Id:N}"]);
+            Assert.Equal(0, gateway.Cancellations);
+            await f.MakeDue(); Assert.True(await worker.ProcessNextAsync(default));
+        }
+        Assert.Equal(ConnectorMediaTransferService.FinishedKind, f.Job.Kind);
+        await f.MakeDue(); Assert.True(await worker.ProcessNextAsync(default));
+        Assert.Equal(1, gateway.Cancellations); Assert.Equal("https://service.example", gateway.LastCancellationOrigin);
+        Assert.Equal(0, gateway.Chunks); Assert.Equal(1, gateway.Begins); Assert.Null(f.Job.AvailableAt);
+        Assert.False(f.Provider.Secrets.ContainsKey($"response.media-session.{f.Plan.Id:N}"));
+        Assert.Equal(PluginAccountState.Disconnecting, group.State); // Outstanding backups remain independently accountable.
+        Assert.False(await worker.ProcessNextAsync(default));
+    }
+
+    [Theory]
+    [InlineData("connector")]
+    [InlineData("connection")]
+    [InlineData("malformed")]
+    [InlineData("legacy")]
+    [InlineData("oversized")]
+    public async Task CleanupHandleCannotBeReboundOrDowngraded(string change)
+    {
+        await using var f = await ConnectorPlanServiceTests.Fixture.Create(); var gateway = new Gateway();
+        var relay = Relay(f, new Secrets(), gateway);
+        var connector = f.Connector.Id; var connection = f.Connection.Id;
+        var saved = ManagedMediaHandle.Format(gateway.Transfer, new string('a', 64), connector, connection, gateway.Origin);
+        if (change == "connector") connector = Guid.NewGuid();
+        if (change == "connection") connection = Guid.NewGuid();
+        if (change == "malformed") saved += ":untrusted";
+        if (change == "legacy") saved = "csweet-managed-media:v1:" + gateway.Transfer.ToString("N") + ":" + new string('a', 64);
+        if (change == "oversized") saved += new string('x', 2048);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => relay.CancelAsync(connector, connection, saved, default));
+        Assert.Equal(0, gateway.Cancellations);
+    }
+
+    [Theory]
+    [InlineData("http://service.example")]
+    [InlineData("https://service.example/path")]
+    [InlineData("https://service.example/")]
+    [InlineData("https://user@service.example")]
+    [InlineData("https://service.example?destination=other")]
+    public void CleanupHandleRequiresExactCanonicalHttpsOrigin(string origin) => Assert.Throws<UnauthorizedAccessException>(() =>
+        ManagedMediaHandle.Format(Guid.NewGuid(), new string('a', 64), Guid.NewGuid(), Guid.NewGuid(), origin));
+
     private static ManagedConnectorRelay Relay(ConnectorPlanServiceTests.Fixture f, IPluginSecretStore secrets, Gateway gateway) =>
         new(f.Db, secrets, gateway, f.Service, new(f.Db, f.Service, new TestAuditEventWriter()));
     private static Secrets Context(ConnectorPlanServiceTests.Fixture f, Gateway gateway)
@@ -124,7 +212,8 @@ public sealed class ManagedConnectorRelayTests
     }
     private sealed class Gateway : IManagedPluginConnectionGateway
     {
-        public string Origin = "https://service.example"; public readonly Guid RemoteConnection = Guid.NewGuid(), Transfer = Guid.NewGuid();
+        public string Origin = "https://service.example"; public readonly Guid RemoteConnection = Guid.NewGuid(), Transfer = Guid.NewGuid(), RemoteSession = Guid.NewGuid();
+        public int AttemptCancellations; public Guid CancelledAttempt; public string? LastCancellationOrigin; public bool FailCancellationOnce;
         public int Reads, Begins, Chunks, Cancellations; public bool WrongReceipt; public Func<Task>? AfterRead;
         public ManagedReadRequest? LastRead; public ManagedMediaRequest? LastMedia; public byte[]? LastChunk;
         public bool UsesManaged(string profile) => true; public string ReturnUri => "https://app.example/return";
@@ -140,16 +229,22 @@ public sealed class ManagedConnectorRelayTests
         public Task<ManagedMediaResult> MediaChunk(Guid transfer, string binding, long offset, ReadOnlyMemory<byte> chunk, string origin, CancellationToken ct)
         { Chunks++; LastChunk = chunk.ToArray(); return Task.FromResult(new ManagedMediaResult(Transfer, binding, "Completed", 200, LastMedia!.SizeBytes, 3, JsonSerializer.SerializeToElement(new { data = "value" }))); }
         public Task<ManagedMediaResult> CancelMedia(Guid transfer, string binding, string origin, CancellationToken ct)
-        { Cancellations++; return Task.FromResult(new ManagedMediaResult(Transfer, binding, "Cancelled", 0, 0, 4)); }
+        {
+            Assert.Equal(Transfer, transfer);
+            if (FailCancellationOnce) { FailCancellationOnce = false; throw new HttpRequestException(); }
+            Cancellations++; LastCancellationOrigin = origin; return Task.FromResult(new ManagedMediaResult(Transfer, binding, "Cancelled", 0, 0, 4));
+        }
         public Task<ProfileAvailability> Availability(string d, CancellationToken ct) => throw new NotSupportedException();
         public Task<ConnectionAttempt> Begin(BeginConnection r, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
         public Task<ConnectionReceipt> Cancel(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
-        public Task<ConnectionReceipt> CancelAttempt(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
+        public Task<ConnectionReceipt> CancelAttempt(Guid id, CancellationToken ct, string? expectedServiceOrigin = null)
+        { Assert.Equal(Origin, expectedServiceOrigin); AttemptCancellations++; CancelledAttempt = id; return Task.FromResult(new ConnectionReceipt(RemoteSession, RemoteConnection, "Cancelled", null, [])); }
         public Task<ConnectionSnapshot> Supersede(Guid previous, Guid replacement, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
         public Task<ConnectionReceipt> Redeem(RedeemConnection r, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
         public Task<ConnectionReceipt> Recover(Guid id, RecoverConnection r, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
         public Task<ConnectionInventory> Discover(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
         public Task<ConnectionSnapshot> Disconnect(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
-        public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => throw new NotSupportedException();
+        public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct, string? expectedServiceOrigin = null)
+        { Assert.Equal(RemoteConnection, id); Assert.Equal(Origin, expectedServiceOrigin); return Task.FromResult(new ConnectionSnapshot(id, "Revoked", 4, [])); }
     }
 }
