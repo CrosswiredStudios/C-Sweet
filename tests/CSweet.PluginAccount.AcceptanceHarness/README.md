@@ -23,9 +23,9 @@ with the same package-only SDK/WorkManagement flags and local verified package f
 release tests. Use an isolated `--artifacts-path` if other developers are building sibling sources.
 
 Then run `python tests/CSweet.PluginAccount.AcceptanceHarness/browser_acceptance.py --output <test-output>`
-with Playwright/Chromium available. The first Connect account click acknowledges the visible current
-purpose/policies and opens provider consent with required scope sets only, without an extra wizard.
-Reconnect/change-permissions retains its explicit optional-access review.
+with Playwright/Chromium available. The first Connect account click opens the focused review. Continuing requires explicit policy
+acceptance, then opens provider consent with the selected declared scope sets (required sets only by
+default). Back discards the review. Reconnect/change-permissions retains its optional-access review.
 The focused management page has a single first-account action, expandable access details and
 visible privacy/terms links. Administrator diagnostics, cleanup health and lifecycle controls live
 under the collapsed **Plugin settings** disclosure. Unconfigured deployments show a setup action

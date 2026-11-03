@@ -85,6 +85,8 @@ Current onboarding: [Personal Assistant and repository business onboarding](feat
 
 ## Feature plans
 
+- [Focused plugin account setup](features/focused-plugin-setup.md) maps the generic native account renderer, declaration/authority boundary, adapter limits and synthetic acceptance coverage.
+
 - [Project names and continuity](features/project-naming.md) - human rename controls, approved agent changes, stable execution and memory identity, audit history and current chat context.
 
 - [Forecast-driven planning](features/forecast-driven-planning.md) - optional external date constraints, elapsed-history completion ranges, intake memory and manager-owned pause/escalation/relay.

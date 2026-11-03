@@ -204,8 +204,10 @@ public sealed class AgentCatalogServiceTests
         Assert.Equal(2, ambiguous.Agents.Count);
         Assert.DoesNotContain(ambiguous.Agents, x => x.AgentId == "two");
     }
-    [Fact]
-    public async Task ProfileReadsRemoteDeclarationsWithoutImportingOrGrantingAccess()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProfileReadsRemoteDeclarationsWithoutImportingOrGrantingAccess(bool connectorConsumer)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -218,16 +220,25 @@ public sealed class AgentCatalogServiceTests
             Events = new() { Subscribes = ["com.csweet.workforce.changed.v1"] },
             WebAccess = new() { Mode = CSweet.Contracts.Plugins.PluginWebAccessMode.AllPublic, Purpose = "Research" }
         };
+        if (connectorConsumer) manifest = manifest with
+        {
+            Protocol = new() { MinimumVersion = "2.4", MaximumVersion = "2.x" },
+            WebAccess = new() { Mode = CSweet.Contracts.Plugins.PluginWebAccessMode.None },
+            Dependencies = [new() { Id = "workspace", PluginId = "com.example.workspace", PublisherId = "com.example", MinimumVersion = "1.0.0", MaximumVersionExclusive = "2.0.0" }],
+            Requires = manifest.Requires.Append(new() { Name = "example.workspace.read.v1", Dependency = "workspace", Scope = "organization", Purpose = "Read the separately authorized workspace" }).ToArray()
+        };
         var repository = new ProfileRepository(JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         var local = new LocalDirectoryAgentCatalogProvider(new TestEnvironment(Path.GetTempPath()), Options.Create(new AgentCatalogOptions()), new PluginManifestReader());
         var service = new AgentCatalogProfileService(catalog, db, local, repository, new PluginManifestReader());
 
         var profile = Assert.IsType<CSweet.Contracts.Agents.AgentCatalogProfileResponse>(await service.GetAsync(null, agent.AgentReference));
-        Assert.Equal("Inspect reporting lines", Assert.Single(profile.RequestedGrants).Purpose);
+        Assert.Equal(connectorConsumer ? 2 : 1, profile.RequestedGrants.Count);
+        Assert.Equal("Inspect reporting lines", profile.RequestedGrants[0].Purpose);
+        if (connectorConsumer) Assert.Equal("workspace", profile.RequestedGrants[1].Dependency);
         Assert.Equal("organization", profile.RequestedGrants[0].Scope);
         Assert.Equal("Create product strategy", profile.Capabilities[0].Description);
         Assert.Single(profile.Subscriptions);
-        Assert.Equal(CSweet.Contracts.Plugins.PluginWebAccessMode.AllPublic, profile.WebAccess.Mode);
+        Assert.Equal(connectorConsumer ? CSweet.Contracts.Plugins.PluginWebAccessMode.None : CSweet.Contracts.Plugins.PluginWebAccessMode.AllPublic, profile.WebAccess.Mode);
         Assert.Equal(new string('a', 40), repository.ReadCommit);
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Empty(await db.AgentPackageVersions.ToListAsync());

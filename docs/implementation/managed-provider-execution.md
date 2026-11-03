@@ -66,7 +66,6 @@ Synthetic tests validate Core decisions/native grants, asset provenance and brok
 plus service-side signed HTTP/durable recovery and packaged Protocol consumers. They do not
 prove an actual video upload, provider processing, final channel visibility or backup erasure.
 
-The broader baseline test selection also reaches six unchanged Plugins UI fixtures that
-fail because IAgentApiClient is absent from their test DI setup. The same six failures were
-executed on unchanged baseline be5914065bf632ce31fc5b1dfa3fc0a5b866aa51. They are not
-relay regressions; coordinate any fixture repair with the separate plugin-settings UI work.
+The account-import workflow retains both the focused setup/settings UI regressions and
+the connector/managed-relay authority and cleanup tests. The plugin-lifecycle workflow
+also checks catalog acceptance of validated dependency-consuming protocol 2.4 agents.
