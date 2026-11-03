@@ -40,8 +40,12 @@ public sealed class PluginManifestReader : IPluginManifestReader
         if (manifest.Protocol.MinimumVersion is not ("2.0" or "2.1" or "2.2" or "2.3" or "2.4" or "2.5" or "2.6") ||
             !manifest.Protocol.MaximumVersion.StartsWith("2.", StringComparison.Ordinal))
             throw new JsonException("Executable plugins must require a supported C-Sweet runtime protocol (2.0 through 2.4).");
-        if (manifest.Protocol.MinimumVersion == "2.4" && manifest.Accounts is null)
-            throw new JsonException("Protocol 2.4 is currently recognized only for enterprise account-management declarations.");
+        // Account management belongs to the provider package. A consuming agent can use
+        // the same protocol through declared dependencies without owning an Accounts layout.
+        // The complete dependency declaration still passes the SDK validators below.
+        if (manifest.Protocol.MinimumVersion == "2.4" && manifest.Accounts is null &&
+            !(kind == "agent" && manifest.Dependencies.Count > 0))
+            throw new JsonException("Protocol 2.4 requires enterprise account management or an agent with declared plugin dependencies.");
         if (kind == "agent")
         {
             if (manifest.Catalog.Role is not { } role ||

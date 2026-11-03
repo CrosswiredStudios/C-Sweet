@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'src/CSweet.Infrastructure/Setup/AgentInstallationService.cs'
+      - 'src/CSweet.Infrastructure/Setup/PluginManifestReader.cs'
       - 'src/CSweet.Infrastructure/Agents/**'
       - 'src/CSweet.Infrastructure/DependencyInjection.cs'
       - 'src/CSweet.UI/Pages/Plugins.razor*'
@@ -10,6 +11,11 @@ on:
       - 'src/CSweet.UI/Localization/Resources/Plugins/**'
       - 'tests/CSweet.UnitTests/AgentInstallationServiceTests.cs'
       - 'tests/CSweet.UnitTests/AgentCatalogServiceTests.cs'
+      - 'tests/CSweet.UnitTests/PluginManifestProtocolTests.cs'
+      - 'tests/CSweet.UnitTests/AgentImportPreviewServiceTests.cs'
+      - 'tests/CSweet.UnitTests/MarketplaceAgentBrandingTests.cs'
+      - 'tests/CSweet.UnitTests/ConnectorConditionalRequestTests.cs'
+      - 'tests/CSweet.UnitTests/PluginPlatformTests.cs'
       - 'Directory.Packages.props'
       - '.github/workflows/plugin-lifecycle.yml'
 permissions:
@@ -24,4 +30,8 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - run: dotnet test tests/CSweet.UnitTests -m:1 -p:UseLocalCSweetAgentSdk=false --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests'
+      - run: >-
+          dotnet test tests/CSweet.UnitTests -m:1 -nr:false -p:UseSharedCompilation=false
+          -p:UseLocalCSweetAgentSdk=false -p:UseLocalCSweetMemory=false
+          -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false -p:UseLocalIsolation=false
+          --filter 'FullyQualifiedName~AgentInstallationServiceTests|FullyQualifiedName~AgentCatalogServiceTests|FullyQualifiedName~PluginManifestProtocolTests|FullyQualifiedName~AgentImportPreviewServiceTests|FullyQualifiedName~MarketplaceAgentBrandingTests|FullyQualifiedName~ConnectorConditionalRequestTests|FullyQualifiedName~PluginPlatformTests'
