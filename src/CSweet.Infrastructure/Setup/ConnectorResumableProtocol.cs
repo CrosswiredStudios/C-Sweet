@@ -18,6 +18,12 @@ public static class ConnectorResumableProtocol
     public const int Alignment = 256 * 1024;
     public const long MaximumBytes = 256L * 1024 * 1024 * 1024;
 
+    internal static void ValidateSavedSession(FrozenConnectorPlan plan, string location)
+    {
+        if (ManagedMediaHandle.IsHandle(location)) { ValidatePlan(plan); _ = ManagedMediaHandle.Require(location); }
+        else _ = ValidateSession(plan, location);
+    }
+
     public static Uri ValidateSession(FrozenConnectorPlan plan, string location)
     {
         ValidatePlan(plan);

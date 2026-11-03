@@ -28,6 +28,11 @@ public interface IManagedPluginConnectionGateway
     Task<ConnectionInventory> Discover(Guid connection, CancellationToken ct, string? expectedServiceOrigin = null);
     Task<ConnectionSnapshot> Disconnect(Guid connection, CancellationToken ct, string? expectedServiceOrigin = null);
     Task<ConnectionSnapshot> Snapshot(Guid connection, CancellationToken ct, string? expectedServiceOrigin = null);
+    Task<ManagedReadResult> ReadOperation(Guid connection, ManagedReadRequest request, string origin, CancellationToken ct) => throw new NotSupportedException();
+    Task<ManagedMediaResult> BeginMedia(Guid connection, ManagedMediaRequest request, string origin, CancellationToken ct) => throw new NotSupportedException();
+    Task<ManagedMediaResult> ProbeMedia(Guid transfer, string binding, string origin, CancellationToken ct) => throw new NotSupportedException();
+    Task<ManagedMediaResult> MediaChunk(Guid transfer, string binding, long offset, ReadOnlyMemory<byte> chunk, string origin, CancellationToken ct) => throw new NotSupportedException();
+    Task<ManagedMediaResult> CancelMedia(Guid transfer, string binding, string origin, CancellationToken ct) => throw new NotSupportedException();
 }
 
 public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, IDataProtectionProvider protection,
@@ -72,6 +77,11 @@ public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, I
     public Task<ConnectionInventory> Discover(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Discover(id, ct), ct, false, expectedServiceOrigin);
     public Task<ConnectionSnapshot> Disconnect(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Disconnect(id, ct), ct, true, expectedServiceOrigin);
     public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Get(id, ct), ct, true, expectedServiceOrigin);
+    public Task<ManagedReadResult> ReadOperation(Guid id, ManagedReadRequest request, string origin, CancellationToken ct) => With(c => c.ReadOperation(id, request, ct), ct, false, origin);
+    public Task<ManagedMediaResult> BeginMedia(Guid id, ManagedMediaRequest request, string origin, CancellationToken ct) => With(c => c.BeginMedia(id, request, ct), ct, false, origin);
+    public Task<ManagedMediaResult> ProbeMedia(Guid id, string binding, string origin, CancellationToken ct) => With(c => c.ProbeMedia(id, binding, ct), ct, false, origin);
+    public Task<ManagedMediaResult> MediaChunk(Guid id, string binding, long offset, ReadOnlyMemory<byte> chunk, string origin, CancellationToken ct) => With(c => c.MediaChunk(id, binding, offset, chunk, ct), ct, false, origin);
+    public Task<ManagedMediaResult> CancelMedia(Guid id, string binding, string origin, CancellationToken ct) => With(c => c.CancelMedia(id, binding, ct), ct, true, origin);
     public async Task<ManagedPairing> PreparePairing(CancellationToken ct)
     {
         Validate();

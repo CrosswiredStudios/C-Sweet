@@ -246,6 +246,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ConnectorPlanService>();
         builder.Services.AddScoped<ConnectorStandingPolicyService>();
         builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();
+        builder.Services.AddScoped<IManagedConnectorRelay, ManagedConnectorRelay>();
         builder.Services.AddScoped<IConnectorMediaTransport, ConnectorMediaTransport>();
         builder.Services.AddScoped<ConnectorMediaTransferService>();
         builder.Services.AddScoped<ConnectorReadExecutor>();

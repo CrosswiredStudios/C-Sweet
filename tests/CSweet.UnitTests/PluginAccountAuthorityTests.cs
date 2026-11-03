@@ -136,7 +136,7 @@ public sealed class PluginAccountAuthorityTests
             f.Legacy.Requester.Id, plan.Id, plan.PlanHash, default));
     }
 
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         public ConnectorPlanServiceTests.Fixture Legacy { get; private init; } = null!;
         public Guid Organization => Legacy.Organization;
@@ -148,17 +148,19 @@ public sealed class PluginAccountAuthorityTests
         public AgentCapabilityBinding Binding { get; private init; } = null!;
         public ValueTask DisposeAsync() => Legacy.DisposeAsync();
 
-        public static async Task<Fixture> Create()
+        public static async Task<Fixture> Create(ConnectorPlanServiceTests.Fixture? existing = null)
         {
-            var legacy = await ConnectorPlanServiceTests.Fixture.Create();
+            var legacy = existing ?? await ConnectorPlanServiceTests.Fixture.Create();
             var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var manifest = JsonSerializer.Deserialize<PluginManifest>(legacy.Connector.PackageVersion!.ManifestJson, options)!;
             var operation = manifest.ProviderOperations[0] with
             {
                 Capability = "example.api.discover.v1",
-                Http = manifest.ProviderOperations[0].Http! with { Bootstrap = true, BoundResourceQuery = null, QueryInputs = new Dictionary<string, string>() }
+                Effect = "read", Idempotency = "none",
+                Http = manifest.ProviderOperations[0].Http! with { Bootstrap = true, Method = "GET", MediaInput = null, MediaProtocol = null,
+                    SecretResponseFields = [], BodyInputs = new Dictionary<string, string>(), BoundResourceQuery = null, QueryInputs = new Dictionary<string, string>() }
             };
-            var declared = manifest.Provides[0] with { Name = operation.Capability };
+            var declared = manifest.Provides[0] with { Name = operation.Capability, Idempotency = "none" };
             manifest = manifest with
             {
                 Protocol = new() { MinimumVersion = "2.4", MaximumVersion = "2.x" },

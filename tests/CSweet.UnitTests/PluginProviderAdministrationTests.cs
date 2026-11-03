@@ -171,6 +171,7 @@ public sealed class PluginProviderAdministrationTests
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton<IPluginApiClient>(api);
+        services.AddSingleton<IAgentApiClient>(PluginSettingsTests.CreateAgentClient());
         services.AddSingleton<IBusinessContext, EmptyBusinessContext>();
         services.AddSingleton<NavigationManager, TestNavigation>();
         await using var provider = services.BuildServiceProvider();

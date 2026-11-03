@@ -5,6 +5,9 @@ on:
       - 'src/CSweet.Contracts/Plugins/**'
       - 'src/CSweet.Domain/Setup/PluginAccount*'
       - 'src/CSweet.Infrastructure/Setup/PluginAccount*'
+      - 'src/CSweet.Infrastructure/Setup/Connector*'
+      - 'src/CSweet.Infrastructure/Setup/ManagedConnectorRelay.cs'
+      - 'src/CSweet.Infrastructure/Setup/ManagedPluginConnectionGateway.cs'
       - 'src/CSweet.Infrastructure/Setup/ManagedConnectionHostConfiguration.cs'
       - 'src/CSweet.Infrastructure/DependencyInjection.cs'
       - 'src/CSweet.AppHost/**'
@@ -18,6 +21,8 @@ on:
       - 'src/CSweet.UI/Components/PluginImportDiagnostics.razor'
       - 'src/CSweet.UI/Services/PluginAccountApiClient.cs'
       - 'tests/CSweet.UnitTests/*Plugin*'
+      - 'tests/CSweet.UnitTests/Connector*'
+      - 'tests/CSweet.UnitTests/ManagedConnectorRelayTests.cs'
       - 'tests/CSweet.UnitTests/AppHostManagedConnectionConfigurationTests.cs'
       - 'Directory.*.props'
       - '.github/workflows/plugin-account-import.yml'
@@ -42,7 +47,7 @@ jobs:
         run: >-
           dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
           --configuration Release
-          --filter 'FullyQualifiedName~PluginAccount|FullyQualifiedName~PluginImport|FullyQualifiedName~ManagedPluginAccountFlowTests|FullyQualifiedName~PluginManageConnectionTests|FullyQualifiedName~PluginSetupPresentationTests|FullyQualifiedName~PluginSettingsTests|FullyQualifiedName~PluginSetupEndpointStartupTests|FullyQualifiedName~AppHostManagedConnectionConfigurationTests|FullyQualifiedName~ManagedDeploymentPairingTests|FullyQualifiedName~AppHostExecutionGatewayWiringTests'
+          --filter 'FullyQualifiedName~PluginAccount|FullyQualifiedName~PluginImport|FullyQualifiedName~ManagedPluginAccountFlowTests|FullyQualifiedName~PluginManageConnectionTests|FullyQualifiedName~PluginSetupPresentationTests|FullyQualifiedName~PluginSettingsTests|FullyQualifiedName~PluginProviderAdministrationTests|FullyQualifiedName~PluginSetupEndpointStartupTests|FullyQualifiedName~AppHostManagedConnectionConfigurationTests|FullyQualifiedName~ManagedDeploymentPairingTests|FullyQualifiedName~AppHostExecutionGatewayWiringTests|FullyQualifiedName~CSweet.UnitTests.Connector|FullyQualifiedName~ManagedConnectorRelayTests'
           -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
           -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
           -p:UseLocalIsolation=false -p:UseSharedCompilation=false -m:1 -nr:false
