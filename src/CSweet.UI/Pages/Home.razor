@@ -5,7 +5,7 @@
 <PageTitle>@L["Home.PageTitle"]</PageTitle>
 
 <div class="aurora-page business-workspace enterprise-workspace">
-    <Organizations CreateRequested="@CreateRequested" DraftId="DraftId" />
+    <Organizations CreateRequested="@CreateRequested" DraftId="DraftId" ResumeGitHubSetup="ResumeGitHubSetup" />
     <section class="enterprise-tools" aria-label="@L["Home.EnterpriseTools"]">
         <div>
             <h2><MudIcon Icon="@Icons.Material.Outlined.Science" Size="Size.Small" />@L["Home.BusinessBenchmarks"]</h2>
@@ -32,6 +32,7 @@
     [Parameter, SupplyParameterFromQuery(Name = "create")]
     public bool CreateRequested { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "resumeGitHubSetup")] public bool ResumeGitHubSetup { get; set; }
 
     private bool? _apiStatus;
     private string ApiStatusLabel => _apiStatus switch { true => "API connected", false => "API disconnected", _ => "Checking connection…" };

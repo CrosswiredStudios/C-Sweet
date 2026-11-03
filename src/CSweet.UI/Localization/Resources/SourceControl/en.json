@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "Back to repositories",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "Connect your GitHub account to choose repositories for this business.",
   "SourceControl.PageTitle": "Source Control",
   "SourceControl.SourceControl": "Source control",
   "SourceControl.YourRepositoriesTheLatestWork": "Your repositories, the latest work, and who has access.",

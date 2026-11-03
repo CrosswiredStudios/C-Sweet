@@ -97,7 +97,7 @@
     </section>
 </div>
 
-<NewBusinessDialog Visible="_showNewBusiness" VisibleChanged="OnNewBusinessVisibilityChanged" NewBusiness="ShowBasicCreateForm" DraftId="DraftId" />
+<NewBusinessDialog Visible="_showNewBusiness" VisibleChanged="OnNewBusinessVisibilityChanged" NewBusiness="ShowBasicCreateForm" DraftId="DraftId" ResumeGitHubSetup="ResumeGitHubSetup" />
 
 <MudDialog Visible="_showForm" VisibleChanged="OnDialogVisibilityChanged" Options="_dialogOptions" DefaultFocus="DefaultFocus.FirstChild">
     <DialogContent>
@@ -176,6 +176,7 @@
 
     [Parameter] public bool CreateRequested { get; set; }
     [Parameter] public Guid? DraftId { get; set; }
+    [Parameter] public bool ResumeGitHubSetup { get; set; }
     private bool _showNewBusiness;
 
     private IReadOnlyList<OrganizationResponse> _organizations = [];

@@ -4,6 +4,13 @@
 @inject IJSRuntime JS
 @inject IAppLocalizer L
 
+@if (Embedded)
+{
+    @WizardContent
+    <MudButton Disabled="_working" OnClick="Close">@L["SourceControlPlatformSetupWizard.BackToRepositories"]</MudButton>
+}
+else
+{
 <MudPaper Outlined="true" Class="pa-4 platform-setup-card">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
         <div>
@@ -19,7 +26,13 @@
 
 <MudDialog @bind-Visible="_open" Options="_options">
     <TitleContent><MudText Typo="Typo.h6">@L["SourceControlPlatformSetupWizard.SetUpGitHub"]</MudText></TitleContent>
-    <DialogContent>
+    <DialogContent>@WizardContent</DialogContent>
+    <DialogActions><MudButton Disabled="_working" OnClick="Close">@(Pending ? "Close — resume later" : Setup.Readiness.ExistingGitHubAvailable ? "Done" : "Close")</MudButton></DialogActions>
+</MudDialog>
+}
+
+@code {
+    private RenderFragment WizardContent => @<text>
         <MudStack Spacing="3" Class="github-wizard" aria-live="polite">
             @if (_working)
             {
@@ -31,8 +44,12 @@
             {
                 <MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" Size="Size.Large" />
                 <MudText Typo="Typo.h5">@L["SourceControlPlatformSetupWizard.GitHubIsReady"]</MudText>
-                <MudText>@L["SourceControlPlatformSetupWizard.ConnectAGitHubAccountFrom"]</MudText>
-                @if ((BusinessId ?? _returnBusinessId) is { } businessId)
+                <MudText>@L[DraftId is not null ? "SourceControlPlatformSetupWizard.ConnectAccountForBusiness" : "SourceControlPlatformSetupWizard.ConnectAGitHubAccountFrom"]</MudText>
+                @if (DraftId is not null)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_working" OnClick="() => ConnectAccount.InvokeAsync()">@L["SourceControlPlatformSetupWizard.ConnectGitHubAccount"]</MudButton>
+                }
+                else if ((BusinessId ?? _returnBusinessId) is { } businessId)
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@($"/organizations/{businessId:D}/source-control?connectGitHub=true&allowRepositoryCreation={_allowCreation.ToString().ToLowerInvariant()}")">@L["SourceControlPlatformSetupWizard.ConnectGitHubAccount"]</MudButton>
                 }
@@ -85,13 +102,14 @@
                 </MudExpansionPanel>
             </MudExpansionPanels>
         </MudStack>
-    </DialogContent>
-    <DialogActions><MudButton Disabled="_working" OnClick="Close">@(Pending ? "Close — resume later" : Setup.Readiness.ExistingGitHubAvailable ? "Done" : "Close")</MudButton></DialogActions>
-</MudDialog>
+    </text>;
 
-@code {
     [Parameter, EditorRequired] public PlatformSourceControlSetupResponse Setup { get; set; } = default!;
     [Parameter] public EventCallback<PlatformSourceControlSetupResponse> SetupChanged { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [Parameter] public Guid? DraftId { get; set; }
+    [Parameter] public EventCallback ConnectAccount { get; set; }
+    [Parameter] public EventCallback Closed { get; set; }
     [Parameter] public Guid? BusinessId { get; set; }
     [Parameter] public bool AllowRepositoryCreation { get; set; }
     private readonly DialogOptions _options = new() { MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false, CloseOnEscapeKey = false };
@@ -140,7 +158,11 @@
         if (!Pending) _allowCreation = AllowRepositoryCreation;
         return Task.CompletedTask;
     }
-    private void Close() => _open = false;
+    private async Task Close()
+    {
+        _open = false;
+        await Closed.InvokeAsync();
+    }
     private Task PublishAsync(PlatformSourceControlSetupResponse setup)
     {
         Setup = setup;
@@ -152,6 +174,12 @@
         {
             _choosingOptions = false;
             return;
+        }
+        if (DraftId is not null)
+        {
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/githubWizard.js");
+            try { await module.InvokeVoidAsync("rememberDraftId", DraftId.Value.ToString("D")); }
+            finally { await module.DisposeAsync(); }
         }
         _manifest = await _flow!.PrepareAsync(Navigation.BaseUri.TrimEnd('/'), _useOrganization ? _organization : null, _allowCreation);
         _choosingOptions = false;
@@ -203,7 +231,7 @@
                         StateHasChanged();
                     }
                 }
-                if (submit) await module.InvokeVoidAsync("submitManifest", _manifestForm, (BusinessId ?? _returnBusinessId)?.ToString("D"));
+                if (submit) await module.InvokeVoidAsync("submitManifest", _manifestForm, (BusinessId ?? _returnBusinessId)?.ToString("D"), DraftId?.ToString("D"));
             }
             finally { await module.DisposeAsync(); }
         }

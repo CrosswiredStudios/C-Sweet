@@ -18,9 +18,21 @@ button explains code and pull-request access before recording those confirmation
 `githubWizard.js` submits the generated manifest after render; a native submit button
 remains available if browser interop fails. No GitHub app keys are copied by the user.
 
-GitHub's manifest callback returns to settings. The dialog reopens for pending sessions;
+GitHub's manifest callback returns through settings. For repository business onboarding,
+`githubWizard.js.takeDraftId` consumes the tab's saved draft hint and
+`SourceControlSettings.OnAfterRenderAsync` resumes that draft automatically before showing
+settings controls. `RepositoryBusinessOnboarding` renders the same wizard with `Embedded`
+and `DraftId`, finishes pending verification there, and connects the account using the
+draft's authorization flow. Other settings entry points reopen the dialog for pending sessions;
 `GitHubPlatformWizardFlow.FinishAsync` confirms the server-verified app, continues to
 the provisioner approval when requested, and activates only after the required approvals.
+Completion reloads the authorized saved session before continuing, including on Retry.
+Only a tagged `revision_conflict` triggers one automatic reload/resume; repeated conflicts
+retain current state and offer Retry. Completed steps and an already-active session are
+reused without registering another app. A replaced, cancelled or expired session stops
+completion, and a changed repository-creation choice requires review rather than inheriting
+another wizard's consent. `SourceControlSettings.OnAfterRenderAsync` guards overlapping
+return-hint reads so the settings wizard cannot race the resumed business wizard.
 The initial **Allow C-Sweet to create repositories** checkbox defaults off.
 `StartPlatformSourceControlSetupRequest.AllowRepositoryCreation` saves this choice in
 `PlatformSourceControlSetupSession.ProvisionerRequested` before leaving for GitHub;
@@ -89,3 +101,11 @@ and refusing to activate an unverified handoff. `SourceControlWorkspaceRendering
 covers the compact initial surface and pending onboarding. Existing
 `SourceControlPlatformSetupServiceTests` and `SourceControlOnboardingServiceTests`
 continue to exercise server authorization, callback verification, and repository scope.
+
+`RepositoryGitHubConnectionFlowTests`, `GitHubSetupReturnTests` and
+`PersonalAssistantRenderingTests` cover configured versus unconfigured GitHub, administrator
+and operator-managed prerequisites, callback-only draft resumption, inline setup and the
+absence of assistant-configuration detours. `node --test tests/githubWizard.tests.mjs`
+verifies saving and consuming tab-scoped return hints and replacing abandoned contexts.
+`GitHubPlatformWizardFlowTests` also covers stale callback snapshots, competing completion,
+bounded conflicts, lost activation responses, changed permissions and failed current-state reads.

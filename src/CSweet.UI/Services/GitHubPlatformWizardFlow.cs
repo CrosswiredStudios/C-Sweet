@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Contracts.SourceControl;
@@ -56,6 +57,40 @@ public sealed class GitHubPlatformWizardFlow(
 
     public async Task<PlatformGitHubManifestLaunchResponse?> FinishAsync()
     {
+        if (Setup.Session is not { } original) return null;
+        // Callbacks and another open wizard can advance the saved session while this
+        // component is showing an older response. Resume state, never replay stale requests.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            await RefreshCompletionAsync(original);
+            if (Setup.Session!.Status == "Active") return null;
+            try { return await FinishCurrentAsync(); }
+            catch (SetupRevisionConflictException)
+            {
+                if (attempt == 0) continue;
+                await RefreshCompletionAsync(original);
+                throw new InvalidOperationException("GitHub setup changed again while finishing. Your saved app is retained. Retry to continue from the latest step.");
+            }
+        }
+        return null;
+    }
+
+    private async Task RefreshCompletionAsync(PlatformSourceControlSetupSessionResponse original)
+    {
+        using var response = await http.GetAsync("api/source-control/platform-setup/");
+        await EnsureSuccessAsync(response);
+        Setup = await response.Content.ReadFromJsonAsync<PlatformSourceControlSetupResponse>()
+            ?? throw new InvalidOperationException("C-Sweet returned no setup progress.");
+        await changed(Setup);
+        if (Setup.Session is not { } current || current.SessionId != original.SessionId ||
+            current.Status is "Cancelled" or "Expired")
+            throw new InvalidOperationException("This GitHub setup is no longer current. Reopen GitHub setup to review its saved state.");
+        if ((current.ProvisionerRequested == true) != (original.ProvisionerRequested == true))
+            throw new InvalidOperationException("Repository creation permissions changed. Reopen GitHub setup to review the current choice before continuing.");
+    }
+
+    private async Task<PlatformGitHubManifestLaunchResponse?> FinishCurrentAsync()
+    {
         if (Setup.Session?.CurrentStep is "source-access-confirm" or "provisioner-confirm")
         {
             var kind = Setup.Session.CurrentStep == "source-access-confirm" ? "source-access" : "provisioner";
@@ -92,10 +127,15 @@ public sealed class GitHubPlatformWizardFlow(
         try
         {
             using var json = JsonDocument.Parse(content);
+            if (response.StatusCode == HttpStatusCode.Conflict &&
+                json.RootElement.TryGetProperty("error", out var error) && error.GetString() == "revision_conflict")
+                throw new SetupRevisionConflictException();
             if (json.RootElement.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String)
                 throw new InvalidOperationException(message.GetString());
         }
         catch (JsonException) { }
         throw new InvalidOperationException("C-Sweet could not complete GitHub setup. Try again.");
     }
+
+    private sealed class SetupRevisionConflictException() : InvalidOperationException("The setup changed. Refresh before continuing.");
 }

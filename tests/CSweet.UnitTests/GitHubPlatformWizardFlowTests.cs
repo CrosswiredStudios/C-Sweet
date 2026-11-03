@@ -38,7 +38,7 @@ public sealed class GitHubPlatformWizardFlowTests
         var flow = Create(api, api.Setup);
         await flow.FinishAsync();
 
-        Assert.Equal(new[] { "confirm", "provisioner-choice", "activate" }, api.Actions);
+        Assert.Equal(new[] { "", "confirm", "provisioner-choice", "activate" }, api.Actions);
         Assert.Equal(new long[] { 8, 9, 10 }, api.Revisions);
         Assert.False(api.Setup.Session!.ProvisionerRequested);
         Assert.True(flow.Setup.Readiness.ExistingGitHubAvailable);
@@ -98,7 +98,106 @@ public sealed class GitHubPlatformWizardFlowTests
     {
         var api = new WizardApi(State("source-access-review", status: "AwaitingGitHub"));
         await Create(api, api.Setup).FinishAsync();
-        Assert.Empty(api.Actions);
+        Assert.Equal(new[] { "" }, api.Actions);
+    }
+
+    [Fact]
+    public async Task CompletionRefreshesAStaleCallbackSnapshotAndSkipsAlreadyConfirmedApp()
+    {
+        var stale = State("source-access-confirm", revision: 8);
+        var api = new WizardApi(stale);
+        api.CompleteCallback("capabilities");
+        var flow = Create(api, stale);
+
+        await flow.FinishAsync();
+
+        Assert.True(flow.Setup.Readiness.ExistingGitHubAvailable);
+        Assert.Equal(new[] { "", "provisioner-choice", "activate" }, api.Actions);
+        Assert.Equal(new long[] { 9, 10 }, api.Revisions);
+        Assert.DoesNotContain("sessions", api.Actions);
+        Assert.DoesNotContain("manifest", api.Actions);
+    }
+
+    [Fact]
+    public async Task ConcurrentCompletionRefreshesAndContinuesFromTheCommittedStep()
+    {
+        var api = new WizardApi(State("source-access-confirm", revision: 8))
+        {
+            AdvanceOnAction = "provisioner-choice", AdvanceToStep = "review-activate"
+        };
+        var flow = Create(api, api.Setup);
+
+        await flow.FinishAsync();
+
+        Assert.True(flow.Setup.Readiness.ExistingGitHubAvailable);
+        Assert.Equal(new[] { "", "confirm", "provisioner-choice", "", "activate" }, api.Actions);
+        Assert.Equal(1, api.Actions.Count(x => x == "confirm"));
+        Assert.Equal(1, api.Actions.Count(x => x == "activate"));
+        Assert.DoesNotContain("manifest", api.Actions);
+    }
+
+    [Fact]
+    public async Task RepeatedRevisionConflictsAreBoundedAndLeaveLatestSavedStateForRetry()
+    {
+        var api = new WizardApi(State("source-access-confirm")) { ConflictNextMutations = 2 };
+        var flow = Create(api, api.Setup);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => flow.FinishAsync());
+
+        Assert.Contains("saved app is retained", error.Message);
+        Assert.Equal(api.Setup.Session!.Revision, flow.Setup.Session!.Revision);
+        Assert.Equal(2, api.Actions.Count(x => x == "confirm"));
+        Assert.Equal(3, api.Actions.Count(x => x == ""));
+        await flow.FinishAsync();
+        Assert.True(flow.Setup.Readiness.ExistingGitHubAvailable);
+    }
+
+    [Fact]
+    public async Task LostActivationResponseRecognizesTheAlreadyActiveSetup()
+    {
+        var stale = State("review-activate");
+        var api = new WizardApi(stale with { Readiness = new(true, false, null), Session = stale.Session! with { CurrentStep = "complete", Status = "Active", Revision = 2 } });
+        var flow = Create(api, stale);
+        Assert.Null(await flow.FinishAsync());
+        Assert.Equal(new[] { "" }, api.Actions);
+        Assert.Equal("Active", flow.Setup.Session!.Status);
+    }
+
+    [Theory]
+    [InlineData("Cancelled")]
+    [InlineData("Expired")]
+    public async Task CompletionDoesNotContinueCancelledOrExpiredSetup(string status)
+    {
+        var stale = State("source-access-confirm");
+        var api = new WizardApi(stale with { Session = stale.Session! with { Status = status } });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Create(api, stale).FinishAsync());
+        Assert.Equal(new[] { "" }, api.Actions);
+    }
+
+    [Fact]
+    public async Task CompletionDoesNotSwitchToAnotherSetupSession()
+    {
+        var api = new WizardApi(State("source-access-confirm"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Create(api, State("source-access-confirm")).FinishAsync());
+        Assert.Equal(new[] { "" }, api.Actions);
+    }
+
+    [Fact]
+    public async Task CompletionRequiresReviewWhenAnotherWizardChangesCreationPermissions()
+    {
+        var stale = State("source-access-confirm");
+        var api = new WizardApi(stale with { Session = stale.Session! with { ProvisionerRequested = true } });
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Create(api, stale).FinishAsync());
+        Assert.Contains("permissions changed", error.Message);
+        Assert.Equal(new[] { "" }, api.Actions);
+    }
+
+    [Fact]
+    public async Task FailedRefreshDoesNotMutateSetupOrRepeatGitHubRegistration()
+    {
+        var api = new WizardApi(State("source-access-confirm")) { FailRefresh = true };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Create(api, api.Setup).FinishAsync());
+        Assert.Equal(new[] { "" }, api.Actions);
     }
 
     private static GitHubPlatformWizardFlow Create(WizardApi api, PlatformSourceControlSetupResponse state) =>
@@ -116,6 +215,10 @@ public sealed class GitHubPlatformWizardFlowTests
         public List<string> Paths { get; } = [];
         public List<long> Revisions { get; } = [];
         public bool FailActivation { get; set; }
+        public bool FailRefresh { get; set; }
+        public int ConflictNextMutations { get; set; }
+        public string? AdvanceOnAction { get; set; }
+        public string AdvanceToStep { get; set; } = "review-activate";
         public void CompleteCallback(string step) => Setup = Setup with
         {
             Session = Setup.Session! with { CurrentStep = step, Status = "InProgress", Revision = Setup.Session.Revision + 1 }
@@ -126,13 +229,26 @@ public sealed class GitHubPlatformWizardFlowTests
             var path = request.RequestUri!.AbsolutePath;
             var action = path.Split('/').Last();
             Actions.Add(action); Paths.Add(path);
+            if (action == "" && FailRefresh)
+                return new(HttpStatusCode.ServiceUnavailable) { Content = JsonContent.Create(new { message = "GitHub setup is temporarily unavailable" }) };
             JsonElement body = default;
             if (request.Content is not null)
                 body = await request.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
             if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty("expectedRevision", out var revision))
             {
-                Assert.Equal(Setup.Session!.Revision, revision.GetInt64());
+                if (AdvanceOnAction == action)
+                {
+                    AdvanceOnAction = null;
+                    CompleteCallback(AdvanceToStep);
+                }
+                if (ConflictNextMutations > 0)
+                {
+                    ConflictNextMutations--;
+                    CompleteCallback(Setup.Session!.CurrentStep);
+                }
                 Revisions.Add(revision.GetInt64());
+                if (Setup.Session!.Revision != revision.GetInt64())
+                    return new(HttpStatusCode.Conflict) { Content = JsonContent.Create(new { error = "revision_conflict", message = "The setup changed. Refresh before continuing." }) };
             }
             if (action == "activate" && FailActivation)
                 return new(HttpStatusCode.Conflict) { Content = JsonContent.Create(new { message = "Retry activation" }) };

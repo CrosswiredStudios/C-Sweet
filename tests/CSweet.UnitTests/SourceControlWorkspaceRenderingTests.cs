@@ -29,6 +29,23 @@ public sealed class SourceControlWorkspaceRenderingTests
     }
 
     [Fact]
+    public async Task EmbeddedGitHubSetupContinuesWithTheBusinessDraftInsteadOfSourceControl()
+    {
+        var html = await RenderAsync<SourceControlPlatformSetupWizard>(new WorkspaceApi(), new()
+        {
+            [nameof(SourceControlPlatformSetupWizard.Setup)] = new PlatformSourceControlSetupResponse(new(true, false, null), null),
+            [nameof(SourceControlPlatformSetupWizard.Embedded)] = true,
+            [nameof(SourceControlPlatformSetupWizard.DraftId)] = Guid.NewGuid()
+        });
+        Assert.Contains("GitHub is ready", html);
+        Assert.Contains("Connect GitHub account", html);
+        Assert.Contains("Back to repositories", html);
+        Assert.DoesNotContain("/source-control", html);
+        Assert.DoesNotContain("Connect a GitHub account from", html);
+        Assert.DoesNotContain("mud-dialog", html);
+    }
+
+    [Fact]
     public async Task LandingPageLoadsRepositoriesWithoutLoadingAdministration()
     {
         var api = new WorkspaceApi();

@@ -3,10 +3,17 @@
 @using CSweet.Contracts.SourceControl
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 @inject IAppLocalizer L
 
 <PageTitle>@L["SourceControlSettings.PageTitle"]</PageTitle>
 
+@if (GitHubSetupResult is not null && (!_draftTargetStored || _returningToDraft))
+{
+    <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
 <div class="setup-shell">
     @if ((DraftId ?? _returnDraftId) is { } draftId)
     { <MudButton Href="@($"/?create=true&draft={draftId:D}")" StartIcon="@Icons.Material.Outlined.ArrowBack">@L["SourceControlSettings.ReturnToYourBusinessDraft"]</MudButton> }
@@ -96,12 +103,16 @@
         }
     }
 </div>
+}
 
 @code {
     [SupplyParameterFromQuery(Name = "business")] public Guid? BusinessId { get; set; }
     [SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    [SupplyParameterFromQuery(Name = "githubSetup")] public string? GitHubSetupResult { get; set; }
     private Guid? _returnDraftId;
     private bool _draftTargetStored;
+    private bool _restoringDraft;
+    private bool _returningToDraft;
     [SupplyParameterFromQuery(Name = "allowRepositoryCreation")] public bool AllowRepositoryCreation { get; set; }
     private PlatformSourceControlSetupResponse? _setup;
     private InternalGitStorageStatus? _storage;
@@ -120,14 +131,33 @@
     {
         if (!_draftTargetStored)
         {
-            _draftTargetStored = true;
+            // After-render callbacks may overlap while JS is awaited. Only one callback
+            // may consume the return hint; settings must stay hidden until it finishes.
+            if (_restoringDraft) return;
+            _restoringDraft = true;
             try
             {
                 var module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/githubWizard.js");
-                try { var stored = await module.InvokeAsync<string?>("rememberDraftId", DraftId?.ToString("D")); if (Guid.TryParse(stored, out var draft)) { _returnDraftId = draft; StateHasChanged(); } }
+                try
+                {
+                    var stored = GitHubSetupResult is not null
+                        ? await module.InvokeAsync<string?>("takeDraftId")
+                        : await module.InvokeAsync<string?>("rememberDraftId", DraftId?.ToString("D"));
+                    if (Guid.TryParse(stored, out var draft))
+                    {
+                        _returnDraftId = draft;
+                        if (GitHubSetupResult is not null)
+                        {
+                            _returningToDraft = true;
+                            Navigation.NavigateTo($"/?create=true&draft={draft:D}&resumeGitHubSetup=true", replace: true);
+                            return;
+                        }
+                    }
+                }
                 finally { await module.DisposeAsync(); }
             }
             catch (JSException) { }
+            finally { _restoringDraft = false; _draftTargetStored = true; StateHasChanged(); }
         }
         if (_returnTargetRestored || _setup?.Readiness.ExistingGitHubAvailable != true || GitHubPlatformWizardFlow.IsPending(_setup)) return;
         _returnTargetRestored = true;

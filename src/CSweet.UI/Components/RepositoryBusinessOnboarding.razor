@@ -1,9 +1,11 @@
 @using CSweet.Contracts.PersonalAssistant
+@using CSweet.Contracts.SourceControl
 @using CSweet.Contracts.Realtime
 @implements IDisposable
 @inject PersonalAssistantApiClient Api
 @inject IAppRealtimeConnection Realtime
 @inject NavigationManager Navigation
+@inject HttpClient Http
 @inject IAppLocalizer L
 
 @if (_draft is null)
@@ -49,11 +51,17 @@ else
     }
     else
     {
+        @if (_githubSetup is not null)
+        {
+            <section class="onboarding-github-setup" aria-label="GitHub setup">
+                <SourceControlPlatformSetupWizard Embedded="true" DraftId="_draft.Id" Setup="_githubSetup" SetupChanged="GitHubSetupChanged" ConnectAccount="ConnectGitHubAsync" Closed="CloseGitHubSetup" />
+            </section>
+        }
+        else
+        {
         <h3>@L["RepositoryBusinessOnboarding.BringWhatYouVeBuilt"]</h3><p>@L["RepositoryBusinessOnboarding.ConnectOneOrMoreGitHub"]</p>
         <div class="onboarding-source-actions"><MudButton StartIcon="@Icons.Material.Outlined.Code" Variant="Variant.Outlined" Disabled="_busy" OnClick="ConnectGitHubAsync">@L["RepositoryBusinessOnboarding.ConnectGitHub"]</MudButton><label class="onboarding-upload-button">@L["RepositoryBusinessOnboarding.UploadRepositoryZIP"]<InputFile OnChange="UploadAsync" accept=".zip" disabled="@_busy" /></label></div>
         <p class="onboarding-hint">ZIPs can include one outer folder. Git history is excluded. Maximum 512 MiB; builds and repository scripts are never run during analysis.</p>
-        <MudButton Href="@($"/settings/source-control?draft={_draft.Id:D}")">@L["RepositoryBusinessOnboarding.SetUpGitHubForThis"]</MudButton>
-        <MudButton Href="personal-assistant">@L["RepositoryBusinessOnboarding.ConfigureYourPersonalAssistant"]</MudButton>
         @if (_accounts.Count > 0)
         {
             <MudSelect T="long" Label="@L["RepositoryBusinessOnboarding.GitHubAccount"]" Value="_installation" ValueChanged="LoadRepositoriesAsync" Variant="Variant.Outlined">@foreach (var account in _accounts) { <MudSelectItem T="long" Value="account.InstallationId">@account.Login</MudSelectItem> }</MudSelect>
@@ -72,6 +80,7 @@ else
         </div>
         <MudCheckBox T="bool" @bind-Value="_readApproved" Label="@L["RepositoryBusinessOnboarding.AllowMyPersonalAssistantTo"]" />
         <footer class="business-dialog-actions"><MudButton Disabled="@(_busy || _draft.Sources.Count == 0 || !_draft.Sources.All(x => x.Status == "Ready"))" OnClick="BeginManualReview">@L["RepositoryBusinessOnboarding.EnterDetailsManually"]</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_readApproved || _draft.Sources.Count == 0)" OnClick="AnalyzeAsync">@L["RepositoryBusinessOnboarding.UnderstandMyProject"]</MudButton></footer>
+        }
     }
     @if (_draft.Error is not null) { <MudAlert Severity="Severity.Warning">@_draft.Error</MudAlert> }
     @if (_draft.Status is "AnalysisFailed" or "CreationFailed") { <MudButton OnClick="RetryAsync" Disabled="_busy">@L["RepositoryBusinessOnboarding.RetrySavedStep"]</MudButton> }
@@ -83,6 +92,8 @@ else
     [Parameter] public Guid? DraftId { get; set; }
     [Parameter] public EventCallback<Guid> DraftCreated { get; set; }
     [Parameter] public EventCallback Discarded { get; set; }
+    [Parameter] public bool ResumeGitHubSetup { get; set; }
+    private PlatformSourceControlSetupResponse? _githubSetup;
     private RepositoryOnboardingDraftResponse? _draft;
     private RepositoryBusinessReview? _review;
     private IReadOnlyList<OnboardingGitHubAccount> _accounts = [];
@@ -97,7 +108,14 @@ else
     protected override async Task OnInitializedAsync()
     {
         Realtime.EventReceived += OnEvent; Realtime.Reconnected += OnReconnect;
-        await ActAsync(async () => { SetDraft(DraftId.HasValue ? await Api.DraftAsync(DraftId.Value) : await Api.CreateDraftAsync()); await DraftCreated.InvokeAsync(_draft!.Id); await LoadAccountsAsync(); });
+        await ActAsync(async () =>
+        {
+            var resumeSetup = ResumeGitHubSetup;
+            SetDraft(DraftId.HasValue ? await Api.DraftAsync(DraftId.Value) : await Api.CreateDraftAsync());
+            await DraftCreated.InvokeAsync(_draft!.Id);
+            await LoadAccountsAsync();
+            if (resumeSetup) _githubSetup = await new RepositoryGitHubConnectionFlow(Http).LoadSetupAsync();
+        });
         try { await Realtime.StartAsync(); } catch { }
     }
     private void SetDraft(RepositoryOnboardingDraftResponse draft)
@@ -118,10 +136,21 @@ else
     }
     private Task ConnectGitHubAsync() => ActAsync(async () =>
     {
-        var auth = await Api.SendAsync<DraftGitHubAuthorization>(HttpMethod.Post, PathFor("github/authorize"), null);
-        Navigation.NavigateTo(auth.AuthorizationUrl, forceLoad: true);
+        var result = await new RepositoryGitHubConnectionFlow(Http).ConnectAsync(_draft!.Id);
+        if (result.Authorization is { } auth) Navigation.NavigateTo(auth.AuthorizationUrl, forceLoad: true);
+        else _githubSetup = result.Setup;
     });
-    private async Task LoadAccountsAsync() { _accounts = await Api.GetAsync<IReadOnlyList<OnboardingGitHubAccount>>(PathFor("github/accounts")); }
+    private void GitHubSetupChanged(PlatformSourceControlSetupResponse setup) => _githubSetup = setup;
+    private void CloseGitHubSetup() => _githubSetup = null;
+    private async Task LoadAccountsAsync()
+    {
+        _accounts = await Api.GetAsync<IReadOnlyList<OnboardingGitHubAccount>>(PathFor("github/accounts"));
+        if (_accounts.Count == 1)
+        {
+            _installation = _accounts[0].InstallationId;
+            _repositories = await Api.GetAsync<IReadOnlyList<OnboardingGitHubRepository>>(PathFor($"github/repositories?installationId={_installation}"));
+        }
+    }
     private Task LoadRepositoriesAsync(long id) => ActAsync(async () => { _installation = id; _selected.Clear(); _repositories = await Api.GetAsync<IReadOnlyList<OnboardingGitHubRepository>>(PathFor($"github/repositories?installationId={id}")); });
     private void Select(long id, bool value) { if (value) _selected.Add(id); else _selected.Remove(id); }
     private Task AddSelectedAsync() => ActAsync(async () => { SetDraft(await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("sources"), new SelectOnboardingRepositoriesRequest(_draft!.Revision, _installation, _selected.ToArray()))); _selected.Clear(); });

@@ -1,4 +1,3 @@
-@inject NavigationManager Navigation
 @inject IAppLocalizer L
 
 <MudDialog Visible="Visible" VisibleChanged="VisibleChanged" Options="Options" DefaultFocus="DefaultFocus.FirstChild" aria-labelledby="new-business-title">
@@ -6,12 +5,12 @@
         <section class="business-dialog onboarding-dialog" aria-labelledby="new-business-title">
             <header class="business-dialog-header"><div class="business-dialog-brand"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Business" /></span><div><span class="business-kicker">@L["NewBusinessDialog.EnterpriseNewBusiness"]</span><h2 id="new-business-title">@(_codebase ? "Your project, its next chapter." : "Where would you like to start?")</h2><p>@(_codebase ? "Bring your work into C-Sweet, with a brief you review." : "Start with an idea, or build on what you already have.")</p></div></div><button class="business-dialog-close" aria-label="@L["NewBusinessDialog.CloseNewBusinessDialog"]" @onclick="CloseAsync"><MudIcon Icon="@Icons.Material.Outlined.Close" /></button></header>
             @if (_codebase)
-            { <RepositoryBusinessOnboarding DraftId="DraftId" DraftCreated="RememberDraft" Discarded="CloseAsync" /> }
+            { <RepositoryBusinessOnboarding DraftId="_activeDraftId" DraftCreated="RememberDraft" Discarded="CloseAsync" ResumeGitHubSetup="ResumeGitHubSetup" /> }
             else
             {
                 <div class="onboarding-story-grid">
                     <button class="onboarding-story" @onclick="() => NewBusiness.InvokeAsync()"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.AutoAwesome" /></span><strong>@L["NewBusinessDialog.NewBusiness"]</strong><p>@L["NewBusinessDialog.BeginWithANameA"]</p><span>@L["NewBusinessDialog.StartFresh"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
-                    <button class="onboarding-story" @onclick="() => _codebase = true"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Code" /></span><strong>@L["NewBusinessDialog.BusinessFromCodebases"]</strong><p>@L["NewBusinessDialog.BringAnAppGameOr"]</p><span>@L["NewBusinessDialog.ConnectGitHubOrUploadZIPs"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
+                    <button class="onboarding-story" @onclick="ShowExistingBusiness"><span class="business-dialog-mark"><MudIcon Icon="@Icons.Material.Outlined.Code" /></span><strong>@L["NewBusinessDialog.ExistingBusiness"]</strong><p>@L["NewBusinessDialog.BringAnAppGameOr"]</p><span>@L["NewBusinessDialog.ConnectGitHubOrUploadZIPs"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></span></button>
                 </div>
                 <p class="business-next-step">@L["NewBusinessDialog.YourAssistantHelpsPrepareThe"]</p>
                 <MudButton Href="personal-assistant" StartIcon="@Icons.Material.Outlined.ChatBubbleOutline">@L["NewBusinessDialog.TalkThroughYourIdeaWith"]</MudButton>
@@ -25,10 +24,22 @@
     [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
     [Parameter] public EventCallback NewBusiness { get; set; }
     [Parameter] public Guid? DraftId { get; set; }
+    [Parameter] public bool ResumeGitHubSetup { get; set; }
+    private Guid? _activeDraftId;
     private bool _codebase;
     private bool _previousVisible;
     private DialogOptions Options => new() { MaxWidth = MaxWidth.Medium, FullWidth = true, NoHeader = true, BackdropClick = false, CloseOnEscapeKey = true };
-    protected override void OnParametersSet() { if (Visible && !_previousVisible) _codebase = DraftId.HasValue; _previousVisible = Visible; }
+    protected override void OnParametersSet()
+    {
+        if (Visible && !_previousVisible)
+        {
+            _activeDraftId = DraftId;
+            _codebase = _activeDraftId.HasValue;
+        }
+        _previousVisible = Visible;
+    }
     private Task CloseAsync() => VisibleChanged.InvokeAsync(false);
-    private void RememberDraft(Guid id) { DraftId = id; Navigation.NavigateTo($"/?create=true&draft={id:D}", replace: true); }
+    private void ShowExistingBusiness() => _codebase = true;
+    // Recording a draft is not navigation: route changes dismiss the open MudDialog.
+    private void RememberDraft(Guid id) => _activeDraftId = id;
 }
