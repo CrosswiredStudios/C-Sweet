@@ -180,9 +180,9 @@ public sealed class PluginAccountUpgradeService(CSweetDbContext db,IPluginSecret
     private async Task<Snapshot> Require(Guid user,Guid targetId,PluginAccountUpgrade? intent,CancellationToken ct)
     {
         await Access.RequireAdministratorAsync(user,ct);
-        var target=await db.AgentInstallations.AsNoTracking().Include(x=>x.PackageVersion).Include(x=>x.Grant).SingleOrDefaultAsync(x=>x.Id==targetId,ct)??throw Changed();
+        var target=await db.AgentInstallations.AsNoTracking().Include(x=>x.PackageVersion).Include(x=>x.Grant).Include(x=>x.Schedule).SingleOrDefaultAsync(x=>x.Id==targetId,ct)??throw Changed();
         if(target.SupersedesInstallationId is not{} sourceId)throw Changed();
-        var source=await db.AgentInstallations.AsNoTracking().Include(x=>x.PackageVersion).Include(x=>x.Grant).SingleAsync(x=>x.Id==sourceId,ct);
+        var source=await db.AgentInstallations.AsNoTracking().Include(x=>x.PackageVersion).Include(x=>x.Grant).Include(x=>x.Schedule).SingleAsync(x=>x.Id==sourceId,ct);
         if(source.Scope!=PluginInstallationScope.System || target.Scope!=source.Scope || source.BusinessId!=target.BusinessId ||
             source.RevisionStatus!=PluginRevisionStatus.Active || source.IsEnabled!=(intent is null) || target.IsEnabled ||
             target.RevisionStatus!=PluginRevisionStatus.Staged || source.PackageVersion!.PluginKind!=PluginKind.Connector || target.PackageVersion!.PluginKind!=PluginKind.Connector ||

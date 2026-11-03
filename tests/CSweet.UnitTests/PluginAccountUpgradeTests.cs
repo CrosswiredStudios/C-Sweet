@@ -92,10 +92,11 @@ public sealed class PluginAccountUpgradeTests
 
     [Theory]
     [InlineData("binding")][InlineData("operator")][InlineData("pending-consent")][InlineData("lease")][InlineData("whole-account")]
-    [InlineData("grant-package")][InlineData("secret")][InlineData("other-lineage")][InlineData("configuration")]
+    [InlineData("grant-package")][InlineData("secret")][InlineData("other-lineage")][InlineData("configuration")][InlineData("source-schedule")][InlineData("target-schedule")]
     public async Task UnsupportedOrAmbiguousStateFailsBeforeCreatingIntentOrCallingAdopt(string change)
     {
         await using var f=await F.Create();
+        if(change is "source-schedule" or "target-schedule")f.Db.AgentSchedules.Add(new(){Id=Guid.NewGuid(),AgentInstallationId=change=="source-schedule"?f.Source.Id:f.Target.Id,IsEnabled=true});
         if(change=="binding")f.Db.AgentCapabilityBindings.Add(new(){Id=Guid.NewGuid(),ProviderInstallationId=f.Source.Id,RequesterInstallationId=f.Inner.Inner.Requester.Id});
         if(change=="operator")f.Db.PluginAccountOperators.Add(new(){Id=Guid.NewGuid(),PluginInstallationId=f.Source.Id,ApplicationUserId=f.Inner.Manager});
         if(change=="pending-consent")(await f.Db.PluginAccountSetupSessions.SingleAsync()).Status="AwaitingConsent";
