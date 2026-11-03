@@ -22,8 +22,20 @@ public sealed partial class PluginAccountService(CSweetDbContext db, IPluginSecr
     private PluginAccountAccessService Access => new(db);
     private ManagedPluginConnectionOptions ManagedSettings => selections?.Effective(options.Value.Managed) ?? options.Value.Managed;
     private bool DevelopmentPreview=>options.Value.AllowDevelopmentLifecyclePreview && environment?.IsDevelopment()==true;
-    private string[] MissingDeletionStores=>new[]{"external:backups","external:processors","external:memory","external:runtime","external:retained-evidence"}
-        .Except((deletionParticipants ?? []).Where(p=>p.IsConfigured).Select(p=>p.Store),StringComparer.Ordinal).ToArray();
+    private async Task<string[]> MissingDeletionStores(Guid installationId,CancellationToken ct)
+    {
+        // Deployment defaults are not a complete inventory: managed services and future
+        // host-owned adapters can record additional obligations. Do not hide them merely
+        // because they are absent from this host's built-in participant list.
+        var recorded=await (from copy in db.PluginAccountDataCopies.AsNoTracking()
+            join account in db.PluginAccountGroups.AsNoTracking() on copy.AccountGroupId equals account.Id
+            where account.PluginInstallationId==installationId && copy.DeletedAt==null && copy.Store.StartsWith("external:")
+            select copy.Store).Distinct().ToArrayAsync(ct);
+        return new[]{"external:backups","external:processors","external:memory","external:runtime","external:retained-evidence"}
+            .Concat(recorded).Distinct(StringComparer.Ordinal)
+            .Except((deletionParticipants ?? []).Where(p=>p.IsConfigured).Select(p=>p.Store),StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToArray();
+    }
 
     private async Task<(AgentInstallation Installation, PluginManifest Manifest, PluginConnectionDeclaration Connection)> Context(Guid id, CancellationToken ct, bool management = false)
     {

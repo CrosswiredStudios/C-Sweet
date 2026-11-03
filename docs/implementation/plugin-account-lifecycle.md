@@ -136,6 +136,13 @@ retained-evidence adapters are provided. Backup/processor adapters report unconf
 deployment trust is configured. Disconnect immediately stops access and independently tracks every
 recorded obligation; unconfirmed cleanup remains pending and cannot manufacture a success receipt.
 
+`PluginAccountService.MissingDeletionStores` combines the deployment defaults with outstanding
+external stores actually recorded for this installation's account groups. This includes managed-service
+backup obligations and future host-owned stores without assuming they have a built-in handler.
+Completed copies and other installations' accounts do not contribute to that list. A configured
+participant removes its store from the configuration warning only; it does not prove erasure,
+dispatch deletion during a status read, or complete any receipt. The list remains administrator-only.
+
 `PluginConnections:AllowDevelopmentLifecyclePreview` is retained as a legacy diagnostic flag only;
 it no longer changes readiness or consent behavior. Browser acceptance explicitly uses a Production
 account-service environment with that flag disabled and cleanup services initially unconfigured.

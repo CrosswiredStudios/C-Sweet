@@ -163,6 +163,45 @@ public sealed class PluginAccountLifecycleTests
         Assert.Null((await f.Inner.Db.PluginAccountDeletions.SingleAsync()).CompletedAt);
     }
     [Fact]
+    public async Task CleanupDiagnosticsIncludeRecordedExternalStoresOnlyForThisInstallation()
+    {
+        await using var f=await F.Create();var account=await Connect(f);
+        foreach(var store in new[]{"external:backups","external:processors","external:memory","external:runtime","external:retained-evidence"})
+            f.DeletionParticipants.Add(new ConfirmedParticipant(store));
+        var other=new PluginAccountGroup{Id=Guid.NewGuid(),PluginInstallationId=f.Inner.Requester.Id};
+        f.Inner.Db.PluginAccountGroups.Add(other);
+        PluginAccountDataCopy Copy(Guid owner,string store,DateTimeOffset? deleted=null)=>new()
+        {Id=Guid.NewGuid(),AccountGroupId=owner,ConsumerInstallationId=f.Id,RecordId=Guid.NewGuid(),Store=store,
+            CreatedAt=DateTimeOffset.UtcNow,DeletedAt=deleted};
+        f.Inner.Db.PluginAccountDataCopies.AddRange(
+            Copy(account.Id,"external:managed-service-backups"),Copy(account.Id,"external:managed-service-backups"),
+            Copy(account.Id,"external:future-store"),Copy(account.Id,"external:already-confirmed",DateTimeOffset.UtcNow),
+            Copy(account.Id,"FuturePrimaryStore"),Copy(other.Id,"external:other-installation"));
+        await f.Inner.Db.SaveChangesAsync();
+        var view=await f.Service.GetAsync(f.Admin,f.Id,default);
+        Assert.Equal(new[]{"external:future-store","external:managed-service-backups"},view.Administration!.MissingDeletionStores);
+        Assert.True(view.CanConnect);Assert.Equal("Connected",Assert.Single(view.Accounts).State);
+        Assert.Empty(await f.Inner.Db.PluginAccountDeletions.ToArrayAsync());
+        Assert.Empty(await f.Inner.Db.PluginAccountRevocationJobs.ToArrayAsync());
+        await f.Service.SaveOperatorAsync(f.Admin,f.Id,new(f.Manager,account.Id,null,f.Digest),default);
+        Assert.Null((await f.Service.GetAsync(f.Manager,f.Id,default)).Administration);
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupDiagnosticsRequireConfiguredParticipantButDoNotAttestDeletion(bool configured)
+    {
+        await using var f=await F.Create();var account=await Connect(f);
+        var copy=new PluginAccountDataCopy{Id=Guid.NewGuid(),AccountGroupId=account.Id,ConsumerInstallationId=f.Id,
+            RecordId=Guid.NewGuid(),Store="external:managed-service-backups",CreatedAt=DateTimeOffset.UtcNow};
+        f.Inner.Db.PluginAccountDataCopies.Add(copy);await f.Inner.Db.SaveChangesAsync();
+        f.DeletionParticipants.Add(new DiagnosticParticipant(copy.Store,configured));
+        var view=await f.Service.GetAsync(f.Admin,f.Id,default);
+        Assert.Equal(!configured,view.Administration!.MissingDeletionStores.Contains(copy.Store));
+        Assert.Null(copy.DeletedAt);Assert.Empty(await f.Inner.Db.PluginAccountCleanupReceipts.ToArrayAsync());
+        Assert.Empty(await f.Inner.Db.PluginAccountDeletions.ToArrayAsync());
+    }
+    [Fact]
     public async Task AuthorizedResponsePropagatesProvenanceToAnotherAgentWithoutGrantingProviderAccess()
     {
         await using var f=await F.Create();var account=await Connect(f);await Bind(f,account);
@@ -265,5 +304,12 @@ public sealed class PluginAccountLifecycleTests
     {
         public string Store=>store;
         public Task<bool> DeleteAsync(Guid accountId,Guid? organizationId,Guid consumerInstallationId,Guid recordId,CancellationToken ct)=>Task.FromResult(true);
+    }
+    private sealed class DiagnosticParticipant(string store,bool configured):IPluginAccountDataDeletionParticipant
+    {
+        public string Store=>store;
+        public bool IsConfigured=>configured;
+        public Task<bool> DeleteAsync(Guid accountId,Guid? organizationId,Guid consumerInstallationId,Guid recordId,CancellationToken ct)
+            =>throw new InvalidOperationException("A status read must not dispatch cleanup.");
     }
 }

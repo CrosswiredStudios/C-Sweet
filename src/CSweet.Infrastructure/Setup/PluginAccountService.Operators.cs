@@ -17,7 +17,7 @@ public sealed partial class PluginAccountService
         return new(installation.IsEnabled,installation.RevisionStatus==PluginRevisionStatus.Retired,state?.RemovalRequestedAt!=null,state?.Revision ?? 1,operators,candidates)
         { RepositoryUrl=await db.AgentPackageSources.Where(x=>x.Id==installation.PackageVersion!.PackageSourceId).Select(x=>x.RepositoryUrl).SingleOrDefaultAsync(ct),
           PreviousInstallationId=installation.SupersedesInstallationId,Staged=installation.RevisionStatus==PluginRevisionStatus.Staged,
-          DevelopmentPreview=DevelopmentPreview,MissingDeletionStores=MissingDeletionStores };
+          DevelopmentPreview=DevelopmentPreview,MissingDeletionStores=await MissingDeletionStores(installation.Id,ct) };
     }
 
     public async Task SaveOperatorAsync(Guid actor,Guid installationId,SavePluginOperatorRequest request,CancellationToken ct)
