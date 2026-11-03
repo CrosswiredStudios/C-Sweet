@@ -47,7 +47,7 @@ jobs:
         run: >-
           dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj
           --configuration Release
-          --filter 'FullyQualifiedName~PluginAccount|FullyQualifiedName~PluginImport|FullyQualifiedName~ManagedPluginAccountFlowTests|FullyQualifiedName~PluginManageConnectionTests|FullyQualifiedName~PluginSetupPresentationTests|FullyQualifiedName~PluginSettingsTests|FullyQualifiedName~PluginSetupEndpointStartupTests|FullyQualifiedName~AppHostManagedConnectionConfigurationTests|FullyQualifiedName~ManagedDeploymentPairingTests|FullyQualifiedName~AppHostExecutionGatewayWiringTests|FullyQualifiedName~CSweet.UnitTests.Connector|FullyQualifiedName~ManagedConnectorRelayTests'
+          --filter 'FullyQualifiedName~PluginAccount|FullyQualifiedName~PluginImport|FullyQualifiedName~ManagedPluginAccountFlowTests|FullyQualifiedName~PluginManageConnectionTests|FullyQualifiedName~PluginSetupPresentationTests|FullyQualifiedName~PluginSettingsTests|FullyQualifiedName~PluginProviderAdministrationTests|FullyQualifiedName~PluginSetupEndpointStartupTests|FullyQualifiedName~AppHostManagedConnectionConfigurationTests|FullyQualifiedName~ManagedDeploymentPairingTests|FullyQualifiedName~AppHostExecutionGatewayWiringTests|FullyQualifiedName~CSweet.UnitTests.Connector|FullyQualifiedName~ManagedConnectorRelayTests'
           -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
           -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
           -p:UseLocalIsolation=false -p:UseSharedCompilation=false -m:1 -nr:false
