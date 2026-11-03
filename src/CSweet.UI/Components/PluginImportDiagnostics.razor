@@ -22,7 +22,7 @@ else if (Setup.Import is { } progress && progress.IsSafe())
         @if (progress.FailureKind is { } kind) { <p>Failure: @kind · @progress.ExceptionType</p> }
         @if (progress.HttpStatus is { } status) { <p>@progress.HttpStatusSource HTTP status: @status</p> }
         @if (progress.HttpStatusSource == "ManagedService")
-        { <p>This is the connection service response. It does not identify Google's response.</p> }
+        { <p>This is the connection service response. It does not identify the provider's response.</p> }
     </details>
 }
 

@@ -12,6 +12,7 @@ builder.Services.AddMudServices(); builder.Services.AddCSweetLocalization();
 var state = new AcceptanceState(await PluginAccountFlowTests.Fixture.Create());
 builder.Services.AddSingleton(state);
 builder.Services.AddScoped<IPluginApiClient, InstallationClient>();
+builder.Services.AddSingleton<IAgentApiClient>(PluginSettingsTests.CreateAgentClient());
 builder.Services.AddScoped<IPluginAccountApiClient, AccountClient>();
 builder.Services.AddScoped<IBusinessContext, TestBusinesses>();
 var app = builder.Build();

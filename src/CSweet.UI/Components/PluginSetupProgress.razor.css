@@ -1,0 +1,8 @@
+.setup-progress { list-style: none; display: flex; gap: 20px; padding: 0; margin: 8px 0; }
+.setup-progress li { flex: 1; display: flex; align-items: center; gap: 10px; font-size: .9rem; color: var(--mud-palette-text-secondary); }
+.step-number { display: grid; place-items: center; flex: 0 0 28px; width: 28px; min-width: 28px; height: 28px; border: 1px solid var(--mud-palette-divider); border-radius: 50%; }
+.current { color: var(--mud-palette-primary) !important; font-weight: 600; }
+.current .step-number { background: var(--mud-palette-primary); color: var(--mud-palette-primary-text); border-color: var(--mud-palette-primary); }
+.complete .step-number { color: var(--mud-palette-success); border-color: var(--mud-palette-success); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media(max-width: 640px) { .setup-progress { gap: 8px; } .setup-progress li { flex-direction: column; align-items: flex-start; font-size: .8rem; } }
