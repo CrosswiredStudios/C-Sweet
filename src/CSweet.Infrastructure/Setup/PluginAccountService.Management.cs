@@ -17,8 +17,10 @@ public sealed partial class PluginAccountService
         var impacts=new List<PluginAccountImpactView>();
         foreach(var account in accounts) impacts.Add(await GetDisconnectImpactAsync(actor,installationId,account.Id,ct));
         var administration=await Administration(installation,ct);
+        var pendingUpgrades=await db.PluginAccountUpgrades.AsNoTracking().Where(x=>x.Status=="Pending" &&
+            (x.SourceInstallationId==installationId || x.TargetInstallationId==installationId)).OrderBy(x=>x.Id).Select(x=>new{x.Id,x.Revision}).ToArrayAsync(ct);
         var hash=ConnectorRequestMaterializer.Hash(JsonSerializer.SerializeToElement(new { installation.Id,installation.IsEnabled,installation.RevisionStatus,
-            installation.PackageVersion!.PackageDigest,administration.Revision,accounts=impacts.Select(x=>x.ReviewHash) }));
+            installation.PackageVersion!.PackageDigest,administration.Revision,pendingUpgrades,accounts=impacts.Select(x=>x.ReviewHash) }));
         return new(hash,impacts.SelectMany(x=>x.Businesses).Distinct().ToArray(),impacts.SelectMany(x=>x.Agents).Distinct().ToArray(),accounts.Length);
     }
 
@@ -27,6 +29,11 @@ public sealed partial class PluginAccountService
         await Access.RequireAdministratorAsync(actor,ct);
         await using var tx=db.Database.IsRelational()?await db.Database.BeginTransactionAsync(ct):null;
         if(db.Database.IsNpgsql()) _=await db.AgentInstallations.FromSqlInterpolated($"SELECT * FROM \"AgentInstallations\" WHERE \"Id\" = {installationId} FOR UPDATE").AsNoTracking().ToArrayAsync(ct);
+        // Share the source-row lock with adoption preparation/finalization. Ordinary Resume is
+        // never a way to clear a durable cross-database fence, including its staged target.
+        if(request.Action=="Resume" && await db.PluginAccountUpgrades.AsNoTracking().AnyAsync(x=>x.Status=="Pending" &&
+            (x.SourceInstallationId==installationId || x.TargetInstallationId==installationId),ct))
+            throw new InvalidOperationException("A compatible account upgrade is pending. Reconcile or cancel that upgrade before resuming this plugin.");
         var impact=await GetInstallationImpactAsync(actor,installationId,ct);
         if(request.ReviewHash!=impact.ReviewHash || request.Action is not ("Pause" or "Resume" or "Remove"))
             throw new InvalidOperationException("Plugin access changed. Review the current impact again.");

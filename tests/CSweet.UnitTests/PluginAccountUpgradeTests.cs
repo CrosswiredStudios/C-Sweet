@@ -53,6 +53,35 @@ public sealed class PluginAccountUpgradeTests
         Assert.Equal("Completed",(await f.Service.ResumeAsync(f.User,f.Target.Id,pending.Id,default)).Status);Assert.Equal(1,f.Gateway.Adopts);
     }
 
+    [Theory]
+    [InlineData(false,false)][InlineData(false,true)][InlineData(true,false)][InlineData(true,true)]
+    public async Task ImpactReviewedResumeCannotClearPendingSourceOrTargetFenceAndTerminalRecoveryLeavesNoStaleControlFence(bool accepted,bool target)
+    {
+        await using var f=await F.Create();var review=await f.Service.ReviewAsync(f.User,f.Target.Id,default);
+        f.Gateway.FailBeforeAdopt=!accepted;f.Gateway.LoseAcknowledgment=accepted;
+        var pending=await f.Service.ApproveAsync(f.User,f.Target.Id,new(review.ReviewToken),default);Assert.Equal("Pending",pending.Status);
+        var accounts=new PluginAccountService(f.Db,f.Store,f.Protection,f.Inner.Http,f.Inner.Profiles,f.Inner.Transport,
+            Options.Create(f.Inner.ConnectionOptions),new TestAuditEventWriter(),managed:f.Gateway);
+        var id=target?f.Target.Id:f.Source.Id;var impact=await accounts.GetInstallationImpactAsync(f.User,id,default);
+        var administration=await f.Db.PluginAccountAdministrations.AsNoTracking().ToArrayAsync();
+        var revision=administration.SingleOrDefault(x=>x.PluginInstallationId==id)?.Revision??1;
+        var error=await Assert.ThrowsAsync<InvalidOperationException>(()=>accounts.ControlInstallationAsync(f.User,id,new("Resume",impact.ReviewHash,revision),default));
+        Assert.Contains("compatible account upgrade is pending",error.Message);
+        Assert.False((await f.Db.AgentInstallations.AsNoTracking().SingleAsync(x=>x.Id==f.Source.Id)).IsEnabled);
+        Assert.False((await f.Db.AgentInstallations.AsNoTracking().SingleAsync(x=>x.Id==f.Target.Id)).IsEnabled);
+        Assert.Equal(administration.Length,await f.Db.PluginAccountAdministrations.CountAsync());
+        Assert.Equal("Pending",(await f.Db.PluginAccountUpgrades.AsNoTracking().SingleAsync()).Status);Assert.Equal(1,f.Gateway.Adopts);
+        Assert.Equal(f.Source.Id,(await f.Db.PluginSecrets.SingleAsync()).PluginInstallationId);Assert.Equal(0,f.Gateway.ProviderRevocationCalls);
+        var terminal=accepted?await f.Service.ResumeAsync(f.User,f.Target.Id,pending.Id,default):await f.Service.CancelAsync(f.User,f.Target.Id,pending.Id,default);
+        Assert.Equal(accepted?"Completed":"Cancelled",terminal.Status);Assert.Equal(1,f.Gateway.Adopts);
+        // The old impact is invalid after the intent becomes terminal, even if a status flag happens to match.
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>accounts.ControlInstallationAsync(f.User,id,new("Resume",impact.ReviewHash,revision),default));
+        var active=accepted?f.Target.Id:f.Source.Id;var current=await accounts.GetInstallationImpactAsync(f.User,active,default);
+        var currentRevision=(await f.Db.PluginAccountAdministrations.AsNoTracking().SingleOrDefaultAsync(x=>x.PluginInstallationId==active))?.Revision??1;
+        await accounts.ControlInstallationAsync(f.User,active,new("Resume",current.ReviewHash,currentRevision),default);
+        Assert.True((await f.Db.AgentInstallations.AsNoTracking().SingleAsync(x=>x.Id==active)).IsEnabled);Assert.Equal(0,f.Gateway.ProviderRevocationCalls);
+    }
+
     [Fact]
     public async Task UnsentIntentCanBeCancelledWithServiceTombstoneAndOnlyUnchangedSourceResumed()
     {
