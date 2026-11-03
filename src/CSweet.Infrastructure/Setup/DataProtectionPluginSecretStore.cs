@@ -8,9 +8,22 @@ namespace CSweet.Infrastructure.Setup;
 
 public sealed class DataProtectionPluginSecretStore(
     CSweetDbContext db,
-    IDataProtectionProvider dataProtectionProvider) : IPluginSecretStore
+    IDataProtectionProvider dataProtectionProvider) : IPluginSecretStore, IPluginSecretReferenceRebinder
 {
     private readonly IDataProtector _protector = dataProtectionProvider.CreateProtector("CSweet.PluginSecrets.v1");
+
+    public async Task StageAsync(Guid source,Guid target,IReadOnlyList<string> keys,CancellationToken ct)
+    {
+        if(source==target || source==Guid.Empty || target==Guid.Empty || keys.Count!=1 ||
+            keys.Any(k=>!k.StartsWith("managed.context.",StringComparison.Ordinal)) ||
+            db.Database.IsRelational() && db.Database.CurrentTransaction is null)throw new InvalidOperationException("A transactional managed reference move is required.");
+        var rows=await db.PluginSecrets.Where(x=>x.PluginInstallationId==source).ToArrayAsync(ct);
+        if(rows.Length!=keys.Count || rows.Any(x=>!keys.Contains(x.Key,StringComparer.Ordinal)) ||
+            await db.PluginSecrets.AnyAsync(x=>x.PluginInstallationId==target,ct))throw new InvalidOperationException("The protected reference inventory changed.");
+        foreach(var row in rows){row.PluginInstallationId=target;row.UpdatedAt=DateTimeOffset.UtcNow;}
+        // No SaveChanges here: the caller atomically commits these encrypted reference rows
+        // with the native ownership, exact grant digest and immutable original provenance.
+    }
 
     public async Task SetAsync(Guid installationId, string key, string value, CancellationToken cancellationToken = default)
     {

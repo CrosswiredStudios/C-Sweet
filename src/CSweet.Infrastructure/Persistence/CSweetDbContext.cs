@@ -94,6 +94,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<PluginSecret> PluginSecrets => Set<PluginSecret>();
     public DbSet<PluginConnection> PluginConnections => Set<PluginConnection>();
     public DbSet<PluginAccountGroup> PluginAccountGroups => Set<PluginAccountGroup>();
+    public DbSet<PluginAccountUpgrade> PluginAccountUpgrades => Set<PluginAccountUpgrade>();
     public DbSet<PluginAccountSetupSession> PluginAccountSetupSessions => Set<PluginAccountSetupSession>();
     public DbSet<PluginAccountOperator> PluginAccountOperators => Set<PluginAccountOperator>();
     public DbSet<PluginAccountRevocationJob> PluginAccountRevocationJobs => Set<PluginAccountRevocationJob>();
@@ -418,6 +419,18 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         if (ChangeTracker.Entries().Any(x => x.Entity is AuditEvent or AuditEventEmployee or AuditEventPayload or MemoryCaptureRetryReceipt or MemoryEpisodeRetryReceipt or MemoryEpisodeReextractionReceipt or MemoryCaptureExclusion or MemorySourceInvalidation or MemoryReviewReceipt or MemoryTransferReceipt or MemoryErasureReceipt or PluginAccountCleanupReceipt &&
             x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Security audit ledger records are append-only.");
+        foreach(var entry in ChangeTracker.Entries<PluginAccountUpgrade>())
+        {
+            if(entry.State==EntityState.Added && (entry.Entity.Status!="Pending" || entry.Entity.Revision!=1 || entry.Entity.CompletedAt!=null))
+                throw new InvalidOperationException("A compatible upgrade must begin as a pending reviewed intent.");
+            if(entry.State==EntityState.Deleted || entry.State==EntityState.Modified &&
+                (entry.Property(x=>x.Status).OriginalValue!="Pending" || entry.Properties.Any(p=>p.IsModified &&
+                    p.Metadata.Name is not (nameof(PluginAccountUpgrade.Status) or nameof(PluginAccountUpgrade.Revision) or nameof(PluginAccountUpgrade.CompletedAt)))))
+                throw new InvalidOperationException("Compatible upgrade authority and terminal receipts are immutable.");
+            if(entry.State==EntityState.Modified && (entry.Entity.Status is not ("Completed" or "Cancelled" or "CancelledReviewRequired") ||
+                entry.Entity.Revision!=entry.Property(x=>x.Revision).OriginalValue+1 || entry.Entity.CompletedAt is null))
+                throw new InvalidOperationException("A compatible upgrade requires a monotonic terminal receipt.");
+        }
         if (ChangeTracker.Entries<AgentMemoryReadReceipt>().Any(x => x.State == EntityState.Modified ||
             (x.State == EntityState.Deleted &&
              !ChangeTracker.Entries<AgentRuntimeInstance>().Any(r => r.Entity.Id == x.Entity.RuntimeId && r.State == EntityState.Deleted) &&

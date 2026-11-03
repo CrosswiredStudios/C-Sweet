@@ -28,6 +28,10 @@ public interface IManagedPluginConnectionGateway
     Task<ConnectionInventory> Discover(Guid connection, CancellationToken ct, string? expectedServiceOrigin = null);
     Task<ConnectionSnapshot> Disconnect(Guid connection, CancellationToken ct, string? expectedServiceOrigin = null);
     Task<ConnectionSnapshot> Snapshot(Guid connection, CancellationToken ct, string? expectedServiceOrigin = null);
+    Task<ConnectionAdoptionPreview> PreviewAdoption(Guid connection,ConnectionAdoptionRequest request,string origin,CancellationToken ct)=>throw new NotSupportedException();
+    Task<ConnectionAdoptionReceipt> Adopt(Guid connection,ApproveConnectionAdoption request,string origin,CancellationToken ct)=>throw new NotSupportedException();
+    Task<ConnectionAdoptionStatus> Adoption(Guid id,string origin,CancellationToken ct)=>throw new NotSupportedException();
+    Task<ConnectionAdoptionReceipt> CancelAdoption(Guid connection,ConnectionAdoptionRequest request,string origin,CancellationToken ct)=>throw new NotSupportedException();
     Task<ManagedReadResult> ReadOperation(Guid connection, ManagedReadRequest request, string origin, CancellationToken ct) => throw new NotSupportedException();
     Task<ManagedMediaResult> BeginMedia(Guid connection, ManagedMediaRequest request, string origin, CancellationToken ct) => throw new NotSupportedException();
     Task<ManagedMediaResult> ProbeMedia(Guid transfer, string binding, string origin, CancellationToken ct) => throw new NotSupportedException();
@@ -77,6 +81,10 @@ public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, I
     public Task<ConnectionInventory> Discover(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Discover(id, ct), ct, false, expectedServiceOrigin);
     public Task<ConnectionSnapshot> Disconnect(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Disconnect(id, ct), ct, true, expectedServiceOrigin);
     public Task<ConnectionSnapshot> Snapshot(Guid id, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Get(id, ct), ct, true, expectedServiceOrigin);
+    public Task<ConnectionAdoptionPreview> PreviewAdoption(Guid id,ConnectionAdoptionRequest r,string origin,CancellationToken ct)=>With(c=>c.PreviewAdoption(id,r,ct),ct,false,origin);
+    public Task<ConnectionAdoptionReceipt> Adopt(Guid id,ApproveConnectionAdoption r,string origin,CancellationToken ct)=>With(c=>c.Adopt(id,r,ct),ct,false,origin);
+    public Task<ConnectionAdoptionStatus> Adoption(Guid id,string origin,CancellationToken ct)=>With(c=>c.Adoption(id,ct),ct,true,origin);
+    public Task<ConnectionAdoptionReceipt> CancelAdoption(Guid id,ConnectionAdoptionRequest r,string origin,CancellationToken ct)=>With(c=>c.CancelAdoption(id,r,ct),ct,true,origin);
     public Task<ManagedReadResult> ReadOperation(Guid id, ManagedReadRequest request, string origin, CancellationToken ct) => With(c => c.ReadOperation(id, request, ct), ct, false, origin);
     public Task<ManagedMediaResult> BeginMedia(Guid id, ManagedMediaRequest request, string origin, CancellationToken ct) => With(c => c.BeginMedia(id, request, ct), ct, false, origin);
     public Task<ManagedMediaResult> ProbeMedia(Guid id, string binding, string origin, CancellationToken ct) => With(c => c.ProbeMedia(id, binding, ct), ct, false, origin);
