@@ -271,7 +271,7 @@ public sealed class PluginAccountUpgradeTests
 
     internal sealed class F:IAsyncDisposable
     {
-        public PluginAccountFlowTests.Fixture Inner=null!;private CSweetDbContext? relational;private Microsoft.Data.Sqlite.SqliteConnection? connection;
+        public PluginAccountFlowTests.Fixture Inner=null!;private CSweetDbContext? relational;private System.Data.Common.DbConnection? connection;
         public CSweetDbContext Db=>relational??Inner.Inner.Db;public Guid User=>Inner.Admin;
         public AgentInstallation Source=>Inner.Inner.Connector;public AgentInstallation Target=null!;public PluginAccountGroup Account=null!;
         public PluginConnection Connection=>Inner.Inner.Connection;public PluginAccountSetupSession Original=null!;
@@ -284,9 +284,31 @@ public sealed class PluginAccountUpgradeTests
             f.Db.AgentPackageSources.Add(source);foreach(var p in await f.Db.AgentPackageVersions.ToArrayAsync())
             {p.PackageSourceId=source.Id;p.CommitSha=p.Id.ToString("N").PadRight(40,'0');p.ManifestDigest=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.ManifestJson)));}await f.Db.SaveChangesAsync();
             var rows=f.Db.ChangeTracker.Entries().Where(x=>x.State==EntityState.Unchanged).Select(x=>x.Entity).ToArray();f.Db.ChangeTracker.Clear();
-            f.connection=new("Data Source=:memory:");await f.connection.OpenAsync();
+            f.connection=new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");await f.connection.OpenAsync();
             var sql=new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>().UseSqlite(f.connection).ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCustomizer,SqliteModelCustomizer>().AddInterceptors(new SqliteUtcClock(),new SqliteOutboxSequence(),interceptor).Options);
             await sql.Database.EnsureCreatedAsync();sql.AddRange(rows);await sql.SaveChangesAsync();f.relational=sql;f.Store=new(sql,f.Protection);return f;
+        }
+        public static async Task<F> Postgres(string settingsFile,IInterceptor? interceptor=null)
+        {
+            var settings=new Npgsql.NpgsqlConnectionStringBuilder(await File.ReadAllTextAsync(settingsFile));
+            if(settings.Host!="127.0.0.1" || settings.Port!=5432 || settings.Database!="csweet_adoption_test" || settings.Username!="postgres" || settings.Pooling)
+                throw new InvalidOperationException("Only the disposable, network-isolated adoption fixture is supported.");
+            settings.Database="csweet_adoption_test_"+Guid.NewGuid().ToString("N");
+            var f=await Create();var source=new AgentPackageSource{Id=Guid.NewGuid(),RepositoryUrl="https://github.com/example/synthetic",RepositoryOwner="example",RepositoryName="synthetic"};
+            f.Db.AgentPackageSources.Add(source);foreach(var package in await f.Db.AgentPackageVersions.ToArrayAsync())
+            {package.PackageSourceId=source.Id;package.CommitSha=package.Id.ToString("N").PadRight(40,'0');package.ManifestDigest=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(package.ManifestJson)));}
+            await f.Db.SaveChangesAsync();var rows=f.Db.ChangeTracker.Entries().Where(x=>x.State==EntityState.Unchanged).Select(x=>x.Entity).ToArray();f.Db.ChangeTracker.Clear();
+            f.connection=new Npgsql.NpgsqlConnection(settings.ConnectionString);
+            var builder=new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(f.connection);if(interceptor is not null)builder.AddInterceptors(interceptor);
+            var sql=new CSweetDbContext(builder.Options);await sql.Database.EnsureCreatedAsync();await sql.Database.OpenConnectionAsync();
+            // Install the real additive migration, not a hand-written trigger imitation, into the fresh model fixture.
+            await sql.Database.ExecuteSqlRawAsync("DROP TABLE \"PluginAccountUpgrades\"");
+            var history=Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IHistoryRepository>(sql);
+            await sql.Database.ExecuteSqlRawAsync(history.GetCreateIfNotExistsScript());
+            var migrations=sql.Database.GetMigrations().ToArray();var index=Array.FindIndex(migrations,x=>x.EndsWith("_AddCompatiblePluginAccountUpgrades",StringComparison.Ordinal));
+            var migrator=Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(sql);
+            await sql.Database.ExecuteSqlRawAsync(migrator.GenerateScript(migrations[index-1],migrations[index]));
+            sql.AddRange(rows);await sql.SaveChangesAsync();f.relational=sql;f.Store=new(sql,f.Protection);return f;
         }
         public static async Task<F> Create()
         {

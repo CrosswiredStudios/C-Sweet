@@ -23,7 +23,7 @@
                 @if(_upgradeReview is not null)
                 {
                     <MudText Typo="Typo.body2">@_upgradeReview.SourceVersion → @_upgradeReview.TargetVersion · @_upgradeReview.ResourceCount existing resource(s) · @_upgradeReview.BusinessGrantCount unchanged business grant(s)</MudText>
-                    <MudText Typo="Typo.caption">Target package: @_upgradeReview.TargetPackageDigest · Service: @_upgradeReview.ServiceOrigin</MudText>
+                    <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">Target package: @_upgradeReview.TargetPackageDigest · Service: @_upgradeReview.ServiceOrigin</MudText>
                     <MudText Typo="Typo.body2">Existing permission sets: @string.Join(", ",_upgradeReview.GrantedScopeSets). No additional provider scopes or agent permissions are requested. The source pauses while its durable service receipt is reconciled; interrupted work can be resumed or cancelled.</MudText>
                     <MudCheckBox T="bool" @bind-Value="_approveCompatible" Label="I approve this exact package and keeping only the reviewed existing connection, resources and selected business permissions." />
                     <MudButton Disabled="@(_busy || !_approveCompatible)" OnClick="ApproveCompatible" Color="Color.Primary" Variant="Variant.Filled">Keep connection and activate reviewed update</MudButton>
@@ -43,7 +43,7 @@
                 <MudButton Disabled="@(_busy || View.BuildStatus!="Built")" OnClick="ReadReview">Review verified package</MudButton>
                 @if(_review!=null)
                 {
-                    <MudText Typo="Typo.caption">Verified package digest: @_review.PackageDigest</MudText>
+                    <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">Verified package digest: @_review.PackageDigest</MudText>
                     <MudExpansionPanels><MudExpansionPanel Text="Exact declarations, operations and destinations"><pre style="max-height:320px;overflow:auto;white-space:pre-wrap">@_review.ManifestJson</pre></MudExpansionPanel></MudExpansionPanels>
                     <MudCheckBox T="bool" @bind-Value="_approved" Label="I approve this exact verified package, its declared abilities and destinations. Account and agent permissions will need new review." />
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_approved)" OnClick="Approve">Approve and activate update</MudButton>

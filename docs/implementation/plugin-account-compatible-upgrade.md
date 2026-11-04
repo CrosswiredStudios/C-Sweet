@@ -71,9 +71,19 @@ receipts or delete the journal as a rollback technique.
 
 Synthetic tests exercise service signatures/transactions, compatibility, cancellation, exact grants,
 lost acknowledgments, local commit rollback, native maintenance/disconnect provenance, API auth/
-anti-forgery, bounded client failures and component state transitions. PostgreSQL migration SQL and
-model parity are verified offline; SQLite transaction tests do not execute PostgreSQL triggers.
-Component tests do not replace browser QA. No real provider acceptance, live adoption, migration,
+anti-forgery, bounded client failures and component state transitions. Model parity and migration SQL are checked offline in the regular suite. Opt-in
+`PluginAccountUpgradePostgresTests` apply the actual additive migration to a fresh full EF model
+in a disposable PostgreSQL instance, exercise insert/update/delete/truncate/rollback guards and
+unique pending fences, and use observed row-lock barriers for competing approvals, normal Resume
+and concurrent business revocation. The opt-in fixture requires an explicit settings file named by
+`CSWEET_ADOPTION_POSTGRES_TEST_FILE`, pointing to its dedicated isolated test server, and creates
+randomly named synthetic databases. It must never reuse application credentials or databases.
+These tests do not validate the complete historical migration chain or a production backup restore.
+SQLite tests remain in the regular suite; their adapters do not establish PostgreSQL behavior.
+Browser QA with the real update component and a separate memory-only fake API checks explicit
+approval, completion navigation, lost-acknowledgment recovery, cancellation, in-flight controls,
+redaction and narrow-screen identity visibility. It does not exercise live browser authentication,
+a real service or provider consent. No real provider acceptance, live adoption, production migration,
 package publication or physical erasure is established by these source tests.
 
 ## Cleanup is an independent deployment obligation
