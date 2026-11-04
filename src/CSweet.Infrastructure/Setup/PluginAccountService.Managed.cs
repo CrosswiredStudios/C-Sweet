@@ -155,8 +155,7 @@ public sealed partial class PluginAccountService
     private async Task<bool> RevokeManaged(Guid installation, Guid connection, ManagedAccountAttempt context, CancellationToken ct)
     {
         if (managed is null || context.ServiceOrigin is null) return false;
-        var original = await db.PluginAccountSetupSessions.AsNoTracking().Where(x => x.PluginInstallationId == installation &&
-            x.ConnectionId == connection && !x.IsMaintenance).OrderBy(x => x.CreatedAt).FirstAsync(ct);
+        var original = await ManagedAccountProvenance.Original(db,installation,connection,ct);
         var cancelled = await managed.CancelAttempt(original.Id, ct, context.ServiceOrigin);
         if (cancelled.Status != "Cancelled" || context.RemoteSessionId != Guid.Empty && cancelled.SessionId != context.RemoteSessionId ||
             context.RemoteConnectionId is { } expected && cancelled.ConnectionId != expected) return false;

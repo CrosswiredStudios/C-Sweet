@@ -14,6 +14,17 @@ public sealed partial class CSweetDbContext
             e.Property(x=>x.Payload).HasMaxLength(16384);e.Property(x=>x.Signature).HasMaxLength(2048);
         });
         model.Entity<PluginAccountAdministration>(e => { e.HasKey(x=>x.PluginInstallationId); e.Property(x=>x.Revision).IsConcurrencyToken(); });
+        model.Entity<PluginAccountUpgrade>(e=>
+        {
+            e.HasKey(x=>x.Id);e.Property(x=>x.Revision).IsConcurrencyToken();
+            e.Property(x=>x.SourceSnapshotHash).HasMaxLength(64);e.Property(x=>x.ServiceOrigin).HasMaxLength(2048);
+            e.Property(x=>x.ServiceRequestJson).HasColumnType("text");e.Property(x=>x.ServiceReviewHash).HasMaxLength(64);
+            e.Property(x=>x.CompatibilityHash).HasMaxLength(64);e.Property(x=>x.Status).HasMaxLength(32);
+            e.HasIndex(x=>x.SourceInstallationId).IsUnique().HasFilter("\"Status\" = 'Pending'");
+            e.HasIndex(x=>x.TargetInstallationId).IsUnique().HasFilter("\"Status\" = 'Pending'");
+            e.HasOne<AgentInstallation>().WithMany().HasForeignKey(x=>x.SourceInstallationId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<AgentInstallation>().WithMany().HasForeignKey(x=>x.TargetInstallationId).OnDelete(DeleteBehavior.Restrict);
+        });
         model.Entity<PluginAccountDeletion>(e =>
         {
             e.HasKey(x=>x.AccountGroupId); e.Property(x=>x.Status).HasMaxLength(40); e.Property(x=>x.Revision).IsConcurrencyToken();

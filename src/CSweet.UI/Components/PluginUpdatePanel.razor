@@ -16,13 +16,34 @@
             @if(admin.Staged)
             {
                 <MudText Typo="Typo.h6">Review this update before activation</MudText>
-                <MudAlert Severity="Severity.Info">The existing plugin keeps its current authority until you replace it. Disconnect its accounts and confirm cleanup before activating this update. Credentials, account grants, operator assignments and autonomous policies will not transfer; connecting again needs new review.</MudAlert>
+                <MudAlert Severity="Severity.Info">Standard replacement requires disconnecting the existing accounts and confirming cleanup, followed by fresh connection and access reviews. The separate connection-preserving review below is available only when every compatibility check passes.</MudAlert>
+                <MudText Typo="Typo.body2">A compatible managed account may instead be kept after an exact, separate review. This preserves only the existing consent and selected business permissions; active agent bindings, operators and unresolved work are not transferred.</MudText>
+                <MudButton Disabled="@(_busy || View.BuildStatus!="Built")" OnClick="ReviewCompatible">Review connection-preserving update</MudButton>
+                <MudButton Disabled="_busy" OnClick="ReadUpgradeStatus">Check upgrade status</MudButton>
+                @if(_upgradeReview is not null)
+                {
+                    <MudText Typo="Typo.body2">@_upgradeReview.SourceVersion → @_upgradeReview.TargetVersion · @_upgradeReview.ResourceCount existing resource(s) · @_upgradeReview.BusinessGrantCount unchanged business grant(s)</MudText>
+                    <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">Target package: @_upgradeReview.TargetPackageDigest · Service: @_upgradeReview.ServiceOrigin</MudText>
+                    <MudText Typo="Typo.body2">Existing permission sets: @string.Join(", ",_upgradeReview.GrantedScopeSets). No additional provider scopes or agent permissions are requested. The source pauses while its durable service receipt is reconciled; interrupted work can be resumed or cancelled.</MudText>
+                    <MudCheckBox T="bool" @bind-Value="_approveCompatible" Label="I approve this exact package and keeping only the reviewed existing connection, resources and selected business permissions." />
+                    <MudButton Disabled="@(_busy || !_approveCompatible)" OnClick="ApproveCompatible" Color="Color.Primary" Variant="Variant.Filled">Keep connection and activate reviewed update</MudButton>
+                }
+                @if(_upgrade is not null)
+                {
+                    <div role="status">Upgrade: @_upgrade.Status</div>
+                    @if(_upgrade.Status=="Pending")
+                    {
+                        <MudAlert Severity="Severity.Warning">The source remains paused while the outcome is reconciled. No new sign-in is needed. Resume checks the existing receipt before sending the same idempotent intent; cancel cannot undo an already accepted service adoption.</MudAlert>
+                        <MudButton Disabled="_busy" OnClick="ResumeCompatible">Reconcile upgrade</MudButton>
+                        <MudButton Disabled="_busy" OnClick="CancelCompatible">Cancel pending upgrade</MudButton>
+                    }
+                }
                 @if(admin.PreviousInstallationId is { } previous) { <MudLink Href="@($"/settings/plugins/{previous:D}")">Open existing plugin and review cleanup</MudLink> }
                 @foreach(var permission in View.Declaration.Permissions) { <MudText Typo="Typo.subtitle2">@permission.Label</MudText><MudText Typo="Typo.body2">@permission.Purpose</MudText> }
                 <MudButton Disabled="@(_busy || View.BuildStatus!="Built")" OnClick="ReadReview">Review verified package</MudButton>
                 @if(_review!=null)
                 {
-                    <MudText Typo="Typo.caption">Verified package digest: @_review.PackageDigest</MudText>
+                    <MudText Typo="Typo.caption" Style="overflow-wrap:anywhere">Verified package digest: @_review.PackageDigest</MudText>
                     <MudExpansionPanels><MudExpansionPanel Text="Exact declarations, operations and destinations"><pre style="max-height:320px;overflow:auto;white-space:pre-wrap">@_review.ManifestJson</pre></MudExpansionPanel></MudExpansionPanels>
                     <MudCheckBox T="bool" @bind-Value="_approved" Label="I approve this exact verified package, its declared abilities and destinations. Account and agent permissions will need new review." />
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_approved)" OnClick="Approve">Approve and activate update</MudButton>
@@ -50,6 +71,26 @@
     private string? _error,_log;
     private AgentImportPreviewResponse? _preview;
     private PluginPackageReview? _review;
+    private PluginAccountUpgradeReview? _upgradeReview;
+    private PluginAccountUpgradeProgress? _upgrade;
+    private bool _approveCompatible;
+    private Task ReviewCompatible()=>RunUpgrade(async()=>{_approveCompatible=false;_upgradeReview=null;_upgradeReview=await Accounts.ReviewUpgradeAsync(View.InstallationId);});
+    private Task ReadUpgradeStatus()=>RunUpgrade(async()=>{_upgrade=(await Accounts.UpgradeStatusAsync(View.InstallationId)).Upgrade;FinishUpgrade();});
+    private Task ApproveCompatible()
+    {
+        if(_busy || !_approveCompatible || _upgradeReview is null)return Task.CompletedTask;
+        var token=_upgradeReview.ReviewToken;
+        return RunUpgrade(async()=>{_upgradeReview=null;_approveCompatible=false;_upgrade=await Accounts.ApproveUpgradeAsync(View.InstallationId,new(token));FinishUpgrade();});
+    }
+    private Task ResumeCompatible()=>RunUpgrade(async()=>{_upgrade=await Accounts.ResumeUpgradeAsync(View.InstallationId,_upgrade!.Id);FinishUpgrade();});
+    private Task CancelCompatible()=>RunUpgrade(async()=>{_upgrade=await Accounts.CancelUpgradeAsync(View.InstallationId,_upgrade!.Id);FinishUpgrade();});
+    private Task RunUpgrade(Func<Task> action)=>Run(async()=>
+    {
+        try{await action();}
+        catch(Exception e) when(e is OperationCanceledException or HttpRequestException)
+        {_upgradeReview=null;_approveCompatible=false;_error="The upgrade outcome is unconfirmed. Check upgrade status before continuing.";}
+    });
+    private void FinishUpgrade(){if(_upgrade?.Status=="Completed")Navigation.NavigateTo($"/settings/plugins/{View.InstallationId:D}",true);}
     private Task ReadLog()=>Run(async()=>{_log=(await Plugins.GetBuildLogAsync(View.InstallationId))?.Content ?? "No build diagnostics are available.";});
     private Task CheckUpdate()=>Run(async()=>{
         _preview=await Plugins.PreviewAsync(new(View.Administration!.RepositoryUrl!));

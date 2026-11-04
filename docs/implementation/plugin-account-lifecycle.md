@@ -51,9 +51,11 @@ A never-connected installation retires immediately without inventing cleanup obl
 deployment cleanup services; configured shared provider profiles are not deleted by hiding the plugin.
 
 Updates build as staged, zero-grant revisions. The administrator reviews the exact completed digest
-and declarations separately. Changed digests fail approval. Old connected accounts block activation;
-cleanup must finish, and the new revision requires fresh connection/operator/business/agent grants.
-There are no credential/policy transfer shims. Direct-network or unusual configuration requests
+and declarations separately. Changed digests fail approval. Standard replacement blocks activation while
+old accounts remain connected; cleanup and fresh grants are required. The separate, explicitly reviewed
+[compatible managed-account upgrade](plugin-account-compatible-upgrade.md) can preserve an eligible
+managed connection and its exact selected-resource business grants. It does not restore agent bindings,
+operators, schedules or execution policies. Direct-network or unusual configuration requests
 need a richer administrator review; the simplified page refuses unsupported automatic approval.
 
 ## Provenance and erasure
@@ -135,6 +137,13 @@ work. Administration shows a non-blocking diagnostic. Runtime, native memory and
 retained-evidence adapters are provided. Backup/processor adapters report unconfigured until their
 deployment trust is configured. Disconnect immediately stops access and independently tracks every
 recorded obligation; unconfirmed cleanup remains pending and cannot manufacture a success receipt.
+
+`PluginAccountService.MissingDeletionStores` combines the deployment defaults with outstanding
+external stores actually recorded for this installation's account groups. This includes managed-service
+backup obligations and future host-owned stores without assuming they have a built-in handler.
+Completed copies and other installations' accounts do not contribute to that list. A configured
+participant removes its store from the configuration warning only; it does not prove erasure,
+dispatch deletion during a status read, or complete any receipt. The list remains administrator-only.
 
 `PluginConnections:AllowDevelopmentLifecyclePreview` is retained as a legacy diagnostic flag only;
 it no longer changes readiness or consent behavior. Browser acceptance explicitly uses a Production

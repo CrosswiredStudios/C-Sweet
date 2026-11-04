@@ -205,7 +205,9 @@ public static class DependencyInjection
         builder.Services.AddScoped<IBusinessAgentInstallationCleanup>(sp => sp.GetRequiredService<AgentInstallationService>());
         builder.Services.AddScoped<IPluginOrganizationGrantService, PluginOrganizationGrantService>();
         builder.Services.AddScoped<IPluginAuthorizationPolicy, PersistedPluginAuthorizationPolicy>();
-        builder.Services.AddScoped<IPluginSecretStore, DataProtectionPluginSecretStore>();
+        builder.Services.AddScoped<DataProtectionPluginSecretStore>();
+        builder.Services.AddScoped<IPluginSecretStore>(sp=>sp.GetRequiredService<DataProtectionPluginSecretStore>());
+        builder.Services.AddScoped<IPluginSecretReferenceRebinder>(sp=>sp.GetRequiredService<DataProtectionPluginSecretStore>());
         builder.Services.Configure<PluginConnectionOptions>(builder.Configuration.GetSection(PluginConnectionOptions.SectionName));
         builder.Services.PostConfigure<PluginConnectionOptions>(settings => ManagedConnectionHostConfiguration.RequireMatch(
             builder.Configuration[ManagedConnectionHostConfiguration.HashKey], settings.Managed.Enabled,
@@ -237,6 +239,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IPluginSetupService, PluginSetupService>();
         builder.Services.AddScoped<PluginConnectionCleanupService>();
         builder.Services.AddScoped<PluginAccountService>();
+        builder.Services.AddScoped<PluginAccountUpgradeService>();
         builder.Services.AddScoped<PluginAccountDataExposureService>();
         builder.Services.AddScoped<IPluginAccountDataDeletionParticipant, PluginRuntimeDataDeletionParticipant>();
         builder.Services.AddScoped<IPluginAccountDataDeletionParticipant, PluginRetainedEvidenceDeletionParticipant>();
