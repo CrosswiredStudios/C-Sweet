@@ -206,12 +206,14 @@ public sealed class PluginAccountUpgradeService(CSweetDbContext db,IPluginSecret
             throw Changed("This revision has active or unresolved work; compatible adoption is unavailable.");
         var groups=await db.PluginAccountGroups.AsNoTracking().Where(x=>x.PluginInstallationId==sourceId && x.State!=PluginAccountState.Disconnected).ToArrayAsync(ct);
         var connections=await db.PluginConnections.AsNoTracking().Where(x=>x.AgentInstallationId==sourceId && x.Status!=PluginConnectionStatus.Revoked).ToArrayAsync(ct);
-        if(groups.Length!=1 || connections.Length!=1)throw Changed("Compatible adoption currently requires one connected provider-verified account and authorization.");
-        var group=groups[0];var connection=connections[0];
+        if(connections.Length!=1)throw Changed("Compatible adoption currently requires one connected provider-verified account and authorization.");
+        var connection=connections[0];
+        var group=groups.SingleOrDefault(x=>x.Id==connection.AccountGroupId)??throw Changed("The authorization account is unavailable.");
         if(group.State!=PluginAccountState.Connected || group.IdentityKind!=PluginAccountIdentityKind.ProviderSubject || string.IsNullOrWhiteSpace(group.VerifiedSubject) ||
             connection.Status!=PluginConnectionStatus.Connected || connection.AccountGroupId!=group.Id || connection.ExternalAccountId!=group.VerifiedSubject ||
             connection.ProviderProfile!=group.ProviderProfile || connection.RefreshLeaseOwner!=null || connection.RefreshLeaseUntil!=null || connection.ActiveCredentialAttemptId!=null)
             throw Changed("The current account is not a compatible managed authorization.");
+        var historicalHash=await HistoricalAccounts(sourceId,groups.Where(x=>x.Id!=group.Id).ToArray(),connection.ProviderProfile,ct);
         var original=await ManagedAccountProvenance.Original(db,sourceId,connection.Id,ct);
         if(original.ApplicationUserId!=user || original.Status is not ("Ready" or "Archived"))throw Changed("The original consenting administrator must review this upgrade.");
         var key=$"managed.context.{connection.Id:N}";
@@ -266,7 +268,43 @@ public sealed class PluginAccountUpgradeService(CSweetDbContext db,IPluginSecret
             TargetGrant=target.Grant.GrantRevision,Account=group.Id,AccountRevision=group.Revision,group.VerifiedSubject,group.IdentityAuthority,
             Connection=connection.Id,connection.AuthorizationRevision,connection.CredentialProfileHash,connection.GrantedScopesJson,resources,proofs,grants,reference,administrations,
             Origin=context.ServiceOrigin,Remote=context.RemoteConnectionId,ConsentSession=context.RemoteSessionId,Original=original.Id,configurations,compatible});
+        // Preserve the pre-existing hash for installations without historical placeholders,
+        // including durable intents prepared by the prior version. Any excluded history is
+        // separately bound to this review and rechecked before intent/finalization/recovery.
+        if(historicalHash is not null)hash=Hash(new{Current=hash,Historical=historicalHash});
         return new(source,target,group,connection,original,resources,grants,sets,context,hash,compatible,key);
+    }
+
+    private async Task<string?> HistoricalAccounts(Guid source,PluginAccountGroup[] groups,string profile,CancellationToken ct)
+    {
+        if(groups.Length==0)return null;
+        var ids=groups.Select(x=>x.Id).ToArray();
+        var connections=await db.PluginConnections.AsNoTracking().Where(x=>x.AccountGroupId!=null && ids.Contains(x.AccountGroupId.Value)).OrderBy(x=>x.Id).ToArrayAsync(ct);
+        var connectionIds=connections.Select(x=>x.Id).ToArray();
+        var attempts=await db.PluginAccountSetupSessions.AsNoTracking().Where(x=>ids.Contains(x.AccountGroupId)).OrderBy(x=>x.Id).ToArrayAsync(ct);
+        var now=DateTimeOffset.UtcNow;
+        // These rows are retained on the old installation, not transferred or erased.
+        // Revoked is an execution fence, not a claim that every historical copy was erased.
+        if(groups.Any(x=>x.PluginInstallationId!=source || x.State!=PluginAccountState.ConnectionRequired ||
+                x.IdentityKind!=PluginAccountIdentityKind.Administrative || x.VerifiedSubject is not null ||
+                x.IdentityAuthority is not null || x.ProviderProfile!=profile) ||
+            groups.Any(g=>!connections.Any(c=>c.AccountGroupId==g.Id) || !attempts.Any(a=>a.AccountGroupId==g.Id)) ||
+            connections.Any(x=>x.AgentInstallationId!=source || x.ProviderProfile!=profile || x.Status!=PluginConnectionStatus.Revoked ||
+                x.ExternalAccountId is not null || x.BoundResourceId is not null || x.ActiveCredentialAttemptId is not null || x.RefreshLeaseOwner is not null || x.RefreshLeaseUntil is not null) ||
+            attempts.Any(x=>x.PluginInstallationId!=source || x.IsMaintenance || x.ExpiresAt>now ||
+                x.Status is not ("Expired" or "Cancelled" or "ImportFailed") || x.VerifiedSubject is not null || x.IdentityAuthority is not null ||
+                x.PagesImported!=0 || x.ObservedResourcesJson!="[]" || x.RetiredCredentialKey is not null || x.LeaseOwner is not null || x.LeaseUntil is not null ||
+                !connections.Any(c=>c.Id==x.ConnectionId && c.AccountGroupId==x.AccountGroupId)) ||
+            connections.Any(c=>!attempts.Any(a=>a.ConnectionId==c.Id)) ||
+            await db.PluginAccountResourceAuthorizations.AnyAsync(x=>connectionIds.Contains(x.ConnectionId),ct) ||
+            await db.PluginAccountResources.AnyAsync(x=>ids.Contains(x.AccountGroupId),ct) ||
+            await db.PluginAccountBusinessGrants.AnyAsync(x=>ids.Contains(x.AccountGroupId),ct))
+            throw Changed("Another account still has identity, access or unresolved setup; compatible adoption is unavailable.");
+        // The existing exact secret-inventory check below still permits only the active
+        // connection's protected reference. No historical credential can follow this path.
+        return Hash(new{Groups=groups.OrderBy(x=>x.Id).ToArray(),Connections=connections,
+            Attempts=attempts.Select(x=>new{x.Id,x.PluginInstallationId,x.AccountGroupId,x.ConnectionId,x.Revision,x.Status,x.IsMaintenance,
+                x.ExpiresAt,x.VerifiedSubject,x.IdentityAuthority,x.PagesImported,x.ObservedResourcesJson,x.RetiredCredentialKey,x.LeaseOwner,x.LeaseUntil}).ToArray()});
     }
 
     private async Task<PluginAccountUpgrade> Intent(Guid user,Guid target,Guid id,CancellationToken ct)

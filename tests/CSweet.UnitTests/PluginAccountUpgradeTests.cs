@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 
 namespace CSweet.UnitTests;
 
-public sealed class PluginAccountUpgradeTests
+public sealed partial class PluginAccountUpgradeTests
 {
     [Fact]
     public async Task ReviewedUpgradeKeepsExactlyTheExistingIdentityResourcesScopesAndSelectedBusinessGrant()
