@@ -13,7 +13,16 @@ public sealed class GitHubUserAuthorizationClient(HttpClient http) : IGitHubUser
         long installationId,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(code) || code.Length > 512 || installationId <= 0)
+        if (installationId <= 0) throw new UnauthorizedAccessException("GitHub returned an invalid installation.");
+        var installations = await ListAuthorizedInstallationsAsync(configuration, code, cancellationToken);
+        return installations.SingleOrDefault(x => x.InstallationId == installationId)
+            ?? throw new UnauthorizedAccessException("The signed-in GitHub account cannot access the selected C-Sweet installation.");
+    }
+
+    public async Task<IReadOnlyList<GitHubAuthorizedInstallation>> ListAuthorizedInstallationsAsync(
+        PlatformGitHubUserAuthorizationConfiguration configuration, string code, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(code) || code.Length > 512)
             throw new UnauthorizedAccessException("GitHub returned an invalid authorization response.");
 
         using var exchangeRequest = new HttpRequestMessage(
@@ -46,8 +55,8 @@ public sealed class GitHubUserAuthorizationClient(HttpClient http) : IGitHubUser
         if (user.Id <= 0 || string.IsNullOrWhiteSpace(user.Login))
             throw new UnauthorizedAccessException("GitHub returned an invalid account identity.");
 
-        var found = false;
-        for (var page = 1; page <= 10 && !found; page++)
+        var authorized = new List<GitHubAuthorizedInstallation>();
+        for (var page = 1; page <= 10; page++)
         {
             using var installationsRequest = CreateAuthorizedRequest(
                 HttpMethod.Get,
@@ -58,15 +67,11 @@ public sealed class GitHubUserAuthorizationClient(HttpClient http) : IGitHubUser
                 throw new UnauthorizedAccessException("C-Sweet could not verify access to the GitHub installation.");
             var installations = await installationsResponse.Content.ReadFromJsonAsync<InstallationsPayload>(cancellationToken)
                 ?? throw new UnauthorizedAccessException("GitHub returned an empty installation list.");
-            found = installations.Installations.Any(candidate => candidate.Id == installationId);
+            authorized.AddRange(installations.Installations.Where(x => x.Id > 0).Select(x => new GitHubAuthorizedInstallation(x.Id, user.Id, user.Login)));
             if (installations.Installations.Count < 100)
                 break;
         }
-        if (!found)
-            throw new UnauthorizedAccessException(
-                "The signed-in GitHub account cannot access the selected C-Sweet installation.");
-
-        return new GitHubAuthorizedInstallation(installationId, user.Id, user.Login);
+        return authorized.DistinctBy(x => x.InstallationId).ToArray();
     }
 
     private static HttpRequestMessage CreateAuthorizedRequest(

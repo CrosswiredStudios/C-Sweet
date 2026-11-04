@@ -86,7 +86,7 @@ public sealed class ProjectApprovalReader(CSweetDbContext db)
                 authority.MaximumScheduleVarianceDays, authority.ExpiresAt,
                 request.InitialMilestones.Select(x => new ProjectApprovalMilestone(x.Name, Label(x.LifecycleStage), x.TargetDate,
                     (x.RequiredEvidenceTypeKeys ?? []).Select(Label).ToArray(), (x.RequiredReviewerRoleKeys ?? []).Select(Label).ToArray())).ToArray(),
-                documents, request.ProfileData.ValueKind == JsonValueKind.Object && request.ProfileData.TryGetProperty("participantIds", out _));
+                documents, request.ProfileData.ValueKind == JsonValueKind.Object && request.ProfileData.TryGetProperty("participantIds", out _)) { ExistingProjectId = request.ExistingProjectId };
             var key = proposal.Id.ToString("N");
             var receiptJson = await db.PluginOperationalStates.AsNoTracking().Where(x => x.OrganizationId == org &&
                 x.AgentInstallationId == proposal.AgentInstallationId && x.Kind == ReceiptKind && x.ExternalKey == key)
@@ -101,7 +101,7 @@ public sealed class ProjectApprovalReader(CSweetDbContext db)
                 var route = JsonSerializer.Deserialize<ProjectApprovalGovernance.Route>(routeJson, Json)!;
                 review = review with { Rationale = review.Rationale + " Escalated for manager review: " + route.Reason };
             }
-            return item with { Title = $"Create project: {review.Name}", Summary = review.Outcome, ProjectCreation = review,
+            return item with { Title = request.ExistingProjectId.HasValue ? $"Set up imported project: {review.Name}" : $"Create project: {review.Name}", Summary = review.Outcome, ProjectCreation = review,
                 ActionUri = "", DecisionComment = receipt?.Comment, DecisionKind = receipt?.Decision,
                 ActualDecisionMaker = receipt?.ActorName, CreatedProjectId = projectId };
         }

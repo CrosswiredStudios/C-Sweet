@@ -19,7 +19,7 @@
             <h1>@(WorkstreamId.HasValue ? _project?.Project.Title ?? L["Projects.ProjectFallback"] : L["Projects.Title"])</h1>
             @if (_project is not null && WorkstreamId.HasValue)
             {
-                <div class="project-meta"><span class="project-status">@_project.Project.Status</span><span>@ProjectPresentation.Metadata(_project.Project, "LifecycleStage", L["Projects.NotSet"])</span></div>
+                <div class="project-meta"><span class="project-status">@(_project.Project.Status == "Proposed" && _project.ImportedProject is not null ? "Setup pending" : _project.Project.Status)</span><span>@ProjectPresentation.Metadata(_project.Project, "LifecycleStage", L["Projects.NotSet"])</span></div>
             }
             else { <p>@L["Projects.Lead"]</p> }
         </div>
@@ -37,6 +37,7 @@
         {
             <div class="project-header-actions">
                 @if (HubView != "boards") { <MudButton Href="@($"{PortfolioHref}?view=boards")" Variant="Variant.Outlined">@L["Projects.AllBoards"]</MudButton> }
+                <MudButton Href="@($"/organizations/{OrganizationId:D}/onboarding")" Variant="Variant.Outlined">Import existing projects</MudButton>
                 <MudButton Href="@($"{PortfolioHref}/new")" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add">@L["Projects.NewProject"]</MudButton>
             </div>
         }
@@ -107,7 +108,7 @@
                                 <div class="portfolio-identity">
                                     <span class="project-emblem" aria-hidden="true"><i></i><i></i><i></i></span>
                                     <div><h2><a href="@ProjectHref(project.Id)">@project.Name</a></h2><p class="portfolio-profile">@ProjectPresentation.Profile(project.ProfileKey, L)@if (project.ProfileVersion.HasValue) { <span> · @L.Format("Projects.ProfileVersion", new { version = project.ProfileVersion })</span> }</p></div>
-                                    <span class="project-status">@project.Status</span>
+                                    <span class="project-status">@(project.Status == "Proposed" ? "Setup pending" : project.Status)</span>
                                 </div>
                                 <p class="portfolio-outcome">@(string.IsNullOrWhiteSpace(project.Outcome) ? L["Projects.NoBrief"] : project.Outcome)</p>
                                 @if (!string.IsNullOrWhiteSpace(project.Outcome))

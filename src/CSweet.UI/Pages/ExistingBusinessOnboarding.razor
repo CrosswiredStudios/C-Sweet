@@ -1,0 +1,148 @@
+@page "/organizations/{OrganizationId:guid}/onboarding"
+@using CSweet.Contracts.PersonalAssistant
+@using CSweet.Contracts.SourceControl
+@using CSweet.Contracts.Realtime
+@implements IDisposable
+@inject PersonalAssistantApiClient Api
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IAppRealtimeConnection Realtime
+
+<PageTitle>Import existing projects - C-Sweet</PageTitle>
+<div class="aurora-page business-workspace">
+    <header class="page-header"><div><span class="business-kicker">Existing business</span><h1>Bring your existing projects.</h1><p>Your business is already created. Import projects now or come back whenever you are ready.</p></div><MudButton Href="@Overview">Go to Overview</MudButton></header>
+    @if (_imports.Count > 0)
+    {
+        <details class="mb-4"><summary>Resume a previous import or profile review</summary>
+        @foreach (var import in _imports.Where(x => x.Id != _draft?.Id)) { <p><a href="@($"/organizations/{OrganizationId:D}/onboarding?draft={import.Id:D}")">@import.UpdatedAt.ToLocalTime().ToString("g") · @import.Sources.Count repositories · @import.Status</a></p> }
+        </details>
+    }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <MudButton OnClick="RefreshAsync">Refresh</MudButton></MudAlert> }
+    @if (_draft is null) { <MudProgressLinear Indeterminate="true" /> }
+    else if (!_codebase)
+    {
+        <MudPaper Outlined="true" Class="pa-6"><h2>How would you like to import existing work?</h2><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ChooseCodebase" StartIcon="@Icons.Material.Outlined.Code">Codebase</MudButton><p>Connect GitHub repositories. Each selected repository becomes its own project.</p></MudPaper>
+    }
+    else if (_setup is not null)
+    {
+        <MudPaper Outlined="true" Class="pa-6"><SourceControlPlatformSetupWizard Embedded="true" DraftId="_draft.Id" Setup="_setup" SetupChanged="SetupChanged" ConnectAccount="ConnectAsync" Closed="CloseSetup" /></MudPaper>
+    }
+    else
+    {
+        <nav class="onboarding-progress" aria-label="Project import progress"><span>1 · Connect sources</span><span>2 · Add projects</span><span>3 · Review profiles</span></nav>
+        <MudPaper Outlined="true" Class="pa-6 mb-4">
+            <h2>Choose repositories</h2><p>Use your existing GitHub integration. Repositories stay on GitHub.</p>
+            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="ConnectAsync">Connect GitHub</MudButton>
+            @if (_installationUrl is not null)
+            {
+                <MudButton Href="@_installationUrl" Target="_blank" Rel="noopener noreferrer">Grant repository access on GitHub</MudButton>
+                <p>GitHub opens in a separate tab. After granting access, return here and choose Connect GitHub to refresh your authorized accounts.</p>
+            }
+            @if (_accounts.Count > 0)
+            {
+                <MudSelect T="long" Label="GitHub account" Value="_installation" ValueChanged="LoadRepositoriesAsync" Disabled="_busy">
+                    @foreach (var account in _accounts) { <MudSelectItem T="long" Value="account.InstallationId">@account.Login</MudSelectItem> }
+                </MudSelect>
+                <MudTextField T="string" @bind-Value="_search" Label="Find a repository" Immediate="true" />
+                @foreach (var repo in _repositories.Where(x => x.FullName.Contains(_search, StringComparison.OrdinalIgnoreCase)))
+                {
+                    <MudCheckBox T="bool" Value="_selected.Contains(repo.RepositoryId)" ValueChanged="@(value => Select(repo.RepositoryId, value))" Disabled="@(_busy || !repo.Available)" Label="@($"{repo.FullName} · {(repo.IsPrivate ? "Private" : "Public")}")" />
+                    @if (!repo.Available) { <small>@repo.UnavailableReason</small> }
+                }
+                <MudButton Disabled="@(_busy || _selected.Count == 0)" OnClick="SelectSourcesAsync">Use selected repositories</MudButton>
+            }
+            @foreach (var source in _draft.Sources)
+            {
+                <article class="onboarding-project-review" @key="source.Id"><strong>@source.Name</strong>
+                    @if (source.Attached) { <p>Repository added to this business.</p> }
+                    else { <MudTextField T="string" Immediate="true" Label="Project name" Value="_names.GetValueOrDefault(source.Id, source.Name)" ValueChanged="@(value => _names[source.Id] = value)" MaxLength="160" Disabled="_busy" /> }
+                    @if (source.Error is not null) { <MudAlert Severity="Severity.Warning">@source.Error</MudAlert> }
+                </article>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddProjectsAsync" Disabled="@(_busy || !_draft.Sources.Any(x => !x.Attached))">Add projects</MudButton>
+        </MudPaper>
+        @if (_projects.Count > 0)
+        {
+            <MudPaper Outlined="true" Class="pa-6"><h2>Your imported projects</h2><p>Projects are saved independently of profiling and staffing. Your assistant can prepare profiles from bounded repository excerpts; you review them before they become accepted context.</p>
+                <MudCheckBox T="bool" @bind-Value="_consent" Label="Allow my configured Personal Assistant to read selected repository excerpts using its configured model." Disabled="_busy" />
+                <MudButton OnClick="AnalyzeAsync" Disabled="@(_busy || !_consent || _draft.Status is "Preparing" or "Analyzing" || !_projects.Any(x => x.ProfileStatus != "Accepted"))">Prepare project profiles</MudButton>
+                @if (_draft.Status is "Preparing" or "Analyzing") { <p role="status">Profiling is running. You can finish now and review the results later.</p> }
+                @foreach (var project in _projects)
+                {
+                    <section class="onboarding-project-review" @key="project.ProjectId"><h3><a href="@($"/organizations/{OrganizationId:D}/projects/{project.ProjectId:D}")">@project.Name</a></h3><p>Profile: @project.ProfileStatus · Project setup pending</p>
+                        @if (project.Error is not null) { <MudAlert Severity="Severity.Warning">@project.Error</MudAlert> }
+                        <ImportedProjectProfileEditor DraftId="_draft.Id" Project="project" Saved="RefreshAsync" />
+                    </section>
+                }
+            </MudPaper>
+        }
+        <div class="business-dialog-actions mt-6"><MudButton Href="@($"/organizations/{OrganizationId:D}/projects")">View projects</MudButton><MudButton OnClick="FinishAsync" Disabled="_busy" Color="Color.Primary" Variant="Variant.Filled">Finish and go to Overview</MudButton></div>
+    }
+</div>
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    [SupplyParameterFromQuery(Name = "resumeGitHubSetup")] public bool ResumeGitHubSetup { get; set; }
+    [SupplyParameterFromQuery(Name = "githubConnected")] public bool GitHubConnected { get; set; }
+    private string Overview => $"/organizations/{OrganizationId:D}/command-center";
+    private RepositoryOnboardingDraftResponse? _draft;
+    private IReadOnlyList<ImportedProjectResponse> _projects = [];
+    private IReadOnlyList<RepositoryOnboardingDraftResponse> _imports = [];
+    private IReadOnlyList<OnboardingGitHubAccount> _accounts = [];
+    private IReadOnlyList<OnboardingGitHubRepository> _repositories = [];
+    private PlatformSourceControlSetupResponse? _setup;
+    private string? _installationUrl;
+    private readonly HashSet<long> _selected = [];
+    private readonly Dictionary<Guid, string> _names = [];
+    private long _installation; private string _search = ""; private string? _error;
+    private bool _busy, _codebase, _consent, _disposed, _refreshPending;
+    private string PathFor(string suffix) => $"api/repository-onboarding/{_draft!.Id:D}/{suffix}";
+    protected override async Task OnInitializedAsync()
+    {
+        Realtime.EventReceived += OnEvent; Realtime.Reconnected += OnReconnect;
+        await ActAsync(async () =>
+        {
+            _draft = await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, $"api/core/organizations/{OrganizationId:D}/project-imports", new StartBusinessImportRequest(DraftId));
+            _codebase = _draft.Sources.Count > 0 || ResumeGitHubSetup || GitHubConnected;
+            await LoadAsync();
+            if (ResumeGitHubSetup) _setup = await new RepositoryGitHubConnectionFlow(Http).LoadSetupAsync();
+        });
+        try { await Realtime.StartAsync(); } catch { }
+    }
+    private void ChooseCodebase() => _codebase = true;
+    private void Select(long id, bool value) { if (value) _selected.Add(id); else _selected.Remove(id); }
+    private void SetupChanged(PlatformSourceControlSetupResponse setup) => _setup = setup;
+    private void CloseSetup() => _setup = null;
+    private Task RefreshAsync() => ActAsync(LoadAsync);
+    private async Task LoadAsync()
+    {
+        if (_draft is null) return;
+        _draft = await Api.DraftAsync(_draft.Id);
+        _imports = await Api.GetAsync<IReadOnlyList<RepositoryOnboardingDraftResponse>>($"api/core/organizations/{OrganizationId:D}/project-imports");
+        _projects = await Api.GetAsync<IReadOnlyList<ImportedProjectResponse>>(PathFor("projects"));
+        _accounts = await Api.GetAsync<IReadOnlyList<OnboardingGitHubAccount>>(PathFor("github/accounts"));
+        _installationUrl = (await Api.GetAsync<DraftGitHubInstallationLink>(PathFor("github/install"))).InstallationUrl;
+        if (_accounts.Count == 1 && _installation != _accounts[0].InstallationId)
+        { _installation = _accounts[0].InstallationId; _repositories = await Api.GetAsync<IReadOnlyList<OnboardingGitHubRepository>>(PathFor($"github/repositories?installationId={_installation}")); }
+    }
+    private Task LoadRepositoriesAsync(long id) => ActAsync(async () => { _installation = id; _selected.Clear(); _repositories = await Api.GetAsync<IReadOnlyList<OnboardingGitHubRepository>>(PathFor($"github/repositories?installationId={id}")); });
+    private Task ConnectAsync() => ActAsync(async () =>
+    {
+        var connection = await new RepositoryGitHubConnectionFlow(Http).ConnectAsync(_draft!.Id);
+        if (connection.Authorization is { } auth) Navigation.NavigateTo(auth.AuthorizationUrl, forceLoad: true);
+        else _setup = connection.Setup;
+    });
+    private Task SelectSourcesAsync() => ActAsync(async () => { _draft = await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("sources"), new SelectOnboardingRepositoriesRequest(_draft!.Revision, _installation, _selected.ToArray())); _selected.Clear(); await LoadAsync(); });
+    private Task AddProjectsAsync() => ActAsync(async () => { _draft = await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("projects"), new AddImportedProjectsRequest(_draft!.Revision, _draft.Sources.Where(x => !x.Attached).ToDictionary(x => x.Id, x => _names.GetValueOrDefault(x.Id, x.Name)))); await LoadAsync(); });
+    private Task FinishAsync() => ActAsync(async () => { await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("finish"), new RepositoryDraftRevisionRequest(_draft!.Revision)); Navigation.NavigateTo(Overview); });
+    private Task AnalyzeAsync() => ActAsync(async () => { _draft = await Api.SendAsync<RepositoryOnboardingDraftResponse>(HttpMethod.Post, PathFor("analyze"), new AnalyzeOnboardingRepositoriesRequest(_draft!.Revision, _consent)); await LoadAsync(); });
+    private async Task ActAsync(Func<Task> action)
+    {
+        if (_busy || _disposed) return; _busy = true; _error = null;
+        try { await action(); } catch (Exception e) { _error = e.Message; }
+        finally { _busy = false; if (_refreshPending) { _refreshPending = false; OnReconnect(); } }
+    }
+    private void OnEvent(AppRealtimeEventEnvelope e) { if (e.EventType is AppRealtimeEvents.RepositoryOnboardingChanged or AppRealtimeEvents.ProjectImportChanged) OnReconnect(); }
+    private void OnReconnect() { if (_disposed) return; if (_busy) { _refreshPending = true; return; } _ = InvokeAsync(async () => { await RefreshAsync(); if (!_disposed) StateHasChanged(); }); }
+    public void Dispose() { _disposed = true; Realtime.EventReceived -= OnEvent; Realtime.Reconnected -= OnReconnect; }
+}

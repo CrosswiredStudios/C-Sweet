@@ -24,7 +24,10 @@ public sealed record StartBusinessOnboardingRequest(
     Guid? ChiefAgentPackageVersionId,
     [StringLength(160)] string? ChiefDisplayName,
     [Required, StringLength(160)] string IdempotencyKey,
-    InstallAgentRequest? ChiefAgentInstallRequest);
+    InstallAgentRequest? ChiefAgentInstallRequest)
+{
+    public string StartMode { get; init; } = "New";
+}
 
 public sealed record BusinessOnboardingOperationResponse(
     Guid Id,

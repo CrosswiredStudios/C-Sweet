@@ -149,14 +149,17 @@ else
                         if (GitHubSetupResult is not null)
                         {
                             _returningToDraft = true;
-                            Navigation.NavigateTo($"/?create=true&draft={draft:D}&resumeGitHubSetup=true", replace: true);
+                            var saved = await Http.GetFromJsonAsync<CSweet.Contracts.PersonalAssistant.RepositoryOnboardingDraftResponse>($"api/repository-onboarding/{draft:D}");
+                            Navigation.NavigateTo(saved?.OrganizationId is { } org
+                                ? $"/organizations/{org:D}/onboarding?draft={draft:D}&resumeGitHubSetup=true"
+                                : $"/businesses/new?mode=Existing&draft={draft:D}", replace: true);
                             return;
                         }
                     }
                 }
                 finally { await module.DisposeAsync(); }
             }
-            catch (JSException) { }
+            catch (Exception e) when (e is JSException or HttpRequestException) { _returningToDraft = false; }
             finally { _restoringDraft = false; _draftTargetStored = true; StateHasChanged(); }
         }
         if (_returnTargetRestored || _setup?.Readiness.ExistingGitHubAvailable != true || GitHubPlatformWizardFlow.IsPending(_setup)) return;

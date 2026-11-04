@@ -135,6 +135,13 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         if (request.InitialMilestones.GroupBy(x => x.Key, StringComparer.Ordinal).Any(x => x.Count() > 1))
             throw new ArgumentException("Milestone keys must be unique.");
 
+        if (request.ExistingProjectId.HasValue != request.ExpectedProjectRevision.HasValue)
+            throw new ArgumentException("Existing project identity and revision must be supplied together.");
+        if (request.ExistingProjectId.HasValue)
+        {
+            if (request.AccountableManagerOrganizationUserId != actorId) throw new UnauthorizedAccessException("The assigned project manager must propose its setup.");
+            await ImportedProjectAdoption.RequireAsync(db, organizationId, request, token);
+        }
         var definition = await db.WorkstreamProfileDefinitions.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Key == request.ProfileKey && x.Version == request.ProfileVersion && x.Status == W.WorkstreamProfileStatuses.Active, token)
             ?? throw new ArgumentException("The requested Workstream profile is not active.");
@@ -170,8 +177,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         var proposal = new ActionProposal
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, AgentInstallationId = installationId,
-            ActionType = "workstream.create.v2", Summary = $"Create Workstream: {request.Name.Trim()}",
-            PayloadJson = BindProposalPayload(request, request.IdempotencyKey, null, null, definition.DefinitionDigest),
+            ActionType = "workstream.create.v2", Summary = request.ExistingProjectId.HasValue ? $"Set up imported project: {request.Name.Trim()}" : $"Create Workstream: {request.Name.Trim()}",
+            PayloadJson = BindProposalPayload(request, request.IdempotencyKey, request.ExistingProjectId, request.ExpectedProjectRevision, definition.DefinitionDigest),
             RiskClass = "OrganizationalChange", IdempotencyKey = request.IdempotencyKey,
             Status = ProposalStatus.Pending, CreatedAt = clock.GetUtcNow()
         };

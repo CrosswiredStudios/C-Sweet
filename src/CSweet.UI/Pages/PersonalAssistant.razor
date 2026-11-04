@@ -16,7 +16,7 @@
             <section class="assistant-panel"><h2>@L["PersonalAssistant.HelpfulStartingPoints"]</h2><ul><li>@L["PersonalAssistant.DescribeWhatYouReBuilding"]</li><li>@L["PersonalAssistant.KeepAREADMEOrProject"]</li><li>@L["PersonalAssistant.ReviewTheBriefBeforeYou"]</li></ul></section>
             @if (_drafts.Count > 0)
             {
-                <section class="assistant-panel"><h2>@L["PersonalAssistant.PickUpWhereYouLeft"]</h2>@foreach (var draft in _drafts) { <a class="assistant-draft-link" href="@($"/?create=true&draft={draft.Id:D}")"><strong>@(draft.Review?.BusinessName is { Length: > 0 } name ? name : "Business from codebases")</strong><span>@draft.Sources.Count sources · @draft.Status</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></a> }</section>
+                <section class="assistant-panel"><h2>@L["PersonalAssistant.PickUpWhereYouLeft"]</h2>@foreach (var draft in _drafts) { <a class="assistant-draft-link" href="@(draft.OrganizationId is { } org ? $"/organizations/{org:D}/onboarding?draft={draft.Id:D}" : $"/businesses/new?mode=Existing&draft={draft.Id:D}")"><strong>@(draft.Review?.BusinessName is { Length: > 0 } name ? name : "Business from codebases")</strong><span>@draft.Sources.Count sources · @draft.Status</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" Size="Size.Small" /></a> }</section>
             }
             <section class="assistant-panel"><PersonalAssistantSettingsForm NameChanged="@(name => _assistantName = name)" ReadyChanged="@(ready => _ready = ready)" /></section>
         </div>

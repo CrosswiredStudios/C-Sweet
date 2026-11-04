@@ -46,6 +46,10 @@ internal static class RepositoryDirectoryProjection
             where request.OrganizationId == business && project.OrganizationId == business &&
                 request.RepositoryId.HasValue && ids.Contains(request.RepositoryId.Value)
             select new { RepositoryId = request.RepositoryId!.Value, project.Id, project.Name }).ToListAsync(ct);
+        projectLinks.AddRange(await (from association in db.ProjectRepositoryAssociations.AsNoTracking()
+            join project in db.Workstreams.AsNoTracking() on association.ProjectId equals project.Id
+            where association.OrganizationId == business && project.OrganizationId == business && ids.Contains(association.RepositoryId)
+            select new { association.RepositoryId, project.Id, project.Name }).ToListAsync(ct));
         var workLinks = await (from item in db.CoreWorkTasks.AsNoTracking()
             join board in db.WorkBoards.AsNoTracking() on item.BoardId equals board.Id
             join project in db.Workstreams.AsNoTracking() on board.WorkstreamId equals project.Id

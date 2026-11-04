@@ -90,7 +90,8 @@ public sealed class ResourceChangeService(
             var linked = await db.WorkstreamTeamAssignments.AsNoTracking().AnyAsync(x =>
                 x.OrganizationId == organizationId && x.WorkstreamId == request.WorkstreamId &&
                 (!request.TeamId.HasValue || x.TeamId == request.TeamId) && x.EndsAt == null, cancellationToken);
-            if (!linked) throw new ArgumentException("The selected workstream is not actively assigned to this team.");
+            if (!linked && (request.TeamId.HasValue || !await ImportedProjectAdoption.CanRequestInitialStaffingAsync(db, organizationId, request.WorkstreamId.Value, requester, cancellationToken)))
+                throw new ArgumentException("The selected workstream is not actively assigned to this team or awaiting its initial approved staffing.");
         }
         var evidence = ValidateEvidence(request.Evidence);
         if (request.TeamId.HasValue && (evidence.Count == 0 || string.IsNullOrWhiteSpace(request.ExpectedEffect)))

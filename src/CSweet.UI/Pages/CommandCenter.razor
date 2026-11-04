@@ -17,6 +17,7 @@
             <MudText Color="Color.Secondary">@L["CommandCenter.DecisionsCompanyHealthAndThe"]</MudText>
         </div>
         <div class="overview-actions">
+            <MudButton Href="@($"/organizations/{OrganizationId:D}/onboarding")" Variant="Variant.Outlined">Import existing projects</MudButton>
             <MudButton Href="@($"/organizations/{OrganizationId}/executive-briefings")" Variant="Variant.Text">@L["CommandCenter.BriefingSettings"]</MudButton>
             @if (_errors.Count > 0)
             {
@@ -55,8 +56,10 @@
             <div class="widget-content">
                 @if (widget == "attention")
                 {
+                    @foreach (var suggestion in _suggestions) { <BusinessSuggestionCard @key="suggestion.Id" OrganizationId="OrganizationId" Suggestion="suggestion" Changed="RefreshAsync" /> }
+                    @if (_errors.GetValueOrDefault("suggestions") is { } suggestionError) { <MudAlert Severity="Severity.Warning">@suggestionError</MudAlert> }
                     <EmployeePortraitScope OrganizationId="OrganizationId">
-                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true"
+                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" SuggestionCount="_suggestions.Count"
                             ProjectIncidents="@(_approvals?.ProjectIncidents ?? [])" Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
                             ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
                             ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
@@ -131,12 +134,19 @@
                             }
                         </section>
                     }
+                    @if (_importedProjects.Any(x => x.ProfileStatus != "Accepted"))
+                    {
+                        <section aria-label="Project profile reviews"><h3>Project profiles to finish</h3>
+                        @foreach (var project in _importedProjects.Where(x => x.ProfileStatus != "Accepted")) { <p><a href="@project.ProjectUri">@project.Name</a> · <a href="@project.ReviewUri">Review or enter profile</a> · @project.ProfileStatus</p> }
+                        </section>
+                    }
+                    @if (_errors.GetValueOrDefault("imports") is { } importError) { <MudAlert Severity="Severity.Warning">@importError</MudAlert> }
                     @if (_portfolio.Projects.Count == 0) { <MudText Color="Color.Secondary">@L["CommandCenter.NoProjectsYetYourProjects"]</MudText> }
                     <div class="project-cards">
                         @foreach (var project in _portfolio.Projects)
                         {
                             <article class="project-card">
-                                <div class="project-title"><MudLink Href="@($"/organizations/{OrganizationId}/projects/{project.Id}")">@project.Name</MudLink><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@project.Status</MudChip></div>
+                                <div class="project-title"><MudLink Href="@($"/organizations/{OrganizationId}/projects/{project.Id}")">@project.Name</MudLink><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@(project.Status == "Proposed" && _importedProjects.Any(x => x.ProjectId == project.Id) ? "Setup pending" : project.Status)</MudChip></div>
                                 @if (project.LatestLeadUpdate is { } update)
                                 {
                                     <p class="project-update">@update.Data.Summary</p>
@@ -172,6 +182,8 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    private IReadOnlyList<BusinessSuggestionResponse> _suggestions = [];
+    private IReadOnlyList<ImportedProjectAttentionResponse> _importedProjects = [];
     private OrganizationResponse? _organization;
     private ApprovalDashboardResponse? _approvals;
     private HiringBacklogResponse? _hiring;
@@ -207,6 +219,7 @@
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
         _documentReview = null;
+        _suggestions = []; _importedProjects = [];
         _organization = null; _approvals = null; _hiring = null; _compute = null; _dashboard = null; _portfolio = null;
         _refreshQueued = false;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
@@ -223,6 +236,8 @@
         _loading = true; _errors.Clear();
         var prefix = $"api/core/organizations/{organizationId}";
         await Task.WhenAll(
+            LoadAsync<IReadOnlyList<ImportedProjectAttentionResponse>>($"{prefix}/dashboard/imported-projects", "imports", x => _importedProjects = x, token),
+            LoadAsync<IReadOnlyList<BusinessSuggestionResponse>>($"{prefix}/dashboard/suggestions", "suggestions", x => _suggestions = x, token),
             LoadAsync<OrganizationResponse>($"api/organizations/{organizationId}", "organization", x => _organization = x, token),
             LoadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", "approvals", x => _approvals = x, token,
                 () => ApprovalNotifications.LoadAsync(organizationId)),
@@ -294,7 +309,7 @@
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (_disposed || envelope.OrganizationId != OrganizationId) return;
-        if (envelope.EventType is AppRealtimeEvents.ComputeChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+        if (envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ComputeChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
             QueueRefresh();
     }
     private void QueueRefresh() => _ = InvokeAsync(async () =>

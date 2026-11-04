@@ -6,6 +6,10 @@ namespace CSweet.Application.SourceControl;
 /// </summary>
 public interface IGitHubUserAuthorizationClient
 {
+    Task<IReadOnlyList<GitHubAuthorizedInstallation>> ListAuthorizedInstallationsAsync(
+        PlatformGitHubUserAuthorizationConfiguration configuration, string code, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("GitHub user installation discovery is unavailable.");
+
     Task<GitHubAuthorizedInstallation> VerifyInstallationAsync(
         PlatformGitHubUserAuthorizationConfiguration configuration,
         string code,

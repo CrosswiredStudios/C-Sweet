@@ -99,4 +99,6 @@ public sealed record ProjectInspectionResponse(
     DateTimeOffset GeneratedAt)
 {
     public bool CanRename { get; init; }
+    public string? ImportedProjectReviewUri { get; init; }
+    public CSweet.Contracts.PersonalAssistant.ImportedProjectResponse? ImportedProject { get; init; }
 }

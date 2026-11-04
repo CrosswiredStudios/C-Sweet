@@ -402,3 +402,7 @@ current stage.
 ## Leadership in Employees
 
 `LeadershipTeamPresentation.Build` derives the automatic Leadership grouping from active employees with the CEO role and their active direct reports. `Employees.PresentedTeams` supplies it to Teams, Graph, Directory, and employee membership chips. Reporting changes are reflected when employee data reloads; existing businesses need no migration. Leadership supports search and filtering but has no manual membership, archive, board, or grant operations. Delivery team memberships remain independent, including the agent lifetime assignment restriction enforced by `TeamService`.
+
+## Imported projects before staffing
+
+`ProjectRepositoryAssociation` binds imported source identity independently of `ProjectDeliveryBinding`. Proposed imports render as Setup pending with nullable manager/team responses. `ImportedProjectAdoption.RequireAsync` and `WorkstreamManagedActionExecutor.CreateAsync` adopt the reviewed ExistingProjectId/ExpectedProjectRevision through ordinary approval, staffing, membership, repository and execution gates. `ProjectSetupService.ReserveManagerAsync` retains one imported project per PM/Producer. See [business-first creation and imports](../personal-assistant-repository-onboarding.md).

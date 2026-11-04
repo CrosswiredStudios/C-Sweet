@@ -69,6 +69,7 @@ public static class DependencyInjection
             throw new InvalidOperationException("ConnectionStrings:Postgres or ConnectionStrings:csweet must be configured.");
         });
 
+        builder.Services.AddScoped<BusinessSuggestionService>();
         builder.Services.AddDataProtection()
             .SetApplicationName("CSweet")
             .PersistKeysToDbContext<CSweetDbContext>();

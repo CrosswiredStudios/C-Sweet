@@ -4,9 +4,14 @@ namespace CSweet.Application.PersonalAssistant;
 
 public interface IRepositoryOnboardingService
 {
+    Task<RepositoryOnboardingDraftResponse> StartBusinessImportAsync(Guid userId, Guid organizationId, Guid? draftId, CancellationToken token = default);
+    Task<RepositoryOnboardingDraftResponse> AddProjectsAsync(Guid userId, Guid id, AddImportedProjectsRequest request, CancellationToken token = default);
+    Task<IReadOnlyList<ImportedProjectResponse>> ProjectsAsync(Guid userId, Guid id, CancellationToken token = default);
+    Task<ImportedProjectResponse> AcceptProfileAsync(Guid userId, Guid id, Guid projectId, AcceptImportedProjectProfileRequest request, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> CreateAsync(Guid userId, CancellationToken token = default);
     Task<IReadOnlyList<RepositoryOnboardingDraftResponse>> ListAsync(Guid userId, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> GetAsync(Guid userId, Guid id, CancellationToken token = default);
+    Task<DraftGitHubInstallationLink> GitHubInstallationLinkAsync(Guid userId, Guid id, CancellationToken token = default);
     Task<DraftGitHubAuthorization> AuthorizeGitHubAsync(Guid userId, Guid id, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> CompleteGitHubAsync(Guid userId, Guid id, CompleteDraftGitHubAuthorizationRequest request, CancellationToken token = default);
     Task<IReadOnlyList<OnboardingGitHubAccount>> AccountsAsync(Guid userId, Guid id, CancellationToken token = default);
@@ -14,6 +19,8 @@ public interface IRepositoryOnboardingService
     Task<RepositoryOnboardingDraftResponse> SelectAsync(Guid userId, Guid id, SelectOnboardingRepositoriesRequest request, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> UploadAsync(Guid userId, Guid id, long expectedRevision, string fileName, Stream archive, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> RemoveAsync(Guid userId, Guid id, Guid sourceId, long expectedRevision, CancellationToken token = default);
+    Task<IReadOnlyList<RepositoryOnboardingDraftResponse>> BusinessImportsAsync(Guid userId, Guid organizationId, CancellationToken token = default);
+    Task<RepositoryOnboardingDraftResponse> FinishAsync(Guid userId, Guid id, long expectedRevision, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> AnalyzeAsync(Guid userId, Guid id, AnalyzeOnboardingRepositoriesRequest request, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> SaveReviewAsync(Guid userId, Guid id, SaveRepositoryBusinessReviewRequest request, CancellationToken token = default);
     Task<RepositoryOnboardingDraftResponse> ConfirmAsync(Guid userId, Guid id, ConfirmRepositoryBusinessRequest request, CancellationToken token = default);

@@ -89,6 +89,10 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
             initialArtifacts.Add(artifact);
         }
 
+        Workstream? importedProject = null;
+        if (request.ExistingProjectId.HasValue != request.ExpectedProjectRevision.HasValue) throw new InvalidOperationException("Imported project identity and revision are required together.");
+        if (request.ExistingProjectId.HasValue)
+            importedProject = await ImportedProjectAdoption.RequireAsync(db, proposal.OrganizationId, request, token);
         var now = clock.GetUtcNow();
         var workstream = new Workstream
         {
@@ -105,7 +109,15 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
             ProfileDataJson = request.ProfileData.GetRawText(), ProfileDefinitionDigest = profile.DefinitionDigest,
             CreatedAt = now, UpdatedAt = now
         };
-        db.Workstreams.Add(workstream);
+        if (importedProject is null) db.Workstreams.Add(workstream);
+        else
+        {
+            var preservedId = importedProject.Id; var createdAt = importedProject.CreatedAt; var revision = importedProject.Revision + 1;
+            workstream.Id = preservedId;
+            db.Entry(importedProject).CurrentValues.SetValues(workstream);
+            importedProject.CreatedAt = createdAt; importedProject.Revision = revision;
+            workstream = importedProject;
+        }
         foreach (var artifact in initialArtifacts)
         {
             artifact.WorkstreamId = workstream.Id;

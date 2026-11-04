@@ -6,7 +6,7 @@
 <article class="project-approval @(Compact ? "compact" : "")" aria-label="@L["ProjectCreationApprovalCard.ProjectCreationApproval"]">
     <div class="review-body">
         <header>
-            <span class="request-kind">@L["ProjectCreationApprovalCard.NewProject"]</span>
+            <span class="request-kind">@(Item.ProjectCreation?.ExistingProjectId.HasValue == true ? "Set up imported project" : L["ProjectCreationApprovalCard.NewProject"])</span>
             <span class="status">@StatusLabel</span>
         </header>
         <h2>@Item.Title</h2>
@@ -14,6 +14,7 @@
         @if (Item.ProjectCreation is { } project)
         {
             <p class="outcome">@project.Outcome</p>
+            @if (project.ExistingProjectId is { } existing) { <p>Set up this <a href="@($"/organizations/{OrganizationId:D}/projects/{existing:D}")">existing imported project</a> with its approved lead and team.</p> }
             @if (!Compact && !string.IsNullOrWhiteSpace(project.Rationale))
             {
                 <p class="rationale"><strong>@L["ProjectCreationApprovalCard.WhyThisProject"]</strong> @project.Rationale</p>
@@ -71,7 +72,7 @@
             }
             else
             {
-                <p class="help">@L["ProjectCreationApprovalCard.CreatesTheProjectAssignsIts"]</p>
+                <p class="help">@(project.ExistingProjectId.HasValue ? "Configures the existing project with the approved lead, team and delivery controls." : L["ProjectCreationApprovalCard.CreatesTheProjectAssignsIts"])</p>
             }
         }
         @if (Item.ReviewError is not null) { <MudAlert Severity="Severity.Warning">@Item.ReviewError</MudAlert> }

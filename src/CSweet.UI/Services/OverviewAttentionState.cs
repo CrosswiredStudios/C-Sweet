@@ -17,9 +17,10 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
     private HiringBacklogResponse? _hiring;
     private IReadOnlyList<PendingAgentQuestionResponse>? _questions;
     private ComputeDashboard? _compute;
+    private IReadOnlyList<BusinessSuggestionResponse>? _suggestions;
 
     public Guid? OrganizationId { get; private set; }
-    public int PendingCount => OverviewAttentionItems.Count(_approvals, _hiring, _questions, _compute);
+    public int PendingCount => OverviewAttentionItems.Count(_approvals, _hiring, _questions, _compute) + (_suggestions?.Count(x => x.Status == "Pending") ?? 0);
     public bool HasMore => _compute is { CanManageNetwork: true, HasMore: true };
     public event Action? Changed;
 
@@ -45,7 +46,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
             _loading = false;
             _refreshQueued = false;
             OrganizationId = organizationId;
-            _approvals = null; _hiring = null; _questions = null; _compute = null;
+            _approvals = null; _hiring = null; _questions = null; _compute = null; _suggestions = null;
             Changed?.Invoke();
         }
         if (!organizationId.HasValue) return;
@@ -63,6 +64,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
                 _refreshQueued = false;
                 var prefix = $"api/core/organizations/{organizationId:D}";
                 await Task.WhenAll(
+                    ReadAsync<List<BusinessSuggestionResponse>>($"{prefix}/dashboard/suggestions", x => _suggestions = x),
                     ReadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", x => _approvals = x),
                     ReadAsync<HiringBacklogResponse>($"{prefix}/dashboard/hiring", x => _hiring = x),
                     ReadAsync<List<PendingAgentQuestionResponse>>($"api/organizations/{organizationId:D}/communications/questions/pending", x => _questions = x),
@@ -99,7 +101,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == businesses.SelectedBusiness?.Id &&
-            envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or
+            envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or
                 AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ComputeChanged or CommunicationEvents.DecisionUpdated)
             _ = ReloadAsync();
     }

@@ -6,7 +6,7 @@ This repository contains one standalone C-Sweet protocol-v2 agent. Its purpose i
 
 ## Invariants
 
-- Keep `com.csweet.personal-assistant` and version `0.1.0` synchronized between agent code,
+- Keep `com.csweet.personal-assistant` and version `0.2.0` synchronized between agent code,
   `csweet-plugin.json`, tests, and releases.
 - The root manifest is the reviewed authority request. Keep `provides`, `requires`, events,
   configuration, credentials, web access, and UI contributions synchronized with implementation

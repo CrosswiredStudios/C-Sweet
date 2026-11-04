@@ -33,6 +33,7 @@
     [Parameter] public bool RightAlignedActions { get; set; }
     private string Icon => Kind switch
     {
+        "Suggestion" => Icons.Material.Outlined.Lightbulb,
         "Approval" => Icons.Material.Outlined.VerifiedUser,
         "Hiring" => Icons.Material.Outlined.PersonAdd,
         "Compute" => Icons.Material.Outlined.Computer,

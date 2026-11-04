@@ -10,15 +10,18 @@ public sealed class RepositoryOnboardingDraft
     public long Revision { get; set; } = 1;
     public long SourceRevision { get; set; } = 1;
     public Guid? AgentWorkItemId { get; set; }
+    public Guid? AnalysisRequestedByApplicationUserId { get; set; }
     public Guid? OrganizationId { get; set; }
     public Guid? BriefArtifactId { get; set; }
     public string? Error { get; set; }
     public string? LeaseOwner { get; set; }
     public DateTimeOffset? LeaseUntil { get; set; }
+    public Guid? GitHubAuthorizationRequestedByApplicationUserId { get; set; }
     public string GitHubStateHash { get; set; } = string.Empty;
     public DateTimeOffset? GitHubStateExpiresAt { get; set; }
     public string VerifiedInstallationsJson { get; set; } = "[]";
     public string? ActionUri { get; set; }
+    public DateTimeOffset? FinishedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public ICollection<RepositoryOnboardingSource> Sources { get; set; } = [];

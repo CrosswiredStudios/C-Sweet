@@ -3148,6 +3148,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<int>("RetryCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("StartMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("New");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -3302,6 +3309,54 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("BusinessProfiles");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessSuggestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DismissedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DismissedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Key")
+                        .IsUnique();
+
+                    b.ToTable("BusinessSuggestions");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.ChatTurn", b =>
@@ -4774,6 +4829,63 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("HiringRecommendationFulfillments");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ImportedProjectProfile", b =>
+                {
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AcceptedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AcceptedJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("AgentWorkItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AnalysisDraftId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("AnalysisRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("ImportSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InferredJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("RequestedByApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ProjectId");
+
+                    b.HasIndex("AnalysisDraftId", "Status");
+
+                    b.ToTable("ImportedProjectProfiles");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.LeadershipAssignment", b =>
@@ -6530,6 +6642,36 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("ProjectParticipants");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectRepositoryAssociation", b =>
+                {
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ImportSourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("ProjectId");
+
+                    b.HasIndex("ImportSourceId")
+                        .IsUnique();
+
+                    b.HasIndex("RepositoryId");
+
+                    b.HasIndex("OrganizationId", "RepositoryId")
+                        .IsUnique();
+
+                    b.ToTable("ProjectRepositoryAssociations");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.ReleaseReadinessRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7983,6 +8125,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AssignAsProjectManager")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("AssignmentsJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -8812,6 +8957,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("AnalysisRequestedByApplicationUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ApplicationUserId")
                         .HasColumnType("uuid");
 
@@ -8824,6 +8972,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<string>("Error")
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GitHubAuthorizationRequestedByApplicationUserId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("GitHubStateExpiresAt")
                         .HasColumnType("timestamp with time zone");
@@ -8869,6 +9023,8 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ApplicationUserId", "UpdatedAt");
+
+                    b.HasIndex("OrganizationId", "UpdatedAt");
 
                     b.HasIndex("Status", "LeaseUntil");
 
@@ -8940,8 +9096,7 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RepositoryId")
-                        .IsUnique();
+                    b.HasIndex("RepositoryId");
 
                     b.HasIndex("DraftId", "Kind", "InstallationId", "ExternalRepositoryId");
 
@@ -14551,11 +14706,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("CSweet.Domain.Setup.SystemConfiguration", b =>
                 {
-                    b.Property<string>("ConnectionServiceSelectionJson").IsConcurrencyToken().HasColumnType("text");
-
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ConnectionServiceSelectionJson")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -17671,6 +17828,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("Organization");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.BusinessSuggestion", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.ChatTurn", b =>
                 {
                     b.HasOne("CSweet.Domain.Core.ConversationMessage", "AssistantMessage")
@@ -17992,6 +18158,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.ImportedProjectProfile", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithOne()
+                        .HasForeignKey("CSweet.Domain.Core.ImportedProjectProfile", "ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.LeadershipAssignment", b =>
                 {
                     b.HasOne("CSweet.Domain.Core.OrganizationUser", null)
@@ -18116,6 +18291,21 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasOne("CSweet.Domain.Core.Workstream", null)
                         .WithMany()
                         .HasForeignKey("WorkstreamId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.ProjectRepositoryAssociation", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.Workstream", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.SourceControlRepository", null)
+                        .WithMany()
+                        .HasForeignKey("RepositoryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

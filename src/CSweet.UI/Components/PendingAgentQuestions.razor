@@ -114,6 +114,7 @@
     }
 </section>
 @code {
+    [Parameter] public int SuggestionCount { get; set; }
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool SummaryOnly { get; set; }
     [Parameter] public IReadOnlyList<ProjectIncidentAttentionResponse> ProjectIncidents { get; set; } = [];
@@ -132,7 +133,7 @@
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
         .Where(x => !_completedApprovals.Contains(x.Id) && OverviewAttentionItems.IsActionable(x)).ToList();
     private IReadOnlyList<ProjectIncidentAttentionResponse> ActionableIncidents => ProjectIncidents.Where(OverviewAttentionItems.IsActionable).ToArray();
-    private int PendingCount => OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ActionableIncidents.Count + ComputeResources.Count;
+    private int PendingCount => OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ActionableIncidents.Count + ComputeResources.Count + SuggestionCount;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

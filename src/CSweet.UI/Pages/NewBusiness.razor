@@ -1,0 +1,68 @@
+@page "/businesses/new"
+@using CSweet.Contracts.BusinessOnboarding
+@using CSweet.Contracts.PersonalAssistant
+@inject BusinessOnboardingOperationState Operations
+@inject PersonalAssistantApiClient Api
+@inject IBusinessContext Businesses
+@inject NavigationManager Navigation
+
+<PageTitle>Create business - C-Sweet</PageTitle>
+<div class="aurora-page business-workspace">
+    <header class="page-header"><div><span class="business-kicker">Enterprise · @(StartMode == "Existing" ? "Existing business" : "New business")</span><h1>Tell us about your business.</h1><p>@(StartMode == "Existing" ? "We will create your business, then help you import existing projects." : "Create your business and choose its next steps from Overview.")</p></div></header>
+    <MudPaper Class="pa-6" Outlined="true">
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (DraftId.HasValue && Businesses.Businesses.Count > 0)
+        {
+            <h2>Resume your saved import</h2><p>You can attach it to an existing business or create a business below.</p>
+            <MudSelect T="Guid?" @bind-Value="_existingBusiness" Label="Existing business" Variant="Variant.Outlined">
+                @foreach (var business in Businesses.Businesses) { <MudSelectItem T="Guid?" Value="@((Guid?)business.Id)">@business.Name</MudSelectItem> }
+            </MudSelect>
+            <MudButton Disabled="@(!_existingBusiness.HasValue || _saving)" OnClick="ResumeExisting">Continue with this business</MudButton><MudDivider Class="my-4" />
+        }
+        <MudTextField T="string" @bind-Value="_name" Label="Business name" Required="true" MaxLength="256" Immediate="true" Disabled="_saving" Variant="Variant.Outlined" />
+        <MudTextField T="string" @bind-Value="_industry" Label="Industry (optional)" MaxLength="160" Disabled="_saving" Variant="Variant.Outlined" />
+        <MudTextField T="string" @bind-Value="_mission" Label="Mission (optional)" Lines="3" MaxLength="4096" Disabled="_saving" Variant="Variant.Outlined" />
+        <div class="business-dialog-actions mt-6"><MudButton Href="/" Disabled="_saving">Cancel</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@(_saving || string.IsNullOrWhiteSpace(_name))">@(_saving ? "Creating…" : "Create business")</MudButton></div>
+    </MudPaper>
+</div>
+@code {
+    [SupplyParameterFromQuery(Name = "mode")] public string? Mode { get; set; }
+    [SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    private string StartMode => Mode == "Existing" || DraftId.HasValue ? "Existing" : "New";
+    private string _name = "", _industry = "", _mission = "";
+    private readonly string _creationKey = Guid.NewGuid().ToString("N");
+    private string? _error;
+    private bool _saving;
+    private Guid? _existingBusiness;
+    protected override async Task OnInitializedAsync()
+    {
+        if (DraftId is not { } id) return;
+        try
+        {
+            var draft = await Api.DraftAsync(id);
+            if (draft.OrganizationId is { } org) { NavigateToImport(org); return; }
+            _name = draft.Review?.BusinessName ?? "";
+            await Businesses.InitializeAsync();
+        }
+        catch (Exception e) { _error = e.Message; }
+    }
+    private void ResumeExisting() { if (_existingBusiness is { } id) NavigateToImport(id); }
+    private void NavigateToImport(Guid org) => Navigation.NavigateTo($"/organizations/{org:D}/onboarding" + (DraftId is { } id ? $"?draft={id:D}" : ""));
+    private async Task CreateAsync()
+    {
+        if (_saving || string.IsNullOrWhiteSpace(_name)) return;
+        _saving = true; _error = null;
+        try
+        {
+            var operation = await Operations.StartAsync(new(_name.Trim(), _industry.Trim(), _mission.Trim(), null, null, _creationKey, null) { StartMode = StartMode });
+            if (operation.OrganizationId is not { } org) throw new InvalidOperationException("Business creation is still being confirmed. Retry uses the same request.");
+            await Businesses.RefreshAsync();
+            await Businesses.SelectAsync(org, navigate: false);
+            var destination = operation.ActionUri ?? $"/organizations/{org:D}/command-center";
+            if (DraftId is { } savedDraft && destination.EndsWith("/onboarding", StringComparison.Ordinal)) destination += $"?draft={savedDraft:D}";
+            Navigation.NavigateTo(destination);
+        }
+        catch (Exception e) { _error = e.Message; }
+        finally { _saving = false; }
+    }
+}

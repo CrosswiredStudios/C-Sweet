@@ -15,7 +15,7 @@ public sealed record ProjectSetupOptions(Guid CurrentUserId, bool CanCreate, IRe
 public sealed record ProjectSetupDraft(Guid Id, string Name, string Goal, Guid ManagerId, Guid DeveloperId,
     Guid? TeamId, Guid? ProjectId, long Revision, string Status);
 public sealed record ProjectSetupResult(Guid ProjectId, Guid BoardId, long Revision);
-public sealed record ProjectMembersDetail(Guid ProjectId, string Name, Guid ManagerId, Guid TeamId,
+public sealed record ProjectMembersDetail(Guid ProjectId, string Name, Guid? ManagerId, Guid? TeamId,
     IReadOnlyList<Guid> MemberIds, long Revision);
 
 public sealed record ChangeProjectStatusRequest(string Status, long ExpectedRevision);

@@ -19,10 +19,9 @@ using Microsoft.Extensions.Logging;
 
 namespace CSweet.Infrastructure.PersonalAssistant;
 
-/// <summary>Owns asynchronous source preparation and replay-safe business provisioning.</summary>
+/// <summary>Owns asynchronous, bounded profiling of projects that have already been imported.</summary>
 public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepositorySourceStore sources,
     ITrustedSourceControlHostClient host, IPersonalAssistantService assistant, AgentWorkInbox inbox, IPersonalAssistantRuntimeScheduler scheduler,
-    IBusinessOnboardingOperationService businesses, IArtifactDocumentService documents,
     InternalRepositoryManagementService internalRepositories, ILogger<RepositoryOnboardingWorkflow> logger)
 {
     private static readonly JsonSerializerOptions Json = RepositoryOnboardingService.Json;
@@ -43,9 +42,19 @@ public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepository
             var id = draft.Id;
             db.ChangeTracker.Clear();
             draft = await db.RepositoryOnboardingDrafts.SingleAsync(x => x.Id == id, CancellationToken.None);
+            if (!creating && draft.Status != "Preparing")
+            {
+                // A durable job or an owner review may already have advanced the session.
+                // Wake/lease failures cannot invalidate committed work or owner decisions.
+                draft.LeaseOwner = null; draft.LeaseUntil = null;
+                await SaveAsync(draft, CancellationToken.None);
+                return;
+            }
             draft.Status = creating ? "CreationFailed" : "AnalysisFailed";
             draft.Error = creating ? "Business setup did not finish. Your completed steps are saved; retry to continue." :
                 "Your repositories could not all be analyzed. Retry, remove an unavailable source, or enter the details manually.";
+            foreach (var profile in await db.ImportedProjectProfiles.Where(x => x.AnalysisDraftId == draft.Id && x.Status == "Preparing").ToListAsync(CancellationToken.None))
+            { profile.Status = "Failed"; profile.Error = "Profiling could not finish. Retry or enter details manually; your project is saved."; profile.UpdatedAt = DateTimeOffset.UtcNow; profile.Revision++; CSweet.Infrastructure.Core.BusinessSuggestionService.Queue(db, profile.OrganizationId, AppRealtimeEvents.ProjectImportChanged, profile.ProjectId); }
             draft.LeaseOwner = null; draft.LeaseUntil = null;
             await SaveAsync(draft, CancellationToken.None);
         }
@@ -53,25 +62,36 @@ public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepository
 
     private async Task PrepareAnalysisAsync(RepositoryOnboardingDraft draft, CancellationToken token)
     {
-        var failed = false;
-        foreach (var source in draft.Sources)
+        if (draft.OrganizationId is null) throw new InvalidOperationException("Choose a business before profiling projects.");
+        if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == draft.OrganizationId && x.ApplicationUserId == (draft.AnalysisRequestedByApplicationUserId ?? draft.ApplicationUserId) &&
+            x.IsActive && x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token))
+            throw new UnauthorizedAccessException("Current ownership is required to profile projects.");
+        var profiles = await db.ImportedProjectProfiles.Where(x => x.AnalysisDraftId == draft.Id && x.Status == "Preparing").ToListAsync(token);
+        var selected = profiles.Select(x => x.ImportSourceId).ToHashSet();
+        var analysisSources = await db.RepositoryOnboardingSources.Include(x => x.Draft).Where(x => selected.Contains(x.Id)).ToListAsync(token);
+        foreach (var source in analysisSources)
         {
             if (source.Status == "Ready" && source.AnalysisInputJson is not null) continue;
             try
             {
-                var staged = await sources.PrepareGitHubAsync(draft.ApplicationUserId, draft.Id, source, token);
+                var staged = await sources.PrepareGitHubAsync(source.Draft!.ApplicationUserId, source.DraftId, source, token);
                 source.Snapshot = staged.Snapshot; source.ArchiveKey = staged.ArchiveKey;
                 source.AnalysisInputJson = JsonSerializer.Serialize(staged.Input, Json); source.Status = "Ready"; source.Error = null;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 logger.LogInformation(exception, "Repository {SourceId} is unavailable for onboarding {DraftId}.", source.Id, draft.Id);
-                source.Status = "Failed"; source.Error = "This repository snapshot is unavailable. Check GitHub access or remove this source."; failed = true;
+                source.Status = "Failed"; source.Error = "This repository snapshot is unavailable. Check GitHub access or retry profiling.";
+                var profile = profiles.Single(x => x.ImportSourceId == source.Id);
+                profile.Status = "Failed"; profile.Error = source.Error; profile.Revision++; profile.UpdatedAt = DateTimeOffset.UtcNow;
+                CSweet.Infrastructure.Core.BusinessSuggestionService.Queue(db, profile.OrganizationId, AppRealtimeEvents.ProjectImportChanged, profile.ProjectId);
             }
             await SaveAsync(draft, token);
         }
-        if (failed) throw new InvalidOperationException("A source could not be prepared.");
-        var inputs = RepositoryOnboardingService.Inputs(draft).ToList();
+        var ready = profiles.Where(x => x.Status == "Preparing").Select(x => x.ImportSourceId.ToString("D")).ToHashSet();
+        var inputs = analysisSources.Where(x => x.AnalysisInputJson != null && ready.Contains(x.Id.ToString("D")))
+            .Select(x => JsonSerializer.Deserialize<RepositoryAnalysisInput>(x.AnalysisInputJson!, Json)!).ToList();
+        if (inputs.Count == 0) throw new InvalidOperationException("No selected project snapshot is ready. Retry profiling or enter profiles manually.");
         // Keep the actual serialized work payload inside the SDK inbox's existing 256 KiB bound.
         while (inputs.Sum(x => x.Files.Sum(f => (long)f.Content.Length)) > 150000 ||
             JsonSerializer.SerializeToUtf8Bytes(new AnalyzeRepositoryRequest(inputs), Json).Length > 220000)
@@ -85,78 +105,26 @@ public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepository
             };
         }
         foreach (var input in inputs)
-            draft.Sources.Single(x => x.Id.ToString("D") == input.SourceId).AnalysisInputJson = JsonSerializer.Serialize(input, Json);
-        var installation = await assistant.RequireInstallationAsync(draft.ApplicationUserId, token);
-        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(token) : null;
-        var work = await inbox.EnqueueAsync(PersonalAssistantCapabilities.UserScope(draft.ApplicationUserId), installation,
+            analysisSources.Single(x => x.Id.ToString("D") == input.SourceId).AnalysisInputJson = JsonSerializer.Serialize(input, Json);
+        var installation = await assistant.RequireInstallationAsync(draft.AnalysisRequestedByApplicationUserId ?? draft.ApplicationUserId, token);
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
+        var work = await inbox.EnqueueAsync(PersonalAssistantCapabilities.UserScope(draft.AnalysisRequestedByApplicationUserId ?? draft.ApplicationUserId), installation,
             AgentWorkKind.Capability, PersonalAssistantCapabilities.Analyze,
             JsonSerializer.SerializeToElement(new AnalyzeRepositoryRequest(inputs), Json),
             $"repository-analysis:{draft.Id:N}:{draft.SourceRevision}:{draft.Revision}", DateTimeOffset.UtcNow.AddMinutes(30),
             sourceType: "repository-onboarding-analysis", sourceId: draft.Id.ToString("D"), cancellationToken: token);
+        foreach (var profile in profiles.Where(x => ready.Contains(x.ImportSourceId.ToString("D"))))
+        { profile.Status = "Analyzing"; profile.AgentWorkItemId = work.Id; profile.Revision++; profile.AnalysisRevision = profile.Revision; CSweet.Infrastructure.Core.BusinessSuggestionService.Queue(db, profile.OrganizationId, AppRealtimeEvents.ProjectImportChanged, profile.ProjectId); }
         draft.AgentWorkItemId = work.Id; draft.Status = "Analyzing";
         await SaveAsync(draft, token);
         if (transaction is not null) await transaction.CommitAsync(token);
-        await scheduler.WakeAsync(installation, token);
+        try { await scheduler.WakeAsync(installation, token); }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        { logger.LogInformation(exception, "Profiling work {WorkId} is saved; runtime wake will be recovered by normal inbox maintenance.", work.Id); }
     }
 
-    private async Task CreateBusinessAsync(RepositoryOnboardingDraft draft, CancellationToken token)
-    {
-        var review = JsonSerializer.Deserialize<RepositoryBusinessReview>(draft.ReviewJson, Json)!;
-        RepositoryBriefValidator.ValidateReview(review);
-        foreach (var source in draft.Sources.Where(x => x.Kind == "GitHub" && !x.Attached)) await CheckGitHubAsync(draft, source, token);
-        if (draft.OrganizationId is null)
-        {
-            var operation = await businesses.StartAsync(new StartBusinessOnboardingRequest(review.BusinessName.Trim(), review.Industry,
-                review.Mission, null, null, $"repository-onboarding:{draft.Id:N}", null), draft.ApplicationUserId, token);
-            draft.OrganizationId = operation.OrganizationId ?? throw new InvalidOperationException("The business has not finished provisioning.");
-            await SaveAsync(draft, token);
-        }
-        var businessId = draft.OrganizationId.Value;
-        if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == businessId && x.ApplicationUserId == draft.ApplicationUserId &&
-            x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner, token))
-            throw new UnauthorizedAccessException("Current ownership is required to finish the business setup.");
-        foreach (var source in draft.Sources.Where(x => !x.Attached))
-        {
-            if (source.Kind == "GitHub") await AttachGitHubAsync(draft, source, token);
-            else await ImportZipAsync(draft, source, token);
-            source.Attached = true; await SaveAsync(draft, token);
-        }
-        if (draft.BriefArtifactId is null)
-        {
-            var artifact = await documents.CreateAsync(businessId, new ArtifactHumanActor(draft.ApplicationUserId),
-                new CreateArtifactDocumentRequest("Project handoff brief", BuildDocument(draft, review), "General",
-                    $"repository-onboarding-brief:{draft.Id:N}"), token);
-            draft.BriefArtifactId = artifact.Document.Id; await SaveAsync(draft, token);
-        }
-        var profile = await db.BusinessProfiles.SingleOrDefaultAsync(x => x.OrganizationId == businessId, token);
-        if (profile is null)
-        {
-            profile = new BusinessProfile { Id = Guid.NewGuid(), OrganizationId = businessId, UpdatedAt = DateTimeOffset.UtcNow };
-            db.BusinessProfiles.Add(profile);
-        }
-        var compact = review.Summary + "\n\n" + string.Join("\n", review.Projects.Select(x => $"{x.Name}: {x.Summary}")) + "\n\nNext goal: " + review.NextGoal;
-        profile.Description = compact.Length <= 4000 ? compact : compact[..3900] + "\nSee Project handoff brief in Documents for the full reviewed context.";
-        profile.ToolsJson = JsonSerializer.Serialize(review.Projects.Select(x => x.Technology).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct());
-        profile.BusinessType = review.Industry;
-        profile.ProvenanceJson = JsonSerializer.Serialize(new { kind = "owner-reviewed-repository-onboarding", draftId = draft.Id, artifactId = draft.BriefArtifactId });
-        profile.Revision++; profile.UpdatedAt = DateTimeOffset.UtcNow;
-        var organization = await db.CoreOrganizations.SingleAsync(x => x.Id == businessId, token);
-        organization.Name = review.BusinessName.Trim(); organization.Industry = review.Industry; organization.Mission = review.Mission;
-        if (!string.IsNullOrWhiteSpace(review.NextGoal))
-        {
-            var objective = await db.Set<StrategicObjective>().FirstOrDefaultAsync(x => x.OrganizationId == businessId, token);
-            if (objective is null)
-            {
-                objective = new StrategicObjective { Id = Guid.NewGuid(), OrganizationId = businessId, CreatedAt = DateTimeOffset.UtcNow };
-                db.Set<StrategicObjective>().Add(objective);
-            }
-            objective.Title = review.NextGoal.Length <= 256 ? review.NextGoal : review.NextGoal[..256];
-            objective.Description = review.NextGoal;
-            objective.UpdatedAt = DateTimeOffset.UtcNow;
-        }
-        draft.Status = "Created"; draft.ActionUri = $"/organizations/{businessId:D}/marketplace?role=Chief%20of%20Staff";
-        draft.Error = null;
-    }
+    private Task CreateBusinessAsync(RepositoryOnboardingDraft draft, CancellationToken token) =>
+        throw new InvalidOperationException("Resume this draft from its business import wizard to add projects. Business creation is independent of repository import.");
 
     private async Task<TrustedRepositoryDescriptor> CheckGitHubAsync(RepositoryOnboardingDraft draft, RepositoryOnboardingSource source, CancellationToken token)
     {
@@ -172,10 +140,10 @@ public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepository
         return repository;
     }
 
-    private async Task AttachGitHubAsync(RepositoryOnboardingDraft draft, RepositoryOnboardingSource source, CancellationToken token)
+    internal async Task AttachGitHubAsync(RepositoryOnboardingDraft draft, RepositoryOnboardingSource source, CancellationToken token)
     {
         var descriptor = await CheckGitHubAsync(draft, source, token);
-        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(token) : null;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"repository:" + source.ExternalRepositoryId}, 0))", token);
         if (await db.SourceControlRepositories.AnyAsync(x => x.ProviderRepositoryKey == "github:" + source.ExternalRepositoryId && x.OrganizationId != draft.OrganizationId, token))
@@ -204,7 +172,9 @@ public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepository
             };
             db.SourceControlConnections.Add(connection);
         }
-        if (!await db.SourceControlRepositories.AnyAsync(x => x.Id == source.RepositoryId, token))
+        var existing = await db.SourceControlRepositories.SingleOrDefaultAsync(x => x.OrganizationId == business && x.ProviderRepositoryKey == "github:" + descriptor.RepositoryId, token);
+        if (existing is not null) source.RepositoryId = existing.Id;
+        if (existing is null && !await db.SourceControlRepositories.AnyAsync(x => x.Id == source.RepositoryId, token))
             db.SourceControlRepositories.Add(new SourceControlRepository
             {
                 Id = source.RepositoryId,
@@ -228,7 +198,7 @@ public sealed class RepositoryOnboardingWorkflow(CSweetDbContext db, IRepository
         if (transaction is not null) await transaction.CommitAsync(token);
     }
 
-    private async Task ImportZipAsync(RepositoryOnboardingDraft draft, RepositoryOnboardingSource source, CancellationToken token)
+    internal async Task ImportZipAsync(RepositoryOnboardingDraft draft, RepositoryOnboardingSource source, CancellationToken token)
     {
         var business = draft.OrganizationId!.Value;
         var connection = await internalRepositories.EnsureConnectionAsync(business, token);

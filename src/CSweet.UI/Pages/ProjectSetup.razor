@@ -63,7 +63,7 @@ else
             if (ProjectId.HasValue)
             {
                 var current = (await Http.GetFromJsonAsync<ProjectMembersDetail>($"{Api}/projects/{ProjectId}/members"))!;
-                _name = current.Name; _manager = current.ManagerId; _existingManager = current.ManagerId; _team = current.TeamId; _members = current.MemberIds.ToArray(); _revision = current.Revision;
+                _name = current.Name; _manager = current.ManagerId ?? Guid.Empty; _existingManager = current.ManagerId; _team = current.TeamId; _members = current.MemberIds.ToArray(); _revision = current.Revision;
             }
             if (IntakeId.HasValue)
             {

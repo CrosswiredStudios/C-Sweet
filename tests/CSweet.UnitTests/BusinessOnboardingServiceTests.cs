@@ -86,7 +86,7 @@ public class BusinessOnboardingServiceTests
         Assert.Equal(started.Id, replayed.Id);
         Assert.NotNull(started.OrganizationId);
         Assert.Equal(
-            $"/organizations/{started.OrganizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}",
+            $"/organizations/{started.OrganizationId:D}/command-center",
             started.ActionUri);
         var activeBusiness = Assert.Single(await dbContext.CoreOrganizations.ToListAsync());
         Assert.Equal(OrganizationStatus.Active, activeBusiness.Status);
@@ -354,7 +354,7 @@ public class BusinessOnboardingServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_CreatesBusinessWithoutChiefAndRoutesToMarketplace()
+    public async Task CompleteAsync_CreatesBusinessWithoutChiefAndRoutesToOverview()
     {
         await using var dbContext = CreateDbContext();
         var auditWriter = new TestAuditEventWriter();
@@ -389,7 +389,7 @@ public class BusinessOnboardingServiceTests
         Assert.NotNull(result.Onboarding);
         Assert.Null(result.Onboarding.ChiefOrganizationUserId);
         Assert.Equal(
-            $"/organizations/{result.Onboarding.OrganizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}",
+            $"/organizations/{result.Onboarding.OrganizationId:D}/command-center",
             result.Onboarding.NextRoute);
         var organization = await dbContext.CoreOrganizations.SingleAsync(x => x.Id == result.Onboarding.OrganizationId);
         Assert.Equal(OrganizationStatus.Active, organization.Status);

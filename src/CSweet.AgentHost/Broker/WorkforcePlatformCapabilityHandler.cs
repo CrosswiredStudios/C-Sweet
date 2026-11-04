@@ -286,6 +286,18 @@ public sealed class WorkforcePlatformCapabilityHandler(
         var workstreams = await db.Workstreams.BusinessProjects().AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .Select(x => new WorkstreamSummary(x.Id, x.Name, x.Outcome, x.Status.ToString(), x.LifecycleStage,
                 x.AccountableManagerOrganizationUserId, x.TargetDate, x.BudgetAmount, x.BudgetCurrency)).ToListAsync(token);
+        var imported = await (from a in db.ProjectRepositoryAssociations.AsNoTracking()
+            join f in db.ImportedProjectProfiles.AsNoTracking() on a.ProjectId equals f.ProjectId
+            join p in db.Workstreams.AsNoTracking() on a.ProjectId equals p.Id
+            where a.OrganizationId == organizationId select new { a.ProjectId, a.RepositoryId, f.Status, f.AcceptedJson, p.Revision }).ToListAsync(token);
+        workstreams = workstreams.Select(w =>
+        {
+            var item = imported.SingleOrDefault(x => x.ProjectId == w.Id);
+            if (item is null) return w;
+            var accepted = item.Status == "Accepted" && item.AcceptedJson != "{}" ? JsonSerializer.Deserialize<CSweet.Contracts.PersonalAssistant.RepositoryProjectBrief>(item.AcceptedJson, JsonOptions) : null;
+            return w with { ImportedProject = new ImportedProjectContext(item.RepositoryId, item.Revision, item.Status,
+                accepted?.Category, accepted?.Summary, accepted is null ? null : JsonSerializer.SerializeToElement(accepted, JsonOptions)) };
+        }).ToList();
         var workers = await db.CoreWorkers.AsNoTracking().Where(x => x.OrganizationId == organizationId || x.OrganizationId == null).ToListAsync(token);
         var signals = new List<OperatingSignal>();
         signals.AddRange(workstreams.Where(x => x.Status == "Blocked")

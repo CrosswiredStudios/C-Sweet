@@ -221,7 +221,7 @@ public sealed class RepositoryOnboardingTests : IDisposable
     }
 
     [Fact]
-    public async Task BusinessHandoffResumesAfterLostImportResponseAndSavesCanonicalBrief()
+    public async Task LegacyZipResumesWithinExistingBusinessAfterLostImportResponse()
     {
         await using var db = Database(); var user = Guid.NewGuid();
         db.Users.Add(new ApplicationUser { Id = user, DisplayName = "Owner" }); await db.SaveChangesAsync();
@@ -234,10 +234,10 @@ public sealed class RepositoryOnboardingTests : IDisposable
             new StrategicObjectiveService(db, audit), new WorkerService(db, audit), audit, new ExecutiveBriefingService(db, audit, TimeProvider.System), db);
         var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
         var workflowLog = new RecordingWorkflowLog();
-        var workflow = new RepositoryOnboardingWorkflow(db, store, host, null!, inbox, new Scheduler(), businesses,
-            new ArtifactDocumentService(db, audit, TimeProvider.System), new InternalRepositoryManagementService(db, host, audit, TimeProvider.System), workflowLog);
+        var workflow = new RepositoryOnboardingWorkflow(db, store, host, null!, inbox, new Scheduler(), new InternalRepositoryManagementService(db, host, audit, TimeProvider.System), workflowLog);
         var service = new RepositoryOnboardingService(db, store, null!, host, null!, null!, inbox, workflow);
-        var draft = await service.CreateAsync(user);
+        var created = await businesses.StartAsync(new("Moss Studio", "Games", "Create cozy worlds", null, null, "zip-business", null) { StartMode = "Existing" }, user);
+        var draft = await service.StartBusinessImportAsync(user, created.OrganizationId!.Value, null);
         using var zip = Archive(("game/README.md", "# Moss\nA cozy exploration game"));
         draft = await service.UploadAsync(user, draft.Id, draft.Revision, "game.zip", zip);
         var source = Assert.Single(draft.Sources);
@@ -245,20 +245,22 @@ public sealed class RepositoryOnboardingTests : IDisposable
             [new(source.Id.ToString(), "Moss", "A cozy exploration game", "Godot", "Prototype", [new(source.Id.ToString(), "README.md", source.Snapshot!)])], ["Who is the target audience?"]);
         draft = await service.SaveReviewAsync(user, draft.Id, new(draft.Revision, review));
         draft = await service.ConfirmAsync(user, draft.Id, new(draft.Revision, true));
-        Assert.True(await service.ProcessNextAsync("test-worker"));
         var failed = await service.GetAsync(user, draft.Id);
-        Assert.Equal("CreationFailed", failed.Status); Assert.NotNull(failed.OrganizationId);
+        Assert.NotNull(Assert.Single(failed.Sources).Error);
+        Assert.Empty(db.Workstreams);
         var repositoryId = Assert.Single(db.SourceControlRepositories).Id;
-        await service.RetryAsync(user, draft.Id, failed.Revision); Assert.True(await service.ProcessNextAsync("test-worker"));
-        var result = await service.GetAsync(user, draft.Id);
-        Assert.True(result.Status == "Created", workflowLog.Error?.ToString()); Assert.NotNull(result.BriefArtifactId);
-        Assert.Single(db.CoreOrganizations); Assert.Single(db.SourceControlRepositories); Assert.Equal(repositoryId, Assert.Single(db.SourceControlRepositories).Id);
-        var artifact = Assert.Single(db.CoreArtifacts); Assert.Equal(result.BriefArtifactId, artifact.Id);
-        Assert.Contains("Ship a playable demo", artifact.Content); Assert.Contains("README.md", artifact.Content);
-        Assert.Empty(db.AgentInstallations); Assert.Empty(db.Workstreams); Assert.Empty(db.OrganizationTeams);
-        Assert.Contains("Chief%20of%20Staff", result.ActionUri);
+        var result = await service.ConfirmAsync(user, draft.Id, new(failed.Revision, true));
+        Assert.True(Assert.Single(result.Sources).Attached);
+        Assert.Single(db.CoreOrganizations); Assert.Single(db.SourceControlRepositories);
+        Assert.Equal(repositoryId, Assert.Single(db.SourceControlRepositories).Id);
+        Assert.Equal("Moss Studio", (await db.CoreOrganizations.SingleAsync()).Name);
+        Assert.Empty(db.AgentInstallations); Assert.Single(db.Workstreams); Assert.Empty(db.OrganizationTeams);
+        Assert.Empty(db.ProjectDeliveryBindings);
+        Assert.Equal(CSweet.Domain.Core.WorkstreamStatus.Proposed, (await db.Workstreams.SingleAsync()).Status);
+        Assert.Contains($"/organizations/{created.OrganizationId:D}/onboarding", result.ActionUri);
         Assert.Equal(result.OrganizationId, (await service.ConfirmAsync(user, draft.Id, new(result.Revision, true))).OrganizationId);
-        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.GetAsync(Guid.NewGuid(), draft.Id));
+        Assert.Single(db.Workstreams);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.GetAsync(Guid.NewGuid(), draft.Id));
     }
 
     private static MemoryStream Archive(params (string Path, string Text)[] files)

@@ -51,7 +51,8 @@ public sealed record ProjectCreationApprovalResponse(string Name, string Outcome
     IReadOnlyList<string> StaffingRoles, IReadOnlyList<string> AgentPermissions,
     IReadOnlyList<string> HumanDecisions, decimal? BudgetVariance, int? ScheduleVarianceDays,
     DateTimeOffset? AuthorityExpiresAt, IReadOnlyList<ProjectApprovalMilestone> Milestones,
-    IReadOnlyList<ProjectApprovalDocument> Documents, bool CreatesBoard);
+    IReadOnlyList<ProjectApprovalDocument> Documents, bool CreatesBoard)
+{ public Guid? ExistingProjectId { get; init; } }
 
 public sealed record ArtifactApprovalCardResponse(
     Guid ArtifactId,

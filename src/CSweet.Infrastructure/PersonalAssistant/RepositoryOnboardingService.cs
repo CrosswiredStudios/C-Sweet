@@ -32,16 +32,24 @@ public sealed partial class RepositoryOnboardingService(CSweetDbContext db, IRep
             x.Status != "Discarded" && x.Status != "Created").OrderByDescending(x => x.UpdatedAt).Take(20).ToListAsync(token)).Select(Response).ToArray();
     public async Task<RepositoryOnboardingDraftResponse> GetAsync(Guid userId, Guid id, CancellationToken token = default) => Response(await RequireAsync(userId, id, token));
 
+    public async Task<DraftGitHubInstallationLink> GitHubInstallationLinkAsync(Guid userId, Guid id, CancellationToken token = default)
+    {
+        await RequireAsync(userId, id, token);
+        return new((await platform.GetReadinessAsync(token)).ExistingGitHubAvailable
+            ? await platform.GetInstallUrlAsync(CSweet.Domain.Setup.PlatformGitHubAppKind.SourceAccess, token) : null);
+    }
+
     public async Task<DraftGitHubAuthorization> AuthorizeGitHubAsync(Guid userId, Guid id, CancellationToken token = default)
     {
         var draft = await RequireAsync(userId, id, token); RequireEditable(draft);
         if (!(await platform.GetReadinessAsync(token)).ExistingGitHubAvailable)
             throw new InvalidOperationException("Set up GitHub for this C-Sweet installation, or import a repository ZIP.");
         var state = $"repository-onboarding:{draft.Id:D}:{Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant()}";
+        draft.GitHubAuthorizationRequestedByApplicationUserId = userId;
         draft.GitHubStateHash = Hash(state); draft.GitHubStateExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30);
         await SaveAsync(draft, token);
-        var url = await platform.GetInstallUrlAsync(CSweet.Domain.Setup.PlatformGitHubAppKind.SourceAccess, token);
-        return new(url + (url.Contains('?') ? "&" : "?") + "state=" + Uri.EscapeDataString(state), state);
+        var config = await platform.GetUserAuthorizationAsync(CSweet.Domain.Setup.PlatformGitHubAppKind.SourceAccess, token);
+        return new("https://github.com/login/oauth/authorize?client_id=" + Uri.EscapeDataString(config.ClientId) + "&state=" + Uri.EscapeDataString(state), state);
     }
 
     public async Task<RepositoryOnboardingDraftResponse> CompleteGitHubAsync(Guid userId, Guid id,
@@ -49,19 +57,26 @@ public sealed partial class RepositoryOnboardingService(CSweetDbContext db, IRep
     {
         var draft = await RequireAsync(userId, id, token); RequireEditable(draft);
         if (string.IsNullOrWhiteSpace(request.State) || request.State.Length > 512 || string.IsNullOrWhiteSpace(request.Code) ||
-            request.Code.Length > 2048 || request.InstallationId <= 0)
+            request.Code.Length > 512 || request.InstallationId < 0)
             throw new ArgumentException("The GitHub response is invalid.");
+        if ((draft.GitHubAuthorizationRequestedByApplicationUserId ?? draft.ApplicationUserId) != userId)
+            throw new UnauthorizedAccessException("Only the user who started GitHub authorization can complete this callback.");
         if (draft.GitHubStateExpiresAt <= DateTimeOffset.UtcNow || draft.GitHubStateExpiresAt is null ||
             draft.GitHubStateHash.Length != 64 || !CryptographicOperations.FixedTimeEquals(
                 Convert.FromHexString(draft.GitHubStateHash), Convert.FromHexString(Hash(request.State))))
             throw new UnauthorizedAccessException("The GitHub return did not match your current onboarding draft.");
         var config = await platform.GetUserAuthorizationAsync(CSweet.Domain.Setup.PlatformGitHubAppKind.SourceAccess, token);
-        await githubUsers.VerifyInstallationAsync(config, request.Code, request.InstallationId, token);
-        var installation = await host.DescribeInstallationAsync(request.InstallationId, token);
-        if (installation.Suspended) throw new InvalidOperationException("This GitHub installation is suspended. Restore it in GitHub before continuing.");
-        var accounts = JsonSerializer.Deserialize<List<long>>(draft.VerifiedInstallationsJson) ?? [];
-        if (!accounts.Contains(request.InstallationId)) accounts.Add(request.InstallationId);
-        draft.VerifiedInstallationsJson = JsonSerializer.Serialize(accounts);
+        var authorized = request.InstallationId > 0
+            ? new[] { await githubUsers.VerifyInstallationAsync(config, request.Code, request.InstallationId, token) }
+            : await githubUsers.ListAuthorizedInstallationsAsync(config, request.Code, token);
+        var accounts = new List<long>();
+        foreach (var candidate in authorized)
+        {
+            // The OAuth token proves user access; the trusted host confirms this is our configured app.
+            var installation = await host.DescribeInstallationAsync(candidate.InstallationId, token);
+            if (!installation.Suspended) accounts.Add(installation.InstallationId);
+        }
+        draft.VerifiedInstallationsJson = JsonSerializer.Serialize(accounts.Distinct());
         draft.GitHubStateExpiresAt = null; await SaveAsync(draft, token);
         return Response(draft);
     }
@@ -160,7 +175,20 @@ public sealed partial class RepositoryOnboardingService(CSweetDbContext db, IRep
         var draft = await RequireAsync(userId, id, token); RequireEditable(draft, request.ExpectedRevision);
         if (!request.ReadAccessApproved) throw new ArgumentException("Authorize the assistant to read the selected repository snapshots.");
         if (draft.Sources.Count == 0) throw new ArgumentException("Choose at least one repository.");
+        if (draft.OrganizationId is null) throw new InvalidOperationException("Choose or create a business before profiling projects.");
+        if (await db.ProjectRepositoryAssociations.CountAsync(x => x.OrganizationId == draft.OrganizationId && draft.Sources.Select(s => s.RepositoryId).Contains(x.RepositoryId), token) != draft.Sources.Count)
+            throw new InvalidOperationException("Add the selected projects before profiling them.");
         await assistant.RequireInstallationAsync(userId, token);
+
+        var profiles = await (from profile in db.ImportedProjectProfiles
+                              join association in db.ProjectRepositoryAssociations on profile.ProjectId equals association.ProjectId
+                              where association.OrganizationId == draft.OrganizationId && draft.Sources.Select(x => x.RepositoryId).Contains(association.RepositoryId) && profile.Status != "Accepted"
+                              select profile).ToListAsync(token);
+        if (profiles.Count == 0) throw new InvalidOperationException("All selected project profiles are already accepted.");
+        if (profiles.Any(x => x.Status is "Preparing" or "Analyzing")) throw new InvalidOperationException("Profiling is already running for one of these projects. Resume its saved import.");
+        draft.AnalysisRequestedByApplicationUserId = userId;
+        foreach (var profile in profiles)
+        { profile.Status = "Preparing"; profile.AnalysisDraftId = id; profile.RequestedByApplicationUserId = userId; profile.Error = null; profile.Revision++; profile.AnalysisRevision = profile.Revision; CSweet.Infrastructure.Core.BusinessSuggestionService.Queue(db, profile.OrganizationId, AppRealtimeEvents.ProjectImportChanged, profile.ProjectId); }
         draft.Status = "Preparing"; draft.Error = null; await SaveAsync(draft, token); return Response(draft);
     }
 
@@ -187,16 +215,9 @@ public sealed partial class RepositoryOnboardingService(CSweetDbContext db, IRep
     public async Task<RepositoryOnboardingDraftResponse> ConfirmAsync(Guid userId, Guid id,
         ConfirmRepositoryBusinessRequest request, CancellationToken token = default)
     {
+        if (!request.RepositoryManagementApproved) throw new ArgumentException("Confirm the selected repository associations.");
         var draft = await RequireAsync(userId, id, token);
-        if (draft.Status is "Creating" or "Created") return Response(draft);
-        RequireEditable(draft, request.ExpectedRevision);
-        if (!request.RepositoryManagementApproved) throw new ArgumentException("Confirm the selected repository associations before creating the business.");
-        if (draft.Sources.Count == 0 || draft.Sources.Any(x => x.Status != "Ready"))
-            throw new InvalidOperationException("Remove or retry unavailable sources before creating the business.");
-        var review = JsonSerializer.Deserialize<RepositoryBusinessReview>(draft.ReviewJson, Json)
-            ?? throw new ArgumentException("Review the company details first.");
-        RepositoryBriefValidator.ValidateReview(review); RepositoryBriefValidator.ValidateEvidence(review.Projects, Inputs(draft));
-        draft.Status = "Creating"; draft.Error = null; await SaveAsync(draft, token); return Response(draft);
+        return await AddProjectsAsync(userId, id, new(request.ExpectedRevision, draft.Sources.ToDictionary(x => x.Id, x => x.Name)), token);
     }
 
     public async Task<RepositoryOnboardingDraftResponse> RetryAsync(Guid userId, Guid id, long expectedRevision, CancellationToken token = default)
@@ -204,8 +225,8 @@ public sealed partial class RepositoryOnboardingService(CSweetDbContext db, IRep
         var draft = await RequireAsync(userId, id, token); RequireEditable(draft, expectedRevision);
         if (draft.Status is not ("AnalysisFailed" or "CreationFailed"))
             throw new InvalidOperationException("Only an unsuccessful saved step may be retried.");
-        draft.Status = draft.OrganizationId.HasValue || draft.Status == "CreationFailed" ? "Creating" : "Preparing";
-        draft.Error = null; await SaveAsync(draft, token); return Response(draft);
+        if (draft.Status == "CreationFailed") throw new InvalidOperationException("Resume this saved import from the business onboarding page to add projects.");
+        return await AnalyzeAsync(userId, id, new(expectedRevision, true), token);
     }
     public async Task DiscardAsync(Guid userId, Guid id, long expectedRevision, CancellationToken token = default)
     {
@@ -236,9 +257,14 @@ public sealed partial class RepositoryOnboardingService(CSweetDbContext db, IRep
         return true;
     }
 
-    private async Task<RepositoryOnboardingDraft> RequireAsync(Guid userId, Guid id, CancellationToken token) =>
-        await db.RepositoryOnboardingDrafts.Include(x => x.Sources).SingleOrDefaultAsync(x => x.Id == id && x.ApplicationUserId == userId && x.Status != "Discarded", token)
-        ?? throw new KeyNotFoundException("The onboarding draft was not found.");
+    private async Task<RepositoryOnboardingDraft> RequireAsync(Guid userId, Guid id, CancellationToken token)
+    {
+        var draft = await db.RepositoryOnboardingDrafts.Include(x => x.Sources).SingleOrDefaultAsync(x => x.Id == id && x.Status != "Discarded", token)
+            ?? throw new KeyNotFoundException("The onboarding draft was not found.");
+        if (draft.OrganizationId is { } org) await RequireBusinessOwnerAsync(userId, org, token);
+        else if (draft.ApplicationUserId != userId) throw new KeyNotFoundException("The onboarding draft was not found.");
+        return draft;
+    }
     private static void RequireEditable(RepositoryOnboardingDraft draft, long? revision = null)
     {
         if (revision.HasValue && revision != draft.Revision) throw new DbUpdateConcurrencyException("The draft changed. Reload before continuing.");

@@ -35,11 +35,25 @@ public sealed class OverviewAttentionStateTests
         Assert.Null(fixture.State.OrganizationId);
     }
 
+    [Fact]
+    public async Task SharedSuggestionAddsOneBadgeItemAndDismissalWakeClearsIt()
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.Suggestions = [new(Guid.NewGuid(), "HireChiefOfStaff", "Pending", 1, "Hire a Chief of Staff", "Optional leadership", "/marketplace")];
+        await fixture.State.InitializeAsync(); Assert.Equal(6, fixture.State.PendingCount);
+        fixture.Api.Suggestions = [];
+        fixture.Publish(fixture.OrganizationId, AppRealtimeEvents.SuggestionsChanged);
+        Assert.Equal(5, fixture.State.PendingCount);
+        await fixture.State.ReloadAsync(); Assert.Equal(5, fixture.State.PendingCount);
+    }
+
     [Theory]
     [InlineData(AppRealtimeEvents.ApprovalChanged)]
     [InlineData(AppRealtimeEvents.HiringRecommendationsChanged)]
     [InlineData(AppRealtimeEvents.ProjectIncidentChanged)]
     [InlineData(AppRealtimeEvents.ComputeChanged)]
+    [InlineData(AppRealtimeEvents.SuggestionsChanged)]
+    [InlineData(AppRealtimeEvents.ProjectImportChanged)]
     [InlineData(CommunicationEvents.DecisionUpdated)]
     public async Task RealtimeChangesRefreshOnlyTheFocusedBusinessAndReconnectRecoversMissedChanges(string eventType)
     {
@@ -188,6 +202,7 @@ public sealed class OverviewAttentionStateTests
             ProjectIncidents = [new(Guid.NewGuid(), Guid.NewGuid(), "Project", "Lead", "Stall", "Facts", "Review", "/report", Now)]
         };
         public HiringBacklogResponse Hiring { get; set; } = new([Hire("Pending", 1), Hire("Pending", 0), Hire("Completed", 1)]);
+        public List<BusinessSuggestionResponse> Suggestions { get; set; } = [];
         public List<PendingAgentQuestionResponse> Questions { get; set; } = [Question("Pending"), Question("Answered")];
         public ComputeDashboard Compute { get; set; } = new(Now, null,
             [Resource(false, "Ready", "Running", Now.AddHours(1)), Resource(true, "Ready", "Running", Now.AddHours(1)),
@@ -204,6 +219,7 @@ public sealed class OverviewAttentionStateTests
                 if (++HiringReads == 1) { FirstToken = token; if (FirstHiringRead is not null) await FirstHiringRead(); }
                 if (HiringStatus != HttpStatusCode.OK) return new(HiringStatus);
             }
+            else if (path.EndsWith("/dashboard/suggestions")) data = Empty ? new List<BusinessSuggestionResponse>() : Suggestions;
             else if (path.EndsWith("/approvals")) data = Empty ? new ApprovalDashboardResponse(Guid.NewGuid(), 0, []) : Approvals;
             else if (path.EndsWith("/questions/pending")) data = Empty ? new List<PendingAgentQuestionResponse>() : Questions;
             else if (path.EndsWith("/compute")) data = Empty ? new ComputeDashboard(Now, null, [], false) : Compute;

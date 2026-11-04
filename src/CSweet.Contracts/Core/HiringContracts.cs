@@ -82,6 +82,7 @@ public sealed record UpsertHiringRecommendationRequest(
     string? RecommendedCandidateReference,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
+    public bool AssignAsProjectManager { get; init; }
     [Range(1, 100)]
     public int Priority { get; init; } = 50;
     [MaxLength(160)]

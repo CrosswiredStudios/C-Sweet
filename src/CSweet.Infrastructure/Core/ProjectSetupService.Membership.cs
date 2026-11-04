@@ -36,8 +36,8 @@ public sealed partial class ProjectSetupService
     {
         var project = await RequireManagerAsync(actor, id, ct);
         var binding = await db.ProjectDeliveryBindings.SingleOrDefaultAsync(x => x.WorkstreamId == id, ct);
-        var teamId = binding?.TeamId ?? await db.WorkstreamTeamAssignments.Where(x => x.WorkstreamId == id && x.EndsAt == null).Select(x => x.TeamId).FirstOrDefaultAsync(ct);
-        return new(id, project.Name, project.AccountableManagerOrganizationUserId!.Value, teamId,
+        var teamId = binding?.TeamId ?? await db.WorkstreamTeamAssignments.Where(x => x.WorkstreamId == id && x.EndsAt == null).Select(x => (Guid?)x.TeamId).FirstOrDefaultAsync(ct);
+        return new(id, project.Name, project.AccountableManagerOrganizationUserId, teamId,
             await db.ProjectParticipants.Where(x => x.WorkstreamId == id && x.RemovedAt == null).Select(x => x.OrganizationUserId).ToListAsync(ct), project.Revision);
     }
     public async Task<ProjectSetupResult> UpdateMembersAsync(OrganizationUser actor, Guid id, UpdateProjectMembersRequest request, CancellationToken ct)
@@ -62,7 +62,7 @@ public sealed partial class ProjectSetupService
             if (!existingTeam.HasValue) db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = actor.OrganizationId, WorkstreamId = id, TeamId = selectedTeam.Id, StartsAt = clock.GetUtcNow() });
             var existingBoard = await db.WorkBoards.SingleOrDefaultAsync(x => x.WorkstreamId == id && x.ArchivedAt == null, ct) ?? CreateBoard(project, selectedTeam.Id, request.ManagerId);
             if (existingBoard.TeamId != selectedTeam.Id) throw new InvalidOperationException("The board and project team do not match. Correct the board association before assigning members.");
-            binding = new() { WorkstreamId = id, OrganizationId = actor.OrganizationId, BoardId = existingBoard.Id, TeamId = selectedTeam.Id, CreationKey = $"membership-setup:{id:N}" };
+            binding = new() { WorkstreamId = id, OrganizationId = actor.OrganizationId, BoardId = existingBoard.Id, TeamId = selectedTeam.Id, RepositoryId = await db.ProjectRepositoryAssociations.Where(x => x.ProjectId == id && x.OrganizationId == actor.OrganizationId).Select(x => (Guid?)x.RepositoryId).SingleOrDefaultAsync(ct), CreationKey = $"membership-setup:{id:N}" };
             db.ProjectDeliveryBindings.Add(binding);
             await db.SaveChangesAsync(ct);
         }

@@ -1,0 +1,45 @@
+@using CSweet.Contracts.PersonalAssistant
+@inject PersonalAssistantApiClient Api
+<details><summary>@(Project.ProfileStatus == "Accepted" ? "View or edit accepted profile" : "Review profile or enter details manually")</summary>
+    <MudTextField T="string" Immediate="true" Label="Project name" Value="@_name" ValueChanged="@(v => Edit(() => _name = v))" MaxLength="160" />
+    <MudSelect T="string" Label="Project category" Value="@_category" ValueChanged="@(v => Edit(() => _category = v))">
+        <MudSelectItem Value='@("Unknown")'>Not sure</MudSelectItem><MudSelectItem Value='@("Software")'>Software / app / website</MudSelectItem><MudSelectItem Value='@("VideoGame")'>Video game</MudSelectItem><MudSelectItem Value='@("Other")'>Other</MudSelectItem>
+    </MudSelect>
+    <MudTextField T="string" Immediate="true" Label="Purpose" Value="@_summary" ValueChanged="@(v => Edit(() => _summary = v))" MaxLength="6000" Lines="3" />
+    <MudTextField T="string" Immediate="true" Label="Technology" Value="@_technology" ValueChanged="@(v => Edit(() => _technology = v))" MaxLength="512" />
+    <MudTextField T="string" Immediate="true" Label="Documented current state" Value="@_state" ValueChanged="@(v => Edit(() => _state = v))" MaxLength="2048" Lines="3" />
+    <MudTextField T="string" Immediate="true" Label="Uncertainties (one per line)" Value="@_uncertainties" ValueChanged="@(v => Edit(() => _uncertainties = v))" MaxLength="20000" Lines="3" />
+    @foreach (var evidence in _evidence) { <p><code>@evidence.Path</code> · @evidence.Snapshot</p> }
+    @if (_dirty && Project.ProfileRevision != _revision) { <MudAlert Severity="Severity.Warning">A newer profile is available. Your edits are retained. Reload the latest profile before saving.</MudAlert><MudButton OnClick="Reload">Reload latest profile</MudButton> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+    <MudButton OnClick="SaveAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name) || _revision != Project.ProfileRevision)" Color="Color.Primary">Accept project profile</MudButton>
+</details>
+@code {
+    [Parameter] public Guid DraftId { get; set; }
+    [Parameter, EditorRequired] public ImportedProjectResponse Project { get; set; } = default!;
+    [Parameter] public EventCallback Saved { get; set; }
+    private long _revision; private Guid _projectId; private bool _dirty, _busy; private string? _error;
+    private string _name = "", _category = "Unknown", _summary = "", _technology = "", _state = "", _uncertainties = "";
+    private IReadOnlyList<RepositoryEvidence> _evidence = [];
+    protected override void OnParametersSet() { if (_projectId != Project.ProjectId || !_dirty && _revision != Project.ProfileRevision) Reload(); }
+    private void Reload()
+    {
+        var profile = Project.AcceptedProfile ?? Project.InferredProfile;
+        _name = profile?.Name ?? Project.Name; _category = profile?.Category ?? "Unknown"; _summary = profile?.Summary ?? "";
+        _technology = profile?.Technology ?? ""; _state = profile?.CurrentState ?? ""; _evidence = profile?.Evidence ?? []; _uncertainties = string.Join("\n", profile?.Uncertainties ?? []);
+        _revision = Project.ProfileRevision; _projectId = Project.ProjectId; _dirty = false; _error = null;
+    }
+    private void Edit(Action edit) { edit(); _dirty = true; }
+    private async Task SaveAsync()
+    {
+        if (_busy) return; _busy = true; _error = null;
+        try
+        {
+            var brief = new RepositoryProjectBrief(Project.SourceId.ToString("D"), _name, _summary, _technology, _state, _evidence) { Category = _category, Uncertainties = _uncertainties.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) };
+            await Api.SendAsync<ImportedProjectResponse>(HttpMethod.Put, $"api/repository-onboarding/{DraftId:D}/projects/{Project.ProjectId:D}/profile", new AcceptImportedProjectProfileRequest(_revision, brief));
+            _dirty = false; await Saved.InvokeAsync();
+        }
+        catch (Exception e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+}

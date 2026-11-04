@@ -301,6 +301,13 @@ public static class WorkstreamInspectionEndpoints
                 item.Status, item.Revision, null, null, null, null, null, item.UpdatedAt,
                 $"{projectLink}?tab=evidence&release={item.Id:D}", item))).ToList();
 
+        var importedAssociation = await db.ProjectRepositoryAssociations.AsNoTracking().SingleOrDefaultAsync(x => x.ProjectId == workstreamId && x.OrganizationId == organizationId, token);
+        var importedProfile = importedAssociation is null ? null : await db.ImportedProjectProfiles.AsNoTracking().SingleOrDefaultAsync(x => x.ProjectId == workstreamId, token);
+        CSweet.Contracts.PersonalAssistant.ImportedProjectResponse? import = importedAssociation is null || importedProfile is null ? null : new(workstreamId, importedAssociation.ImportSourceId,
+            importedAssociation.RepositoryId, workstream.Name, importedProfile.Status, importedProfile.Revision, null,
+            importedProfile.AcceptedJson == "{}" ? null : JsonSerializer.Deserialize<CSweet.Contracts.PersonalAssistant.RepositoryProjectBrief>(importedProfile.AcceptedJson, new JsonSerializerOptions(JsonSerializerDefaults.Web)), importedProfile.Error);
+        var importDraftId = importedAssociation is null ? null : await db.RepositoryOnboardingSources.AsNoTracking()
+            .Where(x => x.Id == importedAssociation.ImportSourceId).Select(x => (Guid?)x.DraftId).SingleOrDefaultAsync(token);
         return Results.Ok(new ProjectInspectionResponse(
             Resource(workstream.Id, "Workstream", workstream.ProfileKey, workstream.Name, workstream.Status.ToString(),
                 workstream.Revision, workstream.ProfileDefinitionDigest, workstream.AccountableManagerOrganizationUserId,
@@ -321,6 +328,8 @@ public static class WorkstreamInspectionEndpoints
                 item.CorrelationId, item.TraceId, item.ParentEventId, item.RecordHash ?? string.Empty)).ToList(),
             DateTimeOffset.UtcNow)
         {
+            ImportedProject = import,
+            ImportedProjectReviewUri = importDraftId is { } draftId ? $"/organizations/{organizationId:D}/onboarding?draft={draftId:D}" : null,
             CanRename = actor.EmployeeType == EmployeeType.Human && actor.ArchivedAt == null &&
                 (actor.PermissionLevel >= OrganizationPermissionLevel.Manager || workstream.AccountableManagerOrganizationUserId == actor.Id)
         });

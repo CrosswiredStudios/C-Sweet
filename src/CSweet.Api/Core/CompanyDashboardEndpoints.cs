@@ -11,6 +11,26 @@ public static class CompanyDashboardEndpoints
     public static IEndpointRouteBuilder MapCompanyDashboardEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/core/organizations/{organizationId:guid}/dashboard").RequireAuthorization();
+        group.MapGet("/suggestions", async (Guid organizationId, HttpContext http, BusinessSuggestionService service, CancellationToken ct) =>
+        {
+            var user = http.User.GetApplicationUserId(); if (user is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.ListAsync(organizationId, user.Value, ct)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+        group.MapGet("/imported-projects", async (Guid organizationId, HttpContext http, BusinessSuggestionService service, CancellationToken ct) =>
+        {
+            var user = http.User.GetApplicationUserId(); if (user is null) return Results.Unauthorized();
+            try { return Results.Ok(await service.ImportedProjectsAsync(organizationId, user.Value, ct)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+        group.MapPost("/suggestions/{id:guid}/dismiss", async (Guid organizationId, Guid id, DismissBusinessSuggestionRequest request, HttpContext http, BusinessSuggestionService service, CancellationToken ct) =>
+        {
+            var user = http.User.GetApplicationUserId(); if (user is null) return Results.Unauthorized();
+            try { await service.DismissAsync(organizationId, user.Value, id, request.ExpectedRevision, ct); return Results.NoContent(); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (DbUpdateConcurrencyException e) { return Results.Conflict(new { message = e.Message }); }
+        });
         group.MapGet("/hiring", async (Guid organizationId, HttpContext http, CSweetDbContext db,
             CSweet.Application.Core.IHiringService hiring, CancellationToken token) =>
         {

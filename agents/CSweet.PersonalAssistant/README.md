@@ -1,6 +1,6 @@
 # C-Sweet Personal Assistant
 
-Standalone protocol-v2 SDK agent, bundled with C-Sweet and installed once per user outside business employment. Version **0.1.0**, package ID com.csweet.personal-assistant, SDK package **3.66.0**.
+Standalone protocol-v2 SDK agent, bundled with C-Sweet and installed once per user outside business employment. Version **0.2.0**, package ID com.csweet.personal-assistant, SDK package **5.9.0**.
 
 PersonalAssistantAgent handles typed conversation and repository-analysis callbacks. IPersonalAssistantReasoner separates reasoning from callback validation and transport. PersonalAssistantReasoner uses AgentRuntimeContext.CreateChatClient; provider credentials, repositories, staging storage, business provisioning, and documents remain in the control plane.
 
@@ -13,3 +13,7 @@ Repository analysis receives bounded excerpts with snapshot IDs, never GitHub cr
 Run dotnet test CSweet.PersonalAssistant.slnx, dotnet run --project src/CSweet.PersonalAssistant -- --self-test, and dotnet pack src/CSweet.PersonalAssistant -c Release.
 
 The platform embeds this project's manifest, build properties, and source files into its Infrastructure assembly, then uses PluginArchiveImportService, the ordinary signed agent build pipeline, and SDK runtime. This project has no reference to platform implementation assemblies and can be built and tested independently.
+
+## Existing project onboarding
+
+Prepare separate project profiles for already-created projects from authorized bounded repository excerpts. Include purpose, category, technology, documented current state, uncertainties and actual source evidence. Do not infer or change business identity, staff projects or execute repository code.

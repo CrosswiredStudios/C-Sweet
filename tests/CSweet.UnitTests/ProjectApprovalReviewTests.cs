@@ -12,6 +12,22 @@ namespace CSweet.UnitTests;
 public sealed class ProjectApprovalReviewTests
 {
     [Fact]
+    public async Task ImportedSetupReviewIdentifiesTheExistingProject()
+    {
+        await using var db = Database(); var (owner, _, proposal, _) = await Seed(db);
+        using var binding = JsonDocument.Parse(proposal.PayloadJson);
+        var fields = binding.RootElement.EnumerateObject().ToDictionary(x => x.Name, x => x.Value.Clone());
+        var plan = fields["payload"].Deserialize<W.WorkstreamPlanProposalV2Request>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var project = Guid.NewGuid();
+        fields["payload"] = JsonSerializer.SerializeToElement(plan with { ExistingProjectId = project, ExpectedProjectRevision = 3 }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        proposal.PayloadJson = JsonSerializer.Serialize(fields); await db.SaveChangesAsync();
+        var review = await new ProjectApprovalReader(db).ReadAsync(owner.OrganizationId, owner.Id, proposal.Id);
+        Assert.Equal("Set up imported project: Prism Break", review!.Title);
+        Assert.Equal(project, review.ProjectCreation!.ExistingProjectId);
+        Assert.True(review.CanDecide);
+    }
+
+    [Fact]
     public async Task ReadsBoundPlanWithNamesAndUnknownBudgetWithoutInventingBoardOrCost()
     {
         await using var db = Database();

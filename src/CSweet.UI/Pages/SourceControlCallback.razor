@@ -50,12 +50,16 @@
             try
             {
                 var parts = State.Split(':', 3);
-                if (parts.Length != 3 || !Guid.TryParse(parts[1], out var draftId) || string.IsNullOrWhiteSpace(Code) || InstallationId <= 0)
+                if (parts.Length != 3 || !Guid.TryParse(parts[1], out var draftId) || string.IsNullOrWhiteSpace(Code) || InstallationId < 0)
                     throw new InvalidOperationException("The GitHub response did not match a valid onboarding draft.");
                 using var result = await Http.PostAsJsonAsync($"api/repository-onboarding/{draftId:D}/github/complete",
                     new CSweet.Contracts.PersonalAssistant.CompleteDraftGitHubAuthorizationRequest(State, InstallationId, Code));
                 if (!result.IsSuccessStatusCode) throw new InvalidOperationException("GitHub authorization could not be verified. Resume the draft and connect again.");
-                Navigation.NavigateTo($"/?create=true&draft={draftId:D}", forceLoad: true);
+                var draft = await result.Content.ReadFromJsonAsync<CSweet.Contracts.PersonalAssistant.RepositoryOnboardingDraftResponse>()
+                    ?? throw new InvalidOperationException("C-Sweet returned no saved import.");
+                Navigation.NavigateTo(draft.OrganizationId is { } business
+                    ? $"/organizations/{business:D}/onboarding?draft={draftId:D}&githubConnected=true"
+                    : $"/businesses/new?mode=Existing&draft={draftId:D}", forceLoad: true);
             }
             catch (Exception e) { Fail(e.Message); }
             return;

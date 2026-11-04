@@ -9,7 +9,7 @@ public sealed class PersonalAssistantAgent(IPersonalAssistantReasoner reasoner) 
     public const string ConverseCapability = "personal-assistant.converse.v1";
     public const string AnalyzeCapability = "personal-assistant.analyze-repositories.v1";
     public override string AgentId => "com.csweet.personal-assistant";
-    public override string Version => "0.1.0";
+    public override string Version => "0.2.0";
 
     protected override AgentConfigurationBuilder Configure(AgentConfigurationBuilder builder) => builder
         .LlmProvider("llmProviderId", "Default provider", required: true)

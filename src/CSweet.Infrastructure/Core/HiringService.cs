@@ -96,6 +96,23 @@ public sealed partial class HiringService(
         if (request.WorkstreamId.HasValue && !await db.Workstreams.AsNoTracking().AnyAsync(x =>
                 x.Id == request.WorkstreamId && x.OrganizationId == organizationId, cancellationToken))
             throw new ArgumentException("The workstream does not belong to this organization.");
+        if (request.AssignAsProjectManager)
+        {
+            if (request.WorkstreamId is not { } projectId || request.Headcount != 1 || (request.TeamId.HasValue && !request.SourceResourceChangeRequestId.HasValue) ||
+                !await db.ProjectRepositoryAssociations.AnyAsync(x => x.OrganizationId == organizationId && x.ProjectId == projectId, cancellationToken) ||
+                !await db.Workstreams.AnyAsync(x => x.OrganizationId == organizationId && x.Id == projectId && x.Status == WorkstreamStatus.Proposed && x.AccountableManagerOrganizationUserId == null, cancellationToken) ||
+                !await db.LeadershipAssignments.AnyAsync(x => x.OrganizationId == organizationId && x.PositionKey == "chief-of-staff" && x.EndsAt == null &&
+                    db.CoreOrganizationUsers.Any(u => u.Id == x.OrganizationUserId && u.AgentInstallationId == requestingInstallationId && u.IsActive), cancellationToken))
+                throw new UnauthorizedAccessException("Only the current Chief may recommend an initial dedicated manager for an unassigned imported project.");
+        }
+        if (request.AssignAsProjectManager)
+        {
+            var profile = await db.ImportedProjectProfiles.AsNoTracking().SingleOrDefaultAsync(x => x.ProjectId == request.WorkstreamId && x.OrganizationId == organizationId && x.Status == "Accepted", cancellationToken);
+            var accepted = profile is null ? null : JsonSerializer.Deserialize<CSweet.Contracts.PersonalAssistant.RepositoryProjectBrief>(profile.AcceptedJson, JsonOptions);
+            var expectedRole = accepted?.Category switch { "Software" => "software-product-manager", "VideoGame" => "game-producer", _ => null };
+            if (expectedRole is null || request.RoleKey != expectedRole || expectedRole == "game-producer" && !request.SourceResourceChangeRequestId.HasValue)
+                throw new UnauthorizedAccessException("The manager recommendation must match the accepted profile and normal category-specific staffing approval.");
+        }
         Guid? approvedTeamId = request.TeamId;
         if (request.SourceResourceChangeRequestId.HasValue)
         {
@@ -107,6 +124,8 @@ public sealed partial class HiringService(
                     x.Status == ResourceChangeRequestStatus.Approved,
                     cancellationToken)
                 ?? throw new ArgumentException("The linked approved resource-change request was not found.");
+            if (request.AssignAsProjectManager && (approvedChange.WorkstreamId != request.WorkstreamId || request.RoleKey != "game-producer"))
+                throw new UnauthorizedAccessException("A project-bound team manager hire must match the approved imported game Producer role.");
             approvedTeamId = approvedChange.TeamId;
             if (request.TeamId.HasValue && request.TeamId != approvedTeamId)
                 throw new UnauthorizedAccessException("The requested team does not match the approved resource change.");
@@ -132,6 +151,7 @@ public sealed partial class HiringService(
             IdempotencyKey = key, CreatedAt = now, Status = ProposalStatus.Pending
         };
         plan.WorkstreamId = request.WorkstreamId;
+        plan.AssignAsProjectManager = request.AssignAsProjectManager;
         plan.TeamId = approvedTeamId;
         plan.Title = title;
         plan.Objective = objective;
@@ -203,6 +223,8 @@ public sealed partial class HiringService(
             throw new ArgumentException("The resulting employee was not found.");
         if (plan.Status != ProposalStatus.Pending || plan.FulfilledHeadcount >= plan.Headcount)
             throw new InvalidOperationException("The hiring recommendation is already fulfilled.");
+        if (plan.AssignAsProjectManager)
+            throw new InvalidOperationException("An imported project manager must be assigned through the reviewed hiring workflow.");
         if (plan.TeamId.HasValue)
         {
             var teamService = teams
@@ -1166,8 +1188,12 @@ public sealed partial class HiringService(
         {
             var livePlan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == workflow.WorkforcePlanId && x.OrganizationId == organizationId, cancellationToken);
             await EmployeeActionExpiration.RequireAvailableAsync(db, organizationId, livePlan.RequestingInstallationId, cancellationToken);
+            if (livePlan.AssignAsProjectManager != snapshot.AssignAsProjectManager || livePlan.WorkstreamId != snapshot.WorkstreamId)
+                throw new InvalidOperationException("The reviewed project-assignment intent changed. Review the hire again.");
             if (livePlan.Status != ProposalStatus.Pending || livePlan.FulfilledHeadcount >= livePlan.Headcount)
                 throw new InvalidOperationException("The hiring recommendation is withdrawn or already fulfilled.");
+            if (livePlan.AssignAsProjectManager)
+                await RequireImportedManagerTargetAsync(organizationId, livePlan.WorkstreamId, livePlan.RoleKey, cancellationToken);
             if (livePlan.SourceResourceChangeRequestId is Guid sourcePlanId)
             {
                 var approvedRole = await db.ResourceChangeRoles.AsNoTracking().SingleOrDefaultAsync(x =>
@@ -1409,6 +1435,8 @@ CompleteWorkflow:
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.workflow.approved", nameof(StaffingActionProposal), workflow.Id,
             $"Owner approved and completed the {snapshot.RoleTitle} workflow.", cancellationToken: cancellationToken);
+        if (snapshot.AssignAsProjectManager && snapshot.WorkstreamId is { } importedProjectId)
+            await AssignImportedProjectManagerAsync(organizationId, importedProjectId, resultUserId, cancellationToken);
         await TryAutoAssignChiefOfStaffAsync(organizationId, resultUserId, snapshot.RoleTitle, cancellationToken);
         if (fulfilledPlan is not null)
             await audit.WriteAsync(
@@ -1718,10 +1746,12 @@ CompleteWorkflow:
                  DefinitionId: approvedDefinition?.Id,
                  UsesApprovedDefinition: approvedDefinition is not null);
         }
+        var assignAsProjectManager = false;
         if (candidate.WorkforcePlanId is { } planId)
         {
             var plan = await db.WorkforcePlans.AsNoTracking().SingleAsync(x => x.Id == planId, token);
             workstreamId = plan.WorkstreamId;
+            assignAsProjectManager = plan.AssignAsProjectManager;
             teamId = plan.TeamId;
             objective = plan.Objective;
             if (plan.SourceResourceChangeRequestId is { } resourceChangeId &&
@@ -1740,7 +1770,7 @@ CompleteWorkflow:
             throw new InvalidOperationException("The hiring workflow objective is missing.");
         return new(roleTitle, reportsTo, workstreamId, teamId, objective, candidate.EstimatedCost, candidate.Currency,
             digest, approvedRequiredGrants, currentGrants, embeddedAgent, employeeDisplayName,
-            roleCategoryKey, preferredSpecializationKeys);
+            roleCategoryKey, preferredSpecializationKeys, AssignAsProjectManager: assignAsProjectManager);
     }
 
     private async Task<Guid?> ResolveApprovedReportsToAsync(
@@ -2599,7 +2629,8 @@ CompleteWorkflow:
         string? EmployeeDisplayName = null,
         string? RoleCategoryKey = null,
         IReadOnlyList<string>? PreferredSpecializationKeys = null,
-        Guid? AuditWorkItemId = null);
+        Guid? AuditWorkItemId = null,
+        bool AssignAsProjectManager = false);
     private sealed record EmbeddedAgentInstallSnapshot(
         Guid ImportId,
         string RepositoryUrl,

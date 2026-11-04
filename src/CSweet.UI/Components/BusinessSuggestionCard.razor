@@ -1,0 +1,26 @@
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+
+<AttentionRequestCard Kind="Suggestion" Name="C-Sweet" Prompt="@Suggestion.Title" Description="@Suggestion.Description" Status="Suggested next step">
+    <MudButton Disabled="_busy" OnClick="DismissAsync">Dismiss</MudButton>
+    <MudButton Href="@Suggestion.ActionUri" Variant="Variant.Filled" Color="Color.Primary">Browse Chief of Staff agents</MudButton>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+</AttentionRequestCard>
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public BusinessSuggestionResponse Suggestion { get; set; } = default!;
+    [Parameter] public EventCallback Changed { get; set; }
+    private bool _busy; private string? _error;
+    private async Task DismissAsync()
+    {
+        if (_busy) return; _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/dashboard/suggestions/{Suggestion.Id:D}/dismiss", new DismissBusinessSuggestionRequest(Suggestion.Revision));
+            await GitHubPlatformWizardFlow.EnsureSuccessAsync(response);
+            await Changed.InvokeAsync();
+        }
+        catch (Exception e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+}

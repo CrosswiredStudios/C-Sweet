@@ -46,7 +46,7 @@ public sealed partial class CSweetDbContext
             e.HasKey(x => x.Id);
             e.HasOne(x => x.Draft).WithMany(x => x.Sources).HasForeignKey(x => x.DraftId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.DraftId, x.Kind, x.InstallationId, x.ExternalRepositoryId });
-            e.HasIndex(x => x.RepositoryId).IsUnique();
+            e.HasIndex(x => x.RepositoryId);
             e.Property(x => x.Kind).HasMaxLength(20);
             e.Property(x => x.Name).HasMaxLength(256);
             e.Property(x => x.Status).HasMaxLength(32);

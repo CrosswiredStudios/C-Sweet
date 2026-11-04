@@ -40,7 +40,7 @@ public sealed class PersonalAssistantRenderingTests
         var html = await RenderAsync<CSweet.UI.Pages.PersonalAssistant>(theme, []);
         Assert.Contains("Helpful starting points", html); Assert.Contains("Pick up where you left off", html);
         Assert.Contains("Your AI Assistant", WebUtility.HtmlDecode(html)); Assert.Contains("Chat with your Personal Assistant", html);
-        Assert.Contains("/?create=true&amp;draft=", html); Assert.Contains("Help me prepare a game business", html);
+        Assert.Contains("/businesses/new?mode=Existing&amp;draft=", html); Assert.Contains("Help me prepare a game business", html);
     }
 
     [Theory]
@@ -84,41 +84,38 @@ public sealed class PersonalAssistantRenderingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task EnteringRepositoryWizardKeepsDialogOpenAcrossDraftLoadAndParentRerender(bool resume)
+    public async Task BothBusinessChoicesNavigateToTheSharedDetailsPageWithoutCreatingDrafts(bool existing)
     {
-        var services = new ServiceCollection().AddLogging();
-        services.AddMudServices(); services.AddCSweetLocalization(); services.AddCSweetApiClients();
-        var api = new Api(); var navigation = new Navigation(); var capture = new ActivatorCapture();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
+        var navigation = new Navigation(); var capture = new ActivatorCapture();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager>(navigation);
-        services.AddSingleton<IAppRealtimeConnection, OfflineRealtime>(); services.AddSingleton<IComponentActivator>(capture);
-        services.AddSingleton(new HttpClient(api) { BaseAddress = new("http://localhost/") });
+        services.AddSingleton<IComponentActivator>(capture);
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         await renderer.Dispatcher.InvokeAsync(async () =>
         {
-            var suppliedDraft = resume ? api.DraftId : (Guid?)null;
-            var parameters = new Dictionary<string, object?> { [nameof(NewBusinessDialog.Visible)] = true, [nameof(NewBusinessDialog.DraftId)] = suppliedDraft };
-            await renderer.RenderComponentAsync<NewBusinessDialog>(ParameterView.FromDictionary(parameters));
-            var wizard = capture.Wizard!;
-            if (!resume)
-            {
-                typeof(NewBusinessDialog).GetMethod("ShowExistingBusiness", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(wizard, null);
-                typeof(ComponentBase).GetMethod("StateHasChanged", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(wizard, null);
-            }
-            var content = await renderer.RenderComponentAsync<DialogPreview>(ParameterView.FromDictionary(new Dictionary<string, object?> { ["Content"] = capture.Dialog!.DialogContent }));
-            Assert.Contains("Connect GitHub", content.ToHtmlString());
-            Assert.True(capture.Dialog.GetState(x => x.Visible));
-            Assert.Empty(navigation.Navigations);
-
-            // The parent still supplies its original parameter after unrelated rerenders.
-            await wizard.SetParametersAsync(ParameterView.FromDictionary(parameters));
-            await capture.Preview!.SetParametersAsync(ParameterView.FromDictionary(new Dictionary<string, object?> { ["Content"] = capture.Dialog.DialogContent }));
-            Assert.Equal(api.DraftId, capture.Repository!.DraftId);
-            Assert.Equal(suppliedDraft, wizard.DraftId);
-            Assert.Equal(resume ? 0 : 1, api.Requests.Count(x => x == "/api/repository-onboarding/"));
-            Assert.True(capture.Dialog.GetState(x => x.Visible));
-            Assert.Empty(navigation.Navigations);
+            await renderer.RenderComponentAsync<NewBusinessDialog>(ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(NewBusinessDialog.Visible)] = true }));
+            typeof(NewBusinessDialog).GetMethod(existing ? "StartExisting" : "StartNew", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(capture.Wizard, null);
+            Assert.Equal("/businesses/new?mode=" + (existing ? "Existing" : "New"), Assert.Single(navigation.Navigations));
+            Assert.Null(capture.Repository);
         });
+    }
+
+    [Fact]
+    public void LateProfileRefreshRetainsOwnerEditsUntilExplicitReload()
+    {
+        var project = new ImportedProjectResponse(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Original", "NotStarted", 1, null, null, null);
+        var editor = new ImportedProjectProfileEditor { Project = project };
+        var type = typeof(ImportedProjectProfileEditor); var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        type.GetMethod("OnParametersSet", flags)!.Invoke(editor, null);
+        type.GetMethod("Edit", flags)!.Invoke(editor, [new Action(() => type.GetField("_name", flags)!.SetValue(editor, "Owner's current edit"))]);
+        editor.Project = project with { ProfileRevision = 2, ProfileStatus = "Review", InferredProfile = new(project.SourceId.ToString("D"), "Late inferred name", "Purpose", "Technology", "State", []) };
+        type.GetMethod("OnParametersSet", flags)!.Invoke(editor, null);
+        Assert.Equal("Owner's current edit", type.GetField("_name", flags)!.GetValue(editor));
+        Assert.Equal(1L, type.GetField("_revision", flags)!.GetValue(editor));
+        type.GetMethod("Reload", flags)!.Invoke(editor, null);
+        Assert.Equal("Late inferred name", type.GetField("_name", flags)!.GetValue(editor));
+        Assert.Equal(2L, type.GetField("_revision", flags)!.GetValue(editor));
     }
 
     private static async Task<string> RenderAsync<T>(string theme, Dictionary<string, object?> parameters, bool dialog = false, HttpMessageHandler? api = null) where T : IComponent

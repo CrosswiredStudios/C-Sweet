@@ -12,7 +12,7 @@ public sealed class ManifestTests
 
         var manifest = await AgentManifestLoader.LoadAsync(path, CancellationToken.None);
         Assert.Equal("com.csweet.personal-assistant", manifest.Id);
-        Assert.Equal("0.1.0", manifest.Version);
+        Assert.Equal("0.2.0", manifest.Version);
         Assert.Contains(PersonalAssistantAgent.ConverseCapability, manifest.Capabilities);
         Assert.Contains(PersonalAssistantAgent.AnalyzeCapability, manifest.Capabilities);
         Assert.True(File.Exists(Path.Combine(

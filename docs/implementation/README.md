@@ -69,7 +69,7 @@ Current delivery: [hierarchical orchestration and release integration](features/
 
 Read these files in order:
 
-Current onboarding: [Personal Assistant and repository business onboarding](features/personal-assistant-repository-onboarding.md) documents the Enterprise dialog, standalone SDK agent, per-user settings/chat, authorized sources, reviewed briefs, and creation recovery.
+Current onboarding: [Personal Assistant and repository business onboarding](features/personal-assistant-repository-onboarding.md) documents business-first creation, durable suggestions, reusable import sessions, separate project profiles and governed adoption of existing projects.
 
 1. [00 Architecture Baseline](./00-architecture-baseline.md)
 2. [01A Phase 1A - Docker Containerization and Distribution](./phases/01a-docker-containerization-and-distribution.md)

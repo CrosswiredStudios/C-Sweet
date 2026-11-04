@@ -9,6 +9,7 @@ public sealed record RepositoryInput(string SourceId, string Name, string Snapsh
 public sealed record RepositoryAnalysisRequest(IReadOnlyList<RepositoryInput> Repositories);
 public sealed record FileEvidence(string SourceId, string Path, string Snapshot);
 public sealed record ProjectBrief(string SourceId, string Name, string Summary, string Technology,
-    string CurrentState, IReadOnlyList<FileEvidence> Evidence);
+    string CurrentState, IReadOnlyList<FileEvidence> Evidence)
+{ public string Category { get; init; } = "Unknown"; public IReadOnlyList<string> Uncertainties { get; init; } = []; }
 public sealed record CompanyBrief(string BusinessName, string Industry, string Mission, string Summary,
     IReadOnlyList<ProjectBrief> Projects, IReadOnlyList<string> OpenQuestions);

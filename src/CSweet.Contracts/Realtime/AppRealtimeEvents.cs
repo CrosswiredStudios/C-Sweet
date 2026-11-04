@@ -4,6 +4,8 @@ namespace CSweet.Contracts.Realtime;
 
 public static class AppRealtimeEvents
 {
+    public const string SuggestionsChanged = "com.csweet.app.suggestions.changed.v1";
+    public const string ProjectImportChanged = "com.csweet.app.project-import.changed.v1";
     public const string OfficeUpdateChanged = "com.csweet.app.office-update.changed.v1";
     public const string PersonalAssistantChanged = "com.csweet.app.personal-assistant.changed.v1";
     public const string RepositoryOnboardingChanged = "com.csweet.app.repository-onboarding.changed.v1";

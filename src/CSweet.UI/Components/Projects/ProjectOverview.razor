@@ -2,6 +2,13 @@
 @inject IAppLocalizer L
 @inject UserTime Time
 
+@if (Project.ImportedProject is { } import)
+{
+    <MudAlert Severity="Severity.Info">@(Project.Project.Status == "Proposed" ? "Setup pending. This project is saved; staffing and approved delivery setup are still required." : "Imported project") Profile: @import.ProfileStatus.
+        <MudButton Href="@(Project.ImportedProjectReviewUri ?? $"{ProjectHref[..ProjectHref.LastIndexOf("/projects", StringComparison.Ordinal)]}/onboarding")">Review project profiles</MudButton>
+    </MudAlert>
+    @if (import.AcceptedProfile is { } profile) { <article class="overview-panel"><h2>Accepted project profile</h2><p>@profile.Summary</p><p>@profile.Category · @profile.Technology</p><p>@profile.CurrentState</p></article> }
+}
 <div class="project-health-links" aria-label="@L["ProjectOverview.HealthAriaLabel"]">
     @foreach (var metric in Metrics)
     {

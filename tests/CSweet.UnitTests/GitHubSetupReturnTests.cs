@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Reflection;
 using CSweet.UI.Localization;
 using CSweet.UI.Pages;
@@ -13,6 +14,7 @@ namespace CSweet.UnitTests;
 
 public sealed class GitHubSetupReturnTests
 {
+    private static readonly Guid BusinessId = Guid.Parse("6fd38f7e-0f6c-4e4a-b765-038029d209f0");
     [Theory]
     [InlineData("verified")]
     [InlineData("failed")]
@@ -20,7 +22,7 @@ public sealed class GitHubSetupReturnTests
     {
         var draftId = Guid.NewGuid();
         var (target, js) = await RenderReturnAsync(result, draftId.ToString("D"));
-        Assert.Equal($"/?create=true&draft={draftId:D}&resumeGitHubSetup=true", target);
+        Assert.Equal($"/organizations/{BusinessId:D}/onboarding?draft={draftId:D}&resumeGitHubSetup=true", target);
         Assert.Contains("takeDraftId", js.Calls);
     }
 
@@ -29,7 +31,7 @@ public sealed class GitHubSetupReturnTests
     {
         var draftId = Guid.NewGuid();
         var (target, js) = await RenderReturnAsync("verified", draftId.ToString("D"), overlapRenders: true);
-        Assert.Equal($"/?create=true&draft={draftId:D}&resumeGitHubSetup=true", target);
+        Assert.Equal($"/organizations/{BusinessId:D}/onboarding?draft={draftId:D}&resumeGitHubSetup=true", target);
         Assert.Single(js.Calls, x => x == "takeDraftId");
     }
 
@@ -49,6 +51,32 @@ public sealed class GitHubSetupReturnTests
     {
         var (target, _) = await RenderReturnAsync("verified", draft);
         Assert.Null(target);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(99)]
+    public async Task OAuthReturnWithoutInstallationIdResumesItsBusinessWizard(long installationId)
+    {
+        var draftId = Guid.NewGuid(); var api = new OAuthCallbackApi(draftId); var navigation = new Navigation();
+        var page = new SourceControlCallback { State = $"repository-onboarding:{draftId:D}:nonce", Code = "one-time", InstallationId = installationId };
+        typeof(SourceControlCallback).GetProperty("Http", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, new HttpClient(api) { BaseAddress = new("https://csweet.test/") });
+        typeof(SourceControlCallback).GetProperty("Navigation", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(page, navigation);
+        await (Task)typeof(SourceControlCallback).GetMethod("OnParametersSetAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page, null)!;
+        Assert.Equal(installationId, api.Request!.InstallationId);
+        Assert.Equal(page.State, api.Request.State);
+        Assert.Equal($"/organizations/{BusinessId:D}/onboarding?draft={draftId:D}&githubConnected=true", navigation.Target);
+    }
+
+    private sealed class OAuthCallbackApi(Guid draftId) : HttpMessageHandler
+    {
+        public CSweet.Contracts.PersonalAssistant.CompleteDraftGitHubAuthorizationRequest? Request;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Assert.Equal($"/api/repository-onboarding/{draftId:D}/github/complete", request.RequestUri!.AbsolutePath);
+            Request = await request.Content!.ReadFromJsonAsync<CSweet.Contracts.PersonalAssistant.CompleteDraftGitHubAuthorizationRequest>(ct);
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new CSweet.Contracts.PersonalAssistant.RepositoryOnboardingDraftResponse(draftId, "Sources", 1, 1, [], null, null, BusinessId, null, null, null, DateTimeOffset.UtcNow)) };
+        }
     }
 
     private static async Task<(string? Target, JavaScript JS)> RenderReturnAsync(string? result, string? draft, bool overlapRenders = false)
@@ -112,7 +140,12 @@ public sealed class GitHubSetupReturnTests
     }
     private sealed class DeniedApi : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.AbsolutePath.StartsWith("/api/repository-onboarding/", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new CSweet.Contracts.PersonalAssistant.RepositoryOnboardingDraftResponse(
+                    Guid.Parse(request.RequestUri.Segments.Last()), "Sources", 1, 1, [], null, null, BusinessId, null, null, null, DateTimeOffset.UtcNow)) });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        }
     }
 }

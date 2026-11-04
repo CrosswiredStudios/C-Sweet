@@ -154,7 +154,8 @@ public sealed partial class ProjectSetupService(CSweetDbContext db, TimeProvider
     public async Task ReserveManagerAsync(Guid org, Guid manager, Guid project, Guid? intake, CancellationToken ct)
     {
         var person = await db.CoreOrganizationUsers.SingleAsync(x => x.OrganizationId == org && x.Id == manager, ct);
-        if (person.EmployeeType == EmployeeType.Human || !await HasRoleAsync(person, "software-product-manager", ct)) return;
+        var imported = await db.ProjectRepositoryAssociations.AnyAsync(x => x.OrganizationId == org && x.ProjectId == project, ct);
+        if (person.EmployeeType == EmployeeType.Human || !(await HasRoleAsync(person, "software-product-manager", ct) || imported && await HasRoleAsync(person, "game-producer", ct))) return;
         if (await db.Workstreams.AnyAsync(x => x.OrganizationId == org && x.AccountableManagerOrganizationUserId == manager && x.Id != project &&
             x.Status != WorkstreamStatus.Completed && x.Status != WorkstreamStatus.Cancelled, ct))
             throw new InvalidOperationException("This agent manager already has an active project. Choose an available manager or request another hire.");

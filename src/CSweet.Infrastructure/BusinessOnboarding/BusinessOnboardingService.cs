@@ -246,8 +246,9 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             $"Business onboarding completed for '{organization.Name}'.",
             cancellationToken: cancellationToken);
 
+        await new BusinessSuggestionService(_dbContext).EnsureChiefAsync(organizationId, cancellationToken);
         var nextRoute = assignment is null
-            ? $"/organizations/{organizationId:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}"
+            ? $"/organizations/{organizationId:D}/" + (durableOperation?.StartMode == "Existing" ? "onboarding" : "command-center")
             : $"/organizations/{organizationId}/communications/{assignment.ConversationId:D}";
         if (durableOperation is not null)
         {
@@ -260,8 +261,9 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             durableOperation.LeaseOwner = null;
             durableOperation.LeaseUntil = null;
             await QueueOperationChangedAsync(durableOperation, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         if (transaction is not null)
             await transaction.CommitAsync(cancellationToken);
@@ -314,6 +316,7 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
             throw new ArgumentException("An idempotency key is required.");
 
+        if (request.StartMode is not ("New" or "Existing")) throw new ArgumentException("Choose New or Existing business.");
         var idempotencyKey = request.IdempotencyKey.Trim();
         if (idempotencyKey.Length > 160)
             throw new ArgumentException("The idempotency key cannot exceed 160 characters.");
@@ -350,13 +353,15 @@ public sealed class BusinessOnboardingService : IBusinessOnboardingService, IBus
             organization.UpdatedAt = DateTimeOffset.UtcNow;
 
             var now = DateTimeOffset.UtcNow;
-            var marketplaceActionUri = $"/organizations/{organization.Id:D}/marketplace?role={Uri.EscapeDataString("Chief of Staff")}";
+            var marketplaceActionUri = $"/organizations/{organization.Id:D}/" + (request.StartMode == "Existing" ? "onboarding" : "command-center");
+            await new BusinessSuggestionService(_dbContext).EnsureChiefAsync(organization.Id, cancellationToken);
             var operation = new BusinessOnboardingOperation
             {
                 Id = Guid.NewGuid(),
                 InitiatedByApplicationUserId = applicationUserId,
                 IdempotencyKey = idempotencyKey,
                 BusinessName = request.BusinessName.Trim(),
+                StartMode = request.StartMode,
                 Industry = TrimOrNull(request.Industry),
                 MissionStatement = TrimOrNull(request.MissionStatement),
                 ChiefDisplayName = TrimOrNull(request.ChiefDisplayName),

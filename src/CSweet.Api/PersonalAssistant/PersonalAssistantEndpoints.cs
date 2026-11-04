@@ -21,9 +21,16 @@ public static class PersonalAssistantEndpoints
             Run(p, u => s.SendAsync(u, r, t)));
 
         var drafts = endpoints.MapGroup("/api/repository-onboarding").RequireAuthorization();
+        endpoints.MapPost("/api/core/organizations/{organizationId:guid}/project-imports", (Guid organizationId, StartBusinessImportRequest r, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.StartBusinessImportAsync(u, organizationId, r.DraftId, t))).RequireAuthorization();
+        endpoints.MapGet("/api/core/organizations/{organizationId:guid}/project-imports", (Guid organizationId, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.BusinessImportsAsync(u, organizationId, t))).RequireAuthorization();
+        drafts.MapPost("/{id:guid}/finish", (Guid id, RepositoryDraftRevisionRequest r, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.FinishAsync(u, id, r.ExpectedRevision, t)));
+        drafts.MapPost("/{id:guid}/projects", (Guid id, AddImportedProjectsRequest r, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.AddProjectsAsync(u, id, r, t)));
+        drafts.MapGet("/{id:guid}/projects", (Guid id, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.ProjectsAsync(u, id, t)));
+        drafts.MapPut("/{id:guid}/projects/{projectId:guid}/profile", (Guid id, Guid projectId, AcceptImportedProjectProfileRequest r, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.AcceptProfileAsync(u, id, projectId, r, t)));
         drafts.MapPost("/", (ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.CreateAsync(u, t)));
         drafts.MapGet("/", (ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.ListAsync(u, t)));
         drafts.MapGet("/{id:guid}", (Guid id, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.GetAsync(u, id, t)));
+        drafts.MapGet("/{id:guid}/github/install", (Guid id, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.GitHubInstallationLinkAsync(u, id, t)));
         drafts.MapPost("/{id:guid}/github/authorize", (Guid id, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.AuthorizeGitHubAsync(u, id, t)));
         drafts.MapPost("/{id:guid}/github/complete", (Guid id, CompleteDraftGitHubAuthorizationRequest r, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.CompleteGitHubAsync(u, id, r, t)));
         drafts.MapGet("/{id:guid}/github/accounts", (Guid id, ClaimsPrincipal p, IRepositoryOnboardingService s, CancellationToken t) => Run(p, u => s.AccountsAsync(u, id, t)));

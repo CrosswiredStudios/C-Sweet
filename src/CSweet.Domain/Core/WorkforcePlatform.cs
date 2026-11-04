@@ -186,6 +186,7 @@ public sealed class BusinessPattern
 
 public sealed class WorkforcePlan
 {
+    public bool AssignAsProjectManager { get; set; }
     public Guid Id { get; set; }
     public Guid OrganizationId { get; set; }
     public Guid? WorkstreamId { get; set; }
@@ -326,6 +327,7 @@ public enum BusinessOnboardingOperationStatus
 
 public sealed class BusinessOnboardingOperation
 {
+    public string StartMode { get; set; } = "New";
     public Guid Id { get; set; }
     public Guid InitiatedByApplicationUserId { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
