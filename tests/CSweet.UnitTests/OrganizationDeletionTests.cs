@@ -530,9 +530,9 @@ public sealed class OrganizationDeletionTests
             // Personal Assistant installations use personal scope, not the business ID.
             // Their profiles stay with the account and must not be purged with a business.
             typeof(PersonalAssistantProfile),
-            // Enterprise account resources and pending credential retirement belong to
-            // the system connector, not any one business that was granted access.
-            typeof(PluginAccountResource), typeof(PluginAccountRevocationJob),
+            // Enterprise account resources, pending credential retirement and immutable
+            // adoption lineage belong to the system connector, not a granted business.
+            typeof(PluginAccountResource), typeof(PluginAccountRevocationJob), typeof(PluginAccountUpgrade),
             typeof(WorkExecutionAttempt), typeof(WorkItemDependency), typeof(WorkItemExecution), typeof(WorkDeliveryExecution)
         }.Select(type => type.FullName).OrderBy(name => name).ToList();
 
