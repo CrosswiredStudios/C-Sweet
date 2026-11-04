@@ -1,70 +1,90 @@
-# Connection-preserving account connector upgrades: investigation
+# Compatible managed-account upgrades
 
-Status: design only. No transfer endpoint, migration, credential adoption, grant transfer or
-connection-preserving activation is implemented by this change. The staged update remains inactive.
+`PluginAccountUpgradeService` implements an explicit alternative to standard account deletion and
+connector replacement. It is generic and uses native enterprise accounts/resources; no provider
+name or channel label selects authority. Standard `ApproveUpdateAsync` retains its existing cleanup
+guard. Compatible adoption is a separately reviewed operation in the staged plugin update panel.
 
-## Existing boundary
+## Supported review
 
-`AgentInstallationService.UpdateAsync` builds a separate, disabled, zero-grant revision.
-`ApproveUpdateAsync` requires the exact reviewed digest and blocks replacement while the old
-revision has an account that is not `Disconnected`. This is an intentional lifecycle contract,
-documented in `plugin-account-lifecycle.md` and tested by
-`EnterpriseUpdateRequiresReviewedDigestAndConfirmedOldAccountCleanup`.
+The initial implementation accepts one connected provider-verified managed account and authorization,
+reviewed by its original consenting administrator. The source must be an active enabled system
+connector and the target its built, disabled, zero-grant staged revision from the same repository
+and installation lineage. Customer-owned credentials, multiple authorizations, active consumer
+bindings/operators, pending consent/revocation/deletion, leases and unresolved execution/media work
+are rejected. No agent bindings, schedules, execution policies or autonomy are transferred.
 
-An installation lineage key is not an authorization alias. Core account groups, resources,
-connections, secret references and business grants belong to the installation revision. Native
-authority snapshots include the current digest and grant/account/resource/authorization revisions.
-The service independently binds `ManagedConnection` to the deployment, installation revision,
-package digest and provider-profile revision. `ManagedReadService.Read` and
-`ManagedMediaService.Require` enforce those bindings. Removing the Core cleanup guard, changing
-foreign keys, copying a managed context or substituting a digest would not establish valid
-service authority. Approved package records and historical manifests must remain immutable.
+Both manifests must pass SDK validation. Protocol `CompatibleConnectionContract.Require` requires
+identical root declarations except version/provider operations, and identical operations executable
+under already granted scope sets. Actual scope definitions, identity/resource mappings, schemas,
+destinations, lifecycle policy and unknown fields must match. Changing an ungranted operation does
+not grant its scope. Existing selected-resource business grants retain the same business, resource
+IDs and capabilities; their package digest and revisions advance only with successful adoption.
+Whole-account/future-resource grants are unsupported. Tenant restrictions of the paired deployment
+are unchanged; an installation's enterprise scope is not a remote tenant grant.
 
-## Smallest defensible extension
+## Durable boundaries and recovery
 
-Provide an explicit, reviewed **compatible managed-account adoption** transaction, separate from
-disconnect and data erasure. It needs coordinated service/Protocol and Core changes; a UI-only
-patch cannot implement it safely. Customer-owned credentials should remain unsupported until a
-separately tested host-owned transfer contract exists. There should be no provider-name switches.
-Negotiate adoption support explicitly. An older service or unsupported contract must leave the
-current connection intact rather than fall back to disconnect, field rewriting or another consent.
+Core authenticates the original administrator and requires anti-forgery protection for each unsafe
+API request. A bounded protected review token expires after ten minutes and binds the actor, exact
+packages, original consent session, current native inventory and service review. Review performs
+no adoption. Approval first saves a Pending journal and disables the source in one serializable
+transaction. A lost response never silently re-enables it or creates new consent.
 
-The service must independently verify both approved packages, active deployment/tenant and exact
-old/new installation identities. Require a current provider-verified source in `Ready`, unchanged
-provider/profile revision, no maintenance lease, and no uncertain or active media exchange. The
-paired deployment signer must prove the exact source connection/revision, target digest/revision and
-bounded, replay-protected adoption request. Equality of scope-set IDs alone is insufficient:
-compare actual scope definitions, connection/provider destinations, identity/discovery/resource
-contracts and lifecycle policy. Incompatible or unknown declarations fail closed.
+The service independently checks active package/profile approval, exact deployment/installation/
+connection/consent-session binding, unchanged scopes and current Ready provider-verified inventory
+within the original lifecycle authorization-check window. It changes the same connection's current
+package/installation binding, advances its revision and writes an immutable receipt atomically.
+Provider credential/inventory bytes and original consent remain unchanged; no token leaves the
+service, no provider revocation occurs and no execution policy is created.
 
-The target's package approval and execution policy remain independent. Adoption cannot approve a
-package, enable execution, add scopes or infer consent from a refreshed token. A compatible package
-may still need a fresh business grant review. Any proposed preservation must show the exact same
-business/resource/permission set, verify the definitions and mappings of the effective capabilities,
-and bind explicit approval to the current old/new digests and revisions. Never infer ownership from
-channel labels, add future-resource access, or restore agent bindings, pending plans or autonomy.
-The service can verify deployment authority and compatibility, not independently prove a browser's
-human click; Core must enforce that human review and the existing anti-forgery boundary.
+Core reconciles the same receipt before repeating the same idempotent intent. A fresh receipt,
+paired origin/profile and native snapshot are checked again inside local finalization. The same
+native account/resource/connection IDs, selected grants and encrypted managed-context reference
+move atomically to the target; the source is retired and target activated. Historical consent and
+cleanup records stay attached to their original provenance. `ManagedAccountProvenance.Original`
+requires that original session and a completed adoption journal for subsequent maintenance or
+actual disconnect. It does not manufacture proof of erasure.
 
-Provider tokens stay inside the service vault. A service-owned serializable transaction would
-create the target connection, retire the old execution authority without provider revocation,
-and persist an immutable, content-free adoption receipt and outbox event. Preserve original
-consent provenance and historical cleanup obligations. This receipt must not claim provider
-revocation, physical deletion, backup erasure or a new Google consent.
+Explicit cancellation records a service tombstone if adoption has not committed, preventing a late
+request from adopting. An already accepted adoption completes forward; it is never reported as a
+rollback. Source access resumes only if its exact authority remains unchanged. Otherwise it stays
+fenced with CancelledReviewRequired. Status reads do not automatically submit or resume. UI and
+client timeouts include response-body reads, display content-free uncertainty and require an
+explicit status/reconciliation action. No automatic second POST is scheduled.
 
-Core needs a durable adoption journal and recoverable, idempotent finalization because its
-database cannot atomically commit with the service database. Fence both stale plans and old
-revision execution before activation; retain original provenance rather than silently rewriting
-history. If the service commits but Core's acknowledgment or commit is lost, read/recover the
-same receipt and complete forward. Do not start another consent, duplicate credentials, invent
-a completed rollback or send old proof material to a changed service origin.
+## Adoption prerequisites and verification limits
 
-Tests must cover semantic permission changes under unchanged IDs, wrong tenant/deployment/
-installation/digest/profile/identity, unapproved or revoked target packages, stale review,
-concurrent disconnect/profile/package revocation, refresh leases, active media, repeated requests,
-lost replies and crashes at each commit boundary. Assert zero provider revocations and no new
-OAuth scopes, grants, agent bindings or completed deletion receipts. Real adoption and deployment
-remain separate actions after source review and synthetic integration verification.
+1. Review, separately publish Protocol 0.7.0 and deploy the reviewed service schema/code first.
+2. Back up Core, apply `AddCompatiblePluginAccountUpgrades`, then deploy API/UI/AgentHost together.
+   The additive journal has concurrency/unique-pending guards, immutable authority/terminal rows
+   and an evidence-preserving rollback that refuses to discard existing intents.
+3. Independently approve the exact target package/profile on the service. This is not done by Core.
+4. Review the staged package's compatible path and explicitly approve that exact native/service
+   snapshot. Live adoption and any later execution policy remain separate operator decisions.
+
+An older/missing endpoint fails closed without falling back to disconnect or field rewriting.
+The database boundary is recoverable, not distributed atomicity: accepted service changes may
+leave a locally paused Pending operation for explicit reconciliation. Historical backup obligations
+and missing cleanup handlers remain visible. Do not downgrade databases containing adoption
+receipts or delete the journal as a rollback technique.
+
+Synthetic tests exercise service signatures/transactions, compatibility, cancellation, exact grants,
+lost acknowledgments, local commit rollback, native maintenance/disconnect provenance, API auth/
+anti-forgery, bounded client failures and component state transitions. Model parity and migration SQL are checked offline in the regular suite. Opt-in
+`PluginAccountUpgradePostgresTests` apply the actual additive migration to a fresh full EF model
+in a disposable PostgreSQL instance, exercise insert/update/delete/truncate/rollback guards and
+unique pending fences, and use observed row-lock barriers for competing approvals, normal Resume
+and concurrent business revocation. The opt-in fixture requires an explicit settings file named by
+`CSWEET_ADOPTION_POSTGRES_TEST_FILE`, pointing to its dedicated isolated test server, and creates
+randomly named synthetic databases. It must never reuse application credentials or databases.
+These tests do not validate the complete historical migration chain or a production backup restore.
+SQLite tests remain in the regular suite; their adapters do not establish PostgreSQL behavior.
+Browser QA with the real update component and a separate memory-only fake API checks explicit
+approval, completion navigation, lost-acknowledgment recovery, cancellation, in-flight controls,
+redaction and narrow-screen identity visibility. It does not exercise live browser authentication,
+a real service or provider consent. No real provider acceptance, live adoption, production migration,
+package publication or physical erasure is established by these source tests.
 
 ## Cleanup is an independent deployment obligation
 
@@ -84,4 +104,4 @@ because no endpoint is configured.
 The implemented diagnostics change discovers outstanding external stores from the installation's
 recorded account inventory as well as deployment defaults. It reveals missing coverage, including
 managed-service backups, without issuing cleanup requests or changing readiness/authority. It
-does not implement the compatible adoption design above or any physical erasure service.
+does not implement a physical erasure service. Compatible adoption retains these obligations.

@@ -51,9 +51,11 @@ A never-connected installation retires immediately without inventing cleanup obl
 deployment cleanup services; configured shared provider profiles are not deleted by hiding the plugin.
 
 Updates build as staged, zero-grant revisions. The administrator reviews the exact completed digest
-and declarations separately. Changed digests fail approval. Old connected accounts block activation;
-cleanup must finish, and the new revision requires fresh connection/operator/business/agent grants.
-There are no credential/policy transfer shims. Direct-network or unusual configuration requests
+and declarations separately. Changed digests fail approval. Standard replacement blocks activation while
+old accounts remain connected; cleanup and fresh grants are required. The separate, explicitly reviewed
+[compatible managed-account upgrade](plugin-account-compatible-upgrade.md) can preserve an eligible
+managed connection and its exact selected-resource business grants. It does not restore agent bindings,
+operators, schedules or execution policies. Direct-network or unusual configuration requests
 need a richer administrator review; the simplified page refuses unsupported automatic approval.
 
 ## Provenance and erasure

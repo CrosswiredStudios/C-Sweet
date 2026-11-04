@@ -42,6 +42,16 @@ public static class PluginAccountEndpoints
                 Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.Include(db.AgentInstallations,x=>x.PackageVersion),x=>x.Id==installationId,ct);
             return Results.Ok(new PluginPackageReview(installation.PackageVersion!.PackageDigest ?? "",installation.PackageVersion.ManifestJson,installation.BusinessId));
         });
+        group.MapGet("/upgrade/review",async(Guid installationId,HttpContext http,[FromServices] PluginAccountUpgradeService upgrades,CancellationToken ct)=>
+            Results.Ok(await upgrades.ReviewAsync(http.User.GetApplicationUserId()!.Value,installationId,ct)));
+        group.MapGet("/upgrade",async(Guid installationId,HttpContext http,[FromServices] PluginAccountUpgradeService upgrades,CancellationToken ct)=>
+            Results.Ok(new PluginAccountUpgradeStatus(await upgrades.StatusAsync(http.User.GetApplicationUserId()!.Value,installationId,ct))));
+        group.MapPost("/upgrade",async(Guid installationId,ApprovePluginAccountUpgrade request,HttpContext http,[FromServices] PluginAccountUpgradeService upgrades,CancellationToken ct)=>
+            Results.Ok(await upgrades.ApproveAsync(http.User.GetApplicationUserId()!.Value,installationId,request,ct)));
+        group.MapPost("/upgrade/{upgradeId:guid}/resume",async(Guid installationId,Guid upgradeId,HttpContext http,[FromServices] PluginAccountUpgradeService upgrades,CancellationToken ct)=>
+            Results.Ok(await upgrades.ResumeAsync(http.User.GetApplicationUserId()!.Value,installationId,upgradeId,ct)));
+        group.MapPost("/upgrade/{upgradeId:guid}/cancel",async(Guid installationId,Guid upgradeId,HttpContext http,[FromServices] PluginAccountUpgradeService upgrades,CancellationToken ct)=>
+            Results.Ok(await upgrades.CancelAsync(http.User.GetApplicationUserId()!.Value,installationId,upgradeId,ct)));
         group.MapPost("/connect", async (Guid installationId, ConnectPluginAccountRequest request, HttpContext http,
             [FromServices] PluginAccountService accounts, CancellationToken ct) =>
         {

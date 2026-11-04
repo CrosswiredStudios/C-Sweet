@@ -21,11 +21,21 @@ public interface IPluginAccountApiClient
     Task ControlAsync(Guid installationId,PluginInstallationControlRequest request,CancellationToken ct=default);
     Task RetryBuildAsync(Guid installationId,CancellationToken ct=default);
     Task<PluginPackageReview> GetReviewAsync(Guid installationId,CancellationToken ct=default);
+    Task<PluginAccountUpgradeReview> ReviewUpgradeAsync(Guid installationId,CancellationToken ct=default)=>throw new NotSupportedException();
+    Task<PluginAccountUpgradeStatus> UpgradeStatusAsync(Guid installationId,CancellationToken ct=default)=>throw new NotSupportedException();
+    Task<PluginAccountUpgradeProgress> ApproveUpgradeAsync(Guid installationId,ApprovePluginAccountUpgrade request,CancellationToken ct=default)=>throw new NotSupportedException();
+    Task<PluginAccountUpgradeProgress> ResumeUpgradeAsync(Guid installationId,Guid upgradeId,CancellationToken ct=default)=>throw new NotSupportedException();
+    Task<PluginAccountUpgradeProgress> CancelUpgradeAsync(Guid installationId,Guid upgradeId,CancellationToken ct=default)=>throw new NotSupportedException();
 }
 public sealed class PluginAccountApiClient(HttpClient http) : IPluginAccountApiClient
 {
     private static string Path(Guid id) => $"api/plugins/installations/{id:D}/account-management";
     public Task<PluginAccountManagementView> GetAsync(Guid id, CancellationToken ct = default) => Send<PluginAccountManagementView>(HttpMethod.Get, Path(id) + "/", null, ct);
+    public Task<PluginAccountUpgradeReview> ReviewUpgradeAsync(Guid id,CancellationToken ct=default)=>SendUpgrade<PluginAccountUpgradeReview>(HttpMethod.Get,Path(id)+"/upgrade/review",null,ct);
+    public Task<PluginAccountUpgradeStatus> UpgradeStatusAsync(Guid id,CancellationToken ct=default)=>SendUpgrade<PluginAccountUpgradeStatus>(HttpMethod.Get,Path(id)+"/upgrade",null,ct);
+    public Task<PluginAccountUpgradeProgress> ApproveUpgradeAsync(Guid id,ApprovePluginAccountUpgrade request,CancellationToken ct=default)=>SendUpgrade<PluginAccountUpgradeProgress>(HttpMethod.Post,Path(id)+"/upgrade",request,ct);
+    public Task<PluginAccountUpgradeProgress> ResumeUpgradeAsync(Guid id,Guid upgradeId,CancellationToken ct=default)=>SendUpgrade<PluginAccountUpgradeProgress>(HttpMethod.Post,Path(id)+$"/upgrade/{upgradeId:D}/resume",null,ct);
+    public Task<PluginAccountUpgradeProgress> CancelUpgradeAsync(Guid id,Guid upgradeId,CancellationToken ct=default)=>SendUpgrade<PluginAccountUpgradeProgress>(HttpMethod.Post,Path(id)+$"/upgrade/{upgradeId:D}/cancel",null,ct);
     public Task<BeginPluginAccountResponse> ConnectAsync(Guid id, ConnectPluginAccountRequest request, CancellationToken ct = default) => Send<BeginPluginAccountResponse>(HttpMethod.Post, Path(id) + "/connect", request, ct);
     public async Task RetryAsync(Guid id, Guid setupId, CancellationToken ct = default) => await Send<object>(HttpMethod.Post, Path(id) + $"/setup/{setupId:D}/retry", null, ct);
     public async Task<PluginImportResumeReceipt?> ResumeImportAsync(Guid id, Guid setupId, long expectedRevision, CancellationToken ct = default)
@@ -78,6 +88,35 @@ public sealed class PluginAccountApiClient(HttpClient http) : IPluginAccountApiC
     public async Task ControlAsync(Guid id,PluginInstallationControlRequest request,CancellationToken ct=default)=>await Send<object>(HttpMethod.Post,Path(id)+"/control",request,ct);
     public async Task RetryBuildAsync(Guid id,CancellationToken ct=default)=>await Send<object>(HttpMethod.Post,Path(id)+"/retry-build",null,ct);
     public Task<PluginPackageReview> GetReviewAsync(Guid id,CancellationToken ct=default)=>Send<PluginPackageReview>(HttpMethod.Get,Path(id)+"/review",null,ct);
+    private async Task<T> SendUpgrade<T>(HttpMethod method,string url,object? body,CancellationToken ct)
+    {
+        using var deadline=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var budget=http.Timeout==Timeout.InfiniteTimeSpan || http.Timeout>TimeSpan.FromSeconds(30)?TimeSpan.FromSeconds(30):http.Timeout;
+        deadline.CancelAfter(budget);var operation=deadline.Token;
+        using var request=new HttpRequestMessage(method,url){Content=body is null?null:JsonContent.Create(body)};
+        using var response=await http.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,operation);
+        if(!response.IsSuccessStatusCode)
+        {
+            // A proxy or another server cannot inject arbitrary diagnostic text or a body into this control.
+            var message=response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized=>"Use the original consenting administrator to review this connection upgrade.",
+                System.Net.HttpStatusCode.BadRequest=>"This connection is not eligible for the compatible upgrade. Refresh its account and package review.",
+                System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.NotImplemented=>"This server does not support compatible connection upgrades.",
+                System.Net.HttpStatusCode.Conflict=>"The account changed concurrently. Check upgrade status before continuing.",
+                _=>"The upgrade outcome is unconfirmed. Check upgrade status before continuing."
+            };
+            throw new ApiClientException(response.StatusCode,message);
+        }
+        await using var stream=await response.Content.ReadAsStreamAsync(operation).WaitAsync(operation);
+        using var bytes=new MemoryStream();var buffer=new byte[2048];
+        while(true)
+        {var count=await stream.ReadAsync(buffer,operation).AsTask().WaitAsync(operation);if(count==0)break;
+            if(bytes.Length+count>32768)throw new InvalidOperationException("The upgrade response is unavailable. Check upgrade status before continuing.");bytes.Write(buffer,0,count);}
+        try{return System.Text.Json.JsonSerializer.Deserialize<T>(bytes.ToArray(),new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
+            ??throw new System.Text.Json.JsonException();}
+        catch(System.Text.Json.JsonException){throw new InvalidOperationException("The upgrade response is unavailable. Check upgrade status before continuing.");}
+    }
     private async Task<T> Send<T>(HttpMethod method, string url, object? body, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(method, url) { Content = body is null ? null : JsonContent.Create(body) };
