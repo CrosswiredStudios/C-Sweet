@@ -9,17 +9,22 @@ public sealed record HarnessRouteTarget(Guid ProviderId, string Model,
 /// <summary>The agent's own effective harness state. Read-only; it grants nothing.</summary>
 public sealed record HarnessStatus(long PolicyRevision, string Stage, string? Provider, string? Model, int FallbackCount,
     bool CompactContext, bool ContextRetrievalAvailable, long? TaskTokenLimit, long? TaskTokensRemaining,
-    decimal? TaskCostLimit, decimal? TaskCostRemaining, IReadOnlyList<string> Skills);
+    decimal? TaskCostLimit, decimal? TaskCostRemaining, IReadOnlyList<string> Skills,
+    bool DecisionCompactionAvailable = false, string? DecisionEngineHost = null, string? DecisionModel = null);
 public sealed record HarnessPolicy(long Revision = 0, bool CompactContext = false,
     long? TaskTokenLimit = null, decimal? TaskCostLimit = null,
-    IReadOnlyList<HarnessRoute>? Routes = null, IReadOnlyList<Guid>? SkillRevisionIds = null, int JudgmentOutputTokens = 512);
+    IReadOnlyList<HarnessRoute>? Routes = null, IReadOnlyList<Guid>? SkillRevisionIds = null, int JudgmentOutputTokens = 512,
+    bool DecisionCompaction = true);
 public sealed record SaveHarnessPolicy(long ExpectedRevision, HarnessPolicy Policy);
 public sealed record PublishHarnessSkill(string Name, string Instructions, IReadOnlyList<string> RequiredCapabilities);
 public sealed record HarnessSkillRevision(Guid Id, string Name, int Version, string Digest,
     string Instructions, IReadOnlyList<string> RequiredCapabilities, bool Enabled, DateTimeOffset CreatedAt);
 public sealed record DoctorFinding(string Code, string State, string Title, string Detail, string RepairUrl);
 public sealed record HarnessWorkspace(HarnessPolicy Policy, IReadOnlyList<HarnessSkillRevision> Skills,
-    IReadOnlyList<DoctorFinding> Findings, DateTimeOffset CheckedAt, IReadOnlyList<HarnessProviderOption> Providers);
+    IReadOnlyList<DoctorFinding> Findings, DateTimeOffset CheckedAt, IReadOnlyList<HarnessProviderOption> Providers,
+    HarnessDecisionEngineInfo? DecisionModel = null);
+/// <summary>The deployment's decision-model engine as configured. Host and model only; never a credential.</summary>
+public sealed record HarnessDecisionEngineInfo(bool Available, string? Host, string? Model, string? Reason = null);
 public sealed record HarnessProviderOption(Guid Id, string Name, string DefaultModel);
 public sealed record HarnessJudgmentRequest(string Kind, string Input);
 public sealed record HarnessJudgmentResult(bool Valid, string? Choice, string? Error, bool Advisory = true);

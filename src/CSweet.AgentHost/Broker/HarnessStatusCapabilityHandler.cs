@@ -11,7 +11,7 @@ namespace CSweet.AgentHost.Broker;
 /// plans expensive work, instead of discovering an exhausted ceiling through a failed model call.
 /// Implicit and read-only: it reveals only the caller's installation policy and grants nothing.
 /// </summary>
-public sealed class HarnessStatusCapabilityHandler(CSweetDbContext db) : IPlatformCapabilityHandler
+public sealed class HarnessStatusCapabilityHandler(CSweetDbContext db, HarnessDecisionEngine? decisionEngine = null) : IPlatformCapabilityHandler
 {
     public const string Capability = "platform.harness.status.read.v1";
     public bool CanHandle(string capability) => capability == Capability;
@@ -28,7 +28,7 @@ public sealed class HarnessStatusCapabilityHandler(CSweetDbContext db) : IPlatfo
         }
         // Work comes from authenticated queue attribution, never the request payload.
         var status = await HarnessRuntime.ReadStatusAsync(db, session.BusinessId, installation, InferenceExecutionAttribution.Current?.WorkId,
-            session.Grant.RequestedCapabilities.Contains(HarnessContextCapabilityHandler.Capability), token);
+            session.Grant.RequestedCapabilities.Contains(HarnessContextCapabilityHandler.Capability), token, decisionEngine);
         yield return new() { RequestId = request.RequestId, Succeeded = true, ContentType = "application/json", Payload = JsonPayload.From(status) };
     }
 }

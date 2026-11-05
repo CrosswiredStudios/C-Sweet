@@ -98,7 +98,7 @@ public static class HarnessRuntime
 
     /// <summary>The caller's own effective route and remaining shared budget. Never exposes other installations' policy.</summary>
     public static async Task<HarnessStatus> ReadStatusAsync(CSweetDbContext db, string business, Guid installation, Guid? work,
-        bool contextRetrievalGranted, CancellationToken token)
+        bool contextRetrievalGranted, CancellationToken token, HarnessDecisionEngine? decisionEngine = null)
     {
         var policy = await HarnessWorkspaceService.ReadPolicyAsync(db, installation, token);
         var stage = await ResolveStageAsync(db, installation, work, token);
@@ -118,7 +118,9 @@ public static class HarnessRuntime
         return new(policy.Revision, stage, provider, route?.Model, route?.Fallbacks?.Count ?? 0, policy.CompactContext,
             policy.CompactContext && contextRetrievalGranted,
             tokenLimit, tokenLimit is { } tl ? Math.Max(0, tl - (budget?.ChargedTokens ?? 0)) : null,
-            costLimit, costLimit is { } cl ? Math.Max(0, cl - (budget?.ChargedCost ?? 0)) : null, skills);
+            costLimit, costLimit is { } cl ? Math.Max(0, cl - (budget?.ChargedCost ?? 0)) : null, skills,
+            policy.CompactContext && policy.DecisionCompaction && decisionEngine?.Available == true,
+            decisionEngine?.Available == true ? decisionEngine.Host : null, decisionEngine?.Available == true ? decisionEngine.Model : null);
     }
 
     public static string BudgetKey(AgentRunLog run, string business, Guid installation)

@@ -60,6 +60,22 @@ Agents call `platform.llm.chat-stream.v1` (directly or via the queued job servic
    (`HarnessContextOptimizer.Compact`). If the agent also has `platform.harness.context.read`, results
    over 16,000 characters are replaced with a preview plus a pointer to the **`read_historical_context`**
    tool, which pages the protected original from the same active work attempt only.
+   **Decision compaction** (optional, `HarnessDecisionCompactor`) runs after duplicate removal and before
+   spill when all hold: `CompactContext` and `DecisionCompaction` (default on) are set, the deployment has
+   a decision engine (`HarnessDecisionEngine.Available`), the request is not memory-derived or content-free
+   (the spill content gate), it carries no media, and the estimated prompt
+   (`HarnessDecisionTokens.Estimate`, nur-cli's tokenizer-free estimate) exceeds the installation context
+   window minus a reserve of `max(15%, 16,384)` tokens (15% when 16,384 would exceed half the window).
+   Each old tool call/result pair is asked two SystemOne `noul` questions (`keep_call_n`, `keep_result_n`):
+   below `KeepThreshold` on the result but not the call truncates the result to a 300-character head; below
+   on both drops the call and its result together. The first message and the newest `PreserveRecent`
+   messages, text, and pairs with a missing answer are never changed. Decisions are cached per installation,
+   call id and content hash (30 min sliding, bounded) so re-sent history is not re-judged. Changes appear in
+   `contextChanges` with `Method` = `duplicate`, `spill` or `decision`, and `InferenceSettingsJson.decisionCompaction`
+   records engine host, model, requests, kept/truncated/dropped/pinned/cached counts, state stage and tokens,
+   engine usage and elapsed ms, or `skipped`. Engine usage is recorded but **not charged to the task budget**
+   (auxiliary inference, as in nur-cli). Any engine failure leaves the messages as duplicate removal left them.
+   `RequestEvidenceJson` always keeps the original request.
 5. **Dispatch fence.** `ProviderDispatchScope` re-authorizes on every HTTP attempt: provider
    fingerprint, installation/grant revision, running runtime and tick, lease and deadline of the work
    attempt, memory evidence, benchmark pinning and harness policy revision (`HarnessRuntime.ValidateAsync`).
@@ -105,7 +121,7 @@ differs, offers a reload instead of overwriting unsaved edits.
 
 | Tool | Capability | Grant | Purpose |
 | --- | --- | --- | --- |
-| `read_harness_status` | `platform.harness.status.read.v1` | implicit | Own stage, route, fallback count, compaction, skills, remaining task tokens/cost. Check before large model work. |
+| `read_harness_status` | `platform.harness.status.read.v1` | implicit | Own stage, route, fallback count, compaction (including `DecisionCompactionAvailable`, engine host and model), skills, remaining task tokens/cost. Check before large model work. |
 | `read_historical_context` | `platform.harness.context.read` | explicit | Page a spilled tool result from the same active work attempt. A snapshot, not current state. |
 | `advisory_judgment` | `platform.harness.judge` | explicit | Relevance/Risk/Completeness classification through the Judgment route; cannot approve anything. |
 | `read_agent_governance` | `platform.agent-governance.read.v1` | implicit | Own posture and recent approvals after a wake or reconnect. |
@@ -114,7 +130,8 @@ differs, offers a reload instead of overwriting unsaved edits.
 
 `HarnessWorkspaceService.ReadAsync` reports read-only findings: installation, grant, runtime, provider
 credentials (every route and fallback provider), Office heartbeat, pending approvals, recovery
-checkpoints and judgment validity. Routing findings flag a route with no fallback or with fallbacks on
+checkpoints, judgment validity and the `decision-model` engine (Ready with host and model, or Info when
+not configured; never the key, and no engine call). Routing findings flag a route with no fallback or with fallbacks on
 the same provider, a granted judge with no Judgment route, compaction without context retrieval, and a
 task token ceiling at or below the per-call output budget, which would refuse every call. For agents
 granted any `compute.*` capability, `ComputeFindingsAsync` reports whether an enabled compute node

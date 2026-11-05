@@ -5,7 +5,8 @@ using Microsoft.Extensions.AI;
 
 namespace CSweet.Infrastructure.Agents;
 
-public sealed record HarnessContextChange(string CallId, string RetainedCallId, int OriginalCharacters, int RemainingCharacters);
+/// <summary>One shortened tool result. <paramref name="Method"/> is duplicate, spill or decision.</summary>
+public sealed record HarnessContextChange(string CallId, string RetainedCallId, int OriginalCharacters, int RemainingCharacters, string? Method = null);
 
 /// <summary>Request-local, deterministic compaction. No result or permission is reused across requests.</summary>
 public static class HarnessContextOptimizer
@@ -25,7 +26,7 @@ public static class HarnessContextOptimizer
                 // Name the model-visible tool; the model never sees capability identifiers.
                 var replacement = $"{preview}\n[Historical tool result shortened from {text.Length} characters. Retrieve the rest with the {ContextToolName} tool: runId={runId:D}, callId={result.CallId}, offset=0, limit up to 16000 per call; continue while hasMore is true. The snapshot does not establish current source state; read mutable sources again before acting.]";
                 messages[m].Contents[i] = new FunctionResultContent(result.CallId, replacement);
-                changes.Add(new(result.CallId, $"{runId:D}:{result.CallId}", text.Length, replacement.Length));
+                changes.Add(new(result.CallId, $"{runId:D}:{result.CallId}", text.Length, replacement.Length, "spill"));
             }
         return changes;
     }
@@ -50,7 +51,7 @@ public static class HarnessContextOptimizer
                 {
                     var shortened = $"[Duplicate result compacted. The identical result for the same function and arguments is retained in call {retained}. This is a historical snapshot, not proof the source is still current. Read again before relying on mutable state.]";
                     message.Contents[i] = new FunctionResultContent(result.CallId, shortened);
-                    changes.Add(new(result.CallId, retained, text.Length, shortened.Length));
+                    changes.Add(new(result.CallId, retained, text.Length, shortened.Length, "duplicate"));
                 }
                 else latest[key] = result.CallId;
             }

@@ -32,6 +32,7 @@ public sealed partial class PlatformLlmCapabilityHandler
     private readonly TimeSpan _generationTimeout;
     private readonly PlatformLlmJobOptions _options;
     private readonly PlatformLlmJobService? _jobs;
+    private readonly HarnessDecisionCompactor? _decisionCompactor;
 
     public PlatformLlmCapabilityHandler(
         CSweetDbContext dbContext,
@@ -42,8 +43,10 @@ public sealed partial class PlatformLlmCapabilityHandler
         IMediaAssetService mediaAssets,
         ILogger<PlatformLlmCapabilityHandler> logger,
         PlatformLlmJobOptions? jobOptions = null,
-        PlatformLlmJobService? jobs = null)
+        PlatformLlmJobService? jobs = null,
+        HarnessDecisionCompactor? decisionCompactor = null)
     {
+        _decisionCompactor = decisionCompactor;
         _dbContext = dbContext;
         _providerFactory = providerFactory;
         _employeeIdentityResolver = employeeIdentityResolver;
@@ -389,6 +392,33 @@ public sealed partial class PlatformLlmCapabilityHandler
         }
         var omitInstructionEvidence = caseInstructions?.Episodes.Count > 0 || _dbContext.RequiresContentFreeModelAudit(runLog);
         runLog.OmitMemoryAuditContent = omitInstructionEvidence;
+        // Decision compaction: after exact-duplicate removal, before spill, under the same content gate as spill.
+        // Its own usage is recorded, never charged to the task budget (like nur's auxiliary inference).
+        HarnessDecisionStats? decisionStats = null;
+        if (harness?.Policy is { CompactContext: true, DecisionCompaction: true })
+        {
+            if (_decisionCompactor is not { Engine.Available: true } decisionCompactor)
+                decisionStats = HarnessDecisionStats.Skip("no decision engine is configured");
+            else if (omitInstructionEvidence) decisionStats = HarnessDecisionStats.Skip("memory-derived or content-free request", decisionCompactor.Engine);
+            else if (hasMediaContext) decisionStats = HarnessDecisionStats.Skip("media context", decisionCompactor.Engine);
+            else if (!HarnessDecisionCompactor.IsUnderPressure(EstimatePromptTokens(input, options.Instructions, messages), effectiveContextTokens))
+                decisionStats = HarnessDecisionStats.Skip("not under context pressure", decisionCompactor.Engine);
+            else
+            {
+                try
+                {
+                    var decided = await decisionCompactor.CompactAsync(installationId, messages, requestToken);
+                    decisionStats = decided.Stats;
+                    contextChanges = contextChanges.Concat(decided.Changes).ToArray();
+                }
+                catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    // The compactor changes messages only after every answer arrived, so a failure leaves them as Compact left them.
+                    _logger.LogWarning("Decision compaction for request {RequestId} was skipped: {Error}", request.RequestId, error.GetType().Name);
+                    decisionStats = HarnessDecisionStats.Skip(error is OperationCanceledException ? "timed out" : "failed", decisionCompactor.Engine);
+                }
+            }
+        }
         if (harness?.Policy.CompactContext == true && !omitInstructionEvidence && InferenceExecutionAttribution.Current is not null &&
             session.Grant.RequestedCapabilities.Contains(HarnessContextCapabilityHandler.Capability))
             contextChanges = contextChanges.Concat(HarnessContextOptimizer.Spill(messages, runLog.Id)).ToArray();
@@ -409,7 +439,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         { input.Temperature, MaxOutputTokens = effectiveMaxOutputTokens, input.ReasoningEffort, input.ReasoningOutput,
             harnessPolicyRevision = harness?.Policy.Revision, stage = harness?.Stage, routeAttempt,
             skillRevisions = harness?.Skills.Select(x => new { x.Id, x.Version, x.Digest }).ToArray(),
-            contextChanges, inputTokenUpperBound = inputUpperBound });
+            contextChanges, decisionCompaction = decisionStats, inputTokenUpperBound = inputUpperBound });
         runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = diagnosticInstructions,
             effectiveMaxOutputTokens, model = selectedModel,
             contextScope = new { runtimeId = session.RuntimeInstanceId, tickId = session.TickId }, caseMemory = caseInstructions is null ? null : new
@@ -1094,6 +1124,12 @@ public sealed partial class PlatformLlmCapabilityHandler
                 return resolved;
         return null;
     }
+
+    // Same inputs as the compacted-prompt fit check, measured with the decision engine's tokenizer-free estimate.
+    private static long EstimatePromptTokens(PlatformChatRequest input, string? instructions, IReadOnlyList<ChatMessage> messages) =>
+        HarnessDecisionTokens.Estimate(JsonSerializer.Serialize(input.Tools)) + HarnessDecisionTokens.Estimate(input.ResponseSchema?.GetRawText()) +
+        HarnessDecisionTokens.Estimate(instructions) + messages.Sum(x => x.Contents.Sum(content =>
+            content is TextContent text ? HarnessDecisionTokens.Estimate(text.Text) : HarnessDecisionTokens.Estimate(JsonSerializer.Serialize(content))));
 
     private static ChatMessage ToChatMessageWithoutMedia(PlatformChatMessage message) => new(
         ParseRole(message.Role),

@@ -558,6 +558,14 @@ public static class DependencyInjection
         builder.Services.AddScoped<CurrentActivityService>();
         builder.Services.AddScoped<RunInspectorService>();
         builder.Services.AddScoped<CSweet.Infrastructure.Agents.HarnessWorkspaceService>();
+        // Optional decision-model compaction. Resolved once per process; an unavailable engine changes nothing.
+        var decisionModel = HarnessDecisionModelOptions.From(builder.Configuration);
+        builder.Services.AddSingleton(decisionModel);
+        builder.Services.AddSingleton(HarnessDecisionEngineResolver.Resolve(decisionModel));
+        builder.Services.AddSingleton<HarnessDecisionCache>();
+        builder.Services.AddHttpClient<HarnessDecisionClient>(client => { client.Timeout = Timeout.InfiniteTimeSpan; client.MaxResponseContentBufferSize = 1024 * 1024; })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+        builder.Services.AddScoped<HarnessDecisionCompactor>();
         builder.Services.AddScoped<ProjectHealthReader>();
         builder.Services.AddScoped<ProjectHealthService>();
         builder.Services.AddScoped<CurrentActivityFeedReader>();

@@ -11,7 +11,8 @@ using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.Agents;
 
 public sealed class HarnessWorkspaceService(CSweetDbContext db, IAgentConfigurationService configurations,
-    IAgentInteractiveRuntimeService runtimes, ILlmProviderSecretStore secrets, TimeProvider clock)
+    IAgentInteractiveRuntimeService runtimes, ILlmProviderSecretStore secrets, TimeProvider clock,
+    HarnessDecisionEngine? decisionEngine = null)
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public static readonly string[] Stages = ["Default", "Planning", "Execution", "Review", "Judgment"];
@@ -93,7 +94,8 @@ public sealed class HarnessWorkspaceService(CSweetDbContext db, IAgentConfigurat
         findings.Add(new("judgments", "Info", "Judgment output quality", judgments.Count == 0 ? "No validated judgments are recorded among the most recent 100 model calls." : $"{judgments.Count(x => x == "Valid")} of {judgments.Count} recent judgments matched the allowed schema. This measures format validity, not correctness.", employeeUrl));
         var availableProviders = await db.LlmProviderProfiles.AsNoTracking().Where(x => x.IsEnabled).OrderBy(x => x.Name)
             .Select(x => new HarnessProviderOption(x.Id, x.Name, x.DefaultChatModel)).ToArrayAsync(token);
-        return new(policy, skills.Select(Map).ToArray(), findings, clock.GetUtcNow(), availableProviders);
+        return new(policy, skills.Select(Map).ToArray(), findings, clock.GetUtcNow(), availableProviders,
+            (decisionEngine ?? HarnessDecisionEngine.Unavailable("not configured")).Describe());
     }
 
     public async Task<HarnessPolicy> SaveAsync(Guid installation, Guid actor, SaveHarnessPolicy request, CancellationToken token)
@@ -229,6 +231,12 @@ public sealed class HarnessWorkspaceService(CSweetDbContext db, IAgentConfigurat
         }
         if (granted.Contains("platform.harness.judge") && routes.All(x => x.Stage != "Judgment"))
             findings.Add(new("route:Judgment", "Blocked", "Judgment route", "The agent may request advisory judgments, but no Judgment route is configured, so every judgment fails.", employeeUrl));
+        // Configuration presence only: Doctor never calls the decision engine and never shows its key.
+        findings.Add(decisionEngine?.Available == true
+            ? new("decision-model", "Ready", "Decision model", $"{decisionEngine.Host} ({decisionEngine.Model}) is configured. " +
+                (policy.CompactContext && policy.DecisionCompaction ? "Under context pressure it chooses which old tool calls and results to keep."
+                    : policy.CompactContext ? "It is switched off for this agent." : "It is used only when context compaction is on."), employeeUrl)
+            : new("decision-model", "Info", "Decision model", "Not configured: set CSweet__Harness__DecisionModel__ApiKey, TYPESAFE_API_KEY, or a local endpoint. Compaction uses duplicate removal only.", employeeUrl));
         if (policy.CompactContext && !granted.Contains("platform.harness.context.read"))
             findings.Add(new("context", "Attention", "Context retrieval", "Compaction is on, but historical context retrieval is not granted. Only exact duplicates shrink; large results are kept in full.", employeeUrl));
         return findings;

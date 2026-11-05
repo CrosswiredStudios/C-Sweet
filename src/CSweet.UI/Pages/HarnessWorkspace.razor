@@ -26,6 +26,8 @@
             <MudTabPanel Text="@L["HarnessWorkspace.ModelsBudgets"]" Icon="@Icons.Material.Outlined.Tune">
                 <section class="harness-section"><h2>@L["HarnessWorkspace.ContextEfficiency"]</h2><p>@L["HarnessWorkspace.CompactExactRepeatedToolResults"]</p>
                     <MudSwitch T="bool" @bind-Value="_compact" Label="@L["HarnessWorkspace.CompactDuplicateContext"]" />
+                    <MudSwitch T="bool" @bind-Value="_decision" Disabled="@(!_compact)" Label="@L["HarnessWorkspace.UseDecisionModel"]" />
+                    <p class="harness-description">@(workspace.DecisionModel is { Available: true } engine ? L.Format("HarnessWorkspace.DecisionModelAvailable", new { host = engine.Host, model = engine.Model }) : L["HarnessWorkspace.DecisionModelUnavailable"])</p>
                 </section>
                 <section class="harness-section"><h2>@L["HarnessWorkspace.SharedTaskCeilings"]</h2><p>@L["HarnessWorkspace.CanonicalChildWorkAndRetries"]</p>
                     <div class="harness-fields"><MudNumericField T="long?" @bind-Value="_tokens" Label="@L["HarnessWorkspace.TaskTokenCeiling"]" Min="1" Variant="Variant.Outlined" /><MudNumericField T="decimal?" @bind-Value="_cost" Label="@L["HarnessWorkspace.TaskCostCeiling"]" Min="0.000001m" Variant="Variant.Outlined" /></div>
@@ -65,7 +67,7 @@
     [Parameter] public Guid InstallationId { get; set; }
     private WorkspaceResponse? _workspace;
     private string? _error, _notice;
-    private bool _busy, _compact;
+    private bool _busy, _compact, _decision = true;
     private int _judgmentOutputTokens = 512;
     private long? _tokens;
     private decimal? _cost;
@@ -106,7 +108,7 @@
         try {
             _workspace = await Http.GetFromJsonAsync<WorkspaceResponse>($"api/agents/{InstallationId:D}/harness");
             if (_workspace is { } w) {
-                _judgmentOutputTokens = w.Policy.JudgmentOutputTokens; _compact = w.Policy.CompactContext; _tokens = w.Policy.TaskTokenLimit; _cost = w.Policy.TaskCostLimit;
+                _judgmentOutputTokens = w.Policy.JudgmentOutputTokens; _compact = w.Policy.CompactContext; _decision = w.Policy.DecisionCompaction; _tokens = w.Policy.TaskTokenLimit; _cost = w.Policy.TaskCostLimit;
                 _routes.Clear();
                 foreach (var x in w.Policy.Routes ?? [])
                 {
@@ -127,7 +129,7 @@
         var policy = new HarnessPolicy(_workspace.Policy.Revision, _compact, _tokens, _cost,
             _routes.Select(x => new HarnessRoute(x.Stage.Trim(), x.Provider, x.Model.Trim(), x.Input, x.Output,
                 x.Fallbacks.Count == 0 ? null : x.Fallbacks.Select(f => new HarnessRouteTarget(f.Provider, f.Model.Trim(), f.Input, f.Output)).ToArray())).ToArray(),
-            _skills.ToArray(), _judgmentOutputTokens);
+            _skills.ToArray(), _judgmentOutputTokens, _decision);
         await Mutate(async () => await Http.PutAsJsonAsync($"api/agents/{InstallationId:D}/harness", new SaveHarnessPolicy(_workspace.Policy.Revision, policy)), L["HarnessWorkspace.PolicySaved"]);
     }
     private Task PublishAsync() => Mutate(async () => await Http.PostAsJsonAsync($"api/agents/{InstallationId:D}/harness/skills", new PublishHarnessSkill(_name, _instructions, _capabilities.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))), L["HarnessWorkspace.SkillPublished"]);
