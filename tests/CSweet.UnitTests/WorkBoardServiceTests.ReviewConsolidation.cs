@@ -25,7 +25,7 @@ public sealed partial class WorkBoardServiceTests
                 new(Guid.NewGuid(), 1, [], "test", "test"))); return;
         }
         var board = Assert.Single((await service.ListDirectoryAsync(owner.OrganizationId, owner.ApplicationUserId, new())).Boards);
-        var column = await db.WorkBoardColumns.Where(x => x.BoardId == board.Id).Select(x => x.Id).FirstAsync();
+        var column = await db.WorkBoardColumns.Where(x => x.BoardId == board.Id && x.Category==WorkBoardColumnCategory.ToDo).OrderBy(x=>x.Position).Select(x => x.Id).FirstAsync();
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         WorkTask Task(string name, string criterion) => new() { Id = Guid.NewGuid(), OrganizationId = owner.OrganizationId,
             BoardId = board.Id, BoardColumnId = column, Identifier = name, Title = name, Status = WorkTaskStatus.Ready,
@@ -88,6 +88,7 @@ public sealed partial class WorkBoardServiceTests
         }
         var result = await service.ConsolidateReviewsAsync(owner.OrganizationId, board.Id, owner.ApplicationUserId, request);
         Assert.Contains(review.Id, result.CancelledReviewIds); Assert.Equal(WorkTaskStatus.Cancelled, review.Status);
+        Assert.Equal(WorkBoardColumnCategory.Done,(await db.WorkBoardColumns.SingleAsync(x=>x.Id==review.BoardColumnId)).Category);
         Assert.Equal(WorkItemExecutionStatus.Cancelled, reviewItem.Status);
         Assert.Equal(WorkStageExecutionStatus.Failed, qa.Status); Assert.Equal(7, canonical.AssignmentRevision);
         Assert.Equal(canonical.Id, Assert.Single(dependent.Dependencies).DependsOnWorkItemId);
@@ -103,6 +104,10 @@ public sealed partial class WorkBoardServiceTests
         Assert.NotEmpty(await db.ApplicationRealtimeOutbox.ToListAsync());
         await service.ConsolidateReviewsAsync(owner.OrganizationId, board.Id, owner.ApplicationUserId, request);
         Assert.Single(await db.WorkOrchestrationEvents.Where(x => x.EventType == "reviews.consolidated").ToListAsync());
+        review.BoardColumnId=column;await db.SaveChangesAsync();
+        await service.ConsolidateReviewsAsync(owner.OrganizationId,board.Id,owner.ApplicationUserId,request);
+        Assert.Equal(WorkBoardColumnCategory.Done,(await db.WorkBoardColumns.SingleAsync(x=>x.Id==review.BoardColumnId)).Category);
+        Assert.Single(await db.WorkOrchestrationEvents.Where(x=>x.EventType=="reviews.consolidated.columns-reconciled").ToListAsync());
         // A replay repairs only this older implementation's derived nested pin, with
         // unchanged criteria and no started candidate; it does not reopen QA.
         finalScopes[1]=finalScopes[1] with {ChildPlanningRevisions=new Dictionary<Guid,long>{[workflowTicket.Id]=workflowTicket.PlanningRevision-1}};

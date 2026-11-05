@@ -62,8 +62,38 @@ work `0af2b9ad-a707-4ef8-b908-cf85853d0b1d`; the existing quality stage is Runni
 no error and no retry timer. The Producer is Running too. Final QA acceptance remains pending.
 Source changes and local packages do not themselves update installed agents.
 
+## Accepted recovery, November 5
+
+After SDK 5.10.0 and QA 5.5.0 were published and installed, the existing quality stage
+recovered at 20:06:42 UTC from the actual recorded QA 5.4.11 executor. The platform accepted
+both exact criteria at 20:11:42 UTC; ticket #38 and Sprint 2 completed. The first recovered
+reporting call used 23,712 input tokens, and the recovered run peaked at
+44,410 input tokens across 12 calls. Generation 43's 16 passing exact-build behavioral checks were reused.
+
+The consolidated Story source-preparation ticket #41 and Epic source preparation then
+completed automatically. Release build readiness reached a separate current-authority wait:
+the Technical Director's project grants covered only a VM without outbound networking.
+The owner approved a replacement within the existing one-instance, 2 CPU, 2 GiB RAM,
+20 GiB disk limits, with outbound access and the existing approved local preview behavior.
+The unused generation-1 offline VM had no executed workloads; normal lifecycle teardown was
+confirmed before three project-scoped grant changes were applied atomically through
+`ComputeGrantAdministration`. No QA result, candidate identity or approved package was patched.
+
 The 5.5.0 QA follow-up uses one resumable build-transfer operation; existing completed browser and behavioral results retain their source/build/generation fences.
 
 At 18:42:34 UTC the replacement QA attempt failed with `runtime.transport` while preparing its report. The retained 16-check result remains evidence, with no accepted ticket verdict. A verified newer installed executor may supply one recovery even when prior infrastructure failures exhausted the ordinary retry budget. Recovery is still idempotent per failed attempt/package, and a failure on the same installed version does not qualify again. Product findings and permission errors remain excluded.
 
 The required follow-up rollout is SDK 5.10.0, QA 5.5.0, matching core and trusted compute provider code. Use published releases and Installed Agents for QA; source builds are verification, not an installed-agent update.
+
+## Readiness recipe correction
+
+The outbound replacement VM `32c2bb5a-2412-44fd-bff5-84ccdc7a2214` reached Ready and restored dependencies successfully. Generation 7 then failed on the older fixed `npm test` recipe because this accepted static scaffold has no declared test script. Ticket #38 and Sprint 2 remain completed; the stopped increment acceptance workflow is ticket #43, outside the sprint.
+
+SDK 5.10.1 and Technical Director 6.0.5 use optional declared tests followed by mandatory build and exact-source HTTP proof. Declared failing tests remain fatal. The bounded legacy recovery was preflighted against the actual retained script, archive, missing script and restore job. Publish SDK first, then publish/install Technical Director, restart matching core, and use owner/manager `ControlAsync` with `retry-validation` for the existing stopped release. Do not reopen #38, delete its verdict, reset the old failed compute receipt, or add duplicate QA tickets. The new restore observation, validation and local publication must be adjacent as required by `ValidateReadinessAsync`.
+
+
+## Published readiness recovery verified
+
+On November 5, the owner published SDK 5.10.1, installed Technical Director 6.0.5, and restarted C-Sweet. The installed Technical Director configuration was Current. Updating the executor did not reopen the stopped release: its previous missing-test-script finding remained until the owner-authorized Delivery **Retry validation** action (`ControlAsync`, `retry-validation`) was applied at 21:49:27 UTC.
+
+That retry started a fresh rejection epoch, so it repeated source transfer and dependency restore rather than using the previous epoch's retained restore job. Restore completed successfully; generation 13 returned exit code 0 and exact candidate/archive HTTP proof, and generation 14 published the local preview. The platform accepted build readiness at 21:52:48 UTC and dispatched release quality to QA 5.5.0. The first three QA inference calls completed successfully, using 8,718–9,479 input tokens. Ticket #38, its accepted QA verdict, and completed Sprint 2 remained unchanged. Release quality and later acceptance were still pending at this observation.

@@ -16,6 +16,15 @@ namespace CSweet.UnitTests;
 
 public sealed class WorkBoardWorkspaceTests
 {
+    [Fact]
+    public async Task AllWorkShowsCancelledStateEvenWhenAHistoricalColumnIsStale()
+    {
+        var cancelled=Item("Consolidated review") with {Status="Cancelled"};
+        var detail=Detail([cancelled],[]);
+        var (html,_)=await Render(detail with {Columns=[new(ColumnId,"Ready","ToDo",0,"HardLimit",12)]},[]);
+        Assert.Contains("Consolidated review",html);
+        Assert.Matches("class=\"ticket-column-status\" title=\"Cancelled\"[^>]*>Cancelled</span>",html);
+    }
     private static readonly Guid BoardId = Guid.NewGuid(), ColumnId = Guid.NewGuid();
 
     [Fact]

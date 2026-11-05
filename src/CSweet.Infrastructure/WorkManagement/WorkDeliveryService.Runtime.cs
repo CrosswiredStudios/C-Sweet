@@ -136,7 +136,7 @@ public sealed partial class WorkDeliveryService
             var outcome = value.Deserialize<WorkExecutionOutcomeV1>(Json) ?? throw new InvalidOperationException("The delivery result is missing.");
             if (outcome.StageExecutionId != stage.Id || outcome.AttemptId != attempt.Id || outcome.Disposition != WorkExecutionDispositions.Completed)
                 throw new InvalidOperationException(outcome.Summary.Length > 0 ? outcome.Summary : "The result does not match its authoritative attempt.");
-            if (Handler(scope, stage.StageKey) is "build-readiness" or "compute-test" && outcome.OutcomeCode == "awaiting-compute")
+            if (Handler(scope, stage.StageKey) is "build-readiness" or "compute-test" or "quality" && outcome.OutcomeCode == "awaiting-compute")
             {
                 var pending = outcome.Output.Deserialize<WorkDeliveryComputePending>(Json)!;
                 await ValidateComputeWaitAsync(plan, execution, stage, pending, ct);
@@ -294,7 +294,8 @@ public sealed partial class WorkDeliveryService
             execution.WorkItemId?.ToString("D") ?? plan.Name, null, stage.StageKey, stage.Traversal, attempt.Attempt,
             clock.GetUtcNow().AddHours(1), TicketStep(scope,stage.StageKey)!.Instructions,
             JsonSerializer.SerializeToElement(scope, Json), JsonSerializer.SerializeToElement(new WorkExecutionInputV1(plan.WorkstreamId, null, scope.PlanningRevision, scope.Planning)
-                { AllowedOutcomeCodes = ["approved", "changes_requested"] }, Json),
+                { AllowedOutcomeCodes = Handler(scope, stage.StageKey) == "quality"
+                    ? ["approved", "changes_requested", "awaiting-compute"] : ["approved", "changes_requested"] }, Json),
             WorkExecutionResumeHistory.Compact(execution.Stages.OrderBy(x => x.Traversal).ThenBy(x => x.CreatedAt).ThenBy(x => x.Id)
                 .SelectMany(x => x.Attempts.OrderBy(a => a.Attempt)).Where(x => x.Status == WorkExecutionAttemptStatus.Completed && x.ResultJson != null)
                 .Select(x => Decode<WorkExecutionOutcomeV1>(x.ResultJson!))
@@ -303,7 +304,8 @@ public sealed partial class WorkDeliveryService
             { OrganizationUserId = stage.OrganizationUserId!.Value, AgentInstallationId = installation,
               PlanningRevision = scope.PlanningRevision, Handler = TicketStep(scope, stage.StageKey)?.Handler,
               WorkflowTicketId = scope.TicketWorkflow?.TicketId, PermittedOutcomes = Handler(scope,stage.StageKey) is "build-readiness" or "compute-test"
-                  ? ["approved", "changes_requested", "awaiting-build", "awaiting-compute"] : ["approved", "changes_requested"] };
+                  ? ["approved", "changes_requested", "awaiting-build", "awaiting-compute"] : Handler(scope,stage.StageKey) == "quality"
+                  ? ["approved", "changes_requested", "awaiting-compute"] : ["approved", "changes_requested"] };
         // Persist the canonical stage before admission checks read it. The outer
         // transaction commits the stage, inbox work and event outbox together.
         await SaveDeliveryAsync(ct);

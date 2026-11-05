@@ -37,12 +37,14 @@ public sealed partial class WorkBoardService
             if (replay.BoardId != boardId || receipt.Fingerprint != fingerprint) throw new InvalidOperationException("The consolidation key has different terms.");
             // Recover an interrupted/older consolidation's derived parent pins without
             // accepting any newly edited source, criteria, workflow or started aggregate.
-            if (await RepairConsolidatedWorkflowPinsAsync(organizationId, request.CanonicalWorkItemId, token))
+            var pinsChanged = await RepairConsolidatedWorkflowPinsAsync(organizationId, request.CanonicalWorkItemId, token);
+            var columnsChanged = await RepairConsolidatedReviewColumnsAsync(organizationId,boardId,receipt.Result.CancelledReviewIds,token);
+            if (pinsChanged || columnsChanged)
             {
                 var sprint = await db.WorkSprintExecutions.SingleAsync(x => x.Id == replay.SprintExecutionId, token);
                 sprint.Revision++; sprint.UpdatedAt = DateTimeOffset.UtcNow;
                 db.WorkOrchestrationEvents.Add(new() { Id=Guid.NewGuid(), OrganizationId=organizationId, BoardId=boardId,
-                    SprintExecutionId=sprint.Id, EventType="reviews.consolidated.references-reconciled", IdempotencyKey=key+":pins-v1",
+                    SprintExecutionId=sprint.Id, EventType=pinsChanged ? "reviews.consolidated.references-reconciled" : "reviews.consolidated.columns-reconciled", IdempotencyKey=key+(pinsChanged ? ":pins-v1" : ":columns-v1"),
                     OccurredAt=sprint.UpdatedAt, DataJson=JsonSerializer.Serialize(new { request.CanonicalWorkItemId, actorId=member.Id },JsonOptions) });
                 await WorkOrchestrationBoardState.SaveBoardChangesAsync(db,sprint,sprint.UpdatedAt,token);
                 if(transaction is not null) await transaction.CommitAsync(token);
@@ -66,6 +68,7 @@ public sealed partial class WorkBoardService
         bool RequiresReview(Guid id) => visited.Add(id) && tasks.Single(x => x.Id == id).Dependencies.Any(d =>
             ids.Contains(d.DependsOnWorkItemId) || tasks.Any(t => t.Id == d.DependsOnWorkItemId) && RequiresReview(d.DependsOnWorkItemId));
         if (RequiresReview(canonical.Id)) throw new InvalidOperationException("Canonical work depends on a review being consolidated.");
+        var cancelledColumn = await ReviewTerminalColumnAsync(boardId,token);
         foreach (var mapping in request.Reviews)
         {
             var review = tasks.Single(x => x.Id == mapping.WorkItemId && x.ArchivedAt == null);
@@ -163,6 +166,7 @@ public sealed partial class WorkBoardService
             var review = tasks.Single(x => x.Id == mapping.WorkItemId);
             var item = execution.Items.Single(x => x.WorkItemId == review.Id);
             review.Status = WorkTaskStatus.Cancelled; review.BlockReason = null; review.WaitingReason = null;
+            if(cancelledColumn is {} terminalColumn) review.BoardColumnId=terminalColumn;
             review.ResultSummary = $"Consolidated into {canonical.Identifier}, native {mapping.CanonicalStageKey} stage. That stage must establish acceptance. {request.Reason}";
             review.Revision++; review.UpdatedAt = now;
             item.Status = WorkItemExecutionStatus.Cancelled; item.BlockedReason = null; item.CompletedAt = now; item.UpdatedAt = now;
@@ -179,6 +183,16 @@ public sealed partial class WorkBoardService
         await WorkOrchestrationBoardState.SaveBoardChangesAsync(db, execution, now, token);
         if (transaction is not null) await transaction.CommitAsync(token);
         return result;
+    }
+    private Task<Guid?> ReviewTerminalColumnAsync(Guid board,CancellationToken token) => db.WorkBoardColumns.Where(x=>x.BoardId==board &&
+        (x.Category==WorkBoardColumnCategory.Cancelled || x.Category==WorkBoardColumnCategory.Done))
+        .OrderBy(x=>x.Category==WorkBoardColumnCategory.Cancelled?0:1).ThenBy(x=>x.Position).Select(x=>(Guid?)x.Id).FirstOrDefaultAsync(token);
+    private async Task<bool> RepairConsolidatedReviewColumnsAsync(Guid org,Guid board,IReadOnlyList<Guid> ids,CancellationToken token)
+    {
+        if(await ReviewTerminalColumnAsync(board,token) is not {} column)return false;
+        var rows=await db.CoreWorkTasks.Where(x=>x.OrganizationId==org && x.BoardId==board && ids.Contains(x.Id) && x.Status==WorkTaskStatus.Cancelled && x.BoardColumnId!=column).ToListAsync(token);
+        foreach(var row in rows){row.BoardColumnId=column;row.Revision++;row.UpdatedAt=DateTimeOffset.UtcNow;}
+        return rows.Count!=0;
     }
     internal static Shared.WorkDeliveryScopeSnapshot[] PropagateWorkflowPlanningRevisions(Shared.WorkDeliveryScopeSnapshot[] scopes)
     {

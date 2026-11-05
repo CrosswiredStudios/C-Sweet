@@ -134,16 +134,18 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
     }
 
     [Theory]
-    [InlineData(128000, 8192, null, 128000)]
-    [InlineData(4096, 4097, 96000, 96000)]
-    [InlineData(null, 32768, null, 128000)]
+    [InlineData(128000, 8192, null, 8192)]
+    [InlineData(4096, 4097, 96000, 4097)]
+    [InlineData(null, 32768, null, 32768)]
+    [InlineData(128000, 2048, 8192, 2048)]
+    [InlineData(128000, -1, 32000, 32000)]
     [InlineData(null, 0, 32000, 32000)]
     [InlineData(4096, null, 160000, 160000)]
     [InlineData(128000, 200000, 2000, 2000)]
     [InlineData(4096, null, null, 128000)]
     [InlineData(128000, 8192, 0, -1)]
     [InlineData(128000, 8192, 256000, -1)]
-    public async Task StreamAsync_UsesAgentBudgetInsteadOfCallerOrProviderCaps(
+    public async Task StreamAsync_HonorsSmallerTaskBudgetsWithinTheAgentCeilingWithoutProviderCaps(
         int? configured, int? requested, int? agentOutput, int effective)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
@@ -432,7 +434,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         var responseFormat = Assert.IsType<ChatResponseFormatJson>(chatClient.ReceivedOptions?.ResponseFormat);
         Assert.Equal("technical_review", responseFormat.SchemaName);
         Assert.Equal("object", responseFormat.Schema!.Value.GetProperty("type").GetString());
-        Assert.Equal(128000, chatClient.ReceivedOptions?.MaxOutputTokens);
+        Assert.Equal(640, chatClient.ReceivedOptions?.MaxOutputTokens);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
         var agentUsage = Assert.Single(globalUsage.Agents, x => x.AgentKey == "test-agent");

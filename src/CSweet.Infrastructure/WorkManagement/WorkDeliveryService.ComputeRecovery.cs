@@ -47,7 +47,8 @@ public sealed partial class WorkDeliveryService
                    o.Status == "Completed" && o.CompletedAt != null && o.FailureCode is null);
     }
     internal static string LegacyVerboseNodeValidationScript(string root, WorkDeliveryRepositoryCandidate repository, string archiveHash, Guid planId) =>
-        CSweet.Agent.SDK.DeliveryComputeTest.ValidationScript(root, repository, archiveHash, "node", planId).Replace(
+        CSweet.Agent.SDK.DeliveryComputeTest.ValidationScript(root, repository, archiveHash, "node", planId)
+        .Replace("npm test --if-present && npm run build","npm test && npm run build",StringComparison.Ordinal).Replace(
             "if ! docker run --rm --network=none -v \"$PWD/source:/app\" -w /app csweet/node:22 sh -c 'npm test && npm run build' > validation.log 2>&1; then\n tail -c 6000 validation.log >&2\n exit 1\nfi",
             "docker run --rm --network=none -v \"$PWD/source:/app\" -w /app csweet/node:22 sh -c 'npm test && npm run build'", StringComparison.Ordinal);
 

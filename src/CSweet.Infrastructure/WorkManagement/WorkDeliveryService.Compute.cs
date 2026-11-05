@@ -14,10 +14,11 @@ public sealed partial class WorkDeliveryService
         Branches(plan).Where(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId)
             .All(x => x.ReadinessMode == "compute-test");
 
-    private async Task ValidateComputeWaitAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution,
+    internal async Task ValidateComputeWaitAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution,
         WorkStageExecution stage, WorkDeliveryComputePending wait, CancellationToken ct)
     {
-        if (!IsComputeTest(plan, execution) || wait.CandidateDigest != Candidate(execution)!.Digest ||
+        if ((!IsComputeTest(plan, execution) && Handler(ScopeFor(plan, execution), stage.StageKey) != "quality") ||
+            wait.CandidateDigest != Candidate(execution)!.Digest ||
             wait.OperationIds.Count > 10 || wait.OperationIds.Distinct().Count() != wait.OperationIds.Count ||
             wait.RetryAt > clock.GetUtcNow().AddMinutes(10))
             throw new InvalidOperationException("Compute waits must bind the current candidate and bounded recovery time.");
@@ -146,7 +147,8 @@ public sealed partial class WorkDeliveryService
                     throw new InvalidOperationException("Node readiness requires the adjacent successful exact-source, integrity-pinned dependency restore before tests/build.");
             }
             if (command is null || command.Executable != "/bin/sh" || command.WorkingDirectory != "/var/lib/csweet-compute/work" ||
-                !command.Arguments.SequenceEqual(new[] { "-c", expected }) ||
+                !(command.Arguments.SequenceEqual(new[] { "-c", expected }) || mode=="node" && command.Arguments.SequenceEqual(new[] { "-c",
+                    expected.Replace("npm test --if-present && npm run build","npm test && npm run build",StringComparison.Ordinal) })) ||
                 result is not { ErrorCode: null, Command: { ExitCode: 0, TimedOut: false, ErrorCode: null } output } ||
                 output.RequestId != command.RequestId ||
                 !System.Text.Encoding.UTF8.GetString(output.StandardOutput ?? []).Contains(DeliveryComputeTest.Marker(proof.CommitSha, proof.ArchiveSha256), StringComparison.Ordinal) ||

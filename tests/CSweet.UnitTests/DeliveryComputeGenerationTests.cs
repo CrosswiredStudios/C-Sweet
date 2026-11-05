@@ -80,6 +80,32 @@ public sealed class DeliveryComputeGenerationTests
     }
 
     [Theory]
+    [InlineData("valid")] [InlineData("foreign-installation")] [InlineData("foreign-project")]
+    [InlineData("changed-generation")] [InlineData("wrong-candidate")] [InlineData("unrelated-stage")]
+    public async Task Aggregate_quality_compute_wait_requires_current_candidate_project_reviewer_and_generation(string scenario)
+    {
+        await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);
+        await f.Activate(await f.Configure());await f.CompleteTasks();await f.Service.PulseAsync();
+        var plan=await f.Db.WorkDeliveryPlans.Include(p=>p.Executions).ThenInclude(e=>e.Stages).SingleAsync();
+        var execution=plan.Executions.First(e=>e.CandidateJson!=null&&e.CurrentStageKey=="quality");
+        var stage=execution.Stages.Last();var installation=Guid.NewGuid();stage.AgentInstallationId=installation;
+        var environment=new EnvironmentRecord {Id=Guid.NewGuid(),OrganizationId=f.Org,WorkstreamId=f.Project,
+            InstallationId=installation,Generation=2,ProviderId="test-provider",ProviderNodeId=Guid.NewGuid()};
+        var operation=new OperationRecord {Id=Guid.NewGuid(),OrganizationId=f.Org,InstallationId=installation,
+            EnvironmentId=environment.Id,Generation=2,Action=InfrastructureActions.Execute,Status="Completed",IdempotencyKey="qa-wait-test"};
+        f.Db.AddRange(environment,operation);
+        if(scenario=="foreign-installation")operation.InstallationId=Guid.NewGuid();
+        if(scenario=="foreign-project")environment.WorkstreamId=Guid.NewGuid();
+        if(scenario=="changed-generation")environment.Generation=3;
+        if(scenario=="unrelated-stage")stage.StageKey="technical-review";
+        await f.Db.SaveChangesAsync();
+        var candidate=JsonSerializer.Deserialize<WorkDeliveryCandidate>(execution.CandidateJson!,Json)!;
+        var wait=new WorkDeliveryComputePending(scenario=="wrong-candidate"?"wrong":candidate.Digest,[operation.Id],DateTimeOffset.UtcNow.AddMinutes(5));
+        if(scenario=="valid")await f.Service.ValidateComputeWaitAsync(plan,execution,stage,wait,default);
+        else await Assert.ThrowsAnyAsync<Exception>(()=>f.Service.ValidateComputeWaitAsync(plan,execution,stage,wait,default));
+    }
+
+    [Theory]
     [InlineData("adjacent",true)] [InlineData("same-generation",false)] [InlineData("intervening-command",false)]
     [InlineData("foreign-receipt",false)] [InlineData("unfinished-validation",false)] [InlineData("publication-before-validation",false)]
     [InlineData("different-source-archive",false)]
@@ -88,6 +114,7 @@ public sealed class DeliveryComputeGenerationTests
     [InlineData("node-unfinished-restore",false)] [InlineData("node-wrong-script",false)]
     [InlineData("node-network",true)] [InlineData("node-network-no-restore",false)]
     [InlineData("node-job",true)] [InlineData("node-job-running",false)] [InlineData("node-job-wrong-key",false)]
+    [InlineData("node-network-legacy",true)]
     public async Task RealReadinessValidationRequiresAdjacentExactCandidateCommandAndPublicationReceipts(string condition,bool valid)
     {
         await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);
@@ -117,7 +144,9 @@ public sealed class DeliveryComputeGenerationTests
             EnvironmentId=environment.Id,Generation=1,Action=InfrastructureActions.Provision,Status="Completed",CompletedAt=now.AddSeconds(-6),
             TemplateJson=condition=="mismatched-provision-template"?"{\"id\":\"other\",\"features\":[]}":"{\"id\":\"test\",\"features\":[\"docker-apps-v1\"]}"});
         var requestId=Guid.NewGuid();var root=$"/var/lib/csweet-compute/work/review-{repository.RepositoryId:N}-{candidate.Digest[..16]}";
-        var command=new ComputeGuestCommand(requestId,"/bin/sh","/var/lib/csweet-compute/work",["-c",DeliveryComputeTest.ValidationScript(root,repository,archiveHash,node?"node":"static",plan.Id)],30,8192);
+        var validationScript=DeliveryComputeTest.ValidationScript(root,repository,archiveHash,node?"node":"static",plan.Id);
+        if(condition=="node-network-legacy")validationScript=validationScript.Replace("npm test --if-present && npm run build","npm test && npm run build",StringComparison.Ordinal);
+        var command=new ComputeGuestCommand(requestId,"/bin/sh","/var/lib/csweet-compute/work",["-c",validationScript],30,8192);
         var validation=new OperationRecord {Id=Guid.NewGuid(),OrganizationId=f.Org,InstallationId=installation,EnvironmentId=environment.Id,
             Generation=3,Action=InfrastructureActions.Execute,Status="Completed",CreatedAt=now.AddSeconds(-3),CompletedAt=now.AddSeconds(-2),
             WorkloadJson=Encode(new ComputeWorkload(command)),

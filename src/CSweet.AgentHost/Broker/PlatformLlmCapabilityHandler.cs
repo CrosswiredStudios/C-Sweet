@@ -140,9 +140,9 @@ public sealed partial class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        // The authenticated installation's effective configuration owns all agent token budgets.
-        // Ignore legacy per-call caps and provider-profile defaults: neither may silently reduce
-        // the user's saved ceiling. The provider adapter can fit an explicitly rejected output limit.
+        // The installation configuration owns the ceiling. A task may request a smaller
+        // output budget, but cannot raise that ceiling. Provider-profile defaults must
+        // not silently lower it. Nonpositive legacy hints remain unspecified.
         int effectiveMaxOutputTokens = 0;
         string? budgetError = null;
         if (!Guid.TryParse(session.InstallationId, out var budgetInstallationId))
@@ -153,6 +153,8 @@ public sealed partial class PlatformLlmCapabilityHandler
             {
                 var configuration = await _configurations.ResolveInstallationAsync(budgetInstallationId, requestToken);
                 effectiveMaxOutputTokens = AgentTokenBudget.ResolveOutput(configuration.Settings);
+                if (input.MaxOutputTokens is > 0)
+                    effectiveMaxOutputTokens = Math.Min(effectiveMaxOutputTokens, input.MaxOutputTokens.Value);
             }
             catch (AgentInstallationException exception)
             {

@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Installation ceilings and task output budgets](agent-token-budgets.md) maps authenticated
+configuration limits, smaller per-task requests and effective inference diagnostics.
+
 [Developer execution plans and progress recovery](developer-execution-workflow.md)
 maps Adrian and Daniel's short persisted plans, evidence-based progress checks and
 checkpoint handoffs for unavailable infrastructure.

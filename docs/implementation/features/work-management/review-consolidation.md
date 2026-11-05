@@ -27,3 +27,5 @@ cannot refresh arbitrary edited planning or waive completed/started delivery gat
 criterion mismatches, started work, missing native stages, dependency cycles, authorization,
 idempotency and bounded repair. Live Prism Break consolidation retains #38 and cancels #39/#40
 as duplicates of its existing technical review and independent Chromium QA.
+
+`RepairConsolidatedReviewColumnsAsync` repairs historical cancelled reviews left in an active column. Prefer a configured Cancelled column, otherwise Done; preserve canonical Cancelled status. Matching receipt replay records `reviews.consolidated.columns-reconciled` and commits the board notification atomically. The All Work card footer displays canonical cancellation, and sprint badges identify completed sprints or workflow work outside sprints. An empty active-sprint view after Sprint 2 completion is expected while release workflow #43 is pending.
