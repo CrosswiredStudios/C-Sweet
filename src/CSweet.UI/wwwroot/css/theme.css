@@ -1,0 +1,360 @@
+@import url("presets.css");
+
+/* Inter is self-hosted: no third-party request on first paint, and the product
+   still renders as designed on an air-gapped install. Latin subset, 400-800. */
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url("../fonts/InterVariable.woff2") format("woff2");
+}
+
+/* Shared geometry and role aliases. Presets are generated from the built-in appearance
+   catalog; Night Glass is the neutral black default.
+   Legacy component variable names resolve to these roles, including portals. */
+
+/* ---------------------------------------------------------------------------
+   1. Primitives
+   ------------------------------------------------------------------------ */
+:root {
+    /* C-Sweet brand, unchanged */
+    --brand-navy: #18233f;
+    --brand-navy-deep: #0b2e53;
+    --brand-ivory: #fffcf7;
+    --brand-mint: #9be7c2;
+    --brand-amber: #f2b84b;
+    --brand-coral: #e85d75;
+
+    /* Instruments */
+    --font-sans: "Inter", "Inter var", ui-sans-serif, system-ui, -apple-system,
+                 "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", "SF Mono", Menlo,
+                 Consolas, monospace;
+
+    /* Type scale — base 14px, prose 15px */
+    --t-xs: 0.75rem;
+    --t-sm: 0.8125rem;
+    --t-base: 0.875rem;
+    --t-prose: 0.9375rem;
+    --t-lg: 1.125rem;
+    --t-xl: 1.375rem;
+    --t-2xl: 1.75rem;
+
+    /* Spacing — 4px rhythm */
+    --s-1: 0.25rem;
+    --s-2: 0.5rem;
+    --s-3: 0.75rem;
+    --s-4: 1rem;
+    --s-6: 1.5rem;
+    --s-8: 2rem;
+    --s-12: 3rem;
+
+    /* Geometry — two radii, as in the reference */
+    --r-sm: 6px;
+    --r-lg: 12px;
+    --r-xl: 16px;
+    --r-full: 999px;
+
+    /* Motion — three curves */
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-morph: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+    --d-press: 140ms;
+    --d-fast: 140ms;
+    --d-base: 200ms;
+    --d-slow: 280ms;
+
+    --content-max: 1600px;
+}
+
+/* ---------------------------------------------------------------------------
+   4. Aliases — the names the existing components already read
+   ----------------------------------------------------------------------------
+   Components across 139 stylesheets read `--cs-*`, `--activity-*`, `--pb-*`
+   and the MudBlazor palette directly. Mapping those here is what lets a
+   single token change repaint the whole product without editing every file.
+   ------------------------------------------------------------------------ */
+:root {
+    --cs-navy: var(--ink);
+    --cs-navy-deep: var(--ink);
+    --cs-ivory: var(--paper);
+    --cs-surface: var(--surface);
+    --cs-mint: var(--mint);
+    --cs-mint-strong: var(--mint);
+    --cs-mint-soft: var(--mint-soft);
+    --cs-amber: var(--warm);
+    --cs-coral: var(--danger);
+    --cs-border: var(--edge);
+    --cs-muted: var(--muted);
+    --cs-radius: var(--r-lg);
+    --cs-shadow: var(--z-2);
+
+    /* The ring must read as a ring: the hairline edge sits below 3:1 on paper. */
+    --cs-focus: var(--warm);
+    --cs-focus-ring-width: 2px;
+    --cs-focus-offset: 2px;
+
+    --cs-nav-background: var(--surface);
+    --cs-nav-text: var(--ink);
+    --cs-nav-muted: var(--muted);
+    --cs-nav-accent: var(--mint);
+    --cs-nav-hover: var(--hover);
+    --cs-nav-selected: var(--mint-soft);
+
+    /* Activity surfaces (Communications, Command Center) */
+    --activity-panel: var(--surface);
+    --activity-raised: var(--elevated);
+    --activity-text: var(--ink);
+    --activity-muted: var(--muted);
+    --activity-border: var(--edge);
+    --activity-accent: var(--mint);
+    --activity-tint: var(--mint-soft);
+
+    /* Personal board */
+    --pb-ink: var(--ink);
+    --pb-muted: var(--muted);
+    --pb-line: var(--edge);
+    --pb-green: var(--mint);
+    --pb-mint: var(--mint);
+    --pb-soft: var(--hover);
+    --pb-warning: var(--warm);
+
+    /* Aurora widget chrome */
+    --aurora-widget: var(--surface);
+    --aurora-widget-border: var(--edge);
+
+    /* MudBlazor palette — the runtime theme mirrors these, but scoped CSS
+       reads them before the provider settles, so they are declared here too. */
+    --mud-palette-primary: var(--action);
+    --mud-palette-primary-text: var(--action-ink);
+    --mud-palette-primary-contrast-text: var(--action-ink);
+    --mud-palette-primary-hover: color-mix(in srgb, var(--action) 88%, var(--ink));
+    --mud-palette-primary-darken: color-mix(in srgb, var(--action) 80%, #000);
+
+    --mud-palette-secondary: var(--muted);
+    --mud-palette-tertiary: var(--warm);
+
+    --mud-palette-surface: var(--surface);
+    --mud-palette-background: var(--paper);
+    --mud-palette-background-gray: var(--elevated);
+    --mud-palette-background-grey: var(--elevated);
+
+    --mud-palette-text-primary: var(--ink);
+    --mud-palette-text-secondary: var(--muted);
+    --mud-palette-text-disabled: var(--faint);
+
+    --mud-palette-action-default: var(--muted);
+    --mud-palette-action-default-hover: var(--hover);
+    --mud-palette-action-disabled: var(--faint);
+
+    --mud-palette-lines-default: var(--edge);
+    --mud-palette-lines-inputs: var(--edge-strong);
+    --mud-palette-divider: var(--edge);
+
+    --mud-palette-info: var(--accent-2);
+    --mud-palette-info-text: var(--info-ink);
+    --mud-palette-success: var(--ok);
+    --mud-palette-success-contrast-text: var(--ok-ink);
+    --mud-palette-success-hover: color-mix(in srgb, var(--ok) 85%, var(--ink));
+    --mud-palette-success-darken: color-mix(in srgb, var(--ok) 75%, #000);
+    --mud-palette-warning: var(--warm);
+    --mud-palette-warning-hover: color-mix(in srgb, var(--warm) 85%, var(--ink));
+    --mud-palette-warning-darken: color-mix(in srgb, var(--warm) 75%, #000);
+    --mud-palette-error: var(--danger);
+    --mud-palette-error-darken: var(--danger-darken);
+    --mud-palette-error-hover: color-mix(in srgb, var(--danger) 85%, var(--ink));
+
+    --mud-palette-appbar-background: var(--surface);
+    --mud-palette-appbar-text: var(--ink);
+    --mud-palette-drawer-background: var(--surface);
+    --mud-palette-drawer-text: var(--ink);
+    --mud-palette-drawer-icon: var(--muted);
+
+    --mud-typography-default-family: var(--font-sans);
+    --mud-typography-button-text-transform: none;
+    --mud-typography-button-font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   5. Base
+   ------------------------------------------------------------------------ */
+html,
+body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+body {
+    /* Numerals are instruments: they must not reflow as they change. */
+    font-variant-numeric: tabular-nums;
+    overscroll-behavior-y: none;
+}
+
+::selection {
+    background: var(--mint-soft);
+    color: var(--ink);
+}
+
+:focus-visible {
+    outline: var(--cs-focus-ring-width) solid var(--cs-focus);
+    outline-offset: var(--cs-focus-offset);
+}
+
+a {
+    color: var(--mint);
+    text-underline-offset: 0.18em;
+}
+
+code,
+kbd,
+pre,
+samp,
+time,
+.mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+code {
+    color: var(--warm);
+    background: var(--sunken);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-sm);
+    padding: 0.05em 0.35em;
+    font-size: 0.92em;
+}
+
+/* ---------------------------------------------------------------------------
+   6. Material primitives
+   ----------------------------------------------------------------------------
+   `.cs-panel` and `.cs-glass` are the two surfaces the product is made of.
+   Depth comes from fill + hairline + top specular, never from a heavy shadow.
+   ------------------------------------------------------------------------ */
+.cs-panel {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--sheen);
+}
+
+.cs-elevated {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-1);
+}
+
+.cs-glass {
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--sheen);
+    -webkit-backdrop-filter: blur(18px) saturate(115%);
+    backdrop-filter: blur(18px) saturate(115%);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    .cs-glass {
+        background: var(--surface);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   7. Motion primitives
+   ------------------------------------------------------------------------ */
+.cs-pressable {
+    transition:
+        transform var(--d-fast) var(--ease),
+        background-color var(--d-fast) var(--ease),
+        border-color var(--d-fast) var(--ease),
+        color var(--d-fast) var(--ease);
+}
+
+.cs-pressable:active {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .cs-pressable:hover {
+        background-color: var(--hover);
+    }
+}
+
+@keyframes cs-enter {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes cs-arrive {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes cs-shimmer {
+    to {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes cs-pulse {
+    0%, 100% {
+        opacity: 0.45;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.08);
+    }
+}
+
+.cs-skeleton {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--r-sm);
+    background: var(--hover);
+}
+
+.cs-skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, var(--sheen), transparent);
+    animation: cs-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cs-pressable:active {
+        transform: none;
+    }
+
+    .cs-skeleton::after {
+        animation: none;
+    }
+}

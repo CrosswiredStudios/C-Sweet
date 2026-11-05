@@ -88,7 +88,10 @@ public sealed partial class ProjectHealthPostgresTests
             Assert.Equal(2, statusMessages.Count);
             Assert.All(statusMessages, x => Assert.Contains("status report; no decision is requested", x.Content));
             Assert.Empty(await db.ExecutiveDecisions.ToListAsync());
-            Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
+            // Escalated failures reach the owner as status reports: visible, but never a decision request.
+            var ownerAttention = await service.ReadAttentionAsync(org.Id, owner.Id, default);
+            Assert.NotEmpty(ownerAttention);
+            Assert.All(ownerAttention, x => { Assert.True(x.IsStatusReport); Assert.Null(x.ResolutionDecision); });
             Assert.Empty(await service.ReadAttentionAsync(org.Id, producer.Id, default));
             var savedPersonal = await db.CoreWorkTasks.SingleAsync(x => x.Id == personal.Id);
             savedPersonal.Status = WorkTaskStatus.Completed;
@@ -136,7 +139,8 @@ public sealed partial class ProjectHealthPostgresTests
                 Assert.All(await db.ProjectIncidents.Where(x => x.Status == "Open").ToListAsync(), x => Assert.Equal(recipient, x.CurrentRecipientId));
             }
             await service.DeliverAsync(default);
-            Assert.Empty(await service.ReadAttentionAsync(org.Id, owner.Id, default));
+            Assert.All(await service.ReadAttentionAsync(org.Id, owner.Id, default),
+                x => { Assert.True(x.IsStatusReport); Assert.Null(x.ResolutionDecision); });
             dependency = await db.CoreWorkTasks.SingleAsync(x => x.Id == waiting.Id);
             dependency.Status = WorkTaskStatus.Completed; dependency.WaitingReason = null;
             var retryMessage = new ConversationMessage { Id = Guid.NewGuid(), ConversationId = direct.Id,

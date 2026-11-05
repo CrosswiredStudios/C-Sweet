@@ -1,0 +1,312 @@
+/* Shared operation tray for live setup and hiring work.
+   Every colour, radius, space, duration and shadow comes from theme.css tokens. */
+
+.ot {
+    position: fixed;
+    bottom: var(--s-6);
+    inset-inline-end: var(--s-6);
+    z-index: 1200;
+    display: grid;
+    width: min(26rem, calc(100vw - var(--s-8)));
+    overflow: hidden;
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    background: var(--elevated);
+    box-shadow: var(--z-2);
+    color: var(--ink);
+}
+
+/* ---------------------------------------------------------------- header */
+
+.ot-head {
+    position: relative;
+    display: block;
+    border-bottom: 1px solid var(--edge);
+}
+
+.ot-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-3) var(--s-4);
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .ot-toggle:hover {
+        background: var(--hover);
+    }
+}
+
+.ot-toggle:active {
+    transform: scale(0.98);
+}
+
+.ot-toggle:focus-visible {
+    outline: var(--cs-focus-ring-width) solid var(--cs-focus);
+    outline-offset: calc(-1 * var(--cs-focus-offset));
+}
+
+.ot-toggle-glyph {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 1rem;
+    height: 1rem;
+    color: var(--muted);
+    transition: transform var(--d-base) var(--ease);
+}
+
+.ot-toggle[aria-expanded="false"] .ot-toggle-glyph {
+    transform: rotate(-90deg);
+}
+
+.ot-toggle-text {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s-1) var(--s-3);
+}
+
+.ot-title {
+    color: var(--ink);
+    font-size: var(--t-sm);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.ot-counters {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s-2);
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+.ot-counter {
+    white-space: nowrap;
+}
+
+.ot-counter-sep {
+    color: var(--faint);
+}
+
+/* Live region: announced by assistive tech, not duplicated on screen —
+   the same numbers are already visible in the toggle label. */
+.ot-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ------------------------------------------------------------------ body */
+
+.ot-body {
+    display: grid;
+    max-height: 45vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.ot-body[hidden] {
+    display: none;
+}
+
+.ot-list {
+    display: grid;
+    margin: 0;
+    padding: var(--s-1) 0;
+    gap: 0;
+    list-style: none;
+}
+
+.ot-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--s-2) var(--s-3);
+    padding: var(--s-2) var(--s-4);
+}
+
+.ot-item + .ot-item {
+    border-top: 1px solid var(--edge);
+}
+
+.ot-item-main {
+    display: grid;
+    min-width: 0;
+    gap: var(--s-1);
+}
+
+.ot-item-top {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s-1) var(--s-2);
+}
+
+.ot-label {
+    overflow: hidden;
+    min-width: 0;
+    max-width: 100%;
+    color: var(--ink);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ot-state {
+    flex: 0 0 auto;
+    padding: 0 var(--s-2);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+.ot-elapsed {
+    margin-inline-start: auto;
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ot-detail {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--t-xs);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+/* Status mark: shape plus the spelled-out label, so colour is never load-bearing. */
+.ot-mark {
+    flex: 0 0 auto;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-top: var(--s-1);
+    border-radius: 50%;
+    background: var(--warm);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warm) 22%, transparent);
+}
+
+.ot-item[data-state="succeeded"] .ot-mark {
+    background: var(--mint);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 22%, transparent);
+}
+
+.ot-item[data-state="failed"] .ot-mark {
+    background: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.ot-item[data-state="cancelled"] .ot-mark {
+    background: var(--faint);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 22%, transparent);
+}
+
+.ot-item[data-state="succeeded"] .ot-state {
+    border-color: var(--edge-strong);
+    color: var(--mint);
+}
+
+.ot-item[data-state="failed"] .ot-state {
+    border-color: var(--edge-strong);
+    color: var(--danger);
+}
+
+.ot-item[data-state="cancelled"] .ot-state {
+    color: var(--faint);
+}
+
+/* -------------------------------------------------------------- progress */
+
+.ot-progress {
+    position: relative;
+    height: 3px;
+    margin: var(--s-1) 0 var(--s-2);
+    overflow: hidden;
+    border-radius: var(--r-sm);
+    background: var(--edge);
+}
+
+/* Fill is drawn with a scale transform, not width: transform-only motion,
+   composited off the layout thread. */
+.ot-progress-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--warm);
+    transform: scaleX(var(--ot-p, 0));
+    transform-origin: left center;
+    transition: transform var(--d-base) var(--ease);
+}
+
+.ot-progress-fill:dir(rtl) {
+    transform-origin: right center;
+}
+
+.ot-item[data-state="succeeded"] .ot-progress-fill {
+    background: var(--mint);
+}
+
+.ot-item[data-state="failed"] .ot-progress-fill {
+    background: var(--danger);
+}
+
+.ot-item[data-state="cancelled"] .ot-progress-fill {
+    background: var(--faint);
+}
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 600px) {
+    .ot {
+        bottom: var(--s-4);
+        inset-inline-end: var(--s-4);
+        width: calc(100vw - var(--s-8));
+    }
+
+    .ot-body {
+        max-height: 38vh;
+    }
+}
+
+/* ---------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+    .ot-toggle:active {
+        transform: none;
+    }
+
+    .ot-toggle-glyph,
+    .ot-progress-fill {
+        transition: none;
+    }
+}
+
+.ot-item[data-state="attention"] .ot-mark { background: var(--warm); }
+.ot-item[data-state="attention"] .ot-state { color: var(--warm); }

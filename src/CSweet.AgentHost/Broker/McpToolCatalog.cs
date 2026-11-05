@@ -6,6 +6,7 @@ using CSweet.Contracts.Plugins;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Agents;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Setup;
 using CSweet.Memory;
@@ -67,9 +68,25 @@ public sealed class McpToolCatalog(
         { "type": "array", "items": { "type": "object" } }
         """);
 
+    /// <summary>
+    /// Read-only views of the caller's own authority and harness state. Every agent may use them
+    /// without a grant (they reveal nothing beyond its own installation), so they are always listed,
+    /// always model-visible and exempt from setup-context restrictions.
+    /// </summary>
+    public static readonly IReadOnlySet<string> SelfReadCapabilities = new HashSet<string>(StringComparer.Ordinal)
+        { AgentGovernanceCapabilityHandler.Read, HarnessStatusCapabilityHandler.Capability };
+
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
+        Read(AgentGovernanceCapabilityHandler.Read, "read_agent_governance", "Read your current posture and up to 20 of your own operation approvals. Use after approval wakes or reconnecting. Retry only an approved exact request; never repeat an unconfirmed execution."),
         .. ComputeMcpTools.All,
+        new McpToolDescriptor(HarnessJudgmentCapabilityHandler.Capability, "advisory_judgment",
+            "Advisory bounded Relevance, Risk or Completeness classification. Cannot approve operations or change authority.",
+            Schema("""{"type":"object","properties":{"kind":{"type":"string","enum":["Relevance","Risk","Completeness"]},"input":{"type":"string","minLength":1,"maxLength":12000}},"required":["kind","input"],"additionalProperties":false}"""), null, McpToolExecutionPolicy.ReadOnly),
+        Read(HarnessStatusCapabilityHandler.Capability, "read_harness_status", "Read your own effective model route (stage, provider, model, fallback count), context compaction, assigned skills and the remaining shared task token/cost budget. Check before large or repeated model work; an exhausted budget needs a manager, not a retry."),
+        new McpToolDescriptor(HarnessContextCapabilityHandler.Capability, HarnessContextOptimizer.ContextToolName,
+            "Read a bounded historical tool-result snapshot from this same active work attempt. Never treat a snapshot as current source state.",
+            Schema("""{"type":"object","properties":{"runId":{"type":"string","format":"uuid"},"callId":{"type":"string","maxLength":300},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":16000}},"required":["runId","callId"],"additionalProperties":false}"""), null, McpToolExecutionPolicy.ReadOnly),
         .. DelegationToolSchemas.Tools,
         .. ResearchAndCheckpointToolSchemas.Tools,
         Read(W.WorkDeliveryCapabilities.Read, "read_delivery_plans", "Discover bounded, authorized project releases and their exact current scope."),
@@ -495,12 +512,12 @@ public sealed class McpToolCatalog(
         var requirements = (requesterManifest?.Requires ?? [])
             .GroupBy(x => x.Name, StringComparer.Ordinal)
             .ToDictionary(x => x.Key, x => x.Single(), StringComparer.Ordinal);
-        var tools = List(session.Grant.RequiredCapabilities)
+        var tools = List(session.Grant.RequiredCapabilities.Concat(SelfReadCapabilities).ToHashSet(StringComparer.Ordinal))
             .Select(tool => tool with
             {
-                ModelVisible = tool.ModelVisible &&
+                ModelVisible = SelfReadCapabilities.Contains(tool.Capability) || (tool.ModelVisible &&
                     requirements.TryGetValue(tool.Capability, out var requirement) &&
-                    requirement.ModelVisible
+                    requirement.ModelVisible)
             })
             .ToList();
         var bindings = await db.AgentCapabilityBindings.AsNoTracking()
@@ -543,7 +560,9 @@ public sealed class McpToolCatalog(
                 declaration.Description,
                 declaration.InputSchema,
                 declaration.OutputSchema,
-                manifest?.Kind == "remote-mcp" ? McpToolExecutionPolicy.ReadOnly : McpToolExecutionPolicy.AdvisoryWrite,
+                // Connector tools reach this point only for read operations (filtered above).
+                manifest?.Kind == "remote-mcp" || binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector
+                    ? McpToolExecutionPolicy.ReadOnly : McpToolExecutionPolicy.AdvisoryWrite,
                 ModelVisible: requirements.TryGetValue(binding.Capability, out var requesterRequirement) &&
                               requesterRequirement.ModelVisible,
                 ProviderInstallationId: binding.ProviderInstallationId,
@@ -636,6 +655,7 @@ public sealed class McpToolCatalog(
                 """);
         return capability switch
         {
+            AgentGovernanceCapabilityHandler.Read => Schema("""{"type":"object","properties":{"approvalId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
         ProjectApprovalGovernance.ReadCapability => Schema("""
             {"type":"object","properties":{"proposalId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),

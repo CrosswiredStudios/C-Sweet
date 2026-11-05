@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "No se cargaron publicaciones guardadas.",
   "ShareWorkInstruction.History.More": "Más publicaciones",
   "Communications.SendingAndConversationActionsAre": ". El envío y las acciones de la conversación están deshabilitados.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "Más",
+  "DecisionPrompt.ReadFullQuestion": "Leer la pregunta completa en Comunicaciones"
 }

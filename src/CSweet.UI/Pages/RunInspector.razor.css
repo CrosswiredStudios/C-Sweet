@@ -1,0 +1,20 @@
+.run-inspector { padding: 2rem; max-width: 100rem; margin: auto; color: var(--ink); }
+.inspector-heading { display: flex; justify-content: space-between; gap: 1.5rem; align-items: center; margin-bottom: 2rem; }
+.inspector-heading h1 { margin: .4rem 0; font-size: clamp(1.8rem, 3vw, 2.6rem); }
+.inspector-heading p, .inspector-notice, .inspector-meta { color: var(--muted); }
+.inspector-eyebrow { color: var(--warm); font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; }
+.inspector-usage { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.inspector-usage div { padding: 1rem; border: 1px solid var(--edge); border-radius: .8rem; background: var(--surface); }
+.inspector-usage strong, .inspector-usage span { display: block; }
+.inspector-usage strong { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+.inspector-usage span { color: var(--muted); font-size: .8rem; }
+.inspector-workspace { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(0, 1.5fr); gap: 1.5rem; margin-bottom: 1.5rem; }
+.inspector-nodes { display: grid; gap: .65rem; align-content: start; max-height: 65vh; overflow: auto; padding: .2rem; }
+.inspector-node { display: grid; text-align: start; gap: .3rem; border: 1px solid var(--edge); border-radius: .7rem; background: var(--surface); color: var(--ink); padding: .9rem; cursor: pointer; }
+.inspector-node.selected, .inspector-node:focus-visible { border-color: var(--warm); outline: 2px solid var(--warm-soft); outline-offset: 2px; }
+.child-node { margin-inline-start: 1.2rem; border-inline-start: 3px solid var(--edge-strong); }
+.node-kind, .node-parent, .inspector-node time { font-size: .75rem; color: var(--muted); }
+.inspector-evidence { min-width: 0; padding: 1.5rem; background: var(--surface); border: 1px solid var(--edge); border-radius: .8rem; }
+.inspector-evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto; font-size: .85rem; }
+.inspector-meta { overflow-wrap: anywhere; font-size: .8rem; }
+@media (max-width: 850px) { .run-inspector { padding: 1rem; } .inspector-workspace { grid-template-columns: minmax(0, 1fr); } .inspector-usage { grid-template-columns: repeat(2,minmax(0,1fr)); } .inspector-nodes { max-height: 35vh; } }

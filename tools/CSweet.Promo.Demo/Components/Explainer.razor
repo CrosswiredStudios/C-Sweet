@@ -80,6 +80,6 @@
     [Parameter] public string Scene { get; set; } = "focus";
     private bool _ready;
     private AgentHireDialog? _hire;
-    protected override async Task OnParametersSetAsync() { Data.Select("cinematic",Scene); await Appearance.SetThemeAsync("aurora"); _ready=true; }
+    protected override async Task OnParametersSetAsync() { Data.Select("cinematic",Scene); await Appearance.InitializeAsync(); _ready=true; }
     private Task OpenChief() => _hire!.OpenAsync(Data.FilmAgent(0), "Chief of Staff");
 }

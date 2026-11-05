@@ -2,7 +2,17 @@ namespace CSweet.AgentHost.Broker;
 
 internal static class LlmProviderFailureMessage
 {
-    internal static bool IsTransient(Exception exception) => exception switch
+    // Platform-authored failures carry a fixed code and retry rule, and their messages are content-free,
+    // so they are returned verbatim. One table keeps code, retry and message from drifting apart.
+    private static (string Code, bool Transient)? Platform(Exception exception) => exception switch
+    {
+        CSweet.Infrastructure.Agents.HarnessBudgetExceededException => ("harness.budget_exhausted", false),
+        // Retrying re-reads the current policy; it is not a provider outage and never triggers fallback.
+        CSweet.Infrastructure.Agents.HarnessPolicyChangedException => ("harness.policy_changed", true),
+        _ => null
+    };
+
+    internal static bool IsTransient(Exception exception) => Platform(exception)?.Transient ?? exception switch
     {
         HttpRequestException http => http.StatusCode is null || (int)http.StatusCode is 408 or 429 or >= 500,
         System.ClientModel.ClientResultException client => client.Status is 408 or 429 or >= 500,
@@ -20,6 +30,8 @@ internal static class LlmProviderFailureMessage
             return "The provider configuration or caller authorization changed before dispatch. Refresh the current work and permissions before retrying.";
         if (exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract)
             return contract.Message;
+        if (Platform(exception) is not null)
+            return exception.Message;
         if (exception is IOException && IsTransient(exception))
             return "The connection to the model provider was interrupted before the response finished. The incomplete response was not accepted; retry the pending work after the connection recovers.";
         if (exception is TimeoutException)
@@ -38,6 +50,7 @@ internal static class LlmProviderFailureMessage
     }
 
     internal static string CodeFrom(Exception exception) => exception is CSweet.Infrastructure.Llm.ProviderDispatchDeniedException
-        ? "llm.dispatch_denied" : exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract
+        ? "llm.dispatch_denied" : Platform(exception) is { } platform
+        ? platform.Code : exception is CSweet.Infrastructure.Llm.LlmResponseContractException contract
         ? contract.FailureCode : IsTransient(exception) ? "llm.provider_unavailable" : "llm.request_failed";
 }

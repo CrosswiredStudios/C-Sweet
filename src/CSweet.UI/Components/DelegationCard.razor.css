@@ -1,0 +1,280 @@
+/* Delegation packet card.
+   Every colour, radius, gap and duration comes from the tokens declared in
+   wwwroot/css/theme.css, so a preset switch repaints the card with no edits here. */
+
+.delegation-card {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-4);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--t-base);
+    line-height: 1.45;
+    box-shadow: var(--z-1);
+}
+
+.delegation-card[aria-busy="true"] {
+    opacity: 0.72;
+}
+
+.delegation-head {
+    display: grid;
+    gap: var(--s-1);
+}
+
+.delegation-eyebrow {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.delegation-head-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--s-3);
+}
+
+.delegation-title {
+    margin: 0;
+    min-width: 0;
+    color: var(--ink);
+    font-size: var(--t-lg);
+    font-weight: 650;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+/* The chip carries a word, not just a hue: status must survive greyscale,
+   colour blindness, and a forced-colours user agent. */
+.delegation-status-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-1);
+    padding: var(--s-1) var(--s-3);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-full);
+    background: var(--elevated);
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.delegation-status-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: var(--r-full);
+    background: currentColor;
+}
+
+.delegation-status-chip-pending {
+    border-color: color-mix(in srgb, var(--warm) 45%, transparent);
+    background: color-mix(in srgb, var(--warm) 14%, transparent);
+    color: var(--warm);
+}
+
+.delegation-status-chip-accepted {
+    border-color: color-mix(in srgb, var(--accent-2) 45%, transparent);
+    background: color-mix(in srgb, var(--accent-2) 14%, transparent);
+    color: var(--accent-2);
+}
+
+.delegation-status-chip-completed {
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    background: color-mix(in srgb, var(--ok) 14%, transparent);
+    color: var(--ok);
+}
+
+.delegation-status-chip-declined {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--danger);
+}
+
+.delegation-status-chip-expired,
+.delegation-status-chip-unknown {
+    border-color: var(--edge);
+    background: var(--elevated);
+    color: var(--faint);
+}
+
+.delegation-card-declined .delegation-title,
+.delegation-card-expired .delegation-title {
+    color: var(--muted);
+}
+
+.delegation-route {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s-2);
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--t-sm);
+}
+
+.delegation-route-from,
+.delegation-route-to {
+    color: var(--ink);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.delegation-route-arrow {
+    color: var(--faint);
+    font-family: var(--font-mono);
+}
+
+.delegation-scope {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--t-prose);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+
+.delegation-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--edge);
+}
+
+.delegation-meta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+    color: var(--faint);
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+}
+
+.delegation-meta-item {
+    white-space: nowrap;
+}
+
+.delegation-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    margin-inline-start: auto;
+}
+
+.delegation-button {
+    min-height: 2.25rem;
+    padding: var(--s-2) var(--s-4);
+    border: 1px solid var(--edge-strong);
+    border-radius: var(--r-sm);
+    background: var(--elevated);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .delegation-button:hover:not(:disabled) {
+        background: var(--hover);
+        border-color: var(--ink);
+    }
+}
+
+.delegation-button:focus-visible {
+    outline: none;
+    border-color: var(--warm);
+    box-shadow: 0 0 0 var(--cs-focus-ring-width, 2px) color-mix(in srgb, var(--warm) 55%, transparent);
+}
+
+.delegation-button:disabled {
+    cursor: not-allowed;
+    color: var(--faint);
+    border-color: var(--edge);
+}
+
+.delegation-button-accept,
+.delegation-button-complete {
+    background: var(--action);
+    border-color: var(--action);
+    color: var(--action-ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .delegation-button-accept:hover:not(:disabled),
+    .delegation-button-complete:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--action) 88%, var(--ink));
+        border-color: color-mix(in srgb, var(--action) 88%, var(--ink));
+    }
+
+    .delegation-button-decline:hover:not(:disabled) {
+        border-color: var(--danger);
+        color: var(--danger);
+    }
+}
+
+.delegation-message {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--t-sm);
+}
+
+.delegation-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 600px) {
+    .delegation-head-row {
+        flex-direction: column;
+    }
+
+    .delegation-actions {
+        width: 100%;
+        margin-inline-start: 0;
+    }
+
+    .delegation-button {
+        flex: 1 1 auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .delegation-button {
+        transition: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .delegation-status-dot {
+        background: CanvasText;
+    }
+
+    .delegation-button {
+        border-color: ButtonText;
+    }
+}

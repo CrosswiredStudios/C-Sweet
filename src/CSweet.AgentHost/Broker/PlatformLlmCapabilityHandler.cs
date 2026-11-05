@@ -12,6 +12,7 @@ using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Llm;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Agents;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -58,11 +59,51 @@ public sealed partial class PlatformLlmCapabilityHandler
         _jobs = jobs;
     }
 
+    // Fallback state shared across target attempts of one request. Never populated from the request payload.
+    private sealed class RouteCursor
+    {
+        public HarnessPreparation? Preparation { get; set; }
+        public bool BenchmarkPinned { get; set; }
+        public bool CanFallBack => !BenchmarkPinned && Preparation?.HasNextTarget == true;
+    }
+
     public async IAsyncEnumerable<CapabilityResult> StreamAsync(
         AgentSession session,
         RequestCapability request,
         [EnumeratorCancellation] CancellationToken cancellationToken,
-        bool providerSlotAcquired = false)
+        bool providerSlotAcquired = false, string? trustedStage = null)
+    {
+        var cursor = new RouteCursor();
+        while (true)
+        {
+            // Fall back only while nothing has reached the agent: a partial answer is never spliced across models.
+            var emitted = false;
+            CapabilityResult? unavailable = null;
+            await foreach (var chunk in StreamRouteAsync(session, request, cancellationToken, providerSlotAcquired, trustedStage, cursor))
+            {
+                if (!emitted && !chunk.Succeeded && chunk.FailureCode == "llm.provider_unavailable" &&
+                    cursor.CanFallBack && !cancellationToken.IsCancellationRequested)
+                {
+                    unavailable = chunk;
+                    break;
+                }
+                emitted = true;
+                yield return chunk;
+            }
+            if (unavailable is null) yield break;
+            var next = cursor.Preparation!.Next()!;
+            _logger.LogWarning(
+                "Platform LLM request {RequestId} for installation {InstallationId}: target {Attempt} was unavailable ({Error}); trying approved fallback {Next} ({Model}).",
+                request.RequestId, session.InstallationId, cursor.Preparation.RouteAttempt, unavailable.Error, next.RouteAttempt, next.Route!.Model);
+            cursor.Preparation = next;
+        }
+    }
+
+    private async IAsyncEnumerable<CapabilityResult> StreamRouteAsync(
+        AgentSession session,
+        RequestCapability request,
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        bool providerSlotAcquired, string? trustedStage, RouteCursor cursor)
     {
         if (_options.MaximumRequestBytes > 0 && request.Payload.Length > _options.MaximumRequestBytes)
         {
@@ -125,15 +166,32 @@ public sealed partial class PlatformLlmCapabilityHandler
         requestTimeout.CancelAfter(_generationTimeout);
         var requestToken = requestTimeout.Token;
 
+        // A fallback attempt keeps the preparation (and policy revision) validated for the primary.
+        var harness = cursor.Preparation;
+        string? harnessError = null;
+        try
+        {
+            if (harness is null && Guid.TryParse(session.InstallationId, out var harnessInstallation))
+                cursor.Preparation = harness = await HarnessRuntime.PrepareAsync(_dbContext, harnessInstallation, InferenceExecutionAttribution.Current?.WorkId, requestToken, trustedStage);
+        }
+        catch (InvalidOperationException error) { harnessError = error.Message; }
+        if (harnessError is not null) { yield return Failure(request.RequestId, harnessError, failureCode: "harness.policy_invalid"); yield break; }
+        var routeAttempt = harness?.RouteAttempt ?? 0;
+        // A benchmark variant names its own provider and model; a harness route must not replace them.
+        var benchmarkModel = Guid.TryParse(session.InstallationId, out var benchmarkInstallation)
+            ? await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ResolveAsync(_dbContext, benchmarkInstallation, session.BusinessId, requestToken)
+            : null;
+        var route = benchmarkModel is null ? harness?.Route : null;
+        var providerId = route?.ProviderId ?? input.ProviderProfileId;
         var profile = await _dbContext.LlmProviderProfiles
             .AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Id == input.ProviderProfileId && x.IsEnabled, requestToken);
+            .SingleOrDefaultAsync(x => x.Id == providerId && x.IsEnabled, requestToken);
         if (profile is null)
         {
             LogDenied(
                 session,
                 request,
-                input.ProviderProfileId,
+                providerId,
                 input.Model,
                 "The selected LLM provider profile does not exist or is disabled.");
             yield return Failure(request.RequestId, "The selected LLM provider is unavailable.");
@@ -144,6 +202,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         // Ignore legacy per-call caps and provider-profile defaults: neither may silently reduce
         // the user's saved ceiling. The provider adapter can fit an explicitly rejected output limit.
         int effectiveMaxOutputTokens = 0;
+        int effectiveContextTokens = AgentTokenBudget.DefaultContextTokens;
         string? budgetError = null;
         if (!Guid.TryParse(session.InstallationId, out var budgetInstallationId))
             budgetError = "The agent installation identity is invalid.";
@@ -153,6 +212,7 @@ public sealed partial class PlatformLlmCapabilityHandler
             {
                 var configuration = await _configurations.ResolveInstallationAsync(budgetInstallationId, requestToken);
                 effectiveMaxOutputTokens = AgentTokenBudget.ResolveOutput(configuration.Settings);
+                effectiveContextTokens = AgentTokenBudget.ResolveContext(configuration.Settings);
             }
             catch (AgentInstallationException exception)
             {
@@ -165,15 +225,16 @@ public sealed partial class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        var selectedModel = string.IsNullOrWhiteSpace(input.Model)
+        if (trustedStage == "Judgment" && harness is not null) effectiveMaxOutputTokens = Math.Min(effectiveMaxOutputTokens, harness.Policy.JudgmentOutputTokens);
+        var selectedModel = route?.Model ?? (string.IsNullOrWhiteSpace(input.Model)
             ? profile.DefaultChatModel
-            : input.Model.Trim();
+            : input.Model.Trim());
         if (string.IsNullOrWhiteSpace(selectedModel))
         {
             LogDenied(
                 session,
                 request,
-                input.ProviderProfileId,
+                providerId,
                 selectedModel,
                 "Neither the request nor the provider profile specifies a model.");
             yield return Failure(request.RequestId, "No model is configured for this LLM request.");
@@ -182,7 +243,7 @@ public sealed partial class PlatformLlmCapabilityHandler
 
         if (!await IsModelApprovedAsync(
                 session,
-                input.ProviderProfileId,
+                providerId,
                 selectedModel,
                 profile.DefaultChatModel,
                 requestToken))
@@ -190,7 +251,7 @@ public sealed partial class PlatformLlmCapabilityHandler
             LogDenied(
                 session,
                 request,
-                input.ProviderProfileId,
+                providerId,
                 selectedModel,
                 "The requested model does not match the provider default or the installation's approved model.");
             yield return Failure(request.RequestId, "The selected model is not approved for this provider profile.");
@@ -205,9 +266,9 @@ public sealed partial class PlatformLlmCapabilityHandler
             yield return Failure(request.RequestId, "The agent organization identity is unavailable.");
             yield break;
         }
-        var benchmarkModel = await CSweet.Infrastructure.Analytics.BenchmarkModelPolicy.ResolveAsync(
-            _dbContext, installationId, session.BusinessId, requestToken);
-        if (benchmarkModel is not null && (benchmarkModel.ProviderProfileId != input.ProviderProfileId ||
+        // A benchmark variant measures one provider/model; substituting a fallback would corrupt the comparison.
+        cursor.BenchmarkPinned |= benchmarkModel is not null;
+        if (benchmarkModel is not null && (benchmarkModel.ProviderProfileId != providerId ||
                 !string.Equals(benchmarkModel.Model, selectedModel, StringComparison.Ordinal)))
         {
             yield return Failure(request.RequestId, "This benchmark requires the variant's assigned provider and model.");
@@ -248,7 +309,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         }
         catch (InvalidOperationException exception)
         {
-            LogDenied(session, request, input.ProviderProfileId, selectedModel, exception.Message);
+            LogDenied(session, request, providerId, selectedModel, exception.Message);
             attachmentResolutionError = exception.Message;
             if (exception is ProviderDispatchDeniedException) preparationFailureCode = "llm.dispatch_denied";
         }
@@ -273,15 +334,17 @@ public sealed partial class PlatformLlmCapabilityHandler
         var languageInstructions = CSweet.Application.Localization.AgentLanguageInstructions.For(
             await CSweet.Infrastructure.Localization.WorkspaceLanguagePolicy.ResolveAsync(_dbContext, session.BusinessId, requestToken));
         var combinedInstructions = string.Join("\n\n", new[] { callerInstructions, caseInstructions?.Text,
-            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions, languageInstructions }
+            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions, languageInstructions, harness?.SkillInstructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         var runLog = CreateRunLog(
             session,
             identity?.EmployeeId,
-            input.ProviderProfileId,
+            providerId,
             selectedModel,
             input,
             request.Payload.Span);
+        var contextChanges = harness?.Policy.CompactContext == true ? HarnessContextOptimizer.Compact(messages) : [];
+        var inputUpperBound = (long)request.Payload.Length + Encoding.UTF8.GetByteCount(combinedInstructions);
         var runStopwatch = Stopwatch.StartNew();
         var options = new ChatOptions
         {
@@ -306,13 +369,16 @@ public sealed partial class PlatformLlmCapabilityHandler
                 }
                 : null
         };
+        inputUpperBound += Encoding.UTF8.GetByteCount(options.Instructions ?? "");
+        var hasMediaContext = messages.SelectMany(x => x.Contents).Any(x => x is not (TextContent or FunctionCallContent or FunctionResultContent or TextReasoningContent));
+        if (hasMediaContext) inputUpperBound = Math.Max(inputUpperBound, effectiveContextTokens);
+        await using var harnessBudget = harness is null ? null : new HarnessBudgetSession(_dbContext, runLog, harness,
+            session.BusinessId, Guid.Parse(session.InstallationId), inputUpperBound, effectiveMaxOutputTokens);
         runLog.PromptInstructionCharacters = options.Instructions?.Length ?? 0;
         if (caseInstructions is not null) runLog.PromptMemoryCharacters = (int)Math.Min(int.MaxValue,
             (long)(runLog.PromptMemoryCharacters ?? 0) + caseInstructions.Text.Length);
         runLog.MeasurementKind = "ProviderAttempt";
         runLog.QueueJobId = InferenceExecutionAttribution.Current?.QueueJobId;
-        runLog.InferenceSettingsJson = JsonSerializer.Serialize(new
-        { input.Temperature, MaxOutputTokens = effectiveMaxOutputTokens, input.ReasoningEffort, input.ReasoningOutput });
         // Bind the first diagnostic write to authenticated durable work as well. Full
         // analytics attribution is captured later; caller telemetry cannot supply this ID.
         if (InferenceExecutionAttribution.Current is { } diagnosticAttribution && runLog.OrganizationId is { } diagnosticOrganization)
@@ -323,13 +389,30 @@ public sealed partial class PlatformLlmCapabilityHandler
         }
         var omitInstructionEvidence = caseInstructions?.Episodes.Count > 0 || _dbContext.RequiresContentFreeModelAudit(runLog);
         runLog.OmitMemoryAuditContent = omitInstructionEvidence;
+        if (harness?.Policy.CompactContext == true && !omitInstructionEvidence && InferenceExecutionAttribution.Current is not null &&
+            session.Grant.RequestedCapabilities.Contains(HarnessContextCapabilityHandler.Capability))
+            contextChanges = contextChanges.Concat(HarnessContextOptimizer.Spill(messages, runLog.Id)).ToArray();
         // The dispatch receipt carries lineage. Diagnostics retain identifiers/counts, never an extra copy
         // of automatically projected memory which an erasure inventory cannot independently account for.
         var diagnosticInstructions = omitInstructionEvidence
             ? identity is null ? callerInstructions : AgentEmployeeIdentityResolver.ApplyToInstructions(session, identity, callerInstructions)
             : options.Instructions;
+        if (harness?.Policy.CompactContext == true && !hasMediaContext)
+        {
+            // A byte count is a deliberately conservative text-token upper bound. Reserve the full response budget.
+            var promptBytes = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(input.Tools)) + Encoding.UTF8.GetByteCount(input.ResponseSchema?.GetRawText() ?? "") + Encoding.UTF8.GetByteCount(options.Instructions ?? "") + messages.Sum(x => x.Contents.Sum(content =>
+                content is TextContent text ? Encoding.UTF8.GetByteCount(text.Text) : Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(content))));
+            if (promptBytes > effectiveContextTokens - effectiveMaxOutputTokens)
+            { yield return Failure(request.RequestId, "The compacted prompt cannot fit while reserving the configured output budget. Shorten the context or update the installation budgets."); yield break; }
+        }
+        runLog.InferenceSettingsJson = JsonSerializer.Serialize(new
+        { input.Temperature, MaxOutputTokens = effectiveMaxOutputTokens, input.ReasoningEffort, input.ReasoningOutput,
+            harnessPolicyRevision = harness?.Policy.Revision, stage = harness?.Stage, routeAttempt,
+            skillRevisions = harness?.Skills.Select(x => new { x.Id, x.Version, x.Digest }).ToArray(),
+            contextChanges, inputTokenUpperBound = inputUpperBound });
         runLog.RequestEvidenceJson = JsonSerializer.Serialize(new { request = input, effectiveInstructions = diagnosticInstructions,
-            effectiveMaxOutputTokens, model = selectedModel, caseMemory = caseInstructions is null ? null : new
+            effectiveMaxOutputTokens, model = selectedModel,
+            contextScope = new { runtimeId = session.RuntimeInstanceId, tickId = session.TickId }, caseMemory = caseInstructions is null ? null : new
             { contentPolicy = "memory-content-omitted-v1", caseInstructions.CaseId, caseInstructions.SourceHash,
                 sourceIds = caseInstructions.Episodes.Select(x => x.Id).ToArray(), characters = caseInstructions.Text.Length } }, JsonOptions);
         await TryPersistRunLogAsync(runLog, requestToken);
@@ -340,14 +423,30 @@ public sealed partial class PlatformLlmCapabilityHandler
         var generation = new ModelGenerationTracker(runLog);
 
         // Older SDKs still serialize with queued jobs, but need an SDK update for
-        // short polling and acknowledged-wait deadline accounting.
-        using var providerPermit = providerSlotAcquired || _jobs is null ? null :
-            await _jobs.AcquireProviderAsync(input.ProviderProfileId, requestToken);
+        // short polling and acknowledged-wait deadline accounting. A queued job holds the
+        // routed primary's slot; a fallback target needs its own provider's slot.
+        IDisposable? acquiredPermit = null;
+        if (_jobs is not null && routeAttempt == 0 && !providerSlotAcquired)
+            acquiredPermit = await _jobs.AcquireProviderAsync(providerId, requestToken);
+        else if (_jobs is not null && routeAttempt > 0)
+        {
+            acquiredPermit = await TryAcquireFallbackSlotAsync(providerId, requestToken);
+            if (acquiredPermit is null)
+            {
+                CompleteRunLog(runLog, runStopwatch, "Failed", null, null, responseText,
+                    "The fallback provider has no free capacity.", omitMemoryContent: omitInstructionEvidence);
+                await TryPersistRunLogAsync(runLog, CancellationToken.None);
+                yield return Failure(request.RequestId, "The model provider and its fallback are currently unavailable. Retry the pending work later.", retryable: true);
+                yield break;
+            }
+        }
+        using var providerPermit = acquiredPermit;
         var instructionReadRecorded = false;
         using var dispatch = new ProviderDispatchScope(
             async token =>
             {
                 await AuthorizeDispatchAsync(session, profile, selectedModel, identity?.EmployeeId, token);
+                if (harness is not null) await HarnessRuntime.ValidateAsync(_dbContext, Guid.Parse(session.InstallationId), harness, token);
                 if (caseInstructions is null || instructionInvocation is null) return;
                 var work = await _dbContext.AgentWorkItems.AsNoTracking().SingleAsync(x => x.Id == instructionInvocation.WorkId, token);
                 await new MemoryRecallDispatchEvidence(_dbContext).ValidateCaseInstructionsAsync(caseInstructions, work, employeeId, token);
@@ -360,7 +459,8 @@ public sealed partial class PlatformLlmCapabilityHandler
                     instructionReadRecorded = true;
                 }
             },
-            () => runLog.ProviderStartedAt ??= DateTimeOffset.UtcNow);
+            () => runLog.ProviderStartedAt ??= DateTimeOffset.UtcNow,
+            beforeDispatch: harnessBudget is null ? null : harnessBudget.ReserveAsync);
 
         IAsyncEnumerator<ChatResponseUpdate>? updates = null;
         string? providerError = null;
@@ -373,13 +473,13 @@ public sealed partial class PlatformLlmCapabilityHandler
                 request.RequestId,
                 session.AgentId,
                 session.InstallationId,
-                input.ProviderProfileId,
+                providerId,
                 selectedModel,
                 input.Messages.Count,
                 input.Tools?.Count ?? 0,
                 input.Messages.Sum(MessageSize));
             var chatClient = await _providerFactory.CreateChatClientAsync(
-                input.ProviderProfileId,
+                providerId,
                 selectedModel,
                 requestToken);
             await CSweet.Infrastructure.Analytics.InferenceAttribution.CaptureAsync(_dbContext, runLog,
@@ -419,7 +519,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                 request.RequestId,
                 session.AgentId,
                 session.InstallationId,
-                input.ProviderProfileId,
+                providerId,
                 selectedModel);
             providerError = LlmProviderFailureMessage.From(exception);
             providerRetryable = LlmProviderFailureMessage.IsTransient(exception);
@@ -483,7 +583,7 @@ public sealed partial class PlatformLlmCapabilityHandler
                         request.RequestId,
                         session.AgentId,
                         session.InstallationId,
-                        input.ProviderProfileId,
+                        providerId,
                         selectedModel);
                     providerError = LlmProviderFailureMessage.From(exception);
                     providerRetryable = LlmProviderFailureMessage.IsTransient(exception);
@@ -787,6 +887,19 @@ public sealed partial class PlatformLlmCapabilityHandler
             ? value
             : value[..maximumLength];
 
+    // A queued job already holds the primary's slot. Waiting indefinitely for a second provider's slot
+    // could deadlock two installations whose routes fall back toward each other, so the wait is bounded.
+    private async Task<IDisposable?> TryAcquireFallbackSlotAsync(Guid provider, CancellationToken token)
+    {
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(token);
+        wait.CancelAfter(FallbackSlotWait);
+        try { return await _jobs!.AcquireProviderAsync(provider, wait.Token); }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested) { return null; }
+        catch (InvalidOperationException) { return null; }
+    }
+
+    internal static TimeSpan FallbackSlotWait { get; set; } = TimeSpan.FromSeconds(30);
+
     private async Task<bool> IsModelApprovedAsync(
         AgentSession session,
         Guid providerProfileId,
@@ -805,6 +918,8 @@ public sealed partial class PlatformLlmCapabilityHandler
             return false;
         }
 
+        var harnessPolicy = await HarnessWorkspaceService.ReadPolicyAsync(_dbContext, installationId, cancellationToken);
+        if (HarnessRuntime.Approves(harnessPolicy, providerProfileId, selectedModel)) return true;
         var effective = await _configurations.ResolveInstallationAsync(installationId, cancellationToken);
         return effective.Settings.TryGetValue("llmProviderId", out var providerElement) &&
             providerElement.ValueKind == JsonValueKind.String &&

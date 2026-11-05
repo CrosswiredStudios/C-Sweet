@@ -17,6 +17,7 @@
   "NewBusinessDialog.BeginWithANameA": "Начните с названия, миссии и идеи.",
   "NewBusinessDialog.StartFresh": "Начать с нуля",
   "NewBusinessDialog.BusinessFromCodebases": "Бизнес на основе кода",
+  "NewBusinessDialog.ExistingBusiness": "Существующий бизнес",
   "NewBusinessDialog.BringAnAppGameOr": "Используйте приложение, игру или сайт, которые вы уже создаёте.",
   "NewBusinessDialog.ConnectGitHubOrUploadZIPs": "Подключите GitHub или загрузите ZIP-архивы",
   "NewBusinessDialog.YourAssistantHelpsPrepareThe": "Помощник подготовит контекст. Вы проверите его, а затем выберете руководителя аппарата.",

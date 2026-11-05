@@ -259,6 +259,16 @@ public sealed class WorkBoardWorkspaceTests
     }
 
     [Fact]
+    public async Task MovableCardsOfferKeyboardMovesAndAnnounceThem()
+    {
+        var (html, _) = await Render(Detail([Item("Keyboard work")], [WorkItemActions.Move]), []);
+        Assert.Contains("ticket-drag", html);
+        Assert.Contains("aria-keyshortcuts=\"ArrowLeft ArrowRight\"", html);
+        Assert.Contains("press Left or Right arrow to move between columns", html);
+        Assert.Contains("aria-live=\"polite\"", html);
+    }
+
+    [Fact]
     public async Task ArchivedBoardRemainsReadableWithoutCreateOrDrag()
     {
         var board = Detail([Item("Archived work")], [WorkItemActions.Create, WorkItemActions.Move]);
@@ -285,7 +295,7 @@ public sealed class WorkBoardWorkspaceTests
         var sprint = Sprint("Active"); var item = Item("Movement", sprint.Id);
         var execution = new Wire.WorkSprintExecutionResponse(Guid.NewGuid(), BoardId, sprint.Id, Guid.NewGuid(), Guid.NewGuid(), "Active", 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, [ExecutionItem(item, "Decision <script> required")]);
         var (html, _) = await Render(Detail([item], [WorkSprintActions.Read, WorkOrchestrationActions.Read]), [sprint], HttpStatusCode.OK, execution);
-        Assert.Contains("1 need attention", html);
+        Assert.Contains("1 item needs attention", html);
         Assert.Contains("&lt;script&gt;", html);
         Assert.DoesNotContain("<script>", html);
     }

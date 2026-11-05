@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "默认内存 (MB)",
   "AgentRuntimeSettings.MaximumMemory": "最大内存 (MB)",
   "AgentRuntimeSettings.CodingInitialMemory": "编码初始内存 (MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "程序员进程/线程上限",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "适用于新的程序员虚拟机。在 Linux 上，线程也计入此上限。现有虚拟机在被替换前保留其已签名的上限。",
   "AgentRuntimeSettings.CodingMaximumMemory": "编码最大内存 (MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "编码虚拟机最大替换次数",
   "AgentRuntimeSettings.DefaultCpu": "默认 CPU (%)",

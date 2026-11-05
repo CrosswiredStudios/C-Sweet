@@ -83,7 +83,7 @@ public sealed class ProjectDeliverySetupTests
         await Assert.ThrowsAnyAsync<Exception>(() => service.PrepareDeliveryAsync(manager.OrganizationId, manager.AgentInstallationId!.Value, request, default));
         Assert.Empty(db.WorkBoards); Assert.Empty(db.ProjectParticipants); Assert.Empty(db.AgentPlatformEventOutbox);
     }
-    [Fact]
+    [SiblingAgentRepositoryFact("Producer.VideoGame")]
     public void Published_manager_profile_has_a_valid_bounded_execution_graph()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);

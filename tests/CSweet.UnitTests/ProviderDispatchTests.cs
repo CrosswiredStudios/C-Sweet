@@ -97,6 +97,23 @@ public sealed class ProviderDispatchTests
     }
 
     [Fact]
+    public async Task EachActualTransportRetryReservesOnceButAuthorizationReadsDoNotReserve()
+    {
+        using var transport = new WireHandler { FirstResponse = HttpStatusCode.ServiceUnavailable };
+        using var http = new HttpClient(transport);
+        var options = new OpenAIClientOptions { Endpoint = new("https://provider.invalid/v1/"), Transport = new HttpClientPipelineTransport(http) };
+        options.AddPolicy(new ProviderDispatchPolicy(_ => Task.CompletedTask), PipelinePosition.BeforeTransport);
+        using var client = new DispatchManagedChatClient(OpenAiCompatibleLlmProviderFactory.AdaptChatClient(
+            new OpenAI.Chat.ChatClient("test", new ApiKeyCredential("test"), options), true));
+        var reservations = 0;
+        using var scope = new ProviderDispatchScope(_ => Task.CompletedTask, beforeDispatch: _ => { reservations++; return Task.CompletedTask; });
+        await ProviderDispatchScope.AuthorizeCurrentAsync(default);
+        Assert.Equal(0, reservations);
+        await Call(client, false);
+        Assert.Equal(2, transport.Calls); Assert.Equal(2, reservations);
+    }
+
+    [Fact]
     public async Task FactoryRechecksProviderOnSdkRetry()
     {
         var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;

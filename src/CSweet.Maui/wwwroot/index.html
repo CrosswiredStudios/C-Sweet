@@ -3,26 +3,59 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#050505" />
     <title>C-Sweet</title>
     <base href="/" />
+    <script src="_content/CSweet.UI/js/themeCatalog.js"></script>
+    <script src="_content/CSweet.UI/js/appearance.js"></script>
+
+    <!-- Inter is self-hosted (see theme.css @font-face), same as the web host. -->
+    <link rel="preload" href="_content/CSweet.UI/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+
     <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
-    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="_content/CSweet.UI/css/theme.css" />
     <link rel="stylesheet" href="_content/CSweet.UI/css/app.css" />
     <link rel="stylesheet" href="_content/CSweet.UI/CSweet.UI.bundle.scp.css" />
+    <link rel="stylesheet" href="app.css" />
     <link rel="icon" href="data:,">
+    <!-- Chrome loads last: it is the final word on how the product looks. -->
+    <link rel="stylesheet" href="_content/CSweet.UI/css/chrome.css" />
 </head>
 
 <body>
 
     <div class="status-bar-safe-area"></div>
 
-    <div id="app">Loading...</div>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
 
     <div id="blazor-error-ui" data-nosnippet>
         An unhandled error has occurred.
         <a href="." class="reload">Reload</a>
-        <span class="dismiss">🗙</span>
+        <span class="dismiss">Dismiss</span>
     </div>
+
+    <!-- Boot watchdog, as in the web host. A successful Blazor boot *replaces*
+         everything inside #app, so a spinner still there after 12s means the
+         WebView runtime never started. -->
+    <script>
+        (function () {
+            window.setTimeout(function () {
+                if (!document.querySelector("#app .loading-progress")) return;
+                var app = document.getElementById("app");
+                var text = app && app.querySelector(".loading-progress-text");
+                if (!app || !text) return;
+                app.classList.add("boot-failed");
+                text.innerHTML = "C-Sweet isn’t responding. Close and reopen the app. " +
+                    "<a class=\"boot-retry\" href=\".\">Reload</a>";
+            }, 12000);
+        })();
+    </script>
 
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>

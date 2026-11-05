@@ -8,12 +8,13 @@ using CSweet.Contracts.Core;
 
 namespace CSweet.Promo.Demo;
 
-public sealed class FixtureHandler(DemoData data) : HttpMessageHandler
+public sealed partial class FixtureHandler(DemoData data) : HttpMessageHandler
 {
     public static ConcurrentQueue<string> Failures { get; } = new();
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var path = request.RequestUri!.AbsolutePath.TrimEnd('/');
+        if (await HarnessAsync(request, path, cancellationToken) is { } harness) return harness;
         var org = data.OrganizationId.ToString();
         var root = $"/api/organizations/{org}";
         var core = $"/api/core/organizations/{org}";
@@ -43,6 +44,7 @@ public sealed class FixtureHandler(DemoData data) : HttpMessageHandler
             else if (path == $"{root}/documents/folders") payload = Array.Empty<ArtifactFolderResponse>();
             else if (path == $"{root}/calendar") payload = data.Calendar;
             else if (path == $"{root}/calendar/reminders") payload = Array.Empty<object>();
+            payload ??= NavigationPayload(path);
         }
         // Hire preview is a typed, in-memory fixture. Confirmation never reaches a live service.
         else if (data.Campaign == "cinematic" && request.Method == HttpMethod.Post && path == $"{core}/hiring/marketplace/preview")

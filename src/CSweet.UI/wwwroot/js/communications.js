@@ -2,8 +2,18 @@ export function isDocumentVisible() {
     return document.visibilityState === "visible";
 }
 
-export function scrollToBottom(element) {
+/**
+ * Scrolls to the newest message.
+ *
+ * `force` is passed when a conversation is opened: the newest message must be in
+ * view regardless of where the reader was in the previous one. Without it the list
+ * only follows when the reader is already parked at the bottom, so an arriving
+ * message never yanks someone off the history they are reading.
+ */
+export function scrollToBottom(element, force) {
     if (!element) return;
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (!force && distanceFromBottom > 80) return;
     element.scrollTop = element.scrollHeight;
 }
 

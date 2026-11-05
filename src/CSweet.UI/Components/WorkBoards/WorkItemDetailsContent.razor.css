@@ -37,14 +37,14 @@ h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 
 .ticket-criteria li::before { content: counter(criterion, decimal-leading-zero); flex: 0 0 20px; padding-top: 2px; color: var(--mud-palette-primary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .ticket-disclosure { padding: 14px 0; border-top: 1px solid var(--ticket-line); }
 .ticket-disclosure summary { cursor: pointer; display: flex; align-items: center; gap: 8px; list-style: none; font-size: 13px; font-weight: 500; }
-.ticket-disclosure summary::after { content: "+"; margin-left: auto; color: var(--ticket-muted); }
+.ticket-disclosure summary::after { content: "+"; margin-inline-start: auto; color: var(--ticket-muted); }
 .ticket-disclosure[open] summary::after { content: "−"; }
 .ticket-disclosure-content { padding-top: 14px; font-size: 13px; line-height: 1.65; color: var(--ticket-muted); }
 .ticket-disclosure-content p { margin: 0; }
-.ticket-disclosure-content ul { margin: 0; padding-left: 20px; }
+.ticket-disclosure-content ul { margin: 0; padding-inline-start: 20px; }
 .ticket-disclosure-content li + li { margin-top: 8px; }
 .ticket-disclosure-content code { white-space: pre-wrap; overflow-wrap: anywhere; }
-.ticket-related-link { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 0; border: 0; background: transparent; text-align: left; color: var(--mud-palette-primary); font: inherit; font-size: 13px; cursor: pointer; }
+.ticket-related-link { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 0; border: 0; background: transparent; text-align: start; color: var(--mud-palette-primary); font: inherit; font-size: 13px; cursor: pointer; }
 .ticket-related-link > span { min-width: 0; overflow-wrap: anywhere; }
 .ticket-related-link small { display: block; margin-top: 3px; color: var(--ticket-muted); font-size: 11px; }
 .ticket-related-link:hover { text-decoration: underline; }
@@ -60,7 +60,7 @@ h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 
 .ticket-approval-empty { display: flex; gap: 7px; align-items: flex-start; color: var(--ticket-muted); font-size: 12px; line-height: 1.6; margin: 0; }
 .ticket-approval-empty ::deep .mud-icon-root { color: var(--mud-palette-success); flex-shrink: 0; }
 .ticket-editorial-footer { flex-shrink: 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 28px; border-top: 1px solid var(--ticket-line); }
-.ticket-footer-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ticket-footer-actions { margin-inline-start: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ticket-editorial-footer ::deep .mud-button-root, .ticket-editorial-footer ::deep .work-tracking button { font-size: 12px; text-transform: none; }
 .ticket-activity-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
 .ticket-activity-heading h3 { margin: 0; }
@@ -73,7 +73,7 @@ h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 
 .ticket-related-link:focus-visible, summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 3px; }
 @container ticket-editorial (min-width: 760px) {
     .ticket-editorial-grid { grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; }
-    .ticket-delivery-sidebar { border-top: 0; padding-top: 0; border-left: 1px solid var(--ticket-line); padding-left: 24px; }
+    .ticket-delivery-sidebar { border-top: 0; padding-top: 0; border-inline-start: 1px solid var(--ticket-line); padding-inline-start: 24px; }
 }
 @container ticket-editorial (max-width: 520px) {
     .ticket-editorial-header { padding: 8px 16px; }

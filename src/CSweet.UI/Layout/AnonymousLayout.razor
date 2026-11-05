@@ -1,8 +1,10 @@
 @inherits LayoutComponentBase
 @inject AppCulture Culture
+@inject AppearanceState Appearance
+@implements IDisposable
 @inject IAppLocalizer L
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider Theme="Appearance.MudTheme" IsDarkMode="Appearance.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -33,21 +35,8 @@
 @code {
     private Task OnLanguageChanged(ChangeEventArgs e) => Culture.SetLanguageAsync(e.Value?.ToString());
 
-    private readonly MudTheme _theme = new()
-    {
-        PaletteLight = new PaletteLight
-        {
-            Primary = "#18233F",
-            Secondary = "#9BE7C2",
-            SecondaryContrastText = "#18233F",
-            Tertiary = "#9BE7C2",
-            Background = "#FFFCF7",
-            Surface = "#FFFFFF",
-            TextPrimary = "#0B2E53",
-            TextSecondary = "#52606D",
-            Error = "#B3261E",
-            Success = "#23845C",
-            Warning = "#F2B84B"
-        }
-    };
+    protected override void OnInitialized() => Appearance.Changed += OnAppearanceChanged;
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await Appearance.InitializeAsync(); }
+    private void OnAppearanceChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Appearance.Changed -= OnAppearanceChanged;
 }

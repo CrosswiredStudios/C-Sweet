@@ -20,7 +20,7 @@
 .code-commit-bar code, .code-entry-kind, .commit-row code { color: var(--mud-palette-text-secondary); }
 .code-commit-subject { overflow: hidden; color: var(--mud-palette-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .code-row:last-child { border-bottom: 0; }
-.code-row-button { appearance: none; width: 100%; border-top: 0; border-right: 0; border-left: 0; background: var(--mud-palette-surface); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.code-row-button { appearance: none; width: 100%; border-top: 0; border-inline-end: 0; border-inline-start: 0; background: var(--mud-palette-surface); color: inherit; font: inherit; text-align: start; cursor: pointer; }
 .code-row-button:hover { background: var(--mud-palette-action-default-hover); }
 .code-entry-name { color: var(--mud-palette-primary); font-weight: 500; overflow-wrap: anywhere; }
 .code-entry-kind { font-size: .8rem; }
@@ -49,7 +49,7 @@
 .action-row:last-child { border-bottom: 0; }
 .action-row p { margin: 3px 0 0; font-size: .85rem; }
 .ref-create { display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: start; padding: 18px 0; border-bottom: 1px solid var(--mud-palette-divider); }
-.ref-link { appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer; display: flex; align-items: center; gap: 10px; font: inherit; padding: 0; text-align: left; }
+.ref-link { appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer; display: flex; align-items: center; gap: 10px; font: inherit; padding: 0; text-align: start; }
 .ref-link span { color: var(--mud-palette-primary); font-weight: 600; }
 .ref-link code { color: var(--mud-palette-text-secondary); }
 .settings-layout { display: grid; gap: 18px; max-width: 920px; }

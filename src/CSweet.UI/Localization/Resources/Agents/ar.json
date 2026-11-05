@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "الذاكرة الافتراضية (MB)",
   "AgentRuntimeSettings.MaximumMemory": "الحد الأقصى للذاكرة (MB)",
   "AgentRuntimeSettings.CodingInitialMemory": "الذاكرة الأولية للبرمجة (MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "حد العمليات/سلاسل التنفيذ للمبرمج",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "ينطبق على الأجهزة الافتراضية الجديدة للمبرمجين. في Linux تُحتسب سلاسل التنفيذ ضمن هذا الحد. تحتفظ الأجهزة الافتراضية الحالية بحدودها الموقّعة حتى يتم استبدالها.",
   "AgentRuntimeSettings.CodingMaximumMemory": "الحد الأقصى لذاكرة البرمجة (MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "الحد الأقصى لعمليات استبدال الجهاز الافتراضي للبرمجة",
   "AgentRuntimeSettings.DefaultCpu": "CPU الافتراضي (%)",

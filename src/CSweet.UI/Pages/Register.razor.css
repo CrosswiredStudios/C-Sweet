@@ -12,7 +12,7 @@
 .registration-field ::deep .validation-message { color:var(--registration-error); font-size:.8rem; line-height:1.5; }
 .registration-field > div:last-child:empty { display:none; }
 .registration-password { display:flex; position:relative; }
-.registration-password ::deep input { padding-right:66px; }
+.registration-password ::deep input { padding-inline-end:66px; }
 .registration-password button { position:absolute; right:5px; top:2px; height:44px; min-width:52px; border:0; background:transparent; color:var(--activity-accent); font-size:.75rem; border-radius:10px; }
 .registration-sheet button,.registration-sheet a { cursor:pointer; font-family:inherit; }
 .registration-sheet button:disabled { cursor:default; opacity:.5; }

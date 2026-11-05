@@ -12,6 +12,26 @@ public sealed partial class CSweetDbContext
     public DbSet<WorkTrackingUpdate> WorkTrackingUpdates => Set<WorkTrackingUpdate>();
     public DbSet<WorkTrackingOperationReceipt> WorkTrackingOperationReceipts => Set<WorkTrackingOperationReceipt>();
 
+    private void CaptureDelegationRealtime()
+    {
+        ChangeTracker.DetectChanges();
+        foreach (var entry in ChangeTracker.Entries<TrackedDelegation>().Where(x =>
+            x.State is EntityState.Added or EntityState.Modified).ToArray())
+        {
+            var row = entry.Entity;
+            var subject = $"delegations/{row.Id:D}/{row.Revision}";
+            if (ApplicationRealtimeOutbox.Local.Any(x => x.Subject == subject && Entry(x).State == EntityState.Added)) continue;
+            var now = DateTimeOffset.UtcNow;
+            ApplicationRealtimeOutbox.Add(new()
+            {
+                Id = Guid.NewGuid(), OrganizationId = row.OrganizationId,
+                EventType = CSweet.Infrastructure.Agents.GovernanceEvents.Changed, Subject = subject,
+                DataJson = System.Text.Json.JsonSerializer.Serialize(new { delegationId = row.Id, revision = row.Revision }),
+                OccurredAt = now, NextAttemptAt = now
+            });
+        }
+    }
+
     private static void ConfigureDelegation(ModelBuilder model)
     {
         model.Entity<WorkTrackingOperationReceipt>(e =>

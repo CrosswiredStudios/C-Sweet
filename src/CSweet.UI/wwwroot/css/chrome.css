@@ -1,0 +1,878 @@
+/* ============================================================================
+   C-Sweet â€” Chrome
+   ----------------------------------------------------------------------------
+   Component surfaces. Loaded last, after theme.css, app.css and the scoped
+   bundle, so these rules are the final word on how the product looks.
+
+   Selectors that must beat a `.razor.css` scoped rule are doubled
+   (`.hub-page.hub-page`) because a scoped rule carries an extra [b-...]
+   attribute and therefore one more class-level unit of specificity.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. Shell
+   ------------------------------------------------------------------------ */
+.mud-layout {
+    background: var(--paper);
+    color: var(--ink);
+}
+
+.app-bar.app-bar {
+    background: color-mix(in srgb, var(--paper) 82%, transparent);
+    border-bottom: 1px solid var(--edge);
+    -webkit-backdrop-filter: blur(18px) saturate(120%);
+    backdrop-filter: blur(18px) saturate(120%);
+    box-shadow: inset 0 1px 0 var(--sheen);
+    color: var(--ink);
+}
+
+.app-drawer.app-drawer {
+    background: var(--surface);
+    border-inline-end: 1px solid var(--edge);
+    box-shadow: inset -1px 0 0 var(--sheen);
+}
+
+.content.content {
+    background: var(--paper);
+}
+
+/* ---------------------------------------------------------------------------
+   2. Buttons
+   ------------------------------------------------------------------------ */
+.mud-button-root.mud-button-root {
+    border-radius: var(--r-sm);
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    min-height: 34px;
+    padding: 0 14px;
+    transition: transform var(--d-fast) var(--ease), background-color var(--d-fast) var(--ease),
+        border-color var(--d-fast) var(--ease), color var(--d-fast) var(--ease),
+        box-shadow var(--d-fast) var(--ease);
+}
+
+.mud-button-root.mud-button-root:active {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+}
+
+.mud-button-filled-primary.mud-button-filled-primary {
+    background: var(--action);
+    color: var(--action-ink);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-button-filled-primary.mud-button-filled-primary:hover {
+        background: color-mix(in srgb, var(--action) 88%, var(--ink));
+    }
+}
+
+.mud-button-outlined.mud-button-outlined {
+    border: 1px solid var(--edge);
+    color: var(--ink);
+    background: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-button-outlined.mud-button-outlined:hover {
+        background: var(--hover);
+        border-color: var(--edge-strong);
+    }
+}
+
+.mud-button-text.mud-button-text {
+    color: var(--muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-button-text.mud-button-text:hover {
+        background: var(--hover);
+        color: var(--ink);
+    }
+}
+
+.mud-button-filled-error.mud-button-filled-error {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
+}
+
+.mud-icon-button.mud-icon-button {
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    transition: transform var(--d-fast) var(--ease), background-color var(--d-fast) var(--ease),
+        color var(--d-fast) var(--ease);
+}
+
+.mud-icon-button.mud-icon-button:active {
+    transform: scale(0.94);
+    transition-duration: 80ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-icon-button.mud-icon-button:hover {
+        background: var(--hover);
+        color: var(--ink);
+    }
+}
+
+/* App-authored buttons share the same skin. */
+.primary-button,
+.quiet-button,
+.icon-button {
+    border-radius: var(--r-sm);
+    font-size: var(--t-sm);
+    font-weight: 600;
+    transition: transform var(--d-fast) var(--ease), background-color var(--d-fast) var(--ease),
+        border-color var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+
+.primary-button {
+    background: var(--mint);
+    border: 1px solid var(--mint);
+    color: var(--mint-ink);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+
+.quiet-button,
+.icon-button {
+    background: transparent;
+    border: 1px solid var(--edge);
+    color: var(--ink);
+}
+
+.primary-button:active,
+.quiet-button:active,
+.icon-button:active {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .quiet-button:hover,
+    .icon-button:hover {
+        background: var(--hover);
+        border-color: var(--edge-strong);
+    }
+
+    .primary-button:hover {
+        background: color-mix(in srgb, var(--action) 88%, var(--ink));
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   3. Inputs
+   ------------------------------------------------------------------------ */
+.mud-input-control.mud-input-control .mud-input.mud-input-outlined {
+    background: var(--sunken);
+    border-radius: var(--r-sm);
+}
+
+.mud-input.mud-input-outlined.mud-input-outlined {
+    border-color: var(--edge);
+    color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-input.mud-input-outlined.mud-input-outlined:hover {
+        border-color: var(--edge-strong);
+    }
+}
+
+.mud-input-control.mud-input-control .mud-input-label {
+    color: var(--muted);
+    font-size: var(--t-sm);
+}
+
+.mud-input-control.mud-input-control input,
+.mud-input-control.mud-input-control textarea {
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--t-base);
+}
+
+.mud-input-control.mud-input-control input::placeholder,
+.mud-input-control.mud-input-control textarea::placeholder {
+    color: var(--faint);
+}
+
+/* Native selects and searches outside Mud */
+.board-search input,
+.sprint-selection select,
+.hub-search input {
+    color: var(--ink);
+}
+
+select {
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-sm);
+}
+
+/* ---------------------------------------------------------------------------
+   4. Surfaces, cards, panels
+   ------------------------------------------------------------------------ */
+.surface-panel.surface-panel,
+.mud-paper.mud-paper {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--sheen);
+    color: var(--ink);
+}
+
+.home-business-card.home-business-card,
+.home-create-business-card.home-create-business-card,
+.organization-card.organization-card,
+.employee-card.employee-card,
+.marketplace-agent-card.marketplace-agent-card,
+.document-card.document-card,
+.hub-artifact-action.hub-artifact-action,
+.settings-category-card.settings-category-card {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--sheen);
+    color: var(--ink);
+    transition: transform var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease),
+        box-shadow var(--d-fast) var(--ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .home-business-card.home-business-card:hover,
+    .home-create-business-card.home-create-business-card:hover,
+    .organization-card.organization-card:not(.organization-card-deleting):hover,
+    .employee-card.employee-card:hover,
+    .marketplace-agent-card.marketplace-agent-card:hover,
+    .document-card.document-card:hover,
+    .hub-artifact-action.hub-artifact-action:hover,
+    .settings-category-card.settings-category-card:hover {
+        border-color: var(--edge-strong);
+        box-shadow: var(--z-2);
+        transform: translateY(-1px);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   5. Chips, badges, status
+   ------------------------------------------------------------------------ */
+.status-label,
+.hub-unread-count,
+.count,
+.agent-mark {
+    border-radius: var(--r-full);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    background: var(--hover);
+    color: var(--muted);
+}
+
+.status-label.is-success {
+    background: var(--mint-soft);
+    color: var(--mint);
+}
+
+.status-label.is-warning {
+    background: var(--warm-soft);
+    color: var(--warm);
+}
+
+.mud-chip.mud-chip {
+    border-radius: var(--r-full);
+    font-size: var(--t-xs);
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   6. Tables
+   ------------------------------------------------------------------------ */
+.mud-table.mud-table {
+    background: transparent;
+    color: var(--ink);
+}
+
+.mud-table-head.mud-table-head {
+    background: transparent;
+}
+
+.mud-table-head.mud-table-head .mud-table-cell {
+    color: var(--faint);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--edge);
+}
+
+.mud-table-cell.mud-table-cell {
+    border-bottom: 1px solid var(--edge);
+    color: var(--ink);
+    font-size: var(--t-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-table-row:hover {
+        background: var(--hover);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   7. Dialogs, popovers, snackbars
+   ------------------------------------------------------------------------ */
+.mud-dialog.mud-dialog {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-3);
+    color: var(--ink);
+}
+
+.mud-dialog-title.mud-dialog-title {
+    color: var(--ink);
+    font-size: var(--t-lg);
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.mud-dialog-content.mud-dialog-content {
+    color: var(--muted);
+    font-size: var(--t-base);
+}
+
+.mud-overlay.mud-overlay .mud-overlay-scrim {
+    background: rgb(2 4 8 / 68%);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+
+.mud-popover.mud-popover,
+.mud-menu.mud-menu .mud-list {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-3);
+    color: var(--ink);
+}
+
+.mud-list-item.mud-list-item {
+    color: var(--ink);
+    font-size: var(--t-sm);
+    border-radius: var(--r-sm);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mud-list-item.mud-list-item:hover {
+        background: var(--hover);
+    }
+}
+
+.mud-snackbar.mud-snackbar {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-3);
+    color: var(--ink);
+    font-size: var(--t-sm);
+}
+
+/* ---------------------------------------------------------------------------
+   8. Board
+   ------------------------------------------------------------------------ */
+.board-header.board-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--edge);
+}
+
+.board-tabs.board-tabs button {
+    color: var(--muted);
+    font-size: var(--t-sm);
+    transition: color var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease);
+}
+
+.board-tabs.board-tabs .is-active {
+    color: var(--ink);
+    border-bottom-color: var(--mint);
+}
+
+.workflow-column.workflow-column {
+    background: var(--sunken);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+}
+
+.work-ticket.work-ticket,
+.personal-ticket {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--sheen);
+    transition: transform var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease),
+        box-shadow var(--d-fast) var(--ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .work-ticket.work-ticket:hover,
+    .personal-ticket:hover {
+        border-color: var(--edge-strong);
+        box-shadow: var(--z-2);
+        transform: translateY(-1px);
+    }
+}
+
+.work-ticket.work-ticket:active,
+.personal-ticket:active {
+    transform: translateY(0) scale(0.995);
+}
+
+.ticket-title {
+    color: var(--ink);
+}
+
+.ticket-description,
+.ticket-top,
+.ticket-footer {
+    color: var(--muted);
+}
+
+.ticket-drag {
+    color: var(--faint);
+    border-radius: var(--r-sm);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .ticket-drag:hover {
+        background: var(--hover);
+        color: var(--ink);
+    }
+}
+
+.display-options-panel,
+.board-actions-panel {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-3);
+    color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+   9. Communications
+   ------------------------------------------------------------------------ */
+.hub-page.hub-page {
+    background: var(--paper);
+    color: var(--ink);
+}
+
+.hub-sidebar.hub-sidebar {
+    background: var(--surface);
+    border-inline-end: 1px solid var(--edge);
+}
+
+.hub-main.hub-main {
+    background: var(--paper);
+}
+
+.hub-chat-header.hub-chat-header {
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    border-bottom: 1px solid var(--edge);
+    box-shadow: inset 0 1px 0 var(--sheen);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+}
+
+.hub-nav-item.hub-nav-item {
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    transition: background-color var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .hub-nav-item.hub-nav-item:hover {
+        background: var(--hover);
+        color: var(--ink);
+    }
+}
+
+.hub-nav-item.hub-nav-item.active {
+    background: var(--mint-soft);
+    color: var(--ink);
+    font-weight: 600;
+}
+
+.hub-message-bubble.hub-message-bubble {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    color: var(--ink);
+}
+
+.hub-message.mine .hub-message-bubble {
+    background: var(--mint-soft);
+    border-color: color-mix(in srgb, var(--mint) 30%, transparent);
+}
+
+.hub-message.agent-accent .hub-message-bubble {
+    background: color-mix(in srgb, var(--agent-accent, var(--mint)) 10%, var(--elevated));
+    border-color: color-mix(in srgb, var(--agent-accent, var(--mint)) 26%, transparent);
+}
+
+.hub-message-sender.hub-message-sender {
+    color: var(--faint);
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.hub-composer.hub-composer {
+    background: var(--surface);
+    border-top: 1px solid var(--edge);
+}
+
+.hub-composer .hub-composer-input {
+    background: var(--sunken);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    transition: border-color var(--d-fast) var(--ease);
+}
+
+.hub-composer .hub-composer-input:focus-within {
+    border-color: var(--edge-strong);
+}
+
+.hub-system-action-message {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--sheen);
+}
+
+.hub-notice {
+    background: var(--warm-soft);
+    color: var(--warm);
+    border-bottom: 1px solid color-mix(in srgb, var(--warm) 30%, transparent);
+}
+
+.hub-agent-status {
+    background: var(--warm-soft);
+    color: var(--warm);
+    border-bottom: 1px solid color-mix(in srgb, var(--warm) 30%, transparent);
+}
+
+.hub-agent-status.unhealthy {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.hub-empty.hub-empty,
+.hub-welcome.hub-welcome {
+    color: var(--muted);
+}
+
+.hub-empty-icon,
+.hub-welcome-icon {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    color: var(--mint);
+    border-radius: var(--r-lg);
+}
+
+.hub-dialog.hub-dialog {
+    background: var(--elevated);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-3);
+    color: var(--ink);
+}
+
+.hub-dialog-backdrop {
+    background: rgb(2 4 8 / 68%);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+}
+
+/* ---------------------------------------------------------------------------
+   10. Auth shell
+   ------------------------------------------------------------------------ */
+.auth-shell.auth-shell {
+    background: var(--paper);
+}
+
+.auth-brand-panel.auth-brand-panel {
+    background:
+        radial-gradient(circle at 20% 0%, var(--mint-soft), transparent 55%),
+        linear-gradient(160deg, var(--surface), var(--paper));
+    color: var(--ink);
+}
+
+.auth-card.auth-card {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-lg);
+    box-shadow: var(--z-2);
+}
+
+/* ---------------------------------------------------------------------------
+   11. Empty states, loading, scrollbars
+   ------------------------------------------------------------------------ */
+.mud-progress-linear.mud-progress-linear {
+    border-radius: var(--r-full);
+    background: var(--hover);
+}
+
+.mud-progress-linear-bar {
+    background: var(--mint);
+}
+
+.mud-progress-circular.mud-progress-circular {
+    color: var(--mint);
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--edge-strong) transparent;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--edge-strong);
+    border: 3px solid transparent;
+    border-radius: var(--r-full);
+    background-clip: content-box;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--muted);
+        background-clip: content-box;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   12. Motion: press everywhere, hover only for pointers
+   ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: no-preference) {
+    button:not(:disabled):not([draggable="true"]):not(.ticket-open):not(.mud-nav-link):active,
+    [role="button"]:not([aria-disabled="true"]):not(.mud-nav-link):active {
+        transform: scale(0.97);
+        transition-duration: 80ms;
+    }
+}
+
+@media (hover: none) {
+    .home-business-card:hover,
+    .home-create-business-card:hover,
+    .organization-card:hover,
+    .employee-card:hover,
+    .marketplace-agent-card:hover,
+    .document-card:hover,
+    .hub-artifact-action:hover,
+    .settings-category-card:hover,
+    .work-ticket:hover {
+        transform: none;
+        box-shadow: inset 0 1px 0 var(--sheen);
+        border-color: var(--edge);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .hub-message-list > .hub-message:last-child {
+        animation: cs-arrive var(--d-base) var(--ease) both;
+    }
+
+    .mud-dialog .mud-dialog-content,
+    .mud-dialog .mud-dialog-titlebar {
+        animation: cs-enter var(--d-base) var(--ease) both;
+    }
+}
+
+/* Navigation: one quiet tab language across native links and MudBlazor panels.
+   Horizontal overflow stays inside each tab strip; page content never widens. */
+.mud-tabs .mud-tabs-tabbar.mud-tabs-tabbar {
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--edge);
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--muted);
+}
+.mud-tabs .mud-tab.mud-tab {
+    min-height: 46px;
+    padding: 0 18px;
+    min-width: 0;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 550;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+    border-radius: 7px 7px 0 0;
+    transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.mud-tabs .mud-tab.mud-tab-active {
+    color: var(--ink);
+    background: var(--mint-soft);
+    font-weight: 650;
+}
+.mud-tabs .mud-tab-slider { height: 2px; background: var(--mint); border-radius: 2px; }
+.project-tabs.project-tabs,
+.employee-page-tabs.employee-page-tabs,
+.board-tabs.board-tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    min-height: 46px;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 0;
+    border-bottom: 1px solid var(--edge);
+    border-radius: 0;
+    background: transparent;
+    scrollbar-width: thin;
+}
+.project-tabs.project-tabs a,
+.employee-page-tabs.employee-page-tabs a,
+.board-tabs.board-tabs button {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    padding: 0 16px;
+    margin: 0;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 7px 7px 0 0;
+    background: transparent;
+    color: var(--muted);
+    font: 550 13px var(--font-sans);
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: color 140ms ease-out, background-color 140ms ease-out;
+}
+.project-tabs.project-tabs a[aria-current="page"],
+.employee-page-tabs.employee-page-tabs a[aria-current="page"],
+.board-tabs.board-tabs button.is-active {
+    background: var(--mint-soft);
+    border-bottom-color: var(--mint);
+    color: var(--ink);
+    font-weight: 650;
+}
+.employee-page-tabs.employee-page-tabs a::after { content: none; }
+/* Settings is a second navigation level, kept light to distinguish it from the rail. */
+.settings-workspace.settings-workspace .settings-workspace-sidebar {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: 12px;
+    padding: 12px 8px;
+}
+.settings-workspace.settings-workspace .settings-navigation .mud-nav-link {
+    min-height: 40px;
+    padding: 9px 12px;
+    margin: 2px 0;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+}
+.settings-workspace.settings-workspace .settings-navigation .mud-nav-link.active {
+    color: var(--ink);
+    background: var(--mint-soft);
+    border-color: color-mix(in srgb, var(--mint) 22%, transparent);
+    box-shadow: none;
+}
+.settings-workspace.settings-workspace .settings-navigation .settings-nav-label {
+    margin: 22px 12px 6px;
+    color: var(--faint);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: .1em;
+}
+/* Popover providers render outside the rail. Use document-level theme roles. */
+.mud-popover.mud-popover { padding: 5px; border-radius: 10px; box-shadow: var(--z-3); }
+.mud-popover .mud-list { padding: 0; background: transparent; border: 0; box-shadow: none; }
+.mud-popover .mud-list-item.mud-list-item { min-height: 38px; margin: 2px 0; padding: 9px 12px; border-radius: 6px; font-size: 13px; }
+.mud-popover .mud-selected-item.mud-selected-item { color: var(--ink); background: var(--mint-soft); font-weight: 650; }
+.mud-popover .mud-list-item-icon { color: var(--muted); min-width: 28px; }
+.mud-popover .mud-divider { margin: 6px 8px; border-color: var(--edge); }
+.mud-tab:focus-visible,
+.project-tabs a:focus-visible,
+.employee-page-tabs a:focus-visible,
+.board-tabs button:focus-visible,
+.mud-popover .mud-list-item:focus-visible {
+    outline: 2px solid var(--mint);
+    outline-offset: -3px;
+}
+@media (hover: hover) and (pointer: fine) {
+    .mud-tabs .mud-tab:hover,
+    .project-tabs.project-tabs a:hover,
+    .employee-page-tabs.employee-page-tabs a:hover,
+    .board-tabs.board-tabs button:hover { background: var(--hover); color: var(--ink); }
+    .mud-tabs .mud-tab-active:hover { background: var(--mint-soft); }
+}
+@media (pointer: coarse) {
+    .mud-popover .mud-list-item.mud-list-item,
+    .settings-workspace.settings-workspace .settings-navigation .mud-nav-link,
+    .mud-button-root.mud-button-root,
+    .mud-icon-button.mud-icon-button { min-height: 44px; }
+    .mud-icon-button.mud-icon-button { min-width: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .mud-tabs .mud-tab, .project-tabs a, .employee-page-tabs a, .board-tabs button { transition: none; }
+    .mud-tab-slider { transition: none !important; }
+}
+
+/* MudMenu uses menu-item classes; selects use list-item classes. */
+.mud-popover .mud-menu-list-wrapper { overflow-x: hidden; }
+.mud-popover .mud-menu-item {
+    min-height: 40px; margin: 2px 0; padding: 9px 12px;
+    border-radius: 6px; color: var(--ink);
+    transition: background-color 140ms ease-out;
+}
+.mud-popover .mud-menu-item-text { font-size: 13px; line-height: 1.5; color: inherit; }
+.mud-popover .mud-menu-item-icon { font-size: 18px; color: var(--muted); margin-inline-end: 10px; }
+.mud-popover .mud-menu-item:focus-visible { outline: 2px solid var(--mint); outline-offset: -2px; background: var(--hover); }
+.mud-popover .mud-menu-item[aria-disabled="true"] { opacity: .45; }
+@media (hover:hover) and (pointer:fine) { .mud-popover .mud-menu-item:hover { background: var(--hover); } }
+@media (pointer:coarse) { .mud-popover .mud-menu-item { min-height: 44px; } }
+
+/* Keep board view tabs in a scrollable strip, including embedded mobile boards. */
+.board-tabs.board-tabs { flex-wrap: nowrap; }
+@media (max-width: 600px) {
+    .board-header.board-header.is-embedded { flex-direction: column; align-items: stretch; gap: 4px; }
+    .board-header.board-header.is-embedded .board-title-row { order: 0; justify-content: flex-end; margin: 0; }
+    .board-header.board-header.is-embedded .board-tabs { order: 1; flex: none; width: 100%; }
+}
+
+.mud-popover .mud-menu-list { overflow-x: hidden; min-width: 0; }
+.mud-popover .mud-menu-item { box-sizing: border-box; min-width: 0; width: 100%; }
+.mud-popover .mud-menu-item-text { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+
+/* Mixed-language chat: each paragraph takes its direction from its own text, so an English
+   message in an Arabic workspace keeps its punctuation at the end (and vice versa). */
+.hub-message-bubble :is(p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th) {
+    unicode-bidi: plaintext;
+    text-align: start;
+}

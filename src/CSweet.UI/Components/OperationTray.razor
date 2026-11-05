@@ -1,0 +1,414 @@
+@using System.Globalization
+@implements IAsyncDisposable
+@inject IAppLocalizer L
+
+@* General-purpose operation tray. Mount once per layout; renders nothing when idle.
+   Scoped styling lives in OperationTray.razor.css and reads only theme.css tokens. *@
+
+@if (VisibleItems.Count > 0)
+{
+    <aside class="ot" aria-label="@TitleText">
+        <div class="ot-head">
+            <button type="button"
+                    class="ot-toggle"
+                    aria-expanded="@ExpandedAttribute"
+                    aria-controls="@_bodyId"
+                    @onclick="ToggleCollapsed">
+                <span class="ot-toggle-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" width="12" height="12" focusable="false">
+                        <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6"
+                              stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </span>
+                <span class="ot-toggle-text">
+                    <span class="ot-title">@TitleText</span>
+                    <span class="ot-counters">
+                        <span class="ot-counter">@L.Format("OperationTray.Running", new { count = RunningCount })</span>
+                        <span class="ot-counter-sep" aria-hidden="true">·</span>
+                        <span class="ot-counter">@L.Format("OperationTray.Finished", new { count = FinishedCount })</span>
+                        @if (AttentionCount > 0) { <span class="ot-counter"> · @L.Format("OperationTray.NeedAttention", new { count = AttentionCount })</span> }
+                    </span>
+                </span>
+            </button>
+
+            @* Completion count is announced, not only painted. *@
+            <p class="ot-live" role="status" aria-live="polite" aria-atomic="true">@LiveAnnouncement</p>
+        </div>
+
+        <div id="@_bodyId" class="ot-body" hidden="@_collapsed">
+            <ul class="ot-list">
+                @foreach (var item in VisibleOrdered)
+                {
+                    var stateKey = StateKey(item.State);
+                    var stateLabel = StateLabel(item.State);
+                    var elapsedLabel = L.Format(ElapsedKey(item.State), new { elapsed = FormatElapsed(item) });
+                    var progress = NormalizedProgress(item);
+                    var progressNow = progress.HasValue
+                        ? progress.Value.ToString("0", CultureInfo.InvariantCulture)
+                        : null;
+                    var progressText = progress.HasValue
+                        ? L.Format("OperationTray.PercentComplete", new { percent = progress.Value.ToString("0", CultureInfo.InvariantCulture) })
+                        : null;
+                    var progressScale = progress.HasValue
+                        ? (progress.Value / 100d).ToString("0.####", CultureInfo.InvariantCulture)
+                        : null;
+                    var progressLabel = L.Format("OperationTray.ProgressOf", new { label = item.Label });
+                    <li class="ot-item" data-state="@stateKey" @key="KeyOf(item)">
+                        <span class="ot-mark" aria-hidden="true"></span>
+                        <div class="ot-item-main">
+                            <div class="ot-item-top">
+                                <span class="ot-label">@item.Label</span>
+                                <span class="ot-state">@stateLabel</span>
+                                <span class="ot-elapsed">@elapsedLabel</span>
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(item.Detail))
+                            {
+                                <p class="ot-detail">@item.Detail</p>
+                            }
+
+                            @Actions?.Invoke(item)
+
+                            @if (progress.HasValue)
+                            {
+                                <div class="ot-progress"
+                                     role="progressbar"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100"
+                                     aria-valuenow="@progressNow"
+                                     aria-valuetext="@progressText"
+                                     aria-label="@progressLabel">
+                                    <span class="ot-progress-fill" style="@("--ot-p: " + progressScale)"></span>
+                                </div>
+                            }
+                        </div>
+                    </li>
+                }
+            </ul>
+        </div>
+    </aside>
+}
+
+@code {
+    /// <summary>Lifecycle state of a tracked operation.</summary>
+    public enum OperationTrayState
+    {
+        Running,
+        Succeeded,
+        Failed,
+        Cancelled,
+        NeedsAttention
+    }
+
+    /// <summary>
+    /// One row in the tray. <see cref="Id"/> is optional; when it is omitted the label is the key.
+    /// </summary>
+    public sealed record OperationTrayItem(
+        string Label,
+        string? Detail,
+        OperationTrayState State,
+        DateTimeOffset StartedAt,
+        double? Progress = null)
+    {
+        /// <summary>Stable identity across re-renders. Falls back to <see cref="Label"/>.</summary>
+        public string? Id { get; init; }
+    }
+
+    /// <summary>Operations to display. Null is treated as empty.</summary>
+    [Parameter]
+    public IReadOnlyList<OperationTrayItem>? Items { get; set; }
+
+    /// <summary>Heading used by the toggle and by the landmark label.</summary>
+    [Parameter] public RenderFragment<OperationTrayItem>? Actions { get; set; }
+
+    [Parameter]
+    public string? Title { get; set; }
+
+    private string TitleText => Title ?? L["OperationTray.Title"];
+
+    /// <summary>Elapsed-time refresh cadence. Only runs while something is running.</summary>
+    [Parameter]
+    public TimeSpan RefreshInterval { get; set; } = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromMilliseconds(250);
+
+    private readonly HashSet<string> _knownRunning = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _terminalAt = new(StringComparer.Ordinal);
+    private readonly string _bodyId = $"ot-body-{Guid.NewGuid():N}";
+    private DateTimeOffset _now = DateTimeOffset.Now;
+    private bool _collapsed;
+    private bool _initialised;
+    private CancellationTokenSource? _timerCts;
+    private Task? _timerLoop;
+    private string _lastElapsedSnapshot = string.Empty;
+    private bool _disposed;
+
+    private IReadOnlyList<OperationTrayItem> VisibleItems => Items ?? Array.Empty<OperationTrayItem>();
+
+    // Running first (newest start first), then finished (most recent start first).
+    private IEnumerable<OperationTrayItem> VisibleOrdered =>
+        VisibleItems
+            .OrderBy(item => IsTerminal(item.State) ? 1 : 0)
+            .ThenByDescending(item => item.StartedAt);
+
+    private int RunningCount => VisibleItems.Count(item => !IsTerminal(item.State));
+
+    private int FinishedCount => VisibleItems.Count(item => IsTerminal(item.State) && item.State != OperationTrayState.NeedsAttention);
+    private int AttentionCount => VisibleItems.Count(item => item.State == OperationTrayState.NeedsAttention);
+
+    private string ExpandedAttribute => _collapsed ? "false" : "true";
+
+    private int FailedCount => VisibleItems.Count(item => item.State == OperationTrayState.Failed);
+
+    // Failures and attention are announced by name; "finished" alone hid them from screen readers.
+    private string LiveAnnouncement => string.Join(", ", new[]
+    {
+        // FinishedCount includes failures; announce them only once, as failed.
+        FinishedCount - FailedCount > 0 ? L.Format("OperationTray.Finished", new { count = FinishedCount - FailedCount }) : null,
+        FailedCount > 0 ? L.Format("OperationTray.Failed", new { count = FailedCount }) : null,
+        AttentionCount > 0 ? L.Format("OperationTray.NeedAttention", new { count = AttentionCount }) : null
+    }.Where(part => part is not null));
+
+    protected override void OnParametersSet()
+    {
+        _now = DateTimeOffset.Now;
+
+        // Freeze the finish time the first time we observe a terminal state.
+        foreach (var item in VisibleItems)
+        {
+            if (IsTerminal(item.State))
+            {
+                _terminalAt.TryAdd(KeyOf(item), _now);
+            }
+            else
+            {
+                _terminalAt.Remove(KeyOf(item));
+            }
+        }
+
+        // Auto-expand when an operation starts that was not already running on the last render.
+        var sawNewRunning = false;
+        foreach (var item in VisibleItems)
+        {
+            if (IsTerminal(item.State))
+            {
+                continue;
+            }
+
+            if (_knownRunning.Add(KeyOf(item)))
+            {
+                sawNewRunning = true;
+            }
+        }
+
+        if (sawNewRunning || !_initialised)
+        {
+            _collapsed = false;
+        }
+
+        // Keep bookkeeping bounded when operations leave the list.
+        TrimBookkeeping();
+
+        _initialised = true;
+        _lastElapsedSnapshot = BuildElapsedSnapshot();
+        EnsureTimer();
+    }
+
+    private void ToggleCollapsed() => _collapsed = !_collapsed;
+
+    private void EnsureTimer()
+    {
+        if (_disposed || RunningCount == 0)
+        {
+            StopTimer();
+            return;
+        }
+
+        if (_timerLoop is { IsCompleted: false })
+        {
+            return;
+        }
+
+        var interval = RefreshInterval < MinRefreshInterval ? MinRefreshInterval : RefreshInterval;
+        _timerCts = new CancellationTokenSource();
+        _timerLoop = RunTimerAsync(interval, _timerCts.Token);
+    }
+
+    private async Task RunTimerAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(interval);
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (_disposed || cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                // Gate: only pay for a render when a displayed duration actually changed.
+                var snapshot = BuildElapsedSnapshot();
+                if (string.Equals(snapshot, _lastElapsedSnapshot, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                _lastElapsedSnapshot = snapshot;
+                _now = DateTimeOffset.Now;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                await InvokeAsync(StateHasChanged).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on dispose, or when the last running operation settles.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Timer torn down mid-tick.
+        }
+        catch (InvalidOperationException) when (_disposed)
+        {
+            // The renderer went away between a tick and its render dispatch.
+        }
+    }
+
+    private string BuildElapsedSnapshot()
+    {
+        var builder = new System.Text.StringBuilder(VisibleItems.Count * 8);
+        foreach (var item in VisibleOrdered)
+        {
+            builder.Append(FormatElapsed(item)).Append('|');
+        }
+
+        return builder.ToString();
+    }
+
+    private void StopTimer()
+    {
+        _timerCts?.Cancel();
+        _timerCts?.Dispose();
+        _timerCts = null;
+        _timerLoop = null;
+    }
+
+    private void TrimBookkeeping()
+    {
+        if (VisibleItems.Count == 0)
+        {
+            _knownRunning.Clear();
+            _terminalAt.Clear();
+            return;
+        }
+
+        var live = new HashSet<string>(VisibleItems.Select(KeyOf), StringComparer.Ordinal);
+        _knownRunning.RemoveWhere(key => !live.Contains(key));
+        foreach (var stale in _terminalAt.Keys.Where(key => !live.Contains(key)).ToList())
+        {
+            _terminalAt.Remove(stale);
+        }
+    }
+
+    private TimeSpan ElapsedOf(OperationTrayItem item)
+    {
+        var end = IsTerminal(item.State)
+            ? (_terminalAt.TryGetValue(KeyOf(item), out var finishedAt) ? finishedAt : _now)
+            : _now;
+        var delta = end - item.StartedAt;
+        return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
+    }
+
+    // Coarse on purpose: seconds under a minute, whole minutes under an hour, then hours.
+    // It pairs with the 5s cadence, so long-running work barely touches the DOM.
+    private string FormatElapsed(OperationTrayItem item)
+    {
+        var elapsed = ElapsedOf(item);
+        if (elapsed.TotalSeconds < 60)
+        {
+            return L.Format("OperationTray.Seconds", new { seconds = (int)elapsed.TotalSeconds });
+        }
+
+        if (elapsed.TotalMinutes < 60)
+        {
+            return L.Format("OperationTray.Minutes", new { minutes = (int)elapsed.TotalMinutes });
+        }
+
+        return L.Format("OperationTray.HoursMinutes", new { hours = (int)elapsed.TotalHours, minutes = elapsed.Minutes });
+    }
+
+    private static double? NormalizedProgress(OperationTrayItem item)
+    {
+        if (item.Progress is not { } value || double.IsNaN(value))
+        {
+            return null;
+        }
+
+        return Math.Clamp(value, 0d, 100d);
+    }
+
+    private static bool IsTerminal(OperationTrayState state) =>
+        state is OperationTrayState.Succeeded or OperationTrayState.Failed or OperationTrayState.Cancelled or OperationTrayState.NeedsAttention;
+
+    private static string KeyOf(OperationTrayItem item) =>
+        string.IsNullOrWhiteSpace(item.Id) ? item.Label : item.Id!;
+
+    private static string StateKey(OperationTrayState state) => state switch
+    {
+        OperationTrayState.Running => "running",
+        OperationTrayState.Succeeded => "succeeded",
+        OperationTrayState.Failed => "failed",
+        OperationTrayState.NeedsAttention => "attention",
+        _ => "cancelled"
+    };
+
+    // Status is always spelled out: colour is never the only carrier of meaning.
+    private string StateLabel(OperationTrayState state) => L[state switch
+    {
+        OperationTrayState.Running => "OperationTray.StateRunning",
+        OperationTrayState.Succeeded => "OperationTray.StateSucceeded",
+        OperationTrayState.Failed => "OperationTray.StateFailed",
+        OperationTrayState.NeedsAttention => "OperationTray.StateNeedsAttention",
+        _ => "OperationTray.StateCancelled"
+    }];
+
+    // Running work counts up; finished work shows its duration; work waiting on a person shows when it stopped.
+    private static string ElapsedKey(OperationTrayState state) => state switch
+    {
+        OperationTrayState.Running => "OperationTray.ElapsedRunning",
+        OperationTrayState.NeedsAttention => "OperationTray.ElapsedWaiting",
+        _ => "OperationTray.ElapsedTook"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _timerCts?.Cancel();
+
+        if (_timerLoop is not null)
+        {
+            try
+            {
+                await _timerLoop.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected.
+            }
+        }
+
+        _timerCts?.Dispose();
+        _timerCts = null;
+        _timerLoop = null;
+
+        GC.SuppressFinalize(this);
+    }
+}

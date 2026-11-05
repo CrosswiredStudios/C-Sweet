@@ -57,6 +57,15 @@ public sealed class AgentHostBrokerOperationHandler(
     {
         if (!string.Equals(request.Purpose, "mcp.runtime", StringComparison.Ordinal))
             throw new UnauthorizedAccessException("The requested broker purpose is not available through AgentHost.");
+
+        // Defence in depth: the guest-supplied path must stay on this AgentHost.
+        // A leading "//" is a network-path reference that replaces the authority.
+        if (request.Path is not { Length: > 0 } brokeredPath ||
+            brokeredPath[0] != '/' ||
+            brokeredPath.StartsWith("//", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The brokered operation path must be rooted on this host.");
+        }
         if (_observedWorkloads.TryAdd(request.WorkloadId, 0))
         {
             logger.LogInformation(

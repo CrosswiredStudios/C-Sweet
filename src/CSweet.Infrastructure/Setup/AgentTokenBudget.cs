@@ -62,6 +62,8 @@ public static class AgentTokenBudget
         return effective with { Settings = settings, Digest = AgentConfigurationRules.Digest(settings) };
     }
 
+    public static int ResolveContext(IReadOnlyDictionary<string, JsonElement> settings) => Read(settings, ContextKey, DefaultContextTokens);
+
     public static int ResolveOutput(IReadOnlyDictionary<string, JsonElement> settings)
     {
         var context = Read(settings, ContextKey, DefaultContextTokens);

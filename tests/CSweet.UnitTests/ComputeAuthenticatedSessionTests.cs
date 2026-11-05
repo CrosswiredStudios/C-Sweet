@@ -93,7 +93,7 @@ public sealed class ComputeAuthenticatedSessionTests
         Assert.True(tool.ModelVisible);
         JsonSchemaValidator.Validate(input, tool.InputSchema);
         var results = new List<CapabilityResult>();
-        await foreach (var result in new PlatformCapabilityDispatcher([handler]).InvokeAsync(session,
+        await foreach (var result in new PlatformCapabilityDispatcher([handler], new AutoPostureReader(), new UnusedApprovalService(), new PermissiveTemporalPolicy()).InvokeAsync(session,
             new() { RequestId = "authenticated-request", Capability = tool.Capability, Payload = JsonPayload.FromUtf8(input.GetRawText()) }, default))
             results.Add(result);
         return Assert.Single(results);

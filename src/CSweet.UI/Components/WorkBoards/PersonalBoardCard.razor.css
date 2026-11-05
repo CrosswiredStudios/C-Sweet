@@ -11,7 +11,7 @@
     color: var(--mud-palette-text-primary);
     background: var(--mud-palette-surface);
     font: inherit;
-    text-align: left;
+    text-align: start;
     text-decoration: none;
     cursor: pointer;
     transition: border-color .15s ease, box-shadow .15s ease;
@@ -60,7 +60,7 @@
 }
 
 .personal-board-active { font-size: .8125rem; color: var(--mud-palette-text-secondary); white-space: nowrap; }
-.personal-board-active strong { margin-right: 4px; font-size: 1.5rem; font-weight: 500; color: var(--mud-palette-text-primary); font-variant-numeric: tabular-nums; }
+.personal-board-active strong { margin-inline-end: 4px; font-size: 1.5rem; font-weight: 500; color: var(--mud-palette-text-primary); font-variant-numeric: tabular-nums; }
 .personal-board-status { display: inline-flex; align-items: center; gap: 4px; color: var(--mud-palette-text-secondary); font-size: .75rem; white-space: nowrap; }
 .personal-board-status ::deep .mud-icon-root { font-size: 1rem; }
 .personal-board-status.is-blocked { padding: 5px 7px; border-radius: 6px; color: var(--mud-palette-warning-darken); background: color-mix(in srgb, var(--mud-palette-warning) 12%, var(--mud-palette-surface)); }

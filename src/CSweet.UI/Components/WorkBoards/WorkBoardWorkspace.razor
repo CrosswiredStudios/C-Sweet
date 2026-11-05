@@ -2,6 +2,7 @@
 @using CSweet.Contracts.WorkManagement
 @using Present = CSweet.UI.Components.WorkBoards.WorkBoardWorkspacePresentation
 @using Wire = CSweet.WorkManagement.Contracts
+@inject CSweet.UI.Localization.AppCulture Culture
 @implements IDisposable
 @inject HttpClient Http
 @inject IAppLocalizer L
@@ -86,7 +87,8 @@
             @if (_view != WorkBoardView.Sprints)
             {
                 <label class="board-search"><MudIcon Icon="@Icons.Material.Outlined.Search" Size="Size.Small" /><input type="search" aria-label="@L["WorkBoardWorkspace.SearchVisibleWork"]" placeholder="@SearchPlaceholder" @bind="_search" @bind:event="oninput" /></label>
-                <button type="button" class="quiet-button attention-filter @(_attentionOnly ? "is-selected" : "")" aria-label="@($"{AttentionCount} need attention")" title="@($"{AttentionCount} need attention")" aria-pressed="@_attentionOnly" @onclick="@(() => _attentionOnly = !_attentionOnly)"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@AttentionCount</button>
+                var attentionLabel = AttentionCount == 0 ? "No items need attention" : AttentionCount == 1 ? "1 item needs attention" : $"{AttentionCount} items need attention";
+                <button type="button" class="quiet-button attention-filter @(_attentionOnly ? "is-selected" : "")" aria-label="@attentionLabel" title="@attentionLabel" aria-pressed="@_attentionOnly" @onclick="@(() => _attentionOnly = !_attentionOnly)"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" />@AttentionCount</button>
                 <details class="display-options" open="@_displayOpen"><summary @ref="_displaySummary" aria-label="@L["WorkBoardWorkspace.DisplayOptions"]" title="@L["WorkBoardWorkspace.DisplayOptions"]" aria-expanded="@_displayOpen" @onclick:preventDefault="true" @onclick="ToggleDisplay"><MudIcon Icon="@Icons.Material.Outlined.Tune" Size="Size.Small" /></summary><div class="display-options-panel"><label><input type="checkbox" @bind="_compact" />@L["WorkBoardWorkspace.CompactCards"]</label><label><input type="checkbox" @bind="_showDescriptions" />@L["WorkBoardWorkspace.ShowDescriptions"]</label></div></details>
             }
             <div class="board-actions">
@@ -154,6 +156,7 @@
         else
         {
             @if (HasFilters && VisibleItems.Count == 0) { <p class="board-notice" role="status">@L["WorkBoardWorkspace.NoWorkMatchesTheseFilters"] <button type="button" @onclick="ClearFilters">@L["WorkBoardWorkspace.ClearFilters"]</button></p> }
+            <div class="sr-only" role="status" aria-live="polite">@_moveAnnouncement</div>
             <div class="workflow-columns" aria-label="@L["WorkBoardWorkspace.WorkBoardColumns"]">
                 @foreach (var column in VisibleColumns)
                 {
@@ -190,7 +193,7 @@
                                     <span class="ticket-column-status" title="@(DependencyWait(item) ?? ColumnName(item))">@(DependencyWait(item) is null ? Present.CardText(ColumnName(item), 24) : "Waiting for prerequisites")</span>
                                 </div>
                                 @if (CanRetry(item)) { <button type="button" class="ticket-retry" disabled="@Busy" @onclick="@(() => OnRetryItem.InvokeAsync(item))" aria-label="Retry @item.Identifier"><MudIcon Icon="@Icons.Material.Outlined.Replay" Size="Size.Small" />@L["Common.Retry"]</button> }
-                                @if (CanDrag(item)) { <button type="button" class="ticket-drag" draggable="true" @ondragstart="@(() => _draggedItem = item)" @ondragend="EndDrag" aria-label="Drag @item.Identifier; open item for Move or assign actions"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button> }
+                                @if (CanDrag(item)) { <button type="button" class="ticket-drag" draggable="true" @ondragstart="@(() => _draggedItem = item)" @ondragend="EndDrag" @onkeydown="@(args => MoveByKeyAsync(item, args))" aria-keyshortcuts="ArrowLeft ArrowRight" aria-label="Move @item.Identifier: drag, or press Left or Right arrow to move between columns"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button> }
                             </article>
                         }
                         @if (columnItems.Count == 0) { <div class="column-empty">@(HasFilters ? "No matching work" : "No work here")</div> }
@@ -345,12 +348,40 @@
         Present.CanRetry(item, Detail.Board.AllowedActions);
     private bool CanDrag(WorkBoardItemResponse item) => !Busy && Detail.Columns.Any(column => WorkBoardPresentation.CanMove(Detail, item, column));
     private void EndDrag() { _draggedItem = null; _dropTarget = null; }
+    private string? _moveAnnouncement;
     private async Task DropAsync(WorkBoardColumnResponse column, Guid? beforeId)
     {
         var item = _draggedItem;
         EndDrag();
-        if (item is not null && item.Id != beforeId && !Busy && WorkBoardPresentation.CanMove(Detail, item, column))
-            await OnDrop.InvokeAsync(new WorkBoardDropRequest(item, column, beforeId));
+        if (item is null || item.Id == beforeId) return;
+        if (Busy || !WorkBoardPresentation.CanMove(Detail, item, column))
+        {
+            // A refused drop otherwise looks like nothing happened.
+            _moveAnnouncement = $"{item.Identifier ?? item.Title} cannot move to {column.Name}.";
+            return;
+        }
+        _moveAnnouncement = $"Moving {item.Identifier ?? item.Title} to {column.Name}.";
+        await OnDrop.InvokeAsync(new WorkBoardDropRequest(item, column, beforeId));
+    }
+
+    // Keyboard parity for drag: Left/Right moves to the nearest visible column the item may enter.
+    private async Task MoveByKeyAsync(WorkBoardItemResponse item, KeyboardEventArgs args)
+    {
+        var step = args.Key switch { "ArrowLeft" => -1, "ArrowRight" => 1, _ => 0 };
+        // Columns run right to left in RTL cultures, so the arrows follow what is on screen.
+        if (Culture.IsRightToLeft) step = -step;
+        if (step == 0 || Busy) return;
+        var columns = VisibleColumns.ToList();
+        var index = columns.FindIndex(x => x.Id == item.ColumnId);
+        if (index < 0) return;
+        for (var next = index + step; next >= 0 && next < columns.Count; next += step)
+        {
+            if (!WorkBoardPresentation.CanMove(Detail, item, columns[next])) continue;
+            _moveAnnouncement = $"Moving {item.Identifier ?? item.Title} to {columns[next].Name}.";
+            await OnDrop.InvokeAsync(new WorkBoardDropRequest(item, columns[next], null));
+            return;
+        }
+        _moveAnnouncement = $"{item.Identifier ?? item.Title} is already in the {(step < 0 ? "first" : "last")} column it can enter.";
     }
     public void Dispose()
     {

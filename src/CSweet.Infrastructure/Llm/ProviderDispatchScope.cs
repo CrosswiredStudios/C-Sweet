@@ -10,10 +10,12 @@ public sealed class ProviderDispatchScope : IDisposable
     private readonly Func<CancellationToken, Task>? authorize;
     private readonly Action? dispatched;
     private readonly Action? denied;
+    private readonly Func<CancellationToken, Task>? beforeDispatch;
     private bool disposed;
 
-    public ProviderDispatchScope(Func<CancellationToken, Task>? authorize, Action? dispatched = null, Action? denied = null)
+    public ProviderDispatchScope(Func<CancellationToken, Task>? authorize, Action? dispatched = null, Action? denied = null, Func<CancellationToken, Task>? beforeDispatch = null)
     {
+        this.beforeDispatch = beforeDispatch;
         this.authorize = authorize; this.dispatched = dispatched; this.denied = denied;
         previous = Current.Value; Current.Value = this;
     }
@@ -26,6 +28,13 @@ public sealed class ProviderDispatchScope : IDisposable
             if (scope.disposed) throw new ProviderDispatchDeniedException();
             if (scope.authorize is not null) await scope.authorize(token);
         }
+    }
+
+    public static async Task AuthorizeTransportAsync(CancellationToken token)
+    {
+        await AuthorizeCurrentAsync(token);
+        for (var scope = Current.Value; scope is not null; scope = scope.previous)
+            if (scope.beforeDispatch is not null) await scope.beforeDispatch(token);
     }
 
     internal static void RecordDispatch()

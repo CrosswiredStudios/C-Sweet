@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "Standard-Arbeitsspeicher (MB)",
   "AgentRuntimeSettings.MaximumMemory": "Maximaler Arbeitsspeicher (MB)",
   "AgentRuntimeSettings.CodingInitialMemory": "Anfänglicher Arbeitsspeicher für Coding (MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "Prozess-/Thread-Limit für Programmierer",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "Gilt für neue Programmierer-VMs. Unter Linux zählen Threads zu diesem Limit. Bestehende VMs behalten ihre signierten Limits, bis sie ersetzt werden.",
   "AgentRuntimeSettings.CodingMaximumMemory": "Maximaler Arbeitsspeicher für Coding (MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "Maximale Ersetzungen der Coding-VM",
   "AgentRuntimeSettings.DefaultCpu": "Standard-CPU (%)",

@@ -10,7 +10,7 @@
 .hiring-candidate strong + span { width: fit-content; color: var(--mud-palette-primary); font-size: .68rem; font-weight: 800; letter-spacing: .08em; }
 .hiring-candidate small { color: var(--mud-palette-text-secondary); }
 .hiring-candidate p, .hiring-chips, .hiring-candidate > small { grid-column: 1 / -1; margin: 0; }
-.hiring-price { text-align: right; font-weight: 700; display: grid; }
+.hiring-price { text-align: end; font-weight: 700; display: grid; }
 .hiring-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .hiring-chips span { padding: 3px 8px; border-radius: 999px; background: var(--mud-palette-background-grey); font-size: .72rem; }
 

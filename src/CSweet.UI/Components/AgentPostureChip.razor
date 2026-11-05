@@ -1,0 +1,103 @@
+@using CSweet.Contracts.Agents
+@inject IAppLocalizer L
+@*
+    Posture chip: the Plan / Manual / Auto selector for one agent installation.
+    Controlled component - the parent owns the value and re-renders on change:
+
+        <AgentPostureChip @bind-Posture="_posture" />
+        private AgentPosture _posture = AgentPosture.Manual;
+
+    The rule text is read back out of AgentAuthority (the same function the broker enforces), so the
+    chip cannot describe a policy the platform does not apply.
+*@
+<div class="agent-posture-chip@(Disabled ? " is-disabled" : "")" role="group" aria-label="@(GroupLabel ?? L["AgentPosture.GroupLabel"])">
+    <div class="agent-posture-options">
+        @foreach (var option in Postures)
+        {
+            <button type="button"
+                    class="@OptionClass(option)"
+                    aria-pressed="@((Posture == option).ToString().ToLowerInvariant())"
+                    title="@TitleFor(option)"
+                    disabled="@Disabled"
+                    @onclick="() => SelectAsync(option)">
+                <span class="agent-posture-dot" aria-hidden="true"></span>
+                <span class="agent-posture-label">@NameFor(option)</span>
+            </button>
+        }
+    </div>
+    @if (ShowRule)
+    {
+        <p class="agent-posture-rule" title="@CurrentTitle">@CurrentTitle</p>
+    }
+</div>
+
+@code {
+    private static readonly AgentPosture[] Postures = [AgentPosture.Plan, AgentPosture.Manual, AgentPosture.Auto];
+
+    /// <summary>The posture currently in force. Drives the selected segment.</summary>
+    [Parameter]
+    public AgentPosture Posture { get; set; } = AgentPosture.Manual;
+
+    /// <summary>
+    /// Raised when the operator picks a different posture. Supports two-way binding
+    /// (<c>bind-Posture</c>); the component does not change its own selection, so the parent must
+    /// apply the value.
+    /// </summary>
+    [Parameter]
+    public EventCallback<AgentPosture> PostureChanged { get; set; }
+
+    /// <summary>Renders the segments as disabled; the tooltips stay readable.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>Shows the current rule as text beside the segments, not only in the tooltip.</summary>
+    [Parameter]
+    public bool ShowRule { get; set; } = true;
+
+    /// <summary>Accessible name for the group. Override to localise.</summary>
+    [Parameter]
+    public string? GroupLabel { get; set; }
+
+    private string CurrentTitle => TitleFor(Posture);
+
+    private async Task SelectAsync(AgentPosture posture)
+    {
+        if (Disabled || posture == Posture) return;
+        await PostureChanged.InvokeAsync(posture);
+    }
+
+    private static string StateClass(AgentPosture posture) => posture switch
+    {
+        AgentPosture.Plan => "is-plan",
+        AgentPosture.Manual => "is-manual",
+        _ => "is-auto"
+    };
+
+    private string OptionClass(AgentPosture posture) =>
+        $"agent-posture-option {StateClass(posture)}{(Posture == posture ? " is-selected" : string.Empty)}";
+
+    private string NameFor(AgentPosture posture) => L[posture switch
+    {
+        AgentPosture.Plan => "AgentPosture.Plan",
+        AgentPosture.Manual => "AgentPosture.Manual",
+        _ => "AgentPosture.Auto"
+    }];
+
+    private string TitleFor(AgentPosture posture) => L.Format("AgentPosture.Title", new { posture = NameFor(posture), rule = RuleFor(posture) });
+
+    /// <summary>
+    /// The rule in operator words, read back out of AgentAuthority rather than restated as a table.
+    /// Mirrors AgentPostureRules.Describe in CSweet.Application, which this project cannot
+    /// reference; keep the two in step if the phrasing changes.
+    /// </summary>
+    private string RuleFor(AgentPosture posture)
+    {
+        const CapabilityRiskClass write = CapabilityRiskClass.Write;
+        if (AgentAuthority.IsRefused(write, posture)) return L["AgentPosture.RuleRefused"];
+        if (AgentAuthority.RequiresApproval(write, posture)) return L["AgentPosture.RuleApproval"];
+        if (!AgentAuthority.Allows(CapabilityRiskClass.Destructive, posture)) return L["AgentPosture.RuleReadsOnly"];
+        return AgentAuthority.Allows(CapabilityRiskClass.Outward, posture)
+            ? L["AgentPosture.RuleAutoOutward"]
+            : L["AgentPosture.RuleAuto"];
+    }
+}

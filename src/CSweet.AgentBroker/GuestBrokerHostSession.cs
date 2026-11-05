@@ -306,7 +306,12 @@ public sealed class GuestBrokerHostSession(
         }
     }
     private static bool IsMethod(string value) => value is "GET" or "POST" or "PUT" or "PATCH" or "DELETE";
-    private static bool IsPath(string value) => value.Length is >= 1 and <= 2048 && value[0] == '/' && !value.Contains("..", StringComparison.Ordinal) && !value.Contains('\\');
+    // A path of the form "//host/x" is a valid network-path reference and would
+    // replace the authority when combined with the client base address, turning a
+    // brokered guest call into an SSRF primitive.
+    private static bool IsPath(string value) => value.Length is >= 1 and <= 2048 && value[0] == '/' &&
+        !value.StartsWith("//", StringComparison.Ordinal) &&
+        !value.Contains("..", StringComparison.Ordinal) && !value.Contains('\\');
     private static bool IsHeader(string key, string value) => key.Length is >= 1 and <= 80 && value.Length <= 4096 &&
         key.All(character => char.IsAsciiLetterOrDigit(character) || character == '-') &&
         !value.Any(char.IsControl);

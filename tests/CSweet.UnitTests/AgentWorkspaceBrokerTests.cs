@@ -347,6 +347,8 @@ public sealed partial class AgentWorkspaceBrokerTests
         var employee = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId,
             AgentInstallationId = workspace.AgentInstallationId, IsActive = true, DisplayName = "Developer" };
         db.CoreOrganizationUsers.Add(employee);
+        // Snapshot import requires live business storage admission, which reads the organization's status.
+        db.CoreOrganizations.Add(new Organization { Id = workspace.OrganizationId, Name = "Workspace business", Status = OrganizationStatus.Active });
         db.OrganizationTeams.Add(new() { Id = workspace.TeamId, OrganizationId = workspace.OrganizationId, Name = "Development" });
         db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId, TeamId = workspace.TeamId, OrganizationUserId = employee.Id });
         db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId, TeamId = workspace.TeamId, RepositoryId = workspace.RepositoryId });

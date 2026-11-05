@@ -58,7 +58,10 @@ public sealed class ApprovalDashboardServiceTests
             DisplayName = "CEO", EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner };
         var producer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = org, DisplayName = "Producer", EmployeeType = EmployeeType.Agent };
         var project = new Workstream { Id = Guid.NewGuid(), OrganizationId = org, Name = "Stalled project" };
+        // Attention lists owner-input requests and escalated status reports with a current failure;
+        // a failed health assessment stays current while its project is open.
         var incident = new ProjectIncident { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = project.Id,
+            Fingerprint = "health-assessment", Disposition = CSweet.Agent.SDK.IncidentDispositions.Escalate,
             ProducerEmployeeId = producer.Id, CurrentRecipientId = owner.Id, Reason = "Scope changed", Facts = "Pinned revision is stale",
             RecommendedAction = "Reconcile existing draft", DetectedAt = now, ReviewAt = now.AddMinutes(5) };
         db.AddRange(owner, producer, project, incident);

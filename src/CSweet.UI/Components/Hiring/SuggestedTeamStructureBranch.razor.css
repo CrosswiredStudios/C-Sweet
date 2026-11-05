@@ -20,7 +20,7 @@
 .suggested-team-role-branch::after {
     right: auto;
     left: 50%;
-    border-left: 2px solid #88a7bd;
+    border-inline-start: 2px solid #88a7bd;
 }
 
 .suggested-team-role-branch:only-child::before,
@@ -38,7 +38,7 @@
 }
 
 .suggested-team-role-branch:last-child::before {
-    border-right: 2px solid #88a7bd;
+    border-inline-end: 2px solid #88a7bd;
     border-radius: 0 6px 0 0;
 }
 

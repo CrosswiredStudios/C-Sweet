@@ -19,7 +19,7 @@
     .overview-widget.activity-widget, .overview-widget.attention-widget { grid-column: span 12; }
 }
 .activity-widget .widget-header { border-color: var(--activity-border); flex-wrap: wrap; gap: 8px; }
-.activity-widget .widget-controls { flex-wrap: wrap; margin-left: auto; }
+.activity-widget .widget-controls { flex-wrap: wrap; margin-inline-start: auto; }
 .activity-widget .drag-handle { color: var(--activity-muted); }
 .activity-widget .widget-controls ::deep .mud-icon-button { color: var(--activity-muted); }
 @media(max-width: 680px) { .company-overview { padding: 14px; } }

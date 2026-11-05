@@ -92,16 +92,18 @@ public sealed class OnboardingWorkspaceRenderingTests
     [InlineData("llm-provider", "gold", "Connect your model providers.")]
     [InlineData("personal-assistant", "aurora", "Make your assistant yours.")]
     [InlineData("personal-assistant", "gold", "Make your assistant yours.")]
-    [InlineData("genai-provider", "aurora", "Finish without media")]
-    [InlineData("genai-provider", "gold", "Finish without media")]
-    public async Task FiveStepFlowRendersInBothThemes(string step, string theme, string expected)
+    [InlineData("genai-provider", "aurora", "Make room for imagination.")]
+    [InlineData("genai-provider", "gold", "Make room for imagination.")]
+    [InlineData("connection-service", "aurora", "Connect to external services")]
+    [InlineData("connection-service", "gold", "Connect to external services")]
+    public async Task SixStepFlowRendersInBothThemes(string step, string theme, string expected)
     {
         var api = new SetupApi(step);
         var html = await Render(api, theme);
         Assert.Contains(expected, WebUtility.HtmlDecode(html));
-        Assert.Contains($"data-appearance=\"{theme}\"", html);
+        Assert.Contains($"data-appearance=\"{AppearanceThemes.Resolve(theme).Id}\"", html);
         Assert.Contains("onboarding-workspace", html);
-        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
+        Assert.Equal(6, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
         Assert.DoesNotContain(api.Paths, path => path.Contains("communications") || path.Contains("email-delivery"));
         if (step == "llm-provider")
         {
@@ -122,11 +124,11 @@ public sealed class OnboardingWorkspaceRenderingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FinishUsesFinalMediaStepAndSurfacesRetryableFailure(bool failure)
+    public async Task FinishUsesFinalConnectionStepAndSurfacesRetryableFailure(bool failure)
     {
-        var api = new SetupApi("genai-provider") { FailFinish = failure };
+        var api = new SetupApi("connection-service") { FailFinish = failure };
         var html = await Render(api, "aurora", finish: true);
-        Assert.Contains("/api/setup/steps/genai-provider/complete", api.Paths);
+        Assert.Contains("/api/setup/steps/connection-service/complete", api.Paths);
         Assert.Contains("/api/setup/complete", api.Paths);
         Assert.DoesNotContain(api.Paths, path => path.Contains("communications") || path.Contains("email-delivery"));
         Assert.Contains(failure ? "Please try again." : "Your workspace is ready.", WebUtility.HtmlDecode(html));
@@ -300,7 +302,7 @@ public sealed class OnboardingWorkspaceRenderingTests
     {
         public List<string> Paths { get; } = [];
         public bool FailFinish { get; init; }
-        private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "personal-assistant", "genai-provider"];
+        private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "personal-assistant", "genai-provider", "connection-service"];
         private object Status(bool complete = false) => new {
             isFirstRunComplete = complete,
             steps = Keys.Select((key, i) => new { key, displayName = key, isRequired = i < 4, isComplete = i < Array.IndexOf(Keys, currentStep) })
@@ -314,7 +316,7 @@ public sealed class OnboardingWorkspaceRenderingTests
                 "/api/personal-assistant/settings" => new CSweet.Contracts.PersonalAssistant.PersonalAssistantSettings(null, null, null, 0, false, null, [], new Dictionary<string, System.Text.Json.JsonElement>()),
                 "/api/setup/status" => Status(),
                 "/api/setup/complete" => new { succeeded = !FailFinish, message = "Please try again.", status = Status(!FailFinish) },
-                "/api/setup/steps/genai-provider/complete" => new { succeeded = true, status = Status() },
+                "/api/setup/steps/genai-provider/complete" or "/api/setup/steps/connection-service/complete" => new { succeeded = true, status = Status() },
                 _ => null
             };
             string? json = path switch {
