@@ -33,7 +33,8 @@ public sealed partial class ConnectorBindingService(CSweetDbContext db, Microsof
         var result = new List<PluginDependencySetupResponse>();
         foreach (var dependency in manifest.Dependencies)
         {
-            var required = manifest.Requires.Where(x => x.Dependency == dependency.Id).Select(x => x.Name).ToArray();
+            var required = manifest.Requires.Where(x => x.Dependency == dependency.Id && granted.Contains(x.Name, StringComparer.Ordinal))
+                .Select(x => x.Name).ToArray();
             var choices = new List<PluginConnectorChoice>();
             foreach (var connector in connectors)
             {
@@ -75,16 +76,21 @@ public sealed partial class ConnectorBindingService(CSweetDbContext db, Microsof
     public async Task ValidateRequiredBindingsAsync(AgentInstallation requester, CancellationToken token)
     {
         var manifest = JsonSerializer.Deserialize<PluginManifest>(requester.PackageVersion!.ManifestJson, JsonOptions)!;
+        var granted = JsonSerializer.Deserialize<string[]>(requester.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
         foreach (var dependency in manifest.Dependencies)
         {
-            var requirements = manifest.Requires.Where(x => x.Dependency == dependency.Id).ToArray();
-            if (requirements.Length == 0) throw new InvalidOperationException("A required dependency has no capability requirements.");
+            // A manifest declares the available surface; the reviewed consumer grant selects
+            // the operations this installation may use. Activation must not widen that grant.
+            var requirements = manifest.Requires.Where(x => x.Dependency == dependency.Id && granted.Contains(x.Name, StringComparer.Ordinal)).ToArray();
+            if (requirements.Length == 0) throw new InvalidOperationException("No consuming capabilities have been approved for a required dependency.");
             var bindings = await db.AgentCapabilityBindings.Include(x => x.ProviderInstallation!).ThenInclude(x => x.PackageVersion)
                 .Where(x => x.RequesterInstallationId == requester.Id && x.OrganizationId == requester.BusinessId &&
                     x.DependencyId == dependency.Id && x.GrantRevision == requester.Grant!.GrantRevision && x.RevokedAt == null)
                 .ToListAsync(token);
             if (bindings.Select(x => x.ProviderInstallationId).Distinct().Count() != 1)
                 throw new InvalidOperationException("Select and authorize an account for every required connector capability.");
+            if (bindings.Any(b => !requirements.Any(r => r.Name == b.Capability)))
+                throw new InvalidOperationException("A connector binding exceeds the approved consuming capabilities.");
             var connector = bindings[0].ProviderInstallation!;
             ValidatePackage(dependency, connector.PackageVersion!);
             var provider = JsonSerializer.Deserialize<PluginManifest>(connector.PackageVersion!.ManifestJson, JsonOptions)!;
@@ -99,13 +105,7 @@ public sealed partial class ConnectorBindingService(CSweetDbContext db, Microsof
             }
             if (provider.Accounts is not null)
             {
-                var baseRequired = requirements.Where(r => provider.ProviderOperations.Any(o => o.Capability == r.Name && o.Http is { Bootstrap: false } mapping &&
-                    mapping.ScopeSets.All(id => provider.Connections.Single(c => c.Id == mapping.Connection).ScopeSets.Single(s => s.Id == id).Required))).ToArray();
-                if (!connector.IsEnabled || connector.SetupState != PluginSetupState.Ready || connector.RevisionStatus != PluginRevisionStatus.Active ||
-                    bindings.Any(b => b.ProviderPackageDigest != connector.PackageVersion.PackageDigest) || baseRequired.Any(r => !bindings.Any(b => b.Capability == r.Name)) ||
-                    bindings.Select(b => b.PluginAccountResourceId).Distinct().Count() != 1)
-                    throw new InvalidOperationException("Select a currently authorized resource with the required base permissions.");
-                foreach (var binding in bindings) await new PluginAccountAuthorityService(db).RequireAsync(Guid.Parse(requester.BusinessId), binding, connector, provider, token);
+                await ValidateNativeBindings(requester, connector, provider, requirements.Select(r => r.Name).ToArray(), bindings, token);
                 continue;
             }
             if (requirements.Any(x => !bindings.Any(b => b.Capability == x.Name))) throw new InvalidOperationException("Authorize every required connector capability.");

@@ -261,7 +261,8 @@
     [Parameter] public Guid InstallationId { get; set; }
     private PluginSetupResponse? _setup;
     private IReadOnlyList<PluginDependencySetupResponse> _dependencies = [];
-    private bool DependenciesReady => _dependencies.All(x => x.Choices.Any(c => c.CanSelect && c.InstallationId == x.SelectedInstallationId));
+    private bool DependenciesReady => _dependencies.All(x => x.ResourceChoices.Any(c => c.Selected) ||
+        x.Choices.Any(c => c.CanSelect && c.InstallationId == x.SelectedInstallationId));
     private bool _loading = true;
     private bool _busy;
     private string? _error;
