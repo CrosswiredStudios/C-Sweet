@@ -40,6 +40,11 @@ internal static class HyperVMaintenanceHost
         TimeProvider clock, Func<ComputeProviderConfiguration, TimeProvider, X509Certificate2> openCertificate,
         Action<string> report, CancellationToken token, bool enableIntake = false)
     {
+        executor.ReadBuildInput = async (operationId, dispatchId, offset, archive, cancellation) =>
+        {
+            using var inputConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);
+            return await inputConnection.ReadBuildInputAsync(operationId, dispatchId, offset, archive, cancellation);
+        };
         executor.AuthorizePublication = async (operationId, cancellation) =>
         {
             using var permissionConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);

@@ -7,7 +7,9 @@ public sealed record ComputeWorkload(ComputeGuestCommand? Command = null, int? P
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     ComputeBrowserTest? BrowserTest = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    ComputeEvidenceArchive? EvidenceArchive = null)
+    ComputeEvidenceArchive? EvidenceArchive = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    ComputeBuildArchive? BuildArchive = null)
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public ComputeGuestCommand? EffectiveCommand => BrowserTest?.Command() ?? Command;
@@ -17,10 +19,13 @@ public sealed record ComputeWorkload(ComputeGuestCommand? Command = null, int? P
         : NodeDependencies is null ? [InfrastructureActions.Execute] : [InfrastructureActions.Execute, InfrastructureActions.Outbound];
     public ComputeWorkload Validate(string operatingSystem)
     {
-        if ((Command is null ? 0 : 1) + (PublishPort is null ? 0 : 1) + (BrowserTest is null ? 0 : 1) + (EvidenceArchive is null ? 0 : 1) != 1)
+        if ((Command is null ? 0 : 1) + (PublishPort is null ? 0 : 1) + (BrowserTest is null ? 0 : 1) + (EvidenceArchive is null ? 0 : 1) + (BuildArchive is null ? 0 : 1) != 1)
             throw new ArgumentException("Choose one workload operation.");
         var browser = BrowserTest?.Validate();
         var evidence = EvidenceArchive?.Validate();
+        var build = BuildArchive?.Validate();
+        if (build is not null && (operatingSystem != "linux" || NodeDependencies is not null))
+            throw new ArgumentException("Build archive transfer requires a Linux guest and no dependency restore.");
         if (evidence is not null && (operatingSystem != "linux" || NodeDependencies is not null))
             throw new ArgumentException("Evidence archives require a Linux guest and no dependency restore.");
         if (browser is not null && (operatingSystem != "linux" || NodeDependencies is not null))
@@ -33,11 +38,13 @@ public sealed record ComputeWorkload(ComputeGuestCommand? Command = null, int? P
         // Fit signed provider result envelopes and the short dispatch window.
         if (command is not null && (command.TimeoutSeconds > 30 || command.MaximumOutputBytes > 8192))
             throw new ArgumentException("MVP commands allow 30 seconds and 8192 output bytes.");
-        return this with { Command = command, NodeDependencies = dependencies, BrowserTest = browser, EvidenceArchive = evidence };
+        return this with { Command = command, NodeDependencies = dependencies, BrowserTest = browser, EvidenceArchive = evidence, BuildArchive = build };
     }
 }
 
 public sealed record ComputeWorkloadResult(ComputeGuestWireResult? Command = null, string? Url = null,
     DateTimeOffset? UrlExpiresAt = null, string? ErrorCode = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    ComputeEvidenceArtifact? Artifact = null);
+    ComputeEvidenceArtifact? Artifact = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    ComputeBuildArchiveReceipt? BuildArchive = null);

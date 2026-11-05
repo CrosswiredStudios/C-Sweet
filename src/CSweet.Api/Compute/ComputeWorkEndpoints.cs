@@ -11,6 +11,8 @@ namespace CSweet.Api.Compute;
 
 public static class ComputeWorkEndpoints
 {
+    internal static Task<IResult> BuildInputAsync(HttpContext http, [FromServices] ComputeBuildInputAccess access, CancellationToken token) =>
+        ReceiveAsync(http, async envelope => Results.Json(await access.ReadAsync(envelope, token), ComputeProtocol.Json), token);
     internal static Task<IResult> ConfirmRetirementAsync(HttpContext http,
         [FromServices] ComputeProviderRetirementService service, CancellationToken token) => RetirementAsync(http, service, true, token);
     internal static Task<IResult> AuthorizeRetirementAsync(HttpContext http,

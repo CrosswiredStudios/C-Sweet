@@ -10,7 +10,7 @@ public sealed class ComputeProviderWorkRequestVerifier(IComputeNodeTrust trust, 
     // Old WebHost assignments and compute mutation authorizations are never work-request evidence.
     internal static byte[] Payload(string json) => ComputeProtocol.WorkRequestPayload(json);
 
-    internal async Task<ComputeProviderWorkRequest> VerifyAsync(SignedComputeProviderWorkRequest envelope, CancellationToken token)
+    internal async Task<ComputeProviderWorkRequest> VerifyAsync(SignedComputeProviderWorkRequest envelope, CancellationToken token, bool allowBuildInput = false)
     {
         if (envelope.KeyId is not { Length: > 0 and <= 128 } || envelope.PayloadJson is not { Length: > 0 and <= 32768 } ||
             envelope.SignatureBase64 is not { Length: > 0 and <= 512 })
@@ -20,6 +20,11 @@ public sealed class ComputeProviderWorkRequestVerifier(IComputeNodeTrust trust, 
             var result = JsonSerializer.Deserialize<ComputeProviderWorkRequest>(envelope.PayloadJson, ComputeBroker.Json)
                 ?? throw new UnauthorizedAccessException("Compute work request is missing.");
             var now = clock.GetUtcNow();
+            if (!allowBuildInput && (result.InputOffset.HasValue || result.DispatchId.HasValue))
+                throw new UnauthorizedAccessException("Input selectors cannot authorize other provider actions.");
+            if (result.InputOffset.HasValue != result.DispatchId.HasValue || result.InputOffset is < 0 || result.DispatchId == Guid.Empty ||
+                result.InputOffset.HasValue && (!result.OperationId.HasValue || result.AfterOperationId.HasValue || result.ResultSequence.HasValue))
+                throw new UnauthorizedAccessException("Build input selectors are invalid.");
             if (result.OrganizationId == Guid.Empty || result.NodeId == Guid.Empty || result.RequestId == Guid.Empty ||
                 result.ProviderId is not { Length: > 0 and <= 128 } || result.IssuedAt > now.AddSeconds(5) ||
                 result.ExpiresAt <= now || result.ExpiresAt <= result.IssuedAt || result.ExpiresAt - result.IssuedAt > TimeSpan.FromMinutes(1) ||

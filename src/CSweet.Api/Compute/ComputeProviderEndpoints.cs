@@ -62,6 +62,9 @@ public static class ComputeProviderEndpoints
         endpoints.MapPost(ComputeProviderWakeTransport.Path, ComputeWorkEndpoints.WakeAsync)
             .AllowAnonymous().RequireRateLimiting(MaintenanceRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
+        endpoints.MapPost(ComputeWorkTransport.BuildInputPath, ComputeWorkEndpoints.BuildInputAsync)
+            .AllowAnonymous().RequireRateLimiting(DependencyRatePolicy)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
         endpoints.MapPost(ComputeWorkTransport.DependencyAccessPath, ComputeWorkEndpoints.DependencyAccessAsync)
             .AllowAnonymous().RequireRateLimiting(DependencyRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));

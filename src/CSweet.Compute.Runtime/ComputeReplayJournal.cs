@@ -171,6 +171,12 @@ public sealed partial class ComputeReplayJournal
             if (executionDeadline > claim.EnvironmentLeaseExpiresAt) executionDeadline = claim.EnvironmentLeaseExpiresAt;
             foreach (var grant in claim.Grants) if (executionDeadline > grant.ExpiresAt) executionDeadline = grant.ExpiresAt;
         }
+        if (claim.Action == InfrastructureActions.Execute && dispatch.Workload?.BuildArchive is not null)
+        {
+            executionDeadline = claim.IssuedAt.AddMinutes(2);
+            if (executionDeadline > claim.EnvironmentLeaseExpiresAt) executionDeadline = claim.EnvironmentLeaseExpiresAt;
+            foreach (var grant in claim.Grants) if (executionDeadline > grant.ExpiresAt) executionDeadline = grant.ExpiresAt;
+        }
         var remaining = executionDeadline - admittedAt;
         if (remaining <= TimeSpan.Zero) throw new UnauthorizedAccessException("The compute execution window expired.");
         using var deadline = new CancellationTokenSource(remaining, clock);

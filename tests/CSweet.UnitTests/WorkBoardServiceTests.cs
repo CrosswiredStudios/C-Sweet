@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace CSweet.UnitTests;
 
-public sealed class WorkBoardServiceTests
+public sealed partial class WorkBoardServiceTests
 {
     [Fact]
     public async Task LargeImplementationBriefSurvivesBoardCreationAndRead()

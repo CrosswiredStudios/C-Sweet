@@ -31,6 +31,16 @@ public sealed class ComputeWorkHttpClient : IDisposable
         if (permission?.OperationId != operationId) throw new IOException("Publication authorization did not match.");
         return permission.Allowed;
     }
+    public async Task<byte[]> ReadBuildInputAsync(Guid operationId, Guid dispatchId, int offset, ComputeBuildArchive archive, CancellationToken token)
+    {
+        var page = await SendAsync<ComputeBuildInputPage>(ComputeWorkTransport.BuildInputPath,
+            signer.Sign(operationId, inputOffset: offset, dispatchId: dispatchId), false, token);
+        if (page is null || page.OperationId != operationId || page.DispatchId != dispatchId || page.Offset != offset ||
+            page.Length != archive.Length || page.BuildSha256 != archive.BuildSha256 || page.Content is null ||
+            page.Content.Length != Math.Min(ComputeBuildArchive.PartBytes, archive.Length - offset))
+            throw new IOException("Core returned a different build input page.");
+        return page.Content;
+    }
     public async Task<bool> AuthorizeDependenciesAsync(Guid operationId, CancellationToken token)
     {
         var permission = await SendAsync<ComputePublicationPermission>(ComputeWorkTransport.DependencyAccessPath, signer.Sign(operationId), false, token);

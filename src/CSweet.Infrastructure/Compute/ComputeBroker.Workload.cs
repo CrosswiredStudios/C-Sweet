@@ -24,7 +24,7 @@ public sealed partial class ComputeBroker
             var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)!;
             var workload = request.Workload.Validate(spec.OperatingSystem);
             var action = workload.PublishPort.HasValue ? InfrastructureActions.PublishPort : InfrastructureActions.Execute;
-            if (workload.BrowserTest is not null || workload.EvidenceArchive is not null)
+            if (workload.BrowserTest is not null || workload.EvidenceArchive is not null || workload.BuildArchive is not null)
             {
                 var provision = await db.ComputeOperations.AsNoTracking().SingleOrDefaultAsync(operation => operation.EnvironmentId == environment.Id &&
                     operation.OrganizationId == organizationId && operation.InstallationId == installationId &&
@@ -52,6 +52,8 @@ public sealed partial class ComputeBroker
                     ?? throw new UnauthorizedAccessException("Workload exceeds current grants.");
                 authority.Add(new(grant.Id, grant.Revision, required, grant.ExpiresAt!.Value));
             }
+            if (workload.BuildArchive is { } inputArchive)
+                await ComputeBuildInputStore.VerifyAsync(db, organizationId, installationId, inputArchive, token);
             var json = JsonSerializer.Serialize(workload, Json);
             var digest = Digest(JsonSerializer.Serialize(new { request.EnvironmentId, request.ExpectedGeneration, workload }, Json));
             var prior = await db.ComputeOperations.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&

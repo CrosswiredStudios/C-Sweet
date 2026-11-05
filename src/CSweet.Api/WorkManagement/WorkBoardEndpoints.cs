@@ -14,6 +14,17 @@ public static class WorkBoardEndpoints
     {
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/boards");
         group.MapWorkInstructionEndpoints();
+        group.MapPost("/{boardId:guid}/consolidate-reviews", async (Guid organizationId, Guid boardId,
+            ConsolidateWorkReviewsRequest request, HttpContext http, IWorkBoardService service, CancellationToken token) =>
+        {
+            var actor = http.User.GetApplicationUserId();
+            if (!actor.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.ConsolidateReviewsAsync(organizationId, boardId, actor.Value, request, token)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (DbUpdateConcurrencyException error) { return Results.Conflict(new { error = "revision_conflict", message = error.Message }); }
+            catch (InvalidOperationException error) { return Results.Conflict(new { error = "consolidation_conflict", message = error.Message }); }
+            catch (ArgumentException error) { return Results.BadRequest(new { error = "invalid_consolidation", message = error.Message }); }
+        });
         var organizationGrantGroup =
             endpoints.MapGroup("/api/organizations/{organizationId:guid}/work/grants");
         var repositoryGroup =

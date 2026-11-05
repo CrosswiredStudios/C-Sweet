@@ -44,7 +44,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             else if (request.Capability is InfrastructureActions.Execute or InfrastructureActions.PublishPort)
             {
                 var input = Read<RequestComputeWorkload>(request);
-                if (input.Workload is null || (input.Workload.EffectiveCommand is not null || input.Workload.EvidenceArchive is not null) != (request.Capability == InfrastructureActions.Execute)) throw new ArgumentException();
+                if (input.Workload is null || (input.Workload.EffectiveCommand is not null || input.Workload.EvidenceArchive is not null || input.Workload.BuildArchive is not null) != (request.Capability == InfrastructureActions.Execute)) throw new ArgumentException();
                 if (input.Workload.NodeDependencies is not null && !session.Grant.RequiredCapabilities.Contains(InfrastructureActions.Outbound))
                     throw new UnauthorizedAccessException();
                 response = await broker.SubmitWorkloadAsync(organizationId, installationId, input, token);

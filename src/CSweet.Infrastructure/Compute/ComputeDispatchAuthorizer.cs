@@ -47,13 +47,17 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                     ?? throw new UnauthorizedAccessException();
                 if (!spec.IsValid || operation.OrganizationId != environment.OrganizationId || operation.InstallationId != environment.InstallationId)
                     throw new UnauthorizedAccessException();
-                if (mode == ComputeDispatchMode.Execute)
+                // Only immutable input transfer can resume physical effects in observation mode.
+                // It rechecks every recorded grant and verifies existing bytes before continuing.
+                var resumableInput = operation.WorkloadJson is not null &&
+                    JsonSerializer.Deserialize<ComputeWorkload>(operation.WorkloadJson, ComputeBroker.Json)?.BuildArchive is not null;
+                if (mode == ComputeDispatchMode.Execute || resumableInput)
                 {
                     var workloadAction = operation.Action is InfrastructureActions.Execute or InfrastructureActions.PublishPort;
                     if (workloadAction) {
                         if (environment.LeaseExpiresAt <= now.AddSeconds(45) || operation.WorkloadJson is null || environment.ProviderResourceId is null) throw new UnauthorizedAccessException();
                         workload = JsonSerializer.Deserialize<ComputeWorkload>(operation.WorkloadJson, ComputeBroker.Json)?.Validate(spec.OperatingSystem) ?? throw new UnauthorizedAccessException();
-                        if ((workload.EffectiveCommand is not null || workload.EvidenceArchive is not null) != (operation.Action == InfrastructureActions.Execute)) throw new UnauthorizedAccessException();
+                        if ((workload.EffectiveCommand is not null || workload.EvidenceArchive is not null || workload.BuildArchive is not null) != (operation.Action == InfrastructureActions.Execute)) throw new UnauthorizedAccessException();
                     }
                     var energizing = operation.Action is InfrastructureActions.Provision or InfrastructureActions.Start or InfrastructureActions.Restart;
                     if (energizing && environment.LeaseExpiresAt <= now) throw new UnauthorizedAccessException();
@@ -129,7 +133,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                 ComputeBroker.Digest(environment.SpecificationJson), template is null ? null : ComputeBroker.Digest(operation.TemplateJson),
                 environment.ProviderResourceId, now, expires, environment.LeaseExpiresAt, authority, workload is null ? null : ComputeBroker.Digest(JsonSerializer.Serialize(workload, ComputeBroker.Json)));
             var signed = await signer.SignAsync(authorization, token);
-            var dispatchLease = workload?.NodeDependencies is null ? expires : now.AddMinutes(8);
+            var dispatchLease = workload?.BuildArchive is not null ? now.AddMinutes(3) : workload?.NodeDependencies is null ? expires : now.AddMinutes(8);
             // Teardown remains authorized after the resource lease expires. Keep
             // its exclusive dispatch claim live until the signed packet expires.
             if (operation.Action is not (InfrastructureActions.Stop or InfrastructureActions.Destroy) &&

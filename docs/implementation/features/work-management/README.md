@@ -1,5 +1,12 @@
 # Universal work management
 
+See [review consolidation](review-consolidation.md) for criterion-preserving removal of
+duplicate native reviews, nested workflow pins, durable receipts and owner authorization.
+See [resumable build input](../../compute-build-input.md) for the SDK, core and trusted provider transfer path.
+
+See [executor update recovery](executor-update-recovery.md) for version-verified recovery of
+known infrastructure failures, retained QA state, and the Prism Break release/resume procedure.
+
 See [unchanged integrated-candidate resubmission](integrated-candidate-resubmission.md)
 for exact-commit recovery, the governed board action and paired developer releases.
 

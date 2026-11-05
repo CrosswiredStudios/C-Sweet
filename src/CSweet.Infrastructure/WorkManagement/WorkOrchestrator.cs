@@ -55,6 +55,8 @@ public sealed partial class WorkOrchestrator(
             .SingleAsync(x => x.Id == execution.PolicyRevisionId, cancellationToken);
         var now = timeProvider.GetUtcNow();
 
+        await RecoverUpdatedExecutorsAsync(execution, policy, now, cancellationToken);
+
         // Accepting a result appends its successor stage; reconcile a stable set of attempts.
         foreach (var stage in execution.Items.SelectMany(x => x.Stages)
                      .Where(x => x.Attempts.Any(a => a.Status is WorkExecutionAttemptStatus.Pending or WorkExecutionAttemptStatus.Running)).ToList())

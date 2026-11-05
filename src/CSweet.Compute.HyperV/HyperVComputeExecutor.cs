@@ -22,6 +22,7 @@ internal sealed class HyperVComputeExecutor
     private readonly ComputeLocalPortPublisher publisher = new();
     internal Func<Guid, CancellationToken, Task<bool>>? AuthorizePublication { get; set; }
     internal Func<Guid, CancellationToken, Task<bool>>? AuthorizeDependencies { get; set; }
+    internal Func<Guid, Guid, int, ComputeBuildArchive, CancellationToken, Task<byte[]>>? ReadBuildInput { get; set; }
     public void ClosePublishedPorts() => publisher.Dispose();
     private ComputeLeaseMonitor? leaseMonitor;
     private ComputeMaintenanceDeliveryWorker? maintenanceDelivery;
@@ -71,7 +72,7 @@ internal sealed class HyperVComputeExecutor
                 observation = knownResourceId is null ? await driver.DiscoverAsync(identity, cancellation) :
                     await driver.ObserveAsync(identity, ParseId(knownResourceId), cancellation);
                 ComputeWorkloadResult result;
-                if (decision == ComputeJournalDecision.Observe)
+                if (decision == ComputeJournalDecision.Observe && dispatch.Workload?.BuildArchive is null)
                     result = new(ErrorCode: "outcome-unknown");
                 else if (observation is not { Id: { }, State: "Running" } || connectGuest is null)
                     result = new(ErrorCode: "guest-unavailable");
@@ -80,7 +81,11 @@ internal sealed class HyperVComputeExecutor
                     try
                     {
                         var vm = observation.Id.Value;
-                        if (dispatch.Workload!.EvidenceArchive is { } archive)
+                        if (dispatch.Workload!.BuildArchive is { } build)
+                            result = new(BuildArchive: await ComputeBuildArchiveTransfer.ExecuteAsync(build,
+                                (offset, ct) => (ReadBuildInput ?? throw new IOException("Build input reader unavailable."))(claim.OperationId, claim.DispatchId, offset, build, ct),
+                                (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct), cancellation));
+                        else if (dispatch.Workload.EvidenceArchive is { } archive)
                             result = new(Artifact: await ComputeEvidenceArchiveTransfer.ExecuteAsync(archive,
                                 (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct), cancellation));
                         else if (dispatch.Workload.EffectiveCommand is { } command)

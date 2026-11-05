@@ -7,7 +7,8 @@ namespace CSweet.Compute.Runtime;
 
 public sealed class ComputeProviderWorkSigner(ComputeProviderEnrollment enrollment, X509Certificate2 certificate, string keyId, TimeProvider clock)
 {
-    public SignedComputeProviderWorkRequest Sign(Guid? operationId = null, Guid? afterOperationId = null, long? resultSequence = null, string? resultDigest = null)
+    public SignedComputeProviderWorkRequest Sign(Guid? operationId = null, Guid? afterOperationId = null, long? resultSequence = null, string? resultDigest = null,
+        int? inputOffset = null, Guid? dispatchId = null)
     {
         var now = clock.GetUtcNow(); var expires = now.AddMinutes(1);
         if (enrollment.OrganizationId == Guid.Empty || enrollment.NodeId == Guid.Empty || enrollment.ProviderId is not { Length: > 0 and <= 128 } ||
@@ -21,8 +22,11 @@ public sealed class ComputeProviderWorkSigner(ComputeProviderEnrollment enrollme
         using var key = certificate.GetECDsaPrivateKey() ?? throw new InvalidOperationException("An enrolled signing key is required.");
         if (key.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
             throw new InvalidOperationException("Provider signing requires P-256.");
+        if (inputOffset.HasValue != dispatchId.HasValue || inputOffset is < 0 || dispatchId == Guid.Empty ||
+            inputOffset.HasValue && (!operationId.HasValue || afterOperationId.HasValue || resultSequence.HasValue))
+            throw new InvalidDataException("Build input requires one operation, dispatch and nonnegative offset.");
         var request = new ComputeProviderWorkRequest(enrollment.OrganizationId, enrollment.NodeId, enrollment.ProviderId,
-            Guid.NewGuid(), now, expires, operationId, afterOperationId, resultSequence, resultDigest);
+            Guid.NewGuid(), now, expires, operationId, afterOperationId, resultSequence, resultDigest, inputOffset, dispatchId);
         var json = JsonSerializer.Serialize(request, ComputeProtocol.Json);
         return new(keyId, json, Convert.ToBase64String(key.SignData(ComputeProtocol.WorkRequestPayload(json), HashAlgorithmName.SHA256)));
     }

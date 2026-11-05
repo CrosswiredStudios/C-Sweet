@@ -4,6 +4,8 @@ namespace CSweet.Application.WorkManagement;
 
 public interface IWorkBoardService
 {
+    Task<ConsolidateWorkReviewsResult> ConsolidateReviewsAsync(Guid organizationId, Guid boardId,
+        Guid applicationUserId, ConsolidateWorkReviewsRequest request, CancellationToken cancellationToken = default);
     Task<WorkBoardDirectoryResponse> ListDirectoryAsync(
         Guid organizationId,
         Guid applicationUserId,
