@@ -125,6 +125,7 @@ differs, offers a reload instead of overwriting unsaved edits.
 | `read_historical_context` | `platform.harness.context.read` | explicit | Page a spilled tool result from the same active work attempt. A snapshot, not current state. |
 | `advisory_judgment` | `platform.harness.judge` | explicit | Relevance/Risk/Completeness classification through the Judgment route; cannot approve anything. |
 | `read_agent_governance` | `platform.agent-governance.read.v1` | implicit | Own posture and recent approvals after a wake or reconnect. |
+| `semantic_code_search` | none (runs in the guest) | none | Semantic search over `/workspace` with sgrep: describe what the code does and get the matching passages; with `pattern`, ripgrep matches are reranked by the query. Offered by the developer agents (Daniel 2.2.0, Adrian 4.2.0) only when the guest image provides `/usr/local/bin/sgrep` and its baked models (CSweet.Office 0.15.0). Runs offline inside the VM; nothing reaches the host. |
 
 ## 5. Doctor
 
