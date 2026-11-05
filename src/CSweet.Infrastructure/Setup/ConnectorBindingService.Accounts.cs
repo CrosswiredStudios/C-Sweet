@@ -11,6 +11,10 @@ public sealed partial class ConnectorBindingService
         PluginDependencyDeclaration dependency, IReadOnlyList<string> requirements, CancellationToken ct)
     {
         var grants = await db.PluginAccountBusinessGrants.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.RevokedAt == null).ToArrayAsync(ct);
+        var grantRevision = requester.Grant?.GrantRevision;
+        var bindings = await db.AgentCapabilityBindings.AsNoTracking().Where(x => x.RequesterInstallationId == requester.Id &&
+            x.OrganizationId == requester.BusinessId && x.DependencyId == dependency.Id &&
+            x.GrantRevision == grantRevision && x.RevokedAt == null).ToArrayAsync(ct);
         var result = new List<PluginAccountResourceChoice>();
         foreach (var grant in grants)
         {
@@ -34,13 +38,36 @@ public sealed partial class ConnectorBindingService
                     var candidate = new AgentCapabilityBinding { Id = Guid.NewGuid(), OrganizationId = organizationId.ToString("D"), ProviderInstallationId = connector.Id,
                         Capability = capability, PluginAccountBusinessGrantId = grant.Id, PluginAccountResourceId = resource.Id, PluginAccountConnectionId = connection.Id };
                     try { await new PluginAccountAuthorityService(db).RequireAsync(organizationId, candidate, connector, manifest, ct); } catch (UnauthorizedAccessException) { continue; }
-                    var isSelected = await db.AgentCapabilityBindings.AsNoTracking().AnyAsync(x => x.RequesterInstallationId == requester.Id && x.DependencyId == dependency.Id &&
-                        x.PluginAccountResourceId == resource.Id && x.PluginAccountConnectionId == connection.Id && x.RevokedAt == null, ct);
+                    var isSelected = bindings.Length > 0 && bindings.All(x => x.ProviderInstallationId == connector.Id &&
+                        x.PluginAccountBusinessGrantId == grant.Id && x.PluginAccountResourceId == resource.Id && x.PluginAccountConnectionId == connection.Id);
+                    if (isSelected)
+                    {
+                        // Selected drives the setup readiness indicator. Reuse activation's
+                        // current binding-set guard rather than trusting one surviving row.
+                        try { await ValidateNativeBindings(requester, connector, manifest, requirements, bindings, ct); }
+                        catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException) { isSelected = false; }
+                    }
                     result.Add(new(connector.Id, resource.DisplayName, resource.Id, connection.Id, grant.Revision, grant.PackageDigest, isSelected));
                     break;
                 }
             }
         }
         return result.OrderBy(x => x.Name, StringComparer.Ordinal).ToArray();
+    }
+
+    private async Task ValidateNativeBindings(AgentInstallation requester, AgentInstallation connector, PluginManifest provider,
+        IReadOnlyList<string> requirements, IReadOnlyList<AgentCapabilityBinding> bindings, CancellationToken ct)
+    {
+        var baseRequired = requirements.Where(r => provider.ProviderOperations.Any(o => o.Capability == r && o.Http is { Bootstrap: false } mapping &&
+            mapping.ScopeSets.All(id => provider.Connections.Single(c => c.Id == mapping.Connection).ScopeSets.Single(s => s.Id == id).Required))).ToArray();
+        if (requirements.Count == 0 || bindings.Count == 0 || !connector.IsEnabled || connector.SetupState != PluginSetupState.Ready ||
+            connector.RevisionStatus != PluginRevisionStatus.Active || bindings.Any(b => b.ProviderInstallationId != connector.Id ||
+                b.RequesterInstallationId != requester.Id || b.OrganizationId != requester.BusinessId || b.RevokedAt != null ||
+                b.GrantRevision != requester.Grant?.GrantRevision || b.ProviderPackageDigest != connector.PackageVersion!.PackageDigest ||
+                !requirements.Contains(b.Capability, StringComparer.Ordinal)) ||
+            baseRequired.Any(r => !bindings.Any(b => b.Capability == r)) || bindings.Select(b => b.PluginAccountResourceId).Distinct().Count() != 1)
+            throw new InvalidOperationException("Select a currently authorized resource with the required base permissions.");
+        foreach (var binding in bindings)
+            await new PluginAccountAuthorityService(db).RequireAsync(Guid.Parse(requester.BusinessId), binding, connector, provider, ct);
     }
 }
