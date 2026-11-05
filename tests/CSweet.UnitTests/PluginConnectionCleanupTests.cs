@@ -12,6 +12,29 @@ namespace CSweet.UnitTests;
 
 public sealed class PluginConnectionCleanupTests
 {
+    [Fact]
+    public async Task DisconnectPurgesProviderStateButPreservesTheHostOnboardingRetryBudget()
+    {
+        await using var f = await ConnectorPlanServiceTests.Fixture.Create();
+        var manifest = JsonSerializer.Deserialize<PluginManifest>(f.Connector.PackageVersion!.ManifestJson, Json)! with
+        { Setup = new() { EntryFlow = "setup", Required = true, Flows = [new() { Id = "setup", Steps = [new()
+            { Id = "connect", Kind = "oauth-connect", Connection = "account", ScopeSet = "base" }] }] } };
+        f.Connector.PackageVersion.ManifestJson = JsonSerializer.Serialize(manifest, Json);
+        var marker = new PluginOperationalState { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            AgentInstallationId = f.Connector.Id, Kind = OnboardingRecoveryBudget.Kind,
+            ExternalKey = Guid.NewGuid().ToString("N"), PayloadJson = "{\"permittedAttempt\":2}", Revision = 1 };
+        var providerCopy = new PluginOperationalState { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            AgentInstallationId = f.Connector.Id, Kind = "checkpoint", ExternalKey = "provider-copy" };
+        f.Db.AddRange(marker, providerCopy); await f.Db.SaveChangesAsync();
+        using var http = new Http();
+        var service = new PluginSetupService(f.Db, new Secrets(), new EphemeralDataProtectionProvider(), http,
+            null!, new Profiles(), null!, null!, new Audit());
+        await service.DisconnectAsync(f.Organization, f.Connector.Id, "account");
+        Assert.NotNull(await f.Db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x => x.Id == marker.Id));
+        Assert.Null(await f.Db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x => x.Id == providerCopy.Id));
+        Assert.Equal(PluginConnectionStatus.Revoked, f.Connection.Status);
+    }
+
     [Theory]
     [InlineData("Prepared", "Cancelled")]
     [InlineData("AwaitingApproval", "Cancelled")]
