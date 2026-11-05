@@ -450,7 +450,7 @@ public sealed class PluginSetupService(
         var activeCredentialKey = await PluginOAuthCredentialKeys.ResolveAsync(db, installationId, connection.Id, cancellationToken);
         var states = await db.PluginOperationalStates.Where(x => x.OrganizationId == organizationId &&
             x.AgentInstallationId == installationId && x.Kind != PluginConnectionCleanupService.CompletedKind &&
-            x.Kind != PluginConnectionCleanupService.PendingKind).ToListAsync(cancellationToken);
+            x.Kind != PluginConnectionCleanupService.PendingKind && x.Kind != OnboardingRecoveryBudget.Kind).ToListAsync(cancellationToken);
         var keys = manifest.Configuration.Where(x => x.Secret || x.Type.Equals("secret", StringComparison.OrdinalIgnoreCase))
             .Select(x => ConfigurationSecretKey(x.Key)).ToList();
         foreach (var state in states.Where(x => x.Kind == "response-secret-reference"))

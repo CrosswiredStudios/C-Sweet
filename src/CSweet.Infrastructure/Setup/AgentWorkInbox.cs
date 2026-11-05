@@ -344,6 +344,25 @@ public sealed partial class AgentWorkInbox(
             return null;
         }
 
+        var recoveredOnboarding = item.Kind == AgentWorkKind.Event && item.Name == CSweet.Agent.SDK.AgentLifecycleEvents.Onboarded
+            ? await OnboardingRecoveryBudget.FindAsync(db, item, cancellationToken) : null;
+        if (recoveredOnboarding is not null)
+        {
+            var receipt = OnboardingRecoveryBudget.Read(recoveredOnboarding, item);
+            var source = await db.AgentOnboardingEventOutbox.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == receipt.Receipt.EventId && x.OrganizationId.ToString() == item.OrganizationId, cancellationToken);
+            var acknowledged = source?.Status is CSweet.Domain.Communications.AgentOnboardingEventOutboxStatus.Delivered or CSweet.Domain.Communications.AgentOnboardingEventOutboxStatus.Cancelled;
+            if (acknowledged || source is null || item.AttemptCount >= receipt.Receipt.PermittedAttempt ||
+                receipt.PackageVersionId != installation.PackageVersionId || item.DeadlineAt != receipt.Receipt.DeadlineAt || now >= receipt.Receipt.DeadlineAt)
+            {
+                item.Status = acknowledged ? AgentWorkStatus.Cancelled : AgentWorkStatus.DeadLetter;
+                item.CompletedAt = now;
+                item.LastError = acknowledged ? "Onboarding was already acknowledged or cancelled." : "The operator-authorized onboarding attempt budget is exhausted or changed.";
+                await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
+        }
+
         // Setup state can change after enqueue (for example on disconnection). Never release an
         // earlier ordinary-work payload into the restricted setup runtime.
         var payload = JsonDocument.Parse(_protector.Unprotect(item.ProtectedPayload)).RootElement.Clone();

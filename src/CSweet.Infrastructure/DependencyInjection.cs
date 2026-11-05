@@ -485,6 +485,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IWorkInstructionPublicationService, WorkInstructionPublicationService>();
         builder.Services.AddScoped<IWorkSprintService, WorkSprintService>();
         builder.Services.AddScoped<AgentWorkInbox>();
+        builder.Services.AddScoped<AgentOnboardingRecoveryService>();
         builder.Services.AddScoped<AgentWorkRouter>();
         builder.Services.AddScoped<IWorkOrchestrationService, WorkOrchestrationService>();
         builder.Services.AddScoped<IWorkOrchestrator, WorkOrchestrator>();

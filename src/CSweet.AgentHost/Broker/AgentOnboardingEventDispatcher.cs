@@ -23,86 +23,87 @@ public sealed class AgentOnboardingEventDispatcher(
 
     internal async Task DispatchPendingAsync(CancellationToken cancellationToken)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
-        var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
+        await using var scan = scopeFactory.CreateAsyncScope();
+        var scanDb = scan.ServiceProvider.GetRequiredService<CSweetDbContext>();
         var now = clock.GetUtcNow();
-        var pending = await db.AgentOnboardingEventOutbox
-            .Where(x => (x.Status == AgentOnboardingEventOutboxStatus.Pending || x.Status == AgentOnboardingEventOutboxStatus.Failed) &&
-                        x.NextAttemptAt <= now)
-            .OrderBy(x => x.OccurredAt)
-            .Take(50)
-            .ToListAsync(cancellationToken);
-
-        foreach (var item in pending)
+        var pending = await scanDb.AgentOnboardingEventOutbox.AsNoTracking()
+            .Where(x => (x.Status == AgentOnboardingEventOutboxStatus.Pending || x.Status == AgentOnboardingEventOutboxStatus.Failed) && x.NextAttemptAt <= now)
+            .OrderBy(x => x.OccurredAt).Take(50)
+            .Select(x => new { x.Id, x.OrganizationId, x.Status, x.Attempts, x.NextAttemptAt, Installation = scanDb.CoreOrganizationUsers.Where(a => a.Id == x.AgentOrganizationUserId).Select(a => a.AgentInstallationId).FirstOrDefault() })
+            .ToArrayAsync(cancellationToken);
+        foreach (var candidate in pending)
         {
-            var agent = await db.CoreOrganizationUsers.AsNoTracking()
-                .Where(x => x.Id == item.AgentOrganizationUserId &&
-                            x.OrganizationId == item.OrganizationId)
-                .Select(x => new { x.IsActive, x.AgentInstallationId, PackageVersionId = (Guid?)x.AgentInstallation!.PackageVersionId })
-                .SingleOrDefaultAsync(cancellationToken);
-            if (agent is null || !agent.IsActive || !agent.AgentInstallationId.HasValue || !agent.PackageVersionId.HasValue)
-            {
-                item.Status = AgentOnboardingEventOutboxStatus.Cancelled;
-                item.LastError = "The agent employee is no longer active or installed.";
-                continue;
-            }
-
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             try
             {
-                var deliveryKey = CreateDeliveryKey(item.Id, agent.PackageVersionId.Value);
-                var installationKey = $"{deliveryKey}:{agent.AgentInstallationId.Value:D}";
-                var delivery = await db.AgentWorkItems.SingleOrDefaultAsync(x =>
-                    x.AgentInstallationId == agent.AgentInstallationId.Value && x.IdempotencyKey == installationKey,
-                    cancellationToken);
-                if (delivery is not null)
+                await OnboardingDeliveryFence.RunAsync(db, candidate.OrganizationId, candidate.Installation ?? Guid.Empty, async () =>
                 {
-                    // A lifecycle acknowledgement is saved before its delivery completes.
-                    // Refresh the outbox snapshot so a late poll cannot undo that acknowledgement.
-                    await db.Entry(item).ReloadAsync(cancellationToken);
-                    if (item.Status is AgentOnboardingEventOutboxStatus.Delivered or AgentOnboardingEventOutboxStatus.Cancelled)
-                        continue;
-                    ReconcileDelivery(item, delivery, now, options.Value.MaximumAttempts);
-                    continue;
-                }
-                var payload = CreatePayload(item);
-                await router.EnqueueEventAsync(
-                    item.OrganizationId.ToString("D"),
-                    AgentLifecycleEvents.Onboarded,
-                    JsonSerializer.SerializeToElement(payload, JsonOptions),
-                    item.Id,
-                    deliveryKey,
-                    agent.AgentInstallationId.Value,
-                    requireSubscription: false,
-                    deadline: now.AddHours(1),
-                    cancellationToken);
-                item.Attempts++;
-                item.Status = AgentOnboardingEventOutboxStatus.Pending;
-                item.NextAttemptAt = now.AddSeconds(30);
-                item.LastError = "Durable onboarding work is awaiting agent acknowledgement.";
+                    var item = await db.AgentOnboardingEventOutbox.SingleOrDefaultAsync(x => x.Id == candidate.Id, cancellationToken);
+                    if (item is null || item.DeliveredAt is not null || item.Status is AgentOnboardingEventOutboxStatus.Delivered or AgentOnboardingEventOutboxStatus.Cancelled || item.NextAttemptAt > clock.GetUtcNow()) return false;
+                    var agent = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.Id == item.AgentOrganizationUserId && x.OrganizationId == item.OrganizationId)
+                        .Select(x => new { x.IsActive, x.AgentInstallationId, PackageVersionId = (Guid?)x.AgentInstallation!.PackageVersionId }).SingleOrDefaultAsync(cancellationToken);
+                    if (agent is null || !agent.IsActive || agent.AgentInstallationId is null || agent.PackageVersionId is null)
+                    {
+                        item.Status = AgentOnboardingEventOutboxStatus.Cancelled;
+                        item.LastError = "The agent employee is no longer active or installed.";
+                    }
+                    else
+                    {
+                        if (agent.AgentInstallationId != candidate.Installation) return false; // Next scan takes the correct installation fence.
+                        var deliveryKey = CreateDeliveryKey(item.Id, agent.PackageVersionId.Value);
+                        var installationKey = $"{deliveryKey}:{agent.AgentInstallationId.Value:D}";
+                        var delivery = await db.AgentWorkItems.SingleOrDefaultAsync(x => x.AgentInstallationId == agent.AgentInstallationId && x.IdempotencyKey == installationKey, cancellationToken);
+                        if (delivery is not null)
+                        {
+                            var recovery = await OnboardingRecoveryBudget.FindAsync(db, delivery, cancellationToken);
+                            if (recovery is not null) _ = OnboardingRecoveryBudget.Read(recovery, delivery);
+                            ReconcileDelivery(item, delivery, clock.GetUtcNow(), options.Value.MaximumAttempts, recovery is not null);
+                        }
+                        else
+                        {
+                            var router = scope.ServiceProvider.GetRequiredService<AgentWorkRouter>();
+                            await router.EnqueueEventAsync(item.OrganizationId.ToString("D"), AgentLifecycleEvents.Onboarded,
+                                JsonSerializer.SerializeToElement(CreatePayload(item), JsonOptions), item.Id, deliveryKey,
+                                agent.AgentInstallationId.Value, requireSubscription: false, deadline: clock.GetUtcNow().AddHours(1), cancellationToken);
+                            item.Attempts++; item.Status = AgentOnboardingEventOutboxStatus.Pending;
+                            item.NextAttemptAt = clock.GetUtcNow().AddSeconds(30);
+                            item.LastError = "Durable onboarding work is awaiting agent acknowledgement.";
+                        }
+                    }
+                    await db.SaveChangesAsync(cancellationToken);
+                    return true;
+                }, cancellationToken);
             }
-            catch (Exception exception) when (
-                exception is not OperationCanceledException ||
-                !cancellationToken.IsCancellationRequested)
+            catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
-                item.Attempts++;
-                item.NextAttemptAt = now.AddSeconds(Math.Min(60, Math.Pow(2, item.Attempts)));
-                item.LastError = exception.Message;
-                if (item.Attempts >= options.Value.MaximumAttempts)
-                    item.Status = AgentOnboardingEventOutboxStatus.Failed;
-                logger.LogWarning(exception, "Could not enqueue onboarding work {EventId}.", item.Id);
+                // The transaction rolls back both delivery and outbox. No raw provider/error text.
+                logger.LogWarning("Could not reconcile onboarding event {EventId}: {ErrorType}.", candidate.Id, error.GetType().Name);
+                await using var recoveryScope = scopeFactory.CreateAsyncScope();
+                var recoveryDb = recoveryScope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+                await OnboardingDeliveryFence.RunAsync(recoveryDb, candidate.OrganizationId, candidate.Installation ?? Guid.Empty, async () =>
+                {
+                    var failed = await recoveryDb.AgentOnboardingEventOutbox.SingleOrDefaultAsync(x => x.Id == candidate.Id, cancellationToken);
+                    if (failed is null || failed.DeliveredAt is not null || failed.Status != candidate.Status ||
+                        failed.Status is AgentOnboardingEventOutboxStatus.Delivered or AgentOnboardingEventOutboxStatus.Cancelled ||
+                        failed.Attempts != candidate.Attempts || failed.NextAttemptAt != candidate.NextAttemptAt) return false;
+                    failed.Attempts = failed.Attempts == int.MaxValue ? int.MaxValue : failed.Attempts + 1;
+                    failed.NextAttemptAt = clock.GetUtcNow().AddSeconds(Math.Min(60, Math.Pow(2, Math.Min(failed.Attempts, 8))));
+                    failed.LastError = "Onboarding delivery could not be queued or reconciled.";
+                    if (failed.Attempts >= options.Value.MaximumAttempts) failed.Status = AgentOnboardingEventOutboxStatus.Failed;
+                    await recoveryDb.SaveChangesAsync(cancellationToken);
+                    return true;
+                }, cancellationToken);
             }
         }
-        if (pending.Count > 0)
-            await db.SaveChangesAsync(cancellationToken);
     }
 
     internal static void ReconcileDelivery(AgentOnboardingEventOutboxItem item,
-        AgentWorkItem delivery, DateTimeOffset now, int maximumAttempts)
+        AgentWorkItem delivery, DateTimeOffset now, int maximumAttempts, bool operatorRecovery = false)
     {
         var transientFailure = delivery.LastError?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
             delivery.LastError.Split(';').Contains("retryable=true", StringComparer.Ordinal);
-        if (delivery.Status == AgentWorkStatus.DeadLetter && transientFailure &&
+        if (!operatorRecovery && delivery.Status == AgentWorkStatus.DeadLetter && transientFailure &&
             delivery.AttemptCount < maximumAttempts)
         {
             // Continue the same work and source event; preserve attempt history and mutation keys.

@@ -1,8 +1,11 @@
+using AgentWorkKind = CSweet.Domain.Setup.AgentWorkKind;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
+using CSweet.Domain.Setup;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +51,8 @@ public sealed class AgentOnboardingCapabilityHandler(
         if (input is null || input.EventId == Guid.Empty)
             return Failure(request.RequestId, "eventId is required.");
 
+        return await OnboardingDeliveryFence.RunAsync(db, organizationId, installationId, async () =>
+        {
         var agentId = await db.CoreOrganizationUsers.AsNoTracking()
             .Where(x => x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive)
             .Select(x => (Guid?)x.Id)
@@ -62,14 +67,26 @@ public sealed class AgentOnboardingCapabilityHandler(
         if (item is null)
             return Failure(request.RequestId, "The onboarding event was not found for this installation.");
 
+        if (item.Status == AgentOnboardingEventOutboxStatus.Cancelled)
+            return Failure(request.RequestId, "The onboarding event was cancelled.");
+        var pendingRecovery = await db.AgentWorkItems.Where(x => x.AgentInstallationId == installationId &&
+            x.OrganizationId == session.BusinessId && x.Kind == AgentWorkKind.Event && x.Name == AgentLifecycleEvents.Onboarded &&
+            x.SourceId == item.Id.ToString("D") && x.Status == AgentWorkStatus.Pending).ToArrayAsync(cancellationToken);
+        foreach (var work in pendingRecovery)
+        {
+            if (await OnboardingRecoveryBudget.FindAsync(db, work, cancellationToken) is null) continue;
+            work.Status = AgentWorkStatus.Cancelled;
+            work.CompletedAt = clock.GetUtcNow();
+            work.LastError = "Onboarding was acknowledged before the recovered delivery was claimed.";
+        }
         var completedAt = item.DeliveredAt ?? clock.GetUtcNow();
         if (item.Status != AgentOnboardingEventOutboxStatus.Delivered)
         {
             item.Status = AgentOnboardingEventOutboxStatus.Delivered;
             item.DeliveredAt = completedAt;
             item.LastError = null;
-            await db.SaveChangesAsync(cancellationToken);
         }
+        await db.SaveChangesAsync(cancellationToken);
 
         logger?.LogInformation(
             "Acknowledged onboarding event {OnboardingEventId} for organization {OrganizationId}, employee {AgentOrganizationUserId}, installation {InstallationId}, and conversation {ConversationId} at {CompletedAt}.",
@@ -81,6 +98,7 @@ public sealed class AgentOnboardingCapabilityHandler(
             completedAt);
 
         return Success(request.RequestId, new CompleteAgentOnboardingResponse(true, completedAt));
+        }, cancellationToken);
     }
 
     private static CapabilityResult Success<T>(string requestId, T value) => new()
