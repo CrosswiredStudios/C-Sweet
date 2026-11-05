@@ -510,7 +510,10 @@ public sealed class McpToolCatalog(
                         x.RevokedAt == null &&
                         x.ProviderInstallation != null &&
                         x.ProviderInstallation.IsEnabled &&
-                        x.ProviderInstallation.BusinessId == session.BusinessId &&
+                        (x.ProviderInstallation.BusinessId == session.BusinessId ||
+                         x.ProviderInstallation.Scope == PluginInstallationScope.System &&
+                         x.PluginAccountBusinessGrantId != null && x.PluginAccountResourceId != null &&
+                         x.PluginAccountConnectionId != null) &&
                         x.ProviderInstallation.RevisionStatus == PluginRevisionStatus.Active)
             .Include(x => x.ProviderInstallation!)
                 .ThenInclude(x => x.PackageVersion)
@@ -522,6 +525,14 @@ public sealed class McpToolCatalog(
             var manifest = JsonSerializer.Deserialize<PluginManifest>(
                 binding.ProviderInstallation!.PackageVersion!.ManifestJson,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            // Native enterprise accounts are shared through explicit business/resource authority,
+            // not by moving the system installation into the consuming business. This is only a
+            // candidate path: the normal connector authority check below must still succeed.
+            if (binding.ProviderInstallation.BusinessId != session.BusinessId &&
+                (binding.ProviderInstallation.Scope != PluginInstallationScope.System ||
+                 binding.ProviderInstallation.PackageVersion!.PluginKind != PluginKind.Connector ||
+                 manifest?.Kind != "connector" || manifest.Accounts is null))
+                continue;
             if (manifest?.Kind == "remote-mcp" && (remoteMcp is null || !Guid.TryParse(session.BusinessId, out var remoteBusiness) ||
                 !await remoteMcp.IsAvailableAsync(remoteBusiness, requesterId, binding.Capability, cancellationToken))) continue;
             if (manifest?.Kind != "remote-mcp" && binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector &&
