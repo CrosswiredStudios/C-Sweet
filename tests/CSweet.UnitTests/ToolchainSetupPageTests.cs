@@ -11,6 +11,15 @@ namespace CSweet.UnitTests;
 
 public sealed class ToolchainSetupPageTests
 {
+    [Fact]
+    public void DecisionSetupLinkSelectsOnlyAnAccessibleBusinessAndDoesNotStartCertification()
+    {
+        var selected = Guid.NewGuid(); var requested = Guid.NewGuid();
+        Assert.Equal(requested, ToolchainSetup.SelectSetupBusiness(requested, selected, [selected, requested]));
+        Assert.Equal(selected, ToolchainSetup.SelectSetupBusiness(Guid.NewGuid(), selected, [selected, requested]));
+        Assert.Equal(selected, ToolchainSetup.SelectSetupBusiness(null, selected, [selected]));
+    }
+
     [Theory]
     [InlineData("reviewed", 1)] [InlineData("not-reviewed", 0)] [InlineData("other-provider", 0)]
     [InlineData("other-image", 0)] [InlineData("other-profile", 0)] [InlineData("already-running", 0)]

@@ -62,6 +62,7 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "businessId")] public Guid? RequestedBusinessId { get; set; }
     private Guid? _business;
     private ToolchainCertificationSetup? _setup;
     private ToolchainCertificationProvider? _provider;
@@ -72,7 +73,9 @@
         _setup?.Providers.Contains(_provider) == true && _provider.EnvironmentProfiles.Contains(_profile ?? "") &&
         _setup.Images.Any(x => x.Digest == _image) && !_runs.Any(x => x.ProviderInstallationId == _provider.InstallationId &&
             x.ToolchainDefinitionId == _provider.DefinitionId && x.EnvironmentProfileKey == _profile && x.EnvironmentImageDigest == _image && x.Status is "Running" or "Pending");
-    protected override async Task OnInitializedAsync() { _business = BusinessContext.SelectedBusiness?.Id; await LoadAsync(); }
+    protected override async Task OnInitializedAsync() { _business = SelectSetupBusiness(RequestedBusinessId, BusinessContext.SelectedBusiness?.Id, BusinessContext.Businesses.Select(x => x.Id)); await LoadAsync(); }
+    public static Guid? SelectSetupBusiness(Guid? requested, Guid? selected, IEnumerable<Guid> accessible) =>
+        requested is { } business && accessible.Contains(business) ? business : selected;
     private async Task BusinessChanged(Guid? value) { _business = value; _message = null; await LoadAsync(); }
     private void ProviderChanged(ToolchainCertificationProvider? value) { _provider = value; _profile = null; _reviewed = false; }
     private void ProfileChanged(string? value) { _profile = value; _reviewed = false; }

@@ -11,5 +11,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="$(CSweetGameDirectorRepositoryRoot)/src/CSweet.Agent.Director.VideoGame/CSweet.Agent.Director.VideoGame.csproj" Aliases="Director" />
     <ProjectReference Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.CreativeDirector.VideoGame/src/CSweet.Agent.CreativeDirector.VideoGame/CSweet.Agent.CreativeDirector.VideoGame.csproj" Aliases="Creative" />
+    <ProjectReference Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.Producer.VideoGame/src/CSweet.Agent.Producer.VideoGame/CSweet.Agent.Producer.VideoGame.csproj" Aliases="Producer" />
+    <ProjectReference Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.TechnicalDirector.VideoGame/src/CSweet.Agent.TechnicalDirector.VideoGame/CSweet.Agent.TechnicalDirector.VideoGame.csproj" Aliases="Technical" />
   </ItemGroup>
 </Project>

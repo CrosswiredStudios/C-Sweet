@@ -38,6 +38,8 @@ Core approval and attachment provenance, native account authority and staged ado
 
 [Game studio role boundaries](game-studio-role-boundaries.md) defines the Director/Creative/Producer split, exact pitch and creative review gates, SDK interaction primitives, and reproducible concept-to-demo verification.
 
+[Production-brief review and correction](game-studio-production-review.md) maps bounded corrective passes, the stable creative checklist and finding history, compact briefs, and exact source evidence handoffs.
+
 [Prism Break project setup recovery](prism-break-project-setup-recovery.md) documents
 artifact-aware collaboration loop detection, repeated-failure self-requeue suppression,
 notification reuse, Producer metadata corrections, project-state promotion, resumed

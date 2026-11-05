@@ -50,6 +50,42 @@ transaction and cancellation-event boundary against the opt-in PostgreSQL fixtur
 
 ## Hiring autonomy and candidate review
 
+### Cool Games approved-team hiring stall (November 4)
+
+The accepted Prism Break pitch and approved resource-change request existed, but no
+Creative Director/Producer recommendations or employees had been created. Chief
+`ReconcileApprovedResourceChangeAsync` serialized the SDK's optional
+`assignAsProjectManager: false`; `McpToolCatalog` rejected it as an extra property
+before `WorkforcePlatformCapabilityHandler` could invoke the hiring service.
+The Chief retained `chief.resource_validationfailed` review work, while Marcus's
+project state correctly remained `TeamStaffingPending`. An approved team plan
+alone does not establish completed hires or a created project.
+
+The `HiringCapabilities.UpsertRecommendation` input schema now accepts that
+boolean. `HiringService.UpsertRecommendationCoreAsync` still checks imported
+project, Chief, accepted-profile/category, approved-role and team authority when
+it is true. `HiringServiceTests.SdkSchema` passes actual SDK-serialized approved
+team recommendations through the catalog schema and real service, verifies both
+ordinary roles persist, and retains rejection of unauthorized manager assignment,
+wrong field types and unknown properties. Legacy requests may omit the field.
+
+Recovery requires rebuilding/restarting AgentHost with the corrected catalog;
+the Chief's approved-plan discovery can reconcile the existing request and resolve
+its saved review block. Preserve the accepted pitch, approval, team and failed
+audit evidence. No new staffing approval or direct database repair is needed.
+
+Verification: 133 focused hiring/autonomy/gateway/SDK-schema tests passed; two
+optional PostgreSQL concurrency fixtures were skipped. Results are retained at
+`artifacts/dynamic-output/results/hiring-schema.trx`. The normal development
+AgentHost build succeeded and the trusted host was restarted through Aspire on
+November 4; installed agent packages, approval records and business state were
+not edited. The 22:29 UTC recovery pass created both source-linked recommendations
+(`creative-director` and `game-producer`); no new capability validation errors were
+recorded after restart. By 22:30 UTC both hires were fulfilled: Naomi Chen 4.0.4
+and Gabriel Reyes 6.0.5 were active, and Marcus started the normal `Propose the
+accepted game project` coordination. Verify the resulting Producer-managed
+project separately before treating project setup as recovered.
+
 [Chief hiring autonomy](chief-hiring-autonomy.md) documents the authoritative owner policy,
 approval-time delegation, candidate selection, and automatic execution boundary.
 `WorkforcePlan.SelectedCatalogAgentJson` and `SelectionRationale` populate recommendation

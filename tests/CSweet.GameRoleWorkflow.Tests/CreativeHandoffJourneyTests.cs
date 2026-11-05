@@ -16,10 +16,13 @@ public sealed class CreativeHandoffJourneyTests
     static JsonElement E(object value) => JsonSerializer.SerializeToElement(value, Json);
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task Producer_brief_waits_for_exact_Naomi_review_then_Marcus_accepts_and_replay_is_safe(bool changesRequired, bool requiresDirector)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, true)]
+    public async Task Producer_brief_waits_for_exact_Naomi_review_then_Marcus_accepts_and_replay_is_safe(bool changesRequired, bool requiresDirector, bool separateSources)
     {
         var organization = Guid.NewGuid(); var director = Guid.NewGuid(); var naomi = Guid.NewGuid(); var producer = Guid.NewGuid();
         var project = Guid.NewGuid(); var team = Guid.NewGuid(); var parentId = Guid.NewGuid(); var childId = Guid.NewGuid();
@@ -30,7 +33,17 @@ public sealed class CreativeHandoffJourneyTests
             [new(pitchRevision, 1, null, "Collect ten stars in a browser arcade demo. Keyboard controls, no network, no paid assets.", pitchHash, "Accepted", DateTimeOffset.UtcNow, null, null)]);
         var brief = new ArtifactDocument(documentId, "Production brief", "video-game.production-plan.v1", "InReview", revisionId, revisionId, null, null, null,
             [new(revisionId, 1, null, markdown, hash, "Submitted", DateTimeOffset.UtcNow, null, null)]) { WorkstreamId = project, TeamId = team };
+        var gddId = Guid.NewGuid(); var gddRevision = Guid.NewGuid(); var sourceId = Guid.NewGuid(); var sourceRevision = Guid.NewGuid();
+        var gdd = new ArtifactDocument(gddId, "GDD", "video-game.gdd.v1", "Approved", gddRevision, null, gddRevision, null, null,
+            [new(gddRevision,1,null,"Keyboard alternative and readable impacts",hash,"Accepted",DateTimeOffset.UtcNow,null,null)]) { WorkstreamId=project, TeamId=team };
+        var sourceContent = E(new { version=1,workstreamId=project,teamId=team,
+            pitch=new {documentId=pitchId,revisionId=pitchRevision,sha256=pitchHash,documentType=pitch.DocumentType,content=pitch.Revisions[0].Content},
+            gdd=new {documentId=gddId,revisionId=gddRevision,sha256=hash,documentType=gdd.DocumentType,content=gdd.Revisions[0].Content} }).GetRawText();
+        var sources = new ArtifactDocument(sourceId,"Exact sources","video-game.production-sources.v1","InReview",sourceRevision,sourceRevision,null,null,null,
+            [new(sourceRevision,1,null,sourceContent,hash,"Submitted",DateTimeOffset.UtcNow,null,null)]) { WorkstreamId=project, TeamId=team };
+        CollaborationDocumentReference? sourceReference = separateSources ? new(sourceId,sourceRevision,hash) : null;
         var state = new DirectorState { WorkstreamId = project, TeamId = team, ProducerEmployeeId = producer, CreativeDirectorEmployeeId = naomi,
+            CreativeDesignArtifactId=gddId, CreativeDesignRevisionId=gddRevision,
             AcceptedVision = new(1, "pitch", pitch.Revisions[0].Content, pitchId, pitchRevision, pitchHash, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow) };
         var stores = new Dictionary<Guid, Dictionary<string, AgentOperatingStateResponse>> { [director] = [], [naomi] = [] };
         AgentOperatingStateResponse Saved(string key, JsonElement payload) => new(Guid.NewGuid(), key, "fixture", 1, "Active", new Dictionary<string,string>(), [], key, [], Guid.NewGuid(), payload, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
@@ -49,7 +62,9 @@ public sealed class CreativeHandoffJourneyTests
         AgentTestRuntime Runtime(Guid actor) => new AgentTestRuntime()
             .RegisterCapability<AgentOperatingStateReadRequest, AgentOperatingStateReadResponse>(PlatformCapabilities.AgentOperatingStateRead, (r, _) => Task.FromResult(new AgentOperatingStateReadResponse(stores[actor].GetValueOrDefault(r.StateKey))))
             .RegisterCapability<AgentOperatingStateWriteRequest, AgentOperatingStateResponse>(PlatformCapabilities.AgentOperatingStateWrite, (r, _) => Task.FromResult(stores[actor][r.StateKey] = Saved(r.StateKey, r.Payload)))
-            .RegisterCapability<JsonElement, ArtifactDocument>(PlatformCapabilities.ArtifactRead, (r, _) => Task.FromResult(r.GetProperty("artifactId").GetGuid() == pitchId ? pitch : brief))
+            .RegisterCapability<JsonElement, ArtifactDocument>(PlatformCapabilities.ArtifactRead, (r, _) => Task.FromResult(
+                r.GetProperty("artifactId").GetGuid() == pitchId ? pitch : r.GetProperty("artifactId").GetGuid() == gddId ? gdd :
+                r.GetProperty("artifactId").GetGuid() == sourceId ? sources : brief))
             .RegisterCapability<ReadDecisionRequest, IReadOnlyList<DecisionRecord>>(DecisionCapabilityNames.ReadV1, (_, _) => Task.FromResult<IReadOnlyList<DecisionRecord>>([]))
             .RegisterCapability<StartAgentCoordinationRequest, AgentCoordinationSession>(CommunicationCapabilities.CoordinationStart, (r, _) => {
                 Assert.Equal(naomi, r.TargetOrganizationUserId); start = r;
@@ -59,12 +74,20 @@ public sealed class CreativeHandoffJourneyTests
             .RegisterCapability<AddPersonalTodoItemRequest, PersonalTodoItem>(PersonalTodoCapabilities.Add, (r, _) => Task.FromResult(new PersonalTodoItem(Guid.NewGuid(), Guid.NewGuid(), director, director, "Marcus", r.Title, r.Description!, "Ready", r.Priority, 1, 1, null, r.SourceConversationId, r.SourceMessageId, [], null, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)))
             .RegisterCapability<JsonElement, PersonalTodoDirectory>(PersonalTodoCapabilities.Read, (_, _) => Task.FromResult(new PersonalTodoDirectory([], director)))
             .RegisterCapability<DecideArtifactRevision, ArtifactDocument>(PlatformCapabilities.ArtifactDecide, (r, _) => {
-                Assert.Equal(director, actor); Assert.Equal(revisionId, r.RevisionId); decisions++;
+                Assert.Equal(director, actor); decisions++;
+                if (r.ArtifactId == sourceId) { Assert.Equal(sourceRevision,r.RevisionId);
+                    sources=sources with {AcceptedRevisionId=sourceRevision,Revisions=[sources.Revisions[0] with {Status="Accepted"}]}; return Task.FromResult(sources); }
+                Assert.Equal(revisionId, r.RevisionId);
                 brief = brief with { AcceptedRevisionId = revisionId, Revisions = [brief.Revisions[0] with { Status = "Accepted" }] }; return Task.FromResult(brief); })
             .RegisterCapability<JsonElement, JsonElement>(PlatformCapabilities.LlmChatStream, (r, _) => {
                 var system = r.GetProperty("messages")[0].GetProperty("text").GetString()!;
                 if (actor == naomi) { creativeModels++; Assert.Contains("independent-reviewer", system);
-                    return Task.FromResult(E(new { text = JsonSerializer.Serialize(new { disposition = changesRequired ? "changes-required" : "accepted", summary = "Reviewed exact player experience.", findings = changesRequired ? new[]{"Player promise changed"} : new[]{"The approved player promise is preserved"}, requiredChanges = changesRequired ? new[]{"Restore the approved one-arena scope"} : [], requiresDirector }), role = "assistant" })); }
+                    if (separateSources) Assert.Contains("Keyboard alternative and readable impacts",r.GetProperty("messages")[1].GetProperty("text").GetString());
+                    return Task.FromResult(E(new { text = JsonSerializer.Serialize(new { disposition = changesRequired ? "changes-required" : "accepted", summary = "Reviewed exact player experience.", findings = changesRequired ? new[]{"Player promise changed"} : new[]{"The approved player promise is preserved"}, requiredChanges = changesRequired ? new[]{"Restore the approved one-arena scope"} : [], requiresDirector,
+                        checklistVersion = "production-brief.v1",
+                        checklist = new[] {"scope","player-loop","controls-accessibility","presentation-audio","validation-plan","constraints-non-goals"}
+                            .Select(id => new {id, status = changesRequired && id == "scope" ? "blocking" : "passed", evidence = "Checked exact approved scope"}),
+                        issues = changesRequired ? new[] { new {id="scope-arena",checkId="scope",severity="blocking",status="open",requirement="Approved one-arena scope",evidence="Brief changes player promise",owner="game-producer",milestone="pre-production",change="Restore the approved one-arena scope"}} : [] }), role = "assistant" })); }
                 directorModels++; Assert.Contains("production-baseline-review", system);
                 return Task.FromResult(E(new { text = "{\"accept\":true,\"guidance\":\"Approved scope and budget are preserved.\",\"suggestedMarkdown\":\"\",\"requiresOwner\":false}", role = "assistant" }));
             });
@@ -73,7 +96,7 @@ public sealed class CreativeHandoffJourneyTests
         var marcus = new DirectorAgent(); var creativeAgent = new CreativeAgent();
         foreach (var pair in new (CSweetAgentBase Agent, AgentRuntimeContext Context)[] { (marcus, directorContext), (creativeAgent, creativeContext) })
             Assert.True((await pair.Agent.ExecuteCapabilityAsync(new(Guid.NewGuid(), AgentConfigurationCapabilities.Update, E(new UpdateAgentConfigurationRequest(new Dictionary<string, JsonElement> { ["llmProviderId"] = E(Guid.NewGuid()), ["llmModel"] = E("fixture") }))), pair.Context, default)).Succeeded);
-        var producerReview = new AgentCoordinationArtifact("video-game.production.pitch-review.v1", "1.0", "pitch", 1, true, E(new { pitchDigest = "pitch", documentId, revisionId, revisionSha256 = hash, ready = true, questions = Array.Empty<string>(), rationale = "Ready for delivery planning" }), "review");
+        var producerReview = new AgentCoordinationArtifact("video-game.production.pitch-review.v1", "1.0", "pitch", 1, true, E(new { pitchDigest = "pitch", documentId, revisionId, revisionSha256 = hash, ready = true, questions = Array.Empty<string>(), rationale = "Ready for delivery planning",sourceEvidence=sourceReference }), "review");
         var request = new AgentCoordinationTurnRequest(parentId, 2, 2, "Brief", "Review", [], manager, parent.Target, false,
             [new(Guid.NewGuid(), 1, producer, "Continue", "Ready", DateTimeOffset.UtcNow, producerReview)]) { WorkContext = context };
         var blocked = await marcus.HandleCoordinationTurnAsync(request, directorContext, default);
@@ -92,6 +115,7 @@ public sealed class CreativeHandoffJourneyTests
         var final = await marcus.HandleCoordinationTurnAsync(request, directorContext, default);
         Assert.Equal("Continue", final.Disposition); Assert.Equal(!changesRequired, final.Artifact!.Payload.GetProperty("accepted").GetBoolean());
         await marcus.HandleCoordinationTurnAsync(request, directorContext, default);
-        Assert.Equal(changesRequired ? 0 : 1, decisions); Assert.Equal(changesRequired && !requiresDirector ? 0 : 1, directorModels); Assert.Equal(1, creativeModels);
+        Assert.Equal(changesRequired ? 0 : separateSources ? 2 : 1, decisions); Assert.Equal(changesRequired && !requiresDirector ? 0 : 1, directorModels); Assert.Equal(1, creativeModels);
+        if (changesRequired) Assert.NotEqual(JsonValueKind.Null, final.Artifact.Payload.GetProperty("correction").ValueKind);
     }
 }

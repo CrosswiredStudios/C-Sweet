@@ -1,5 +1,64 @@
 # Developer execution plans and progress recovery
 
+## Update-source repair (4.1.14 / 2.1.13)
+
+The November 5 developer source reconciliation restores the complete execution core
+from `codex/sprint-flow-efficiency` and combines it with the MCP/browser changes below.
+The default branches had committed stash-conflict markers and omitted supporting
+execution files. `AgentImportPreviewService.PreviewAsync` reads that default-branch
+manifest; invalid JSON prevents update discovery before any installation occurs.
+Publish the repaired GameEngineer 4.1.14 and Software Developer 2.1.13 source, including
+the restored files and matching notes, before fetching updates. Both standalone
+package-consumer suites pass 371 tests, shared-core parity covers 70 files, and both
+Linux bundles pass self-test and package verification. Local repair does not change
+GitHub or any installed agent.
+
+## MCP service recovery and real browser evidence (4.1.13 / 2.1.12)
+
+`DevelopmentTransport.IsTransient` recognizes the exact SDK MCP HTTP-500 failure,
+including its legacy exception representation, alongside the existing gateway
+failures. `GameEngineerHarness.RunImplementationAsync` and its Daniel counterpart
+preserve source and bound in-process recovery; `AssignedDevelopmentService.ExecuteAsync`
+returns a retryable `runtime.transport` failure after that allowance. A runtime
+callback finishing successfully is not evidence that its ticket completed. Unrelated
+HTTP 500s, capability denials, invalid data and cancellation retain their existing
+failure boundaries. No model setting or generation budget is reduced.
+
+`BrowserSmokeCheck.Session.Tool` exposes `check_browser_build` in assigned and
+personal development harnesses. It restores a trusted, dependency-free Node/CDP
+helper, uses prepared Chromium, serves only the specified static directory on
+loopback, and records actual startup exceptions, failed assets, visible surface
+and a PNG screenshot. It downloads no browser or project package and adds no
+application instrumentation. `test-results/browser-smoke` survives source
+checkpoint transfer; it belongs in the repository's ignore rules rather than
+authored product files. Screenshot output does not itself prove visual quality,
+gameplay or independent QA.
+
+For browser-visible assigned acceptance criteria, `BrowserSmokeCheck.Required`
+enables `Session.RequireEvidence` inside `WorkspaceValidation.VerifyWithRepairAsync`.
+A model-authored passing report or a static-only check cannot replace a successful
+browser-tool receipt. A changed source fingerprint or successful dependency restore
+(`WorkspaceValidation.InputRevision`) invalidates that receipt. Generated test output
+does not invalidate source. The same bounded report-correction path requests the
+missing browser check before publication. Non-browser tasks and pure dependency-pin
+work do not acquire a browser requirement.
+
+`AssignedDevelopmentService.BuildAssignmentPrompt` serializes a description once
+when the planner also copied it into requirements, and retains each distinct
+additional requirement. Role profiles use the single durable execution plan and
+no longer contradict infrastructure handoff with a promise of skipped validation
+in another environment.
+
+Regression coverage: `HarnessExecutionTests`, `AssignedCodingRuntimeTests`,
+`BrowserSmokeCheckTests`, and `DevelopmentEfficiencyTests`. Real headless-Chromium
+verification in the C-Sweet review workspace tested a valid canvas, startup
+exception, missing asset, blank page and the exact retained Prism Break scaffold.
+The latter reproduced `this.scene.getKeys is not a function`; the screenshot showed
+a blank playfield. This is retained test-copy evidence, not a change to live game
+source or a claim of project recovery. Both developer releases must pass
+`scripts/Test-DeveloperAgentCoreParity.ps1` and their standalone package-consumer
+tests, self-tests and Linux bundle verification.
+
 Adrian and Daniel share `DevelopmentWorkflow`, connected by
 `AssignedDevelopmentService.ExecuteAssignedTicketAsync` and
 `PersonalDevelopmentService.AdvanceAsync` (the deploy partial).
