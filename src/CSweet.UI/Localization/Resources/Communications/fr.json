@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "Aucune publication enregistrée chargée.",
   "ShareWorkInstruction.History.More": "Plus de publications",
   "Communications.SendingAndConversationActionsAre": ". L’envoi et les actions de conversation sont désactivés.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "Plus",
+  "DecisionPrompt.ReadFullQuestion": "Lire la question complète dans Communications"
 }

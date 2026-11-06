@@ -22,7 +22,7 @@
         @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
         @if (_repositories is not null)
         {
-            <MudText Typo="Typo.body2">@_repositories.Count repositories allowed by GitHub</MudText>
+            <MudText Typo="Typo.body2">@_repositories.Count @(_repositories.Count == 1 ? "repository" : "repositories") allowed by GitHub</MudText>
             @if (_repositories.Count == 0) { <MudText>@L["GitHubConnectionCard.NoRepositoriesAreCurrentlyExposed"]</MudText> }
             <div style="max-height:320px;overflow:auto" aria-label="@L["GitHubConnectionCard.GitHubRepositoryAccess"]">
                 @foreach (var repository in _repositories)

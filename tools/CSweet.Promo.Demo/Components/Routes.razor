@@ -1,4 +1,15 @@
-<Router AppAssembly="typeof(App).Assembly">
-    <Found Context="routeData"><RouteView RouteData="routeData" /></Found>
-    <NotFound><p>Choose /demo/software/chat, /demo/youtube/chat, or /demo/game/chat.</p></NotFound>
+@inject DemoData Data
+
+<Router AppAssembly="typeof(App).Assembly" AdditionalAssemblies="_applicationPages">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="@(routeData.PageType.Assembly == CSweet.UI.SharedUiAssembly.Value ? typeof(MainLayout) : null)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)"><h1>Page not found</h1><p>This address is not part of the local review.</p><MudButton Href="/design-review">Return to design review</MudButton></LayoutView>
+    </NotFound>
 </Router>
+
+@code {
+    private static readonly System.Reflection.Assembly[] _applicationPages = [CSweet.UI.SharedUiAssembly.Value];
+}

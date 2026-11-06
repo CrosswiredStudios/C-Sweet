@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "Keine gespeicherten Veröffentlichungen geladen.",
   "ShareWorkInstruction.History.More": "Weitere Veröffentlichungen",
   "Communications.SendingAndConversationActionsAre": ". Senden und Unterhaltungsaktionen sind deaktiviert.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "Mehr",
+  "DecisionPrompt.ReadFullQuestion": "Vollständige Frage in Kommunikation lesen"
 }

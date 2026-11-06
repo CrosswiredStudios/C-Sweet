@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
 using System.Text;
+using CSweet.Contracts.Agents;
 using CSweet.Application.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -349,14 +350,31 @@ public static class McpGatewayEndpoints
             MetadataJson: JsonSerializer.Serialize(new { efficiencyKind = tool.Capability.StartsWith("platform.llm.", StringComparison.OrdinalIgnoreCase) ? "ModelControl" : "Tool", capability = tool.Capability, toolName = tool.Name, activityDescription = tool.ActivityDescription,
                 activityWorkItemId = auditContext.WorkItemId, activityConversationId = CapabilityConversationId(tool, arguments) }),
             Actor: RuntimeAuditIdentity.Actor(session), ContentType: "application/json", Payload: request.Payload.Span.ToArray()), cancellationToken);
+        CapabilityAdmission? claimed = null;
+        var routed = false;
+        // Once provider work is queued, a lost wait no longer proves the operation failed.
+        var providerWorkQueued = false;
         try
         {
         var inputFailure = ValidateToolInput(request.RequestId, arguments, tool.InputSchema);
+        // The admission gate runs before routing: posture, approval and temporal policy apply to every
+        // path that can execute a capability, not only the ones that reach the handler pipeline.
+        // Provider-bound tools run outside it: remote MCP and connector tools are listed only for
+        // read operations. Other provider tools are at least Write: a package chooses its own
+        // capability names, so naming one after a platform read must not make it a read.
+        var route = tool.ProviderInstallationId is null ? null : new CapabilityRoute(
+            tool.ExecutionPolicy == McpToolExecutionPolicy.ReadOnly ? CapabilityRiskClass.Read
+                : (CapabilityRiskClass)Math.Max((int)CapabilityRiskClass.Write, (int)CapabilityRiskCatalog.Classify(tool.Capability)));
+        var preflight = inputFailure is null ? await dispatcher.PreflightAsync(session, request, cancellationToken, route) : null;
+        claimed = preflight?.Admission;
         CapabilityResult? terminal;
         if (inputFailure is not null)
             terminal = inputFailure;
+        else if (preflight!.Terminal is { } refused)
+            terminal = refused[^1];
         else if (tool.ProviderInstallationId is { } remoteProvider && await IsReviewedRemoteMcpProviderAsync(db, remoteProvider, cancellationToken))
         {
+            routed = true;
             var result = await remoteMcp.ReadAsync(Guid.Parse(session.BusinessId), Guid.Parse(session.InstallationId),
                 tool.Capability, arguments, cancellationToken);
             terminal = new CapabilityResult { RequestId = request.RequestId, Succeeded = true,
@@ -365,6 +383,7 @@ public static class McpGatewayEndpoints
         else if (tool.ProviderInstallationId is { } connectorId && await db.AgentInstallations.AnyAsync(x =>
                 x.Id == connectorId && x.PackageVersion!.PluginKind == PluginKind.Connector, cancellationToken))
         {
+            routed = true;
             var key = arguments.TryGetProperty("idempotencyKey", out var connectorKey) && connectorKey.ValueKind == JsonValueKind.String
                 ? connectorKey.GetString()! : request.RequestId;
             var result = await connectorReads.ExecuteAsync(Guid.Parse(session.BusinessId), Guid.Parse(session.InstallationId),
@@ -374,6 +393,7 @@ public static class McpGatewayEndpoints
         }
         else if (tool.ProviderInstallationId is { } providerInstallationId)
         {
+            routed = true;
             var timeout = TimeSpan.FromSeconds(Math.Clamp(tool.ExecutionTimeoutSeconds, 1, 900));
             var callerKey = arguments.ValueKind == JsonValueKind.Object &&
                             arguments.TryGetProperty("idempotencyKey", out var idempotency) &&
@@ -394,6 +414,7 @@ public static class McpGatewayEndpoints
                 sourceType: "AgentInstallation",
                 sourceId: session.InstallationId,
                 cancellationToken: cancellationToken);
+            providerWorkQueued = true;
             try
             {
                 var providerValue = await inbox.WaitForResultAsync<JsonElement>(
@@ -423,7 +444,7 @@ public static class McpGatewayEndpoints
         {
             terminal = null;
             var streamed = new List<CapabilityResult>();
-            await foreach (var result in dispatcher.InvokeAsync(session, request, cancellationToken))
+            await foreach (var result in dispatcher.ExecuteAsync(session, request, preflight.Admission, cancellationToken))
             {
                 terminal = result;
                 streamed.Add(result);
@@ -432,6 +453,9 @@ public static class McpGatewayEndpoints
                 string.Equals(tool.Capability, CSweet.Agent.SDK.PlatformCapabilities.LlmChatStream, StringComparison.Ordinal))
                 terminal = AggregateLlmStream(request.RequestId, streamed);
         }
+        // A provider-routed call settles the same approval receipt a handler call would.
+        if (routed && claimed is { } claimedAdmission && terminal is not null)
+            terminal = await dispatcher.CompleteAsync(claimedAdmission, terminal, cancellationToken);
         if (terminal is null)
             throw new InvalidOperationException("The platform capability returned no result.");
 
@@ -476,6 +500,20 @@ public static class McpGatewayEndpoints
         }
         catch (Exception error)
         {
+            // A claim taken before a provider call failed must not stay Executing. Once the work
+            // was queued its outcome is unknown: the claim stays Executing for reconciliation
+            // instead of recording a failure the provider may contradict.
+            if (routed && !providerWorkQueued && claimed is { } abandoned)
+            {
+                try
+                {
+                    await dispatcher.CompleteAsync(abandoned,
+                        new CapabilityResult { RequestId = request.RequestId, Succeeded = false, Error = error.Message,
+                            FailureCode = error is OperationCanceledException ? "cancelled" : "capability_failed" },
+                        CancellationToken.None);
+                }
+                catch (Exception) { /* the row remains recoverable through the abandon path */ }
+            }
             await WriteCapabilityAuditAsync(audit, session, tool, request,
                 new CapabilityResult { RequestId = request.RequestId, Succeeded = false, Error = error.Message,
                     FailureCode = error is OperationCanceledException ? "cancelled" : "capability_failed" },

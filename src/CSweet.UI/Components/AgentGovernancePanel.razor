@@ -1,0 +1,41 @@
+@using CSweet.Contracts.Agents
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+@if (_assignment is not null)
+{
+    <MudPaper Elevation="0" Outlined="true" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6">@L["AgentGovernancePanel.AgentAuthority"]</MudText>
+        <AgentPostureChip Posture="_posture" PostureChanged="SaveAsync" Disabled="_saving" />
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid InstallationId { get; set; }
+    private AgentPostureResponse? _assignment;
+    private AgentPosture _posture;
+    private bool _saving;
+    private string? _error;
+    protected override async Task OnParametersSetAsync()
+    {
+        _assignment = null;
+        using var response = await Http.GetAsync($"api/agents/{InstallationId:D}/posture");
+        if (!response.IsSuccessStatusCode) return;
+        _assignment = await response.Content.ReadFromJsonAsync<AgentPostureResponse>();
+        if (_assignment is not null) AgentAuthority.TryParse(_assignment.Posture, out _posture);
+    }
+    private async Task SaveAsync(AgentPosture posture)
+    {
+        _saving = true; _error = null;
+        try
+        {
+            using var response = await Http.PutAsJsonAsync($"api/agents/{InstallationId:D}/posture", new SetAgentPostureRequest(posture.ToString()));
+            response.EnsureSuccessStatusCode();
+            _assignment = await response.Content.ReadFromJsonAsync<AgentPostureResponse>();
+            if (_assignment is not null) AgentAuthority.TryParse(_assignment.Posture, out _posture);
+        }
+        catch (HttpRequestException) { _error = L["AgentGovernancePanel.ThePostureCouldNotBe"]; }
+        finally { _saving = false; }
+    }
+}

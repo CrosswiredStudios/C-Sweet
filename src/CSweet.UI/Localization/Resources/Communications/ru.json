@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "Сохранённые публикации не загружены.",
   "ShareWorkInstruction.History.More": "Ещё публикации",
   "Communications.SendingAndConversationActionsAre": ". Отправка сообщений и действия с беседой отключены.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "Ещё",
+  "DecisionPrompt.ReadFullQuestion": "Прочитать вопрос полностью в разделе «Коммуникации»"
 }

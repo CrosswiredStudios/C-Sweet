@@ -26,7 +26,7 @@ public sealed class ManagedConnectorAuthorityTests
         var session=f.Base.Session();var inbox=new AgentWorkInbox(f.Db,f.Base.Protection,f.Base.Clock);
         var claim=Assert.IsType<ClaimedAgentWork>(await inbox.ClaimAsync(session,default));
         Assert.Equal(f.Base.Org,claim.Payload.Deserialize<AgentOnboardedEvent>(Json)!.OrganizationId);
-        var tools=await f.Catalog.ListAsync(f.AgentSession(),f.Db,default);
+        var tools=await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(),f.Db,default));
         Assert.Equal(new[]{"youtube.api.channel.read.v1","youtube.api.video-category.list.v1","youtube.api.video.read.v1"},tools.Select(x=>x.Capability).Order().ToArray());
         var result=await f.Read();Assert.Equal("UC_SYNTHETIC_CHANNEL",result.GetProperty("items")[0].GetProperty("id").GetString());
         Assert.Equal("youtube.api.channel.read.v1",f.Gateway.LastRead!.Capability);
@@ -53,7 +53,7 @@ public sealed class ManagedConnectorAuthorityTests
         Assert.Equal(f.Base.Org, payload.OrganizationId);
         Assert.Equal(f.Base.Employee, payload.AgentOrganizationUserId);
         Assert.Equal(f.Base.Human, payload.HiringOrganizationUserId);
-        var tool = Assert.Single(await f.Catalog.ListAsync(f.AgentSession(), f.Db, default));
+        var tool = Assert.Single(await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(), f.Db, default)));
         Assert.Equal(ConnectorPlanServiceTests.Fixture.Capability, tool.Capability);
         var result = await f.Read();
         Assert.Equal("synthetic-channel", result.GetProperty("data").GetString());
@@ -109,10 +109,10 @@ public sealed class ManagedConnectorAuthorityTests
     {
         await using var f = await Fixture.Create(keepLocalApproval: true);
         Assert.True(await f.Plans.IsAvailableAsync(f.Base.Org, f.Base.Installation, ConnectorPlanServiceTests.Fixture.Capability, default));
-        Assert.Single(await f.Catalog.ListAsync(f.AgentSession(), f.Db, default));
+        Assert.Single(await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(), f.Db, default)));
         await f.Change(change);
         Assert.False(await f.Plans.IsAvailableAsync(f.Base.Org, f.Base.Installation, ConnectorPlanServiceTests.Fixture.Capability, default));
-        Assert.Empty(await f.Catalog.ListAsync(f.AgentSession(), f.Db, default));
+        Assert.Empty(await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(), f.Db, default)));
         await Assert.ThrowsAnyAsync<Exception>(() => f.Base.Preview());
         await Assert.ThrowsAnyAsync<Exception>(() => f.Prepare());
         Assert.Equal(0, f.Gateway.Reads); Assert.Equal(0, f.Direct.Calls);
@@ -154,7 +154,7 @@ public sealed class ManagedConnectorAuthorityTests
     public async Task ServiceReadPolicyIsIndependentAndCannotBeGrantedByCoreAuthority()
     {
         await using var f = await Fixture.Create(); f.Gateway.AllowReads = false;
-        Assert.Single(await f.Catalog.ListAsync(f.AgentSession(), f.Db, default));
+        Assert.Single(await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(), f.Db, default)));
         await Assert.ThrowsAsync<HttpRequestException>(() => f.Read());
         Assert.Equal(1, f.Gateway.Reads); Assert.Equal(0, f.Gateway.ProviderEffects);
         Assert.Null((await f.Db.ConnectorExecutions.SingleAsync()).ResultJson);
@@ -196,7 +196,7 @@ public sealed class ManagedConnectorAuthorityTests
         if(archived)await f.Base.Change(async db=>{(await db.PluginAccountSetupSessions.SingleAsync()).Status="Archived";});
         var plan=await f.Prepare();var frozen=JsonSerializer.Deserialize<FrozenConnectorPlan>(plan.PlanJson,Json)!;
         Assert.Equal(f.AdoptionId,frozen.CredentialAuthority!.AdoptionId);
-        Assert.Single(await f.Catalog.ListAsync(f.AgentSession(),f.Db,default));
+        Assert.Single(await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(),f.Db,default)));
         Assert.Equal("synthetic-channel",(await f.Read()).GetProperty("data").GetString());
         Assert.True(f.Gateway.AdoptionReads>0);Assert.Equal(1,f.Gateway.Reads);
         Assert.Empty(await f.Db.ConnectorProfileApprovals.ToArrayAsync());
@@ -222,7 +222,7 @@ public sealed class ManagedConnectorAuthorityTests
         Assert.True(await f.Plans.IsAvailableAsync(f.Base.Org,f.Base.Installation,ConnectorPlanServiceTests.Fixture.Capability,default));
         await f.Adopt(change);
         Assert.False(await f.Plans.IsAvailableAsync(f.Base.Org,f.Base.Installation,ConnectorPlanServiceTests.Fixture.Capability,default));
-        Assert.Empty(await f.Catalog.ListAsync(f.AgentSession(),f.Db,default));
+        Assert.Empty(await ConnectorTools(f.Catalog.ListAsync(f.AgentSession(),f.Db,default)));
         await Assert.ThrowsAnyAsync<Exception>(()=>f.Base.Preview());
         Assert.Equal(0,f.Gateway.Reads);
     }
@@ -478,4 +478,9 @@ public sealed class ManagedConnectorAuthorityTests
         public Task<ConnectionInventory> Discover(Guid connection,CancellationToken ct,string? expectedServiceOrigin=null)=>throw new NotSupportedException();
         public Task<ConnectionSnapshot> Disconnect(Guid connection,CancellationToken ct,string? expectedServiceOrigin=null)=>throw new NotSupportedException();
     }
+
+    // Every agent session also lists its own implicit self-read tools (posture, harness status);
+    // these tests are about connector authority, so count connector tools only.
+    private static async Task<McpToolDescriptor[]> ConnectorTools(Task<IReadOnlyList<McpToolDescriptor>> listing) =>
+        (await listing).Where(tool => !McpToolCatalog.SelfReadCapabilities.Contains(tool.Capability)).ToArray();
 }

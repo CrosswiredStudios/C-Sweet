@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "Память по умолчанию (МБ)",
   "AgentRuntimeSettings.MaximumMemory": "Максимум памяти (МБ)",
   "AgentRuntimeSettings.CodingInitialMemory": "Начальная память для разработки (MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "Лимит процессов/потоков для программиста",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "Применяется к новым ВМ программистов. В Linux потоки учитываются в этом лимите. Существующие ВМ сохраняют подписанные лимиты до замены.",
   "AgentRuntimeSettings.CodingMaximumMemory": "Максимум памяти для разработки (MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "Максимум замен ВМ для разработки",
   "AgentRuntimeSettings.DefaultCpu": "ЦП по умолчанию (%)",

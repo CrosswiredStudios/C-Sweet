@@ -3,19 +3,20 @@
 @inject AppCulture Culture
 @implements IDisposable
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider Theme="Appearance.MudTheme" IsDarkMode="Appearance.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 <AppRealtimeCoordinator />
-<AgentHireOperationTray />
+<WorkspaceOperationTray />
 
 <MudRTLProvider RightToLeft="@Culture.IsRightToLeft">
+<a class="skip-link" href="#main-content">Skip to content</a>
 <MudLayout data-appearance="@Appearance.Theme">
     <MudAppBar Elevation="0" Dense="true" Color="Color.Surface" Class="app-bar">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" aria-label="Toggle navigation" aria-expanded="@_drawerOpen.ToString().ToLowerInvariant()" />
         <div class="app-mobile-brand">
-            <img src="images/icon.svg" alt="" />
+            <img src="@(!Appearance.IsDark ? "_content/CSweet.UI/images/icon.svg" : "_content/CSweet.UI/images/icon_dark.svg")" alt="" />
             <MudText Typo="Typo.h6" Class="app-title">C-Sweet</MudText>
         </div>
         <MudSpacer />
@@ -31,6 +32,7 @@
 
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.False" Class="content">
+            <span id="main-content" class="main-content-anchor" tabindex="-1"></span>
             <ExecutionCapacityAlert />
             @Body
         </MudContainer>
@@ -44,33 +46,6 @@
     protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await Appearance.InitializeAsync(); }
     private void OnAppearanceChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => Appearance.Changed -= OnAppearanceChanged;
-
-    private readonly MudTheme _theme = new()
-    {
-        PaletteLight = new PaletteLight
-        {
-            Primary = "#18233F",
-            Secondary = "#9BE7C2",
-            SecondaryContrastText = "#18233F",
-            Tertiary = "#9BE7C2",
-            AppbarBackground = "#FFFCF7",
-            AppbarText = "#18233F",
-            DrawerBackground = "#0B2E53",
-            DrawerText = "#FFFFFF",
-            DrawerIcon = "#FFFFFF",
-            Background = "#FFFCF7",
-            Surface = "#FFFFFF",
-            TextPrimary = "#18233F",
-            TextSecondary = "#68738A",
-            Success = "#23845C",
-            Warning = "#F2B84B",
-            Error = "#E85D75"
-        },
-        LayoutProperties = new LayoutProperties
-        {
-            DrawerWidthLeft = "260px"
-        }
-    };
 
     private void ToggleDrawer()
     {

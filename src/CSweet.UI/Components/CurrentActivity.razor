@@ -54,6 +54,8 @@
                 @if (_evidenceUnavailable) { <p class="activity-notice">@L["CurrentActivity.Feed.EvidenceUnavailable"]</p> }
             }
             <div class="activity-detail-links">
+                @if (selected.CanInspect && (selected.AttemptId.HasValue || selected.ModelRunId.HasValue))
+                { <a href="@($"/organizations/{OrganizationId:D}/runs/{selected.EmployeeId:D}?attemptId={selected.AttemptId}&modelRunId={(selected.AttemptId.HasValue ? null : selected.ModelRunId)}&workItemId={selected.WorkItemId}")">Open run inspector</a> }
                 @if (selected.BoardId.HasValue) { <a href="@CurrentActivityNavigation.WorkItemHref(OrganizationId, selected)">@L["CurrentActivity.OpenWorkItem"]</a> }
                 <a href="@($"/organizations/{OrganizationId}/employees/{selected.EmployeeId}")">@L["CurrentActivity.EmployeeDetails"]</a>
             </div>

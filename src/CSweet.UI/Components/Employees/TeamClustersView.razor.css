@@ -2,7 +2,7 @@
 .workspace-tools { display:grid; grid-template-columns:minmax(160px,1fr) 140px auto; align-items:center; gap:12px; margin-bottom:16px; }
 .workspace-body { display:grid; grid-template-columns:220px minmax(0,1fr); gap:24px; align-items:start; }
 .team-rail { display:flex; flex-direction:column; gap:6px; padding:10px; border-radius:18px; background:var(--aurora-widget); border:1px solid var(--activity-border); }
-.team-rail button { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:0; border-radius:10px; text-align:left; color:var(--activity-muted); font:inherit; cursor:pointer; background:transparent; }
+.team-rail button { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:0; border-radius:10px; text-align:start; color:var(--activity-muted); font:inherit; cursor:pointer; background:transparent; }
 .team-rail button.active { background:var(--activity-tint); color:var(--activity-text); font-weight:600; }
 .team-rail button:hover { background:var(--activity-tint); }
 .team-rail small { font-size:.75rem; }

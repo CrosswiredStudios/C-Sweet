@@ -1,0 +1,60 @@
+@using CSweet.Contracts.Agents
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+
+@if (VisibleItems.Count > 0)
+{
+    <section aria-label="Agent operation approvals" class="mb-4">
+        <MudText Typo="Typo.h5">Agent operations</MudText>
+        @foreach (var item in VisibleItems)
+        {
+            <MudPaper @key="item.Id" Outlined="true" Elevation="0" Class="pa-4 mt-3">
+                <MudText Typo="Typo.h6">@item.Capability</MudText>
+                <MudText>@item.Risk · @item.Status</MudText>
+                <details><summary>Review exact request</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@item.PayloadJson</pre></details>
+                @if (item.Status == "Pending")
+                {
+                    <MudButton Color="Color.Primary" Disabled="_busy" OnClick="@(() => DecideAsync(item.Id, true))">Approve operation</MudButton>
+                    <MudButton Disabled="_busy" OnClick="@(() => DecideAsync(item.Id, false))">Deny</MudButton>
+                }
+            </MudPaper>
+        }
+    </section>
+}
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool ShowHistory { get; set; }
+    private IReadOnlyList<CapabilityApprovalResponse> VisibleItems => _items.Where(x => ShowHistory ? x.Status != "Pending" : x.Status == "Pending").ToArray();
+    private IReadOnlyList<CapabilityApprovalResponse> _items = [];
+    private bool _busy;
+    private string? _error;
+    protected override void OnInitialized() { Realtime.EventReceived += Changed; Realtime.Reconnected += Reload; }
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try { _items = await Http.GetFromJsonAsync<CapabilityApprovalResponse[]>($"api/core/organizations/{OrganizationId:D}/capability-approvals") ?? []; }
+        catch (HttpRequestException) { _error = "Agent operation approvals could not be loaded."; }
+    }
+    private async Task DecideAsync(Guid id, bool approve)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/capability-approvals/{id:D}/decision", new DecideCapabilityApprovalRequest(approve));
+            response.EnsureSuccessStatusCode();
+            await LoadAsync();
+        }
+        catch (HttpRequestException) { _error = "The decision could not be saved. Refresh and review the current request."; }
+        finally { _busy = false; }
+    }
+    private void Changed(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope message)
+    {
+        if (message.OrganizationId == OrganizationId && message.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.AgentGovernanceChanged) Reload();
+    }
+    private void Reload() => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    public void Dispose() { Realtime.EventReceived -= Changed; Realtime.Reconnected -= Reload; }
+}

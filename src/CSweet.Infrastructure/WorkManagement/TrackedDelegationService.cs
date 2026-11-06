@@ -521,6 +521,10 @@ public sealed class TrackedDelegationService(CSweetDbContext db, IPersonalTodoSe
             var inactive = people.Count != 2 || people.Any(x => !x.IsActive || x.ArchivedAt != null);
             var changedSource = false;
             try { await RequireSource(d, token); } catch (UnauthorizedAccessException) { changedSource = true; }
+            // Cancelled tracking keeps the execution lifecycle (Status) but closes reporting: nobody is
+            // waiting on this delegation any more, so it must not raise responsibility attention or
+            // notify managers. Skip the rest too, because the execution review needs an active recipient.
+            if ((inactive || changedSource) && d.TrackingCancelledAt is not null) continue;
             if ((inactive || changedSource) && d.Status != "AttentionRequired")
             {
                 d.Status = "AttentionRequired"; d.Revision++; d.UpdatedAt = Now;

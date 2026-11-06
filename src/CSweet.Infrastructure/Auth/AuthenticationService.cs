@@ -220,10 +220,28 @@ public sealed class AuthenticationService : IAuthenticationService
             return Failure("invalid_confirmation", "The confirmation link is invalid or expired.");
         }
 
-        var result = user.EmailConfirmed ? IdentityResult.Success : await _userManager.ConfirmEmailAsync(user, token);
-        if (!result.Succeeded)
+        // The token must be verified in every path. Accepting any well-formed
+        // base64 code for an already-confirmed account would let anyone who knows
+        // a user id sign in as that user, including the root administrator.
+        if (user.EmailConfirmed)
         {
-            return Failure("invalid_confirmation", "The confirmation link is invalid or expired.");
+            var alreadyValid = await _userManager.VerifyUserTokenAsync(
+                user,
+                _userManager.Options.Tokens.EmailConfirmationTokenProvider,
+                "EmailConfirmation",
+                token);
+            if (!alreadyValid)
+            {
+                return Failure("invalid_confirmation", "The confirmation link is invalid or expired.");
+            }
+        }
+        else
+        {
+            var result = await _userManager.ConfirmEmailAsync(user, token);
+            if (!result.Succeeded)
+            {
+                return Failure("invalid_confirmation", "The confirmation link is invalid or expired.");
+            }
         }
 
         await _signInManager.SignInAsync(user, isPersistent: false);

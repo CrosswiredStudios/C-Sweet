@@ -160,7 +160,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.Equal("invalid_enrollment", claim.ErrorCode);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_WaitsForAuthenticatedHeartbeatBeforeReportingReady()
     {
         await using var db = CreateDb();
@@ -262,7 +262,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.True((await new SetupService(db, fleet).CompleteStepAsync("agent-execution")).Succeeded);
     }
 
-    [Theory]
+    [WindowsTheory]
     [InlineData("expired")]
     [InlineData("revoked")]
     [InlineData("failed")]
@@ -291,7 +291,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.False(await fleet.RefreshLocalSetupEnrollmentAsync(new(created.Session.Id, redeemed.SetupReceipt!, Environment.MachineName, "windows", architecture)));
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_CleanExistingOfficeRequiresBoundReconnectAndIssuesFreshSetupReceipt()
     {
         await using var db = CreateDb();
@@ -349,7 +349,7 @@ public sealed partial class ExecutionFleetServiceTests
             redeemed.SetupReceipt!, "reconnect_unsafe", Environment.MachineName, "windows", architecture)));
     }
 
-    [Theory]
+    [WindowsTheory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task AssistedLocalSetup_DevelopmentLauncherUsesLoopbackBootstrapOriginButKeepsHttpsOfficeOrigin(bool hasLocalSource)
@@ -399,7 +399,7 @@ public sealed partial class ExecutionFleetServiceTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_ActiveExistingOfficeBlocksReconnectButAllowsConfirmedRemoval()
     {
         await using var db = CreateDb();
@@ -462,7 +462,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.Equal(selected.DiskMb, redeemed.AllocatableDiskMb);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_RemovalFailureBecomesRetryableAndRehydratesLegacyFailedSession()
     {
         await using var db = CreateDb();
@@ -516,7 +516,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.NotEqual(removalHandoff, retryHandoff);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_AlreadyRemovedOfficeContinuesDirectlyIntoInstallation()
     {
         await using var db = CreateDb();
@@ -558,7 +558,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.Equal(selected.DiskMb, persisted.AllocatableDiskMb);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_ReconcilesExactEnrollmentClaimStrandedByLauncher()
     {
         await using var db = CreateDb();
@@ -617,7 +617,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.Equal("ready", recovered.Session?.State);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_RejectsOfficeThatDropsSelectedAllocation()
     {
         await using var db = CreateDb();
@@ -660,7 +660,7 @@ public sealed partial class ExecutionFleetServiceTests
             (await db.LocalOfficeSetupSessions.SingleAsync()).Status);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_UnredeemedHandoffExpiresAfterFiveMinutes()
     {
         await using var db = CreateDb();
@@ -685,7 +685,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.Equal("invalid_handoff", redemption.ErrorCode);
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_RefreshesHandoffWithoutCreatingAnotherSession()
     {
         await using var db = CreateDb();
@@ -817,7 +817,7 @@ public sealed partial class ExecutionFleetServiceTests
         }
     }
 
-    [Fact]
+    [WindowsFact]
     public async Task AssistedLocalSetup_CanStartBeforeWindowsPackageIsPublished()
     {
         await using var db = CreateDb();

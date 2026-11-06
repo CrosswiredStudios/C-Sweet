@@ -3,7 +3,7 @@
 .execution-step-header > .mud-icon-root { font-size: 2.5rem; }
 .execution-loading { display: flex; align-items: center; gap: .75rem; }
 .execution-mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-.execution-mode-card { display: grid; grid-template-columns: auto 1fr; gap: .35rem .75rem; padding: 1rem; text-align: left; border: 1px solid var(--mud-palette-lines-default); border-radius: .75rem; background: var(--mud-palette-surface); color: inherit; cursor: pointer; }
+.execution-mode-card { display: grid; grid-template-columns: auto 1fr; gap: .35rem .75rem; padding: 1rem; text-align: start; border: 1px solid var(--mud-palette-lines-default); border-radius: .75rem; background: var(--mud-palette-surface); color: inherit; cursor: pointer; }
 .execution-mode-card span { grid-column: 2; color: var(--mud-palette-text-secondary); }
 .execution-mode-card.selected { border-color: var(--mud-palette-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--mud-palette-primary) 20%, transparent); }
 .execution-mode-card:disabled { opacity: .55; cursor: not-allowed; }

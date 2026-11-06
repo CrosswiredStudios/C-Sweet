@@ -17,6 +17,7 @@
   "NewBusinessDialog.BeginWithANameA": "Beginnen Sie mit einem Namen, einer Mission und einer Idee.",
   "NewBusinessDialog.StartFresh": "Neu beginnen",
   "NewBusinessDialog.BusinessFromCodebases": "Unternehmen aus Codebasen",
+  "NewBusinessDialog.ExistingBusiness": "Bestehendes Unternehmen",
   "NewBusinessDialog.BringAnAppGameOr": "Bringen Sie eine App, ein Spiel oder eine Website mit, an der Sie bereits arbeiten.",
   "NewBusinessDialog.ConnectGitHubOrUploadZIPs": "GitHub verbinden oder ZIP-Dateien hochladen",
   "NewBusinessDialog.YourAssistantHelpsPrepareThe": "Ihr Assistent hilft beim Vorbereiten des Kontexts. Sie prüfen ihn und wählen dann einen Stabschef.",

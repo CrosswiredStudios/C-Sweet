@@ -193,8 +193,8 @@ public sealed class ChatTurnWorker(
                 if (await IsCancelledAsync(db, turnId, hardTimeout.Token))
                     return;
 
-                await turns.SetStatusAsync(turnId, ChatTurnStatus.Dispatching.ToString(), cancellationToken: hardTimeout.Token);
-                if (await IsCancelledAsync(db, turnId, hardTimeout.Token))
+                // A refused transition means the stored turn is already terminal (e.g. Stop): stop here.
+                if (!await turns.SetStatusAsync(turnId, ChatTurnStatus.Dispatching.ToString(), cancellationToken: hardTimeout.Token))
                     return;
                 outputRouter.BindAlias(conversation.Id, turnId);
                 var reader = outputRouter.Subscribe(turnId);
@@ -244,7 +244,12 @@ public sealed class ChatTurnWorker(
                     cancellationToken: hardTimeout.Token,
                     memoryRecallReceiptJson: preparedRecall.ReceiptJson);
                 workPump = PumpAgentWorkAsync(work.Id, turnId, turn.Attempt, hardTimeout);
-                await turns.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString(), cancellationToken: hardTimeout.Token);
+                if (!await turns.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString(), cancellationToken: hardTimeout.Token))
+                {
+                    // Stopped while dispatching: withdraw the durable work instead of streaming it.
+                    await inbox.CancelAsync(work.Id, "The chat turn was cancelled.", CancellationToken.None);
+                    return;
+                }
 
                 var pendingOutput = new System.Text.StringBuilder();
                 var outputFlush = Stopwatch.StartNew();
@@ -417,7 +422,8 @@ public sealed class ChatTurnWorker(
             await db.SaveChangesAsync(hardTimeout.Token);
             await AuditAssistantMessageAsync(
                 db, audit, conversation, turn, assistantEntity, hardTimeout.Token);
-            await turns.SetStatusAsync(turnId, ChatTurnStatus.FinalizingMemory.ToString(), cancellationToken: hardTimeout.Token);
+            if (!await turns.SetStatusAsync(turnId, ChatTurnStatus.FinalizingMemory.ToString(), cancellationToken: hardTimeout.Token))
+                return;
             var memoryWarning = bypassMemory;
             if (bypassMemory)
             {
@@ -452,7 +458,8 @@ public sealed class ChatTurnWorker(
             await PublishTraceAsync(turns, turnId, "system", "turn.completed", memoryWarning ? "warning" : "completed",
                 memoryWarning ? "Response completed with a memory warning" : "Turn completed",
                 $"Completed in {Math.Max(1, (int)(DateTimeOffset.UtcNow - turn.CreatedAt).TotalSeconds)}s.", cancellationToken: hardTimeout.Token);
-            await turns.CompleteAsync(turnId, assistantEntity.Id, memoryWarning, hardTimeout.Token);
+            if (!await turns.CompleteAsync(turnId, assistantEntity.Id, memoryWarning, hardTimeout.Token))
+                return;
             TurnCompletions.Add(1, new KeyValuePair<string, object?>("warning", memoryWarning));
             TurnDuration.Record((DateTimeOffset.UtcNow - turn.CreatedAt).TotalMilliseconds);
             if (turn.FirstOutputAt.HasValue) FirstOutputLatency.Record((turn.FirstOutputAt.Value - turn.CreatedAt).TotalMilliseconds);
@@ -709,6 +716,8 @@ public sealed class ChatTurnWorker(
         string? detail = null)
     {
         var current = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+        // The tracked turn can be stale when the API cancelled concurrently; read the stored status.
+        await db.Entry(current).ReloadAsync(cancellationToken);
         if (current.Status is ChatTurnStatus.Cancelled or ChatTurnStatus.Completed or
             ChatTurnStatus.CompletedWithWarnings or ChatTurnStatus.Failed)
             return;

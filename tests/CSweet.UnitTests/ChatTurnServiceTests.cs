@@ -326,6 +326,90 @@ public sealed class ChatTurnServiceTests
         Assert.Null(cancelled.AssistantMessageId);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StopCommittedByApi_IsNotOverwrittenByWorkerHoldingStaleTrackedTurn(bool relational)
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:;Foreign Keys=False");
+        var storeName = Guid.NewGuid().ToString();
+        CSweetDbContext Context() => relational
+            ? new(new DbContextOptionsBuilder<CSweetDbContext>().UseSqlite(connection)
+                .AddInterceptors(new SqliteOutboxSequence()).Options)
+            : new(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(storeName).Options);
+        if (relational)
+        {
+            await connection.OpenAsync();
+            await using var schema = Context();
+            await schema.Database.EnsureCreatedAsync();
+        }
+        var organizationId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var turnId = Guid.NewGuid();
+        await using (var seed = Context())
+        {
+            seed.ChatTurns.Add(new ChatTurn
+            {
+                Id = turnId, OrganizationId = organizationId, ConversationId = Guid.NewGuid(),
+                TargetAgentOrganizationUserId = Guid.NewGuid(), UserMessageId = Guid.NewGuid(),
+                Status = ChatTurnStatus.RecallingMemory, Attempt = 1, LeaseOwner = "worker",
+                CreatedAt = now, UpdatedAt = now
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        // The worker scope tracks the turn (as ChatTurnWorker.ProcessAsync does) before Stop arrives.
+        await using var workerDb = Context();
+        var tracked = await workerDb.ChatTurns.SingleAsync(x => x.Id == turnId);
+        var worker = new ChatTurnService(workerDb);
+        await using (var apiDb = Context())
+            Assert.True(await new ChatTurnService(apiDb).CancelAsync(organizationId, turnId));
+
+        Assert.False(await worker.SetStatusAsync(turnId, ChatTurnStatus.Dispatching.ToString()));
+        Assert.False(await worker.SetStatusAsync(turnId, ChatTurnStatus.Running.ToString()));
+        Assert.False(await worker.CompleteAsync(turnId, Guid.NewGuid(), memoryWarning: false));
+        Assert.Equal(ChatTurnStatus.Cancelled, tracked.Status); // the worker's snapshot was refreshed
+
+        await using var verify = Context();
+        var stored = await verify.ChatTurns.AsNoTracking().SingleAsync(x => x.Id == turnId);
+        Assert.Equal(ChatTurnStatus.Cancelled, stored.Status);
+        Assert.Null(stored.AssistantMessageId);
+        Assert.Null(stored.ResponseReadyAt);
+    }
+
+    [Theory]
+    [InlineData("Completed")]
+    [InlineData("CompletedWithWarnings")]
+    [InlineData("Queued")]
+    [InlineData("RecallingMemory")]
+    [InlineData("3")]
+    [InlineData("NotAStatus")]
+    public async Task SetStatus_RejectsStatusesWorkersCannotSet(string status)
+    {
+        await using var db = CreateDb();
+        var turn = new ChatTurn { Id = Guid.NewGuid(), Status = ChatTurnStatus.Running, CreatedAt = DateTimeOffset.UtcNow };
+        db.ChatTurns.Add(turn);
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new ChatTurnService(db).SetStatusAsync(turn.Id, status));
+        Assert.Equal(ChatTurnStatus.Running, (await db.ChatTurns.AsNoTracking().SingleAsync()).Status);
+    }
+
+    private sealed class SqliteOutboxSequence : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private static long sequence;
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken token = default)
+        {
+            // SQLite cannot generate the PostgreSQL outbox identity column.
+            foreach (var entry in eventData.Context!.ChangeTracker.Entries<CSweet.Domain.Notifications.ApplicationRealtimeOutboxItem>()
+                         .Where(x => x.State == EntityState.Added && x.Entity.Sequence == 0))
+                entry.Entity.Sequence = Interlocked.Increment(ref sequence) + 1_000_000;
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 

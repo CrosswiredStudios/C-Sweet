@@ -13,6 +13,10 @@ public sealed class AgentInstallation
     public string BusinessId { get; set; } = "default";
     public PluginInstallationScope Scope { get; set; } = PluginInstallationScope.Organization;
     public Guid? OwnerApplicationUserId { get; set; }
+    public string? Posture { get; set; }
+    public long GovernanceRevision { get; set; }
+    public DateTimeOffset? PostureChangedAt { get; set; }
+    public Guid? PostureChangedBy { get; set; }
     public bool IsEnabled { get; set; } = true;
     public PluginSetupState SetupState { get; set; } = PluginSetupState.Ready;
     public string? SetupFlowId { get; set; }

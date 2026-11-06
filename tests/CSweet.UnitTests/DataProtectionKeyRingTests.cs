@@ -24,6 +24,8 @@ public sealed class DataProtectionKeyRingTests
             CSweetDatabaseInitializer.EnsureDataProtectionKeyRing(
                 scope.ServiceProvider,
                 new DateTimeOffset(2026, 8, 10, 0, 0, 0, TimeSpan.Zero));
+            // The migrator seeds exactly one shared key before any host starts.
+            Assert.Single(scope.ServiceProvider.GetRequiredService<CSweetDbContext>().DataProtectionKeys);
         }
 
         var producerProtector = producer.GetRequiredService<IDataProtectionProvider>()
@@ -34,7 +36,9 @@ public sealed class DataProtectionKeyRingTests
 
         Assert.Equal("durable chat payload", consumerProtector.Unprotect(protectedPayload));
         using var verificationScope = consumer.CreateScope();
-        Assert.Single(verificationScope.ServiceProvider
+        // The ring is shared, not per-host. The framework may add keys as it rotates, so the
+        // guarantee is a common non-empty ring rather than an exact count after first use.
+        Assert.NotEmpty(verificationScope.ServiceProvider
             .GetRequiredService<CSweetDbContext>()
             .DataProtectionKeys);
     }

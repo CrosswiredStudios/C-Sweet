@@ -12,7 +12,7 @@
 .registration-field ::deep .validation-message { color:var(--registration-error); font-size:.8rem; line-height:1.5; }
 .registration-field > div:last-child:empty { display:none; }
 .registration-password { display:flex; position:relative; }
-.registration-password ::deep input { padding-right:66px; }
+.registration-password ::deep input { padding-inline-end:66px; }
 .registration-password button { position:absolute; right:5px; top:2px; height:44px; min-width:52px; border:0; background:transparent; color:var(--activity-accent); font-size:.75rem; border-radius:10px; }
 .registration-sheet button,.registration-sheet a { cursor:pointer; font-family:inherit; }
 .registration-sheet button:disabled { cursor:default; opacity:.5; }
@@ -41,3 +41,4 @@
 @media(max-width:480px) { .registration-sheet { padding:24px; } .registration-sheet h1 { font-size:1.7rem; } .registration-exports { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .registration-download { grid-column:1/-1; grid-row:1; } }
 @media(max-width:360px) { .registration-sheet { padding:20px; } .registration-codes { padding:6px 8px; gap:0 8px; } .registration-codes code { font-size:.73rem; } }
 @media(prefers-reduced-motion:reduce) { .registration-primary,.registration-field ::deep input { transition:none; } }
+.registration-live-status { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }

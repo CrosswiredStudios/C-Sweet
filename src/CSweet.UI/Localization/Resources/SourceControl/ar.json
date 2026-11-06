@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area, ar. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "العودة إلى المستودعات",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "اربط حساب GitHub الخاص بك لاختيار المستودعات لهذا النشاط التجاري.",
   "SourceControl.PageTitle": "إدارة المصدر",
   "SourceControl.SourceControl": "إدارة المصدر",
   "SourceControl.YourRepositoriesTheLatestWork": "مستودعاتك، وأحدث الأعمال، ومن يملك صلاحية الوصول.",

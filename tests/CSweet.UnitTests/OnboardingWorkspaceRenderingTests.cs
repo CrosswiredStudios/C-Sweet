@@ -43,6 +43,8 @@ public sealed class OnboardingWorkspaceRenderingTests
     [InlineData("stalled", "Try Windows setup again")]
     [InlineData("redeemed", "Installing Office")]
     [InlineData("recoveryrequired", "Reassign this Office")]
+    [InlineData("restart-ready", "Continue setup")]
+    [InlineData("stuck-redeemed", "Start over")]
     [InlineData("blocked-reuse", "Reassignment is blocked")]
     [InlineData("removal-failed", "Retry removal")]
     [InlineData("removalinprogress", "Installing Office")]
@@ -63,7 +65,20 @@ public sealed class OnboardingWorkspaceRenderingTests
         var html = WebUtility.HtmlDecode(await Render(api, "aurora", officeScenario: scenario));
         Assert.Contains(expected, html);
         if (scenario is "blocked-reuse" or "removal-failed") Assert.DoesNotContain("Reassign this Office", html);
-        if (scenario == "recoveryrequired") Assert.Contains("Remove Office", html);
+        if (scenario == "recoveryrequired")
+        {
+            Assert.Contains("Remove Office", html);
+            // The recovery actions carry their own accessible names inside a named group.
+            Assert.Contains("aria-label=\"Existing Office actions\"", html);
+            Assert.Contains("aria-label=\"Reassign this Office\"", html);
+            Assert.Contains("aria-describedby=\"local-recovery-description\"", html);
+        }
+        if (scenario == "restart-ready")
+        {
+            Assert.Contains("aria-label=\"Continue setup after the Windows restart\"", html);
+            Assert.Contains("Start over", html);
+        }
+        if (scenario == "stuck-redeemed") Assert.DoesNotContain("Continue setup", html);
         if (scenario == "remote-approval") Assert.Contains("Not my host", html);
         if (scenario == "ready-unhealthy") Assert.DoesNotContain("Setup complete</span>", html);
         if (scenario is "failed" or "expired" or "revoked")
@@ -92,16 +107,18 @@ public sealed class OnboardingWorkspaceRenderingTests
     [InlineData("llm-provider", "gold", "Connect your model providers.")]
     [InlineData("personal-assistant", "aurora", "Make your assistant yours.")]
     [InlineData("personal-assistant", "gold", "Make your assistant yours.")]
-    [InlineData("genai-provider", "aurora", "Finish without media")]
-    [InlineData("genai-provider", "gold", "Finish without media")]
-    public async Task FiveStepFlowRendersInBothThemes(string step, string theme, string expected)
+    [InlineData("genai-provider", "aurora", "Make room for imagination.")]
+    [InlineData("genai-provider", "gold", "Make room for imagination.")]
+    [InlineData("connection-service", "aurora", "Connect to external services")]
+    [InlineData("connection-service", "gold", "Connect to external services")]
+    public async Task SixStepFlowRendersInBothThemes(string step, string theme, string expected)
     {
         var api = new SetupApi(step);
         var html = await Render(api, theme);
         Assert.Contains(expected, WebUtility.HtmlDecode(html));
-        Assert.Contains($"data-appearance=\"{theme}\"", html);
+        Assert.Contains($"data-appearance=\"{AppearanceThemes.Resolve(theme).Id}\"", html);
         Assert.Contains("onboarding-workspace", html);
-        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
+        Assert.Equal(6, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
         Assert.DoesNotContain(api.Paths, path => path.Contains("communications") || path.Contains("email-delivery"));
         if (step == "llm-provider")
         {
@@ -122,11 +139,11 @@ public sealed class OnboardingWorkspaceRenderingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task FinishUsesFinalMediaStepAndSurfacesRetryableFailure(bool failure)
+    public async Task FinishUsesFinalConnectionStepAndSurfacesRetryableFailure(bool failure)
     {
-        var api = new SetupApi("genai-provider") { FailFinish = failure };
+        var api = new SetupApi("connection-service") { FailFinish = failure };
         var html = await Render(api, "aurora", finish: true);
-        Assert.Contains("/api/setup/steps/genai-provider/complete", api.Paths);
+        Assert.Contains("/api/setup/steps/connection-service/complete", api.Paths);
         Assert.Contains("/api/setup/complete", api.Paths);
         Assert.DoesNotContain(api.Paths, path => path.Contains("communications") || path.Contains("email-delivery"));
         Assert.Contains(failure ? "Please try again." : "Your workspace is ready.", WebUtility.HtmlDecode(html));
@@ -259,6 +276,7 @@ public sealed class OnboardingWorkspaceRenderingTests
             "missing-handoff" or "stalled" => "created",
             "blocked-reuse" or "removal-failed" => "recoveryrequired",
             "ready-unhealthy" => "ready",
+            "restart-ready" or "stuck-redeemed" => "redeemed",
             _ => scenario
         };
         var session = new LocalOfficeSetupSessionResponse(Guid.NewGuid(), state, "install", "Installing Office",
@@ -266,7 +284,9 @@ public sealed class OnboardingWorkspaceRenderingTests
             scenario == "missing-handoff" ? null : "csweet-office://test",
             ErrorCode: scenario == "removal-failed" ? "office_removal_failed" : scenario == "failed" ? "developer-bootstrap-failed" : null,
             ErrorMessage: scenario == "failed" ? "The guest reported a failed isolation check: dotnet-sdk-present" : null,
-            LaunchMethod: "server", RecoveryCanReconnect: scenario == "recoveryrequired");
+            LaunchMethod: "server", RecoveryCanReconnect: scenario == "recoveryrequired",
+            CanContinueAfterRestart: scenario == "restart-ready",
+            CanStartOver: scenario is "restart-ready" or "stuck-redeemed" or "recoveryrequired");
         Set("_localSession", session);
         Set("_status", status with { IsReady = scenario == "ready" });
         if (scenario == "stalled")
@@ -300,7 +320,7 @@ public sealed class OnboardingWorkspaceRenderingTests
     {
         public List<string> Paths { get; } = [];
         public bool FailFinish { get; init; }
-        private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "personal-assistant", "genai-provider"];
+        private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "personal-assistant", "genai-provider", "connection-service"];
         private object Status(bool complete = false) => new {
             isFirstRunComplete = complete,
             steps = Keys.Select((key, i) => new { key, displayName = key, isRequired = i < 4, isComplete = i < Array.IndexOf(Keys, currentStep) })
@@ -314,7 +334,7 @@ public sealed class OnboardingWorkspaceRenderingTests
                 "/api/personal-assistant/settings" => new CSweet.Contracts.PersonalAssistant.PersonalAssistantSettings(null, null, null, 0, false, null, [], new Dictionary<string, System.Text.Json.JsonElement>()),
                 "/api/setup/status" => Status(),
                 "/api/setup/complete" => new { succeeded = !FailFinish, message = "Please try again.", status = Status(!FailFinish) },
-                "/api/setup/steps/genai-provider/complete" => new { succeeded = true, status = Status() },
+                "/api/setup/steps/genai-provider/complete" or "/api/setup/steps/connection-service/complete" => new { succeeded = true, status = Status() },
                 _ => null
             };
             string? json = path switch {

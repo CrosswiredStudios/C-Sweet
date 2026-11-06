@@ -237,7 +237,7 @@
 }
 
 .comment-hint {
-    margin-right: auto;
+    margin-inline-end: auto;
     color: var(--wc-muted);
     font-size: 0.7rem;
 }

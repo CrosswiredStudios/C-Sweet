@@ -6,8 +6,16 @@
 <div class="chat-markdown">@((MarkupString)Render(Content))</div>
 
 @code {
+    // Explicit extensions only. UseAdvancedExtensions() also enables
+    // GenericAttributes, which renders `{onclick="..."}` as a real attribute and
+    // bypasses DisableHtml() — a stored-XSS path from agent or file content.
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
+        .UseEmphasisExtras()
+        .UsePipeTables()
+        .UseListExtras()
+        .UseTaskLists()
+        .UseFootnotes()
+        .UseAutoLinks()
         .DisableHtml()
         .Build();
 

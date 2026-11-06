@@ -1902,13 +1902,13 @@ public sealed partial class ExecutionFleetService(
              x.Status == LocalOfficeSetupSessionStatus.RecoveryRequired ||
              x.Status == LocalOfficeSetupSessionStatus.RemovalInProgress ||
              (x.RecoveryAction == "upgrade" || x.RecoveryAction == "repair") && (x.Status == LocalOfficeSetupSessionStatus.Redeemed || x.Status == LocalOfficeSetupSessionStatus.Connected))).ToListAsync(cancellationToken);
-        if (expired.Count == 0) return;
         foreach (var session in expired)
         {
             session.Status = LocalOfficeSetupSessionStatus.Expired;
             session.UpdatedAt = now;
         }
-        await dbContext.SaveChangesAsync(cancellationToken);
+        if (expired.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
+        await ExpireAbandonedRedeemedSetupsAsync(now, cancellationToken);
     }
 
     private async Task ReconcileClaimedLocalSetupSessionsAsync(
@@ -2023,6 +2023,10 @@ public sealed partial class ExecutionFleetService(
             LocalOfficeSetupSessionStatus.Removed => ("removed", "Office removed",
                 "The existing Office was removed. You can now install a fresh Office.",
                 100, (int?)0, (int?)0),
+            LocalOfficeSetupSessionStatus.Expired when session.ErrorCode == LocalSetupCancelledCode => ("install", "Setup cancelled",
+                "This setup was abandoned. Start again to create a fresh Office setup.", 0, (int?)null, (int?)null),
+            LocalOfficeSetupSessionStatus.Expired when session.ErrorCode == LocalSetupInterruptedCode => ("install", "Office setup was interrupted",
+                session.ErrorMessage ?? "Windows setup stopped without finishing. Start again to create a fresh Office setup.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Expired => ("install", "Setup session expired",
                 "Start again to create a fresh secure setup handoff.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Revoked => ("install", "Setup session replaced",
@@ -2039,7 +2043,8 @@ public sealed partial class ExecutionFleetService(
         var effectiveErrorCode = session.ErrorCode;
         var effectiveErrorMessage = session.ErrorMessage;
         var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
-        windowsProgress ??= ReadWindowsSetupProgress(session.Id, timeProvider.GetUtcNow());
+        windowsProgress ??= SetupProgressReader(session.Id, timeProvider.GetUtcNow());
+        var canContinueAfterRestart = false;
         // The launcher's generic result callback arrives AFTER its detailed failure file.
         // Keep that same-session evidence without letting an old file revive a terminal session.
         if (windowsProgress is { } progress && progress.JobId == session.Id &&
@@ -2089,8 +2094,23 @@ public sealed partial class ExecutionFleetService(
             }
             else if (progress.State == "restart-required")
             {
-                phaseName = "Windows restart required";
-                message = "Restart this computer, then reopen C-Sweet. Office setup will resume automatically.";
+                // Nothing reruns setup by itself after the restart: say so, and offer the resume
+                // only once Windows has actually booted since the request was written.
+                canContinueAfterRestart = status == LocalOfficeSetupSessionStatus.Redeemed &&
+                    !session.AutomaticUpdate && session.RecoveryAction is not ("upgrade" or "repair") &&
+                    IsRestartResumeEligible(progress.State, progress.ObservedAt, LastBootTimeReader(), timeProvider.GetUtcNow());
+                if (canContinueAfterRestart)
+                {
+                    phaseName = "Ready to continue setup";
+                    message = "Windows has restarted. Choose Continue setup to resume from the Hyper-V step; Windows will ask for administrator approval again.";
+                }
+                else
+                {
+                    phaseName = "Windows restart required";
+                    message = "Restart this computer, then open C-Sweet and choose Continue setup. Setup does not resume on its own.";
+                }
+                minimumSeconds = null;
+                maximumSeconds = null;
             }
             else if (progress.State == "completed" && status == LocalOfficeSetupSessionStatus.Redeemed)
             {
@@ -2135,7 +2155,9 @@ public sealed partial class ExecutionFleetService(
             minimumSeconds, maximumSeconds, launchMethod,
             session.AdministratorApprovalRequestedAt, session.RecoveryAction,
             effectiveRecoveryCanReconnect, session.UpgradeOfficeId, session.ExecutionNodeId,
-            StorageVolumeId: session.StorageVolumeId, InstallRoot: session.InstallRoot, DataRoot: session.DataRoot);
+            StorageVolumeId: session.StorageVolumeId, InstallRoot: session.InstallRoot, DataRoot: session.DataRoot,
+            CanContinueAfterRestart: canContinueAfterRestart,
+            CanStartOver: CanStartOverLocalSetup(session, windowsProgress, timeProvider.GetUtcNow()));
     }
 
     private string LocalSetupLaunchUri(LocalOfficeSetupSession session, string handoff)
@@ -2278,6 +2300,7 @@ public sealed partial class ExecutionFleetService(
 
     private DevelopmentLaunchResult TryStartWindowsDevelopmentSetup(Guid sessionId, string launchUri)
     {
+        if (DevelopmentSetupStarterOverride is { } starter) return starter(sessionId, launchUri);
         var launcher = fleetOptions!.Value.WindowsDevelopmentLauncherScript!;
         var bootstrap = fleetOptions.Value.WindowsDevelopmentOfficeBootstrapScript!;
         string? handoffPath = null;
@@ -2338,7 +2361,7 @@ public sealed partial class ExecutionFleetService(
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
     }
 
-    private sealed record DevelopmentLaunchResult(bool Started, string? ErrorCode, string? ErrorMessage);
+    internal sealed record DevelopmentLaunchResult(bool Started, string? ErrorCode, string? ErrorMessage);
 
     private static WindowsSetupProgressDocument? ReadWindowsSetupProgress(Guid sessionId, DateTimeOffset now)
     {

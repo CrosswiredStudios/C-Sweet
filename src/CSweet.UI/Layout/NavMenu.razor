@@ -1,4 +1,5 @@
 @implements IDisposable
+@inject AppearanceState Appearance
 @inject IBusinessContext BusinessContext
 @inject IAuthenticationApiClient AuthenticationApi
 @inject AuthSessionStore AuthSession
@@ -10,7 +11,7 @@
 
 <div class="nav-shell">
     <a class="nav-brand" href="/" aria-label="@L["NavMenu.BrandAriaLabel"]">
-        <img src="images/icon_dark.svg" alt="" />
+        <img src="@(Appearance.IsDark ? "_content/CSweet.UI/images/icon_dark.svg" : "_content/CSweet.UI/images/icon.svg")" alt="" />
         <div>
             <MudText Typo="Typo.subtitle1">C-Sweet</MudText>
             <MudText Typo="Typo.caption">@L["NavMenu.Tagline"]</MudText>
@@ -19,6 +20,7 @@
 
     <div class="app-nav-shell">
         <MudNavMenu Bordered="false" Dense="true" Class="app-nav">
+            <span class="nav-section-label">@L["NavMenu.Enterprise"]</span>
             <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Apartment">@L["NavMenu.Enterprise"]</MudNavLink>
             <MudNavLink Href="personal-assistant" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AutoAwesome">@L["NavMenu.PersonalAssistant"]</MudNavLink>
 
@@ -38,7 +40,7 @@
                     <MudNavLink Href="@ProjectsHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="@ProjectsClass">
                         @L["NavMenu.Projects"]
                     </MudNavLink>
-                    <MudNavLink Href="@SourceControlHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AccountTree" Class="business-nav-link">
+                    <MudNavLink Href="@SourceControlHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Code" Class="business-nav-link">
                         @L["NavMenu.SourceControl"]
                     </MudNavLink>
                     <MudNavLink Href="@ComputeHref" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.Dns" Class="business-nav-link">@L["NavMenu.Compute"]</MudNavLink>
@@ -98,7 +100,7 @@
 
         <MudMenu FullWidth="true" AnchorOrigin="Origin.TopCenter" TransformOrigin="Origin.BottomCenter" Class="user-menu">
             <ActivatorContent>
-                <MudButton Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Outlined.AccountCircle" FullWidth="true" Class="user-menu-button">
+                <MudButton Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Outlined.AccountCircle" EndIcon="@Icons.Material.Outlined.UnfoldMore" FullWidth="true" Class="user-menu-button">
                     <span class="user-menu-label">@UserLabel</span>
                 </MudButton>
             </ActivatorContent>

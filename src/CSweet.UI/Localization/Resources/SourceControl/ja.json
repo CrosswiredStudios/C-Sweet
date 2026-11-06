@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area, ja. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "リポジトリに戻る",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "このビジネスのリポジトリを選択するには、GitHub アカウントを接続してください。",
   "SourceControl.PageTitle": "ソース管理",
   "SourceControl.SourceControl": "ソース管理",
   "SourceControl.YourRepositoriesTheLatestWork": "リポジトリ、最新の作業、アクセスできるメンバーを確認します。",

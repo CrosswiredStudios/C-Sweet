@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area, zh-Hans. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "返回仓库",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "连接你的 GitHub 账户，为这个业务选择仓库。",
   "SourceControl.PageTitle": "源代码管理",
   "SourceControl.SourceControl": "源代码管理",
   "SourceControl.YourRepositoriesTheLatestWork": "您的仓库、最新工作以及谁拥有访问权限。",

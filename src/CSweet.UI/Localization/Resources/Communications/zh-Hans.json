@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "未加载任何已保存的发布。",
   "ShareWorkInstruction.History.More": "更多发布",
   "Communications.SendingAndConversationActionsAre": "。发送和对话操作已禁用。",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "更多",
+  "DecisionPrompt.ReadFullQuestion": "在“沟通”中阅读完整问题"
 }

@@ -4262,6 +4262,77 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("ConversationParticipants");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.Delegation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CompletedByInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("FromInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InputArtifactIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReturnContract")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Status")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("ToInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TrackedDelegationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId");
+
+                    b.HasIndex("FromInstallationId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("ToInstallationId", "Status");
+
+                    b.HasIndex("BusinessId", "Status", "UpdatedAt");
+
+                    b.ToTable("Delegations", (string)null);
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.DeliveryBuildRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -9370,6 +9441,76 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("AgentBuildJobs");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityApproval", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AgentInstallationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Capability")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DecidedByApplicationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("GrantRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("OperationKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("PostureRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ResultsJson")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Risk")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentInstallationId");
+
+                    b.HasIndex("OperationKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "Status", "CreatedAt");
+
+                    b.ToTable("AgentCapabilityApprovals");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityBinding", b =>
                 {
                     b.Property<Guid>("Id")
@@ -9557,6 +9698,27 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("AgentDefinitionConfigurations");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentHarnessPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PolicyJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AgentHarnessPolicies");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.AgentInstallation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -9595,6 +9757,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ExecutionPoolId")
                         .HasColumnType("uuid");
 
+                    b.Property<long>("GovernanceRevision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.Property<Guid>("InstallationKey")
                         .HasColumnType("uuid");
 
@@ -9605,6 +9771,16 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("PackageVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Posture")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("PostureChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PostureChangedBy")
                         .HasColumnType("uuid");
 
                     b.Property<int>("RevisionNumber")
@@ -11002,6 +11178,55 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("AuditEventPayloads");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.BusinessSkillRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Digest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequiredCapabilitiesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "Name", "Version")
+                        .IsUnique();
+
+                    b.ToTable("BusinessSkillRevisions");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.ConnectorExecution", b =>
                 {
                     b.Property<Guid>("Id")
@@ -11871,6 +12096,70 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("GenAiProviderProfiles");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.HarnessBudgetReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BudgetId")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<decimal>("Cost")
+                        .HasPrecision(24, 10)
+                        .HasColumnType("numeric(24,10)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Settled")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("Tokens")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BudgetId");
+
+                    b.HasIndex("RunId");
+
+                    b.ToTable("HarnessBudgetReservations");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.HarnessTaskBudget", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<decimal>("ChargedCost")
+                        .HasPrecision(24, 10)
+                        .HasColumnType("numeric(24,10)");
+
+                    b.Property<long>("ChargedTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("CostLimit")
+                        .HasPrecision(24, 10)
+                        .HasColumnType("numeric(24,10)");
+
+                    b.Property<bool>("HasUnpricedUsage")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("TokenLimit")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("HarnessTaskBudgets");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.LlmProviderProfile", b =>
@@ -18149,6 +18438,21 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("OrganizationUser");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Core.Delegation", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("FromInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("ToInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Core.ExecutiveBriefingDeliveryRecord", b =>
                 {
                     b.HasOne("CSweet.Domain.Core.Conversation", null)
@@ -18730,6 +19034,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Navigation("PackageVersion");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityApproval", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("AgentInstallationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.AgentCapabilityBinding", b =>
                 {
                     b.HasOne("CSweet.Domain.Setup.PluginAccountBusinessGrant", null)
@@ -18792,6 +19105,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("AgentDefinition");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.AgentHarnessPolicy", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.AgentInstallation", null)
+                        .WithMany()
+                        .HasForeignKey("Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.AgentInstallation", b =>
@@ -19081,6 +19403,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("OperationConfiguration");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Setup.HarnessBudgetReservation", b =>
+                {
+                    b.HasOne("CSweet.Domain.Setup.HarnessTaskBudget", null)
+                        .WithMany()
+                        .HasForeignKey("BudgetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Setup.LocalOfficeSetupSession", b =>

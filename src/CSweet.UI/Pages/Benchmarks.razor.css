@@ -4,7 +4,7 @@
 .benchmark-variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
 .benchmark-table { overflow-x: auto; margin-top: 1rem; }
 .benchmark-table table { border-collapse: collapse; width: 100%; font-size: .85rem; }
-.benchmark-table td, .benchmark-table th { padding: .8rem; text-align: left; border-bottom: 1px solid var(--mud-palette-lines-default); }
+.benchmark-table td, .benchmark-table th { padding: .8rem; text-align: start; border-bottom: 1px solid var(--mud-palette-lines-default); }
 .benchmark-table th, .benchmark-table small { color: var(--mud-palette-text-secondary); }
-.benchmark-link { color: var(--mud-palette-primary); background: transparent; border: 0; cursor: pointer; text-decoration: underline; font: inherit; text-align: left; }
+.benchmark-link { color: var(--mud-palette-primary); background: transparent; border: 0; cursor: pointer; text-decoration: underline; font: inherit; text-align: start; }
 .benchmark-evidence { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font-size: .8rem; }

@@ -980,21 +980,34 @@ public sealed partial class AgentWorkInbox(
         CancellationToken cancellationToken = default)
     {
         var item = await db.AgentWorkItems.SingleOrDefaultAsync(x => x.Id == workId, cancellationToken);
-        if (item is null || item.Status is AgentWorkStatus.Completed or AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+        if (item is null || !await MarkCancelledAsync(db, item, reason, timeProvider.GetUtcNow(), cancellationToken))
             return false;
-        item.Status = AgentWorkStatus.Cancelled;
-        item.CompletedAt = timeProvider.GetUtcNow();
-        item.LastError = Truncate(reason, 2048);
-        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, item.CompletedAt.Value, cancellationToken);
-        var activeAttempts = await db.AgentWorkAttempts.Where(x =>
-            x.AgentWorkItemId == workId && x.FinishedAt == null).ToListAsync(cancellationToken);
-        foreach (var attempt in activeAttempts)
-        {
-            attempt.FinishedAt = item.CompletedAt;
-            attempt.Error = "cancelled";
-        }
         await db.SaveChangesAsync(cancellationToken);
         AgentRuntimeMetrics.Work("cancelled", item.Kind);
+        return true;
+    }
+
+    /// <summary>
+    /// Shared cancellation for a tracked work item: marks it Cancelled, closes its open attempts and
+    /// settles its Chief audit card. Does not save, so callers (sprint cancel, benchmark stop) commit
+    /// it atomically with their own state change. Returns false when the item is already terminal.
+    /// </summary>
+    internal static async Task<bool> MarkCancelledAsync(
+        CSweetDbContext db, AgentWorkItem item, string reason, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (item.Status is AgentWorkStatus.Completed or AgentWorkStatus.Cancelled or AgentWorkStatus.DeadLetter)
+            return false;
+        item.Status = AgentWorkStatus.Cancelled;
+        item.CompletedAt = now;
+        item.LastError = Truncate(reason, 2048);
+        await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleAsync(db, item, now, cancellationToken);
+        var activeAttempts = await db.AgentWorkAttempts.Where(x =>
+            x.AgentWorkItemId == item.Id && x.FinishedAt == null).ToListAsync(cancellationToken);
+        foreach (var attempt in activeAttempts)
+        {
+            attempt.FinishedAt = now;
+            attempt.Error = "cancelled";
+        }
         return true;
     }
 

@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "불러온 저장된 게시물이 없습니다.",
   "ShareWorkInstruction.History.More": "게시물 더 보기",
   "Communications.SendingAndConversationActionsAre": ". 메시지 전송과 대화 작업은 비활성화되어 있습니다.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "더 보기",
+  "DecisionPrompt.ReadFullQuestion": "커뮤니케이션에서 전체 질문 읽기"
 }

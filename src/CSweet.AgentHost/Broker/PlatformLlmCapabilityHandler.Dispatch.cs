@@ -75,7 +75,11 @@ public sealed partial class PlatformLlmCapabilityHandler
         // Async streams do not dispatch at GetAsyncEnumerator. Check after all pre-call telemetry,
         // at first enumeration; real factory clients also recheck inside every transport attempt.
         await ProviderDispatchScope.AuthorizeCurrentAsync(token);
-        if (client.GetService<IProviderDispatchTransport>() is null) dispatched();
+        if (client.GetService<IProviderDispatchTransport>() is null)
+        {
+            await ProviderDispatchScope.AuthorizeTransportAsync(token);
+            dispatched();
+        }
         await foreach (var update in client.GetStreamingResponseAsync(messages, options, token)) yield return update;
     }
 }
