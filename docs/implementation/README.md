@@ -24,8 +24,8 @@ The first production goal is not the marketplace. The first production goal is a
 tracks durable correction handoffs, reporting separation, findings, dependency
 contracts, proportional planning, verification and the Prism Break rollout.
 
-[Installation ceilings and task output budgets](agent-token-budgets.md) maps authenticated
-configuration limits, smaller per-task requests and effective inference diagnostics.
+[Agent model capacity](agent-token-budgets.md) maps configured model capacity, removal of
+hidden task limits, context preservation and incomplete-generation diagnostics.
 
 [Developer execution plans and progress recovery](developer-execution-workflow.md)
 maps Adrian and Daniel's short persisted plans, evidence-based progress checks and
@@ -42,6 +42,10 @@ Core approval and attachment provenance, native account authority and staged ado
 [Build provider setup](toolchain-build-setup.md) maps business-scoped toolchain installation, the administrator certification screen, exact provider/image selection and real fixture validation.
 
 [Game studio startup recovery](game-studio-startup-recovery.md) maps Producer ownership, metadata validation, revised proposal recovery and platform token-budget configuration boundaries.
+
+[Project-proposal contract and recovery](game-studio-project-proposal-recovery.md)
+maps the Super Awesome Games fresh-start schema failure, contract-derived broker
+validation, durable Director waits and idempotent Producer submission recovery.
 
 [Game studio role boundaries](game-studio-role-boundaries.md) defines the Director/Creative/Producer split, exact pitch and creative review gates, SDK interaction primitives, and reproducible concept-to-demo verification.
 

@@ -103,7 +103,7 @@ public sealed partial class PlatformLlmCapabilityHandler
 
         var messageCharacters = input.Messages.Sum(message => (long)MessageSize(message));
         var toolCount = input.Tools?.Count ?? 0;
-        if (input.Messages.Count > _options.MaximumMessageCount ||
+        if ((_options.MaximumMessageCount > 0 && input.Messages.Count > _options.MaximumMessageCount) ||
             (_options.MaximumMessageCharacters > 0 && messageCharacters > _options.MaximumMessageCharacters) ||
             toolCount > _options.MaximumToolCount)
         {
@@ -140,9 +140,9 @@ public sealed partial class PlatformLlmCapabilityHandler
             yield break;
         }
 
-        // The installation configuration owns the ceiling. A task may request a smaller
-        // output budget, but cannot raise that ceiling. Provider-profile defaults must
-        // not silently lower it. Nonpositive legacy hints remain unspecified.
+        // Use the installation's model capacity on every call. Legacy task-specific
+        // hints remain wire-compatible but must not silently shrink that capacity.
+        // Omitting the provider option would instead restore its often smaller default.
         int effectiveMaxOutputTokens = 0;
         string? budgetError = null;
         if (!Guid.TryParse(session.InstallationId, out var budgetInstallationId))
@@ -153,8 +153,6 @@ public sealed partial class PlatformLlmCapabilityHandler
             {
                 var configuration = await _configurations.ResolveInstallationAsync(budgetInstallationId, requestToken);
                 effectiveMaxOutputTokens = AgentTokenBudget.ResolveOutput(configuration.Settings);
-                if (input.MaxOutputTokens is > 0)
-                    effectiveMaxOutputTokens = Math.Min(effectiveMaxOutputTokens, input.MaxOutputTokens.Value);
             }
             catch (AgentInstallationException exception)
             {
@@ -443,6 +441,8 @@ public sealed partial class PlatformLlmCapabilityHandler
             yield break;
         }
 
+        ChatFinishReason? finishReason = null;
+        var hasUsableContent = false;
         await using (updates)
         {
             while (true)
@@ -513,6 +513,9 @@ public sealed partial class PlatformLlmCapabilityHandler
                 }
 
                 var usage = update.Contents.OfType<UsageContent>().FirstOrDefault()?.Details;
+                finishReason = update.FinishReason ?? finishReason;
+                hasUsableContent |= !string.IsNullOrWhiteSpace(update.Text) ||
+                    update.Contents.OfType<FunctionCallContent>().Any();
                 var observedAt = DateTimeOffset.UtcNow;
                 generation.Observe(update, observedAt);
                 if (usage is not null)
@@ -565,6 +568,22 @@ public sealed partial class PlatformLlmCapabilityHandler
                         hasMore: true);
                 }
             }
+        }
+
+        // A reasoning-only or truncated generation is not a completed answer. Preserve
+        // its streamed evidence and usage, but fail explicitly for the durable caller.
+        if (finishReason == ChatFinishReason.Length || !hasUsableContent)
+        {
+            var exhausted = finishReason == ChatFinishReason.Length;
+            var message = exhausted
+                ? "The model exhausted its configured generation capacity before completing its answer. Work remains incomplete."
+                : "The model returned no answer or tool call. Work remains incomplete.";
+            CompleteRunLog(runLog, runStopwatch, "Failed", inputTokenCount, outputTokenCount,
+                responseText, message, omitMemoryContent: omitInstructionEvidence);
+            await TryPersistRunLogAsync(runLog, CancellationToken.None);
+            yield return Failure(request.RequestId, message, retryable: false,
+                exhausted ? "llm.output_incomplete" : "llm.empty_response");
+            yield break;
         }
 
         CompleteRunLog(

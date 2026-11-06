@@ -134,10 +134,11 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
     }
 
     [Theory]
-    [InlineData(128000, 8192, null, 8192)]
-    [InlineData(4096, 4097, 96000, 4097)]
-    [InlineData(null, 32768, null, 32768)]
-    [InlineData(128000, 2048, 8192, 2048)]
+    [InlineData(128000, 8192, null, 128000)]
+    [InlineData(4096, 4097, 96000, 96000)]
+    [InlineData(null, 32768, null, 128000)]
+    [InlineData(128000, 2048, 8192, 8192)]
+    [InlineData(4096, 16384, 128000, 128000)]
     [InlineData(128000, -1, 32000, 32000)]
     [InlineData(null, 0, 32000, 32000)]
     [InlineData(4096, null, 160000, 160000)]
@@ -145,7 +146,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
     [InlineData(4096, null, null, 128000)]
     [InlineData(128000, 8192, 0, -1)]
     [InlineData(128000, 8192, 256000, -1)]
-    public async Task StreamAsync_HonorsSmallerTaskBudgetsWithinTheAgentCeilingWithoutProviderCaps(
+    public async Task StreamAsync_UsesConfiguredModelCapacityRegardlessOfLegacyTaskOrProviderCaps(
         int? configured, int? requested, int? agentOutput, int effective)
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
@@ -194,6 +195,9 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         Assert.All(results, result => Assert.True(result.Succeeded, result.Error));
         Assert.NotNull(client.ReceivedOptions);
         Assert.Equal(effective, client.ReceivedOptions.MaxOutputTokens);
+        var run = Assert.Single(await db.AgentRunLogs.ToListAsync());
+        using var inference = JsonDocument.Parse(run.InferenceSettingsJson!);
+        Assert.Equal(effective, inference.RootElement.GetProperty("MaxOutputTokens").GetInt32());
     }
 
     [Fact]
@@ -434,7 +438,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         var responseFormat = Assert.IsType<ChatResponseFormatJson>(chatClient.ReceivedOptions?.ResponseFormat);
         Assert.Equal("technical_review", responseFormat.SchemaName);
         Assert.Equal("object", responseFormat.Schema!.Value.GetProperty("type").GetString());
-        Assert.Equal(640, chatClient.ReceivedOptions?.MaxOutputTokens);
+        Assert.Equal(128000, chatClient.ReceivedOptions?.MaxOutputTokens);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
         var agentUsage = Assert.Single(globalUsage.Agents, x => x.AgentKey == "test-agent");
@@ -544,7 +548,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
 
     private static async Task<IReadOnlyList<CapabilityResult>> ReadAsync(
         CSweetDbContext db, PlatformLlmCapabilityHandler handler,
-        Guid providerId, Guid? organizationId = null, Func<CapabilityResult, Task>? observeResult = null)
+        Guid providerId, Guid? organizationId = null, Func<CapabilityResult, Task>? observeResult = null, int messageCount = 1)
     {
         var request = new RequestCapability
         {
@@ -554,7 +558,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
             {
                 providerProfileId = providerId,
                 model = "test-model",
-                messages = new[] { new { role = "user", text = "Hello" } }
+                messages = Enumerable.Range(0, messageCount).Select(_ => new { role = "user", text = "Hello" }).ToArray()
             }, JsonOptions))
         };
         var session = new AgentSession(
