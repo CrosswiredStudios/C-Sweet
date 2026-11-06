@@ -617,6 +617,10 @@ public sealed class AgentInstallationServiceTests
             ProviderInstanceId = "old-version-container",
             QueuedAt = DateTimeOffset.UtcNow
         });
+        var chosenBy = Guid.NewGuid();
+        var chosenAt = DateTimeOffset.UtcNow.AddDays(-1);
+        var active = await dbContext.AgentInstallations.SingleAsync(x => x.Id == installed.Id);
+        active.Posture = "Plan"; active.PostureChangedAt = chosenAt; active.PostureChangedBy = chosenBy;
         var update = new AgentPackageVersion
         {
             Id = Guid.NewGuid(),
@@ -671,6 +675,9 @@ public sealed class AgentInstallationServiceTests
         Assert.Empty(result.GrantedPublications);
         Assert.Equal("Staged", result.RevisionStatus);
         Assert.False(result.IsEnabled);
+        // The upgraded revision keeps the posture the operator chose, not the product default.
+        var stagedRow = await dbContext.AgentInstallations.SingleAsync(x => x.Id == result.Id);
+        Assert.Equal(("Plan", chosenAt, chosenBy), (stagedRow.Posture, stagedRow.PostureChangedAt, stagedRow.PostureChangedBy));
         Assert.Equal(3, await dbContext.AgentBuildJobs.CountAsync());
         var retry = await dbContext.AgentBuildJobs
             .Where(x => x.PackageVersionId == update.Id)

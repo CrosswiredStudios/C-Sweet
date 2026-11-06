@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, zh-Hans. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "智能体权限",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "无法保存姿态。请刷新后重试。",
+  "AgentPosture.GroupLabel": "智能体姿态",
+  "AgentPosture.Plan": "计划",
+  "AgentPosture.Manual": "手动",
+  "AgentPosture.Auto": "自动",
+  "AgentPosture.Title": "{posture}：{rule}",
+  "AgentPosture.RuleRefused": "写入将被拒绝",
+  "AgentPosture.RuleApproval": "写入需要批准",
+  "AgentPosture.RuleReadsOnly": "仅读取",
+  "AgentPosture.RuleAuto": "在授予的范围内，写入无需提示即可执行",
+  "AgentPosture.RuleAutoOutward": "在授予的范围内，写入和对外操作无需提示即可执行"
+}

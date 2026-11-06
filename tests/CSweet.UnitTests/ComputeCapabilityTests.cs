@@ -181,7 +181,7 @@ public sealed class ComputeCapabilityTests
     private static async Task<CapabilityResult> Invoke(ComputeCapabilityHandler handler, AgentSession session, string action, JsonElement input)
     {
         var result = new List<CapabilityResult>();
-        await foreach (var item in new PlatformCapabilityDispatcher([handler]).InvokeAsync(session,
+        await foreach (var item in new PlatformCapabilityDispatcher([handler], new AutoPostureReader(), new UnusedApprovalService(), new PermissiveTemporalPolicy()).InvokeAsync(session,
             new() { RequestId = "request", RequestingAgentId = "untrusted-payload-identity", Capability = action,
                 Payload = JsonPayload.FromUtf8(input.GetRawText()) }, default)) result.Add(item);
         return Assert.Single(result);

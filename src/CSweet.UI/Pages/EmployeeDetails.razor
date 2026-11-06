@@ -145,6 +145,7 @@
                 { <MudAlert Severity="Severity.Warning">@L["EmployeeDetails.Configuration.Restricted"]</MudAlert> }
                 else if (_details.Employee.AgentInstallationId.HasValue)
                 {
+                    <AgentGovernancePanel @key="_details.Employee.AgentInstallationId" InstallationId="_details.Employee.AgentInstallationId.Value" />
                     <EmployeeConfigurationPanel @key="EmployeeId" OrganizationId="OrganizationId" EmployeeId="EmployeeId" ConfigurationChanged="@(view => _configuration = view)" />
                 }
             </MudTabPanel>

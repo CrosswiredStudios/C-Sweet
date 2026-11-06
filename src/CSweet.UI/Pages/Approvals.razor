@@ -24,6 +24,9 @@
         </MudChip>
     </MudPaper>
 
+    <CapabilityApprovalInbox OrganizationId="OrganizationId" ShowHistory="_showHistory" />
+    <DelegationInbox OrganizationId="OrganizationId" />
+
     @if (_decisionNotice is not null) { <MudAlert Severity="Severity.Success" Class="mb-3">@_decisionNotice</MudAlert> }
 
     @if (_loading)
@@ -52,7 +55,7 @@
             <MudAlert Severity="Severity.Info" Class="mb-3">@L["Approvals.ThisApprovalIsNoLonger"]</MudAlert>
         }
 
-        @if (VisibleItems.Count == 0)
+        @if (VisibleItems.Count == 0 && (_showHistory || _dashboard.CapabilityApprovalPendingCount == 0))
         {
             <MudPaper Elevation="0" Outlined="true" Class="approval-empty">
                 <MudIcon Icon="@Icons.Material.Outlined.TaskAlt" Color="Color.Success" Size="Size.Large" />

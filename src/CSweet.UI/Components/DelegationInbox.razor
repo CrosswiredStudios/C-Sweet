@@ -1,0 +1,55 @@
+@using CSweet.Contracts.Agents
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+
+@if (_items.Length > 0)
+{
+    <section aria-label="Delegated work" class="mb-4">
+        <MudText Typo="Typo.h5">Delegated work</MudText>
+        @foreach (var item in _items)
+        {
+            <div @key="item.Id" class="mt-3">
+                <DelegationCard Delegation="item" ArtifactCount="item.InputArtifactIds.Count" CanRespond="item.CanRespond" Busy="_busy"
+                    AcceptRequested="@(() => DecideAsync(item, "accept"))" DeclineRequested="@(() => DecideAsync(item, "decline"))" CompleteRequested="@(() => DecideAsync(item, "complete"))" />
+                @if (!string.IsNullOrWhiteSpace(item.ReturnContract)) { <p>Expected return: @item.ReturnContract</p> }
+                @if (item.InputArtifactIds.Count > 0) { <details><summary>Input artifacts</summary><p>@string.Join(", ", item.InputArtifactIds)</p></details> }
+            </div>
+        }
+    </section>
+}
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private DelegationResponse[] _items = [];
+    private string? _error;
+    private bool _busy;
+    protected override void OnInitialized() { Realtime.EventReceived += Changed; Realtime.Reconnected += Reload; }
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try { _items = await Http.GetFromJsonAsync<DelegationResponse[]>($"api/core/organizations/{OrganizationId:D}/delegations") ?? []; }
+        catch (HttpRequestException) { _error = "Delegated work could not be loaded."; }
+    }
+    private void Changed(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope message)
+    {
+        if (message.OrganizationId == OrganizationId && message.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.AgentGovernanceChanged) Reload();
+    }
+    private void Reload() => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    public void Dispose() { Realtime.EventReceived -= Changed; Realtime.Reconnected -= Reload; }
+    private async Task DecideAsync(DelegationResponse item, string action)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/delegations/{item.Id:D}/{action}",
+                new DecideDelegationRequest(item.Revision, $"{action} requested from delegation review.", $"packet:{item.Id:N}:{item.Revision}:{action}"));
+            if (!response.IsSuccessStatusCode) { _error = "The delegation could not be updated. Refresh its work and confirm that the requested transition is ready."; }
+            await LoadAsync();
+        }
+        catch (HttpRequestException) { _error = "The delegation decision could not be saved."; }
+        finally { _busy = false; }
+    }
+}

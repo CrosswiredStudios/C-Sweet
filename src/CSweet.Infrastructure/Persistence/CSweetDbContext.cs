@@ -171,6 +171,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<TaskRun> CoreTaskRuns => Set<TaskRun>();
     public DbSet<Artifact> CoreArtifacts => Set<Artifact>();
     public DbSet<Approval> CoreApprovals => Set<Approval>();
+    public DbSet<AgentCapabilityApproval> AgentCapabilityApprovals => Set<AgentCapabilityApproval>();
+    public DbSet<Delegation> Delegations => Set<Delegation>();
     public DbSet<ArtifactRevision> ArtifactRevisions => Set<ArtifactRevision>();
     public DbSet<ArtifactFolder> ArtifactFolders => Set<ArtifactFolder>();
     public DbSet<ArtifactPackage> ArtifactPackages => Set<ArtifactPackage>();
@@ -297,7 +299,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         CaptureProviderDataAsync().GetAwaiter().GetResult();
+        CaptureGovernanceInvalidations();
         CaptureAgentAuditEvents();
+        CaptureDelegationRealtime();
         CaptureProjectHealthSignals();
         var saved = base.SaveChanges(acceptAllChangesOnSuccess);
         internetTransaction?.Commit();
@@ -329,7 +333,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureProjectResourceEvents();
         CaptureComputeEvents();
         await CaptureProviderDataAsync(cancellationToken);
+        CaptureGovernanceInvalidations();
         CaptureAgentAuditEvents();
+        CaptureDelegationRealtime();
         CaptureProjectHealthSignals();
         var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
         if (internetTransaction is not null) await internetTransaction.CommitAsync(cancellationToken);
@@ -855,6 +861,20 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.Entity<PluginSetupObligation>().HasIndex(x => x.InstallationId).IsUnique();
         SourceControlModelConfiguration.Configure(modelBuilder);
         ProjectIntakeModelConfiguration.Configure(modelBuilder);
+        modelBuilder.ApplyConfiguration(new DelegationConfiguration());
+        modelBuilder.Entity<AgentInstallation>().Property(x => x.Posture).HasMaxLength(16);
+        modelBuilder.Entity<AgentInstallation>().Property(x => x.GovernanceRevision).IsConcurrencyToken();
+        modelBuilder.Entity<AgentCapabilityApproval>(entity => {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.OperationKey).HasMaxLength(64);
+            entity.Property(x => x.Capability).HasMaxLength(200);
+            entity.Property(x => x.Status).HasMaxLength(24);
+            entity.Property(x => x.Risk).HasMaxLength(24);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasIndex(x => x.OperationKey).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.Status, x.CreatedAt });
+            entity.HasOne<AgentInstallation>().WithMany().HasForeignKey(x => x.AgentInstallationId).OnDelete(DeleteBehavior.Cascade);
+        });
 
         modelBuilder.Entity<ApplicationUser>(entity =>
         {

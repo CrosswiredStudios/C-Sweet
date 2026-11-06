@@ -11,7 +11,8 @@ public sealed class ApprovalState(HttpClient http, IBusinessContext businesses, 
     private bool _disposed;
     public Guid? OrganizationId { get; private set; }
     public ApprovalDashboardResponse? Dashboard { get; private set; }
-    public int PendingCount => Dashboard?.Items.Count(x => x.Status == "Pending" && x.CanDecide) ?? 0;
+    public int PendingCount => Dashboard is { } dashboard
+        ? dashboard.Items.Count(x => x.Status == "Pending" && x.CanDecide) + dashboard.CapabilityApprovalPendingCount : 0;
     public event Action? Changed;
 
     public async Task InitializeAsync()
@@ -72,7 +73,7 @@ public sealed class ApprovalState(HttpClient http, IBusinessContext businesses, 
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == businesses.SelectedBusiness?.Id &&
-            envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.ProjectIncidentChanged)
+            envelope.EventType is AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.AgentGovernanceChanged)
             _ = ReloadAsync();
     }
 

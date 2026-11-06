@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, ja. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "エージェントの権限",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "ポスチャーを保存できませんでした。更新してもう一度お試しください。",
+  "AgentPosture.GroupLabel": "エージェントのポスチャー",
+  "AgentPosture.Plan": "プラン",
+  "AgentPosture.Manual": "手動",
+  "AgentPosture.Auto": "自動",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "書き込みは拒否されます",
+  "AgentPosture.RuleApproval": "書き込みには承認が必要です",
+  "AgentPosture.RuleReadsOnly": "読み取り専用",
+  "AgentPosture.RuleAuto": "付与された範囲内で、書き込みはプロンプトなしで実行されます",
+  "AgentPosture.RuleAutoOutward": "付与された範囲内で、書き込みと外部向けアクションはプロンプトなしで実行されます"
+}

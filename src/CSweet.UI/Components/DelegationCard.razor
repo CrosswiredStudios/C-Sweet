@@ -1,0 +1,167 @@
+@using CSweet.Contracts.Agents
+@implements IDisposable
+
+<article class="delegation-card delegation-card-@StatusKey" aria-labelledby="@_titleId" aria-busy="@Busy.ToString().ToLowerInvariant()">
+    <header class="delegation-head">
+        <p class="delegation-eyebrow">Delegation</p>
+        <div class="delegation-head-row">
+            <h3 class="delegation-title" id="@_titleId">@Delegation.Title</h3>
+            <span class="delegation-status-chip delegation-status-chip-@StatusKey">
+                <span class="delegation-status-dot" aria-hidden="true"></span>
+                <span class="delegation-status-text">@StatusLabel</span>
+            </span>
+        </div>
+        <p class="delegation-route">
+            <span class="delegation-route-from">@FromLabel</span>
+            <span class="delegation-route-arrow" aria-hidden="true">&rarr;</span>
+            <span class="delegation-sr-only">to</span>
+            <span class="delegation-route-to">@ToLabel</span>
+        </p>
+    </header>
+
+    <p class="delegation-scope" title="@Delegation.Scope">@Delegation.Scope</p>
+
+    <footer class="delegation-foot">
+        <span class="delegation-meta">
+            <span class="delegation-meta-item">@ElapsedLabel</span>
+            @if (ArtifactCount is { } artifactCount)
+            {
+                <span class="delegation-meta-item">@ArtifactLabel(artifactCount)</span>
+            }
+        </span>
+        <span class="delegation-actions">
+            @if (CanRespond && StatusKey == "pending")
+            {
+                <button type="button" class="delegation-button delegation-button-accept" disabled="@Busy"
+                        @onclick="OnAcceptAsync">Accept</button>
+                <button type="button" class="delegation-button delegation-button-decline" disabled="@Busy"
+                        @onclick="OnDeclineAsync">Decline</button>
+            }
+            else if (CanRespond && StatusKey == "accepted")
+            {
+                <button type="button" class="delegation-button delegation-button-complete" disabled="@Busy"
+                        @onclick="OnCompleteAsync">Mark complete</button>
+            }
+        </span>
+    </footer>
+
+    @if (!string.IsNullOrWhiteSpace(Message))
+    {
+        <p class="delegation-message" role="status" aria-live="polite">@Message</p>
+    }
+</article>
+
+@code {
+    /// <summary>The packet to render. Status is a string, so an unknown state still displays.</summary>
+    [Parameter, EditorRequired] public DelegationResponse Delegation { get; set; } = default!;
+
+    /// <summary>Who asked, if the host knows the employee's name.</summary>
+    [Parameter] public string? FromDisplayName { get; set; }
+
+    /// <summary>Who owns the work, if the host knows the employee's name.</summary>
+    [Parameter] public string? ToDisplayName { get; set; }
+
+    /// <summary>Input artifact count. The shared response contract does not carry the ids.</summary>
+    [Parameter] public int? ArtifactCount { get; set; }
+
+    /// <summary>True while the host is talking to the API; buttons disable instead of vanishing.</summary>
+    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>False when the viewer cannot act (another employee's inbox, or a read-only role).</summary>
+    [Parameter] public bool CanRespond { get; set; } = true;
+
+    /// <summary>Optional inline outcome, announced politely rather than as an alert.</summary>
+    [Parameter] public string? Message { get; set; }
+
+    [Parameter] public EventCallback<Guid> AcceptRequested { get; set; }
+    [Parameter] public EventCallback<Guid> DeclineRequested { get; set; }
+    [Parameter] public EventCallback<Guid> CompleteRequested { get; set; }
+
+    private readonly string _titleId = $"delegation-title-{Guid.NewGuid():N}";
+    private System.Threading.Timer? _ticker;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    private string StatusKey => Delegation.Status?.Trim().ToLowerInvariant() switch
+    {
+        "pending" => "pending",
+        "accepted" => "accepted",
+        "declined" => "declined",
+        "completed" => "completed",
+        "expired" => "expired",
+        _ => "unknown"
+    };
+
+    private string StatusLabel => StatusKey switch
+    {
+        "pending" => "Pending",
+        "accepted" => "Accepted",
+        "declined" => "Declined",
+        "completed" => "Completed",
+        "expired" => "Expired",
+        _ => string.IsNullOrWhiteSpace(Delegation.Status) ? "Unknown" : Delegation.Status!
+    };
+
+    private bool IsSettled => StatusKey is "declined" or "completed" or "expired";
+
+    private string FromLabel => Label(FromDisplayName, Delegation.FromInstallationId);
+    private string ToLabel => Label(ToDisplayName, Delegation.ToInstallationId);
+
+    private string ElapsedLabel
+    {
+        get
+        {
+            var end = Delegation.CompletedAt ?? _now;
+            var span = end - Delegation.CreatedAt;
+            var text = FormatDuration(span);
+            return Delegation.CompletedAt is null ? $"Open for {text}" : $"Settled in {text}";
+        }
+    }
+
+    private static string Label(string? displayName, Guid installationId) =>
+        string.IsNullOrWhiteSpace(displayName)
+            ? installationId.ToString("N")[..8]
+            : displayName;
+
+    private static string ArtifactLabel(int count) => count == 1 ? "1 input artifact" : $"{count} input artifacts";
+
+    private static string FormatDuration(TimeSpan span)
+    {
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+        if (span.TotalMinutes < 1) return "less than a minute";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m";
+        return $"{(int)span.TotalDays}d {span.Hours}h";
+    }
+
+    protected override void OnInitialized()
+    {
+        // The elapsed time is part of the packet's meaning, so it keeps ticking while the
+        // card is open — but only for a packet that can still move.
+        if (IsSettled) return;
+        _ticker = new System.Threading.Timer(_ => _ = InvokeAsync(() =>
+        {
+            _now = DateTimeOffset.UtcNow;
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    protected override void OnParametersSet()
+    {
+        _now = DateTimeOffset.UtcNow;
+        if (IsSettled) DisposeTicker();
+    }
+
+    private Task OnAcceptAsync() => AcceptRequested.InvokeAsync(Delegation.Id);
+
+    private Task OnDeclineAsync() => DeclineRequested.InvokeAsync(Delegation.Id);
+
+    private Task OnCompleteAsync() => CompleteRequested.InvokeAsync(Delegation.Id);
+
+    private void DisposeTicker()
+    {
+        _ticker?.Dispose();
+        _ticker = null;
+    }
+
+    public void Dispose() => DisposeTicker();
+}

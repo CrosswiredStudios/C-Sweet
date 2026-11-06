@@ -1,0 +1,14 @@
+{
+  "AgentGovernancePanel.AgentAuthority": "84445f243294",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "5ab5439e3056",
+  "AgentPosture.GroupLabel": "1dd2832b6fcf",
+  "AgentPosture.Plan": "ae2f98a099fe",
+  "AgentPosture.Manual": "4e836fdc2572",
+  "AgentPosture.Auto": "c614ba7c453c",
+  "AgentPosture.Title": "441eb8b2e84a",
+  "AgentPosture.RuleRefused": "a51df2192401",
+  "AgentPosture.RuleApproval": "a54294a08be4",
+  "AgentPosture.RuleReadsOnly": "a5cc8a544a45",
+  "AgentPosture.RuleAuto": "6f71397a310d",
+  "AgentPosture.RuleAutoOutward": "860eafa8c07a"
+}

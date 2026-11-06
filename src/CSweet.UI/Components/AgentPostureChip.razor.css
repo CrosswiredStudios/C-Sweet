@@ -1,0 +1,140 @@
+/* Posture chip - Plan / Manual / Auto.
+   Only theme roles from wwwroot/css/theme.css are used, so every preset repaints the chip.
+   Selected state is carried by three cues at once (filled segment, accent border, bold label),
+   never by colour alone. */
+
+.agent-posture-chip {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2);
+    min-width: 0;
+    font-family: var(--font-sans);
+    color: var(--ink);
+}
+
+.agent-posture-options {
+    display: inline-flex;
+    gap: var(--s-1);
+    padding: var(--s-1);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-full);
+    background: var(--sunken);
+}
+
+.agent-posture-option {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 1.75rem;
+    padding: 0 var(--s-3);
+    border: 1px solid transparent;
+    border-radius: var(--r-full);
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: var(--t-xs);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+        background-color var(--d-fast) var(--ease),
+        border-color var(--d-fast) var(--ease),
+        color var(--d-fast) var(--ease);
+}
+
+/* Each state owns one accent and one tint, both derived from theme roles. */
+.agent-posture-option.is-plan {
+    --posture-accent: var(--edge-strong);
+    --posture-tint: var(--elevated);
+}
+
+.agent-posture-option.is-manual {
+    --posture-accent: var(--warm);
+    --posture-tint: color-mix(in srgb, var(--warm) 16%, var(--surface));
+}
+
+.agent-posture-option.is-auto {
+    --posture-accent: var(--mint);
+    --posture-tint: var(--mint-soft);
+}
+
+.agent-posture-dot {
+    flex: 0 0 auto;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: var(--r-full);
+    background: var(--posture-accent);
+    box-shadow: inset 0 0 0 1px var(--edge);
+}
+
+.agent-posture-label {
+    line-height: 1;
+}
+
+.agent-posture-option.is-selected {
+    border-color: var(--posture-accent);
+    background: var(--posture-tint);
+    color: var(--ink);
+    font-weight: 750;
+    box-shadow: var(--z-1);
+}
+
+.agent-posture-option.is-selected .agent-posture-dot {
+    background: var(--posture-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--posture-accent) 24%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .agent-posture-option:hover:not(:disabled):not(.is-selected) {
+        background: var(--hover);
+        color: var(--ink);
+    }
+}
+
+.agent-posture-option:focus-visible {
+    outline: var(--cs-focus-ring-width) solid var(--cs-focus);
+    outline-offset: var(--cs-focus-offset);
+}
+
+.agent-posture-option:disabled {
+    color: var(--faint);
+    cursor: not-allowed;
+}
+
+.agent-posture-option.is-selected:disabled {
+    border-color: var(--edge-strong);
+    background: var(--elevated);
+    box-shadow: none;
+}
+
+.agent-posture-rule {
+    margin: 0;
+    min-width: 0;
+    color: var(--muted);
+    font-size: var(--t-xs);
+    line-height: 1.35;
+    text-wrap: pretty;
+}
+
+.agent-posture-chip.is-disabled .agent-posture-rule {
+    color: var(--faint);
+}
+
+@media (max-width: 600px) {
+    .agent-posture-chip {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .agent-posture-option {
+        padding: 0 var(--s-2);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .agent-posture-option {
+        transition: none;
+    }
+}

@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, fr. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "Autorité de l'agent",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "La posture n'a pas pu être enregistrée. Actualisez et réessayez.",
+  "AgentPosture.GroupLabel": "Posture de l'agent",
+  "AgentPosture.Plan": "Plan",
+  "AgentPosture.Manual": "Manuel",
+  "AgentPosture.Auto": "Auto",
+  "AgentPosture.Title": "{posture} : {rule}",
+  "AgentPosture.RuleRefused": "les écritures sont refusées",
+  "AgentPosture.RuleApproval": "les écritures nécessitent une approbation",
+  "AgentPosture.RuleReadsOnly": "lecture seule",
+  "AgentPosture.RuleAuto": "les écritures s'exécutent sans invite dans la portée accordée",
+  "AgentPosture.RuleAutoOutward": "les écritures et actions externes s'exécutent sans invite dans la portée accordée"
+}

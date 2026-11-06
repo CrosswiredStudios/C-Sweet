@@ -27,6 +27,8 @@ contracts, proportional planning, verification and the Prism Break rollout.
 [Installation ceilings and task output budgets](agent-token-budgets.md) maps authenticated
 configuration limits, smaller per-task requests and effective inference diagnostics.
 
+- [Agent governance](agent-governance.md): durable posture, exact operation approvals, temporal admission, and tracked delegation packets.
+
 [Developer execution plans and progress recovery](developer-execution-workflow.md)
 maps Adrian and Daniel's short persisted plans, evidence-based progress checks and
 checkpoint handoffs for unavailable infrastructure.

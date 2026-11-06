@@ -374,11 +374,14 @@ public sealed class ApprovalDashboardService(
             .OrderBy(x => IsPending(x.Status) ? 0 : 1)
             .ThenByDescending(x => x.CreatedAt)
             .ToList();
+        var pendingOperations = await new CSweet.Infrastructure.Agents.AgentCapabilityApprovalService(db, TimeProvider.System).ListAsync(organizationId, applicationUserId, false, cancellationToken);
+        var operationCount = pendingOperations.Count(x => x.Status == "Pending");
         return new ApprovalDashboardResponse(
             actor.Id,
-            ordered.Count(x => IsPending(x.Status) && x.CanDecide),
+            ordered.Count(x => IsPending(x.Status) && x.CanDecide) + operationCount,
             ordered)
         {
+            CapabilityApprovalPendingCount = operationCount,
             ProjectIncidents = await (projectHealth ?? new(db, new(db, TimeProvider.System), TimeProvider.System))
                 .ReadAttentionAsync(organizationId, actor.Id, cancellationToken)
         };
