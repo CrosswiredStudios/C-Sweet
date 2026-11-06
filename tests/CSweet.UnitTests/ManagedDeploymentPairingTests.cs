@@ -10,6 +10,27 @@ namespace CSweet.UnitTests;
 public sealed class ManagedDeploymentPairingTests
 {
     [Fact]
+    public async Task ExecutionAuthorityExposesOnlyPairedNonsecretMetadataAndRejectsChangedOrigin()
+    {
+        using var f = new Fixture();
+        f.Http.Pairing=await f.Gateway.PreparePairing(default);
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Gateway.BoundAuthority(default));
+        await f.Gateway.CompletePairing(f.Http.Registration,default);
+        var requests=f.Http.Requests;
+        var stored=await File.ReadAllBytesAsync(f.Options.RegistrationPath);
+        var authority=await f.Gateway.BoundAuthority(default);
+        Assert.Equal(f.Http.Registration.DeploymentId,authority.DeploymentId);
+        Assert.Equal(f.Http.Registration.TenantId,authority.TenantId);
+        Assert.Equal(f.Http.Registration.Revision,authority.Revision);
+        Assert.Equal(f.Options.ServiceOrigin,authority.ServiceOrigin);
+        Assert.Equal(4,typeof(ManagedDeploymentAuthority).GetProperties().Length);
+        Assert.Equal(stored,await File.ReadAllBytesAsync(f.Options.RegistrationPath));
+        f.Options.ServiceOrigin="https://other.example";
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Gateway.BoundAuthority(default));
+        Assert.Equal(requests,f.Http.Requests);
+    }
+
+    [Fact]
     public async Task PairingPersistsOnlyProtectedKeyAndVerifiesActualDeploymentProofBeforeActivation()
     {
         using var f = new Fixture();

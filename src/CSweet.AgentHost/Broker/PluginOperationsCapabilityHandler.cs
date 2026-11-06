@@ -16,7 +16,8 @@ namespace CSweet.AgentHost.Broker;
 public sealed class PluginOperationsCapabilityHandler(
     CSweetDbContext db,
     IAuditEventWriter audit,
-    IEnumerable<IManagedActionExecutor>? executors = null) : IPlatformCapabilityHandler
+    IEnumerable<IManagedActionExecutor>? executors = null,
+    ConnectorPlanService? connectorPlans = null) : IPlatformCapabilityHandler
 {
     public const string ManagedAction = "platform.managed-action.execute.v1";
     public const string ManagedActionDecide = "platform.managed-action.decide.v1";
@@ -197,7 +198,7 @@ public sealed class PluginOperationsCapabilityHandler(
             ?? throw new InvalidOperationException("The managed action proposal was not found.");
         if (proposal.ActionType == ConnectorActionApprovalService.ActionType)
         {
-            var service = new ConnectorActionApprovalService(db, new ConnectorPlanService(db), audit);
+            var service = new ConnectorActionApprovalService(db, connectorPlans ?? new ConnectorPlanService(db), audit);
             var status = await service.DecideAsync(organizationId, approver.Id,
                 new DecideManagedAgentActionRequest(input.ProposalId,
                     input.Decision == "Request revision" ? "RequestRevision" : input.Decision,

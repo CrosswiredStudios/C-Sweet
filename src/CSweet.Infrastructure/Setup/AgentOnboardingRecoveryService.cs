@@ -16,7 +16,8 @@ using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.Setup;
 
 /// <summary>Explicit human recovery of a failed lifecycle delivery, never a new hire or grant.</summary>
-public sealed class AgentOnboardingRecoveryService(CSweetDbContext db, IDataProtectionProvider protection, TimeProvider clock)
+public sealed class AgentOnboardingRecoveryService(CSweetDbContext db, IDataProtectionProvider protection, TimeProvider clock,
+    ConnectorCredentialAuthority? credentials = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan ReviewLifetime = TimeSpan.FromMinutes(10);
@@ -178,10 +179,11 @@ public sealed class AgentOnboardingRecoveryService(CSweetDbContext db, IDataProt
             if (provider.PackageVersion.PluginKind == PluginKind.Connector)
             {
                 var providerManifest = JsonSerializer.Deserialize<PluginManifest>(provider.PackageVersion.ManifestJson, Json)!;
-                if (providerManifest.Kind != "remote-mcp" && !await new ConnectorPlanService(db).IsAvailableAsync(organization, installation, binding.Capability, ct))
-                    throw new InvalidOperationException("A required connector authority is unavailable.");
-                if (providerManifest.Accounts is not null)
-                    authority.Add((await new PluginAccountAuthorityService(db).RequireAsync(organization, binding, provider, providerManifest, ct)).Snapshot);
+                if (providerManifest.Kind != "remote-mcp")
+                {
+                    var current = await new ConnectorPlanService(db, credentials).CurrentAuthorityAsync(organization, installation, binding.Capability, ct);
+                    authority.Add(new { current.Account, current.Credential });
+                }
             }
         }
         var marker = await OnboardingRecoveryBudget.FindAsync(db, work, ct);

@@ -16,13 +16,22 @@ public sealed record FrozenConnectorPlan(Guid OrganizationId, Guid RequesterInst
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     PluginAccountAuthoritySnapshot? AccountAuthority = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    JsonElement? OriginalInput = null)
+    JsonElement? OriginalInput = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    ManagedConnectorAuthoritySnapshot? CredentialAuthority = null)
 { public override string ToString() => "Frozen connector plan [content redacted]"; }
 
-/// <summary>Freezes authority and request content before any provider effect. This service never sends HTTP.</summary>
-public sealed class ConnectorPlanService(CSweetDbContext db)
+/// <summary>Freezes authority and request content before any provider effect. Authority probes never execute provider operations.</summary>
+public sealed class ConnectorPlanService(CSweetDbContext db, ConnectorCredentialAuthority? credentials = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    internal async Task<(PluginAccountAuthoritySnapshot? Account, ManagedConnectorAuthoritySnapshot? Credential)> CurrentAuthorityAsync(
+        Guid organizationId, Guid requesterId, string capability, CancellationToken token)
+    {
+        var authority = await RequireAuthorityAsync(organizationId, requesterId, capability, token);
+        return (authority.AccountAuthority, authority.CredentialAuthority);
+    }
 
     public async Task<bool> IsAvailableAsync(Guid organizationId, Guid requesterId, string capability, CancellationToken token)
     {
@@ -52,7 +61,7 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         var frozen = new FrozenConnectorPlan(organizationId, requesterId, authority.Connector.Id,
             authority.Connection.Id, authority.Requester.Grant!.GrantRevision, authority.Connector.Grant!.GrantRevision,
             authority.Connector.PackageVersion!.PackageDigest!, capability, authority.ResourceId,
-            idempotencyKey, inputHash, request, media, authority.AccountAuthority, input.Clone());
+            idempotencyKey, inputHash, request, media, authority.AccountAuthority, input.Clone(), authority.CredentialAuthority);
         var element = JsonSerializer.SerializeToElement(frozen, JsonOptions);
         var hash = ConnectorRequestMaterializer.Hash(element);
         var existing = await db.ConnectorExecutions.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
@@ -109,7 +118,8 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
             frozen.GrantRevision != authority.Requester.Grant!.GrantRevision ||
             frozen.ProviderGrantRevision != authority.Connector.Grant!.GrantRevision ||
             frozen.PackageDigest != authority.Connector.PackageVersion!.PackageDigest ||
-            frozen.ResourceId != authority.ResourceId || frozen.AccountAuthority != authority.AccountAuthority || frozen.Capability != execution.Capability ||
+            frozen.ResourceId != authority.ResourceId || frozen.AccountAuthority != authority.AccountAuthority ||
+            frozen.CredentialAuthority != authority.CredentialAuthority || frozen.Capability != execution.Capability ||
             frozen.IdempotencyKey != execution.IdempotencyKey || frozen.InputHash != execution.InputHash)
             throw new UnauthorizedAccessException("Plan authority has changed; prepare and approve a new plan.");
         if (frozen.Media is { } media)
@@ -144,6 +154,8 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         ConnectorBindingService.ValidatePackage(dependency, connector.PackageVersion!);
         var provider = Manifest(connector);
         var enterprise = provider.Accounts is not null;
+        if (enterprise && credentials is null)
+            throw new UnauthorizedAccessException("Native connection credential authority is unavailable.");
         if ((!enterprise && (connector.BusinessId != organization || connector.Scope != PluginInstallationScope.Organization)) ||
             (enterprise && connector.Scope != PluginInstallationScope.System) || !connector.IsEnabled ||
             connector.SetupState != PluginSetupState.Ready || connector.RevisionStatus != PluginRevisionStatus.Active ||
@@ -175,15 +187,19 @@ public sealed class ConnectorPlanService(CSweetDbContext db)
         if (connection.ProviderProfile != declaration.ProviderProfile || string.IsNullOrWhiteSpace(resourceId) || operation.Http!.ScopeSets
             .SelectMany(id => declaration.ScopeSets.Single(x => x.Id == id).Scopes).Except(scopes, StringComparer.Ordinal).Any())
             throw new UnauthorizedAccessException("Confirm the account and complete the required provider consent.");
-        if (!await db.ConnectorProfileApprovals.AsNoTracking().AnyAsync(x => x.ConnectorInstallationId == connector.Id &&
+        var credentialAuthority = enterprise && credentials is not null
+            ? await credentials.RequireAsync(organizationId, connector, connection, provider, declaration, operation.Http.ScopeSets, token)
+            : null;
+        if (credentialAuthority is null && !await db.ConnectorProfileApprovals.AsNoTracking().AnyAsync(x => x.ConnectorInstallationId == connector.Id &&
             x.PackageDigest == connector.PackageVersion!.PackageDigest && x.ProfileId == declaration.ProviderProfile &&
             x.RevokedAt == null, token)) throw new UnauthorizedAccessException("This build is not approved to use the provider profile.");
-        return new(requester, connector, connection, operation, resourceId, accountAuthority);
+        return new(requester, connector, connection, operation, resourceId, accountAuthority, credentialAuthority);
     }
 
     private static string[] List(string json) => JsonSerializer.Deserialize<string[]>(json) ?? [];
     private static PluginManifest Manifest(AgentInstallation installation) =>
         JsonSerializer.Deserialize<PluginManifest>(installation.PackageVersion!.ManifestJson, JsonOptions)!;
     private sealed record Authority(AgentInstallation Requester, AgentInstallation Connector, PluginConnection Connection,
-        PluginProviderOperationDeclaration Operation, string ResourceId, PluginAccountAuthoritySnapshot? AccountAuthority);
+        PluginProviderOperationDeclaration Operation, string ResourceId, PluginAccountAuthoritySnapshot? AccountAuthority,
+        ManagedConnectorAuthoritySnapshot? CredentialAuthority);
 }

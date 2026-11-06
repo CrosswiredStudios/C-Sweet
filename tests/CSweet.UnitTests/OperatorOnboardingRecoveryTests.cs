@@ -59,7 +59,7 @@ public sealed class OperatorOnboardingRecoveryTests
     {
         await using var f = await Fixture.Create(); var review = await f.Preview();
         await using var other = f.Context();
-        var results = await Task.WhenAll(f.Recover(review), new AgentOnboardingRecoveryService(other, f.Protection, f.Clock)
+        var results = await Task.WhenAll(f.Recover(review), new AgentOnboardingRecoveryService(other, f.Protection, f.Clock, ConnectorPlanServiceTests.Fixture.LocalCredentials(other))
             .RecoverAsync(f.Actor, f.Org, f.Installation, review.ReviewToken, default));
         Assert.Equal(results[0], results[1]); Assert.Equal(results[0], await f.Recover(review));
         Assert.Single(await f.Db.PluginOperationalStates.AsNoTracking().ToArrayAsync());
@@ -94,7 +94,7 @@ public sealed class OperatorOnboardingRecoveryTests
         // Each HTTP request owns a fresh scope; do not bypass the existing account-copy
         // concurrency fences by carrying inventory entities across independent requests.
         await using var nextRequest=f.Context();
-        var nextService=new AgentOnboardingRecoveryService(nextRequest,f.Protection,f.Clock);
+        var nextService=new AgentOnboardingRecoveryService(nextRequest,f.Protection,f.Clock,ConnectorPlanServiceTests.Fixture.LocalCredentials(nextRequest));
         var nextReview=await nextService.PreviewAsync(f.Actor,f.Org,f.Installation,default);
         var second=await nextService.RecoverAsync(f.Actor,f.Org,f.Installation,nextReview.ReviewToken,default);
         Assert.NotEqual(first.RecoveryId,second.RecoveryId);
@@ -270,7 +270,7 @@ public sealed class OperatorOnboardingRecoveryTests
         await using var f = await Fixture.Create(); var review = await f.Preview();
         var auditCount=await f.Db.AuditOutbox.CountAsync();
         await using var failing = f.Context(new RejectSave());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => new AgentOnboardingRecoveryService(failing, f.Protection, f.Clock)
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new AgentOnboardingRecoveryService(failing, f.Protection, f.Clock, ConnectorPlanServiceTests.Fixture.LocalCredentials(failing))
             .RecoverAsync(f.Actor, f.Org, f.Installation, review.ReviewToken, default));
         Assert.Equal(AgentWorkStatus.DeadLetter, (await f.Work()).Status);
         Assert.Equal(AgentOnboardingEventOutboxStatus.Failed, (await f.Event()).Status);
@@ -320,7 +320,7 @@ public sealed class OperatorOnboardingRecoveryTests
     {
         await using var f = await Fixture.Create(); var review = await f.Preview(); var barrier = new PauseSave();
         await using var recoveringDb = f.Context(barrier);
-        var recover = new AgentOnboardingRecoveryService(recoveringDb, f.Protection, f.Clock)
+        var recover = new AgentOnboardingRecoveryService(recoveringDb, f.Protection, f.Clock, ConnectorPlanServiceTests.Fixture.LocalCredentials(recoveringDb))
             .RecoverAsync(f.Actor,f.Org,f.Installation,review.ReviewToken,default);
         await barrier.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var acknowledgement = f.Acknowledge();
@@ -376,9 +376,11 @@ public sealed class OperatorOnboardingRecoveryTests
         public override DateTimeOffset GetUtcNow()=>now;
         public void Advance(TimeSpan amount)=>now+=amount;
     }
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         private PluginAccountAuthorityTests.Fixture native=null!;
+        public PluginAccountAuthorityTests.Fixture Native => native;
+        public ConnectorCredentialAuthority? Credentials { get; set; }
         private CSweetDbContext? operational;
         public CSweetDbContext Db=>operational??native.Legacy.Db;
         public Clock Clock {get;}=new();
@@ -387,11 +389,12 @@ public sealed class OperatorOnboardingRecoveryTests
         public Guid WorkId {get;}=Guid.NewGuid(); public Guid EventId {get;}=Guid.NewGuid();
         public Guid Org=>native.Organization; public Guid Installation=>native.Legacy.Requester.Id;
         public Guid Package=>native.Legacy.Requester.PackageVersionId;
-        public AgentOnboardingRecoveryService Service=>new(Db,Protection,Clock);
+        public AgentOnboardingRecoveryService Service=>new(Db,Protection,Clock,Credentials);
         public DbContextOptions<CSweetDbContext> Options=> (DbContextOptions<CSweetDbContext>)native.Legacy.Db.GetService<IDbContextOptions>();
         public CSweetDbContext Context(IInterceptor? interceptor=null)=>new(new DbContextOptionsBuilder<CSweetDbContext>(Options)
             .UseInMemoryDatabase(Options.Extensions.OfType<Microsoft.EntityFrameworkCore.InMemory.Infrastructure.Internal.InMemoryOptionsExtension>().Single().StoreName!,
                 native.Legacy.Db.GetService<Microsoft.EntityFrameworkCore.InMemory.Storage.Internal.IInMemoryDatabaseRootCache>().SharedRoot)
+            .UseModel(native.Legacy.Db.Model)
             .ConfigureWarnings(x=>x.Ignore(InMemoryEventId.TransactionIgnoredWarning)).AddInterceptors(interceptor is null?[]:[interceptor]).Options);
         public Task<AgentWorkItem> Work()=>Db.AgentWorkItems.AsNoTracking().SingleAsync(x=>x.Id==WorkId);
         public Task<AgentOnboardingEventOutboxItem> Event()=>Db.AgentOnboardingEventOutbox.AsNoTracking().SingleAsync(x=>x.Id==EventId);
@@ -444,7 +447,7 @@ public sealed class OperatorOnboardingRecoveryTests
                 AttemptCount=1,MaximumAttempts=3,DeadlineAt=now.AddHours(-1),CreatedAt=now.AddHours(-2),LastError="agent-failure:v1;code=platform.capability.denied;retryable=false",ResultHash=new string('A',64),
                 ProtectedResult=f.Protection.CreateProtector("CSweet.AgentWorkInbox.v1").Protect(JsonSerializer.SerializeToUtf8Bytes(new AgentWorkCompletion(false,null,"safe", "platform.capability.denied",false)))};
             db.AgentWorkItems.Add(work);db.AgentWorkAttempts.Add(new(){Id=Guid.NewGuid(),AgentWorkItemId=f.WorkId,RuntimeInstanceId=Guid.NewGuid(),Attempt=1,ClaimedAt=now.AddHours(-2),LeaseExpiresAt=now.AddMinutes(-100),FinishedAt=now.AddMinutes(-110),CompletionHash="retained-prior-completion"});
-            await db.SaveChangesAsync();db.ChangeTracker.Clear();f.operational=f.Context();return f;
+            await db.SaveChangesAsync();db.ChangeTracker.Clear();f.operational=f.Context();f.Credentials=ConnectorPlanServiceTests.Fixture.LocalCredentials(f.Db);return f;
         }
         public async ValueTask DisposeAsync(){if(operational is not null)await operational.DisposeAsync();await native.DisposeAsync();}
     }

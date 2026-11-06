@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CSweet.Application.Setup;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -9,6 +10,28 @@ namespace CSweet.UnitTests;
 
 public sealed class ConnectorPlanServiceTests
 {
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("revoked")]
+    [InlineData("digest")]
+    [InlineData("profile")]
+    public async Task LegacyExecutionAndAvailabilityStillRequireExactProfileApproval(string change)
+    {
+        await using var f = await Fixture.Create();
+        var approval = await f.Db.ConnectorProfileApprovals.SingleAsync();
+        switch (change)
+        {
+            case "missing": f.Db.ConnectorProfileApprovals.Remove(approval); break;
+            case "revoked": approval.RevokedAt = DateTimeOffset.UtcNow; break;
+            case "digest": approval.PackageDigest = new string('b',64); break;
+            case "profile": approval.ProfileId = "other.profile"; break;
+        }
+        await f.Db.SaveChangesAsync();
+        Assert.False(await f.Service.IsAvailableAsync(f.Organization, f.Requester.Id, Fixture.Capability, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Prepare("synthetic"));
+        Assert.Empty(await f.Db.ConnectorExecutions.ToArrayAsync());
+    }
+
     [Fact]
     public async Task StableKeyReusesPlanButRejectsModifiedInput()
     {
@@ -83,7 +106,15 @@ public sealed class ConnectorPlanServiceTests
         public AgentInstallation Requester { get; private set; } = null!;
         public AgentInstallation Connector { get; private set; } = null!;
         public PluginConnection Connection { get; private set; } = null!;
-        public ConnectorPlanService Service => new(Db);
+        public ConnectorCredentialAuthority? Credentials { get; set; }
+        public ConnectorPlanService Service => new(Db, Credentials);
+        public static ConnectorCredentialAuthority LocalCredentials(CSweetDbContext db) => new(db, new EmptySecrets());
+        private sealed class EmptySecrets : IPluginSecretStore
+        {
+            public Task<string?> GetAsync(Guid installation,string key,CancellationToken ct=default)=>Task.FromResult<string?>(null);
+            public Task SetAsync(Guid installation,string key,string value,CancellationToken ct=default)=>throw new NotSupportedException();
+            public Task RemoveAsync(Guid installation,string key,CancellationToken ct=default)=>throw new NotSupportedException();
+        }
         public static JsonElement Input(string value) => JsonSerializer.SerializeToElement(new { search = value });
         public Task<ConnectorExecution> Prepare(string value) => Service.PrepareAsync(Organization, Requester.Id, Capability, Input(value), "stable", default);
         public ValueTask DisposeAsync() => Db.DisposeAsync();
@@ -127,7 +158,7 @@ public sealed class ConnectorPlanServiceTests
                 DependencyId = "account", GrantRevision = 1, ProviderPackageDigest = f.Connector.PackageVersion!.PackageDigest });
             f.Db.ConnectorProfileApprovals.Add(new() { Id = Guid.NewGuid(), ConnectorInstallationId = f.Connector.Id,
                 PackageDigest = f.Connector.PackageVersion.PackageDigest!, ProfileId = "example.profile" });
-            await f.Db.SaveChangesAsync(); return f;
+            await f.Db.SaveChangesAsync(); f.Credentials = LocalCredentials(f.Db); return f;
         }
         private AgentInstallation Install(PluginManifest manifest, PluginKind kind, JsonSerializerOptions options)
         {

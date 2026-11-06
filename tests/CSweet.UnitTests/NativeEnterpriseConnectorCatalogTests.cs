@@ -19,7 +19,7 @@ public sealed class NativeEnterpriseConnectorCatalogTests
         Assert.Equal("enterprise", f.Legacy.Connector.BusinessId);
         Assert.NotEqual(f.Legacy.Requester.BusinessId, f.Legacy.Connector.BusinessId);
         Assert.True(await f.Legacy.Service.IsAvailableAsync(f.Organization, f.Legacy.Requester.Id, Capability, default));
-        var catalog = new McpToolCatalog([]);
+        var catalog = new McpToolCatalog([], credentials: f.Legacy.Credentials);
         var session = Session(f.Legacy);
         var tool = Assert.Single(await catalog.ListAsync(session, f.Legacy.Db, default));
         Assert.Equal(Capability, tool.Capability);
@@ -128,7 +128,7 @@ public sealed class NativeEnterpriseConnectorCatalogTests
             case "system-legacy-manifest": Rewrite(f.Legacy.Connector, m => m with { Accounts = null }); break;
         }
         await f.Legacy.Db.SaveChangesAsync();
-        Assert.Empty(await new McpToolCatalog([]).ListAsync(session, f.Legacy.Db, default));
+        Assert.Empty(await new McpToolCatalog([], credentials: f.Legacy.Credentials).ListAsync(session, f.Legacy.Db, default));
         Assert.Empty(await f.Legacy.Db.ConnectorExecutions.ToArrayAsync());
         Assert.False(f.Legacy.Db.ChangeTracker.HasChanges());
     }
@@ -139,7 +139,7 @@ public sealed class NativeEnterpriseConnectorCatalogTests
         await using var f = await PluginAccountAuthorityTests.Fixture.Create();
         Rewrite(f.Legacy.Requester, m => m with { Requires = [m.Requires[0] with { ModelVisible = false }] });
         await f.Legacy.Db.SaveChangesAsync();
-        var catalog = new McpToolCatalog([]);
+        var catalog = new McpToolCatalog([], credentials: f.Legacy.Credentials);
         var session = Session(f.Legacy);
         var tool = Assert.Single(await catalog.ListAsync(session, f.Legacy.Db, default));
         Assert.False(tool.ModelVisible);
@@ -154,7 +154,7 @@ public sealed class NativeEnterpriseConnectorCatalogTests
         await using var f = await ConnectorPlanServiceTests.Fixture.Create();
         if (otherBusiness) f.Connector.BusinessId = Guid.NewGuid().ToString("D");
         await f.Db.SaveChangesAsync();
-        var tools = await new McpToolCatalog([]).ListAsync(Session(f), f.Db, default);
+        var tools = await new McpToolCatalog([], credentials: f.Credentials).ListAsync(Session(f), f.Db, default);
         Assert.Equal(otherBusiness ? 0 : 1, tools.Count);
     }
 
@@ -182,7 +182,7 @@ public sealed class NativeEnterpriseConnectorCatalogTests
             binding.PluginAccountConnectionId = Guid.NewGuid();
         }
         await f.Db.SaveChangesAsync();
-        var tools = await new McpToolCatalog([]).ListAsync(Session(f), f.Db, default);
+        var tools = await new McpToolCatalog([], credentials: f.Credentials).ListAsync(Session(f), f.Db, default);
         Assert.Equal(otherBusiness ? 0 : 1, tools.Count);
     }
 
@@ -225,7 +225,7 @@ public sealed class NativeEnterpriseConnectorCatalogTests
             Assert.Throws<JsonException>(() => PluginManifestReader.ValidateConnectorContracts(
                 JsonSerializer.Deserialize<PluginManifest>(f.Inner.Connector.PackageVersion!.ManifestJson, Json)!));
         }
-        Assert.Empty(await new McpToolCatalog([]).ListAsync(Session(f.Inner), f.Inner.Db, default));
+        Assert.Empty(await new McpToolCatalog([], credentials: f.Inner.Credentials).ListAsync(Session(f.Inner), f.Inner.Db, default));
         Assert.Equal(executions, await f.Inner.Db.ConnectorExecutions.CountAsync());
         Assert.Empty(f.Provider.Steps);
         Assert.Empty(f.Provider.Chunks);

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 namespace CSweet.Infrastructure.Setup;
 
 public sealed record ManagedPairing(string ServiceOrigin, string PublicKey, string KeyId, string ReturnUri);
+public sealed record ManagedDeploymentAuthority(Guid DeploymentId, string TenantId, long Revision, string ServiceOrigin);
 internal sealed record ManagedDeploymentRegistration(Guid DeploymentId, string TenantId, long Revision, string KeyId, string PrivateKey,
     string? ServiceOrigin = null)
 { public override string ToString() => "Managed deployment registration [key redacted]"; }
@@ -18,6 +19,7 @@ public interface IManagedPluginConnectionGateway
     bool UsesManaged(string profile);
     string ReturnUri { get; }
     Task<string> BoundServiceOrigin(CancellationToken ct);
+    Task<ManagedDeploymentAuthority> BoundAuthority(CancellationToken ct) => throw new NotSupportedException();
     Task<ProfileAvailability> Availability(string digest, CancellationToken ct);
     Task<ConnectionAttempt> Begin(BeginConnection request, CancellationToken ct, string? expectedServiceOrigin = null);
     Task<ConnectionReceipt> Cancel(Guid session, CancellationToken ct, string? expectedServiceOrigin = null);
@@ -70,6 +72,13 @@ public sealed class ManagedPluginConnectionGateway(IHttpClientFactory clients, I
         var record = await Read(ct);
         if (record.DeploymentId == Guid.Empty) throw new InvalidOperationException("managed_deployment_pairing_required");
         return record.ServiceOrigin!;
+    }
+    public async Task<ManagedDeploymentAuthority> BoundAuthority(CancellationToken ct)
+    {
+        var record = await Read(ct);
+        if (record.DeploymentId == Guid.Empty || string.IsNullOrWhiteSpace(record.TenantId) || record.Revision < 1)
+            throw new InvalidOperationException("managed_deployment_pairing_required");
+        return new(record.DeploymentId, record.TenantId, record.Revision, record.ServiceOrigin!);
     }
     public Task<ProfileAvailability> Availability(string digest, CancellationToken ct) => With(c => c.Availability(digest, ct), ct);
     public Task<ConnectionAttempt> Begin(BeginConnection r, CancellationToken ct, string? expectedServiceOrigin = null) => With(c => c.Begin(r, ct), ct, false, expectedServiceOrigin);
