@@ -126,6 +126,10 @@ public sealed class PlatformLlmJobService(IServiceScopeFactory scopes, PlatformL
             // Priority is derived from authenticated durable work, never caller telemetry.
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             var work = await db.AgentWorkItems.SingleAsync(x => x.Id == workId, token);
+            // A harness route overrides the caller's provider. Gate (and queue) on the provider that will
+            // actually receive the request, or the routed provider's concurrency limit is bypassed.
+            if (Guid.TryParse(session.InstallationId, out var routedInstallation))
+                provider = await CSweet.Infrastructure.Agents.HarnessRuntime.ResolvePrimaryProviderAsync(db, routedInstallation, workId, provider, token);
             var existing = jobs.Values.SingleOrDefault(x => x.Session.RuntimeInstanceId == session.RuntimeInstanceId && x.Key == key);
             if (existing is not null)
             {

@@ -27,6 +27,8 @@ contracts, proportional planning, verification and the Prism Break rollout.
 [Installation ceilings and task output budgets](agent-token-budgets.md) maps authenticated
 configuration limits, smaller per-task requests and effective inference diagnostics.
 
+- [Harness workspace](harness-workspace.md): authorized run inspection, context compaction, model routes, shared task reservations, pinned skills, advisory judgments and read-only Doctor.
+- [Agent harness and routing](agent-harness-and-routing.md): VM-to-platform path, capability dispatch order, stage routes and fallbacks, shared budgets, in-VM harness tools and failure codes.
 - [Agent governance](agent-governance.md): durable posture, exact operation approvals, temporal admission, and tracked delegation packets.
 
 [Developer execution plans and progress recovery](developer-execution-workflow.md)

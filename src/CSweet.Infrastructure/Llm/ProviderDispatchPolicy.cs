@@ -25,7 +25,7 @@ internal sealed class ProviderDispatchPolicy(Func<CancellationToken, Task> autho
         try
         {
             await authorizeProvider(token);
-            await ProviderDispatchScope.AuthorizeCurrentAsync(token);
+            await ProviderDispatchScope.AuthorizeTransportAsync(token);
             token.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException) { throw; }

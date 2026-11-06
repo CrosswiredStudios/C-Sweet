@@ -196,6 +196,13 @@ public sealed class OrganizationDeletionTests
             Id = Guid.NewGuid(), TrialId = trial.Id, Kind = "Quality",
             CriterionKey = "deletion-test", IdempotencyKey = "deletion-test"
         };
+        var deletedBudget = new HarnessTaskBudget { Id = $"{deleted.Id:D}:task:{Guid.NewGuid():D}" };
+        var retainedBudget = new HarnessTaskBudget { Id = $"{retained.Id:D}:task:{Guid.NewGuid():D}" };
+        db.AddRange(deletedBudget, retainedBudget,
+            new HarnessBudgetReservation { Id = Guid.NewGuid(), BudgetId = deletedBudget.Id },
+            new HarnessBudgetReservation { Id = Guid.NewGuid(), BudgetId = retainedBudget.Id },
+            new BusinessSkillRevision { Id = Guid.NewGuid(), BusinessId = deleted.Id.ToString("D"), Name = "Review" },
+            new BusinessSkillRevision { Id = Guid.NewGuid(), BusinessId = retained.Id.ToString("D"), Name = "Review" });
         db.AddRange(definition, campaign, trial, assessment);
         await db.SaveChangesAsync();
 
@@ -207,6 +214,9 @@ public sealed class OrganizationDeletionTests
         await service.PurgeAsync(deleted.Id);
         Assert.Equal(episodeRetry.SourceHash, (await db.MemoryEpisodeRetryReceipts.SingleAsync(x => x.Id == episodeRetry.Id)).SourceHash);
 
+        Assert.Equal(retainedBudget.Id, (await db.HarnessTaskBudgets.SingleAsync()).Id);
+        Assert.Equal(retainedBudget.Id, (await db.HarnessBudgetReservations.SingleAsync()).BudgetId);
+        Assert.Equal(retained.Id.ToString("D"), (await db.BusinessSkillRevisions.SingleAsync()).BusinessId);
         Assert.False(await db.CoreOrganizations.AnyAsync(x => x.Id == deleted.Id));
         Assert.True(await db.CoreOrganizations.AnyAsync(x => x.Id == retained.Id));
         Assert.False(await db.BusinessOnboardingOperations.AnyAsync(x => x.Id == onboarding.Id));

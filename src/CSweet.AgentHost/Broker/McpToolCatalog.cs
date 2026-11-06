@@ -70,17 +70,24 @@ public sealed class McpToolCatalog(
         """);
 
     /// <summary>
-    /// Read-only views of the caller's own authority. Every agent may use them
+    /// Read-only views of the caller's own authority and harness state. Every agent may use them
     /// without a grant (they reveal nothing beyond its own installation), so they are always listed,
     /// always model-visible and exempt from setup-context restrictions.
     /// </summary>
     public static readonly IReadOnlySet<string> SelfReadCapabilities = new HashSet<string>(StringComparer.Ordinal)
-        { AgentGovernanceCapabilityHandler.Read };
+        { AgentGovernanceCapabilityHandler.Read, HarnessStatusCapabilityHandler.Capability };
 
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
         Read(AgentGovernanceCapabilityHandler.Read, "read_agent_governance", "Read your current posture and up to 20 of your own operation approvals. Use after approval wakes or reconnecting. Retry only an approved exact request; never repeat an unconfirmed execution."),
         .. ComputeMcpTools.All,
+        new McpToolDescriptor(HarnessJudgmentCapabilityHandler.Capability, "advisory_judgment",
+            "Advisory bounded Relevance, Risk or Completeness classification. Cannot approve operations or change authority.",
+            Schema("""{"type":"object","properties":{"kind":{"type":"string","enum":["Relevance","Risk","Completeness"]},"input":{"type":"string","minLength":1,"maxLength":12000}},"required":["kind","input"],"additionalProperties":false}"""), null, McpToolExecutionPolicy.ReadOnly),
+        Read(HarnessStatusCapabilityHandler.Capability, "read_harness_status", "Read your own effective model route (stage, provider, model, fallback count), context compaction, assigned skills and the remaining shared task token/cost budget. Check before large or repeated model work; an exhausted budget needs a manager, not a retry."),
+        new McpToolDescriptor(HarnessContextCapabilityHandler.Capability, HarnessContextOptimizer.ContextToolName,
+            "Read a bounded historical tool-result snapshot from this same active work attempt. Never treat a snapshot as current source state.",
+            Schema("""{"type":"object","properties":{"runId":{"type":"string","format":"uuid"},"callId":{"type":"string","maxLength":300},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":16000}},"required":["runId","callId"],"additionalProperties":false}"""), null, McpToolExecutionPolicy.ReadOnly),
         .. DelegationToolSchemas.Tools,
         .. ResearchAndCheckpointToolSchemas.Tools,
         Read(W.WorkDeliveryCapabilities.Read, "read_delivery_plans", "Discover bounded, authorized project releases and their exact current scope."),

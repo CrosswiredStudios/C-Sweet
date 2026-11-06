@@ -28,6 +28,10 @@ Decisions require authority over the recipient and call the canonical `RespondAs
 
 ## UI and resource limits
 
+`WorkspaceOperationTray` combines live hiring and business setup state, preserving retry, detail and dismiss actions. `OperationTray` displays action-required states explicitly. It replaces the duplicate placeholder tray.
+
+`CodemodeCapabilityHandler.CopyValue` enforces cancellation, depth, node and cumulative byte budgets during evaluation. Nested capability responses are bounded before parsing. Codemode remains disabled by default.
+
 `Sync-AppearanceThemes.py` checks text and semantic colours against page, panel and raised surfaces. All 43 themes retain Night Glass as the default.
 
 Apply migration `PersistAgentGovernance` before running the updated API and AgentHost. The migration adds posture fields, operation approvals and the tracked packet reference. No installed agent payloads are patched by this change.
@@ -37,6 +41,7 @@ Apply migration `PersistAgentGovernance` before running the updated API and Agen
 - `AgentGovernanceRegressionTests`: shared persistence, exact approval/replay, management authorization, Plan writes, posture invalidation and policy deferral.
 - `AgentPolicyAdmissionRegressionTests`: independent service instances admitting against the sealed audit writer.
 - `DelegationPacketRegressionTests`: canonical work/wake creation, metadata retention, idempotent replay and conflicting retries.
+- `CodemodeBudgetRegressionTests`: bounded expansion of repeated references.
 - `AppearanceStateTests.EveryThemeKeepsSecondaryTextReadableOnEverySurface`: independent contrast checks across all presets.
 
 - `AgentGovernancePostgresTests`: applies migrations to an isolated database, verifies posture across contexts, races approval claims across connections, and checks admission with independent service providers and sealed audit writers. The isolated database is deleted afterward.

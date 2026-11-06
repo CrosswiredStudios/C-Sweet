@@ -25,6 +25,7 @@ public static class AppRealtimeEvents
     public const string DocumentChanged = "com.csweet.app.document.changed.v1";
     public const string ComputeChanged = "com.csweet.app.compute.changed.v1";
     public const string AgentGovernanceChanged = "com.csweet.app.agent-governance.changed.v1";
+    public const string HarnessChanged = "com.csweet.app.harness.changed.v1";
 }
 
 public sealed record AgentHireOperationChangedEvent(Guid OperationId, Guid OrganizationId, string Status);

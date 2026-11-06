@@ -49,6 +49,9 @@ public static class CapabilityRiskCatalog
         {
             // Read - No side effects: reads, searches, listings, catalogs and status reports.
             [AgentGovernanceCapabilityHandler.Read] = CapabilityRiskClass.Read,
+            [HarnessJudgmentCapabilityHandler.Capability] = CapabilityRiskClass.Read,
+            [HarnessContextCapabilityHandler.Capability] = CapabilityRiskClass.Read,
+            [HarnessStatusCapabilityHandler.Capability] = CapabilityRiskClass.Read,
             ["communication.chat.read.v1"] = CapabilityRiskClass.Read,
             ["communication.coordination.list.v1"] = CapabilityRiskClass.Read,
             ["communication.coordination.read.v1"] = CapabilityRiskClass.Read,

@@ -1,0 +1,111 @@
+@page "/organizations/{OrganizationId:guid}/runs/{EmployeeId:guid}"
+@using CSweet.Contracts.Agents
+@using CSweet.Contracts.Realtime
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+@inject IAppLocalizer L
+
+<PageTitle>@L["RunInspector.PageTitle"]</PageTitle>
+<main class="run-inspector">
+    <header class="inspector-heading">
+        <div><span class="inspector-eyebrow">@L["RunInspector.ExecutionEvidence"]</span><h1>@L["RunInspector.RunInspector"]</h1><p>@L["RunInspector.FollowModelCallsAndTools"]</p></div>
+        <button type="button" class="quiet-button" @onclick="LoadAsync" disabled="@_loading">@L["Common.Refresh"]</button>
+    </header>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+    @if (_loading && _run is null) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_run is { } run)
+    {
+        <section class="inspector-usage" aria-label="@L["RunInspector.ReportedModelUsage"]">
+            <div><strong>@run.Usage.ModelCalls</strong><span>@L["RunInspector.ModelCalls"]</span></div>
+            <div><strong>@run.Usage.InputTokens.ToString("N0")</strong><span>@L["RunInspector.InputTokens"]</span></div>
+            <div><strong>@run.Usage.OutputTokens.ToString("N0")</strong><span>@L["RunInspector.OutputTokens"]</span></div>
+            <div><strong>@run.Usage.CachedInputTokens.ToString("N0")</strong><span>@L["RunInspector.CachedInputTokens"]</span></div>
+        </section>
+        @if (run.Usage.CallsWithoutReportedUsage > 0) { <p class="inspector-notice">@L.Format("RunInspector.IncompleteUsage", new { count = run.Usage.CallsWithoutReportedUsage })</p> }
+        @if (run.ModelCalls.Count(x => x.RouteAttempt > 0) is var fallbacks and > 0) { <p class="inspector-notice">@L.Format("RunInspector.FallbackCalls", new { count = fallbacks })</p> }
+        @if (run.EarlierEntriesOmitted) { <p class="inspector-notice">@L["RunInspector.EarlierOmitted"]</p> }
+        @if (run.EvidenceUnavailable) { <p class="inspector-notice">@L["RunInspector.SomeEvidenceIsUnavailableOr"]</p> }
+        <div class="inspector-workspace">
+            <section class="inspector-nodes" aria-label="@L["RunInspector.ExecutionGraph"]">
+                @if (run.Nodes.Count == 0) { <p>@L["RunInspector.NoExecutionEvidenceHasBeen"]</p> }
+                @foreach (var node in run.Nodes)
+                {
+                    <button type="button" @key="node.Id" class="inspector-node @(node.ParentId is null ? "root-node" : "child-node") @(_selected == node.Id ? "selected" : null)"
+                        aria-pressed="@(_selected == node.Id)" @onclick="() => _selected = node.Id">
+                        <span class="node-kind">@node.Kind</span><strong>@node.Label</strong>
+                        <time datetime="@node.OccurredAt.ToString("O")">@node.OccurredAt.ToLocalTime().ToString("T")</time>
+                        @if (node.ParentId is { } parent) { <span class="node-parent">@L.Format("RunInspector.FromParent", new { parent = ParentLabel(parent) })</span> }
+                    </button>
+                }
+            </section>
+            <section class="inspector-evidence" aria-label="@L["RunInspector.SelectedEvidence"]">
+                @if (run.Nodes.FirstOrDefault(x => x.Id == _selected) is { } selected)
+                {
+                    <span class="inspector-eyebrow">@selected.EvidenceType</span><h2>@selected.Label</h2>
+                    <p class="inspector-meta">@selected.OccurredAt.ToLocalTime().ToString("g") · @selected.EvidenceId</p>
+                    <pre>@selected.Text</pre>
+                    @if (selected.ParentId is not null) { <button type="button" class="quiet-button" @onclick="() => _selected = selected.ParentId">@L["RunInspector.InspectParent"]</button> }
+                }
+                else { <p>@L["RunInspector.SelectAModelCallOr"]</p> }
+            </section>
+        </div>
+        @if (run.HasMore) { <button type="button" class="quiet-button" disabled="@_loading" @onclick="LoadNewerAsync">@L["RunInspector.LoadNewerEvidence"]</button> }
+        <a href="@($"/organizations/{OrganizationId:D}/employees/{EmployeeId:D}")">@L["RunInspector.EmployeeDetails"]</a>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid EmployeeId { get; set; }
+    [SupplyParameterFromQuery] public Guid? AttemptId { get; set; }
+    [SupplyParameterFromQuery] public Guid? ModelRunId { get; set; }
+    [SupplyParameterFromQuery] public Guid? WorkItemId { get; set; }
+    private RunInspectorResponse? _run;
+    private string? _selected, _error;
+    private bool _loading, _disposed;
+    private long _generation;
+    protected override void OnInitialized() { Realtime.EventReceived += Changed; Realtime.Reconnected += Reconnected; }
+    protected override Task OnParametersSetAsync() { _run = null; _selected = null; return LoadAsync(); }
+    private string ParentLabel(string id) => _run?.Nodes.FirstOrDefault(x => x.Id == id)?.Label ?? L["RunInspector.EarlierStep"];
+    private Task LoadAsync() => ReadAsync(false);
+    private Task LoadNewerAsync() => ReadAsync(true);
+    private async Task ReadAsync(bool newer)
+    {
+        var generation = ++_generation;
+        var previous = _run;
+        _loading = true; _error = null;
+        try
+        {
+            var parameters = new List<string> { $"afterSequence={(newer ? previous?.NextSequence ?? 0 : 0)}" };
+            if (AttemptId is { } attempt) parameters.Add($"attemptId={attempt:D}");
+            if (ModelRunId is { } model) parameters.Add($"modelRunId={model:D}");
+            if (WorkItemId is { } work) parameters.Add($"workItemId={work:D}");
+            var query = string.Join('&', parameters);
+            using var response = await Http.GetAsync($"api/core/organizations/{OrganizationId:D}/runs/{EmployeeId:D}?{query}");
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(L["RunInspector.Unavailable"]);
+            var result = await response.Content.ReadFromJsonAsync<RunInspectorResponse>();
+            if (_disposed || generation != _generation || result is null) return;
+            if (newer && previous is not null)
+                result = result with { Nodes = previous.Nodes.Concat(result.Nodes).GroupBy(x => x.Id).Select(RunInspectorNode.Merge).OrderBy(x => x.OccurredAt).TakeLast(400).ToArray() };
+            _run = result;
+            _selected ??= result.Nodes.FirstOrDefault()?.Id;
+        }
+        catch (HttpRequestException)
+        {
+            if (_disposed || generation != _generation) return;
+            // A failed first load has nothing to keep; a failed newer read keeps the evidence already shown.
+            if (!newer || previous is null) _run = null;
+            _error = L["RunInspector.Unavailable"];
+        }
+        finally { if (generation == _generation) _loading = false; }
+    }
+    private void Changed(AppRealtimeEventEnvelope message)
+    {
+        if (message.OrganizationId == OrganizationId && message.EventType == AppRealtimeEvents.CurrentActivityChanged) Reconnected();
+    }
+    // The event is organization-wide and only a wake hint: append newer evidence instead of
+    // re-reading from the start, which would drop pages loaded with "Load newer".
+    private void Reconnected() { if (!_disposed) _ = InvokeAsync(async () => { await (_run is null ? LoadAsync() : LoadNewerAsync()); StateHasChanged(); }); }
+    public void Dispose() { _disposed = true; _generation++; Realtime.EventReceived -= Changed; Realtime.Reconnected -= Reconnected; }
+}

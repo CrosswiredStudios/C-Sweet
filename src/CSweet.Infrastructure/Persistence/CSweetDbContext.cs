@@ -842,6 +842,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     {
         base.OnModelCreating(modelBuilder);
         ConfigureChiefLeadership(modelBuilder);
+        ConfigureHarness(modelBuilder);
         ConfigureResourceCleanup(modelBuilder);
         ConfigurePersonalAssistant(modelBuilder);
         ConfigureBusinessImport(modelBuilder);

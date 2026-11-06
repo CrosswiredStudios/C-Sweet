@@ -213,6 +213,8 @@ app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
 app.MapDelegationEndpoints();
 app.MapAgentPostureEndpoints();
+app.MapRunInspectorEndpoints();
+app.MapHarnessWorkspaceEndpoints();
 app.MapCapabilityApprovalEndpoints();
 app.MapWorkstreamInspectionEndpoints();
 app.MapProjectSetupEndpoints();

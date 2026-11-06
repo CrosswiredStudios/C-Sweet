@@ -1,0 +1,41 @@
+@page "/design-review"
+@inject DemoData Data
+@inject AppearanceState Appearance
+
+<PageTitle>C-Sweet · Design review</PageTitle>
+<LayoutView Layout="typeof(MainLayout)">
+    <section class="design-review">
+        <header class="design-review-heading">
+            <div><span class="design-review-eyebrow">@Data.CompanyName / Workspace</span><h1>@Data.ProjectName</h1><p>Everything moving. One clear view.</p></div>
+            <div class="design-review-actions">
+                <MudMenu Label="@Appearance.CurrentTheme.Name" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Contrast" MaxHeight="360" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    @foreach (var preset in AppearanceThemes.All) { <MudMenuItem OnClick="@(() => Appearance.SetThemeAsync(preset.Id))">@preset.Name</MudMenuItem> }
+                </MudMenu>
+                <MudMenu Label="Explore workspace" Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.KeyboardArrowDown" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <MudMenuItem Icon="@Icons.Material.Outlined.ViewKanban" OnClick="@(() => _tab = 0)">Work board</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Groups" OnClick="@(() => _tab = 1)">People &amp; agents</MudMenuItem>
+                    <MudDivider />
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Palette" OnClick="@(() => _tab = 2)">Appearance</MudMenuItem>
+                </MudMenu>
+            </div>
+        </header>
+        <p class="design-review-note">Design review · sample data · real application components</p>
+        <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" MinimumTabWidth="0" KeepPanelsAlive="true">
+            <MudTabPanel Text="Work board" Icon="@Icons.Material.Outlined.ViewKanban">
+                <WorkBoardWorkspace Detail="Data.Board" Sprints="Data.Sprints" Embedded="true" />
+            </MudTabPanel>
+            <MudTabPanel Text="People &amp; agents" Icon="@Icons.Material.Outlined.Groups">
+                <EmployeePortraitScope OrganizationId="Data.OrganizationId">
+                    <div class="design-review-team">@foreach (var employee in Data.Employees) { <EmployeeDirectoryCard Employee="employee" /> }</div>
+                </EmployeePortraitScope>
+            </MudTabPanel>
+            <MudTabPanel Text="Appearance" Icon="@Icons.Material.Outlined.Palette"><CSweet.UI.Pages.Appearance /></MudTabPanel>
+        </MudTabs>
+    </section>
+</LayoutView>
+
+@code {
+    private int _tab;
+    protected override void OnInitialized() => Data.Select("software", "board");
+
+}
