@@ -132,6 +132,9 @@ public sealed partial class AgentBuildService : IAgentBuildService
         var progress = new PersistedAgentBuildProgressReporter(_dbContext, job);
         if (package.Status != AgentPackageVersionStatus.Approved)
         {
+            // The job was read without a claim; fence on the stored status before writing anything.
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Cancelled, cancellationToken))
+                return true;
             job.FailureMessage = $"Build cancelled because the package version is {package.Status}.";
             await progress.ReportAsync(
                 new AgentBuildProgressUpdate(
@@ -139,7 +142,6 @@ public sealed partial class AgentBuildService : IAgentBuildService
                     AgentBuildStepStatuses.Cancelled,
                     Error: job.FailureMessage),
                 cancellationToken);
-            job.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
             await _dbContext.SaveChangesAsync(cancellationToken);
             await WriteAuditAsync(
                 job,
@@ -184,6 +186,11 @@ public sealed partial class AgentBuildService : IAgentBuildService
 
         try
         {
+            // Claim conditionally: an uninstall/removal may have committed Cancelled after this
+            // worker read the job as Queued. Losing the claim means another actor owns the job.
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Cloning, cancellationToken))
+                return true;
+            await _dbContext.SaveChangesAsync(cancellationToken);
             await progress.ReportAsync(
                 new AgentBuildProgressUpdate(AgentBuildStepKeys.Queued, AgentBuildStepStatuses.Succeeded),
                 timeout.Token);
@@ -193,8 +200,6 @@ public sealed partial class AgentBuildService : IAgentBuildService
                     AgentBuildStepStatuses.InProgress,
                     "Fetching and validating the approved commit."),
                 timeout.Token);
-            job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
-            await _dbContext.SaveChangesAsync(cancellationToken);
             await WriteAuditAsync(job, "agent-build.started", "Started cloning the approved commit.", cancellationToken);
 
             workspace = await _executor.CloneAsync(request, progress, timeout.Token);
@@ -206,16 +211,22 @@ public sealed partial class AgentBuildService : IAgentBuildService
                     AgentBuildStepStatuses.Succeeded,
                     "Approved source is ready."),
                 timeout.Token);
-            job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
+            // A job cancelled while cloning (for example by uninstall) stops here.
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Building, cancellationToken))
+                throw new BuildJobSupersededException();
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             var result = await _executor.BuildAsync(request, workspace, progress, timeout.Token);
+            // The success fence and the package publication commit together.
+            await using var publish = _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction is null
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Succeeded, cancellationToken))
+                throw new BuildJobSupersededException();
             await AgentBuildStepStore.CompleteRemainingAsync(_dbContext, job, timeout.Token);
             job.PackagePath = result.PackagePath;
             job.PackageDigest = result.PackageDigest;
             job.LogPath = result.LogPath;
             job.FailureMessage = null;
-            job.TransitionTo(AgentBuildStatus.Succeeded, DateTimeOffset.UtcNow);
             package.PackagePath = result.PackagePath;
             package.PackageDigest = result.PackageDigest;
             package.ArtifactSignature = result.ArtifactSignature;
@@ -226,6 +237,7 @@ public sealed partial class AgentBuildService : IAgentBuildService
             package.Status = AgentPackageVersionStatus.Built;
             await UpdateDefinitionBuildStateAsync(package, buildSucceeded: true, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            if (publish is not null) await publish.CommitAsync(cancellationToken);
             try
             {
                 await new AgentDefinitionInstallationSynchronizer(_dbContext, _auditWriter)
@@ -248,18 +260,30 @@ public sealed partial class AgentBuildService : IAgentBuildService
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await AgentBuildStepStore.FailCurrentAsync(_dbContext, job, "The build worker was stopped.");
-            await CancelAsync(job, package, "The build worker was stopped.");
+            if (await ReloadOwnedAsync(job, package))
+            {
+                await AgentBuildStepStore.FailCurrentAsync(_dbContext, job, "The build worker was stopped.");
+                await CancelAsync(job, package, "The build worker was stopped.");
+            }
             throw;
         }
         catch (OperationCanceledException)
         {
+            if (!await ReloadOwnedAsync(job, package))
+                return true;
             var message = $"The build exceeded the {settings.BuildTimeoutSeconds}-second timeout.";
             await AgentBuildStepStore.FailCurrentAsync(_dbContext, job, message);
             await FailAsync(job, package, message);
         }
         catch (Exception exception)
         {
+            // Cancelled or removed elsewhere (e.g. uninstall) while running: stop without
+            // overwriting the stored outcome or marking the package failed.
+            if (exception is BuildJobSupersededException || !await ReloadOwnedAsync(job, package))
+            {
+                _logger.LogInformation("Agent build {BuildJobId} was cancelled or removed while running; stopping.", job.Id);
+                return true;
+            }
             _logger.LogError(exception, "Agent build {BuildJobId} failed.", job.Id);
             await AgentBuildStepStore.FailCurrentAsync(
                 _dbContext,
@@ -306,11 +330,10 @@ public sealed partial class AgentBuildService : IAgentBuildService
 
     private async Task FailAsync(AgentBuildJob job, AgentPackageVersion package, string failureMessage)
     {
+        if ((job.Status is AgentBuildStatus.Queued or AgentBuildStatus.Cloning or AgentBuildStatus.Building) &&
+            !await TryTransitionAsync(job, AgentBuildStatus.Failed, CancellationToken.None))
+            return; // Cancelled or removed concurrently; its stored outcome wins.
         job.FailureMessage = Truncate(failureMessage, 2048);
-        if (job.Status is AgentBuildStatus.Queued or AgentBuildStatus.Cloning or AgentBuildStatus.Building)
-        {
-            job.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
-        }
         package.Status = AgentPackageVersionStatus.Failed;
         await UpdateDefinitionBuildStateAsync(package, buildSucceeded: false, CancellationToken.None);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
@@ -352,8 +375,9 @@ public sealed partial class AgentBuildService : IAgentBuildService
         AgentPackageVersion package,
         string failureMessage)
     {
+        if (!await TryTransitionAsync(job, AgentBuildStatus.Failed, CancellationToken.None))
+            return; // Cancelled or removed concurrently: do not queue a replacement attempt.
         job.FailureMessage = Truncate(failureMessage, 2048);
-        job.TransitionTo(AgentBuildStatus.Failed, DateTimeOffset.UtcNow);
 
         var retry = new AgentBuildJob
         {
@@ -380,16 +404,78 @@ public sealed partial class AgentBuildService : IAgentBuildService
 
     private async Task CancelAsync(AgentBuildJob job, AgentPackageVersion package, string reason)
     {
+        if ((job.Status is AgentBuildStatus.Queued or AgentBuildStatus.Cloning or AgentBuildStatus.Building) &&
+            !await TryTransitionAsync(job, AgentBuildStatus.Cancelled, CancellationToken.None))
+            return;
         job.FailureMessage = reason;
-        if (job.Status is AgentBuildStatus.Queued or AgentBuildStatus.Cloning or AgentBuildStatus.Building)
-        {
-            job.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
-        }
         if (package.Status != AgentPackageVersionStatus.Built)
             package.Status = AgentPackageVersionStatus.Approved;
         await _dbContext.SaveChangesAsync(CancellationToken.None);
         await WriteAuditAsync(job, "agent-build.cancelled", reason, CancellationToken.None);
     }
+
+    /// <summary>
+    /// Moves a tracked job to <paramref name="next"/> only when the stored status still equals the
+    /// last status this context saved or read. A cancellation committed elsewhere (uninstall, definition
+    /// removal) or a removed row makes it return false; the tracked job is then reloaded (or detached
+    /// when the row is gone) and the caller must stop instead of overwriting the stored outcome.
+    /// On the relational path the status write is applied immediately; other columns are saved by the caller.
+    /// </summary>
+    private async Task<bool> TryTransitionAsync(AgentBuildJob job, AgentBuildStatus next, CancellationToken cancellationToken)
+    {
+        var entry = _dbContext.Entry(job);
+        var expected = entry.Property(x => x.Status).OriginalValue;
+        var now = DateTimeOffset.UtcNow;
+        if (_dbContext.Database.IsRelational())
+        {
+            job.TransitionTo(next, now);
+            var status = job.Status;
+            var startedAt = job.StartedAt;
+            var completedAt = job.CompletedAt;
+            var rows = await _dbContext.AgentBuildJobs.Where(x => x.Id == job.Id && x.Status == expected)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, status)
+                    .SetProperty(x => x.StartedAt, startedAt)
+                    .SetProperty(x => x.CompletedAt, completedAt), cancellationToken);
+            if (rows == 0)
+            {
+                await entry.ReloadAsync(cancellationToken);
+                return false;
+            }
+            foreach (var name in new[] { nameof(AgentBuildJob.Status), nameof(AgentBuildJob.StartedAt), nameof(AgentBuildJob.CompletedAt) })
+            {
+                var property = entry.Property(name);
+                property.OriginalValue = property.CurrentValue;
+                property.IsModified = false;
+            }
+            return true;
+        }
+        var stored = await _dbContext.AgentBuildJobs.AsNoTracking().Where(x => x.Id == job.Id)
+            .Select(x => (AgentBuildStatus?)x.Status).SingleOrDefaultAsync(cancellationToken);
+        if (stored != expected)
+        {
+            await entry.ReloadAsync(cancellationToken);
+            return false;
+        }
+        job.TransitionTo(next, now);
+        return true;
+    }
+
+    /// <summary>Re-reads the job (and its package) after a failure. False when the job was removed or
+    /// already finished elsewhere, so the failure path must not write over it.</summary>
+    private async Task<bool> ReloadOwnedAsync(AgentBuildJob job, AgentPackageVersion package)
+    {
+        var entry = _dbContext.Entry(job);
+        if (entry.State == EntityState.Detached) return false;
+        await entry.ReloadAsync(CancellationToken.None);
+        if (entry.State == EntityState.Detached) return false;
+        var packageEntry = _dbContext.Entry(package);
+        if (packageEntry.State != EntityState.Detached) await packageEntry.ReloadAsync(CancellationToken.None);
+        return job.Status is AgentBuildStatus.Queued or AgentBuildStatus.Cloning or AgentBuildStatus.Building;
+    }
+
+    private sealed class BuildJobSupersededException()
+        : Exception("The build job was cancelled or removed while it was being processed.");
 
     /// <summary>
     /// Reconciles build jobs stranded in a worker-owned state by an ungraceful host

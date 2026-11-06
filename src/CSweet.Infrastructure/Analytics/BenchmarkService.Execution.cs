@@ -208,10 +208,9 @@ public sealed partial class BenchmarkService
         var key = organization.ToString();
         foreach (var work in await db.AgentWorkItems.Where(x => x.OrganizationId == key &&
                      (x.Status == AgentWorkStatus.Pending || x.Status == AgentWorkStatus.Leased)).ToListAsync(ct))
-        {
-            work.Status = AgentWorkStatus.Cancelled; work.CompletedAt = clock.GetUtcNow();
-            work.LastError = "Benchmark delivery has ended.";
-        }
+            // Shared with AgentWorkInbox.CancelAsync so open attempts close and Chief cards settle.
+            await CSweet.Infrastructure.Setup.AgentWorkInbox.MarkCancelledAsync(
+                db, work, "Benchmark delivery has ended.", clock.GetUtcNow(), ct);
         foreach (var schedule in await db.AgentSchedules.Where(x => x.AgentInstallation!.BusinessId == key).ToListAsync(ct))
         { schedule.IsEnabled = false; schedule.NextTickAt = null; }
         foreach (var installation in await db.AgentInstallations.Where(x => x.BusinessId == key).ToListAsync(ct))

@@ -358,6 +358,78 @@ public sealed class AgentBuildJobTests
         Assert.Equal(AgentBuildStatus.Succeeded, (await db.AgentBuildJobs.SingleAsync(x => x.Id == job.Id)).Status);
     }
 
+    [Fact]
+    public async Task ProcessNextAsync_DoesNotOverwriteCancellationCommittedAfterQueuedRead()
+    {
+        // Worker reads the job as Queued; an uninstall commits Cancelled before the worker claims it.
+        var name = Guid.NewGuid().ToString();
+        var cancelOnSave = new CancelOnFirstSave(name);
+        await using var dbContext = CreateDbContext(name, cancelOnSave);
+        var (package, job) = await SeedAsync(dbContext);
+        cancelOnSave.JobId = job.Id; // Armed: fires on the worker's first save after reading the job.
+        var executor = new FakeBuildExecutor();
+
+        Assert.True(await CreateService(dbContext, executor).ProcessNextAsync());
+
+        Assert.True(cancelOnSave.Fired);
+        Assert.False(executor.CloneCalled);
+        await using var verify = CreateDbContext(name);
+        var stored = await verify.AgentBuildJobs.SingleAsync(x => x.Id == job.Id);
+        Assert.Equal(AgentBuildStatus.Cancelled, stored.Status);
+        Assert.Null(stored.StartedAt);
+        Assert.Equal(AgentPackageVersionStatus.Approved, (await verify.AgentPackageVersions.SingleAsync(x => x.Id == package.Id)).Status);
+    }
+
+    [Fact]
+    public async Task ProcessNextAsync_StopsWhenJobIsCancelledWhileCloning()
+    {
+        var name = Guid.NewGuid().ToString();
+        await using var dbContext = CreateDbContext(name);
+        var (package, job) = await SeedAsync(dbContext);
+        var executor = new FakeBuildExecutor
+        {
+            // Uninstall marks the in-flight (Cloning) job cancelled from another request scope.
+            OnClone = async () =>
+            {
+                await using var other = CreateDbContext(name);
+                var current = await other.AgentBuildJobs.SingleAsync(x => x.Id == job.Id);
+                Assert.Equal(AgentBuildStatus.Cloning, current.Status);
+                current.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
+                await other.SaveChangesAsync();
+            }
+        };
+
+        Assert.True(await CreateService(dbContext, executor).ProcessNextAsync());
+
+        Assert.True(executor.CloneCalled);
+        Assert.False(executor.BuildCalled);
+        await using var verify = CreateDbContext(name);
+        Assert.Equal(AgentBuildStatus.Cancelled, (await verify.AgentBuildJobs.SingleAsync(x => x.Id == job.Id)).Status);
+        var storedPackage = await verify.AgentPackageVersions.SingleAsync(x => x.Id == package.Id);
+        Assert.Equal(AgentPackageVersionStatus.Approved, storedPackage.Status);
+        Assert.Null(storedPackage.PackageDigest);
+    }
+
+    private sealed class CancelOnFirstSave(string databaseName) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public Guid? JobId;
+        public bool Fired;
+        public override async ValueTask<int> SavedChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesCompletedEventData eventData, int result,
+            CancellationToken cancellationToken = default)
+        {
+            if (JobId is { } id && !Fired)
+            {
+                Fired = true;
+                await using var other = CreateDbContext(databaseName);
+                var job = await other.AgentBuildJobs.SingleAsync(x => x.Id == id, cancellationToken);
+                job.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
+                await other.SaveChangesAsync(cancellationToken);
+            }
+            return result;
+        }
+    }
+
     private static AgentBuildService CreateService(
         CSweetDbContext dbContext,
         IAgentBuildExecutor executor,
@@ -434,6 +506,16 @@ public sealed class AgentBuildJobTests
         return new CSweetDbContext(options);
     }
 
+    // Separate contexts over one named store model concurrent request scopes; the explicit root
+    // keeps the store shared even when contexts are configured with different interceptors.
+    private static readonly Microsoft.EntityFrameworkCore.Storage.InMemoryDatabaseRoot SharedRoot = new();
+
+    private static CSweetDbContext CreateDbContext(
+        string databaseName,
+        params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors) =>
+        new(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(databaseName, SharedRoot).AddInterceptors(interceptors).Options);
+
     private sealed class FakeBuildExecutor : IAgentBuildExecutor
     {
         public const string Digest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -444,19 +526,22 @@ public sealed class AgentBuildJobTests
         public bool CleanupCalled { get; private set; }
         public bool CloneCalled { get; private set; }
         public int CloneCalls { get; private set; }
+        public bool BuildCalled { get; private set; }
+        public Func<Task>? OnClone { get; init; }
 
-        public Task<AgentBuildWorkspace> CloneAsync(
+        public async Task<AgentBuildWorkspace> CloneAsync(
             AgentBuildExecutionRequest request,
             IAgentBuildProgressReporter progress,
             CancellationToken cancellationToken = default)
         {
             CloneCalled = true;
             CloneCalls++;
+            if (OnClone is not null) await OnClone();
             if (CloneFailures.TryDequeue(out var failure))
             {
                 throw failure;
             }
-            return Task.FromResult(new AgentBuildWorkspace("/sources/job", "/packages/.staging/job", "/logs/job.log"));
+            return new AgentBuildWorkspace("/sources/job", "/packages/.staging/job", "/logs/job.log");
         }
 
         public async Task<AgentBuildExecutionResult> BuildAsync(
@@ -465,6 +550,7 @@ public sealed class AgentBuildJobTests
             IAgentBuildProgressReporter progress,
             CancellationToken cancellationToken = default)
         {
+            BuildCalled = true;
             await progress.ReportAsync(
                 new AgentBuildProgressUpdate(
                     AgentBuildStepKeys.Restore,

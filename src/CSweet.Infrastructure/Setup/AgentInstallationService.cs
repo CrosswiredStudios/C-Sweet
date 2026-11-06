@@ -443,6 +443,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         CancellationToken cancellationToken = default)
     {
         var installation = await GetInstallationAsync(installationId, cancellationToken);
+        // Only the live revision can be the source of an update; staging from a staged or retired
+        // revision would let a later approval re-activate a superseded lineage.
+        if (installation.RevisionStatus != PluginRevisionStatus.Active)
+            throw new AgentInstallationException("Only the active revision can be updated. Refresh the Agents page and try again.");
         var currentPackage = installation.PackageVersion!;
         var nextPackage = await _dbContext.AgentPackageVersions
             .Include(x => x.BuildJobs)
@@ -521,6 +525,19 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         var nextRevisionNumber = await _dbContext.AgentInstallations
             .Where(x => x.InstallationKey == installationKey || x.Id == installationKey)
             .MaxAsync(x => (int?)x.RevisionNumber, cancellationToken) ?? installation.RevisionNumber;
+        // One pending update per installation: a newer staged revision explicitly supersedes an
+        // unapproved one (staged revisions are disabled and hold no grants), so the older one can
+        // no longer be approved alongside it.
+        var supersededStaged = await _dbContext.AgentInstallations
+            .Where(x => (x.InstallationKey == installationKey || x.Id == installationKey) &&
+                        x.RevisionStatus == PluginRevisionStatus.Staged)
+            .ToListAsync(cancellationToken);
+        foreach (var pending in supersededStaged)
+        {
+            pending.RevisionStatus = PluginRevisionStatus.Retired;
+            pending.IsEnabled = false;
+            pending.UpdatedAt = now;
+        }
         var staged = new AgentInstallation
         {
             Id = Guid.NewGuid(),
@@ -672,6 +689,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             await _dbContext.Entry(previous).ReloadAsync(cancellationToken);
             if(previous.RevisionStatus!=PluginRevisionStatus.Active) throw new AgentInstallationException("The previous revision was already replaced or removed. Refresh before approving another update.");
         }
+        // Every manifest, not only account plugins: approving a revision whose superseded revision is
+        // no longer active (another update was approved first) would leave two Active revisions.
+        // This early check avoids side effects; the fenced activation below is authoritative.
+        if (previous.RevisionStatus != PluginRevisionStatus.Active)
+            throw new AgentInstallationException("The previous revision was already replaced or removed. Refresh before approving another update.");
         if (DeserializeManifest(previous.PackageVersion!.ManifestJson).Accounts is not null &&
             await _dbContext.PluginAccountGroups.AnyAsync(x=>x.PluginInstallationId==previous.Id && x.State!=PluginAccountState.Disconnected,cancellationToken))
             throw new AgentInstallationException("Disconnect the previous revision's accounts and confirm cleanup before approving this update. Credentials and autonomous policies are never transferred.");
@@ -682,8 +704,14 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         await _dbContext.SaveChangesAsync(cancellationToken);
         await RemoveRuntimeWorkloadsAsync(previous, cancellationToken);
         var now = DateTimeOffset.UtcNow;
+        // Retire the superseded revision and activate this one only if the stored states are still
+        // Active/Staged, in one transaction with the grant writes. A concurrent approval of a sibling
+        // staged revision blocks on the row and then matches nothing, so at most one wins.
+        await using var activationTransaction = updateTransaction is null && _dbContext.Database.IsRelational() &&
+            _dbContext.Database.CurrentTransaction is null
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        await ActivateRevisionFencedAsync(previous, staged, cancellationToken);
         previous.IsEnabled = false;
-        previous.RevisionStatus = PluginRevisionStatus.Retired;
         if(previous.Schedule is { } previousSchedule)
         { previousSchedule.IsEnabled = false; previousSchedule.NextTickAt = null; }
         previous.UpdatedAt = now;
@@ -724,7 +752,6 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
         else if(staged.Schedule is { } obsoleteSchedule)
         { _dbContext.AgentSchedules.Remove(obsoleteSchedule); staged.Schedule = null; }
         staged.IsEnabled = true;
-        staged.RevisionStatus = PluginRevisionStatus.Active;
         staged.UpdatedAt = now;
         await ActivateWorkstreamProfilesAsync(manifest, cancellationToken);
         if (AgentTokenBudget.Fields(manifest).Any(field => !field.Secret))
@@ -753,6 +780,7 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             now,
             cancellationToken));
         await _dbContext.SaveChangesAsync(cancellationToken);
+        if (activationTransaction is not null) await activationTransaction.CommitAsync(cancellationToken);
         _ = await new AgentCapabilityBindingReconciler(_dbContext, _auditWriter)
             .ReconcileAsync(staged.BusinessId, cancellationToken);
         await InvalidateAffectedManagersAsync(
@@ -771,6 +799,44 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 cancellationToken);
         if(updateTransaction!=null) await updateTransaction.CommitAsync(cancellationToken);
         return ToResponse(staged);
+    }
+
+    /// <summary>
+    /// Retires <paramref name="previous"/> and activates <paramref name="staged"/> conditionally on
+    /// their stored states (Active and Staged). Throws when either changed concurrently, e.g. a
+    /// sibling staged revision was approved first or this revision was superseded.
+    /// </summary>
+    private async Task ActivateRevisionFencedAsync(
+        AgentInstallation previous, AgentInstallation staged, CancellationToken cancellationToken)
+    {
+        const string replaced = "The previous revision was already replaced or removed. Refresh before approving another update.";
+        if (_dbContext.Database.IsRelational())
+        {
+            // Conditional UPDATEs on the expected states row-lock both revisions until the caller's
+            // transaction commits; a sibling approval that committed first makes them match nothing.
+            // The status change itself is written through the tracked entities so the context's
+            // presence/realtime capture still observes it.
+            var now = DateTimeOffset.UtcNow;
+            var lockedPrevious = await _dbContext.AgentInstallations
+                .Where(x => x.Id == previous.Id && x.RevisionStatus == PluginRevisionStatus.Active)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            var lockedStaged = lockedPrevious == 0 ? 0 : await _dbContext.AgentInstallations
+                .Where(x => x.Id == staged.Id && x.RevisionStatus == PluginRevisionStatus.Staged)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            if (lockedPrevious == 0 || lockedStaged == 0) throw new AgentInstallationException(replaced);
+            previous.RevisionStatus = PluginRevisionStatus.Retired;
+            staged.RevisionStatus = PluginRevisionStatus.Active;
+            return;
+        }
+        var stored = await _dbContext.AgentInstallations.AsNoTracking()
+            .Where(x => x.Id == previous.Id || x.Id == staged.Id)
+            .Select(x => new { x.Id, x.RevisionStatus })
+            .ToListAsync(cancellationToken);
+        if (stored.SingleOrDefault(x => x.Id == previous.Id)?.RevisionStatus != PluginRevisionStatus.Active ||
+            stored.SingleOrDefault(x => x.Id == staged.Id)?.RevisionStatus != PluginRevisionStatus.Staged)
+            throw new AgentInstallationException(replaced);
+        previous.RevisionStatus = PluginRevisionStatus.Retired;
+        staged.RevisionStatus = PluginRevisionStatus.Active;
     }
 
     private async Task ActivateWorkstreamProfilesAsync(
@@ -1118,11 +1184,33 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
                 x => x.PackageVersionId == package.Id,
                 cancellationToken);
 
-        if (removePackage && package.BuildJobs.Any(
-                x => x.Status is AgentBuildStatus.Cloning or AgentBuildStatus.Building))
+        if (removePackage)
         {
-            throw new AgentInstallationException(
-                "The agent is currently building. Wait for the build to finish before removing it.");
+            // Removing the package deletes its build jobs and their builder assignments, which must
+            // not happen under a running builder. Cancel in-flight builds durably instead: the build
+            // worker fences every transition on the stored status, observes the cancellation at its
+            // next step and stops. Removal can be retried once no builder workload is active.
+            var inFlight = package.BuildJobs
+                .Where(x => x.Status is AgentBuildStatus.Cloning or AgentBuildStatus.Building).ToList();
+            var buildJobIds = package.BuildJobs.Select(x => x.Id).ToList();
+            var builderActive = await _dbContext.ExecutionWorkloadAssignments.AnyAsync(x =>
+                x.AgentBuildJobId != null && buildJobIds.Contains(x.AgentBuildJobId.Value) &&
+                (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned ||
+                 x.Status == ExecutionAssignmentStatus.Starting || x.Status == ExecutionAssignmentStatus.Running ||
+                 x.Status == ExecutionAssignmentStatus.Stopping), cancellationToken);
+            if (inFlight.Count > 0 || builderActive)
+            {
+                var cancelledAt = DateTimeOffset.UtcNow;
+                foreach (var job in inFlight)
+                {
+                    job.FailureMessage = "The agent installation is being removed.";
+                    job.TransitionTo(AgentBuildStatus.Cancelled, cancelledAt);
+                }
+                if (inFlight.Count > 0)
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                throw new AgentInstallationException(
+                    "The agent was building, so its build was cancelled. Remove the agent again once the build has stopped.");
+            }
         }
 
         installation.IsEnabled = false;
@@ -1160,8 +1248,11 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
 
         if (removePackage)
         {
+            // In-flight builds were cancelled (and refused) above; cancel any still queued. The build
+            // worker fences its claim on the stored status, so it cannot overwrite this cancellation.
             foreach (var queuedJob in package.BuildJobs.Where(x => x.Status == AgentBuildStatus.Queued))
             {
+                queuedJob.FailureMessage = "The agent installation was removed.";
                 queuedJob.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
             }
         }
