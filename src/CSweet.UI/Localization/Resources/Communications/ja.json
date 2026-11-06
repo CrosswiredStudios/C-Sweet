@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "保存済みの公開は読み込まれていません。",
   "ShareWorkInstruction.History.More": "その他の公開",
   "Communications.SendingAndConversationActionsAre": "。送信と会話の操作は無効になっています。",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "その他",
+  "DecisionPrompt.ReadFullQuestion": "コミュニケーションで質問全文を読む"
 }

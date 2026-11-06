@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "기본 메모리(MB)",
   "AgentRuntimeSettings.MaximumMemory": "최대 메모리(MB)",
   "AgentRuntimeSettings.CodingInitialMemory": "코딩 초기 메모리(MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "프로그래머 프로세스/스레드 한도",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "새 프로그래머 VM에 적용됩니다. Linux에서는 스레드도 이 한도에 포함됩니다. 기존 VM은 교체될 때까지 서명된 한도를 유지합니다.",
   "AgentRuntimeSettings.CodingMaximumMemory": "코딩 최대 메모리(MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "최대 코딩 VM 교체 횟수",
   "AgentRuntimeSettings.DefaultCpu": "기본 CPU(%)",

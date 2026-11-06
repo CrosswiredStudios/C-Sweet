@@ -600,7 +600,7 @@
                         @foreach (var volume in volumes)
                         {
                             <option value="@volume.Id" disabled="@(!volume.IsEligible)">
-                                @volume.MountPath @volume.Label — @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
+                                @volume.MountPath @volume.Label â€” @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
                             </option>
                         }
                     </select>

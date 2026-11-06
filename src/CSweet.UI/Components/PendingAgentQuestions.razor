@@ -28,7 +28,7 @@
     {
         <div class="decisions-count">
             @if (SummaryOnly) { <span>@PendingCount pending</span> }
-            else { <span>@_questions.Count pending questions</span><span>@_questions.Select(x => x.AgentOrganizationUserId).Distinct().Count() agents</span> }
+            else { <span>@_questions.Count pending @(_questions.Count == 1 ? "question" : "questions")</span><span>@AgentCount @(AgentCount == 1 ? "agent" : "agents")</span> }
         </div>
         @if (!SummaryOnly)
         {
@@ -114,6 +114,7 @@
     }
 </section>
 @code {
+    private int AgentCount => _questions.Select(x => x.AgentOrganizationUserId).Distinct().Count();
     [Parameter] public int SuggestionCount { get; set; }
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool SummaryOnly { get; set; }

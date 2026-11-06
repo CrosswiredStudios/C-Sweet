@@ -143,5 +143,7 @@
   "ShareWorkInstruction.History.Empty": "لم يتم تحميل أي منشورات محفوظة.",
   "ShareWorkInstruction.History.More": "مزيد من المنشورات",
   "Communications.SendingAndConversationActionsAre": ". إجراءات الإرسال والمحادثة معطّلة.",
-  "CommunicationSettings.Discord": "Discord"
+  "CommunicationSettings.Discord": "Discord",
+  "DecisionPrompt.More": "المزيد",
+  "DecisionPrompt.ReadFullQuestion": "قراءة السؤال كاملًا في الاتصالات"
 }

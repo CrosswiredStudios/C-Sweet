@@ -83,7 +83,10 @@
             </fieldset>
             <div class="registration-notice"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><div><strong>@L["Register.Form.Notice.Title"]</strong><span>@L["Register.Form.Notice.Body"]</span></div></div>
             @if (_error is not null) { <p class="registration-error" role="alert">@_error</p> }
-            <button type="submit" class="registration-primary" disabled="@_saving"><span role="status">@(_saving ? L["Register.Form.Creating"] : L["Register.Form.Submit"])</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+            @* The button's own text is its accessible name. Progress is announced by a separate live region,
+               because a role="status" child inside a button leaves the button itself unnamed. *@
+            <button type="submit" class="registration-primary" disabled="@_saving" aria-busy="@(_saving ? "true" : "false")">@(_saving ? L["Register.Form.Creating"] : L["Register.Form.Submit"])<MudIcon Icon="@Icons.Material.Outlined.ArrowForward" aria-hidden="true" /></button>
+            <p class="registration-live-status" role="status" aria-live="polite">@(_saving ? L["Register.Form.Creating"] : string.Empty)</p>
         </EditForm>
         <footer class="registration-footer"><span>@L["Register.Form.HaveAccount"]</span><a href="/login">@L["Login.SignIn"]</a></footer>
     }

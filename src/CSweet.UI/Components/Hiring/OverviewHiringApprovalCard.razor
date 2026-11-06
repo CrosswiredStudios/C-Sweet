@@ -47,7 +47,7 @@
                                                     @if (ReportingRole(hire.Role) is { } reportingRole) { <span>Reports to @reportingRole</span> }
                                                     @if (hire.Role.HumanRequired) { <span>@L["OverviewHiringApprovalCard.HumanRequired"]</span> }
                                                 </div>
-                                                <span class="hire-quantity" aria-label="@($"{hire.Headcount} requested hires")">×@hire.Headcount</span>
+                                                <span class="hire-quantity" aria-label="@($"{hire.Headcount} requested {(hire.Headcount == 1 ? "hire" : "hires")}")">×@hire.Headcount</span>
                                             </li>
                                         }
                                     </ul>
