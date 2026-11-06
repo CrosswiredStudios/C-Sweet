@@ -145,6 +145,8 @@
                 { <MudAlert Severity="Severity.Warning">@L["EmployeeDetails.Configuration.Restricted"]</MudAlert> }
                 else if (_details.Employee.AgentInstallationId.HasValue)
                 {
+                    <MudButton Href="@($"/agents/{_details.Employee.AgentInstallationId.Value:D}/harness")" Variant="Variant.Outlined" Class="mb-4">Execution workspace</MudButton>
+                    <AgentGovernancePanel @key="_details.Employee.AgentInstallationId" InstallationId="_details.Employee.AgentInstallationId.Value" />
                     <EmployeeConfigurationPanel @key="EmployeeId" OrganizationId="OrganizationId" EmployeeId="EmployeeId" ConfigurationChanged="@(view => _configuration = view)" />
                 }
             </MudTabPanel>

@@ -532,6 +532,10 @@ public sealed class AgentInstallationService : IAgentInstallationService, IPlugi
             PackageVersion = nextPackage,
             BusinessId = installation.BusinessId,
             Scope = installation.Scope,
+            // An upgrade keeps the posture the operator chose for this agent.
+            Posture = installation.Posture,
+            PostureChangedAt = installation.PostureChangedAt,
+            PostureChangedBy = installation.PostureChangedBy,
             IsEnabled = false,
             CreatedAt = now,
             UpdatedAt = now

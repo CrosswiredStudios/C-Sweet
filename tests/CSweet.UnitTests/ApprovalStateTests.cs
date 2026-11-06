@@ -30,6 +30,7 @@ public sealed class ApprovalStateTests
     [Theory]
     [InlineData(AppRealtimeEvents.ApprovalChanged)]
     [InlineData(AppRealtimeEvents.ProjectIncidentChanged)]
+    [InlineData("com.csweet.app.agent-governance.changed.v1")]
     public async Task RealtimeEventsRefreshOnlyTheSelectedCompanyAndStopAfterDisposal(string eventType)
     {
         var businesses = new TestBusinessContext();

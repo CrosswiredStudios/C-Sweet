@@ -307,7 +307,8 @@ public sealed partial class BusinessWorkspaceRenderingTests
             if (Hub is not null && path.Contains("/communications/hub/chats/"))
                 return new(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) };
             string? json = null;
-            if (path.EndsWith("/source-control/dashboard")) json = """{"canManageSourceControl":true,"repositories":[],"connections":[],"platformReadiness":{"existingGitHubAvailable":true}}""";
+            if (path.EndsWith("/capability-approvals") || path.EndsWith("/delegations")) json = "[]";
+            else if (path.EndsWith("/source-control/dashboard")) json = """{"canManageSourceControl":true,"repositories":[],"connections":[],"platformReadiness":{"existingGitHubAvailable":true}}""";
             else if (path.EndsWith("/internal/repositories")) json = "[]";
             else if (path.EndsWith("/source-control/activity")) json = """{"items":[]}""";
             else if(path.Contains("/internal/repositories/")) json = path.EndsWith("/team") || path.EndsWith("/proposals") ? "[]" : path.EndsWith("/access") ? """{"credentials":[],"cloneUrl":"https://example.test/prism.git"}""" : path.EndsWith("/locks") ? """{"locks":[]}""" : """{"repository":{"id":"10000000-0000-0000-0000-000000000001","name":"Prism Break","canonicalPath":"studio/prism-break","defaultBranch":"main","status":"Ready","isPrivate":true},"revision":1,"inspection":{"defaultBranch":"main","refs":[{"name":"refs/heads/main","sha":"1234567890abcdef"}],"commits":[{"sha":"1234567890abcdef","author":"Daniel Kim","subject":"Create arcade prototype"}],"files":["README.md","src/game.ts"]}}""";

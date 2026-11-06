@@ -99,6 +99,10 @@ if (builder.Environment.IsDevelopment() &&
 builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentCoordinationCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, DelegationCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, HarnessJudgmentCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, HarnessContextCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, HarnessStatusCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, AgentGovernanceCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ChiefLeadershipCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();
@@ -131,6 +135,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, GitWorkspaceCapabilityHan
 builder.Services.AddScoped<IPlatformCapabilityHandler, TaskDeliveryCapabilityHandler>();
 builder.Services.AddScoped<ProjectCapabilityPolicy>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ProjectIntakeCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, CodemodeCapabilityHandler>();
 builder.Services.AddScoped<IAgentMemoryIdentityResolver, AgentMemoryIdentityResolver>();
 builder.Services.AddRateLimiter(options =>
 {

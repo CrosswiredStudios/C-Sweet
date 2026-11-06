@@ -1,0 +1,65 @@
+@using CSweet.Contracts.BusinessOnboarding
+@using CSweet.Contracts.Core
+@inject BusinessOnboardingOperationState Businesses
+@inject AgentHireOperationState Hires
+@implements IDisposable
+
+<OperationTray Items="Items">
+    <Actions Context="item">
+        @if (Businesses.Operations.FirstOrDefault(x => Key("business", x.Id) == item.Id) is { } business)
+        {
+            @if (business.Status == "Failed") { <MudButton Disabled="_busy" OnClick="@(() => RunAsync(() => Businesses.RetryAsync(business)))">Retry</MudButton> }
+            @if (SafeUri(business.ActionUri) is { } uri) { <MudButton Href="@uri">View details</MudButton> }
+            @if (item.State != OperationTray.OperationTrayState.Running) { <MudButton Disabled="_busy" OnClick="@(() => RunAsync(() => Businesses.DismissAsync(business)))">Dismiss</MudButton> }
+        }
+        else if (Hires.Operations.FirstOrDefault(x => Key("hire", x.Id) == item.Id) is { } hire)
+        {
+            @if (hire.Status is "Failed" or "Unconfirmed") { <MudButton Disabled="_busy" OnClick="@(() => RunAsync(() => Hires.RetryAsync(hire)))">@(hire.Status == "Unconfirmed" ? "Check status" : "Retry")</MudButton> }
+            @if (SafeUri(hire.ActionUri) is { } uri) { <MudButton Href="@uri">View details</MudButton> }
+            @if (item.State != OperationTray.OperationTrayState.Running) { <MudButton Disabled="_busy" OnClick="@(() => RunAsync(() => Hires.DismissAsync(hire)))">Dismiss</MudButton> }
+        }
+    </Actions>
+</OperationTray>
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+
+@code {
+    private readonly Dictionary<string, DateTimeOffset> _started = [];
+    private bool _busy;
+    private string? _error;
+    private IReadOnlyList<OperationTray.OperationTrayItem> Items => Businesses.Operations.Select(x =>
+        Item(Key("business", x.Id), x.BusinessName, x.Detail, x.Status, x.UpdatedAt, x.CompletedBuildSteps, x.TotalBuildSteps))
+        .Concat(Hires.Operations.Select(x => Item(Key("hire", x.Id), x.EmployeeDisplayName, x.Detail, x.Status, x.UpdatedAt, x.CompletedBuildSteps, x.TotalBuildSteps))).ToArray();
+    private static string Key(string kind, Guid id) => $"{kind}:{id:D}";
+    private static string? SafeUri(string? uri) => uri?.StartsWith('/') == true && !uri.StartsWith("//") ? uri : null;
+    private OperationTray.OperationTrayItem Item(string id, string label, string detail, string status, DateTimeOffset observed, int completed, int total)
+    {
+        if (!_started.TryGetValue(id, out var start)) _started[id] = start = observed;
+        return new(label, detail, status switch
+        {
+            "Succeeded" or "Completed" => OperationTray.OperationTrayState.Succeeded,
+            "Failed" => OperationTray.OperationTrayState.Failed,
+            "Cancelled" => OperationTray.OperationTrayState.Cancelled,
+            "NeedsSetup" or "AwaitingConfirmation" or "Unconfirmed" => OperationTray.OperationTrayState.NeedsAttention,
+            _ => OperationTray.OperationTrayState.Running
+        }, start, total > 0 ? 100d * completed / total : null) { Id = id };
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        Businesses.Changed += Changed; Hires.Changed += Changed;
+        await Task.WhenAll(Businesses.InitializeAsync(), Hires.InitializeAsync());
+    }
+    private async Task RunAsync(Func<Task> operation)
+    {
+        _busy = true; _error = null;
+        try { await operation(); }
+        catch (HttpRequestException) { _error = "The operation could not be updated. Try again."; }
+        finally { _busy = false; }
+    }
+    private void Changed()
+    {
+        var active = Businesses.Operations.Select(x => Key("business", x.Id)).Concat(Hires.Operations.Select(x => Key("hire", x.Id))).ToHashSet();
+        foreach (var id in _started.Keys.Where(x => !active.Contains(x)).ToArray()) _started.Remove(id);
+        _ = InvokeAsync(StateHasChanged);
+    }
+    public void Dispose() { Businesses.Changed -= Changed; Hires.Changed -= Changed; }
+}

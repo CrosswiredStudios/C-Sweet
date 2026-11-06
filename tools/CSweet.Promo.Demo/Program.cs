@@ -25,7 +25,7 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapHub<DemoHub>("/hubs/app-events");
 app.MapGet("/health", () => new { ok = true, fixtureFailures = FixtureHandler.Failures.ToArray() });
-app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
+app.MapRazorComponents<App>().AddInteractiveServerRenderMode().AddAdditionalAssemblies(CSweet.UI.SharedUiAssembly.Value);
 app.Run();
 
 public sealed class DemoHub : Hub

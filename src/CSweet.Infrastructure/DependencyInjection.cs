@@ -148,6 +148,8 @@ public static class DependencyInjection
         builder.Services.AddScoped<AuditHistoryImporter>();
         builder.Services.AddHostedService<CSweet.Infrastructure.Setup.AuditOutboxWorker>();
         builder.Services.AddScoped<ISecurityAuditService, SecurityAuditService>();
+        builder.Services.AddSingleton<CSweet.Application.Security.IAgentPolicyService,
+            CSweet.Infrastructure.Agents.AgentPolicyService>();
         builder.Services.AddScoped<IScopedActionAuthorizationService, ScopedActionAuthorizationService>();
         builder.Services.AddScoped<IAgentRuntimeSettingsService, AgentRuntimeSettingsService>();
         var artifactRoot = ResolveAgentRuntimePath(
@@ -272,6 +274,11 @@ public static class DependencyInjection
         builder.Services.AddSingleton<InMemoryBuilderArtifactResultStore>();
         builder.Services.AddSingleton<IBuilderArtifactResultStore>(sp => sp.GetRequiredService<InMemoryBuilderArtifactResultStore>());
         builder.Services.AddSingleton<IBuilderArtifactResultPublisher>(sp => sp.GetRequiredService<InMemoryBuilderArtifactResultStore>());
+        builder.Services.AddScoped<IAgentPostureStore, DatabaseAgentPostureStore>();
+        builder.Services.AddScoped<IAgentPostureAuthorization, AgentPostureAuthorization>();
+        builder.Services.AddScoped<AgentPostureService>();
+        builder.Services.AddScoped<IAgentCapabilityApprovalService, AgentCapabilityApprovalService>();
+        builder.Services.AddScoped<IAgentPostureReader>(sp => sp.GetRequiredService<AgentPostureService>());
         builder.Services.AddScoped<FleetAgentBuildExecutor>();
         builder.Services.AddScoped<IAgentBuildExecutor>(sp => sp.GetRequiredService<FleetAgentBuildExecutor>());
         builder.Services.AddScoped<IPluginBuildExecutor>(sp => sp.GetRequiredService<FleetAgentBuildExecutor>());
@@ -552,6 +559,16 @@ public static class DependencyInjection
         builder.Services.AddScoped<IExecutiveBriefingService, ExecutiveBriefingService>();
         builder.Services.AddScoped<CompanyDashboardService>();
         builder.Services.AddScoped<CurrentActivityService>();
+        builder.Services.AddScoped<RunInspectorService>();
+        builder.Services.AddScoped<CSweet.Infrastructure.Agents.HarnessWorkspaceService>();
+        // Optional decision-model compaction. Resolved once per process; an unavailable engine changes nothing.
+        var decisionModel = HarnessDecisionModelOptions.From(builder.Configuration);
+        builder.Services.AddSingleton(decisionModel);
+        builder.Services.AddSingleton(HarnessDecisionEngineResolver.Resolve(decisionModel));
+        builder.Services.AddSingleton<HarnessDecisionCache>();
+        builder.Services.AddHttpClient<HarnessDecisionClient>(client => { client.Timeout = Timeout.InfiniteTimeSpan; client.MaxResponseContentBufferSize = 1024 * 1024; })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+        builder.Services.AddScoped<HarnessDecisionCompactor>();
         builder.Services.AddScoped<ProjectHealthReader>();
         builder.Services.AddScoped<ProjectHealthService>();
         builder.Services.AddScoped<CurrentActivityFeedReader>();

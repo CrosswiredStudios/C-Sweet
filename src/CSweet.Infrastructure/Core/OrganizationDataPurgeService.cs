@@ -98,6 +98,7 @@ public sealed class OrganizationDataPurgeService(
         {
             if (dbContext.Database.IsRelational())
             {
+                await DeleteHarnessRowsAsync(organizationId, cancellationToken);
                 await DeleteScopedRelationalRowsAsync(organizationId, cancellationToken);
                 // Set-based deletes bypass change tracking. Clear stale tracked dependents before
                 // EF applies the final organization cascade so it does not delete rows twice.
@@ -105,6 +106,7 @@ public sealed class OrganizationDataPurgeService(
             }
             else
             {
+                await DeleteHarnessRowsAsync(organizationId, cancellationToken);
                 await DeleteKnownRestrictiveRowsAsync(organizationId, cancellationToken);
             }
 
@@ -186,6 +188,30 @@ public sealed class OrganizationDataPurgeService(
                              !PreservedEntityTypes.Contains(entity.ClrType) &&
                              ScopeProperty(entity) is not null)
             .ToList();
+
+    private async Task DeleteHarnessRowsAsync(Guid organizationId, CancellationToken token)
+    {
+        var scopes = new[] { organizationId.ToString("D"), organizationId.ToString("N"), organizationId.ToString("D").ToUpperInvariant(), organizationId.ToString("N").ToUpperInvariant() };
+        foreach (var scope in scopes.Distinct())
+        {
+            var prefix = scope + ":";
+            var accounts = dbContext.HarnessTaskBudgets.Where(x => x.Id.StartsWith(prefix));
+            var skills = dbContext.BusinessSkillRevisions.Where(x => x.BusinessId == scope);
+            if (dbContext.Database.IsRelational())
+            {
+                await accounts.ExecuteDeleteAsync(token); // Reservation rows cascade with their account.
+                await skills.ExecuteDeleteAsync(token);
+            }
+            else
+            {
+                var keys = await accounts.Select(x => x.Id).ToArrayAsync(token);
+                dbContext.HarnessBudgetReservations.RemoveRange(await dbContext.HarnessBudgetReservations.Where(x => keys.Contains(x.BudgetId)).ToListAsync(token));
+                dbContext.HarnessTaskBudgets.RemoveRange(await accounts.ToListAsync(token));
+                dbContext.BusinessSkillRevisions.RemoveRange(await skills.ToListAsync(token));
+                await dbContext.SaveChangesAsync(token);
+            }
+        }
+    }
 
     private async Task DeleteScopedRelationalRowsAsync(Guid organizationId, CancellationToken cancellationToken)
     {
