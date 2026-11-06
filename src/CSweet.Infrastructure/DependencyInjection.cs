@@ -248,6 +248,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<ConnectorActionApprovalService>();
         builder.Services.AddScoped<ConnectorBindingService>();
         builder.Services.AddScoped<ConnectorProfileApprovalService>();
+        builder.Services.AddScoped<ConnectorCredentialAuthority>();
         builder.Services.AddScoped<ConnectorPlanService>();
         builder.Services.AddScoped<ConnectorStandingPolicyService>();
         builder.Services.AddScoped<IConnectorHttpTransport, ConnectorHttpTransport>();

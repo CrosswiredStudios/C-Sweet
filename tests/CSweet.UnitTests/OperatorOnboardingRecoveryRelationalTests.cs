@@ -267,7 +267,7 @@ public sealed class OperatorOnboardingRecoveryRelationalTests
             return new(builder.AddInterceptors(interceptors).Options);
         }
         public string PostgreSqlConnection=>postgres?connectionString:throw new InvalidOperationException();
-        public AgentOnboardingRecoveryService Service(CSweetDbContext db)=>new(db,protection,clock);
+        public AgentOnboardingRecoveryService Service(CSweetDbContext db)=>new(db,protection,clock,ConnectorPlanServiceTests.Fixture.LocalCredentials(db));
         public async Task Dispatch(params IInterceptor[] interceptors)
         {
             var services=new Microsoft.Extensions.DependencyInjection.ServiceCollection();

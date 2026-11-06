@@ -54,7 +54,8 @@ public sealed record McpToolDescriptor(
 public sealed class McpToolCatalog(
     IEnumerable<IPlatformCapabilityHandler> handlers,
     IOptions<McpGatewayOptions>? gatewayOptions = null,
-    RemoteMcpAccountService? remoteMcp = null)
+    RemoteMcpAccountService? remoteMcp = null,
+    ConnectorCredentialAuthority? credentials = null)
 {
     private readonly McpGatewayOptions? _gatewayLimits = gatewayOptions?.Value;
     private static readonly JsonElement EmptyInput = Schema("""
@@ -538,7 +539,7 @@ public sealed class McpToolCatalog(
             if (manifest?.Kind != "remote-mcp" && binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector &&
                 (manifest?.ProviderOperations.SingleOrDefault(x => x.Capability == binding.Capability)?.Effect != "read" ||
                  !Guid.TryParse(session.BusinessId, out var organizationId) ||
-                 !await new ConnectorPlanService(db).IsAvailableAsync(organizationId, requesterId, binding.Capability, cancellationToken)))
+                 !await new ConnectorPlanService(db, credentials).IsAvailableAsync(organizationId, requesterId, binding.Capability, cancellationToken)))
                 continue;
             var declaration = manifest?.Provides.SingleOrDefault(
                 x => string.Equals(x.Name, binding.Capability, StringComparison.Ordinal));

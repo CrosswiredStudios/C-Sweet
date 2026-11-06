@@ -214,14 +214,19 @@ public sealed class ConnectorStandingPolicyService(CSweetDbContext db, Connector
         var connection = await db.PluginConnections.AsNoTracking().SingleAsync(x => x.Id == plan.ConnectionId, ct);
         var binding = await db.AgentCapabilityBindings.AsNoTracking().SingleAsync(x => x.RequesterInstallationId == requesterId &&
             x.ProviderInstallationId == provider.Id && x.Capability == plan.Capability && x.RevokedAt == null, ct);
-        var profile = await db.ConnectorProfileApprovals.AsNoTracking().SingleAsync(x => x.ConnectorInstallationId == provider.Id &&
-            x.PackageDigest == plan.PackageDigest && x.ProfileId == connection.ProviderProfile && x.RevokedAt == null, ct);
+        DateTimeOffset? profileApproval = null;
+        if (plan.CredentialAuthority is null)
+            profileApproval = await db.ConnectorProfileApprovals.AsNoTracking().Where(x => x.ConnectorInstallationId == provider.Id &&
+                x.PackageDigest == plan.PackageDigest && x.ProfileId == connection.ProviderProfile && x.RevokedAt == null)
+                .Select(x => (DateTimeOffset?)x.ApprovedAt).SingleAsync(ct);
         var hash = Hash(new { plan.OrganizationId, plan.RequesterInstallationId, plan.ConnectorInstallationId, plan.ConnectionId,
             plan.ResourceId, plan.GrantRevision, plan.ProviderGrantRevision, plan.PackageDigest, plan.Capability,
             requesterPackage = requester.PackageVersion!.PackageDigest, consumerBinding = binding.ApprovedAt,
-            profileApproval = profile.ApprovedAt, connection.UpdatedAt, operation });
+            profileApproval, connection.UpdatedAt, operation });
         if (plan.AccountAuthority is { } accountAuthority)
             hash = Hash(new { legacyAuthority = hash, accountAuthority });
+        if (plan.CredentialAuthority is { } credentialAuthority)
+            hash = Hash(new { accountAuthority = hash, credentialAuthority });
         var requesterName = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             x.AgentInstallationId == requesterId && x.IsActive).Select(x => x.DisplayName).SingleOrDefaultAsync(ct);
         return new(plan, operation, hash, manifest.Provides.Single(x => x.Name == plan.Capability).Description,

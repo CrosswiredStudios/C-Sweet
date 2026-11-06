@@ -35,6 +35,28 @@ scope and consumer authority. The signed review fingerprint includes the reviewe
 package, consuming grant, binding/authority snapshots, terminal work state and previous
 recovery revision. Changed authority requires a fresh review. Managed-service execution
 policy remains a separate gate and is not changed or independently probed by this API.
+`ConnectorCredentialAuthority` supplies the same backend-aware authority to recovery,
+tool catalog, frozen execution plans and standing-policy decisions. A native connector
+without this host dependency fails closed. Only protected `managed.context` provenance
+selects a managed backend; malformed, missing or unpaired provenance cannot fall back to
+local credentials. Current package, business/resource and consuming grants remain required.
+The resolver checks the pinned canonical origin and protected registered tenant/deployment,
+the completed original consent (including legitimate archived consent), exact completed
+compatible-adoption history and a fresh remote adoption receipt where applicable, current
+service package/profile binding and remote Ready connection with the required scope sets.
+It does not create a local profile-approval row. Customer-owned native and legacy paths
+retain their explicit local profile approval; the local token broker still enforces the
+actual credential fingerprint before releasing a token.
+
+Only sanitized origin/deployment/profile/consent/adoption identities and a granted-scope-set
+hash enter frozen plans, review fingerprints and standing-policy hashes. They never contain
+private keys, return verifiers or provider tokens. Revalidation precedes effects and cached
+result delivery. Operational remote revisions may advance during ordinary token refresh;
+the exact revision is therefore checked for validity but is not frozen as authority. Remote
+revocation, scope changes and all other bound authority changes still fail closed. Pre-change
+managed plans without this authority binding require a fresh plan/review. Existing legacy
+plan serialization and credential gates remain compatible. No recovery review grants service
+read/media policy or proves that a provider will accept an actual operation.
 
 The original event/work IDs, idempotency and mutation keys, protected payload/result,
 failure evidence and work attempts remain intact. A host-owned `PluginOperationalState`
