@@ -79,6 +79,16 @@ public sealed partial class ProjectHealthService
     {
         var project = await db.Workstreams.AsNoTracking().SingleAsync(x => x.Id == incident.WorkstreamId && x.OrganizationId == incident.OrganizationId, token);
         var facts = new List<ProjectDiagnosticEvidence>();
+        var correctivePlans = await db.WorkDeliveryPlans.AsNoTracking().Where(p => p.OrganizationId == incident.OrganizationId &&
+            p.WorkstreamId == project.Id && p.CorrectionsJson != "[]").OrderByDescending(p => p.UpdatedAt).Take(10)
+            .Select(p => new { p.Id, p.Revision, p.Status, p.CorrectionsJson, p.UpdatedAt }).ToArrayAsync(token);
+        foreach (var plan in correctivePlans)
+            foreach (var correction in JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.WorkDeliveryCorrection[]>(plan.CorrectionsJson, Json)!.Take(5))
+                facts.Add(new("CurrentCorrectiveWork", correction.Id, plan.UpdatedAt, ProjectHealthReader.Safe(
+                    $"Corrective handoff: {correction.Status}. Accountable manager: {correction.OwnerOrganizationUserId}. " +
+                    $"Follow-up plan: {correction.FollowUpPlanId}; corrective tasks: {string.Join(", ", correction.RemediationTaskIds ?? [])}. " +
+                    $"{correction.WaitingReason} Assignment is not proof of execution or completion."),
+                    $"/organizations/{incident.OrganizationId}/projects/{project.Id}?tab=delivery"));
         var dependencyStatus = await DeliveryDependencyStatusAsync(incident, token);
         if (dependencyStatus is not null) facts.Add(dependencyStatus);
         var technicalDiagnostic = await TechnicalPlanningDiagnosticAsync(incident, token);
@@ -152,7 +162,8 @@ public sealed partial class ProjectHealthService
         var serialized = JsonSerializer.SerializeToUtf8Bytes(new { ownerInputPolicy = 5, dependencyStatus = dependencyStatus?.Detail, technicalDiagnostic, project.Id, project.Revision, incident.Fingerprint,
             incident.Reason, incident.EvidenceJson, ticket = ticket is null ? null : new { ticket.Id, ticket.Revision, ticket.Status, ticket.BlockReason,
                 ticket.WaitingReason, ticket.ResultSummary, ticket.AssignedEmployeeId, ticket.AccountableOrganizationUserId },
-            decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation, operationExecution }, Json);
+            decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation, operationExecution,
+            corrections = correctivePlans.Select(p => new { p.Id, p.Revision, p.Status, p.CorrectionsJson }) }, Json);
         return new(Convert.ToHexString(SHA256.HashData(serialized)), project.Name, facts, documents);
     }
 

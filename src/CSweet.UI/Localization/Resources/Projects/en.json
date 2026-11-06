@@ -1,5 +1,8 @@
 {
   "_": "Projects area: project portfolio and detail pages, project setup/members, releases, resource sections, previews, and project incident cards.",
+  "ProjectReleases.Correction": "Corrective work",
+  "ProjectReleases.CorrectionFollowUp": "Follow-up delivery",
+  "ProjectReleases.CorrectionPending": "The delivery manager owns the next corrective planning action. The previous review remains recorded.",
 
   "Projects.PageTitle": "Projects - C-Sweet",
   "_Projects.PageTitleWithProject": "{title} is the project name.",

@@ -33,6 +33,7 @@ public sealed class WorkDeliveryPlan
     public string EpicItemIdsJson { get; set; } = "[]";
     public string BranchesJson { get; set; } = "[]";
     public string ScopesJson { get; set; } = "[]";
+    public string CorrectionsJson { get; set; } = "[]";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public ICollection<WorkDeliveryExecution> Executions { get; set; } = [];

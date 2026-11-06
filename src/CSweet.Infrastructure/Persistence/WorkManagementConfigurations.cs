@@ -489,6 +489,7 @@ internal static class WorkManagementConfigurations
             entity.Property(x => x.EpicItemIdsJson).HasColumnType("jsonb");
             entity.Property(x => x.BranchesJson).HasColumnType("jsonb");
             entity.Property(x => x.ScopesJson).HasColumnType("jsonb");
+            entity.Property(x => x.CorrectionsJson).HasColumnType("jsonb");
             entity.HasIndex(x => new { x.OrganizationId, x.WorkstreamId });
             entity.HasOne<Workstream>().WithMany().HasForeignKey(x => x.WorkstreamId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<OrganizationUser>().WithMany().HasForeignKey(x => x.ManagerOrganizationUserId).OnDelete(DeleteBehavior.Restrict);

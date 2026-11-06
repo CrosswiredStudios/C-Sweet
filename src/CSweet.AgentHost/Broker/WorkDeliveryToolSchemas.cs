@@ -18,6 +18,7 @@ internal static class WorkDeliveryToolSchemas
             WorkDeliveryCapabilities.Control => typeof(ControlWorkDeliveryPlanRequest),
             WorkDeliveryCapabilities.Accept => typeof(DecideWorkDeliveryAcceptanceRequest),
             WorkDeliveryCapabilities.Recover => typeof(RecoverWorkDeliveryRequest),
+            WorkDeliveryCapabilities.Correct => typeof(CoordinateWorkDeliveryCorrectionRequest),
             WorkDeliveryCapabilities.Review => typeof(CompleteWorkDeliveryReviewRequest),
             WorkDeliveryCapabilities.Evidence => typeof(ReadWorkDeliveryEvidenceRequest),
             _ => throw new ArgumentException("Unknown delivery capability.")

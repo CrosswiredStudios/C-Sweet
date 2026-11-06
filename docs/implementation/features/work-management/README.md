@@ -1,5 +1,9 @@
 # Universal work management
 
+See [corrective delivery lifecycle and agent collaboration](corrective-delivery-lifecycle.md)
+for the tracked architecture plan, reporting/execution separation, failure tests
+and Prism Break recovery rollout.
+
 See [review consolidation](review-consolidation.md) for criterion-preserving removal of
 duplicate native reviews, nested workflow pins, durable receipts and owner authorization.
 See [resumable build input](../../compute-build-input.md) for the SDK, core and trusted provider transfer path.

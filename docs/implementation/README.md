@@ -20,6 +20,10 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Corrective delivery lifecycle and agent collaboration](features/work-management/corrective-delivery-lifecycle.md)
+tracks durable correction handoffs, reporting separation, findings, dependency
+contracts, proportional planning, verification and the Prism Break rollout.
+
 [Installation ceilings and task output budgets](agent-token-budgets.md) maps authenticated
 configuration limits, smaller per-task requests and effective inference diagnostics.
 

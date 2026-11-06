@@ -186,7 +186,7 @@ public sealed partial class WorkDeliveryService
         var ticket = await db.CoreWorkTasks.SingleAsync(t => t.Id == workflow.TicketId && t.OrganizationId == plan.OrganizationId, ct);
         var status = execution.Status switch { "Completed" => WorkTaskStatus.Completed, "Blocked" or "PartiallyPromoted" => WorkTaskStatus.Blocked,
             "WaitingForChildren" => WorkTaskStatus.Backlog, "Ready" => WorkTaskStatus.Ready,
-            "Running" or "Promoting" => WorkTaskStatus.Running, "Cancelled" => WorkTaskStatus.Cancelled, _ => WorkTaskStatus.WaitingForApproval };
+            "Running" or "Promoting" => WorkTaskStatus.Running, "Cancelled" or "Superseded" => WorkTaskStatus.Cancelled, _ => WorkTaskStatus.WaitingForApproval };
         var current = execution.Stages.LastOrDefault(s => s.StageKey == execution.CurrentStageKey);
         var owner = current?.OrganizationUserId ?? ticket.AccountableOrganizationUserId;
         var waiting = execution.Status == "WaitingForChildren" ? "Waiting for predecessor tickets" : execution.CurrentStageKey;

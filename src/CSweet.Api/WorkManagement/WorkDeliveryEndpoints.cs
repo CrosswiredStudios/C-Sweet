@@ -20,6 +20,8 @@ public static class WorkDeliveryEndpoints
             Handle(http, actor => service.AcceptAsync(organizationId, actor, request, ct)));
         group.MapPost("/recover", (Guid organizationId, RecoverWorkDeliveryRequest request, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>
             Handle(http, actor => service.RecoverAsync(organizationId, actor, request, ct)));
+        group.MapPost("/corrections/coordinate", (Guid organizationId, CoordinateWorkDeliveryCorrectionRequest request, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>
+            Handle(http, actor => service.CoordinateCorrectionAsync(organizationId, actor, request, ct)));
         group.MapPost("/review", (Guid organizationId, CompleteWorkDeliveryReviewRequest request, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>
             Handle(http, actor => service.CompleteReviewAsync(organizationId, actor, request, ct)));
         group.MapPost("/evidence", (Guid organizationId, ReadWorkDeliveryEvidenceRequest request, HttpContext http, IWorkDeliveryService service, CancellationToken ct) =>

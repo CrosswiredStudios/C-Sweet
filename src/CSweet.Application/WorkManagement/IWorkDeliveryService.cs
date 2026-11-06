@@ -4,6 +4,8 @@ namespace CSweet.Application.WorkManagement;
 
 public interface IWorkDeliveryService
 {
+    Task<WorkDeliveryPlanResponse> CoordinateCorrectionAsync(Guid organizationId, Guid actorId,
+        CoordinateWorkDeliveryCorrectionRequest request, CancellationToken ct = default);
     Task<WorkDeliveryPlanResponse> AmendTaskAsync(Guid organizationId, Guid actorId,
         CSweet.Contracts.WorkManagement.AmendWorkDeliveryTaskRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<WorkDeliveryPlanResponse>> ReadAsync(Guid organizationId, Guid actorId, ReadWorkDeliveryPlansRequest request, CancellationToken ct = default);

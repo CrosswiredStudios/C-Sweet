@@ -80,6 +80,7 @@ public sealed class McpToolCatalog(
         Write(W.WorkDeliveryCapabilities.Accept, "accept_delivery_candidate", "Assigned manager decision on the exact epic or release candidate and criteria."),
         Write(W.WorkDeliveryCapabilities.Review, "review_delivery_candidate", "Assigned independent human review with exact candidate and criterion evidence."),
         Write(W.WorkDeliveryCapabilities.Recover, "recover_delivery_promotion", "Resume unfinished delivery operations while preserving successful promotion receipts."),
+        Write(W.WorkDeliveryCapabilities.Correct, "coordinate_delivery_correction", "Bind authorized corrective tasks and a follow-up validation plan to retained findings, independently of status reporting."),
         Read(ProjectHealthCapabilities.Read, "read_project_health", "Read current health of an authorized Producer project."),
         Read(ProjectHealthCapabilities.Diagnostics, "read_project_diagnostics", "Inspect bounded, sanitized evidence for an authorized project incident."),
         Read(ProjectHealthCapabilities.Incidents, "read_management_incidents", "Discover pending incidents or read one authorized incident by identifier."),

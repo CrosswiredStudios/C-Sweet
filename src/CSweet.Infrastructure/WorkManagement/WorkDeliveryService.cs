@@ -62,6 +62,9 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "control", request, ct);
         if (replay is not null) return Response(replay);
         if (plan.Revision != request.ExpectedRevision) throw new DbUpdateConcurrencyException("The plan changed.");
+        if (request.Action is "resume" or "retry-validation" or "reconcile-planning" &&
+            Corrections(plan).Any(c => c.FollowUpPlanId.HasValue && c.Status != "Completed"))
+            throw new InvalidOperationException("This rejected delivery has linked corrective work. Continue its follow-up plan; do not restart the superseded candidate writer.");
         switch (request.Action)
         {
             case "activate" when plan.Status == "Draft":
@@ -259,7 +262,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             x.Promotions.Select(p => new WorkDeliveryPromotionReceipt(p.RepositoryId, p.SourceCommitSha, p.TargetCommitSha, p.Status, p.MergeCommitSha, p.Error)).ToArray())
             { WorkflowTicketId = Scopes(plan).SingleOrDefault(s => s.Scope == x.Scope && s.ItemId == x.WorkItemId)?.TicketWorkflow?.TicketId }).ToArray(),
         plan.CreatedAt, plan.UpdatedAt)
-        { Findings = plan.Findings.Select(x => new WorkDeliveryFindingResponse(x.Id, x.ExecutionId, x.CandidateDigest, x.Summary,
+        { Corrections = Corrections(plan), Findings = plan.Findings.Select(x => new WorkDeliveryFindingResponse(x.Id, x.ExecutionId, x.CandidateDigest, x.Summary,
             x.Status, Decode<Guid[]>(x.RemediationTaskIdsJson), x.ResolutionEvidence)).ToArray() };
 
     private async Task<WorkDeliveryPlan> GetAuthorizedAsync(Guid org, Guid actor, Guid id, string action, CancellationToken ct)

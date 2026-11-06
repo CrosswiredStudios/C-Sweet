@@ -26,6 +26,7 @@ public sealed class WorkDeliveryCapabilityHandler(IWorkDeliveryService service) 
             object result = request.Capability switch
             {
                 WorkDeliveryCapabilities.Read => await service.ReadAsync(org, actor, Read<ReadWorkDeliveryPlansRequest>(), ct),
+                WorkDeliveryCapabilities.Correct => await service.CoordinateCorrectionAsync(org, actor, Read<CoordinateWorkDeliveryCorrectionRequest>(), ct),
                 WorkDeliveryCapabilities.Configure => await service.ConfigureAsync(org, actor, Read<ConfigureWorkDeliveryPlanRequest>(), ct),
                 WorkDeliveryCapabilities.Control => await service.ControlAsync(org, actor, Read<ControlWorkDeliveryPlanRequest>(), ct),
                 WorkDeliveryCapabilities.Accept => await service.AcceptAsync(org, actor, Read<DecideWorkDeliveryAcceptanceRequest>(), ct),

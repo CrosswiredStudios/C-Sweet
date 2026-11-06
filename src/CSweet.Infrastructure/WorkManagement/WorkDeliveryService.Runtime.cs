@@ -20,6 +20,7 @@ public sealed partial class WorkDeliveryService
             await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct) : null;
             var plan = await Load().SingleAsync(x => x.Id == id, ct);
             if (plan.Status != "Active") continue;
+            EnsureCorrections(plan);
             try
             {
                 await ValidateCurrentScopeAsync(plan, ct);
@@ -402,5 +403,6 @@ public sealed partial class WorkDeliveryService
             Kind = "delivery-remediation", ArtifactDigest = Candidate(execution)!.Digest, IdempotencyKey = marker,
             Body = marker + "\n" + string.Join("\n", findings), CreatedAt = clock.GetUtcNow() });
         }
+        EnsureCorrections(plan);
     }
 }

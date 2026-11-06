@@ -15539,6 +15539,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<long>("ScopeRevision")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("CorrectionsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("ScopesJson")
                         .IsRequired()
                         .HasColumnType("jsonb");

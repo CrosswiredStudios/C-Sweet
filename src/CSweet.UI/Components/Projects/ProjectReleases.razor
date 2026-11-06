@@ -18,6 +18,7 @@
     @if (!_loading && _plans.Count == 0) { <p>@L["ProjectReleases.NoPlan"]</p> }
     @foreach (var plan in _plans)
     {
+        var correcting = plan.Corrections.Any(c => c.FollowUpPlanId.HasValue && c.Status != "Completed");
         var current = CurrentExecutions(plan).ToArray();
         var blockers = CurrentBlockers(plan).ToArray();
         var historicalFindings = plan.Findings.Where(x => x.Status != "Open" || plan.Status is "Completed" or "Cancelled").ToArray();
@@ -30,14 +31,27 @@
                 <div><dt>@L["ProjectReleases.WorkflowTickets"]</dt><dd>@L.Format("ProjectReleases.TicketsCompleted", new { completed = plan.Executions.Count(x => x.Status == "Completed"), total = plan.Scopes.Count })</dd></div>
             </dl>
             <p class="release-next"><strong>@L["ProjectReleases.NextAction"]</strong> @PlanNextAction(plan)</p>
+            @foreach (var correction in plan.Corrections)
+            {
+                <section class="release-blocker" aria-label="@L["ProjectReleases.Correction"]">
+                    <h4>@L["ProjectReleases.Correction"] <span class="project-status">@correction.Status</span></h4>
+                    <p>@L["ProjectReleases.DeliveryManager"]: @PersonName(correction.OwnerOrganizationUserId)</p>
+                    @if (!string.IsNullOrWhiteSpace(correction.WaitingReason)) { <p>@correction.WaitingReason</p> }
+                    @if (correction.FollowUpPlanId is { } followUp)
+                    {
+                        <p>@L["ProjectReleases.CorrectionFollowUp"]: @_plans.FirstOrDefault(p => p.Id == followUp)?.Name</p>
+                    }
+                    else { <p>@L["ProjectReleases.CorrectionPending"]</p> }
+                </section>
+            }
             @if (_currentUser == plan.ManagerOrganizationUserId || _canManageProjects)
             {
                 <div class="delivery-toolbar">
                     @if (plan.Status == "Draft" && _currentUser == plan.ManagerOrganizationUserId) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "activate"))">@L["ProjectReleases.Activate"]</button> }
                     @if (plan.Status == "Active") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "pause"))">@L["ProjectReleases.Pause"]</button> }
-                    @if (plan.Status == "Active" && current.Any(x => x.Status == "Blocked")) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "retry-validation"))">@L["ProjectReleases.RetryValidation"]</button> }
-                    @if (plan.Status == "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "reconcile-planning"))">@L["ProjectReleases.ReconcilePlanning"]</button> }
-                    @if (plan.Status == "Paused") { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "resume"))">@L["ProjectReleases.Resume"]</button> }
+                    @if (plan.Status == "Active" && !correcting && current.Any(x => x.Status == "Blocked")) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "retry-validation"))">@L["ProjectReleases.RetryValidation"]</button> }
+                    @if (plan.Status == "Paused" && !correcting) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "reconcile-planning"))">@L["ProjectReleases.ReconcilePlanning"]</button> }
+                    @if (plan.Status == "Paused" && !correcting) { <button type="button" disabled="@_busy" @onclick="@(() => ControlAsync(plan, "resume"))">@L["ProjectReleases.Resume"]</button> }
                 </div>
             }
             @if (plan.Status is not ("Completed" or "Cancelled"))
