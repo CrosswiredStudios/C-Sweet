@@ -1390,7 +1390,8 @@ body { color: var(--cs-navy); }
 .command-master-appbar {
     border-bottom: 1px solid var(--cs-border);
     background: var(--surface);
-    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .app-drawer {
@@ -2382,7 +2383,7 @@ body { color: var(--cs-navy); }
 .aurora-page.settings-workspace :is(.provider-empty-state,.provider-card,.provider-choice,.provider-editor,.email-empty-state,.email-profile-card,.email-preset,.email-editor,.email-provider-picker) { background:var(--activity-panel); color:var(--activity-text); border-color:var(--activity-border); border-radius:16px; }
 .aurora-page.settings-workspace :is(.provider-ready-badge,.email-ready-badge,.provider-section-kicker,.email-section-kicker) { background:var(--activity-tint); color:var(--activity-accent); }
 .aurora-page.settings-workspace .recovery-code-grid code { background:var(--activity-tint); color:var(--activity-text); border-color:var(--activity-border); }
-body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover) { background:var(--activity-panel); color:var(--activity-text); border:1px solid var(--activity-border); }
+body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) :is(.mud-dialog,.mud-popover) { background:color-mix(in srgb, var(--activity-panel) var(--glass-opacity), transparent); color:var(--activity-text); border:1px solid var(--activity-border); -webkit-backdrop-filter:var(--glass-filter); backdrop-filter:var(--glass-filter); }
 body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) .mud-dialog { border-radius:22px; }
 body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) .mud-dialog :is(.mud-input-outlined,.mud-paper,.agent-detail-panel,.agent-import-panel) { background:var(--activity-panel); color:var(--activity-text); border-color:var(--activity-border); }
 body:has(:is(.settings-workspace,.business-workspace,.onboarding-workspace)) .mud-dialog .mud-button-root { border-radius:10px; text-transform:none; }

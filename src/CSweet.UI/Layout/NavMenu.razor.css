@@ -43,11 +43,37 @@
 .nav-footer ::deep .mud-nav-link-icon { color: inherit; font-size: 19px; min-width: 19px; margin-inline-end: 12px; }
 .app-nav-shell ::deep .mud-nav-link.active:not(.mud-nav-link-disabled),
 .nav-footer ::deep .mud-nav-link.active:not(.mud-nav-link-disabled) {
+    position: relative;
     background: var(--cs-nav-selected);
-    border-color: var(--edge-strong);
+    border-color: transparent;
     color: var(--ink);
     box-shadow: inset 0 1px 0 var(--hover);
     font-weight: 650;
+}
+/* Liquid edge: a static 1px light-to-accent ring on the current page, drawn with a mask so it
+   costs nothing per frame. The selected fill and weight still carry the state on their own. */
+.app-nav-shell ::deep .mud-nav-link.active:not(.mud-nav-link-disabled)::before,
+.nav-footer ::deep .mud-nav-link.active:not(.mud-nav-link-disabled)::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--liquid-edge);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
+@media (forced-colors: active) {
+    .app-nav-shell ::deep .mud-nav-link.active::before,
+    .nav-footer ::deep .mud-nav-link.active::before { display: none; }
+    .app-nav-shell ::deep .mud-nav-link.active:not(.mud-nav-link-disabled),
+    .nav-footer ::deep .mud-nav-link.active:not(.mud-nav-link-disabled) { border-color: CanvasText; }
+}
+@media (prefers-contrast: more) {
+    .app-nav-shell ::deep .mud-nav-link.active:not(.mud-nav-link-disabled),
+    .nav-footer ::deep .mud-nav-link.active:not(.mud-nav-link-disabled) { border-color: var(--edge-strong); }
 }
 .app-nav-shell ::deep .mud-nav-link.active .mud-nav-link-icon { color: var(--mint); }
 .nav-shell ::deep .mud-nav-link:focus-visible,

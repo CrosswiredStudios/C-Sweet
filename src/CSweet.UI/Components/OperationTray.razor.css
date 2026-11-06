@@ -9,10 +9,12 @@
     display: grid;
     width: min(26rem, calc(100vw - var(--s-8)));
     overflow: hidden;
-    border: 1px solid var(--edge);
+    border: 1px solid var(--glass-edge);
     border-radius: var(--r-lg);
-    background: var(--elevated);
-    box-shadow: var(--z-2);
+    background: var(--glass-fill);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
     color: var(--ink);
 }
 

@@ -47,7 +47,7 @@ details { margin-top:16px; font-size:.85rem; color:var(--mud-palette-text-second
 .portfolio-workspace ::deep .mud-button-root { border-radius:12px; text-transform:none; }
 .portfolio-workspace ::deep .mud-button-filled-primary { background:var(--activity-accent); color:var(--mud-palette-primary-text); box-shadow:0 5px 15px #30263f15; }
 .portfolio-workspace ::deep .mud-button-outlined { border-color:var(--activity-border); color:var(--activity-text); }
-.portfolio-project { border:1px solid var(--aurora-widget-border); border-radius:24px; background:var(--aurora-widget); box-shadow:0 14px 40px #30263f0b; backdrop-filter:blur(20px); transition:box-shadow .2s ease,transform .2s ease; }
+.portfolio-project { border:1px solid var(--aurora-widget-border); border-radius:24px; background:var(--aurora-widget); box-shadow:0 14px 40px #30263f0b; transition:box-shadow .2s ease,transform .2s ease; }
 .portfolio-project:hover { box-shadow:0 18px 45px #30263f16; }
 .portfolio-main { display:grid; grid-template-columns:minmax(0,1fr) minmax(210px,.32fr); gap:32px; padding:28px; }
 .portfolio-brief { min-width:0; }

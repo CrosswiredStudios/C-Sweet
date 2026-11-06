@@ -37,6 +37,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc372e;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -79,6 +81,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc4f4f;
+    --glass-opacity-theme: 84%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -121,6 +125,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc4f4f;
+    --glass-opacity-theme: 87%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -163,6 +169,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc4f4f;
+    --glass-opacity-theme: 80%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -205,6 +213,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #bd7271;
+    --glass-opacity-theme: 98%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -247,6 +257,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc4f4f;
+    --glass-opacity-theme: 81%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -289,6 +301,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #9a333c;
+    --glass-opacity-theme: 100%;
+    --glass-bar-opacity-theme: 85%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -331,6 +345,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #98323e;
+    --glass-opacity-theme: 100%;
+    --glass-bar-opacity-theme: 83%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -373,6 +389,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #8d3737;
+    --glass-opacity-theme: 98%;
+    --glass-bar-opacity-theme: 79%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -415,6 +433,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #bc5454;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -457,6 +477,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #c05858;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -499,6 +521,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #bc5858;
+    --glass-opacity-theme: 80%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -541,6 +565,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #c45c5c;
+    --glass-opacity-theme: 89%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -583,6 +609,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc4c60;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -625,6 +653,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #c05044;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -667,6 +697,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc6969;
+    --glass-opacity-theme: 100%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -709,6 +741,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #b0888b;
+    --glass-opacity-theme: 99%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -751,6 +785,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #ca6458;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -793,6 +829,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #c05864;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -835,6 +873,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #c25c54;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -877,6 +917,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #b45c50;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -919,6 +961,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc3a2d;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -961,6 +1005,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #c05840;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1003,6 +1049,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc564d;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1045,6 +1093,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1087,6 +1137,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1129,6 +1181,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1171,6 +1225,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1213,6 +1269,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1255,6 +1313,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1297,6 +1357,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1339,6 +1401,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1381,6 +1445,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1423,6 +1489,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1465,6 +1533,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1507,6 +1577,8 @@
     --ok-ink: #000000;
     --info-ink: #000000;
     --danger-darken: #cc7c87;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1549,6 +1621,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #7d263c;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1591,6 +1665,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #7d263c;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1633,6 +1709,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #7d263c;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1675,6 +1753,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #7d263c;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1717,6 +1797,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #7d263c;
+    --glass-opacity-theme: 79%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1759,6 +1841,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #7d263c;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);
@@ -1801,6 +1885,8 @@
     --ok-ink: #ffffff;
     --info-ink: #ffffff;
     --danger-darken: #a12b43;
+    --glass-opacity-theme: 78%;
+    --glass-bar-opacity-theme: 78%;
     --z-1: inset 0 1px 0 var(--sheen);
     --z-2: 0 12px 32px -16px #00000066, inset 0 1px 0 var(--sheen);
     --z-3: 0 24px 64px -16px #00000080, inset 0 1px 0 var(--sheen);

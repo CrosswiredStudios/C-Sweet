@@ -5,7 +5,7 @@
 .overview-actions, .widget-header, .widget-heading, .widget-controls, .empty-inline, .project-title { display: flex; align-items: center; gap: 10px; }
 .overview-actions, .widget-heading, .project-title { flex-wrap: wrap; }
 .layout-status { font-size: .875rem; color: var(--mud-palette-text-secondary); }
-.overview-widget { grid-column: span 12; width: 100%; min-width: 0; background: var(--aurora-widget); border: 1px solid var(--aurora-widget-border); border-radius: 23px; box-shadow: 0 12px 32px #3c284d0b; backdrop-filter: blur(20px); }
+.overview-widget { grid-column: span 12; width: 100%; min-width: 0; background: var(--aurora-widget); border: 1px solid var(--aurora-widget-border); border-radius: 23px; box-shadow: 0 12px 32px #3c284d0b; }
 .overview-widget.is-dragging { opacity: .55; }
 .overview-widget.activity-widget, .overview-widget.attention-widget { grid-column: span 6; }
 .overview-widget.activity-widget { height: 560px; display: flex; flex-direction: column; align-self: start; overflow: hidden; }
