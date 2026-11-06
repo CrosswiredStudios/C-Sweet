@@ -211,6 +211,7 @@ app.MapEmployeeEndpoints();
 app.MapTeamEndpoints();
 app.MapHiringEndpoints();
 app.MapApprovalEndpoints();
+app.MapResourceFulfillmentEndpoints();
 app.MapWorkstreamInspectionEndpoints();
 app.MapProjectSetupEndpoints();
 app.MapToolchainCertificationEndpoints();

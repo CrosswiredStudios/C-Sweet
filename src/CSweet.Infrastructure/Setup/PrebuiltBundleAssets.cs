@@ -14,10 +14,12 @@ public static partial class PrebuiltBundleAssets
     public const string ChecksumExtension = ".csab.sha256";
 
     public static bool IsBundleAsset(string assetName) =>
-        assetName.EndsWith(BundleExtension, StringComparison.OrdinalIgnoreCase);
+        assetName.EndsWith(BundleExtension, StringComparison.OrdinalIgnoreCase) ||
+        assetName.EndsWith(".cspb", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsChecksumSidecar(string assetName) =>
-        assetName.EndsWith(ChecksumExtension, StringComparison.OrdinalIgnoreCase);
+        assetName.EndsWith(ChecksumExtension, StringComparison.OrdinalIgnoreCase) ||
+        assetName.EndsWith(".cspb.sha256", StringComparison.OrdinalIgnoreCase);
 
     public static GitHubReleaseAssetInfo? SelectBundle(
         GitHubReleaseInfo release,
@@ -27,7 +29,8 @@ public static partial class PrebuiltBundleAssets
         var suffix = $"-{operatingSystem}-{architecture}{BundleExtension}";
         return release.Assets
             .Where(x => IsBundleAsset(x.Name))
-            .OrderByDescending(x => x.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.Name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) ||
+                x.Name.EndsWith($"-{operatingSystem}-{architecture}.cspb", StringComparison.OrdinalIgnoreCase))
             .ThenBy(x => x.Name, StringComparer.Ordinal)
             .FirstOrDefault();
     }

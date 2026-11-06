@@ -24,6 +24,8 @@
         </MudChip>
     </MudPaper>
 
+    <ResourceFulfillmentPanel OrganizationId="OrganizationId" />
+
     @if (_decisionNotice is not null) { <MudAlert Severity="Severity.Success" Class="mb-3">@_decisionNotice</MudAlert> }
 
     @if (_loading)

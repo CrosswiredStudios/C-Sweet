@@ -90,6 +90,8 @@ builder.Services.AddScoped<DeliveryEvidenceCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler>(services => services.GetRequiredService<DeliveryEvidenceCapabilityHandler>());
  builder.Services.AddScoped<WorkManagementCapabilityHandler>();
 builder.Services.AddHostedService<ToolchainCertificationWorker>();
+builder.Services.AddHostedService<ResourceFulfillmentWorker>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, ResourceFulfillmentCapabilityHandler>();
 builder.Services.AddHostedService<AgentCoordinationRecoveryDispatcher>();
 builder.Services.AddScoped<CSweet.Agent.SDK.IWorkforceCatalogProvider>(services =>
     services.GetRequiredService<CSweet.Infrastructure.Marketplace.MarketplaceDiscoveryClient>());

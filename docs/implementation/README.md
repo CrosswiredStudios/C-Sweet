@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Durable resource fulfillment](resource-fulfillment.md) maps agent requests, exact manager
+approval, published tool acquisition, verified readiness and restart-safe project continuation.
+
 [Corrective delivery lifecycle and agent collaboration](features/work-management/corrective-delivery-lifecycle.md)
 tracks durable correction handoffs, reporting separation, findings, dependency
 contracts, proportional planning, verification and the Prism Break rollout.

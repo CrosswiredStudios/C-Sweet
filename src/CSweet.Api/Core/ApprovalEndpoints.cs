@@ -119,6 +119,26 @@ public static class ApprovalEndpoints
                         return Results.Conflict(new { error = "connector_decision_stale", message = "The action or its authority changed. Refresh the review before deciding." });
                     }
                 }
+                if (proposal.ActionType == ResourceFulfillmentService.ActionType)
+                {
+                    try
+                    {
+                        using var binding = JsonDocument.Parse(proposal.PayloadJson);
+                        var resourceBinding = binding.RootElement;
+                        if (request.PayloadHash != resourceBinding.GetProperty("payloadHash").GetString() ||
+                            request.ActionIdempotencyKey != resourceBinding.GetProperty("idempotencyKey").GetString() ||
+                            request.ResourceId != resourceBinding.GetProperty("resourceId").GetString() ||
+                            request.ExpectedRevision is null)
+                            return Results.Conflict(new { error = "approval_binding_mismatch" });
+                        var state = await http.RequestServices.GetRequiredService<ResourceFulfillmentService>().DecideAsync(actor, new(resourceBinding.GetProperty("resourceRequestId").GetGuid(),
+                            request.ExpectedRevision!.Value, request.PayloadHash!, request.Decision, request.Comment ?? "Reviewed resource plan.",
+                            request.DecisionIdempotencyKey), cancellationToken);
+                        return Results.Ok(new { proposal.Id, status = proposal.Status.ToString(), executionPending = state.Status == "Approved", resource = state });
+                    }
+                    catch (UnauthorizedAccessException) { return Results.Forbid(); }
+                    catch (Exception error) when (error is InvalidOperationException or ArgumentException or JsonException or DbUpdateConcurrencyException)
+                    { return Results.Conflict(new { error = "resource_decision_stale", message = error.Message }); }
+                }
                 var agent = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
                     x.OrganizationId == organizationId && x.AgentInstallationId == proposal.AgentInstallationId && x.IsActive,
                     cancellationToken);

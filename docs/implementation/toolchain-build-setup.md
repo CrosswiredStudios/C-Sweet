@@ -1,5 +1,11 @@
 # Build provider setup
 
+Supported Node/Phaser/Babylon requests now also use [durable resource fulfillment](resource-fulfillment.md).
+Managers approve an exact platform-prepared plan; the platform installs the published provider,
+runs certification and wakes the waiting project. `ToolchainCertificationScheduler` is shared
+by this flow and administrator setup. Approval alone never establishes eligibility. The manual
+administrator screen remains available for unsupported profiles and host setup.
+
 `AgentImportPreviewResponse.ToolchainAdapters` carries the reviewed adapter declarations into the plugin installation screen. `AgentImportPreviewService.ToResponse` reads them from the immutable package manifest. The declaration, rather than a package-name exception, distinguishes a build provider from a communication service.
 
 `AgentInstallationService.InstallCoreAsync` requires declared service toolchain providers to use one organization UUID and `OnDemand` activation. Ordinary service plugins retain their system/always-on policy. `Plugins.IsToolchainProvider` uses the same declaration to require business selection and preserve on-demand activation. Installation retains ordinary manifest, grant, package, configuration, resource and isolation checks; it creates no toolchain eligibility.

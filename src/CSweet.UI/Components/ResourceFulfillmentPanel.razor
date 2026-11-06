@@ -1,0 +1,72 @@
+@using System.Text.Json
+@inject HttpClient Http
+@inject AppRealtimeState Realtime
+@implements IDisposable
+
+@if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+@if (_requests.Count > 0)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="0">
+        <MudText Typo="Typo.h6">Project resource setup</MudText>
+        <MudText Color="Color.Secondary">Approval starts setup. Working capacity is confirmed after verification.</MudText>
+        @foreach (var request in _requests)
+        {
+            <MudDivider Class="my-3" />
+            <MudText>@Text(request.GetProperty("plan"), "summary")</MudText>
+            <MudText Typo="Typo.body2">@Status(Text(request, "status"))</MudText>
+            @if (Text(request, "condition") is { Length: > 0 } condition)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@condition</MudText>
+            }
+            @if (request.TryGetProperty("canDecide", out var canDecide) && canDecide.ValueKind == JsonValueKind.True)
+            {
+                <MudLink Href="@($"/organizations/{OrganizationId:D}/approvals?approvalId={Text(request, "approvalId")}")">Review resource request</MudLink>
+            }
+            @if (request.TryGetProperty("canRetry", out var canRetry) && canRetry.ValueKind == JsonValueKind.True)
+            {
+                <MudButton OnClick="@(() => RetryAsync(request))">Retry approved setup</MudButton>
+            }
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    private IReadOnlyList<JsonElement> _requests = [];
+    private string? _error;
+    private async Task RetryAsync(JsonElement request)
+    {
+        var body = new {
+            proposalId = Text(request, "approvalId"), decision = "Retry", comment = "Retry the same reviewed resource setup.",
+            payloadHash = Text(request, "planHash"), actionIdempotencyKey = "resource:" + request.GetProperty("id").GetGuid().ToString("N"),
+            resourceId = Text(request, "workstreamId"), expectedRevision = request.GetProperty("revision").GetInt64(),
+            decisionIdempotencyKey = "resource-retry:" + request.GetProperty("id").GetGuid().ToString("N") + ":" + request.GetProperty("revision").GetInt64() };
+        _error = null;
+        try
+        {
+        using var response = await Http.PostAsJsonAsync($"/api/core/organizations/{OrganizationId:D}/approvals/agent-actions/{Text(request, "approvalId")}/decide", body);
+        response.EnsureSuccessStatusCode();
+        await OnParametersSetAsync();
+        }
+        catch (HttpRequestException) { _error = "Setup could not be retried. Refresh the resource status and check current manager authority."; }
+    }
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += Changed; Realtime.Connected += Reload; Realtime.Reconnected += Reload;
+    }
+    private void Changed(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope e)
+    { if (e.OrganizationId == OrganizationId && e.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ResourceChanged) Reload(); }
+    private void Reload() => _ = InvokeAsync(async () => { await OnParametersSetAsync(); StateHasChanged(); });
+    public void Dispose() { Realtime.EventReceived -= Changed; Realtime.Connected -= Reload; Realtime.Reconnected -= Reload; }
+    protected override async Task OnParametersSetAsync()
+    {
+        try { _requests = await Http.GetFromJsonAsync<List<JsonElement>>($"/api/core/organizations/{OrganizationId:D}/resources") ?? []; }
+        catch (HttpRequestException) { _requests = []; }
+    }
+    private static string Text(JsonElement value, string key) => value.TryGetProperty(key, out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() ?? "" : "";
+    private static string Status(string status) => status switch {
+        "PendingApproval" => "Waiting for manager approval", "Approved" => "Approved — setup queued",
+        "Installing" => "Preparing the build environment", "Certifying" => "Verifying the build environment",
+        "Ready" => "Ready for project work", "WaitingDependency" => "Waiting for a provider dependency; setup will resume", "NeedsAttention" or "Failed" or "Revoked" => "Setup needs attention",
+        "RevisionRequested" => "Manager requested changes", "Rejected" => "Request declined", _ => status };
+}

@@ -99,6 +99,8 @@ public sealed class ApprovalDashboardService(
         {
             var managerId = managersByInstallation.GetValueOrDefault(proposal.AgentInstallationId);
             var configurationJson = configurations.GetValueOrDefault(proposal.AgentInstallationId);
+            var resourceApprover = proposal.ActionType == ResourceFulfillmentService.ActionType
+                ? JsonDocument.Parse(proposal.PayloadJson).RootElement.GetProperty("approverId").GetGuid() : (Guid?)null;
             var connectorBinding = proposal.ActionType == ConnectorActionApprovalService.ActionType
                 ? ConnectorActionApprovalService.Parse(proposal) : null;
             return new ApprovalDashboardItemResponse(
@@ -108,13 +110,15 @@ public sealed class ApprovalDashboardService(
                 proposal.Summary,
                 proposal.Status.ToString(),
                 Name(installationNames, proposal.AgentInstallationId, "Agent employee"),
+                resourceApprover.HasValue ? Name(names, resourceApprover.Value, "Assigned resource approver") :
                 connectorBinding is not null ? Name(names, connectorBinding.ApproverOrganizationUserId, "Assigned approver") :
                     ManagedActionApprovalAuthority.RequiresManager(configurationJson) ? Name(names, managerId, "Assigned manager") : ownerLabel,
                 proposal.CreatedAt,
                 proposal.DecidedAt,
                 $"/organizations/{organizationId:D}/approvals",
                 proposal.Status == ProposalStatus.Pending &&
-                (connectorBinding is not null ? actor.Id == connectorBinding.ApproverOrganizationUserId &&
+                (resourceApprover.HasValue ? actor.Id == resourceApprover.Value :
+                 connectorBinding is not null ? actor.Id == connectorBinding.ApproverOrganizationUserId &&
                     connectorBinding.ExpiresAt > DateTimeOffset.UtcNow :
                     ManagedActionApprovalAuthority.CanDecide(actor, managerId, configurationJson)))
             {

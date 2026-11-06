@@ -127,6 +127,9 @@ public sealed class McpToolCatalog(
             "Propose a managed workstream with one accountable manager."),
         Read(W.WorkstreamCapabilityNames.ReadV1, "read_workstream",
             "Read one visible Workstream, including its immutable profile binding and current revision."),
+        HiddenWrite(ResourceCapabilities.Request, "request_project_resource", "Prepare a project resource plan for current-manager approval and automatic verified fulfillment."),
+        HiddenRead(ResourceCapabilities.Read, "read_project_resources", "Read current resource requests, exact plans and verified readiness."),
+        HiddenWrite(ResourceCapabilities.Decide, "decide_project_resource", "Approve, reject, request revision or escalate an exact resource plan through the current manager chain."),
         HiddenRead(ProjectApprovalGovernance.ReadCapability, "read_project_approvals", "Read exact assigned or submitted project proposals and current spending policy."),
         HiddenWrite(ProjectApprovalGovernance.DecideCapability, "decide_project_approval", "Approve, request revision, reject or escalate an exact project proposal through the reporting hierarchy."),
         Approval(W.WorkstreamCapabilityNames.PlanProposeV2, "propose_profiled_workstream",
@@ -603,6 +606,7 @@ public sealed class McpToolCatalog(
         PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead or PlatformCapabilities.ConnectorActionCancel => Schema("""
             {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"},"capability":{"type":"string"},"status":{"type":"string","enum":["Prepared","AwaitingApproval","Approved","Executing","Completed","Rejected","RevisionRequested","Cancelled","Blocked","Indeterminate","Expired","Unavailable"]},"updatedAt":{"type":"string","format":"date-time"},"result":{"type":["object","array","string","number","boolean","null"]},"conditionCode":{"type":["string","null"]},"decision":{"type":["object","null"],"properties":{"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"decidedAt":{"type":"string","format":"date-time"}},"required":["decision","comment","decidedAt"],"additionalProperties":false}},"required":["actionId","capability","status","updatedAt","result","conditionCode","decision"],"additionalProperties":false}
             """),
+        ResourceCapabilities.Request or ResourceCapabilities.Read or ResourceCapabilities.Decide or
         ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability or
         WorkBoardActions.Read or
         WorkSprintActions.Read or
@@ -647,6 +651,9 @@ public sealed class McpToolCatalog(
                 """);
         return capability switch
         {
+        ResourceCapabilities.Request => ContractToolSchema.Create(typeof(ResourceRequest)),
+        ResourceCapabilities.Read => ContractToolSchema.Create(typeof(ResourceRead)),
+        ResourceCapabilities.Decide => ContractToolSchema.Create(typeof(ResourceDecision)),
         ProjectApprovalGovernance.ReadCapability => Schema("""
             {"type":"object","properties":{"proposalId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),
