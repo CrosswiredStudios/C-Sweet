@@ -43,6 +43,8 @@ public sealed class OnboardingWorkspaceRenderingTests
     [InlineData("stalled", "Try Windows setup again")]
     [InlineData("redeemed", "Installing Office")]
     [InlineData("recoveryrequired", "Reassign this Office")]
+    [InlineData("restart-ready", "Continue setup")]
+    [InlineData("stuck-redeemed", "Start over")]
     [InlineData("blocked-reuse", "Reassignment is blocked")]
     [InlineData("removal-failed", "Retry removal")]
     [InlineData("removalinprogress", "Installing Office")]
@@ -63,7 +65,20 @@ public sealed class OnboardingWorkspaceRenderingTests
         var html = WebUtility.HtmlDecode(await Render(api, "aurora", officeScenario: scenario));
         Assert.Contains(expected, html);
         if (scenario is "blocked-reuse" or "removal-failed") Assert.DoesNotContain("Reassign this Office", html);
-        if (scenario == "recoveryrequired") Assert.Contains("Remove Office", html);
+        if (scenario == "recoveryrequired")
+        {
+            Assert.Contains("Remove Office", html);
+            // The recovery actions carry their own accessible names inside a named group.
+            Assert.Contains("aria-label=\"Existing Office actions\"", html);
+            Assert.Contains("aria-label=\"Reassign this Office\"", html);
+            Assert.Contains("aria-describedby=\"local-recovery-description\"", html);
+        }
+        if (scenario == "restart-ready")
+        {
+            Assert.Contains("aria-label=\"Continue setup after the Windows restart\"", html);
+            Assert.Contains("Start over", html);
+        }
+        if (scenario == "stuck-redeemed") Assert.DoesNotContain("Continue setup", html);
         if (scenario == "remote-approval") Assert.Contains("Not my host", html);
         if (scenario == "ready-unhealthy") Assert.DoesNotContain("Setup complete</span>", html);
         if (scenario is "failed" or "expired" or "revoked")
@@ -259,6 +274,7 @@ public sealed class OnboardingWorkspaceRenderingTests
             "missing-handoff" or "stalled" => "created",
             "blocked-reuse" or "removal-failed" => "recoveryrequired",
             "ready-unhealthy" => "ready",
+            "restart-ready" or "stuck-redeemed" => "redeemed",
             _ => scenario
         };
         var session = new LocalOfficeSetupSessionResponse(Guid.NewGuid(), state, "install", "Installing Office",
@@ -266,7 +282,9 @@ public sealed class OnboardingWorkspaceRenderingTests
             scenario == "missing-handoff" ? null : "csweet-office://test",
             ErrorCode: scenario == "removal-failed" ? "office_removal_failed" : scenario == "failed" ? "developer-bootstrap-failed" : null,
             ErrorMessage: scenario == "failed" ? "The guest reported a failed isolation check: dotnet-sdk-present" : null,
-            LaunchMethod: "server", RecoveryCanReconnect: scenario == "recoveryrequired");
+            LaunchMethod: "server", RecoveryCanReconnect: scenario == "recoveryrequired",
+            CanContinueAfterRestart: scenario == "restart-ready",
+            CanStartOver: scenario is "restart-ready" or "stuck-redeemed" or "recoveryrequired");
         Set("_localSession", session);
         Set("_status", status with { IsReady = scenario == "ready" });
         if (scenario == "stalled")

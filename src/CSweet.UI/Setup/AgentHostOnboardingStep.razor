@@ -131,7 +131,13 @@
     private ExecutionCapacityOnboardingResponse? _status;
     private ExecutionEnrollmentResponse? _issuedEnrollment;
     private IJSObjectReference? _jsModule;
-    private CancellationTokenSource? _polling;
+    // One lifetime per component instance: disposal cancels the only polling loop, even when
+    // disposal happens before OnInitializedAsync has finished and would have started it.
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool _pollingStarted;
+    private bool _disposed;
+    private ElementReference _localAttentionHeading;
+    private string? _focusedAttentionKey;
     private string _remotePlatform = "windows";
     private string _installationTarget = "local";
     private string _capacityPreset = "balanced";
@@ -299,7 +305,17 @@
 
     private async Task SelectLocalRecoveryAsync(string action)
     {
-        if (_busy || _localSession?.State != "recoveryrequired") return;
+        // Never ignore a click silently: say why nothing happened.
+        if (_busy)
+        {
+            SetAction(false, "Another Office action is still finishing. Try again in a moment.");
+            return;
+        }
+        if (_localSession?.State != "recoveryrequired")
+        {
+            SetAction(false, "This Office no longer needs recovery. Review the current setup state.");
+            return;
+        }
         if (action == "remove")
         {
             var confirmed = await JS.InvokeAsync<bool>("confirm",
@@ -337,6 +353,88 @@
             EndStatusMutation();
         }
         if (launch) await RequestAdministratorApprovalAsync();
+    }
+
+    private async Task ContinueLocalSetupAfterRestartAsync()
+    {
+        if (_localSession is not { CanContinueAfterRestart: true } session)
+        {
+            SetAction(false, "Restart Windows first, then choose Continue setup.");
+            return;
+        }
+        if (_busy)
+        {
+            SetAction(false, "Another Office action is still finishing. Try again in a moment.");
+            return;
+        }
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        var launchFromBrowser = false;
+        try
+        {
+            var result = await SetupApi.ContinueLocalOfficeSetupAfterRestartAsync(session.Id);
+            _status = result.Status;
+            if (result.Session is not null) AdoptLocalSession(result.Session);
+            SetAction(result.Succeeded, result.Message);
+            // A server launch already requested approval; a protocol launch still needs the browser.
+            launchFromBrowser = result.Succeeded && _localSession is { State: "created", AdministratorApprovalRequestedAt: null,
+                LaunchUri.Length: > 0 };
+        }
+        catch
+        {
+            SetAction(false, "C-Sweet could not continue the Office setup. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+        if (launchFromBrowser) await RequestAdministratorApprovalAsync();
+    }
+
+    private async Task StartOverLocalSetupAsync()
+    {
+        if (_localSession is not { CanStartOver: true } session)
+        {
+            SetAction(false, "This Office setup is still running. Wait for it to finish or stop before starting over.");
+            return;
+        }
+        if (_busy)
+        {
+            SetAction(false, "Another Office action is still finishing. Try again in a moment.");
+            return;
+        }
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "Start over? C-Sweet abandons this setup session and its unused connection code. Nothing on this computer is removed.");
+        if (!confirmed) return;
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        try
+        {
+            var result = await SetupApi.CancelLocalOfficeSetupSessionAsync(session.Id);
+            _status = result.Status;
+            if (result.Succeeded)
+            {
+                await ResetLocalSetupAsync();
+                SetAction(true, result.Message);
+            }
+            else
+            {
+                if (result.Session is not null) AdoptLocalSession(result.Session);
+                SetAction(false, result.Message);
+            }
+        }
+        catch
+        {
+            SetAction(false, "C-Sweet could not cancel this Office setup. Try again.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
     }
 
     private Task ReconnectLocalOfficeAsync() => SelectLocalRecoveryAsync("reconnect");
@@ -600,7 +698,7 @@
                         @foreach (var volume in volumes)
                         {
                             <option value="@volume.Id" disabled="@(!volume.IsEligible)">
-                                @volume.MountPath @volume.Label � @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
+                                @volume.MountPath @volume.Label — @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
                             </option>
                         }
                     </select>
@@ -708,8 +806,8 @@
                 {
                     <div class="local-approval-explanation" role="alert">
                         <span class="host-error-icon"><MudIcon Icon="@Icons.Material.Outlined.SyncProblem" /></span>
-                        <div>
-                            <strong>@(RemovalRetryRequired ? "Office removal needs attention" : "Existing Office found")</strong>
+                        <div id="local-recovery-description">
+                            <h3 class="local-attention-heading" tabindex="-1" @ref="_localAttentionHeading">@(RemovalRetryRequired ? "Office removal needs attention" : "Existing Office found")</h3>
                             <p>@_localSession.Message</p>
                             @if (RemovalRetryRequired)
                             {
@@ -721,20 +819,33 @@
                             }
                         </div>
                     </div>
-                    <div class="local-install-actions">
+                    <div class="local-install-actions" role="group" aria-label="Existing Office actions">
                         @if (_localSession.RecoveryCanReconnect)
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                        StartIcon="@Icons.Material.Outlined.Sync"
+                                       aria-label="Reassign this Office" aria-describedby="local-recovery-description"
+                                       aria-busy="@(_busy ? "true" : "false")"
                                        Disabled="@_busy" OnClick="ReconnectLocalOfficeAsync">
                                 @(_busy ? "Preparing…" : "Reassign this Office")
                             </MudButton>
                         }
                         <MudButton Variant="Variant.Outlined" Color="Color.Error"
                                    StartIcon="@Icons.Material.Outlined.DeleteForever"
+                                   aria-label="@(RemovalRetryRequired ? "Retry Office removal" : "Remove Office from this computer")"
+                                   aria-describedby="local-recovery-description"
                                    Disabled="@_busy" OnClick="RemoveLocalOfficeAsync">
                             @(RemovalRetryRequired ? "Retry removal" : "Remove Office")
                         </MudButton>
+                        @if (_localSession.CanStartOver)
+                        {
+                            <MudButton Variant="Variant.Text" Color="Color.Default"
+                                       StartIcon="@Icons.Material.Outlined.RestartAlt"
+                                       aria-label="Start over without changing this computer"
+                                       Disabled="@_busy" OnClick="StartOverLocalSetupAsync">
+                                Start over
+                            </MudButton>
+                        }
                     </div>
                     @if (!_localSession.RecoveryCanReconnect)
                     {
@@ -803,6 +914,31 @@
                     <div class="local-install-actions">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AdminPanelSettings"
                                    OnClick="RetryLocalSetupAsync">Try Windows setup again</MudButton>
+                        @if (_localSession.CanStartOver)
+                        {
+                            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.RestartAlt"
+                                       aria-label="Start over and abandon this Office setup"
+                                       Disabled="@_busy" OnClick="StartOverLocalSetupAsync">Start over</MudButton>
+                        }
+                    </div>
+                }
+                else if (_localSession.CanContinueAfterRestart || ShowStartOverForStuckSetup)
+                {
+                    <div class="local-install-actions" role="group" aria-label="Office setup actions">
+                        @if (_localSession.CanContinueAfterRestart)
+                        {
+                            <h3 class="visually-hidden" tabindex="-1" @ref="_localAttentionHeading">Ready to continue setup</h3>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Outlined.PlayArrow"
+                                       aria-label="Continue setup after the Windows restart"
+                                       aria-busy="@(_busy ? "true" : "false")"
+                                       Disabled="@_busy" OnClick="ContinueLocalSetupAfterRestartAsync">
+                                @(_busy ? "Continuing…" : "Continue setup")
+                            </MudButton>
+                        }
+                        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.RestartAlt"
+                                   aria-label="Start over and abandon this Office setup"
+                                   Disabled="@_busy" OnClick="StartOverLocalSetupAsync">Start over</MudButton>
                     </div>
                 }
                 }
@@ -1026,69 +1162,59 @@
 
     private void StartPolling()
     {
-        _polling = new CancellationTokenSource();
-        _ = PollAsync(_polling.Token);
+        if (_pollingStarted || _disposed || _lifetime.IsCancellationRequested) return;
+        _pollingStarted = true;
+        _ = SetupStatusPoller.RunAsync(PollOnceAsync, new SetupPollSchedule(), _lifetime.Token);
     }
 
-    private async Task PollAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// One refresh. Every request finishes before anything is applied, and nothing is applied when a
+    /// user action started meanwhile, so a slow poll can never overwrite a newer action's result.
+    /// Returns whether the visible setup state changed (the schedule polls faster while it does).
+    /// </summary>
+    private async Task<bool> PollOnceAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-        try
+        var requestVersion = Volatile.Read(ref _statusMutationVersion);
+        var polledSession = _installationTarget == "local" ? _localSession : null;
+        var status = await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken);
+        LocalOfficeSetupActionResponse? activeLocal = _localSession is null
+            ? await SetupApi.GetActiveLocalOfficeSetupSessionAsync(cancellationToken)
+            : null;
+        LocalOfficeSetupActionResponse? localResult = polledSession is not null
+            ? await SetupApi.GetLocalOfficeSetupSessionAsync(polledSession.Id, cancellationToken)
+            : null;
+        var changed = false;
+        await InvokeAsync(async () =>
         {
-            while (await timer.WaitForNextTickAsync(cancellationToken))
+            if (cancellationToken.IsCancellationRequested || _disposed ||
+                requestVersion != Volatile.Read(ref _statusMutationVersion) ||
+                _busy || _automaticEnrollmentInFlight)
+                return;
+            var before = (_localSession?.State, _localSession?.PhaseKey, _localSession?.PercentComplete, _status?.IsReady);
+            await AcceptStatusAsync(status);
+            if (localResult is { Succeeded: true, Session: { } refreshed } && _localSession?.Id == refreshed.Id)
             {
-                try
+                _localSession = refreshed with
                 {
-                    var requestVersion = Volatile.Read(ref _statusMutationVersion);
-                    var status = await SetupApi.GetExecutionCapacityStatusAsync(cancellationToken);
-                    LocalOfficeSetupActionResponse? activeLocal = null;
-                    if (_localSession is null)
-                        activeLocal = await SetupApi.GetActiveLocalOfficeSetupSessionAsync(cancellationToken);
-                    await InvokeAsync(async () =>
-                    {
-                        if (requestVersion != Volatile.Read(ref _statusMutationVersion) ||
-                            _busy || _automaticEnrollmentInFlight)
-                            return;
-                        if (activeLocal?.Session is { } discovered)
-                        {
-                            _status = activeLocal.Status;
-                            AdoptLocalSession(discovered);
-                            if (_localSession is { State: "created", LaunchUri: null,
-                                    AdministratorApprovalRequestedAt: null })
-                                await RefreshLocalHandoffAsync();
-                        }
-                        await AcceptStatusAsync(status);
-                        if (_installationTarget == "local" && _localSession is not null)
-                        {
-                            var localResult = await SetupApi.GetLocalOfficeSetupSessionAsync(
-                                _localSession.Id, cancellationToken);
-                            if (localResult.Succeeded && localResult.Session is { } refreshed)
-                            {
-                                _localSession = refreshed with
-                                {
-                                    LaunchUri = refreshed.LaunchUri ?? _localSession.LaunchUri,
-                                    WindowsPackageUrl = refreshed.WindowsPackageUrl ?? _localSession.WindowsPackageUrl
-                                };
-                                _status = localResult.Status;
-                                if (_localSession.State == "removed")
-                                    await ContinueAfterRemovedOfficeAsync();
-                            }
-                        }
-                        StateHasChanged();
-                    });
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch
-                {
-                    // A transient refresh failure should not end the waiting experience.
-                }
+                    LaunchUri = refreshed.LaunchUri ?? _localSession.LaunchUri,
+                    WindowsPackageUrl = refreshed.WindowsPackageUrl ?? _localSession.WindowsPackageUrl
+                };
+                _status = localResult.Status;
             }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
-        catch { }
+            if (activeLocal?.Session is { } discovered)
+            {
+                _status = activeLocal.Status;
+                AdoptLocalSession(discovered);
+            }
+            changed = before != (_localSession?.State, _localSession?.PhaseKey, _localSession?.PercentComplete, _status?.IsReady);
+            StateHasChanged();
+            // Follow-up actions run after the refreshed state is applied; each re-validates itself.
+            if (_localSession is { State: "created", LaunchUri: null, AdministratorApprovalRequestedAt: null })
+                await RefreshLocalHandoffAsync();
+            if (_localSession?.State == "removed")
+                await ContinueAfterRemovedOfficeAsync();
+        });
+        return changed;
     }
 
     private void BeginStatusMutation() => Interlocked.Increment(ref _statusMutationVersion);
@@ -1173,6 +1299,10 @@
         _localApprovalRequested && ActiveLocalProvisioning is null && !LocalSetupStartStalled;
 
     private bool ShowLocalLaunchRetry => LocalSetupStartStalled;
+
+    // The server offers Start over only when no live setup process is still reporting progress.
+    private bool ShowStartOverForStuckSetup => _localSession is { CanStartOver: true, State: "redeemed" or "created" } &&
+        (_localApprovalRequested || _localSession.State == "redeemed");
 
     private bool RemovalRetryRequired => _localSession?.ErrorCode == "office_removal_failed";
 
@@ -1425,11 +1555,34 @@
     private async Task<IJSObjectReference> LoadModuleAsync() => _jsModule =
         await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/auth-security.js");
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Move focus (and the viewport) to a state that needs the person's decision, once per state,
+        // so its actions are on screen and announced instead of sitting below the fold.
+        var attentionKey = LocalAttentionKey;
+        if (attentionKey is null || attentionKey == _focusedAttentionKey) return;
+        _focusedAttentionKey = attentionKey;
+        try { await _localAttentionHeading.FocusAsync(preventScroll: false); }
+        catch (Exception exception) when (exception is InvalidOperationException or JSException or JSDisconnectedException) { }
+    }
+
+    private string? LocalAttentionKey => _localSession switch
+    {
+        { State: "recoveryrequired" } session => $"{session.Id:N}:recovery",
+        { CanContinueAfterRestart: true } session => $"{session.Id:N}:restart",
+        _ => null
+    };
+
     public async ValueTask DisposeAsync()
     {
-        _polling?.Cancel();
-        _polling?.Dispose();
-        if (_jsModule is not null) await _jsModule.DisposeAsync();
+        _disposed = true;
+        _lifetime.Cancel();
+
+        if (_jsModule is not null)
+        {
+            try { await _jsModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
     }
 
     private sealed record RemotePlatform(string Key, string Label, string Icon);
