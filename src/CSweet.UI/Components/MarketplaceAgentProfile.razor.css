@@ -50,7 +50,7 @@
 .profile-package-facts dl { display: grid; gap: 9px; margin: 0; font-size: .6875rem; }
 .profile-package-facts dl > div { display: flex; justify-content: space-between; gap: 12px; }
 .profile-package-facts dt { color: var(--mud-palette-text-secondary); flex-shrink: 0; }
-.profile-package-facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.profile-package-facts dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
 .profile-access { min-width: 0; padding: 18px; border: 1px solid var(--mud-palette-lines-default); border-radius: 14px; background: color-mix(in srgb, var(--mud-palette-background) 65%, var(--mud-palette-surface)); }
 .profile-grant-groups { display: grid; gap: 7px; }
 .profile-disclosure { min-width: 0; border: 1px solid var(--mud-palette-lines-default); border-radius: 9px; background: var(--mud-palette-surface); }
@@ -88,7 +88,7 @@
 .profile-documentation { display: inline-flex; align-items: center; gap: 7px; font-size: .75rem; font-weight: 600; color: var(--mud-palette-text-secondary); text-decoration: none; }
 .profile-documentation:hover { color: var(--mud-palette-text-primary); }
 .profile-documentation ::deep .mud-icon-root { width: 15px; height: 15px; }
-.profile-footer-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.profile-footer-actions { margin-inline-start: auto; display: flex; align-items: center; gap: 8px; }
 .profile-footer-actions ::deep .mud-button { border-radius: 8px; white-space: nowrap; }
 @media (max-width: 700px) {
     .agent-profile { max-height: calc(100dvh - 32px); }
@@ -104,7 +104,7 @@
     .profile-documentation { font-size: .6875rem; }
 }
 @media (max-width: 420px) {
-    .profile-header { align-items: start; padding-left: 16px; gap: 12px; }
+    .profile-header { align-items: start; padding-inline-start: 16px; gap: 12px; }
     .profile-portrait { width: 52px; height: 68px; }
     .profile-scroll { padding: 18px 16px; }
     .profile-access { padding: 14px; }

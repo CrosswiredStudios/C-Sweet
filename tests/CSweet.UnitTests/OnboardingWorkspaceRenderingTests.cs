@@ -99,7 +99,7 @@ public sealed class OnboardingWorkspaceRenderingTests
         var api = new SetupApi(step);
         var html = await Render(api, theme);
         Assert.Contains(expected, WebUtility.HtmlDecode(html));
-        Assert.Contains($"data-appearance=\"{theme}\"", html);
+        Assert.Contains($"data-appearance=\"{AppearanceThemes.Resolve(theme).Id}\"", html);
         Assert.Contains("onboarding-workspace", html);
         Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(html, "class=\"setup-progress-node\"").Count);
         Assert.DoesNotContain(api.Paths, path => path.Contains("communications") || path.Contains("email-delivery"));

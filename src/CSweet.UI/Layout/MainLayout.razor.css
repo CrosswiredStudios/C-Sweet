@@ -1,6 +1,7 @@
 .app-bar {
-    border-bottom: 1px solid #e2ddd5;
-    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--edge);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .app-mobile-brand { display: flex; align-items: center; gap: .55rem; }
@@ -12,7 +13,7 @@
 }
 
 .app-drawer {
-    border-right: 0;
+    border-inline-end: 0;
 }
 
 .content {

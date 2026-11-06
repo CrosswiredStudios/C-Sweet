@@ -1,4 +1,5 @@
 using Microsoft.JSInterop;
+using MudBlazor;
 
 namespace CSweet.UI.Services;
 
@@ -8,7 +9,10 @@ public sealed class AppearanceState(IJSRuntime js)
     private const string StorageKey = "csweet.appearance";
     private Task? _initialization;
     private int _revision;
-    public string Theme { get; private set; } = "aurora";
+    public string Theme { get; private set; } = AppearanceThemes.DefaultId;
+    public AppearanceTheme CurrentTheme => AppearanceThemes.Resolve(Theme);
+    public bool IsDark => CurrentTheme.IsDark;
+    public MudTheme MudTheme { get; private set; } = AppearanceThemes.Default.CreateMudTheme();
     public bool PersistenceUnavailable { get; private set; }
     public event Action? Changed;
 
@@ -23,7 +27,8 @@ public sealed class AppearanceState(IJSRuntime js)
             var stored = await js.InvokeAsync<string?>("localStorage.getItem", StorageKey);
             if (revision == _revision)
             {
-                Theme = stored == "gold" ? "gold" : "aurora";
+                Select(AppearanceThemes.ResolveStored(stored));
+                await js.InvokeVoidAsync("csweetAppearance.apply", Theme);
                 Changed?.Invoke();
             }
         }
@@ -34,14 +39,21 @@ public sealed class AppearanceState(IJSRuntime js)
         }
     }
 
+    private void Select(AppearanceTheme theme)
+    {
+        Theme = theme.Id;
+        MudTheme = theme.CreateMudTheme();
+    }
+
     public async Task SetThemeAsync(string theme)
     {
-        if (theme is not ("aurora" or "gold")) return;
+        if (AppearanceThemes.Find(theme) is not { } selected) return;
         ++_revision;
-        Theme = theme;
-        Changed?.Invoke();
+        Select(selected);
+        theme = selected.Id;
         try
         {
+            await js.InvokeVoidAsync("csweetAppearance.apply", theme);
             await js.InvokeVoidAsync("localStorage.setItem", StorageKey, theme);
             PersistenceUnavailable = false;
         }

@@ -103,6 +103,25 @@ public sealed class NotificationSoundPlayer(IJSRuntime js, NotificationSoundOpti
         }
     }
 
+    /// <summary>True when sounds are configured at all; a per-person mute only matters then.</summary>
+    public bool Available => options.Enabled && options.Sounds.Values.Any(x => !string.IsNullOrWhiteSpace(x));
+
+    /// <summary>This person's mute preference in this browser. Unavailable storage reads as not muted.</summary>
+    public async Task<bool> IsMutedAsync(CancellationToken cancellationToken = default)
+    {
+        try { return await (await ModuleAsync(cancellationToken)).InvokeAsync<bool>("isMuted", cancellationToken); }
+        catch (Exception exception) when (exception is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { return false; }
+    }
+
+    public async Task SetMutedAsync(bool muted, CancellationToken cancellationToken = default)
+    {
+        try { await (await ModuleAsync(cancellationToken)).InvokeVoidAsync("setMuted", cancellationToken, muted); }
+        catch (Exception exception) when (exception is JSException or JSDisconnectedException or InvalidOperationException or OperationCanceledException) { }
+    }
+
+    private Task<IJSObjectReference> ModuleAsync(CancellationToken cancellationToken) =>
+        _module ??= js.InvokeAsync<IJSObjectReference>("import", cancellationToken, ModulePath).AsTask();
+
     public async ValueTask DisposeAsync()
     {
         if (_module is not { IsCompletedSuccessfully: true } module) return;

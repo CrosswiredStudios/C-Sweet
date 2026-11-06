@@ -13,7 +13,7 @@
 }
 .agent-brand-card button { font: inherit; cursor: pointer; }
 .agent-brand-card button:focus-visible { outline: 3px solid var(--mud-palette-primary); outline-offset: -4px; }
-.agent-brand-front { display: flex; flex-direction: column; width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; color: inherit; background: var(--mud-palette-surface); text-align: left; }
+.agent-brand-front { display: flex; flex-direction: column; width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; color: inherit; background: var(--mud-palette-surface); text-align: start; }
 .agent-brand-art { position: relative; display: block; width: 100%; height: 17rem; flex-shrink: 0; overflow: hidden; background: color-mix(in srgb, var(--agent-accent) 15%, var(--mud-palette-surface)); }
 .agent-brand-art > img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; transition: transform 340ms ease; }
 .agent-brand-company { position: absolute; top: 14px; left: 14px; max-width: calc(100% - 28px); display: flex; align-items: center; min-height: 34px; padding: 7px 11px; border-radius: 9px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); font-size: .75rem; font-weight: 600; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
@@ -30,7 +30,7 @@
 .agent-brand-details-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
 .agent-brand-publisher { font-size: .75rem; font-weight: 600; overflow-wrap: anywhere; }
 .agent-brand-close { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; padding: 0; border: 1px solid var(--mud-palette-lines-default); border-radius: 50%; color: var(--mud-palette-text-secondary); background: var(--mud-palette-surface); }
-.agent-brand-details-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 4px; }
+.agent-brand-details-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-inline-end: 4px; }
 .agent-brand-details-body h3 { font-size: 1.375rem; font-weight: 650; letter-spacing: -.035em; line-height: 1.25; margin: 0 0 6px; overflow-wrap: anywhere; }
 .agent-brand-description { white-space: pre-line; overflow-wrap: anywhere; font-size: .875rem; line-height: 1.65; margin: 18px 0; }
 .agent-brand-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }

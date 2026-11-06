@@ -1,55 +1,5 @@
-html,
-body {
-    background: #f6f8fa;
-    font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-a {
-    color: #245b66;
-}
-
-h1:focus {
-    outline: none;
-}
-
-.valid.modified:not([type=checkbox]) {
-    outline: 1px solid #2f7d4d;
-}
-
-.invalid {
-    outline: 1px solid #b3261e;
-}
-
-.validation-message {
-    color: #b3261e;
-}
-
-#blazor-error-ui {
-    color-scheme: light only;
-    background: #fff8d6;
-    color: #18233f;
-    bottom: 0;
-    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
-    box-sizing: border-box;
-    display: none;
-    left: 0;
-    padding: 0.6rem 6rem 0.7rem 1.25rem;
-    position: fixed;
-    width: 100%;
-    z-index: calc(var(--mud-zindex-tooltip, 1600) + 1);
-}
-
-#blazor-error-ui a {
-    color: inherit;
-    text-decoration: underline;
-}
-
-#blazor-error-ui .dismiss {
-    cursor: pointer;
-    position: absolute;
-    right: 0.75rem;
-    top: 0.5rem;
-}
+/* MAUI-only additions. Everything else (page, links, validation, error banner)
+   comes from CSweet.UI so the app matches the web host. */
 
 .status-bar-safe-area {
     display: none;
@@ -61,7 +11,7 @@ h1:focus {
         position: sticky;
         top: 0;
         height: env(safe-area-inset-top);
-        background-color: #f6f8fa;
+        background-color: var(--paper);
         width: 100%;
         z-index: 1;
     }

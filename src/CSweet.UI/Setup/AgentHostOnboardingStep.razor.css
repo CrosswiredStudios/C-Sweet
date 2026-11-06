@@ -42,7 +42,7 @@
     background: var(--activity-panel, #fff);
     color: inherit;
     cursor: pointer;
-    text-align: left;
+    text-align: start;
     transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
 
@@ -284,7 +284,7 @@
     align-items: center;
     justify-content: center;
     gap: 1rem;
-    text-align: left;
+    text-align: start;
 }
 
 .host-ready-icon {
@@ -317,8 +317,8 @@
 }
 
 .remote-status {
-    padding-left: 2rem;
-    border-left: 1px solid var(--cs-border);
+    padding-inline-start: 2rem;
+    border-inline-start: 1px solid var(--cs-border);
 }
 
 .host-platform-picker {
@@ -737,7 +737,7 @@
 .custom-allocation > small { display: block; margin-top: .55rem; color: var(--cs-muted); font-size: .68rem; }
 .custom-allocation > small.invalid { color: var(--mud-palette-error, #aa3440); }
 
-.local-session-progress { display: flex; min-height: 9rem; align-items: center; justify-content: center; gap: 1rem; text-align: left; }
+.local-session-progress { display: flex; min-height: 9rem; align-items: center; justify-content: center; gap: 1rem; text-align: start; }
 .local-session-progress strong,
 .local-session-progress span { display: block; }
 .local-session-progress strong { color: var(--cs-navy); font-size: 1.05rem; }
@@ -749,7 +749,7 @@
 .local-approval-explanation li,
 .local-approval-explanation small { color: var(--cs-muted); font-size: .74rem; line-height: 1.5; }
 .local-approval-explanation p { margin: .35rem 0; }
-.local-approval-explanation ul { padding-left: 1.1rem; margin: .35rem 0 .6rem; }
+.local-approval-explanation ul { padding-inline-start: 1.1rem; margin: .35rem 0 .6rem; }
 .local-approval-explanation small { display: block; font-weight: 700; }
 .host-error-icon { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--mud-palette-error) 10%, var(--activity-panel, #fff)); color: var(--mud-palette-error, #aa3440); }
 .local-install-actions { display: flex; justify-content: center; gap: .75rem; }
@@ -765,9 +765,9 @@
 
     .remote-status {
         padding-top: 1.25rem;
-        padding-left: 0;
+        padding-inline-start: 0;
         border-top: 1px solid var(--cs-border);
-        border-left: 0;
+        border-inline-start: 0;
     }
 }
 

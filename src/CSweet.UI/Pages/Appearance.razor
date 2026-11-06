@@ -1,30 +1,72 @@
 @page "/settings/appearance"
 @layout SettingsLayout
 @inject AppearanceState AppearanceState
+@inject NotificationSoundPlayer Sounds
 @implements IDisposable
 @inject IAppLocalizer L
 
 <PageTitle>@L["Appearance.AppearanceCSweet"]</PageTitle>
 <section class="appearance-settings">
-    <MudText Typo="Typo.overline">@L["Appearance.Preferences"]</MudText>
-    <MudText Typo="Typo.h4">@L["Appearance.Appearance"]</MudText>
-    <p>@L["Appearance.ChooseALookForYour"]</p>
+    <header class="appearance-header">
+        <MudText Typo="Typo.overline">@L["Appearance.Preferences"]</MudText>
+        <MudText Typo="Typo.h4">@L["Appearance.Appearance"]</MudText>
+        <p>Your workspace, in your colours. Choose from 43 built-in themes.</p>
+    </header>
+    <div class="appearance-current" style="@AppearanceState.CurrentTheme.PreviewStyle">
+        <div class="current-preview" aria-hidden="true">
+            <div class="current-preview-rail"><i></i><i></i><i></i></div>
+            <div class="current-preview-body"><span>Workspace</span><strong>A little clarity.</strong><div class="current-preview-tabs"><b>Overview</b><span>Activity</span><span>People</span></div><div class="current-preview-cards"><i></i><i></i></div></div>
+        </div>
+        <div class="current-theme-copy"><span class="appearance-kicker">Current theme</span><h2>@AppearanceState.CurrentTheme.Name</h2><p>@AppearanceState.CurrentTheme.Description</p><span class="theme-scheme">@(AppearanceState.IsDark ? "Dark appearance" : "Light appearance")</span></div>
+    </div>
+    <div class="appearance-toolbar">
+        <label class="theme-search"><MudIcon Icon="@Icons.Material.Outlined.Search" /><input type="search" @bind="_search" @bind:event="oninput" placeholder="Find a theme…" aria-label="Find a theme" /></label>
+        <div class="theme-filters" role="group" aria-label="Filter themes by appearance">
+            @foreach (var filter in new[] { "All", "Dark", "Light" })
+            {
+                <button type="button" aria-pressed="@((_filter == filter).ToString().ToLowerInvariant())" @onclick="@(() => _filter = filter)">@filter</button>
+            }
+        </div>
+    </div>
+    <p class="theme-results" role="status">@FilteredThemes.Count() @(FilteredThemes.Count() == 1 ? "theme" : "themes")</p>
     <div class="appearance-options" role="group" aria-label="@L["Appearance.WorkspaceTheme"]">
-        @foreach (var theme in new[] { (Key: "aurora", Label: "Aurora Light", Description: "Soft color, luminous surfaces."), (Key: "gold", Label: "Black & Gold", Description: "Deep black, warm gold, crisp white.") })
+        @foreach (var theme in FilteredThemes)
         {
-            <button type="button" class="appearance-option @(AppearanceState.Theme == theme.Key ? "selected" : "")" aria-pressed="@((AppearanceState.Theme == theme.Key).ToString().ToLowerInvariant())" @onclick="@(() => AppearanceState.SetThemeAsync(theme.Key))">
-                <span class="appearance-preview @theme.Key" aria-hidden="true"><span class="preview-nav"><span></span><span></span><span></span></span><span class="preview-content"><strong>@L["Appearance.YourWorkspace"]</strong><span class="preview-card">@L["Appearance.ALittleClarity"]<br />@L["Appearance.ALittleAtmosphere"]<i></i><i></i></span></span></span>
-                <span class="appearance-option-label"><strong>@theme.Label</strong><span>@(AppearanceState.Theme == theme.Key ? "Selected" : "Select theme")</span></span>
+            <button @key="theme.Id" type="button" class="appearance-option @(AppearanceState.Theme == theme.Id ? "selected" : "")" aria-pressed="@((AppearanceState.Theme == theme.Id).ToString().ToLowerInvariant())" @onclick="@(() => AppearanceState.SetThemeAsync(theme.Id))" style="@theme.PreviewStyle">
+                <span class="theme-swatch" aria-hidden="true"><span class="swatch-rail"><i></i><i></i><i></i></span><span class="swatch-content"><i></i><span><b></b><b></b></span></span></span>
+                <span class="appearance-option-label"><strong>@theme.Name</strong><span class="theme-selected-mark" aria-hidden="true">@(AppearanceState.Theme == theme.Id ? "✓" : "")</span></span>
                 <small>@theme.Description</small>
+                <span class="theme-source">@(theme.IsDark ? "Dark" : "Light")</span>
             </button>
         }
     </div>
-    <p role="status">@(AppearanceState.PersistenceUnavailable ? "Theme applied for this session. Browser storage is unavailable, so it may reset when you return." : "Your preference is saved automatically in this browser.")</p>
+    @if (!FilteredThemes.Any()) { <p>No themes match. Try another name or appearance.</p> }
+    @if (Sounds.Available)
+    {
+        <section class="appearance-sounds" aria-labelledby="appearance-sounds-title">
+            <h2 id="appearance-sounds-title">Notification sounds</h2>
+            <p>Chimes play only when C-Sweet is in the background. Muting applies to this browser.</p>
+            <MudSwitch T="bool" Value="@(!_muted)" ValueChanged="SetSoundsAsync" Color="Color.Primary" Label="@(_muted ? "Sounds muted" : "Sounds on")" />
+        </section>
+    }
+    <p class="appearance-save-status" role="status">@(AppearanceState.PersistenceUnavailable ? "Theme applied for this session. Browser storage is unavailable, so it may reset when you return." : "Your preference is saved automatically in this browser.")</p>
 </section>
 
 @code {
+    private string _search = "";
+    private string _filter = "All";
+    private IEnumerable<AppearanceTheme> FilteredThemes => AppearanceThemes.All.Where(t =>
+        (_filter == "All" || t.IsDark == (_filter == "Dark")) &&
+        ($"{t.Name} {t.Description}".Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)));
     protected override void OnInitialized() => AppearanceState.Changed += OnChanged;
-    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await AppearanceState.InitializeAsync(); }
+    private bool _muted;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await AppearanceState.InitializeAsync();
+        if (Sounds.Available) { _muted = await Sounds.IsMutedAsync(); StateHasChanged(); }
+    }
+    private async Task SetSoundsAsync(bool on) { _muted = !on; await Sounds.SetMutedAsync(_muted); }
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => AppearanceState.Changed -= OnChanged;
 }
