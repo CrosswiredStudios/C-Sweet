@@ -82,7 +82,7 @@ public sealed class AgentConfigurationVisibilityTests
             "src/CSweet.UI/Components/Hiring/AgentHireDialog.razor",
             "src/CSweet.UI/Components/Employees/EmployeeConfigurationPanel.razor.cs",
             "src/CSweet.UI/Components/HiringWorkflowApprovalCard.razor",
-            "src/CSweet.UI/Pages/Plugins.razor",
+            "src/CSweet.UI/Pages/Plugins.razor.cs",
             "src/CSweet.UI/Pages/PluginSetup.razor",
             "src/CSweet.UI/Setup/CommunicationsSetupStep.razor"
         };

@@ -13,7 +13,7 @@ namespace CSweet.UnitTests;
 
 public sealed partial class WorkManagementCapabilityHandlerTests
 {
-    [Fact]
+    [SiblingAgentRepositoryFact("Producer.VideoGame")]
     public async Task ApprovedManagerSetupGrantsCanConfigureItsRealDeliveryProfileThroughTheBroker()
     {
         await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()

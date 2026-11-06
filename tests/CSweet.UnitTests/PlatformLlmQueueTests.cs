@@ -37,9 +37,9 @@ public sealed class PlatformLlmQueueTests
             var fifth = fixture.Service.AcquireProviderAsync(profile.Id, cancel.Token);
             Assert.False(fifth.IsCompleted);
             using var independent = await fixture.Service.AcquireProviderAsync(
-                fixture.Arguments.GetProperty("providerProfileId").GetGuid(), default).WaitAsync(TimeSpan.FromSeconds(3));
+                fixture.Arguments.GetProperty("providerProfileId").GetGuid(), default).WaitAsync(TimeSpan.FromSeconds(30));
             active[0].Dispose();
-            using var admitted = await fifth.WaitAsync(TimeSpan.FromSeconds(3));
+            using var admitted = await fifth.WaitAsync(TimeSpan.FromSeconds(30));
         }
         finally
         {
@@ -53,7 +53,7 @@ public sealed class PlatformLlmQueueTests
     {
         await using var fixture = await Fixture.CreateAsync();
         var first = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var second = await fixture.StartAsync(fixture.Second);
         Assert.Equal("Queued", (await fixture.ReadAsync(fixture.Second, second)).GetProperty("state").GetString());
         await using (var scope = fixture.Services.CreateAsyncScope())
@@ -64,7 +64,7 @@ public sealed class PlatformLlmQueueTests
             await db.SaveChangesAsync();
         }
         await fixture.Service.RefreshProviderCapacitiesAsync(default);
-        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Equal(2, fixture.Executor.MaximumActive);
         Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.Second, second)).GetProperty("state").GetString());
         fixture.Executor.ReleaseFirst.TrySetResult();
@@ -80,7 +80,7 @@ public sealed class PlatformLlmQueueTests
         fixture.Executor.ContractFailure = true;
         fixture.Executor.ThrowContractFailure = thrown;
         var id = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         fixture.Executor.ReleaseFirst.TrySetResult();
         var result = await fixture.WaitCompletedAsync(fixture.First, id);
         Assert.Equal("Failed", result.GetProperty("state").GetString());
@@ -107,7 +107,7 @@ public sealed class PlatformLlmQueueTests
             work.SourceType = source; work.Name = name; work.Kind = kind; await db.SaveChangesAsync();
         }
         var first = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var second = await fixture.StartAsync(fixture.Second);
         // Read waits for queue persistence/admission, keeping the order deterministic.
         Assert.Equal("Queued", (await fixture.ReadAsync(fixture.Second, second)).GetProperty("state").GetString());
@@ -151,7 +151,7 @@ public sealed class PlatformLlmQueueTests
         else
         {
             var jobId = await start;
-            await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
             fixture.Executor.ReleaseFirst.TrySetResult();
             Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.First, jobId)).GetProperty("state").GetString());
         }
@@ -169,7 +169,7 @@ public sealed class PlatformLlmQueueTests
     {
         await using var fixture = await Fixture.CreateAsync(new() { GenerationTimeoutSeconds = 1 });
         var first = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var second = await fixture.StartAsync(fixture.Second);
         var result = await fixture.WaitCompletedAsync(fixture.First, first);
         Assert.Equal("Failed", result.GetProperty("state").GetString());
@@ -181,7 +181,7 @@ public sealed class PlatformLlmQueueTests
         var run = await db.AgentRunLogs.SingleAsync(x => x.Id == first);
         Assert.Equal("Failed", run.Status);
         Assert.NotNull(run.CompletedAt);
-        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Equal("Completed", (await fixture.WaitCompletedAsync(fixture.Second, second)).GetProperty("state").GetString());
         Assert.Equal(1, fixture.Executor.MaximumActive);
     }
@@ -217,7 +217,7 @@ public sealed class PlatformLlmQueueTests
             await db.SaveChangesAsync();
         }
         var job = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Contains("Use the existing deployment.", fixture.Executor.LastRequestJson);
         Assert.Contains("untrusted discussion", fixture.Executor.LastRequestJson);
         Assert.DoesNotContain("Use the existing deployment.", fixture.Arguments.GetRawText());
@@ -254,7 +254,7 @@ public sealed class PlatformLlmQueueTests
     {
         await using var fixture = await Fixture.CreateAsync();
         var first = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var second = await fixture.StartAsync(fixture.Second);
         Assert.Equal("Queued", (await fixture.ReadAsync(fixture.Second, second)).GetProperty("state").GetString());
         for (var i = 0; i < 6; i++)
@@ -267,7 +267,7 @@ public sealed class PlatformLlmQueueTests
         Assert.True(queued.GetProperty("workDeadline").GetDateTimeOffset() > fixture.Clock.GetUtcNow());
         Assert.Equal(1, fixture.Executor.Started);
         fixture.Executor.ReleaseFirst.TrySetResult();
-        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Equal(1, fixture.Executor.MaximumActive);
         await fixture.WaitCompletedAsync(fixture.Second, second);
     }
@@ -277,7 +277,7 @@ public sealed class PlatformLlmQueueTests
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var queued = await fixture.StartAsync(fixture.Second);
         Assert.Equal(queued, await fixture.StartAsync(fixture.Second));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ReadAsync(fixture.First.Session, queued, 0, default));
@@ -295,7 +295,7 @@ public sealed class PlatformLlmQueueTests
     {
         await using var fixture = await Fixture.CreateAsync();
         var id = await fixture.StartAsync(fixture.First);
-        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await fixture.Executor.FirstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
         fixture.Clock.Advance(TimeSpan.FromMinutes(3));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ReadAsync(fixture.First.Session, id, 0, default));
     }

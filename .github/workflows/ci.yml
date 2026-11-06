@@ -1,0 +1,136 @@
+name: CI
+
+# Builds every solution project except the MAUI client (which needs platform workloads) and runs
+# the unit, integration, remote MCP and Personal Assistant suites, including the PostgreSQL
+# acceptance tests that are otherwise skipped. Cross-repository journey suites
+# (tests/CSweet.DeliveryWorkflow.Tests, tests/CSweet.GameRoleWorkflow.Tests) need sibling agent
+# checkouts and are not part of this gate.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: csweet-ci-only
+        ports: ['5432:5432']
+        # Many tests migrate their own database concurrently; the default 64 MB shared memory
+        # segment and lock table run out ("53200: out of shared memory").
+        options: >-
+          --shm-size=1g
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PG: Host=localhost;Port=5432;Username=postgres;Password=csweet-ci-only;Command Timeout=300;Timeout=60
+      # Sibling sources must never conceal a stale published package.
+      PACKAGE_SOURCES: >-
+        -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
+        -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
+        -p:UseLocalIsolation=false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+
+      - name: Configure PostgreSQL for concurrent test databases
+        run: |
+          container=${{ job.services.postgres.id }}
+          docker exec "$container" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = 1024" -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart "$container"
+          until docker exec "$container" pg_isready -U postgres; do sleep 1; done
+          # These suites refuse any database whose name lacks their validation prefix.
+          docker exec "$container" psql -U postgres -c "CREATE DATABASE efficiency_validation" -c "CREATE DATABASE calendar_validation"
+          {
+            for name in CALENDAR DELEGATION EFFICIENCY HIRING MEMORY PERSONAL_TODO; do
+              echo "CSWEET_${name}_TEST_POSTGRES=$PG;Database=postgres"
+            done
+            echo "CSWEET_COMPUTE_TEST_DATABASE=$PG;Database=postgres"
+            echo "CSWEET_EVENT_DELIVERY_TEST_DATABASE=$PG;Database=postgres"
+            echo "CSWEET_EFFICIENCY_VALIDATION_POSTGRES=$PG;Database=efficiency_validation"
+            echo "CSWEET_CALENDAR_VALIDATION_POSTGRES=$PG;Database=calendar_validation"
+          } >> "$GITHUB_ENV"
+
+      - name: Build solution projects (excluding MAUI)
+        run: |
+          grep -oE 'Path="[^"]+\.csproj"' CSweet.slnx | sed -E 's/Path="(.*)"/\1/' | grep -v 'CSweet.Maui' | while read -r project; do
+            echo "::group::$project"
+            dotnet build "$project" --configuration Release $PACKAGE_SOURCES -nr:false || exit 1
+            echo "::endgroup::"
+          done
+
+      - name: Unit tests
+        run: >-
+          dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj --configuration Release --no-build
+          --logger 'trx;LogFileName=unit.trx' --results-directory artifacts/test-results
+
+      - name: Integration tests
+        env:
+          CSWEET_EFFICIENCY_TEST_POSTGRES: ${{ env.CSWEET_EFFICIENCY_VALIDATION_POSTGRES }}
+          CSWEET_CALENDAR_TEST_POSTGRES: ${{ env.CSWEET_CALENDAR_VALIDATION_POSTGRES }}
+        run: >-
+          dotnet test tests/CSweet.IntegrationTests --configuration Release --no-build
+          --logger 'trx;LogFileName=integration.trx' --results-directory artifacts/test-results
+          -- xUnit.ParallelizeTestCollections=false
+
+      - name: Remote MCP and Personal Assistant tests
+        run: |
+          dotnet test tests/CSweet.RemoteMcp.Tests --configuration Release --no-build \
+            --logger 'trx;LogFileName=remote-mcp.trx' --results-directory artifacts/test-results
+          dotnet test agents/CSweet.PersonalAssistant/tests/CSweet.PersonalAssistant.Tests --configuration Release --no-build \
+            --logger 'trx;LogFileName=personal-assistant.trx' --results-directory artifacts/test-results
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-results
+          path: artifacts/test-results/*.trx
+          if-no-files-found: ignore
+
+  # Tests marked [WindowsFact]/[WindowsTheory] skip on Linux; this job runs their classes.
+  windows-only-tests:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Windows-only unit tests
+        shell: pwsh
+        run: >-
+          dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj --configuration Release
+          --filter "FullyQualifiedName~ExecutionFleetServiceTests|FullyQualifiedName~ComputeWindowsGuestProcessTests"
+          --logger "trx;LogFileName=windows.trx" --results-directory artifacts/test-results
+          -p:UseLocalCSweetMemory=false -p:UseLocalCSweetAgentSdk=false
+          -p:UseLocalCSweetWorkManagementContracts=false -p:UseLocalOfficeContracts=false
+          -p:UseLocalIsolation=false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: windows-test-results
+          path: artifacts/test-results/*.trx
+          if-no-files-found: ignore
