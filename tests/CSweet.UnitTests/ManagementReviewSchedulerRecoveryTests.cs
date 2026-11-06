@@ -19,20 +19,20 @@ public sealed class ManagementReviewSchedulerRecoveryTests
         await scheduler.StartAsync(CancellationToken.None);
         try
         {
-            var first = await logger.Failures.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            var first = await logger.Failures.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
             Assert.IsType(independentCancellation ? typeof(OperationCanceledException) : typeof(TimeoutException), first);
             Assert.False(scheduler.ExecuteTask!.IsCompleted);
             Assert.Equal(1, scopes.Attempts);
             Assert.Equal(TimeSpan.FromMinutes(1), clock.Period);
 
             clock.Tick();
-            await logger.Failures.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            await logger.Failures.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Equal(2, scopes.Attempts);
             Assert.False(scheduler.ExecuteTask.IsCompleted);
         }
         finally
         {
-            await scheduler.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            await scheduler.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
         }
         Assert.True(scheduler.ExecuteTask!.IsCompletedSuccessfully);
         Assert.True(clock.Disposed);

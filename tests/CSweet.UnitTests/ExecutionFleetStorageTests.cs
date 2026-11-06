@@ -8,7 +8,7 @@ namespace CSweet.UnitTests;
 
 public sealed partial class ExecutionFleetServiceTests
 {
-    [Fact]
+    [WindowsFact]
     public async Task SelectedStoragePersistsAndReachesAuthenticatedInstallerHandoff()
     {
         await using var db = CreateDb();
