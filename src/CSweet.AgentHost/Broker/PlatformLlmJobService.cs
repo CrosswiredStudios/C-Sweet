@@ -24,7 +24,8 @@ public sealed class PlatformLlmJobOptions
     public int GenerationTimeoutSeconds { get; set; }
     /// <summary>Maximum serialized inference bytes; zero disables this limit.</summary>
     public int MaximumRequestBytes { get; set; }
-    public int MaximumMessageCount { get; set; } = 512;
+    /// <summary>Optional message count limit; zero lets model capacity govern context.</summary>
+    public int MaximumMessageCount { get; set; }
     /// <summary>Maximum message characters; zero disables this limit.</summary>
     public int MaximumMessageCharacters { get; set; }
     public int MaximumToolCount { get; set; } = 256;
