@@ -56,6 +56,38 @@ public sealed class DeliveryCorrectionTests
     }
 
     [Fact]
+    public async Task Source_selection_is_durable_and_replayable_before_any_corrective_work_exists()
+    {
+        await using var f = await HierarchicalDeliveryServiceTests.Fixture.Create(false);
+        var rejected = await Reject(f);
+        var correction = Assert.Single(rejected.Corrections);
+        var taskCount = await f.Db.CoreWorkTasks.CountAsync();
+        var request = new CoordinateWorkDeliveryCorrectionRequest(rejected.Id, correction.Id, correction.Revision,
+            "source-selection", SourceItemId: f.Task.Id,
+            WaitingReason: "The retained scene finding belongs to this accepted implementation scope.");
+
+        var selected = await f.Service.CoordinateCorrectionAsync(f.Org, f.Manager.Id, request);
+        var saved = Assert.Single(selected.Corrections);
+        Assert.Equal(f.Task.Id, saved.SourceItemId);
+        Assert.Equal("NeedsPlanning", saved.Status);
+        Assert.Null(saved.FollowUpPlanId);
+        Assert.Empty(saved.RemediationTaskIds!);
+        Assert.Equal("Active", selected.Status);
+        Assert.Equal("Open", Assert.Single(selected.Findings).Status);
+        Assert.Equal(taskCount, await f.Db.CoreWorkTasks.CountAsync());
+        Assert.Equal(WorkTaskStatus.Completed, f.Task.Status);
+
+        f.Db.ChangeTracker.Clear();
+        var replay = await f.Service.CoordinateCorrectionAsync(f.Org, f.Manager.Id, request);
+        Assert.Equal(selected.Revision, replay.Revision);
+        Assert.Equal(JsonSerializer.Serialize(saved, Json), JsonSerializer.Serialize(Assert.Single(replay.Corrections), Json));
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => f.Service.CoordinateCorrectionAsync(f.Org, f.Manager.Id,
+            request with { IdempotencyKey = "racing-source-selection" }));
+        Assert.Contains(await f.Db.AgentPlatformEventOutbox.ToListAsync(),
+            entry => entry.EventType == WorkDeliveryCapabilities.Changed && entry.DataJson.Contains("correction.changed"));
+    }
+
+    [Fact]
     public async Task Missing_engineer_retains_a_specific_manager_action_and_duplicate_requests_do_not_reassign()
     {
         await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);var plan=await Reject(f);

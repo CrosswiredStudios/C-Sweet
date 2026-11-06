@@ -179,10 +179,89 @@ Rollout order:
    stays stopped, #38/Sprint 2 stay historical, and successor planning resumes only
    from accepted follow-up evidence. Do not retry merely to erase the finding.
 
-Live rollout remains pending. C-Sweet's local containers/services were stopped at
-preflight, so no live database state was changed and no Prism Break recovery is
-claimed from these tests. The known retained source defect still requires actual
-engineering correction after installation.
+Live platform rollout verified on 2026-11-05 (Pacific): the normal migrator applied
+`20261106025444_CorrectiveDeliveryHandoffs` to the existing database and completed
+setup seeding. API and AgentHost started. The delivery pulse created exactly one
+Pending correction for #43's retained QA finding, owned by the existing Producer.
+At the initial checkpoint Producer remained installed at 6.2.4. The subsequent
+6.3.0 installation was verified with configuration `Current` and a running MCP
+session. Its automatic wake processed the retained delivery event and changed
+the same correction to `NeedsPlanning`, revision 2, without creating duplicates.
+Actual engineering correction/independent acceptance remain pending.
+
+The live recovery exposed a planning gap: the rejected plan has two completed
+Code inputs in the same repository, #37 (dependency pin) and #38 (placeholder
+scene). `DeliveryCorrectionCoordinator.ReconcileAsync` requires exactly one
+source in SDK 5.11.0 unless `WorkDeliveryCorrection.SourceItemId` is already selected. It
+therefore retained "Select the source task before corrective planning" and did
+not create a repair task, follow-up plan or sprint. This is the tested conservative
+ambiguity path; Producer 6.3.0 had no manager continuation selecting the source
+for this live case. The reported scene defect belongs to #38's scope. The
+multi-source follow-up below supplies a durable selection continuation while
+preserving ambiguity handling for genuinely uncertain findings. Merely starting
+the 6.3.0 runtime or retrying #43 does not resolve
+this gap. Sprint 2 and #38 remain completed; Sprint 3 remains planned.
+
+The first startup failed with EF's pending-model warning because the migrator's
+copied `CSweet.Infrastructure.dll` predated the final migration. Rebuilding normal
+startup outputs and restarting resolved it; no warning suppression, replacement
+migration or manual database write was required. Stop the running AppHost before
+rebuilding all its services to avoid GitHost/provisioner dependency file locks.
+`MigratorModelParityTests.Real_startup_services_match_the_migration_snapshot_and_design_time_factory`
+checks the real infrastructure registration against the snapshot and design-time
+factory without opening a database connection. EF's `has-pending-model-changes`
+check also passes against the rebuilt migrator. These checks verify source/model
+parity; the live migration/startup verification additionally verifies deployed
+build outputs.
+
+## Multi-source manager continuation follow-up
+
+Prepared versions: **SDK 5.12.0** and **Producer 6.3.1**. Work Management
+Contracts remains 5.3.0. No additional platform migration, network access,
+compute-provider, QA or Technical Director update is needed.
+
+- `DeliveryCorrectionCoordinator.ReconcileProjectAsync` retains its existing
+  overload and adds a lazy planning-client overload. Producer's
+  `ReconcileDeliveryCorrectionAsync` uses its configured provider/model with
+  invocation kind `delivery-correction-source` from both identity-based recovery
+  and portfolio fallback. The client is created only for multiple source inputs.
+- `DeliveryCorrectionCoordinator.SelectSourceAsync` in
+  `DeliveryCorrectionCoordinator.Selection.cs` makes one tool-free planning call using at most eight
+  completed in-plan source scopes and eight retained findings. Every finding must
+  map to the same source, with distinctive verbatim accepted scope and finding
+  evidence. Cross-source, missing, malformed, unsupported and genuinely uncertain
+  choices retain a manager-owned wait. No task is guessed from author, ordering,
+  repository identity or report prose.
+- Before task creation, the coordinator rechecks the plan and all candidate task
+  revisions/statuses, then saves `SourceItemId` and its rationale through
+  `CoordinateDeliveryCorrectionAsync` with a stable correction key. A lost
+  selection/task response or fresh invocation reuses that selection without
+  another model call. Normal grants, original requirements, current staffing,
+  separate-sprint preflight, independent QA and fresh acceptance remain enforced.
+
+Verification: **748 SDK tests**, **two sample tests**, **506 package-only Producer
+tests**, **eight platform correction/startup tests** (including real PostgreSQL
+rollback/concurrency, no skips), and **seven generated-template tests** plus its
+self-test. Producer's published-output self-test, source-release guard, NuGet
+metadata, Linux bundle verification and exact bundled-SDK comparison pass.
+The SDK coordinator tests include Prism Break's distinct scene/dependency
+scopes, selection-before-execution ordering, cold restarts/lost responses,
+stale selected or competing tasks, stale plans, denied selection, provider
+failure/timeout, caller cancellation, invalid/missing/duplicate evidence and
+findings spanning multiple sources. The Producer wake test exercises its actual
+configured platform model and saves the selection before creating engineering
+work, independently of incident reporting.
+
+Rollout: publish SDK 5.12.0, then publish/install Producer 6.3.1 through Installed
+Agents. The existing platform already supports the selection receipt; restarting
+the whole application is not required by this follow-up. Verify the installed
+Producer selects #38 from current evidence, binds exactly one corrective plan,
+starts the separate corrective sprint, and the engineer claims the task. Keep
+#38/Sprint 2 historical and retain #43's rejected verdict until a new candidate
+passes independent QA and follow-up acceptance. These releases are prepared,
+not installed or published by local testing; live engineering recovery remains
+pending the Installed Agents update. Release hashes and logs are recorded in
+`.artifacts/cool-games-review/multi-source-release-verification.json`.
 
 ## Research basis
 
