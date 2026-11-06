@@ -188,6 +188,24 @@ try {
         Check (@(Get-ChildItem -LiteralPath $testRoot -Filter "failure-$fault.part-*").Count -eq 0) 'Failed reconstruction removes its temporary part.'
     }
     $script:downloadFault = ''
+
+    # A verified archive is cached by digest, so a reassign/repair/retry of the same release does not download again.
+    $cacheRoot = "$testRoot/release-cache"
+    $script:requestedParts = @()
+    Receive-CSweetOfficeAsset $multipart "$testRoot/cached-first" -CacheRoot $cacheRoot | Out-Null
+    Check (Test-Path -LiteralPath "$cacheRoot/$($multipart.sha256).zip") 'A verified archive is kept in the release cache.'
+    Check (-not (Test-Path "$testRoot/cached-first.zip")) 'The cached archive is moved, not duplicated.'
+    $script:requestedParts = @()
+    Receive-CSweetOfficeAsset $multipart "$testRoot/cached-second" -CacheRoot $cacheRoot | Out-Null
+    Check ($script:requestedParts.Count -eq 0) 'A verified cached archive must not be downloaded again.'
+    Check ((Get-Content "$testRoot/cached-second/guest/image.vhdx") -eq 'fixture') 'A cached archive extracts the original bundle.'
+    $cachedBytes = [IO.File]::ReadAllBytes("$cacheRoot/$($multipart.sha256).zip"); $cachedBytes[0] = $cachedBytes[0] -bxor 255
+    [IO.File]::WriteAllBytes("$cacheRoot/$($multipart.sha256).zip", $cachedBytes)
+    $script:requestedParts = @()
+    Receive-CSweetOfficeAsset $multipart "$testRoot/cached-third" -CacheRoot $cacheRoot | Out-Null
+    Check ($script:requestedParts.Count -eq $multipart.parts.Count) 'A tampered cache entry is discarded and downloaded again.'
+    Check ((Get-Content "$testRoot/cached-third/guest/image.vhdx") -eq 'fixture') 'The re-downloaded archive extracts.'
+
     [IO.File]::WriteAllText("$testRoot/existing.zip", 'preserve')
     Reject { Receive-CSweetOfficeAsset $multipart "$testRoot/existing" } 'Do not overwrite another archive.'
     Check ((Get-Content "$testRoot/existing.zip") -eq 'preserve') 'Cleanup must preserve files this invocation did not create.'

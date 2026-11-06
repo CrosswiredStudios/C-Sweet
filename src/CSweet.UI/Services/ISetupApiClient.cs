@@ -30,6 +30,10 @@ public interface ISetupApiClient
         Guid sessionId,
         string action,
         CancellationToken cancellationToken = default);
+    Task<LocalOfficeSetupActionResponse> ContinueLocalOfficeSetupAfterRestartAsync(Guid sessionId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+    Task<LocalOfficeSetupActionResponse> CancelLocalOfficeSetupSessionAsync(Guid sessionId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
     Task<ExecutionCapacityActionResponse> RevokeExecutionEnrollmentAsync(Guid enrollmentId, CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> ApproveExecutionNodeAsync(Guid nodeId, CancellationToken cancellationToken = default);
     Task<ExecutionCapacityActionResponse> RejectExecutionNodeAsync(Guid nodeId, CancellationToken cancellationToken = default);

@@ -239,7 +239,8 @@ try {
             -Message 'Downloading and verifying the update. Current jobs are still running.' -PercentComplete 0
         if ($null -ne $release) {
             $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
-                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))") `
+                -CacheRoot (Join-Path $payloadSetupRoot 'release-cache')
             $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
             $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
         }
@@ -482,7 +483,8 @@ try {
             # Hyper-V appends VM names and GUIDs beneath this bundle during certification.
             # Keep its unique staging name short enough for Hyper-V's legacy path limits.
             $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
-                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
+                -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))") `
+                -CacheRoot (Join-Path $payloadSetupRoot 'release-cache')
             $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
             $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
         }
@@ -496,6 +498,11 @@ try {
         $bootstrapArguments = @{ DevelopmentTools = $true; PublicInternetIpv4Only = $true }
         if ($null -ne $storage) { $bootstrapArguments.WorkingRoot = $certificationRoot }
         if ($prebuiltRoot) { $bootstrapArguments.PrebuiltRoot = $prebuiltRoot }
+        # A source image build gets the selected Office CPU budget (capped at 4) instead of a fixed VM size.
+        # Older Office bundles do not declare the parameter; never pass one they would reject.
+        if ((Get-Command -Name $OfficeBootstrapScript).Parameters.ContainsKey('BuildCpuCount')) {
+            $bootstrapArguments.BuildCpuCount = [Math]::Min(4, $allocatableCpuCount)
+        }
         if (-not $preparedPayloadRoot) {
         & $OfficeBootstrapScript @bootstrapArguments -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `

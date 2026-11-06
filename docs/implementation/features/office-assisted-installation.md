@@ -1,7 +1,58 @@
 # C-Sweet Office Assisted Installation Plan
 
 Status: Windows assisted installation and stale-installation recovery implemented  
-Last updated: 2026-09-20
+Last updated: 2026-11-06
+
+## Getting unstuck: restart resume, Start over, interrupted expiry (2026-11-06)
+
+A local setup could stop in three ways with no way out. Each now has an exit; all three live in
+`ExecutionFleetService.LocalSetupRecovery.cs`.
+
+**Continue after the Hyper-V restart.** `Initialize-CSweetWindowsIsolationTest.ps1` writes
+`restart-required` progress and exits; nothing reruns it (no logon task, and the launcher deleted its
+one-use handoff). `ExecutionFleetService.Map` now offers `CanContinueAfterRestart` only when
+`IsRestartResumeEligible` holds: the progress state is `restart-required`, Windows booted after the
+progress file was written (`LastBootTimeReader`, from `Environment.TickCount64`), and the request is
+younger than `RestartResumeWindow` (7 days). Until then the message says to restart and then choose
+**Continue setup**; it no longer claims setup resumes automatically.
+`POST /api/setup/execution-capacity/local-sessions/{id}/continue` →
+`ContinueLocalSetupAfterRestartAsync` moves the exact `Redeemed` version (status plus consumed handoff
+hash) back to `Created` with a fresh one-use handoff in one conditional update, revokes the stopped
+run's unclaimed enrollment, audits `office.local-setup.restart-resumed`, and then reuses
+`LaunchLocalSetupSessionAsync` (its `AdministratorApprovalRequestedAt` claim starts the elevated
+launcher at most once). The relaunched setup goes through preflight and redeem again, so it gets a new
+enrollment token; the bootstrap finds Hyper-V enabled and continues. A second click mints nothing.
+A one-shot elevated logon task was rejected: it would need a long-lived handoff on disk across the
+reboot.
+
+**Start over.** `POST .../local-sessions/{id}/cancel` → `CancelLocalSetupSessionAsync` abandons the
+creator's fresh-install session (`Created`, `Redeemed`, `RecoveryRequired` or `Failed`) by setting
+`Expired` with `ErrorCode = setup_cancelled`, replacing the handoff hash, revoking an unclaimed
+enrollment, and auditing `office.local-setup.cancelled`. It refuses other users (`session_not_found`),
+repair/upgrade/automatic-update sessions, removal in progress, and a setup whose live owner reported
+progress within `ActiveSetupProgressWindow` (10 minutes). Nothing on the machine is removed.
+`LocalOfficeSetupSessionResponse.CanStartOver` tells the UI when the button is offered.
+
+**Interrupted expiry.** `ExpireLocalSetupSessionsAsync` now calls `ExpireAbandonedRedeemedSetupsAsync`:
+a fresh-install `Redeemed` session older than `AbandonedRedeemedSetupGrace` (30 minutes), with no
+claimed enrollment and no live progress owner, expires with `office_setup_interrupted`
+(`IsAbandonedRedeemedSetup`). A pending restart keeps its 7-day window. Audit:
+`office.local-setup.interrupted-expired`.
+
+**Setup page.** `AgentHostOnboardingStep` polls through `SetupStatusPoller` (one sequential loop:
+the next request is scheduled only after the previous one completed, `SetupPollSchedule` backs off
+3 s → 5 s → 15 s idle, and 10/20/30 s after failures) owned by a per-instance `_lifetime` token that
+`DisposeAsync` cancels, even if disposal happens before `OnInitializedAsync` finished. The previous
+`PeriodicTimer` loop could be started after disposal and was never cancelled, so leaked loops fired
+together after a throttled background tab (the observed 8 requests in 14 ms). `PollOnceAsync` fetches
+everything first and applies nothing if a user action started meanwhile. Recovery handlers no longer
+return silently when busy. The recovery and continue actions sit in named groups with explicit
+`aria-label`/`aria-describedby`, and focus moves to their heading once so they are on screen.
+
+Release discovery is unchanged in preference (a verified published release first, the configured
+source only when discovery is unavailable), but the verified bundle archive is now cached by SHA-256
+under the protected staging root (`Receive-CSweetOfficeAsset -CacheRoot`, `release-cache`, two most
+recent kept) and re-hashed before reuse, so a reassign, repair or retry does not download it again.
 
 ## Office drive selection (2026-10-24)
 
