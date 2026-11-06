@@ -247,6 +247,8 @@
   "AgentRuntimeSettings.DefaultMemory": "e71210605db3",
   "AgentRuntimeSettings.MaximumMemory": "69fb97a20870",
   "AgentRuntimeSettings.CodingInitialMemory": "9e367142048e",
+  "AgentRuntimeSettings.CodingProcessLimit": "18ed0b63825f",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "db42f952786b",
   "AgentRuntimeSettings.CodingMaximumMemory": "e5092fd4409e",
   "AgentRuntimeSettings.CodingMaximumReplacements": "55518a6d4ec3",
   "AgentRuntimeSettings.DefaultCpu": "7a60570c06db",

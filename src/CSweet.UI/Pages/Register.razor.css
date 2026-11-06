@@ -41,3 +41,4 @@
 @media(max-width:480px) { .registration-sheet { padding:24px; } .registration-sheet h1 { font-size:1.7rem; } .registration-exports { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .registration-download { grid-column:1/-1; grid-row:1; } }
 @media(max-width:360px) { .registration-sheet { padding:20px; } .registration-codes { padding:6px 8px; gap:0 8px; } .registration-codes code { font-size:.73rem; } }
 @media(prefers-reduced-motion:reduce) { .registration-primary,.registration-field ::deep input { transition:none; } }
+.registration-live-status { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }

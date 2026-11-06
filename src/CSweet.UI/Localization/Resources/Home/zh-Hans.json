@@ -17,6 +17,7 @@
   "NewBusinessDialog.BeginWithANameA": "从一个名称、一项使命和一个想法开始。",
   "NewBusinessDialog.StartFresh": "从零开始",
   "NewBusinessDialog.BusinessFromCodebases": "基于代码库创建企业",
+  "NewBusinessDialog.ExistingBusiness": "现有业务",
   "NewBusinessDialog.BringAnAppGameOr": "带上您已经在构建的应用、游戏或网站。",
   "NewBusinessDialog.ConnectGitHubOrUploadZIPs": "连接 GitHub 或上传 ZIP 文件",
   "NewBusinessDialog.YourAssistantHelpsPrepareThe": "助理会帮您准备上下文。您审阅后，再选择一位幕僚长。",

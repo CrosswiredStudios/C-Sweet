@@ -142,5 +142,7 @@
   "ShareWorkInstruction.History.Empty": "c6bbaf717c4e",
   "ShareWorkInstruction.History.More": "60897e081f07",
   "Communications.SendingAndConversationActionsAre": "c62308f9e515",
-  "CommunicationSettings.Discord": "bccc14ee7da1"
+  "CommunicationSettings.Discord": "bccc14ee7da1",
+  "DecisionPrompt.More": "4bab2d8fe13f",
+  "DecisionPrompt.ReadFullQuestion": "fe773124c30c"
 }

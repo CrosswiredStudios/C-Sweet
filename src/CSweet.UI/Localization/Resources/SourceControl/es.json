@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area, es. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "Volver a los repositorios",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "Conecta tu cuenta de GitHub para elegir repositorios para esta empresa.",
   "SourceControl.PageTitle": "Control de código fuente",
   "SourceControl.SourceControl": "Control de código fuente",
   "SourceControl.YourRepositoriesTheLatestWork": "Tus repositorios, el trabajo más reciente y quién tiene acceso.",

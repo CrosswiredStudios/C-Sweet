@@ -43,9 +43,9 @@
                 <MudPaper Outlined="true" Class="pa-3">
                     <MudText Typo="Typo.h6">@L["SourceControlActivity.ActivityDetails"]</MudText>
                     <MudText>Event: @entry.EventType</MudText>
-                    <MudText>Event ID: @entry.Id Â· sequence: @entry.Sequence</MudText>
-                    <MudText>Target: @entry.EntityType Â· @entry.EntityId</MudText>
-                    <MudText>Actor: @(entry.ActorDisplayName ?? entry.ActorKind) Â· user: @entry.ActorApplicationUserId Â· installation: @entry.ActorInstallationId</MudText>
+                    <MudText>Event ID: @entry.Id · sequence: @entry.Sequence</MudText>
+                    <MudText>Target: @entry.EntityType · @entry.EntityId</MudText>
+                    <MudText>Actor: @(entry.ActorDisplayName ?? entry.ActorKind) · user: @entry.ActorApplicationUserId · installation: @entry.ActorInstallationId</MudText>
                     <MudText>Trace: @entry.TraceId</MudText>
                     <MudButton OnClick="@(() => _selected = null)">@L["SourceControlActivity.CloseDetails"]</MudButton>
                 </MudPaper>

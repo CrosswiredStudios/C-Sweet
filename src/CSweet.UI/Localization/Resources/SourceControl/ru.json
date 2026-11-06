@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area, ru. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "Назад к репозиториям",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "Подключите учетную запись GitHub, чтобы выбрать репозитории для этого бизнеса.",
   "SourceControl.PageTitle": "Система контроля версий",
   "SourceControl.SourceControl": "Система контроля версий",
   "SourceControl.YourRepositoriesTheLatestWork": "Ваши репозитории, последняя работа и доступ к ним.",

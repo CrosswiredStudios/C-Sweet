@@ -244,6 +244,24 @@ public sealed class OrganizationDataPurgeService(
                 workItem.Id == execution.WorkItemId && workItem.OrganizationId == organizationId))
             .ExecuteDeleteAsync(cancellationToken);
 
+        // Plugin account rows restrict deletion of the installation they belong to.
+        // Missing these left an organization stuck in DeletionFailed with a foreign-key
+        // violation, after which storage admission rejected every write for the tenant.
+        // AgentInstallation is scoped by BusinessId (string), not OrganizationId;
+        // `businessId` is already computed above in this method.
+        await dbContext.PluginAccountRevocationJobs
+            .Where(job => dbContext.AgentInstallations.Any(installation =>
+                installation.Id == job.PluginInstallationId &&
+                installation.BusinessId == businessId &&
+                installation.Scope == PluginInstallationScope.Organization))
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PluginAccountResources
+            .Where(resource => dbContext.AgentInstallations.Any(installation =>
+                installation.Id == resource.PluginInstallationId &&
+                installation.BusinessId == businessId &&
+                installation.Scope == PluginInstallationScope.Organization))
+            .ExecuteDeleteAsync(cancellationToken);
+
         var scopedTypes = ScopedEntityTypes(dbContext.Model);
         var tables = PurgeTables(scopedTypes);
         var sqlHelper = dbContext.GetService<ISqlGenerationHelper>();

@@ -1257,7 +1257,8 @@ code {
 }
 
 @media (max-width: 860px) {
-    .auth-shell { grid-template-columns: 1fr; }
+    .auth-shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    .auth-card { padding: 1.25rem; }
     .auth-brand-panel { min-height: auto; padding: 1.5rem; }
     .auth-mark { width: 3.5rem; height: 3.5rem; }
     .page-header,
