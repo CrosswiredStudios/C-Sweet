@@ -59,6 +59,46 @@ public sealed class WorkSprintRealtimeTests
     }
 
     [Fact]
+    public async Task CancellingSprintClosesInFlightAgentWorkAttempt()
+    {
+        await using var db = CreateDb();
+        var (board, sprint, manager) = await SeedAsync(db);
+        sprint.Status = WorkSprintStatus.Active;
+        var now = DateTimeOffset.UtcNow;
+        var execution = new WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = board.OrganizationId,
+            BoardId = board.Id, SprintId = sprint.Id, Status = WorkSprintExecutionStatus.Active, StartedAt = now, UpdatedAt = now };
+        var itemExecution = new WorkItemExecution { Id = Guid.NewGuid(), SprintExecutionId = execution.Id,
+            WorkItemId = (await db.CoreWorkTasks.SingleAsync()).Id, ItemIdentifier = "DELIVERY-1", CurrentStageKey = "build",
+            Status = WorkItemExecutionStatus.Running, CreatedAt = now, UpdatedAt = now };
+        var stage = new WorkStageExecution { Id = Guid.NewGuid(), ItemExecutionId = itemExecution.Id, StageKey = "build",
+            StageType = WorkOrchestrationStageType.AgentExecution, Status = WorkStageExecutionStatus.Running,
+            PrincipalKind = WorkOrchestrationPrincipalKind.AgentInstallation, AgentInstallationId = Guid.NewGuid(),
+            CreatedAt = now, UpdatedAt = now };
+        var work = new CSweet.Domain.Setup.AgentWorkItem { Id = Guid.NewGuid(), OrganizationId = board.OrganizationId.ToString("D"),
+            AgentInstallationId = stage.AgentInstallationId!.Value, SourceType = "WorkStageExecution", SourceId = stage.Id.ToString("D"),
+            IdempotencyKey = "stage-work", Status = CSweet.Domain.Setup.AgentWorkStatus.Leased, Name = "build",
+            ProtectedPayload = [], PayloadHash = "hash", CreatedAt = now };
+        var delivery = new CSweet.Domain.Setup.AgentWorkAttempt { Id = Guid.NewGuid(), AgentWorkItemId = work.Id, Attempt = 1,
+            ClaimedAt = now, LeaseExpiresAt = now.AddMinutes(5) };
+        db.AddRange(execution, itemExecution, stage, work, delivery, new WorkExecutionAttempt { Id = Guid.NewGuid(),
+            StageExecutionId = stage.Id, AgentWorkItemId = work.Id, Attempt = 1, IdempotencyKey = "stage-attempt-1",
+            Status = WorkExecutionAttemptStatus.Running, CreatedAt = now, StartedAt = now });
+        await db.SaveChangesAsync();
+
+        await new WorkOrchestrationService(db, TimeProvider.System).ControlAsync(board.OrganizationId, board.Id, sprint.Id,
+            manager.ApplicationUserId!.Value, "cancel", new(execution.Revision, "cancel-with-work"));
+
+        db.ChangeTracker.Clear();
+        var cancelled = await db.AgentWorkItems.SingleAsync(x => x.Id == work.Id);
+        Assert.Equal(CSweet.Domain.Setup.AgentWorkStatus.Cancelled, cancelled.Status);
+        Assert.NotNull(cancelled.CompletedAt);
+        var closed = await db.AgentWorkAttempts.SingleAsync(x => x.Id == delivery.Id);
+        Assert.NotNull(closed.FinishedAt); // previously left open: the inbox shortcut was bypassed
+        Assert.Equal("cancelled", closed.Error);
+        Assert.Equal(WorkExecutionAttemptStatus.Cancelled, (await db.WorkExecutionAttempts.SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task FailedPreflightDoesNotPublishASprintStart()
     {
         await using var db = CreateDb();

@@ -14,8 +14,11 @@ public interface IChatTurnService
     Task<Guid?> ClaimNextAsync(string leaseOwner, CancellationToken cancellationToken = default);
     Task DeferForRuntimeAsync(Guid turnId, TimeSpan retryDelay, CancellationToken cancellationToken = default);
     Task<ChatTurnTraceEventResponse> TraceAsync(Guid turnId, string category, string eventType, string status, string title, string? summary = null, object? details = null, string sensitivity = "Internal", long? durationMs = null, CancellationToken cancellationToken = default);
-    Task SetStatusAsync(Guid turnId, string status, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default);
+    /// <summary>Moves an open turn to a worker status. Returns false when the stored turn is already
+    /// terminal (for example cancelled concurrently); the caller must stop processing it.</summary>
+    Task<bool> SetStatusAsync(Guid turnId, string status, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default);
     Task AppendOutputAsync(Guid turnId, string delta, CancellationToken cancellationToken = default);
     Task ReplaceOutputAsync(Guid turnId, string content, CancellationToken cancellationToken = default);
-    Task CompleteAsync(Guid turnId, Guid assistantMessageId, bool memoryWarning, CancellationToken cancellationToken = default);
+    /// <summary>Completes an open turn. Returns false when the stored turn was already terminal.</summary>
+    Task<bool> CompleteAsync(Guid turnId, Guid assistantMessageId, bool memoryWarning, CancellationToken cancellationToken = default);
 }

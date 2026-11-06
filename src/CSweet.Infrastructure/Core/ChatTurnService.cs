@@ -122,16 +122,56 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
 
     public async Task<bool> CancelAsync(Guid organizationId, Guid turnId, CancellationToken cancellationToken = default)
     {
-        var turn = await db.ChatTurns.SingleOrDefaultAsync(x => x.Id == turnId && x.OrganizationId == organizationId, cancellationToken);
-        if (turn is null || !ActiveStatuses.Contains(turn.Status)) return false;
-        turn.Status = ChatTurnStatus.Cancelled;
+        if (!await db.ChatTurns.AnyAsync(x => x.Id == turnId && x.OrganizationId == organizationId, cancellationToken))
+            return false;
+        var now = DateTimeOffset.UtcNow;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        // Conditional on the stored state so a completion committed by the worker is not overwritten.
+        var turn = await TryTransitionOpenTurnAsync(turnId, ChatTurnStatus.Cancelled, now, cancellationToken);
+        if (turn is null) return false;
         await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleChatAsync(db, turn, cancellationToken);
-        turn.CompletedAt = turn.UpdatedAt = DateTimeOffset.UtcNow;
+        turn.CompletedAt = turn.UpdatedAt = now;
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         await CancelPendingDecisionsAsync(turnId, cancellationToken);
         await CancelPendingActionsAsync(turnId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return true;
+    }
+
+    /// <summary>
+    /// Moves a turn to <paramref name="nextStatus"/> only when the database still holds it open.
+    /// The worker and API use different contexts, so a tracked snapshot can be stale. The relational
+    /// path first runs a conditional UPDATE on the open-status predicate (as <see cref="DeferForRuntimeAsync"/>
+    /// does): it row-locks the turn until the caller's transaction commits and matches nothing once a
+    /// terminal status was committed. The status itself is then written through the tracked entity so
+    /// the context's chat-turn audit capture still sees the transition. The in-memory path reloads
+    /// before checking. Returns the refreshed tracked turn, or null when it is already terminal.
+    /// Callers hold a transaction on relational providers.
+    /// </summary>
+    private async Task<ChatTurn?> TryTransitionOpenTurnAsync(
+        Guid turnId, ChatTurnStatus nextStatus, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (db.Database.IsRelational())
+        {
+            var rows = await db.ChatTurns.Where(x => x.Id == turnId &&
+                    x.Status != ChatTurnStatus.Completed && x.Status != ChatTurnStatus.CompletedWithWarnings &&
+                    x.Status != ChatTurnStatus.Failed && x.Status != ChatTurnStatus.Cancelled)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            var stored = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+            await db.Entry(stored).ReloadAsync(cancellationToken);
+            if (rows == 0) return null;
+            stored.Status = nextStatus;
+            stored.UpdatedAt = now; stored.LastActivityAt = now;
+            return stored;
+        }
+        var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
+        await db.Entry(turn).ReloadAsync(cancellationToken);
+        if (TerminalStatuses.Contains(turn.Status)) return null;
+        turn.Status = nextStatus;
+        turn.UpdatedAt = now; turn.LastActivityAt = now;
+        return turn;
     }
 
     public async Task<ChatTurnStartResponse?> RetryAsync(Guid organizationId, Guid turnId, CancellationToken cancellationToken = default)
@@ -243,25 +283,35 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         return ToResponse(traceEvent);
     }
 
-    public async Task SetStatusAsync(Guid turnId, string status, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default)
+    // Statuses a worker may request through SetStatusAsync. Queued is owned by DeferForRuntimeAsync,
+    // RecallingMemory by ClaimNextAsync and the completed statuses by CompleteAsync.
+    private static readonly HashSet<ChatTurnStatus> SettableStatuses =
+    [ChatTurnStatus.Dispatching, ChatTurnStatus.Running, ChatTurnStatus.FinalizingMemory, ChatTurnStatus.Failed, ChatTurnStatus.Cancelled];
+
+    public async Task<bool> SetStatusAsync(Guid turnId, string status, string? errorCode = null, string? errorMessage = null, CancellationToken cancellationToken = default)
     {
-        var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
-        var nextStatus = Enum.Parse<ChatTurnStatus>(status, true);
-        if (TerminalStatuses.Contains(turn.Status) && turn.Status != nextStatus)
-            return;
-        turn.Status = nextStatus;
-        turn.ErrorCode = errorCode; turn.ErrorMessage = errorMessage;
-        if (nextStatus is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
-            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleChatAsync(db, turn, cancellationToken);
+        var nextStatus = Enum.GetValues<ChatTurnStatus>()
+            .Where(x => string.Equals(x.ToString(), status?.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(x => (ChatTurnStatus?)x).SingleOrDefault();
+        if (nextStatus is not { } next || !SettableStatuses.Contains(next))
+            throw new ArgumentException($"'{status}' is not a status a chat turn worker can set.", nameof(status));
         var now = DateTimeOffset.UtcNow;
-        turn.UpdatedAt = now;
-        turn.LastActivityAt = now;
-        if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var turn = await TryTransitionOpenTurnAsync(turnId, next, now, cancellationToken);
+        // Already terminal in storage (for example a Stop committed by the API): refuse, caller stops.
+        if (turn is null) return false;
+        turn.ErrorCode = errorCode; turn.ErrorMessage = errorMessage;
+        if (next is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
+        {
+            await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.SettleChatAsync(db, turn, cancellationToken);
             await CancelPendingDecisionsAsync(turnId, cancellationToken);
-        if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
             await CancelPendingActionsAsync(turnId, cancellationToken);
-        if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled) turn.CompletedAt = turn.UpdatedAt;
+            turn.CompletedAt = now;
+        }
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private async Task CancelPendingDecisionsAsync(Guid turnId, CancellationToken cancellationToken)
@@ -312,14 +362,16 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task CompleteAsync(Guid turnId, Guid assistantMessageId, bool memoryWarning, CancellationToken cancellationToken = default)
+    public async Task<bool> CompleteAsync(Guid turnId, Guid assistantMessageId, bool memoryWarning, CancellationToken cancellationToken = default)
     {
-        var turn = await db.ChatTurns.SingleAsync(x => x.Id == turnId, cancellationToken);
-        if (TerminalStatuses.Contains(turn.Status))
-            return;
         var now = DateTimeOffset.UtcNow;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var turn = await TryTransitionOpenTurnAsync(turnId,
+            memoryWarning ? ChatTurnStatus.CompletedWithWarnings : ChatTurnStatus.Completed, now, cancellationToken);
+        // A Stop (or another terminal outcome) committed first wins; never overwrite it with Completed.
+        if (turn is null) return false;
         turn.AssistantMessageId = assistantMessageId;
-        turn.Status = memoryWarning ? ChatTurnStatus.CompletedWithWarnings : ChatTurnStatus.Completed;
         turn.ResponseReadyAt = turn.CompletedAt = turn.UpdatedAt = now;
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         var pendingActions = await db.SuggestedUserActions
@@ -340,6 +392,8 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         }
         await AttachSubmittedArtifactsAsync(turn, assistantMessageId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private async Task AttachSubmittedArtifactsAsync(
