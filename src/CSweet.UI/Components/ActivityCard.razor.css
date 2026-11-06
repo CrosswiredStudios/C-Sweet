@@ -5,7 +5,7 @@
 .activity-card-connector { display: flex; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-card-controls { display: flex; align-items: center; }
 .activity-card-status { white-space: nowrap; color: var(--activity-muted, var(--mud-palette-text-secondary)); font-size: .75rem; }
-.activity-card-status::before { content: '●'; margin-right: 5px; font-size: .6rem; }
+.activity-card-status::before { content: '●'; margin-inline-end: 5px; font-size: .6rem; }
 .activity-card-status time { font-variant-numeric: tabular-nums; }
 .activity-card-status.working { color: var(--activity-accent, var(--mud-palette-primary)); }
 .activity-card-status.waiting, .activity-card-status.attention { color: var(--mud-palette-warning-darken); }
@@ -32,7 +32,7 @@
 .activity-card-action { flex: 1 1 140px; }
 .activity-generation-speed { display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto; padding: 3px 7px; border-radius: 6px; background: var(--activity-tint, var(--mud-palette-primary-hover)); color: var(--activity-accent, var(--mud-palette-primary)); font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .activity-generation-speed ::deep .mud-icon-root { width: 14px; height: 14px; }
-.activity-card-reason { min-width: 0; padding-left: 12px; border-left: 2px solid var(--activity-accent, var(--mud-palette-warning)); }
+.activity-card-reason { min-width: 0; padding-inline-start: 12px; border-inline-start: 2px solid var(--activity-accent, var(--mud-palette-warning)); }
 .activity-card-reason > span { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--activity-muted, var(--mud-palette-text-secondary)); }
 .activity-card-reason p { font-size: .8rem; margin: 4px 0 0; overflow-wrap: anywhere; }
 .activity-stream-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 0 0; min-height: 34px; width: 100%; border: 0; border-top: 1px solid var(--activity-border, var(--mud-palette-divider)); background: transparent; color: var(--activity-accent, var(--mud-palette-primary)); font: inherit; font-size: .8rem; cursor: pointer; }

@@ -18,8 +18,8 @@ namespace CSweet.UnitTests;
 public sealed class RegistrationPageTests
 {
     [Theory]
-    [InlineData("aurora")]
-    [InlineData("gold")]
+    [InlineData("night-glass")]
+    [InlineData("csweet-daylight")]
     public async Task QuietFocusUsesSavedAppearanceWithoutProgressNavigation(string theme)
     {
         await using var h = await Harness.Create(theme);

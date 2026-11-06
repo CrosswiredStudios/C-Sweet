@@ -8,9 +8,9 @@
 .instruction-dialog label { display: block; margin-top: .75rem; font-weight: 600; }
 .instruction-dialog textarea, .instruction-dialog select { width: 100%; padding: .5rem; color: inherit; background: var(--mud-palette-background); border: 1px solid var(--mud-palette-lines-inputs); border-radius: .25rem; }
 .instruction-dialog textarea { white-space: pre-wrap; resize: vertical; }
-.instruction-dialog blockquote { white-space: pre-wrap; overflow-wrap: anywhere; border-left: 3px solid var(--mud-palette-primary); padding: .75rem; margin: .75rem 0; }
+.instruction-dialog blockquote { white-space: pre-wrap; overflow-wrap: anywhere; border-inline-start: 3px solid var(--mud-palette-primary); padding: .75rem; margin: .75rem 0; }
 .instruction-dialog button { font: inherit; cursor: pointer; padding: .4rem .7rem; margin: .75rem .5rem .25rem 0; border: 1px solid var(--mud-palette-lines-inputs); border-radius: .25rem; background: var(--mud-palette-background); color: inherit; }
 .instruction-dialog button:disabled { opacity: .55; cursor: default; }
 .instruction-dialog [role=alert] { color: var(--mud-palette-error); }
 .instruction-dialog details { margin-top: 1rem; }
-.instruction-dialog ul { margin-left: 1.25rem; overflow-wrap: anywhere; }
+.instruction-dialog ul { margin-inline-start: 1.25rem; overflow-wrap: anywhere; }

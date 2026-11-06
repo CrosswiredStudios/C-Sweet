@@ -7,9 +7,9 @@
 .efficiency-stat small { color: var(--mud-palette-text-secondary); }
 .efficiency-table { overflow-x: auto; }
 .efficiency-table table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-.efficiency-table td, .efficiency-table th { padding: .75rem; border-bottom: 1px solid var(--mud-palette-lines-default); text-align: left; }
+.efficiency-table td, .efficiency-table th { padding: .75rem; border-bottom: 1px solid var(--mud-palette-lines-default); text-align: start; }
 .efficiency-table th { color: var(--mud-palette-text-secondary); font-weight: 500; }
-.efficiency-work-link { color: var(--mud-palette-primary); border: 0; background: transparent; cursor: pointer; text-align: left; font: inherit; text-decoration: underline; }
+.efficiency-work-link { color: var(--mud-palette-primary); border: 0; background: transparent; cursor: pointer; text-align: start; font: inherit; text-decoration: underline; }
 
 .efficiency-tree-node { display: flex; align-items: center; gap: .5rem; min-width: 260px; }
 .efficiency-expand, .efficiency-expand-spacer { width: 24px; flex: 0 0 24px; }

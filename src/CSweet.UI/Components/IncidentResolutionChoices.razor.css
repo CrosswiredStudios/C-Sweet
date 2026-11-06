@@ -1,4 +1,4 @@
 .incident-resolution { display: grid; gap: 10px; margin: 12px 0; max-width: 100%; }
-small { margin-left: .5rem; color: var(--mud-palette-primary); }
+small { margin-inline-start: .5rem; color: var(--mud-palette-primary); }
 .option-description { margin-top: .25rem; font-size: .8rem; color: var(--mud-palette-text-secondary); white-space: normal; }
 textarea { display: block; width: 100%; box-sizing: border-box; min-height: 90px; resize: vertical; margin-top: .4rem; padding: .6rem; color: inherit; background: inherit; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; }

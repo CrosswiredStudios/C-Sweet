@@ -21,7 +21,7 @@
 .office-summary span, .office-meta, .office-facts span { color:var(--mud-palette-text-secondary); font-size:.875rem; }
 .office-toolbar { display:grid; grid-template-columns:minmax(200px,1fr) minmax(180px,240px); gap:1rem; margin-bottom:1.5rem; }
 .office-table-scroll { overflow-x:auto; }
-.office-table { width:100%; border-collapse:collapse; text-align:left; }
+.office-table { width:100%; border-collapse:collapse; text-align:start; }
 .office-table th { color:var(--mud-palette-text-secondary); font-size:.8rem; font-weight:600; }
 .office-table th, .office-table td { padding:1rem .75rem; border-bottom:1px solid var(--mud-palette-divider); vertical-align:middle; }
 .office-table tbody tr:hover { background:var(--mud-palette-action-default-hover); }
@@ -33,7 +33,7 @@
 .office-detail-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
 .office-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.5rem; margin-top:1.5rem; }
 .office-facts strong { display:block; margin-top:.25rem; font-weight:500; overflow-wrap:anywhere; }
-.office-upgrade-steps { padding-left:1.5rem; margin-top:1rem; }
+.office-upgrade-steps { padding-inline-start:1.5rem; margin-top:1rem; }
 .office-upgrade-steps li { padding:.5rem 0 1rem .4rem; }
 .office-upgrade-steps p { margin:.4rem 0 .7rem; }
 .office-provider { border-top:1px solid var(--mud-palette-divider); margin-top:1rem; padding-top:1rem; }

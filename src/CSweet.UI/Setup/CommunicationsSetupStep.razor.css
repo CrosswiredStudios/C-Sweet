@@ -22,49 +22,49 @@
 .communications-count strong { color: var(--cs-navy); font-size: 2.8rem; line-height: 1; }
 .communications-count span { margin-top: .3rem; color: var(--cs-muted); font-size: .72rem; font-weight: 700; }
 
-.communications-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .86fr); border: 1px solid var(--cs-border); border-radius: 16px; background: #fff; }
+.communications-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .86fr); border: 1px solid var(--cs-border); border-radius: 16px; background: var(--cs-surface); }
 .communications-roster, .communications-picker { min-width: 0; padding: 1.5rem; }
-.communications-roster { border-right: 1px solid var(--cs-border); }
+.communications-roster { border-inline-end: 1px solid var(--cs-border); }
 .communications-section-heading { justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .communications-section-heading h2, .dialog-header h2, .guide-content h3 { margin: .15rem 0 0; color: var(--cs-navy); font-size: 1.08rem; font-weight: 800; letter-spacing: -.025em; }
-.communications-kicker { color: var(--cs-mint-strong); font-size: .68rem; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+.communications-kicker { color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink)); font-size: .68rem; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
 .communications-ready-badge, .connected-badge, .source-badge { border-radius: 999px; font-size: .62rem; font-weight: 800; white-space: nowrap; }
-.communications-ready-badge { padding: .3rem .55rem; background: #effaf5; color: var(--cs-mint-strong); }
-.connected-badge { gap: .25rem; padding: .3rem .5rem; background: #effaf5; color: #167552; }
-.source-badge { padding: .3rem .5rem; background: #f1f4f6; color: var(--cs-muted); }
+.communications-ready-badge { padding: .3rem .55rem; background: color-mix(in srgb, var(--mint) 12%, var(--cs-surface)); color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink)); }
+.connected-badge { gap: .25rem; padding: .3rem .5rem; background: color-mix(in srgb, var(--mint) 12%, var(--cs-surface)); color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink)); }
+.source-badge { padding: .3rem .5rem; background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface)); color: var(--cs-muted); }
 .connected-badge ::deep .mud-icon-root { font-size: .8rem; }
 
 .communications-list, .communications-plugin-grid { display: grid; gap: .7rem; }
 .communications-list-item { display: grid; grid-template-columns: 2.7rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .85rem; border: 1px solid var(--cs-border); border-radius: 12px; }
-.communications-list-item.builtin { border-color: rgba(19, 105, 145, .2); background: linear-gradient(120deg, #f1f8fb, #fbfefd 58%, #f2fbf7); }
-.surface-mark { display: grid; width: 2.65rem; height: 2.65rem; place-items: center; border-radius: 10px; background: #eaf2f6; color: var(--cs-navy); font-size: .7rem; font-weight: 900; letter-spacing: -.02em; }
-.surface-mark.builtin { background: var(--cs-navy); color: #fff; }
-.surface-mark.discord { background: #eef0ff; color: #5865f2; }
-.surface-mark.slack { background: #fff1f7; color: #9b1c62; }
-.surface-mark.teams { background: #f0efff; color: #5558af; }
-.surface-mark.whatsapp { background: #eafaf0; color: #128c4c; }
-.surface-mark.github { background: #edf0f3; color: #24292f; }
+.communications-list-item.builtin { border-color: var(--cs-border); background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface)); }
+.surface-mark { display: grid; width: 2.65rem; height: 2.65rem; place-items: center; border-radius: 10px; background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface)); color: var(--cs-navy); font-size: .7rem; font-weight: 900; letter-spacing: -.02em; }
+.surface-mark.builtin { background: var(--cs-navy); color: var(--cs-surface); }
+.surface-mark.discord { background: color-mix(in srgb, currentColor 14%, var(--cs-surface)); color: color-mix(in srgb, #5865f2 65%, var(--ink)); }
+.surface-mark.slack { background: color-mix(in srgb, currentColor 14%, var(--cs-surface)); color: color-mix(in srgb, #9b1c62 65%, var(--ink)); }
+.surface-mark.teams { background: color-mix(in srgb, currentColor 14%, var(--cs-surface)); color: color-mix(in srgb, #5558af 65%, var(--ink)); }
+.surface-mark.whatsapp { background: color-mix(in srgb, var(--mint) 12%, var(--cs-surface)); color: color-mix(in srgb, #128c4c 65%, var(--ink)); }
+.surface-mark.github { background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface)); color: var(--ink); }
 .communications-list-copy, .communications-plugin-copy { min-width: 0; }
 .communications-list-copy strong, .communications-list-copy span, .communications-plugin-copy strong, .communications-plugin-copy small { display: block; }
 .communications-list-copy strong, .communications-plugin-copy strong { color: var(--cs-navy); font-size: .82rem; }
 .communications-list-copy span { overflow: hidden; margin-top: .15rem; color: var(--cs-muted); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
-.communications-status { gap: .3rem; color: #167552; font-size: .64rem; font-weight: 800; white-space: nowrap; }
+.communications-status { gap: .3rem; color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink)); font-size: .64rem; font-weight: 800; white-space: nowrap; }
 .communications-status ::deep .mud-icon-root { font-size: .85rem; }
 .communications-list-action { display: grid; width: 2.15rem; height: 2.15rem; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--cs-muted); cursor: pointer; }
-.communications-list-action:hover { background: #f1f4f6; color: var(--cs-navy); }
+.communications-list-action:hover { background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface)); color: var(--cs-navy); }
 .communications-list-action:disabled { opacity: .5; cursor: default; }
 .communications-list-action ::deep .mud-icon-root { font-size: 1.05rem; }
 
-.communications-plugin-choice { display: grid; width: 100%; grid-template-columns: 2.65rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .85rem; border: 1px solid var(--cs-border); border-radius: 12px; background: #fff; color: inherit; cursor: pointer; text-align: left; }
+.communications-plugin-choice { display: grid; width: 100%; grid-template-columns: 2.65rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .85rem; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-surface); color: inherit; cursor: pointer; text-align: start; }
 .communications-plugin-choice:hover { transform: translateY(-1px); border-color: var(--cs-navy); box-shadow: 0 7px 18px rgba(24, 35, 63, .08); }
-.communications-plugin-choice.connected { background: #f8fcfa; }
-.communications-plugin-choice.custom-source { border-style: dashed; background: #fbfcfd; }
+.communications-plugin-choice.connected { background: color-mix(in srgb, var(--mint) 12%, var(--cs-surface)); }
+.communications-plugin-choice.custom-source { border-style: dashed; background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface)); }
 .communications-plugin-choice:disabled { opacity: .6; cursor: default; transform: none; box-shadow: none; }
 .communications-plugin-copy small { display: -webkit-box; overflow: hidden; margin-top: .15rem; color: var(--cs-muted); font-size: .68rem; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .communications-plugin-choice > ::deep .mud-icon-root { color: var(--cs-muted); font-size: 1.05rem; }
 .communications-plugin-choice:focus-visible, .communications-list-action:focus-visible, .dialog-close:focus-visible { outline: 3px solid rgba(155, 231, 194, .72); outline-offset: 2px; }
 
-.communications-loading { display: flex; min-height: 15rem; align-items: center; justify-content: center; gap: .75rem; border: 1px dashed #ced6dc; border-radius: 13px; color: var(--cs-muted); }
+.communications-loading { display: flex; min-height: 15rem; align-items: center; justify-content: center; gap: .75rem; border: 1px dashed var(--cs-border); border-radius: 13px; color: var(--cs-muted); }
 .communications-actions { justify-content: space-between; gap: 1rem; padding-top: 1.35rem; margin-top: 2rem; border-top: 1px solid var(--cs-border); }
 .communications-actions > div { justify-content: flex-end; flex-wrap: wrap; gap: .8rem; }
 .communications-actions span { color: var(--cs-muted); font-size: .74rem; font-weight: 650; }
@@ -104,7 +104,7 @@
     place-items: center;
     border: 0;
     border-radius: 9px;
-    background: #f1f4f6;
+    background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface));
     color: var(--cs-muted);
     cursor: pointer;
 }
@@ -122,7 +122,7 @@
     place-items: center;
     border-radius: 50%;
     background: var(--cs-navy);
-    color: #fff;
+    color: var(--cs-surface);
     font-size: .7rem;
     font-weight: 850;
     box-shadow: 0 5px 12px rgba(24, 35, 63, .17);
@@ -149,15 +149,15 @@
 .guided-checklist {
     display: grid;
     gap: .48rem;
-    padding-left: 1.35rem;
+    padding-inline-start: 1.35rem;
     margin: .8rem 0 1rem;
-    color: #384b5d;
+    color: var(--ink);
     font-size: .75rem;
     line-height: 1.52;
 }
 
 .guided-checklist li::marker {
-    color: var(--cs-mint-strong);
+    color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink));
     font-weight: 900;
 }
 
@@ -169,10 +169,10 @@
 .beginner-note {
     margin-top: .85rem;
     padding: .75rem .85rem;
-    border-left: 3px solid var(--cs-mint-strong);
+    border-inline-start: 3px solid var(--cs-mint-strong);
     border-radius: 0 8px 8px 0;
-    background: #f2faf6;
-    color: #36574a;
+    background: color-mix(in srgb, var(--mint) 12%, var(--cs-surface));
+    color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink));
     font-size: .7rem;
     line-height: 1.5;
 }
@@ -188,7 +188,7 @@
 .verified-source {
     gap: .35rem;
     margin: -.15rem 0 .75rem;
-    color: #167552;
+    color: color-mix(in srgb, var(--cs-mint-strong) 55%, var(--ink));
     font-size: .69rem;
     font-weight: 750;
 }
@@ -214,7 +214,7 @@
 }
 
 .manifest-identity > div + div {
-    border-left: 1px solid var(--cs-border);
+    border-inline-start: 1px solid var(--cs-border);
 }
 
 .manifest-identity span,
@@ -252,13 +252,13 @@
 .permission-group {
     padding: .65rem .75rem;
     border-radius: 9px;
-    background: #f6f8f9;
+    background: color-mix(in srgb, var(--ink) 6%, var(--cs-surface));
 }
 
 .permission-group p {
     overflow-wrap: anywhere;
     margin: .28rem 0 0;
-    color: #405364;
+    color: var(--ink);
     font-size: .65rem;
     line-height: 1.45;
 }
@@ -270,7 +270,7 @@
     bottom: -.3rem;
     z-index: 2;
     padding: .8rem 0 .2rem;
-    background: #fff;
+    background: var(--cs-surface);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -285,7 +285,7 @@
 
 @media (max-width: 900px) {
     .communications-workspace { grid-template-columns: 1fr; }
-    .communications-roster { border-right: 0; border-bottom: 1px solid var(--cs-border); }
+    .communications-roster { border-inline-end: 0; border-bottom: 1px solid var(--cs-border); }
     .communications-loading { min-height: 10rem; }
 }
 
@@ -304,7 +304,7 @@
     .connection-form,
     .manifest-identity,
     .permission-grid { grid-template-columns: 1fr; }
-    .manifest-identity > div + div { border-top: 1px solid var(--cs-border); border-left: 0; }
+    .manifest-identity > div + div { border-top: 1px solid var(--cs-border); border-inline-start: 0; }
     .communications-actions,
     .communications-actions > div { align-items: stretch; flex-direction: column; }
     .communications-actions ::deep .mud-button-root,

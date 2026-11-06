@@ -7,7 +7,7 @@
 .candidate-identity strong { font-size: 1.15rem; font-weight: 600; }
 .candidate-identity span:not(.candidate-kicker) { color: var(--mud-palette-text-secondary); font-size: .8rem; }
 .candidate-kicker { text-transform: uppercase; letter-spacing: .04em; font-size: .7rem; font-weight: 600; color: var(--mud-palette-primary); }
-.candidate-rationale { border-left: 1px solid var(--mud-palette-divider); padding-left: 18px; text-align: left; }
+.candidate-rationale { border-inline-start: 1px solid var(--mud-palette-divider); padding-inline-start: 18px; text-align: start; }
 .candidate-rationale p { margin: 5px 0 0; font-size: .875rem; line-height: 1.6; white-space: pre-wrap; }
 .candidate-scope { margin: 14px 0 20px; }
 .role-requester { margin: 0 0 14px; color: var(--mud-palette-text-secondary); font-size: .8rem; line-height: 1.5; }
@@ -18,4 +18,4 @@
 .candidate-hiring-status { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--mud-palette-primary); }
 .candidate-hiring-status > span { display: flex; flex-direction: column; gap: 3px; }
 .candidate-hiring-status span span { font-size: .8rem; color: var(--mud-palette-text-secondary); }
-@media (max-width: 600px) { .overview-candidate { grid-template-columns: 1fr; } .candidate-rationale { border-left: 0; border-top: 1px solid var(--mud-palette-divider); padding: 14px 0 0; } }
+@media (max-width: 600px) { .overview-candidate { grid-template-columns: 1fr; } .candidate-rationale { border-inline-start: 0; border-top: 1px solid var(--mud-palette-divider); padding: 14px 0 0; } }

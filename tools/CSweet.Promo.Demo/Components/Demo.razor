@@ -70,7 +70,7 @@
     protected override async Task OnParametersSetAsync()
     {
         Data.Select(Campaign, Scene);
-        await Appearance.SetThemeAsync(Campaign == "game" ? "gold" : "aurora");
+        await Appearance.InitializeAsync();
         _ready = true;
     }
 }
