@@ -53,7 +53,7 @@ public sealed class AgentPlatformEventDispatcher(
                     item.Id,
                     item.IdempotencyKey,
                     item.TargetInstallationId,
-                    requireSubscription: true,
+                    requireSubscription: item.EventType != CSweet.Infrastructure.Agents.GovernanceEvents.AgentWake,
                     deadline: item.EventType is WorkItemEvents.Assigned or
                         CSweet.WorkManagement.Contracts.PersonalTodoEvents.Available or CSweet.Infrastructure.WorkManagement.WorkItemDiscussion.Changed or
                         DelegationCapabilities.Received or DelegationCapabilities.Changed or DelegationCapabilities.Execution

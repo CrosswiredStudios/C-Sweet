@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, de. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "Agent-Befugnis",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "Die Haltung konnte nicht gespeichert werden. Aktualisieren Sie die Seite und versuchen Sie es erneut.",
+  "AgentPosture.GroupLabel": "Agent-Haltung",
+  "AgentPosture.Plan": "Plan",
+  "AgentPosture.Manual": "Manuell",
+  "AgentPosture.Auto": "Auto",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "Schreibzugriffe werden abgelehnt",
+  "AgentPosture.RuleApproval": "Schreibzugriffe erfordern Genehmigung",
+  "AgentPosture.RuleReadsOnly": "nur Lesezugriff",
+  "AgentPosture.RuleAuto": "Schreibzugriffe erfolgen ohne Rückfrage innerhalb des gewährten Umfangs",
+  "AgentPosture.RuleAutoOutward": "Schreibzugriffe und nach außen gerichtete Aktionen erfolgen ohne Rückfrage innerhalb des gewährten Umfangs"
+}

@@ -6,6 +6,7 @@ using CSweet.Contracts.Plugins;
 using CSweet.Contracts.WorkManagement;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Agents;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Setup;
 using CSweet.Memory;
@@ -68,8 +69,17 @@ public sealed class McpToolCatalog(
         { "type": "array", "items": { "type": "object" } }
         """);
 
+    /// <summary>
+    /// Read-only views of the caller's own authority. Every agent may use them
+    /// without a grant (they reveal nothing beyond its own installation), so they are always listed,
+    /// always model-visible and exempt from setup-context restrictions.
+    /// </summary>
+    public static readonly IReadOnlySet<string> SelfReadCapabilities = new HashSet<string>(StringComparer.Ordinal)
+        { AgentGovernanceCapabilityHandler.Read };
+
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
+        Read(AgentGovernanceCapabilityHandler.Read, "read_agent_governance", "Read your current posture and up to 20 of your own operation approvals. Use after approval wakes or reconnecting. Retry only an approved exact request; never repeat an unconfirmed execution."),
         .. ComputeMcpTools.All,
         .. DelegationToolSchemas.Tools,
         .. ResearchAndCheckpointToolSchemas.Tools,
@@ -497,12 +507,12 @@ public sealed class McpToolCatalog(
         var requirements = (requesterManifest?.Requires ?? [])
             .GroupBy(x => x.Name, StringComparer.Ordinal)
             .ToDictionary(x => x.Key, x => x.Single(), StringComparer.Ordinal);
-        var tools = List(session.Grant.RequiredCapabilities)
+        var tools = List(session.Grant.RequiredCapabilities.Concat(SelfReadCapabilities).ToHashSet(StringComparer.Ordinal))
             .Select(tool => tool with
             {
-                ModelVisible = tool.ModelVisible &&
+                ModelVisible = SelfReadCapabilities.Contains(tool.Capability) || (tool.ModelVisible &&
                     requirements.TryGetValue(tool.Capability, out var requirement) &&
-                    requirement.ModelVisible
+                    requirement.ModelVisible)
             })
             .ToList();
         var bindings = await db.AgentCapabilityBindings.AsNoTracking()
@@ -556,7 +566,9 @@ public sealed class McpToolCatalog(
                 declaration.Description,
                 declaration.InputSchema,
                 declaration.OutputSchema,
-                manifest?.Kind == "remote-mcp" ? McpToolExecutionPolicy.ReadOnly : McpToolExecutionPolicy.AdvisoryWrite,
+                // Connector tools reach this point only for read operations (filtered above).
+                manifest?.Kind == "remote-mcp" || binding.ProviderInstallation!.PackageVersion!.PluginKind == PluginKind.Connector
+                    ? McpToolExecutionPolicy.ReadOnly : McpToolExecutionPolicy.AdvisoryWrite,
                 ModelVisible: requirements.TryGetValue(binding.Capability, out var requesterRequirement) &&
                               requesterRequirement.ModelVisible,
                 ProviderInstallationId: binding.ProviderInstallationId,
@@ -647,6 +659,7 @@ public sealed class McpToolCatalog(
                 """);
         return capability switch
         {
+            AgentGovernanceCapabilityHandler.Read => Schema("""{"type":"object","properties":{"approvalId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
         ProjectApprovalGovernance.ReadCapability => Schema("""
             {"type":"object","properties":{"proposalId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}
             """),

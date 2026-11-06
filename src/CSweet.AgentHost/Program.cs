@@ -99,6 +99,7 @@ if (builder.Environment.IsDevelopment() &&
 builder.Services.AddScoped<IPlatformCapabilityHandler, CommunicationHubCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentCoordinationCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, DelegationCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, AgentGovernanceCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, AgentOnboardingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ChiefLeadershipCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilityHandler>();

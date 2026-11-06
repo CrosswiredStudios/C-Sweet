@@ -1,0 +1,15 @@
+{
+  "_": "Governance area.",
+  "AgentGovernancePanel.AgentAuthority": "Agent authority",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "The posture could not be saved. Refresh and try again.",
+  "AgentPosture.GroupLabel": "Agent posture",
+  "AgentPosture.Plan": "Plan",
+  "AgentPosture.Manual": "Manual",
+  "AgentPosture.Auto": "Auto",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "writes are refused",
+  "AgentPosture.RuleApproval": "writes need approval",
+  "AgentPosture.RuleReadsOnly": "reads only",
+  "AgentPosture.RuleAuto": "writes proceed without a prompt inside the granted scope",
+  "AgentPosture.RuleAutoOutward": "writes and outward actions proceed without a prompt inside the granted scope"
+}

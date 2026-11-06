@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, ru. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "Полномочия агента",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "Не удалось сохранить режим. Обновите страницу и повторите попытку.",
+  "AgentPosture.GroupLabel": "Режим агента",
+  "AgentPosture.Plan": "План",
+  "AgentPosture.Manual": "Вручную",
+  "AgentPosture.Auto": "Авто",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "запись запрещена",
+  "AgentPosture.RuleApproval": "запись требует утверждения",
+  "AgentPosture.RuleReadsOnly": "только чтение",
+  "AgentPosture.RuleAuto": "запись выполняется без запроса в пределах выданных полномочий",
+  "AgentPosture.RuleAutoOutward": "запись и внешние действия выполняются без запроса в пределах выданных полномочий"
+}

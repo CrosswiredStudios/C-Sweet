@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, ar. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "صلاحيات الوكيل",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "تعذّر حفظ الوضع. حدّث الصفحة وحاول مرة أخرى.",
+  "AgentPosture.GroupLabel": "وضع الوكيل",
+  "AgentPosture.Plan": "تخطيط",
+  "AgentPosture.Manual": "يدوي",
+  "AgentPosture.Auto": "تلقائي",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "الكتابة مرفوضة",
+  "AgentPosture.RuleApproval": "تحتاج الكتابة إلى موافقة",
+  "AgentPosture.RuleReadsOnly": "للقراءة فقط",
+  "AgentPosture.RuleAuto": "تُنفَّذ عمليات الكتابة دون مطالبة ضمن النطاق الممنوح",
+  "AgentPosture.RuleAutoOutward": "تُنفَّذ عمليات الكتابة والإجراءات الخارجية دون مطالبة ضمن النطاق الممنوح"
+}

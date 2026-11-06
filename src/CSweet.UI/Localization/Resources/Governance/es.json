@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, es. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "Autoridad del agente",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "No se pudo guardar la postura. Actualiza e inténtalo de nuevo.",
+  "AgentPosture.GroupLabel": "Postura del agente",
+  "AgentPosture.Plan": "Plan",
+  "AgentPosture.Manual": "Manual",
+  "AgentPosture.Auto": "Auto",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "se rechazan las escrituras",
+  "AgentPosture.RuleApproval": "las escrituras requieren aprobación",
+  "AgentPosture.RuleReadsOnly": "solo lectura",
+  "AgentPosture.RuleAuto": "las escrituras se realizan sin confirmación dentro del alcance otorgado",
+  "AgentPosture.RuleAutoOutward": "las escrituras y las acciones externas se realizan sin confirmación dentro del alcance otorgado"
+}

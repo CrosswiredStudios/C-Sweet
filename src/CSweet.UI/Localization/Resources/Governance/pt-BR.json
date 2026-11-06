@@ -1,0 +1,15 @@
+{
+  "_": "Governance area, pt-BR. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "AgentGovernancePanel.AgentAuthority": "Autoridade do agente",
+  "AgentGovernancePanel.ThePostureCouldNotBe": "Não foi possível salvar a postura. Atualize e tente novamente.",
+  "AgentPosture.GroupLabel": "Postura do agente",
+  "AgentPosture.Plan": "Plano",
+  "AgentPosture.Manual": "Manual",
+  "AgentPosture.Auto": "Automático",
+  "AgentPosture.Title": "{posture}: {rule}",
+  "AgentPosture.RuleRefused": "gravações são recusadas",
+  "AgentPosture.RuleApproval": "gravações precisam de aprovação",
+  "AgentPosture.RuleReadsOnly": "somente leitura",
+  "AgentPosture.RuleAuto": "as gravações prosseguem sem confirmação dentro do escopo concedido",
+  "AgentPosture.RuleAutoOutward": "as gravações e ações externas prosseguem sem confirmação dentro do escopo concedido"
+}

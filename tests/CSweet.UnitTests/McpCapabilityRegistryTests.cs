@@ -98,6 +98,7 @@ public sealed class McpCapabilityRegistryTests
 
         var descriptors = await new McpToolCatalog([]).ListAsync(session, db, CancellationToken.None);
 
+        Assert.True(descriptors.Single(x => x.Capability == AgentGovernanceCapabilityHandler.Read).ModelVisible);
         Assert.True(descriptors.Single(x => x.Capability == PlatformCapabilities.BusinessProfileRead).ModelVisible);
         Assert.False(descriptors.Single(x => x.Capability == PlatformCapabilities.OrganizationSnapshotRead).ModelVisible);
     }

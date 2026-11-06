@@ -27,6 +27,8 @@ contracts, proportional planning, verification and the Prism Break rollout.
 [Agent model capacity](agent-token-budgets.md) maps configured model capacity, removal of
 hidden task limits, context preservation and incomplete-generation diagnostics.
 
+- [Agent governance](agent-governance.md): durable posture, exact operation approvals, temporal admission, and tracked delegation packets.
+
 [Developer execution plans and progress recovery](developer-execution-workflow.md)
 maps Adrian and Daniel's short persisted plans, evidence-based progress checks and
 checkpoint handoffs for unavailable infrastructure.
