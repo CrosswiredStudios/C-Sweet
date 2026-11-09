@@ -39,13 +39,12 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         }
         var handler = handlers.SingleOrDefault(x => x.Supports(input.ResourceType, input.ProfileKey))
             ?? throw new InvalidOperationException("No fulfillment handler supports these requirements. No approval was created.");
-        // Preparation may fetch published metadata, but grants no installation or execution authority.
-        var plan = await handler.PrepareAsync(organization, input, token);
         var approver = await CurrentManagerAsync(actor, token);
         var now = clock.GetUtcNow();
         var id = Guid.NewGuid(); var approvalId = Guid.NewGuid();
         var state = new ResourceRequestState(id, input.WorkstreamId, actor.Id, approver.Id, approvalId,
-            input.ResourceType, input.ProfileKey, input.Purpose, "PendingApproval", 1, Hash(plan), plan, null, null, null, now, now);
+            input.ResourceType, input.ProfileKey, input.Purpose, "Preparing", 1, "", null,
+            "Preparing an exact resource plan; no installation is authorized.", null, null, now, now);
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
         await LockAsync(organization, token);
         var replay = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.Kind == CommandKind && x.ExternalKey == identity, token);
@@ -59,16 +58,14 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         var candidates = await db.PluginOperationalStates.Where(x => x.OrganizationId == organization && x.Kind == StateKind &&
             x.AgentInstallationId == installation).ToListAsync(token);
         var active = candidates.Select(Read).SingleOrDefault(x => x.WorkstreamId == input.WorkstreamId && x.ResourceType == input.ResourceType &&
-            x.ProfileKey == input.ProfileKey && x.Status is "PendingApproval" or "Approved" or "Installing" or "Certifying" or "WaitingDependency" or "Ready");
+            x.ProfileKey == input.ProfileKey && x.Status is "Preparing" or "PendingApproval" or "Approved" or "Installing" or "Certifying" or "WaitingDependency" or "Ready");
         if (active is not null) state = active;
         else
         {
             db.PluginOperationalStates.Add(new() { Id = id, OrganizationId = organization, AgentInstallationId = installation,
                 Kind = StateKind, ExternalKey = id.ToString("N"), Revision = 1, CreatedAt = now, UpdatedAt = now,
-                PayloadJson = JsonSerializer.Serialize(state, Json) });
-            db.ActionProposals.Add(new() { Id = approvalId, OrganizationId = organization, AgentInstallationId = installation,
-                ActionType = ActionType, Summary = plan.Summary, PayloadJson = ApprovalBinding(state), RiskClass = "ResourceProvisioning",
-                IdempotencyKey = $"resource:{id:N}", CreatedAt = now, Status = ProposalStatus.Pending });
+                PayloadJson = JsonSerializer.Serialize(state, Json), AvailableAt = now });
+            await WithdrawObsoleteSetupDecisionsAsync(organization, state, token);
             QueueWake(organization, state, installation, "requested");
         }
         db.PluginOperationalStates.Add(new() { Id = Guid.NewGuid(), OrganizationId = organization, AgentInstallationId = installation,
@@ -130,6 +127,18 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         var retry = decision.Decision == "Retry" && state.Status is "Failed" or "NeedsAttention" or "Revoked";
         if (state.Revision != decision.ExpectedRevision || state.PlanHash != decision.PlanHash || state.Status != "PendingApproval" && !retry)
             throw new InvalidOperationException("The resource plan or request changed. Read it again before deciding.");
+        if (state.Plan is null)
+        {
+            if (!retry) throw new InvalidOperationException("A verified resource plan is required before approval.");
+            Save(row, state with { Status = "Preparing", ResumeStatus = null, FailureCode = null,
+                Condition = decision.Comment }, "preparation-retry");
+            db.PluginOperationalStates.Add(new() { Id = Guid.NewGuid(), OrganizationId = actor.OrganizationId,
+                AgentInstallationId = row.AgentInstallationId, Kind = CommandKind, ExternalKey = commandKey,
+                PayloadJson = command, CreatedAt = clock.GetUtcNow(), UpdatedAt = clock.GetUtcNow() });
+            await db.SaveChangesAsync(token);
+            if (transaction is not null) await transaction.CommitAsync(token);
+            return Read(row);
+        }
         var proposal = await db.ActionProposals.SingleAsync(x => x.Id == state.ApprovalId && x.OrganizationId == actor.OrganizationId, token);
         await db.Entry(proposal).ReloadAsync(token);
         // PostgreSQL jsonb normalizes whitespace and member ordering. Compare the exact
@@ -179,11 +188,26 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         await db.Entry(row).ReloadAsync(token);
         if (row.AvailableAt is null || row.AvailableAt > now) return true;
         var state = Read(row);
-        if (state.Status is not ("Approved" or "Installing" or "Certifying" or "WaitingDependency" or "Ready")) { row.AvailableAt = null; await db.SaveChangesAsync(token); return true; }
+        if (state.Status is not ("Preparing" or "Approved" or "Installing" or "Certifying" or "WaitingDependency" or "Ready")) { row.AvailableAt = null; await db.SaveChangesAsync(token); return true; }
         try
         {
             var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == row.OrganizationId && x.Id == state.ApproverId, token);
             await RequireApproverAsync(actor, state, token);
+            if (state.Plan is null)
+            {
+                var plan = await Handler(state).PrepareAsync(row.OrganizationId,
+                    new(state.WorkstreamId, state.ResourceType, state.ProfileKey, state.Purpose, $"prepare:{state.Id:N}"), token);
+                state = state with { Plan = plan, PlanHash = Hash(plan), Status = "PendingApproval", ResumeStatus = null,
+                    FailureCode = null, Condition = "Exact plan prepared; waiting for current-manager approval." };
+                Save(row, state, "prepared");
+                db.ActionProposals.Add(new() { Id = state.ApprovalId, OrganizationId = row.OrganizationId,
+                    AgentInstallationId = row.AgentInstallationId, ActionType = ActionType, Summary = plan.Summary,
+                    PayloadJson = ApprovalBinding(Read(row)), RiskClass = "ResourceProvisioning",
+                    IdempotencyKey = $"resource:{state.Id:N}", CreatedAt = clock.GetUtcNow(), Status = ProposalStatus.Pending });
+                await db.SaveChangesAsync(token);
+                if (transaction is not null) await transaction.CommitAsync(token);
+                return true;
+            }
             var proposal = await db.ActionProposals.SingleAsync(x => x.Id == state.ApprovalId && x.OrganizationId == row.OrganizationId, token);
             if (proposal.Status != ProposalStatus.Approved) throw new UnauthorizedAccessException("Resource approval was withdrawn.");
             var handler = Handler(state);
@@ -193,22 +217,37 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
                 throw new InvalidOperationException("The fulfillment handler returned an unsupported status.");
             var next = state with { Status = progress.Status, Condition = progress.Condition,
                 ProviderInstallationId = progress.ProviderInstallationId ?? state.ProviderInstallationId,
-                CertificationRunId = progress.CertificationRunId ?? state.CertificationRunId, ResumeStatus = null };
+                CertificationRunId = progress.CertificationRunId ?? state.CertificationRunId, ResumeStatus = null, FailureCode = null };
             if (next != state) Save(row, next, progress.Status.ToLowerInvariant());
             row.AvailableAt = progress.Status is "Failed" or "NeedsAttention" ? null : now.AddSeconds(progress.Status == "Ready" ? 60 : 5);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (ResourcePreparationDependencyException error) when (state.Plan is null)
+        {
+            var waiting = state with { Status = "WaitingDependency", ResumeStatus = "Preparing",
+                FailureCode = error.Code, Condition = error.Message };
+            if (waiting != state) Save(row, waiting, "preparation-blocked");
+            row.AvailableAt = now.AddMinutes(1);
+        }
+        catch (CSweet.Application.Setup.AgentImportPreviewException error) when (state.Plan is null && error.IsDependencyFailure)
+        {
+            var waiting = state with { Status = "WaitingDependency", ResumeStatus = "Preparing",
+                FailureCode = "resource.catalog_access_unavailable", Condition = error.Message };
+            if (waiting != state) Save(row, waiting, "catalog-blocked");
+            row.AvailableAt = error.RetryAt > now.AddMinutes(1) ? error.RetryAt : now.AddMinutes(1);
+        }
         catch (Exception error) when (error is IOException or HttpRequestException or TimeoutException)
         {
             var waiting = state with { Status = "WaitingDependency", ResumeStatus = state.ResumeStatus ?? state.Status,
-                Condition = "Setup is waiting for a temporary provider dependency: " + error.Message };
+                FailureCode = "resource.dependency_unavailable", Condition = "Setup is waiting for a temporary provider dependency: " + error.Message };
             if (waiting != state) Save(row, waiting, "waiting");
             row.AvailableAt = now.AddSeconds(15);
         }
         catch (Exception error) when (error is InvalidOperationException or ArgumentException or UnauthorizedAccessException or
-            CSweet.Application.Setup.AgentInstallationException or CSweet.Application.Setup.AgentBuildException)
+            CSweet.Application.Setup.AgentInstallationException or CSweet.Application.Setup.AgentBuildException or CSweet.Application.Setup.AgentImportPreviewException)
         {
-            Save(row, state with { Status = state.Status == "Ready" ? "Revoked" : "NeedsAttention", Condition = error.Message }, "blocked");
+            Save(row, state with { Status = state.Status == "Ready" ? "Revoked" : "NeedsAttention",
+                FailureCode = state.Plan is null ? "resource.preparation_failed" : "resource.fulfillment_failed", Condition = error.Message }, "blocked");
             row.AvailableAt = null;
         }
         await db.SaveChangesAsync(token);
@@ -222,7 +261,8 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             ?? throw new UnauthorizedAccessException("An active agent identity in this business is required.");
     public async Task<ResourceRequestState> GetAsync(Guid organization, Guid id, CancellationToken token) =>
         Read(await db.PluginOperationalStates.AsNoTracking().SingleAsync(x => x.OrganizationId == organization && x.Kind == StateKind && x.Id == id, token));
-    private IResourceFulfillmentHandler Handler(ResourceRequestState state) => handlers.Single(x => x.Key == state.Plan.HandlerKey && x.Supports(state.ResourceType, state.ProfileKey));
+    private IResourceFulfillmentHandler Handler(ResourceRequestState state) => handlers.Single(x =>
+        (state.Plan is null || x.Key == state.Plan.HandlerKey) && x.Supports(state.ResourceType, state.ProfileKey));
     private async Task<OrganizationUser> CurrentManagerAsync(OrganizationUser actor, CancellationToken token)
     {
         var configuration = await db.AgentInstallationConfigurations.AsNoTracking().Where(x => x.AgentInstallationId == actor.AgentInstallationId)
@@ -288,6 +328,53 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
     private async Task<bool> ManagesProjectAsync(OrganizationUser actor, Guid project, CancellationToken token) =>
         await db.Workstreams.AnyAsync(x => x.OrganizationId == actor.OrganizationId && x.Id == project && x.AccountableManagerOrganizationUserId == actor.Id, token) ||
         await db.WorkstreamSupervisionAssignments.AnyAsync(x => x.OrganizationId == actor.OrganizationId && x.WorkstreamId == project && x.SupervisorOrganizationUserId == actor.Id && x.EndsAt == null, token);
+
+    private async Task WithdrawObsoleteSetupDecisionsAsync(Guid organization, ResourceRequestState resource, CancellationToken token)
+    {
+        if (resource.ResourceType != ResourceCapabilities.BuildToolchain || resource.ProfileKey is not ("phaser.web-2d.v1" or "babylon.web-3d.v1")) return;
+        var decisions = await db.WorkstreamDecisions.Where(x => x.OrganizationId == organization && x.WorkstreamId == resource.WorkstreamId &&
+            x.TypeKey == "video-game.toolchain-selection.v1" && x.AuthorityRuleKey == "unsupported-or-uncertified-toolchain" &&
+            x.Status == "Pending").ToListAsync(token);
+        foreach (var decision in decisions)
+        {
+            var cards = await db.ExecutiveDecisions.Where(x => x.OrganizationId == organization && x.Status == ExecutiveDecisionStatus.Pending)
+                .OrderBy(x => x.Id).ToListAsync(token);
+            var linkedCards = new List<ExecutiveDecision>();
+            foreach (var card in cards)
+            {
+                using var options = JsonDocument.Parse(card.OptionsJson);
+                if (options.RootElement.ValueKind != JsonValueKind.Object || !options.RootElement.TryGetProperty("workstreamDecisionId", out var source) ||
+                    !source.TryGetGuid(out var sourceId) || sourceId != decision.Id) continue;
+                // Human answers lock the card before its canonical workstream decision.
+                // Use that same ordering so cleanup cannot deadlock an in-flight answer.
+                if (db.Database.IsNpgsql())
+                {
+                    await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"ExecutiveDecisions\" WHERE \"Id\" = {card.Id} FOR UPDATE", token);
+                    await db.Entry(card).ReloadAsync(token);
+                }
+                if (card.Status == ExecutiveDecisionStatus.Pending) linkedCards.Add(card);
+            }
+            if (db.Database.IsNpgsql())
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"WorkstreamDecisions\" WHERE \"Id\" = {decision.Id} FOR UPDATE", token);
+                await db.Entry(decision).ReloadAsync(token);
+            }
+            if (decision.Status != "Pending") continue;
+            using var data = JsonDocument.Parse(decision.TypeDataJson ?? "{}");
+            if (!data.RootElement.TryGetProperty("recipeKey", out var recipe) || recipe.GetString() != resource.ProfileKey) continue;
+            decision.Status = "Cancelled"; decision.Revision++; decision.UpdatedAt = clock.GetUtcNow();
+            decision.Rationale = $"Obsolete manual setup question replaced by durable resource request {resource.Id:D}. Approval and verified readiness are tracked on that request; no human answer or execution authorization is implied.";
+            var linked = System.Text.Json.Nodes.JsonNode.Parse(decision.TypeDataJson!)!.AsObject();
+            linked["replacementResourceRequestId"] = resource.Id.ToString("D");
+            decision.TypeDataJson = linked.ToJsonString(Json);
+            foreach (var card in linkedCards) { card.Status = ExecutiveDecisionStatus.Cancelled; card.UpdatedAt = clock.GetUtcNow(); }
+            db.ApplicationRealtimeOutbox.Add(new() { Id = Guid.NewGuid(), OrganizationId = organization,
+                EventType = CSweet.Contracts.Realtime.AppRealtimeEvents.ApprovalChanged,
+                Subject = $"organizations/{organization:D}/decisions/{decision.Id:D}",
+                DataJson = JsonSerializer.Serialize(new { decisionId = decision.Id, resourceRequestId = resource.Id, status = "Cancelled" }, Json),
+                OccurredAt = clock.GetUtcNow(), NextAttemptAt = clock.GetUtcNow() });
+        }
+    }
     private async Task LockAsync(Guid organization, CancellationToken token)
     {
         if (db.Database.IsNpgsql()) await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"resource:" + organization}, 0))", token);
@@ -296,7 +383,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
     {
         value = value with { Revision = row.Revision + 1, UpdatedAt = clock.GetUtcNow() };
         row.Revision = value.Revision; row.UpdatedAt = value.UpdatedAt; row.PayloadJson = JsonSerializer.Serialize(value, Json);
-        row.AvailableAt = value.Status is "Approved" or "Installing" or "Certifying" or "Ready" ? clock.GetUtcNow() : null;
+        row.AvailableAt = value.Status is "Preparing" or "Approved" or "Installing" or "Certifying" or "Ready" ? clock.GetUtcNow() : null;
         QueueWake(row.OrganizationId, value, row.AgentInstallationId, reason);
     }
     private void QueueWake(Guid organization, ResourceRequestState state, Guid requesterInstallation, string reason)

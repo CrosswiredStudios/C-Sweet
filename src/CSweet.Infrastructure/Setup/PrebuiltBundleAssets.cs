@@ -21,6 +21,8 @@ public static partial class PrebuiltBundleAssets
         assetName.EndsWith(ChecksumExtension, StringComparison.OrdinalIgnoreCase) ||
         assetName.EndsWith(".cspb.sha256", StringComparison.OrdinalIgnoreCase);
 
+    public static string DownloadUrl(GitHubReleaseAssetInfo asset) => asset.ApiDownloadUrl ?? asset.BrowserDownloadUrl;
+
     public static GitHubReleaseAssetInfo? SelectBundle(
         GitHubReleaseInfo release,
         string operatingSystem = "linux",

@@ -46,6 +46,20 @@ public static class ResourceFulfillmentEndpoints
             }).ToArray();
             return Results.Ok(response);
         }).RequireAuthorization();
+        endpoints.MapPost("/api/core/organizations/{organizationId:guid}/resources/{requestId:guid}/retry", async (
+            Guid organizationId, Guid requestId, ResourceDecision decision, HttpContext http, CSweetDbContext db,
+            ResourceFulfillmentService resources, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+                x.ApplicationUserId == user && x.IsActive && x.ArchivedAt == null, token);
+            if (actor is null) return Results.Forbid();
+            if (decision.RequestId != requestId || decision.Decision != "Retry") return Results.BadRequest();
+            try { return Results.Ok(await resources.DecideAsync(actor, decision, token)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (Exception error) when (error is InvalidOperationException or ArgumentException)
+            { return Results.Conflict(new { error = "resource_retry_stale", message = error.Message }); }
+        }).RequireAuthorization();
         return endpoints;
     }
 }

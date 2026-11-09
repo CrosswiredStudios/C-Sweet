@@ -306,11 +306,12 @@ public static class DependencyInjection
         });
         builder.Services.AddScoped<IGitHubAgentRepositoryClient>(sp => sp.GetRequiredService<GitHubAgentRepositoryClient>());
         builder.Services.AddScoped<IPluginSourceResolver>(sp => sp.GetRequiredService<GitHubAgentRepositoryClient>());
+        builder.Services.AddTransient<GitHubReleaseAssetAuthenticationHandler>();
         builder.Services.AddHttpClient<PrebuiltBundleInstallService>(client =>
         {
             client.DefaultRequestHeaders.UserAgent.ParseAdd("CSweet-Agent-Importer/1.0");
             client.Timeout = TimeSpan.FromMinutes(15);
-        });
+        }).AddHttpMessageHandler<GitHubReleaseAssetAuthenticationHandler>();
         builder.Services.AddSingleton<ILlmProviderSecretStore>(_ =>
         {
             if (builder.Environment.IsEnvironment("Testing"))

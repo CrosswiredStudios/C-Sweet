@@ -59,6 +59,7 @@
             @switch (CurrentTab)
             {
                 case "overview":
+                    <ResourceFulfillmentPanel OrganizationId="OrganizationId" WorkstreamId="WorkstreamId" />
                     <ProjectOverview Project="_project" ProjectHref="@ProjectHref(WorkstreamId.Value)" />
                     break;
                 case "efficiency": <WorkEfficiencyPanel OrganizationId="OrganizationId" WorkstreamId="WorkstreamId" /> break;
@@ -207,7 +208,7 @@
     }
     private void OnReconnect() { if (!_disposed) _ = InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); }); }
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope) { if (envelope.OrganizationId == OrganizationId && IsProjectResourceEvent(envelope.EventType)) OnReconnect(); }
-    internal static bool IsProjectResourceEvent(string eventType) => eventType == AppRealtimeEvents.WorkBoardChanged || eventType == AppRealtimeEvents.DocumentChanged || new[] { "com.csweet.workstream.", "com.csweet.work.", "com.csweet.decision.", "com.csweet.artifact.", "com.csweet.build.", "com.csweet.validation.", "com.csweet.evaluation-session.", "com.csweet.media-job.", "com.csweet.release-readiness." }.Any(prefix => eventType.StartsWith(prefix, StringComparison.Ordinal));
+    internal static bool IsProjectResourceEvent(string eventType) => eventType == AppRealtimeEvents.ResourceChanged || eventType == AppRealtimeEvents.WorkBoardChanged || eventType == AppRealtimeEvents.DocumentChanged || new[] { "com.csweet.workstream.", "com.csweet.work.", "com.csweet.decision.", "com.csweet.artifact.", "com.csweet.build.", "com.csweet.validation.", "com.csweet.evaluation-session.", "com.csweet.media-job.", "com.csweet.release-readiness." }.Any(prefix => eventType.StartsWith(prefix, StringComparison.Ordinal));
     private IEnumerable<ProjectPortfolioItem> FilteredProjects => (_portfolio?.Projects ?? [])
         .Where(x => ProjectPresentation.Matches(x, _search) && Contains(x.ProfileKey, _profile) && Contains(x.LifecycleStage, _lifecycle))
         .Where(x => string.IsNullOrWhiteSpace(_manager) || x.AccountableManagerOrganizationUserId?.ToString() == _manager)

@@ -41,6 +41,12 @@ transaction. PostgreSQL transaction advisory locks serialize business mutations;
 bind an actor's stable key to the actual command. A repeated key with different requirements
 is rejected. Same-requester/project/profile active requests coalesce.
 
+`Preparing` is persisted before repository lookup, download or image discovery. Its plan is
+null and it grants no installation authority. The worker prepares a verified plan and creates
+the exact approval atomically with the transition to `PendingApproval`. Missing releases,
+private catalog access and temporarily unavailable images remain visible dependencies;
+recovery honors provider retry timing and does not re-run an agent conversation.
+
 `PendingApproval` becomes `Approved`, `Rejected` or `RevisionRequested`; escalation keeps the
 plan and assigns the next eligible manager. Approval binds package/manifest/definition/image
 digests, permissions, cost and scope. JSON values, rather than serialized formatting, are
@@ -90,7 +96,59 @@ setup decisions no longer force agents through an inert manual setup authorizati
   `NodeResourceFulfillmentTests`, SDK `ManagerResourceReviewTests`, Director
   `ProductionCommitmentTests`, Technical Director `ResourceRequestTests`.
 
-## Verification and rollout
+## November 6 follow-up: inaccessible provider and lost handoff
+
+The live `Prism Shatter` handoff failed before a resource record existed. The provider's
+private GitHub repository already contained release **1.0.2**, its Linux `.cspb` and checksum.
+The runtime had no catalog credential, so anonymous release discovery returned 404. The
+original implementation mislabeled that as a missing bundle and then rediscovered the same
+failed coordination session. Download credentials and AppHost forwarding also needed parity
+with metadata access. No new provider version or source-build fallback is required.
+
+The published bundle was downloaded with existing developer access for verification only.
+SHA-256: `1ccdb8dafa617b7d77724c909f209a7572553220b9f6b630e51a87b6db06d646`.
+Package structure, Linux x64 identity and checksum pass. This does not configure a runtime
+credential, publish a repository or install an agent.
+
+`GitHubReleaseAssetAuthenticationHandler` scopes authentication to GitHub's asset API.
+`AgentImportPreviewException.IsDependencyFailure` and `RetryAt` preserve remote access and
+rate-limit failures through preparation; malformed package verification remains terminal.
+The project Overview and Approvals show preparation conditions even with no plan. The retry
+endpoint rechecks current authority and exact revision; retrying preparation cannot approve it.
+
+Director **0.5.1** resumes the retained failed resource-request handoff with a stable
+`durable-preparation-v1` recovery key. A replay cannot create another recovery epoch. Only the
+specific legacy validation failure qualifies; unrelated or unauthorized failures are shown.
+Current resource failures block the matching commitment with the actual condition, and a
+resource change wakes it for another current-state read.
+
+When the replacement resource is durably created, `WithdrawObsoleteSetupDecisionsAsync`
+cancels only pending questions in the same business/project with matching recipe, toolchain
+decision type and old setup authority rule. It preserves options, evidence and history, records
+the replacement resource ID and rationale, and cancels linked pending executive cards without
+inventing a human answer. Existing answers, other projects/recipes and feasibility questions
+are retained. Card/decision lock order matches human answering; state and realtime notifications
+commit together. The Director then clears its cancelled internal reference.
+
+Follow-up rollout: publish SDK **5.14.0**, then publish/install Producer **6.4.1**, Director
+**0.5.1** and Technical Director **6.1.1**, and restart with the matching platform build. The
+existing Node provider **1.0.2** stays unchanged. Repository access must be resolved through
+an operator-configured read-only catalog credential or an explicitly authorized public release
+distribution. Never copy developer credentials into agents or modify installed package records.
+
+Live recovery and question withdrawal remain pending that rollout and access prerequisite;
+local tests are not evidence that the live handoff has recovered.
+
+Follow-up verification: SDK 751 tests, sample 2, generated template 7; Producer 509,
+Director 367 and Technical Director 231; affected platform/import/update/UI subset 278;
+PostgreSQL concurrency and runtime identity 2, run separately against disposable databases.
+All pass. AppHost builds with the secret-parameter forwarding. Each published agent output
+passes its self-test, source checks, NuGet/version checks and bundle verification. Agent
+assemblies match their NuGet packages, and every bundle contains the same final SDK assembly.
+Artifacts and live prerequisites are recorded in
+`.artifacts/cool-games-review/resource-fulfillment-followup-release-verification.json`.
+
+## Initial verification and rollout
 
 Regression coverage includes missing capacity, exact manager decisions, duplicate commands,
 restart after a lost installation reply, concurrent PostgreSQL workers, bounded discovery,

@@ -175,7 +175,70 @@ public sealed class ResourceFulfillmentTests
         Assert.Equal(0, f.Handler.Installations);
     }
 
-    private sealed class Clock : TimeProvider
+    [Fact]
+    public async Task Missing_published_release_remains_visible_before_approval_and_recovers_after_restart()
+    {
+        await using var f = await Fixture.CreateAsync(); f.Handler.MissingRelease = true;
+        var request = await f.Service.RequestAsync(f.Organization, f.Installation, f.Input, default);
+        Assert.Equal("Preparing", request.Status); Assert.Null(request.Plan); Assert.Empty(await f.Db.ActionProposals.ToListAsync());
+        await f.Service.ProcessNextAsync(default);
+        var blocked = await f.ReadAsync(request.Id);
+        Assert.Equal("WaitingDependency", blocked.Status); Assert.Equal("resource.provider_release_unavailable", blocked.FailureCode);
+        Assert.Contains("catalog read access", blocked.Condition); Assert.Null(blocked.Plan);
+        Assert.Equal(blocked.Id, (await f.Service.RequestAsync(f.Organization, f.Installation, f.Input, default)).Id);
+        Assert.Equal(0, f.Handler.Installations);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.DecideAsync(f.Manager, f.Approve(blocked), default));
+        for (var i = 0; i < 7; i++) f.Clock.Advance();
+        await f.RestartAsync(); f.Handler.MissingRelease = false;
+        await f.Service.ProcessNextAsync(default);
+        var prepared = await f.ReadAsync(request.Id);
+        Assert.Equal("PendingApproval", prepared.Status); Assert.NotNull(prepared.Plan); Assert.Null(prepared.FailureCode);
+        Assert.Single(await f.Db.ActionProposals.ToListAsync()); Assert.Equal(0, f.Handler.Installations);
+        Assert.Contains(await f.Db.ApplicationRealtimeOutbox.ToListAsync(), x => x.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ResourceChanged);
+    }
+
+    [Fact]
+    public async Task Durable_replacement_cancels_only_matching_pending_setup_question_and_linked_card()
+    {
+        await using var f = await Fixture.CreateAsync();
+        WorkstreamDecisionRecord Decision(string status = "Pending", string recipe = "phaser.web-2d.v1", string rule = "unsupported-or-uncertified-toolchain") => new() {
+            Id = Guid.NewGuid(), OrganizationId = f.Organization, WorkstreamId = f.Project, Status = status,
+            TypeKey = "video-game.toolchain-selection.v1", AuthorityRuleKey = rule, TypeDataJson = System.Text.Json.JsonSerializer.Serialize(new { recipeKey = recipe }) };
+        var obsolete = Decision(); var answered = Decision("Decided"); var otherRecipe = Decision(recipe: "godot.native"); var feasibility = Decision(rule: "technical-feasibility-blocker");
+        var otherProject = Decision(); otherProject.WorkstreamId = Guid.NewGuid();
+        var card = new ExecutiveDecision { Id = Guid.NewGuid(), OrganizationId = f.Organization, Status = ExecutiveDecisionStatus.Pending,
+            OptionsJson = System.Text.Json.JsonSerializer.Serialize(new { workstreamDecisionId = obsolete.Id }) };
+        f.Db.AddRange(obsolete, answered, otherRecipe, feasibility, otherProject, card); await f.Db.SaveChangesAsync();
+        var request = await f.Service.RequestAsync(f.Organization, f.Installation, f.Input, default);
+        Assert.Equal("Cancelled", obsolete.Status); Assert.Null(obsolete.SelectedOptionId);
+        Assert.Contains(request.Id.ToString("D"), obsolete.Rationale); Assert.Contains("replacementResourceRequestId", obsolete.TypeDataJson);
+        Assert.Equal(ExecutiveDecisionStatus.Cancelled, card.Status);
+        Assert.Equal("Decided", answered.Status); Assert.Equal("Pending", otherRecipe.Status); Assert.Equal("Pending", feasibility.Status); Assert.Equal("Pending", otherProject.Status);
+        await f.Service.RequestAsync(f.Organization, f.Installation, f.Input, default);
+        Assert.Equal(2, obsolete.Revision);
+    }
+
+    [Fact]
+    public async Task Catalog_retry_after_is_retained_without_approvals_or_immediate_retry_loops()
+    {
+        await using var f = await Fixture.CreateAsync();
+        f.Handler.PreparationError = new CSweet.Application.Setup.AgentImportPreviewException("GitHub rate limited catalog access.") {
+            IsDependencyFailure = true, RetryAt = f.Clock.GetUtcNow().AddMinutes(5) };
+        var request = await f.Service.RequestAsync(f.Organization, f.Installation, f.Input, default);
+        await f.Service.ProcessNextAsync(default);
+        var blocked = await f.ReadAsync(request.Id);
+        Assert.Equal("WaitingDependency", blocked.Status); Assert.Equal("resource.catalog_access_unavailable", blocked.FailureCode);
+        for (var i = 0; i < 7; i++) f.Clock.Advance();
+        Assert.False(await f.Service.ProcessNextAsync(default));
+        Assert.Empty(f.Db.ActionProposals); Assert.Equal(0, f.Handler.Installations);
+        f.Handler.PreparationError = null;
+        for (var i = 0; i < 30; i++) f.Clock.Advance();
+        await f.Service.ProcessNextAsync(default);
+        Assert.Equal("PendingApproval", (await f.ReadAsync(request.Id)).Status);
+        Assert.Equal(0, f.Handler.Installations);
+    }
+
+    internal sealed class Clock : TimeProvider
     {
         private DateTimeOffset _now = DateTimeOffset.UtcNow;
         public override DateTimeOffset GetUtcNow() => _now;
@@ -185,10 +248,17 @@ public sealed class ResourceFulfillmentTests
     {
         public string Key => "test-node";
         public bool Supports(string type, string profile) => type == ResourceCapabilities.BuildToolchain && profile == "phaser.web-2d.v1";
-        public bool Valid = true, Verified, Fail, CrashAfterInstall;
+        public bool Valid = true, Verified, Fail, CrashAfterInstall, MissingRelease, InvalidPreparation;
+        public Exception? PreparationError;
         public int Installations;
         private readonly Dictionary<Guid, Guid> _installed = [];
-        public Task<ResourcePlan> PrepareAsync(Guid org, ResourceRequest input, CancellationToken ct) => Task.FromResult(new ResourcePlan(
+        public Task<ResourcePlan> PrepareAsync(Guid org, ResourceRequest input, CancellationToken ct) => PreparationError is { } error
+            ? throw error
+            : InvalidPreparation
+            ? throw new InvalidOperationException("Provider package verification failed; review the published checksum.")
+            : MissingRelease
+            ? throw new ResourcePreparationDependencyException("resource.provider_release_unavailable", "Publish the provider bundle or configure catalog read access. Setup will retry.")
+            : Task.FromResult(new ResourcePlan(
             Key, "Prepare Node build capacity", Guid.NewGuid(), "node", "1.0.2", "manifest", "package", Guid.NewGuid(), "definition",
             "linux", "image", [], [], [], 0, "USD"));
         public Task ValidateAsync(Guid org, ResourceRequestState input, CancellationToken ct) =>
@@ -202,7 +272,7 @@ public sealed class ResourceFulfillmentTests
                 Verified ? new ResourceFulfillmentProgress("Ready", "Verified", id, input.Id) : new("Certifying", "Running fixtures", id));
         }
     }
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         private readonly string _database = Guid.NewGuid().ToString();
         public CSweetDbContext Db = null!;
@@ -230,7 +300,12 @@ public sealed class ResourceFulfillmentTests
             Service = new(Db, [Handler], Clock);
         }
         public async Task RestartAsync() { await Db.DisposeAsync(); Open(); }
-        public Task<ResourceRequestState> RequestAsync() => Service.RequestAsync(Organization, Installation, Input, default);
+        public async Task<ResourceRequestState> RequestAsync()
+        {
+            var state = await Service.RequestAsync(Organization, Installation, Input, default);
+            if (state.Status == "Preparing") { await Service.ProcessNextAsync(default); state = await ReadAsync(state.Id); }
+            return state;
+        }
         public Task<ResourceRequestState> ReadAsync(Guid id) => Service.GetAsync(Organization, id, default);
         public ResourceDecision Approve(ResourceRequestState state) => new(state.Id, state.Revision, state.PlanHash, "Approve", "Required for this project.", "approve");
         public ValueTask DisposeAsync() => Db.DisposeAsync();

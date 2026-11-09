@@ -114,6 +114,12 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WaitFor(agentHost)
     .WaitForCompletion(migrator);
 // Both the human-facing API and the import worker use the same existing deployment identity.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["GitHubAgentRepository:AccessToken"]))
+{
+    var catalogReadToken = builder.AddParameterFromConfiguration("github-catalog-read-token", "GitHubAgentRepository:AccessToken", secret: true);
+    api.WithEnvironment("GitHubAgentRepository__AccessToken", catalogReadToken);
+    agentHost.WithEnvironment("GitHubAgentRepository__AccessToken", catalogReadToken);
+}
 // Only the reviewed client settings are forwarded; owner-control/provider credentials are excluded.
 foreach (var setting in sharedManagedEnvironment)
 {

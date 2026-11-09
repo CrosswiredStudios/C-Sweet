@@ -371,6 +371,30 @@ public sealed class PrebuiltBundleInstallServiceTests
         Assert.Empty(handler.Requests);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)] [InlineData(HttpStatusCode.Forbidden)] [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task Catalog_download_dependencies_remain_recoverable_and_preserve_the_failed_receipt(HttpStatusCode status)
+    {
+        await using var db = CreateDbContext();
+        var package = NewPackage(); package.ReleaseBundleDigest = "sha256:" + BundleDigest;
+        db.Add(package); await db.SaveChangesAsync();
+        var service = CreateServiceForRecovery(db, new DependencyHandler(status));
+        var error = await Assert.ThrowsAsync<AgentImportPreviewException>(() => service.InstallAsync(package.Id));
+        Assert.True(error.IsDependencyFailure); Assert.NotNull(error.RetryAt);
+        Assert.Equal(AgentBuildStatus.Failed, (await db.AgentBuildJobs.SingleAsync()).Status);
+        Assert.NotEqual(AgentPackageVersionStatus.Built, (await db.AgentPackageVersions.SingleAsync()).Status);
+    }
+
+    private sealed class DependencyHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            var response = new HttpResponseMessage(status);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(3));
+            return Task.FromResult(response);
+        }
+    }
+
     private static AgentPackageVersion NewPackage()
     {
         var source = new AgentPackageSource

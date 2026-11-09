@@ -12,7 +12,7 @@
         @foreach (var request in _requests)
         {
             <MudDivider Class="my-3" />
-            <MudText>@Text(request.GetProperty("plan"), "summary")</MudText>
+            <MudText>@(request.GetProperty("plan").ValueKind == JsonValueKind.Object ? Text(request.GetProperty("plan"), "summary") : "Project resource setup")</MudText>
             <MudText Typo="Typo.body2">@Status(Text(request, "status"))</MudText>
             @if (Text(request, "condition") is { Length: > 0 } condition)
             {
@@ -32,19 +32,19 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid? WorkstreamId { get; set; }
     private IReadOnlyList<JsonElement> _requests = [];
     private string? _error;
     private async Task RetryAsync(JsonElement request)
     {
         var body = new {
-            proposalId = Text(request, "approvalId"), decision = "Retry", comment = "Retry the same reviewed resource setup.",
-            payloadHash = Text(request, "planHash"), actionIdempotencyKey = "resource:" + request.GetProperty("id").GetGuid().ToString("N"),
-            resourceId = Text(request, "workstreamId"), expectedRevision = request.GetProperty("revision").GetInt64(),
-            decisionIdempotencyKey = "resource-retry:" + request.GetProperty("id").GetGuid().ToString("N") + ":" + request.GetProperty("revision").GetInt64() };
+            requestId = Text(request, "id"), decision = "Retry", comment = "Retry the same resource requirements; preparation does not grant approval.",
+            planHash = Text(request, "planHash"), expectedRevision = request.GetProperty("revision").GetInt64(),
+            idempotencyKey = "resource-retry:" + request.GetProperty("id").GetGuid().ToString("N") + ":" + request.GetProperty("revision").GetInt64() };
         _error = null;
         try
         {
-        using var response = await Http.PostAsJsonAsync($"/api/core/organizations/{OrganizationId:D}/approvals/agent-actions/{Text(request, "approvalId")}/decide", body);
+        using var response = await Http.PostAsJsonAsync($"/api/core/organizations/{OrganizationId:D}/resources/{Text(request, "id")}/retry", body);
         response.EnsureSuccessStatusCode();
         await OnParametersSetAsync();
         }
@@ -60,12 +60,12 @@
     public void Dispose() { Realtime.EventReceived -= Changed; Realtime.Connected -= Reload; Realtime.Reconnected -= Reload; }
     protected override async Task OnParametersSetAsync()
     {
-        try { _requests = await Http.GetFromJsonAsync<List<JsonElement>>($"/api/core/organizations/{OrganizationId:D}/resources") ?? []; }
+        try { _requests = await Http.GetFromJsonAsync<List<JsonElement>>($"/api/core/organizations/{OrganizationId:D}/resources" + (WorkstreamId is { } project ? $"?workstreamId={project:D}" : "")) ?? []; }
         catch (HttpRequestException) { _requests = []; }
     }
     private static string Text(JsonElement value, string key) => value.TryGetProperty(key, out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() ?? "" : "";
     private static string Status(string status) => status switch {
-        "PendingApproval" => "Waiting for manager approval", "Approved" => "Approved — setup queued",
+        "Preparing" => "Preparing a resource plan; installation is not approved", "PendingApproval" => "Waiting for manager approval", "Approved" => "Approved — setup queued",
         "Installing" => "Preparing the build environment", "Certifying" => "Verifying the build environment",
         "Ready" => "Ready for project work", "WaitingDependency" => "Waiting for a provider dependency; setup will resume", "NeedsAttention" or "Failed" or "Revoked" => "Setup needs attention",
         "RevisionRequested" => "Manager requested changes", "Rejected" => "Request declined", _ => status };

@@ -52,7 +52,10 @@ public sealed record PluginManifestSource(string FileName, byte[] Content);
 public sealed record GitHubReleaseAssetInfo(
     string Name,
     string BrowserDownloadUrl,
-    long Size);
+    long Size)
+{
+    public string? ApiDownloadUrl { get; init; }
+}
 
 public sealed record GitHubReleaseInfo(
     string TagName,

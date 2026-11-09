@@ -164,6 +164,7 @@ public sealed class PrebuiltBundleInstallService(
             logger?.LogWarning(exception,
                 "Prebuilt release install failed for package version {PackageVersionId}.",
                 package.Id);
+            if (exception is AgentImportPreviewException { IsDependencyFailure: true }) throw;
             throw new AgentBuildException($"The prebuilt release bundle could not be installed: {message}", exception);
         }
 
@@ -195,9 +196,10 @@ public sealed class PrebuiltBundleInstallService(
         GitHubReleaseInfo? release;
         try
         {
-            release = await repositoryClient.GetLatestReleaseAsync(
-                source.RepositoryOwner, source.RepositoryName, cancellationToken);
+            release = await repositoryClient.GetReleaseByTagAsync(source.RepositoryOwner, source.RepositoryName, package.ReleaseTag!, cancellationToken)
+                ?? await repositoryClient.GetLatestReleaseAsync(source.RepositoryOwner, source.RepositoryName, cancellationToken);
         }
+        catch (AgentImportPreviewException exception) when (exception.IsDependencyFailure) { throw; }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new AgentBuildException(
@@ -205,9 +207,9 @@ public sealed class PrebuiltBundleInstallService(
                 exception);
         }
 
-        var sidecarUrl = release?.Assets.FirstOrDefault(x =>
-            string.Equals(x.Name, package.ReleaseAssetName + ".sha256", StringComparison.OrdinalIgnoreCase))
-            ?.BrowserDownloadUrl;
+        var sidecar = release is not null && release.TagName == package.ReleaseTag ? release.Assets.FirstOrDefault(x =>
+            string.Equals(x.Name, package.ReleaseAssetName + ".sha256", StringComparison.OrdinalIgnoreCase)) : null;
+        var sidecarUrl = sidecar is null ? null : PrebuiltBundleAssets.DownloadUrl(sidecar);
         if (sidecarUrl is null)
             throw new AgentBuildException(
                 "The release has no .sha256 checksum sidecar; refusing to install an unverified bundle.");
@@ -225,6 +227,9 @@ public sealed class PrebuiltBundleInstallService(
         CancellationToken cancellationToken)
     {
         using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if ((int)response.StatusCode is 401 or 403 or 429)
+            throw new AgentImportPreviewException($"Published provider download needs catalog access or rate-limit recovery (HTTP {(int)response.StatusCode}). Setup can resume after the dependency is corrected.")
+                { IsDependencyFailure = true, RetryAt = response.Headers.RetryAfter?.Date ?? (response.Headers.RetryAfter?.Delta is { } wait ? DateTimeOffset.UtcNow.Add(wait) : null) };
         if (!response.IsSuccessStatusCode)
             throw new AgentBuildException($"The release bundle download failed with {(int)response.StatusCode}.");
         if (response.Content.Headers.ContentLength > MaximumBundleBytes)
@@ -266,6 +271,9 @@ public sealed class PrebuiltBundleInstallService(
         CancellationToken cancellationToken)
     {
         using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if ((int)response.StatusCode is 401 or 403 or 429)
+            throw new AgentImportPreviewException($"Published provider checksum download needs catalog access or rate-limit recovery (HTTP {(int)response.StatusCode}).")
+                { IsDependencyFailure = true, RetryAt = response.Headers.RetryAfter?.Date ?? (response.Headers.RetryAfter?.Delta is { } wait ? DateTimeOffset.UtcNow.Add(wait) : null) };
         if (!response.IsSuccessStatusCode)
             throw new AgentBuildException("The release checksum sidecar could not be downloaded.");
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);

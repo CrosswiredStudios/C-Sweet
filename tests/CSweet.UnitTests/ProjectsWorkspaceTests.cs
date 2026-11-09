@@ -30,6 +30,19 @@ public sealed class ProjectsWorkspaceTests
         Assert.Equal(allowed, html.Contains("Edit name"));
         Assert.All(api.Methods, method => Assert.Equal(HttpMethod.Get, method));
     }
+    [Fact]
+    public async Task Overview_shows_preparation_failure_without_a_plan_or_an_approval_button()
+    {
+        var api = new Api { Resources = [JsonSerializer.SerializeToElement(new {
+            id = Guid.NewGuid(), plan = (object?)null, status = "WaitingDependency",
+            condition = "Catalog access is unavailable. Configure repository read access; setup will retry.",
+            canDecide = false, canRetry = false })] };
+        var html = await Render(api, new() { ["OrganizationId"] = api.OrganizationId, ["WorkstreamId"] = api.ProjectId, ["Tab"] = "overview" });
+        Assert.Contains("Catalog access is unavailable", html);
+        Assert.Contains("setup will retry", html); Assert.DoesNotContain("Review resource request", html);
+        Assert.All(api.Methods, method => Assert.Equal(HttpMethod.Get, method));
+    }
+
     [Theory]
     [InlineData("teams", "people")]
     [InlineData("governance", "decisions")]
@@ -313,6 +326,7 @@ public sealed class ProjectsWorkspaceTests
         public IReadOnlyList<WorkDeliveryPlanResponse> DeliveryPlans { get; set; } = [];
         public IReadOnlyList<ProjectSetupPerson> DeliveryPeople { get; set; } = [];
         public Guid? CurrentUserId { get; set; }
+        public JsonElement[] Resources { get; init; } = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath; Paths.Add(path); Methods.Add(request.Method);
@@ -329,6 +343,11 @@ public sealed class ProjectsWorkspaceTests
                 var project = total with { InputTokens = 15000, OutputTokens = 5000, FullyReportedCalls = 10, ActiveAgentTimeMs = 90000 };
                 result = new WorkEfficiencyResponse(OrganizationId, DateTimeOffset.UtcNow, null, null, total, total, total,
                     HasProjectUsage ? [new(ProjectId, null, ProjectId, "Project", "Neon Bash", "Active", project, project, new(null, null, null, null, null, 0, 0, false))] : [], [], false, "Only reported provider usage is counted.");
+            }
+            else if (path.EndsWith("/resources"))
+            {
+                Assert.Contains(ProjectId.ToString("D"), request.RequestUri.Query);
+                result = Resources;
             }
             else if (path.EndsWith("/work/boards")) result = new WorkBoardDirectoryResponse([], false);
             else if (path.EndsWith("/work/personal-todos")) result = new CSweet.WorkManagement.Contracts.PersonalTodoDirectory([]);

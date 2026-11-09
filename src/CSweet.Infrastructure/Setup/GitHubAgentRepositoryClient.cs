@@ -128,7 +128,10 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
                 assets.Add(new GitHubReleaseAssetInfo(
                     nameElement.GetString()!,
                     urlElement.GetString()!,
-                    size));
+                    size) { ApiDownloadUrl = asset.TryGetProperty("url", out var apiUrl) &&
+                        Uri.TryCreate(apiUrl.GetString(), UriKind.Absolute, out var uri) && uri.Scheme == "https" &&
+                        uri.Host == "api.github.com" && uri.AbsolutePath.Contains("/releases/assets/", StringComparison.Ordinal)
+                            ? uri.AbsoluteUri : null });
             }
         }
 
@@ -248,7 +251,7 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new AgentImportPreviewException(notFoundMessage);
+            throw new AgentImportPreviewException(notFoundMessage) { IsDependencyFailure = true };
         }
 
         var detail = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -259,22 +262,33 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
               detail.Contains("rate limit", StringComparison.OrdinalIgnoreCase))))
         {
             var retry = "Please wait before retrying.";
+            DateTimeOffset? retryAt = null;
             if (response.Headers.RetryAfter?.Delta is { } delay)
+            {
                 retry = $"Retry after {Math.Ceiling(delay.TotalSeconds)} seconds.";
+                retryAt = DateTimeOffset.UtcNow.Add(delay);
+            }
             else if (response.Headers.RetryAfter?.Date is { } retryDate)
+            {
                 retry = $"Retry after {retryDate.UtcDateTime:u}.";
+                retryAt = retryDate;
+            }
             else if (response.Headers.TryGetValues("X-RateLimit-Reset", out var resets) &&
                      long.TryParse(resets.FirstOrDefault(), out var reset) && reset is >= 0 and <= 253402300799)
-                retry = $"Retry after {DateTimeOffset.FromUnixTimeSeconds(reset).UtcDateTime:u}.";
+            {
+                retryAt = DateTimeOffset.FromUnixTimeSeconds(reset);
+                retry = $"Retry after {retryAt.Value.UtcDateTime:u}.";
+            }
 
             throw new AgentImportPreviewException(
                 $"GitHub temporarily rate-limited repository access. {retry} " +
-                "An administrator can configure authenticated catalog access to increase the API allowance.");
+                "An administrator can configure authenticated catalog access to increase the API allowance.")
+                { IsDependencyFailure = true, RetryAt = retryAt };
         }
         if (response.StatusCode == HttpStatusCode.Unauthorized)
             throw new AgentImportPreviewException(
-                "GitHub rejected the catalog access credential. Ask an administrator to update it before retrying.");
+                "GitHub rejected the catalog access credential. Ask an administrator to update it before retrying.") { IsDependencyFailure = true };
         throw new AgentImportPreviewException(
-            $"GitHub request failed with status {(int)response.StatusCode}: {detail}");
+            $"GitHub request failed with status {(int)response.StatusCode}. Verify catalog repository read access and provider availability.") { IsDependencyFailure = true };
     }
 }

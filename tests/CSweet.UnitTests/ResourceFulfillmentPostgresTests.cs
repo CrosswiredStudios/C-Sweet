@@ -37,6 +37,11 @@ public sealed class ResourceFulfillmentPostgresTests
                 manager, requester, new Workstream { Id = project, OrganizationId = organization, Name = "Game", Status = WorkstreamStatus.Approved,
                     AccountableManagerOrganizationUserId = requester.Id });
             await seed.SaveChangesAsync();
+            var obsolete = new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = organization, WorkstreamId = project,
+                RequestedByOrganizationUserId = requester.Id, RequestedByInstallationId = installation,
+                TypeKey = "video-game.toolchain-selection.v1", AuthorityRuleKey = "unsupported-or-uncertified-toolchain",
+                Status = "Pending", TypeDataJson = "{\"recipeKey\":\"phaser.web-2d.v1\"}", IdempotencyKey = "old-manual-question" };
+            seed.Add(obsolete); await seed.SaveChangesAsync();
             var handler = new ResourceFulfillmentTests.Handler();
             var input = new ResourceRequest(project, ResourceCapabilities.BuildToolchain, "phaser.web-2d.v1", "Build the approved game", "same-request");
             async Task<ResourceRequestState> Request()
@@ -45,13 +50,19 @@ public sealed class ResourceFulfillmentPostgresTests
             }
             var requested = await Task.WhenAll(Request(), Request());
             Assert.Equal(requested[0].Id, requested[1].Id);
+            await seed.Entry(obsolete).ReloadAsync();
+            Assert.Equal("Cancelled", obsolete.Status); Assert.Contains(requested[0].Id.ToString("D"), obsolete.Rationale);
             await using (var discovery = Open())
             {
                 var scoped = await new ResourceFulfillmentService(discovery, [handler], TimeProvider.System)
                     .ReadAsync(organization, installation, new(WorkstreamId: project), default);
                 Assert.Equal(requested[0].Id, Assert.Single(scoped).Id);
             }
-            var decision = new ResourceDecision(requested[0].Id, requested[0].Revision, requested[0].PlanHash, "Approve", "Required project capacity", "same-decision");
+            await using (var preparation = Open())
+                await new ResourceFulfillmentService(preparation, [handler], TimeProvider.System).ProcessNextAsync(default);
+            var prepared = await new ResourceFulfillmentService(seed, [handler], TimeProvider.System).GetAsync(organization, requested[0].Id, default);
+            Assert.Equal("PendingApproval", prepared.Status);
+            var decision = new ResourceDecision(prepared.Id, prepared.Revision, prepared.PlanHash, "Approve", "Required project capacity", "same-decision");
             async Task Decide()
             {
                 await using var db = Open(); await new ResourceFulfillmentService(db, [handler], TimeProvider.System).DecideAsync(manager, decision, default);
@@ -66,8 +77,8 @@ public sealed class ResourceFulfillmentPostgresTests
             Assert.Single(await seed.ActionProposals.AsNoTracking().ToListAsync());
             var state = await new ResourceFulfillmentService(seed, [handler], TimeProvider.System).GetAsync(organization, requested[0].Id, default);
             Assert.Equal("Installing", state.Status);
-            Assert.Equal(3, state.Revision);
-            Assert.Equal(3, await seed.AgentPlatformEventOutbox.CountAsync());
+            Assert.Equal(4, state.Revision);
+            Assert.Equal(4, await seed.AgentPlatformEventOutbox.CountAsync());
         }
         finally
         {

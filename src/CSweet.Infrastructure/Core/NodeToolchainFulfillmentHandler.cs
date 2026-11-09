@@ -34,8 +34,12 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
         {
             const string owner = "CrosswiredStudios"; const string name = "CSweet.Plugins.Toolchain.NodeTypeScript";
             var release = await repository.GetLatestReleaseAsync(owner, name, token);
-            if (release is null || release.Draft || release.Prerelease || PrebuiltBundleAssets.SelectBundle(release) is null)
-                throw new InvalidOperationException("A published Node/TypeScript provider bundle is required. No source-build fallback or approval was created.");
+            if (release is null)
+                throw new ResourcePreparationDependencyException("resource.provider_release_unavailable",
+                    "C-Sweet cannot access the published Node/TypeScript release. The repository may be private or have no stable release. Configure GitHubAgentRepository:AccessToken with repository read access for both API and AgentHost, or publish an accessible provider release. Setup will retry; no installation is approved.");
+            if (release.Draft || release.Prerelease || PrebuiltBundleAssets.SelectBundle(release) is null)
+                throw new ResourcePreparationDependencyException("resource.provider_bundle_unavailable",
+                    "The stable Node/TypeScript release needs a compatible linux-x64 .cspb or .csab bundle and checksum. Publish or repair those assets; setup will retry without creating an execution grant.");
             var preview = await previews.PreviewAsync(new($"https://github.com/{owner}/{name}", release.TagName), token);
             package = await db.AgentPackageVersions.Include(x => x.PackageSource).SingleAsync(x => x.Id == preview.ImportId, token);
             if (package.AgentId != ProviderId || package.PublisherId != "com.csweet" || package.PluginKind != PluginKind.Service || package.ReleaseTag != release.TagName)
@@ -68,12 +72,12 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
             }
             catch (InvalidOperationException) { }
         }
-        throw new InvalidOperationException("No compatible managed Office image is ready. Complete host setup; a generic Node compute image is not a substitute for this provider profile.");
+        throw new ResourcePreparationDependencyException("resource.office_image_unavailable", "No compatible managed Office image is ready. Complete host setup; a generic Node compute image is not a substitute for this provider profile. Setup will retry after host capacity becomes available.");
     }
 
     public async Task ValidateAsync(Guid organization, ResourceRequestState state, CancellationToken token)
     {
-        var plan = state.Plan;
+        var plan = state.Plan ?? throw new InvalidOperationException("Prepare an exact resource plan before validation.");
         var package = await db.AgentPackageVersions.AsNoTracking().SingleAsync(x => x.Id == plan.PackageVersionId, token);
         var definition = await db.ToolchainAdapterDefinitions.AsNoTracking().SingleAsync(x => x.Id == plan.DefinitionId, token);
         if (!Supports(state.ResourceType, state.ProfileKey) || package.AgentId != ProviderId || package.PublisherId != "com.csweet" ||
@@ -93,7 +97,7 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
 
     public async Task<ResourceFulfillmentProgress> ReconcileAsync(Guid organization, ResourceRequestState state, CancellationToken token)
     {
-        var plan = state.Plan;
+        var plan = state.Plan ?? throw new InvalidOperationException("Prepare and approve an exact resource plan before installation.");
         var provider = state.ProviderInstallationId is { } id
             ? await db.AgentInstallations.Include(x => x.PackageVersion).Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == id && x.BusinessId == organization.ToString("D"), token)
             : await db.AgentInstallations.Include(x => x.PackageVersion).Include(x => x.Grant).Where(x => x.BusinessId == organization.ToString("D") &&

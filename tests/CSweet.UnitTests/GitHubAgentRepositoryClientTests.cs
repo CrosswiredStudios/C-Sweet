@@ -136,6 +136,7 @@ public class GitHubAgentRepositoryClientTests
         var error = await Assert.ThrowsAsync<AgentImportPreviewException>(() =>
             CreateClient(handler).GetDefaultBranchAsync("example", "agent", CancellationToken.None));
         Assert.Contains("credential", error.Message);
+        Assert.True(error.IsDependencyFailure);
         Assert.Single(handler.Requests);
     }
 
@@ -209,6 +210,22 @@ public class GitHubAgentRepositoryClientTests
         var release = await client.GetLatestReleaseAsync("example", "research-agent", CancellationToken.None);
 
         Assert.Null(release);
+    }
+
+    [Fact]
+    public async Task Published_private_plugin_assets_retain_the_authenticated_API_download_route()
+    {
+        var handler = new RecordingHandler(_ => Json("""
+            {"tag_name":"v1.0.2","assets":[
+              {"name":"Node-1.0.2-linux-x64.cspb","browser_download_url":"https://github.com/example/node/releases/download/v1.0.2/Node.cspb",
+               "url":"https://api.github.com/repos/example/node/releases/assets/42","size":123},
+              {"name":"Node-1.0.2-linux-x64.cspb.sha256","browser_download_url":"https://github.com/example/node/releases/download/v1.0.2/Node.cspb.sha256",
+               "url":"https://api.github.com/repos/example/node/releases/assets/43","size":80}]}
+            """));
+        var release = await CreateClient(handler).GetLatestReleaseAsync("example", "node", default);
+        var bundle = PrebuiltBundleAssets.SelectBundle(release!)!;
+        Assert.EndsWith("/42", PrebuiltBundleAssets.DownloadUrl(bundle));
+        Assert.EndsWith("/43", PrebuiltBundleAssets.DownloadUrl(PrebuiltBundleAssets.FindChecksumSidecar(release!, bundle)!));
     }
 
     [Fact]

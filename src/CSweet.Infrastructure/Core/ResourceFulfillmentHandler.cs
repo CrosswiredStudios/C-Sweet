@@ -14,3 +14,9 @@ public interface IResourceFulfillmentHandler
 
 public sealed record ResourceFulfillmentProgress(string Status, string? Condition = null,
     Guid? ProviderInstallationId = null, Guid? CertificationRunId = null);
+
+/// <summary>A known preparation dependency, retained before any approval or execution grant.</summary>
+public sealed class ResourcePreparationDependencyException(string code, string message) : InvalidOperationException(message)
+{
+    public string Code { get; } = code;
+}

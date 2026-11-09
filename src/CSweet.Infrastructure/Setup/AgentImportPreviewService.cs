@@ -167,7 +167,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             version.ReleaseTag = prebuilt.Release.TagName;
             version.ReleaseAssetName = prebuilt.Bundle.Name;
-            version.ReleaseAssetUrl = prebuilt.Bundle.BrowserDownloadUrl;
+            version.ReleaseAssetUrl = PrebuiltBundleAssets.DownloadUrl(prebuilt.Bundle);
         }
         else if (prebuilt is not null)
         {
