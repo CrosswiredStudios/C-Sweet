@@ -59,7 +59,10 @@
                     @foreach (var suggestion in _suggestions) { <BusinessSuggestionCard @key="suggestion.Id" OrganizationId="OrganizationId" Suggestion="suggestion" Changed="RefreshAsync" /> }
                     @if (_errors.GetValueOrDefault("suggestions") is { } suggestionError) { <MudAlert Severity="Severity.Warning">@suggestionError</MudAlert> }
                     <EmployeePortraitScope OrganizationId="OrganizationId">
-                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" SuggestionCount="_suggestions.Count"
+                        @* Setup the platform cannot finish without a person (for example a provider release it
+                           cannot reach) belongs here, not only on the Approvals page. *@
+                        <ResourceFulfillmentPanel OrganizationId="OrganizationId" AttentionOnly="true" CountChanged="SetupAttentionChanged" />
+                        <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" SuggestionCount="_suggestions.Count + _setupAttention"
                             ProjectIncidents="@(_approvals?.ProjectIncidents ?? [])" Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
                             ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
                             ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
@@ -197,6 +200,8 @@
     private CancellationTokenSource? _loadCancellation;
     private Guid _loadedOrganization;
     private int _activityRefreshVersion;
+    private int _setupAttention;
+    private void SetupAttentionChanged(int count) => _setupAttention = count;
     private DocumentApprovalSelection? _documentReview;
     private void OpenDocument(DocumentApprovalSelection selection) => _documentReview = selection;
     private void CloseDocument() => _documentReview = null;

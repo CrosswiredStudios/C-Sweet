@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "The collaboration was stopped.",
   "LinkedCommitments.Changed": "This collaboration has changed. The board was refreshed; try again if it is still needed.",
   "LinkedCommitments.NotAllowed": "You do not have permission to do this.",
-  "LinkedCommitments.Failed": "The request could not be completed. Try again."
+  "LinkedCommitments.Failed": "The request could not be completed. Try again.",
+  "LinkedCommitments.DoneGroup": "Done · {count}"
 }

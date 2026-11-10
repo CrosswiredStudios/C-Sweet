@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "Совместная работа остановлена.",
   "LinkedCommitments.Changed": "Эта совместная работа изменилась. Доска обновлена; повторите попытку, если это всё ещё нужно.",
   "LinkedCommitments.NotAllowed": "У вас нет прав на это действие.",
-  "LinkedCommitments.Failed": "Не удалось выполнить запрос. Повторите попытку."
+  "LinkedCommitments.Failed": "Не удалось выполнить запрос. Повторите попытку.",
+  "LinkedCommitments.DoneGroup": "Готово · {count}"
 }

@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "تم إيقاف التعاون.",
   "LinkedCommitments.Changed": "تغيّر هذا التعاون. تم تحديث اللوحة؛ حاول مرة أخرى إذا كان ذلك لا يزال مطلوبًا.",
   "LinkedCommitments.NotAllowed": "ليس لديك إذن للقيام بهذا.",
-  "LinkedCommitments.Failed": "تعذّر إكمال الطلب. حاول مرة أخرى."
+  "LinkedCommitments.Failed": "تعذّر إكمال الطلب. حاول مرة أخرى.",
+  "LinkedCommitments.DoneGroup": "تم · {count}"
 }

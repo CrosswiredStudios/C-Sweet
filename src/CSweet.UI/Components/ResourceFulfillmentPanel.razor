@@ -33,6 +33,18 @@
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid? WorkstreamId { get; set; }
+
+    /// <summary>
+    /// Show only setup that cannot continue without a person: a dependency the platform is waiting on, or a
+    /// failed setup. Used on the company overview so these appear under "Needs your attention".
+    /// </summary>
+    [Parameter] public bool AttentionOnly { get; set; }
+
+    /// <summary>Raised when the number of shown requests changes, so the overview can count them.</summary>
+    [Parameter] public EventCallback<int> CountChanged { get; set; }
+
+    private (Guid Organization, Guid? Workstream, bool AttentionOnly)? _loadedFor;
+    private int _reportedCount = -1;
     private IReadOnlyList<JsonElement> _requests = [];
     private string? _error;
     private async Task RetryAsync(JsonElement request)
@@ -46,7 +58,7 @@
         {
         using var response = await Http.PostAsJsonAsync($"/api/core/organizations/{OrganizationId:D}/resources/{Text(request, "id")}/retry", body);
         response.EnsureSuccessStatusCode();
-        await OnParametersSetAsync();
+        await LoadAsync();
         }
         catch (HttpRequestException) { _error = "Setup could not be retried. Refresh the resource status and check current manager authority."; }
     }
@@ -56,13 +68,32 @@
     }
     private void Changed(CSweet.Contracts.Realtime.AppRealtimeEventEnvelope e)
     { if (e.OrganizationId == OrganizationId && e.EventType == CSweet.Contracts.Realtime.AppRealtimeEvents.ResourceChanged) Reload(); }
-    private void Reload() => _ = InvokeAsync(async () => { await OnParametersSetAsync(); StateHasChanged(); });
+    private void Reload() => _ = InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
     public void Dispose() { Realtime.EventReceived -= Changed; Realtime.Connected -= Reload; Realtime.Reconnected -= Reload; }
     protected override async Task OnParametersSetAsync()
     {
-        try { _requests = await Http.GetFromJsonAsync<List<JsonElement>>($"/api/core/organizations/{OrganizationId:D}/resources" + (WorkstreamId is { } project ? $"?workstreamId={project:D}" : "")) ?? []; }
-        catch (HttpRequestException) { _requests = []; }
+        // A parent re-render must not refetch; realtime events and Retry reload explicitly.
+        var key = (OrganizationId, WorkstreamId, AttentionOnly);
+        if (_loadedFor == key) return;
+        _loadedFor = key;
+        await LoadAsync();
     }
+
+    private async Task LoadAsync()
+    {
+        IReadOnlyList<JsonElement> requests;
+        try { requests = await Http.GetFromJsonAsync<List<JsonElement>>($"/api/core/organizations/{OrganizationId:D}/resources" + (WorkstreamId is { } project ? $"?workstreamId={project:D}" : "")) ?? []; }
+        catch (Exception error) when (error is HttpRequestException or JsonException) { requests = []; }
+        _requests = AttentionOnly ? requests.Where(NeedsAPerson).ToList() : requests;
+        if (_requests.Count != _reportedCount)
+        {
+            _reportedCount = _requests.Count;
+            await CountChanged.InvokeAsync(_reportedCount);
+        }
+    }
+
+    private static bool NeedsAPerson(JsonElement request) =>
+        Text(request, "status") is "WaitingDependency" or "NeedsAttention" or "Failed";
     private static string Text(JsonElement value, string key) => value.TryGetProperty(key, out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() ?? "" : "";
     private static string Status(string status) => status switch {
         "Preparing" => "Preparing a resource plan; installation is not approved", "PendingApproval" => "Waiting for manager approval", "Approved" => "Approved — setup queued",

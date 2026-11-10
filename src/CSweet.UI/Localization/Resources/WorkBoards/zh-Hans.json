@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "协作已停止。",
   "LinkedCommitments.Changed": "此协作已发生变化。看板已刷新；如仍有需要，请重试。",
   "LinkedCommitments.NotAllowed": "您没有执行此操作的权限。",
-  "LinkedCommitments.Failed": "无法完成请求。请重试。"
+  "LinkedCommitments.Failed": "无法完成请求。请重试。",
+  "LinkedCommitments.DoneGroup": "已完成 · {count}"
 }

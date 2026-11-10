@@ -178,3 +178,15 @@ has one existing failure: `ApprovalDashboardServiceTests.DeliveredOpenIncidentIs
 Its fixture expects an incident without current failure or owner input to remain attention;
 the unchanged `ProjectHealthService.ReadAttentionAsync` deliberately filters it. This is not
 part of the resource lifecycle fix, and the broader suite is not claimed fully green.
+
+## Owner attention
+
+A request in `WaitingDependency`, `NeedsAttention` or `Failed` cannot continue without a person. `ResourceFulfillmentPanel`
+takes `AttentionOnly` and `CountChanged`; `CommandCenter.razor` renders it inside "Needs your attention" and adds its count to the
+pending total, so the overview no longer reads "Nothing needs your attention" while setup is stuck. The Approvals and project
+pages keep the full list. The panel now loads when its parameters change, on realtime `ResourceChanged`, and after Retry; a
+parent re-render alone does not refetch.
+
+First seen on 2026-11-10: a fresh database had no Node/TypeScript provider and the release repository was private, so the
+request sat in `WaitingDependency` behind warning toasts while the overview showed 0 pending. The first-party provider
+repository must be readable by the deployment (public, or `GitHubAgentRepository:AccessToken` configured).

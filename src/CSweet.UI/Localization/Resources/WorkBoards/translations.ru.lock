@@ -361,5 +361,6 @@
   "LinkedCommitments.Stopped": "d8a605560e17",
   "LinkedCommitments.Changed": "8e2b636b2594",
   "LinkedCommitments.NotAllowed": "b0b3e4d3c613",
-  "LinkedCommitments.Failed": "acab81ad0355"
+  "LinkedCommitments.Failed": "acab81ad0355",
+  "LinkedCommitments.DoneGroup": "c3781cb71d00"
 }

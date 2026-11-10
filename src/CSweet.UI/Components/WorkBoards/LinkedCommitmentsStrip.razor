@@ -9,48 +9,75 @@
 {
     <section class="linked-commitments" aria-label="@L["LinkedCommitments.Title"]">
         <header>
-            <h3>@L["LinkedCommitments.Title"]</h3>
-            <p>@L["LinkedCommitments.Help"]</p>
-        </header>
-        @if (_notice is not null)
-        {
-            <p class="linked-notice" role="status">@_notice</p>
-        }
-        <ul>
-            @foreach (var commitment in Ordered)
+            <h3 title="@L["LinkedCommitments.Help"]">@L["LinkedCommitments.Title"]</h3>
+            @if (_notice is not null)
             {
-                <li class="linked-card @StateClass(commitment)">
-                    <span class="linked-status">@StatusLabel(commitment)</span>
-                    <div class="linked-body">
-                        <strong>@commitment.Title</strong>
-                        @if (!string.IsNullOrWhiteSpace(commitment.OwnerDisplayName))
-                        {
-                            <span class="linked-owner">@commitment.OwnerDisplayName</span>
-                        }
-                        @if (Reason(commitment) is { } reason)
-                        {
-                            <p>@reason</p>
-                        }
-                    </div>
-                    @if (commitment.ConversationId is { } conversation)
-                    {
-                        <div class="linked-actions">
-                            <a class="linked-open" href="@ConversationLink(commitment, conversation)">@L["LinkedCommitments.OpenConversation"]</a>
-                            @if (commitment.CanRetry && CanAct(commitment))
+                <p class="linked-notice" role="status">@_notice</p>
+            }
+        </header>
+        @* Open work is shown as cards. Finished work folds into one line so it never crowds the board. *@
+        @if (Open.Count > 0)
+        {
+            <ul class="linked-open-list">
+                @foreach (var commitment in Open)
+                {
+                    <li class="linked-card @StateClass(commitment)">
+                        <div class="linked-body">
+                            <strong>@commitment.Title</strong>
+                            <span class="linked-meta">
+                                <span class="linked-status">@StatusLabel(commitment)</span>
+                                @if (!string.IsNullOrWhiteSpace(commitment.OwnerDisplayName))
+                                {
+                                    <span class="linked-owner">@commitment.OwnerDisplayName</span>
+                                }
+                            </span>
+                            @if (Reason(commitment) is { } reason)
                             {
-                                <button type="button" class="linked-action" disabled="@_busy.Contains(commitment.Id)"
-                                        @onclick="() => ActAsync(commitment, retry: true)">@L["LinkedCommitments.Retry"]</button>
-                            }
-                            @if (commitment.CanStop && CanAct(commitment))
-                            {
-                                <button type="button" class="linked-action" disabled="@_busy.Contains(commitment.Id)"
-                                        @onclick="() => ActAsync(commitment, retry: false)">@L["LinkedCommitments.Stop"]</button>
+                                <p>@reason</p>
                             }
                         </div>
+                        @if (commitment.ConversationId is { } conversation)
+                        {
+                            <div class="linked-actions">
+                                <a class="linked-open" href="@ConversationLink(commitment, conversation)">@L["LinkedCommitments.OpenConversation"]</a>
+                                @if (commitment.CanRetry && CanAct(commitment))
+                                {
+                                    <button type="button" class="linked-action" disabled="@_busy.Contains(commitment.Id)"
+                                            @onclick="() => ActAsync(commitment, retry: true)">@L["LinkedCommitments.Retry"]</button>
+                                }
+                                @if (commitment.CanStop && CanAct(commitment))
+                                {
+                                    <button type="button" class="linked-action" disabled="@_busy.Contains(commitment.Id)"
+                                            @onclick="() => ActAsync(commitment, retry: false)">@L["LinkedCommitments.Stop"]</button>
+                                }
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+        @if (Done.Count > 0)
+        {
+            <details class="linked-done">
+                <summary>@L.Format("LinkedCommitments.DoneGroup", new { count = Done.Count })</summary>
+                <ul>
+                    @foreach (var commitment in Done)
+                    {
+                        <li>
+                            <span class="linked-done-title">@commitment.Title</span>
+                            @if (!string.IsNullOrWhiteSpace(commitment.OwnerDisplayName))
+                            {
+                                <span class="linked-owner">@commitment.OwnerDisplayName</span>
+                            }
+                            @if (commitment.ConversationId is { } conversation)
+                            {
+                                <a class="linked-open" href="@ConversationLink(commitment, conversation)">@L["LinkedCommitments.OpenConversation"]</a>
+                            }
+                        </li>
                     }
-                </li>
-            }
-        </ul>
+                </ul>
+            </details>
+        }
     </section>
 }
 
@@ -99,6 +126,9 @@
         finally { _busy.Remove(commitment.Id); }
         await OnChanged.InvokeAsync();
     }
+
+    private List<WorkBoardLinkedCommitmentResponse> Open => Ordered.Where(x => State(x) != "done").ToList();
+    private List<WorkBoardLinkedCommitmentResponse> Done => Ordered.Where(x => State(x) == "done").ToList();
 
     // Work that needs attention first, finished work last.
     private IEnumerable<WorkBoardLinkedCommitmentResponse> Ordered => Commitments

@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "コラボレーションを停止しました。",
   "LinkedCommitments.Changed": "このコラボレーションは変更されました。ボードを更新しました。必要な場合はもう一度お試しください。",
   "LinkedCommitments.NotAllowed": "この操作を行う権限がありません。",
-  "LinkedCommitments.Failed": "リクエストを完了できませんでした。もう一度お試しください。"
+  "LinkedCommitments.Failed": "リクエストを完了できませんでした。もう一度お試しください。",
+  "LinkedCommitments.DoneGroup": "完了 · {count}"
 }

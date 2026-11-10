@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "La collaboration a été arrêtée.",
   "LinkedCommitments.Changed": "Cette collaboration a changé. Le tableau a été actualisé ; réessayez si c'est toujours nécessaire.",
   "LinkedCommitments.NotAllowed": "Vous n'avez pas l'autorisation d'effectuer cette action.",
-  "LinkedCommitments.Failed": "La demande n'a pas pu aboutir. Réessayez."
+  "LinkedCommitments.Failed": "La demande n'a pas pu aboutir. Réessayez.",
+  "LinkedCommitments.DoneGroup": "Terminé · {count}"
 }

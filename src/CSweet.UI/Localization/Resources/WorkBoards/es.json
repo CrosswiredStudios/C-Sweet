@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "La colaboración se detuvo.",
   "LinkedCommitments.Changed": "Esta colaboración ha cambiado. El tablero se actualizó; inténtalo de nuevo si aún es necesario.",
   "LinkedCommitments.NotAllowed": "No tienes permiso para hacer esto.",
-  "LinkedCommitments.Failed": "No se pudo completar la solicitud. Inténtalo de nuevo."
+  "LinkedCommitments.Failed": "No se pudo completar la solicitud. Inténtalo de nuevo.",
+  "LinkedCommitments.DoneGroup": "Hecho · {count}"
 }

@@ -362,5 +362,6 @@
   "LinkedCommitments.Stopped": "Die Zusammenarbeit wurde gestoppt.",
   "LinkedCommitments.Changed": "Diese Zusammenarbeit hat sich geändert. Das Board wurde aktualisiert; versuchen Sie es erneut, falls es noch nötig ist.",
   "LinkedCommitments.NotAllowed": "Sie haben keine Berechtigung für diese Aktion.",
-  "LinkedCommitments.Failed": "Die Anfrage konnte nicht abgeschlossen werden. Versuchen Sie es erneut."
+  "LinkedCommitments.Failed": "Die Anfrage konnte nicht abgeschlossen werden. Versuchen Sie es erneut.",
+  "LinkedCommitments.DoneGroup": "Erledigt · {count}"
 }
