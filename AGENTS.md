@@ -42,6 +42,12 @@
 - Persist state changes and their notification outbox records atomically. Treat events as wake hints, not authoritative snapshots or execution grants.
 - Agents may be offline, miss notifications, or receive duplicates/out-of-order delivery. Provide authorized current-state reads and bounded discovery for wake/reconnect recovery; make resulting effects idempotent.
 
+## Model output contracts
+
+- Never ask a model for a value code can compute or copy. Authority, identity, keys, dates, budgets and role lists are owned by code; the model returns only the fields that need judgment, and code merges them into the template.
+- A local validator must reject what the platform rejects. Cache a command as accepted only after the platform accepts it, return a platform rejection to the model once, then block with an owner who can act.
+- Review every prompt that requests JSON against [model output contracts](docs/implementation/agent-model-output-contracts.md), and add the failing model reply as a test fixture after each incident.
+
 ## Documentation map
 
 Start with these before re-discovering behavior from source:
@@ -52,5 +58,8 @@ Start with these before re-discovering behavior from source:
 - [Chief of Staff refinement](docs/16-chief-of-staff-agent-refinement.md) - executive behavior spec for the Chief agent.
 - [native communications hub](docs/implementation/native-communications-hub.md) - conversations, turns, unread state, realtime events.
 - [universal work management](docs/implementation/features/work-management/README.md) - canonical work items, boards, sprints, personal boards, orchestration, and code map.
+- [live run analysis playbook](docs/implementation/live-run-analysis-playbook.md) - API access, read endpoints, the symptom-to-source procedure and the metrics to record when analyzing a company run in progress.
+- [model output contracts](docs/implementation/agent-model-output-contracts.md) - rules and review checklist for agent steps that submit model-produced JSON to the platform.
+- [game studio project-proposal recovery](docs/implementation/game-studio-project-proposal-recovery.md) - proposal contract, Producer submission identity, Director continuation rules and incident history.
 - [debug guide](docs/implementation/debug-guide.md) - local setup and troubleshooting entry points.
 - Keep new and updated docs symbol-first (files and type/member names) over line numbers, which rot quickly.

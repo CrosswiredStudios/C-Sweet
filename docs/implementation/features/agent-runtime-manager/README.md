@@ -86,6 +86,28 @@ the idle lifetime (`AgentRuntimeManager.ReleaseIdleRuntimeAsync`), while pending
 protects execution. OnDemand does not mean periodic duties cease; capacity savings depend on the
 review cadence, cold-start cost and actual work.
 
+`AgentRuntimeManager.ReleaseIdleCapacityAsync` bypasses the warm idle period when
+another eligible runtime with runnable demand is refused admission for platform
+or certified Office capacity. A business limit releases only that business's idle
+OnDemand runtimes; Office pressure considers actual reservations in the waiting
+runtime's explicit or configured default pool. Spare capacity retains the normal
+warm period. AlwaysOn, Scheduled, and managed-build runtimes are not donors.
+
+The donor is rechecked under the same durable advisory lock as inbox claims.
+Runnable pending work and all leased work prevent release; future retries do not
+need an occupied runtime. Stopping and session revocation commit before provider
+teardown. A slot remains occupied until shutdown is confirmed, and an unfinished
+capacity handoff prevents draining another donor in that scope. Interrupted stops
+retain the capacity-release reason and recover as cancellation. Normal bounded
+runtime reconciliation retries waiting admission; no agent polling is introduced.
+
+`AgentRuntimeManagerTests.CapacityIdle` covers warm-slot handoff, spare capacity,
+busy and delayed work, activation modes, business/pool boundaries and interrupted
+teardown. `AgentRuntimeManagerTests.CapacityIdle.Postgres` exercises both claim-first
+and release-first interleavings through the real inbox and PostgreSQL claim lock.
+Set `CSWEET_COMPUTE_TEST_DATABASE` to a loopback PostgreSQL endpoint; each relational
+case creates and deletes its own disposable database.
+
 New package defaults: Chief of Staff 2.13.2, Creative Director 2.1.2, Technical Director 3.1.2,
 Producer 3.1.3, Software Architect 1.0.2, Software Product Manager 3.1.2 and YouTube Manager
 (`com.csweet.agent.platform.youtube`) 0.3.1 use OnDemand. The older YouTube Account Manager and

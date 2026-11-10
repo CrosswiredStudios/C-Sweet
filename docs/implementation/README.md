@@ -20,6 +20,12 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Live run analysis playbook](live-run-analysis-playbook.md) covers API access, read endpoints,
+the symptom-to-source procedure and the metrics to record for a company run in progress.
+
+[Model output contracts](agent-model-output-contracts.md) lists the rules and review checklist
+for agent steps that submit model-produced JSON to the platform.
+
 [Durable resource fulfillment](resource-fulfillment.md) maps agent requests, exact manager
 approval, published tool acquisition, verified readiness and restart-safe project continuation.
 

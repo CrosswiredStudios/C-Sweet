@@ -1311,6 +1311,15 @@ public sealed partial class WorkManagementCapabilityHandler(
         var now = DateTimeOffset.UtcNow;
         var profileKey = await RequireBoardProfileAsync(
             organizationId, input.WorkstreamId, input.ProfileKey, cancellationToken);
+        // A studio lead may open the team's board before its project is approved. When the approved
+        // project's delivery lead then asks for the project board, adopt that one board instead of
+        // creating a second one.
+        if (input.WorkstreamId.HasValue && input.TeamId.HasValue)
+        {
+            var adopted = await AdoptPreProjectBoardAsync(
+                session, organizationId, installation, manager.Id, input, profileKey, grant, cancellationToken);
+            if (adopted is not null) return adopted;
+        }
         var board = new WorkBoard
         {
             Id = Guid.NewGuid(),
@@ -1359,6 +1368,84 @@ public sealed partial class WorkManagementCapabilityHandler(
         await WriteAuditAsync(
             organizationId, installation.Id, board.Id, WorkBoardActions.Create, grant,
             new { board.Id, board.Name, input.IdempotencyKey }, cancellationToken, session);
+        return result;
+    }
+
+    /// <summary>
+    /// Binds the team's single pre-project board to its newly approved project and hands it to the caller.
+    /// Only an empty, unbound standard board of the same team whose current manager actively supervises the
+    /// project qualifies. Anything ambiguous returns null so normal board creation continues unchanged.
+    /// The caller has already passed the board-create authorization and Workstream relationship checks.
+    /// </summary>
+    private async Task<Wire.WorkBoardSummary?> AdoptPreProjectBoardAsync(
+        AgentSession session,
+        Guid organizationId,
+        AgentInstallation installation,
+        Guid managerId,
+        Wire.CreateWorkBoardRequest input,
+        string profileKey,
+        ScopedAuthorizationDecision grant,
+        CancellationToken cancellationToken)
+    {
+        var workstreamId = input.WorkstreamId!.Value;
+        var teamId = input.TeamId!.Value;
+        if (await db.WorkBoards.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.WorkstreamId == workstreamId && x.ArchivedAt == null,
+                cancellationToken))
+            return null;
+        var candidates = await db.WorkBoards.Where(x =>
+                x.OrganizationId == organizationId && x.TeamId == teamId && x.WorkstreamId == null &&
+                x.ArchivedAt == null && x.Kind == WorkBoardKind.Standard && x.ManagerOrganizationUserId != null)
+            .Take(2).ToListAsync(cancellationToken);
+        if (candidates.Count != 1) return null;
+        var board = candidates[0];
+        var previousManagerId = board.ManagerOrganizationUserId!.Value;
+        if (!await db.WorkstreamSupervisionAssignments.AsNoTracking().AnyAsync(x =>
+                x.OrganizationId == organizationId && x.WorkstreamId == workstreamId &&
+                x.SupervisorOrganizationUserId == previousManagerId && x.EndsAt == null, cancellationToken))
+            return null;
+        // Work items are typed by the board profile. A board that already holds work keeps its profile,
+        // so it is left alone and the project receives its own board.
+        if (await db.CoreWorkTasks.AsNoTracking().AnyAsync(x => x.BoardId == board.Id, cancellationToken))
+            return null;
+
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var projectPolicy = new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System);
+        await projectPolicy.LockAsync(organizationId, cancellationToken);
+        board.WorkstreamId = workstreamId;
+        board.ProfileKey = profileKey;
+        board.ManagerOrganizationUserId = managerId;
+        board.Name = input.Name.Trim();
+        board.Description = input.Description?.Trim() ?? string.Empty;
+        // The board holds no items yet, so the delivery lead's requested item key prefix can still apply.
+        if (!string.IsNullOrWhiteSpace(input.Key))
+            board.Key = await ResolveBoardKeyAsync(organizationId, input.Key, input.Name, cancellationToken);
+        board.Revision++;
+        board.UpdatedAt = DateTimeOffset.UtcNow;
+        var result = new Wire.WorkBoardSummary(
+            board.Id, board.Name, board.Description, board.IsDefault, false, board.Revision,
+            [WorkBoardActions.Create])
+        {
+            TeamId = board.TeamId,
+            WorkstreamId = board.WorkstreamId,
+            ManagerOrganizationUserId = board.ManagerOrganizationUserId,
+            Key = board.Key,
+            ProfileKey = board.ProfileKey
+        };
+        AddReceipt(
+            organizationId, installation.Id, WorkBoardActions.Create,
+            input.IdempotencyKey, board.Id, result);
+        await new CSweet.Infrastructure.Core.ProjectSetupService(db, TimeProvider.System, projectPolicy)
+            .ReconcileProjectBoardAccessAsync(board, cancellationToken);
+        await QueueRealtimeAsync(
+            organizationId, board.Id, null, "board.configured", board.Revision, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        await WriteAuditAsync(
+            organizationId, installation.Id, board.Id, WorkBoardActions.Create, grant,
+            new { board.Id, board.Name, input.IdempotencyKey, adoptedPreProjectBoard = true, previousManagerId, workstreamId },
+            cancellationToken, session);
         return result;
     }
 

@@ -188,6 +188,84 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         else Assert.Empty(db.WorkBoards);
     }
 
+    [Theory]
+    [InlineData("adopt", true)]
+    [InlineData("unsupervised", false)]
+    [InlineData("has-work", false)]
+    [InlineData("other-team", false)]
+    [InlineData("two-candidates", false)]
+    public async Task ProjectBoardRequestAdoptsTheSupervisorsEmptyPreProjectTeamBoard(string scenario, bool adopted)
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var employee = db.CoreOrganizationUsers.Local.Single();
+        var teamId = Guid.NewGuid();
+        var workstreamId = Guid.NewGuid();
+        var directorId = Guid.NewGuid();
+        var earlyBoardId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        db.OrganizationTeams.Add(new OrganizationTeam { Id = teamId, OrganizationId = setup.OrganizationId,
+            Name = "Game team", LeadOrganizationUserId = employee.Id });
+        db.TeamMemberships.Add(new TeamMembership { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            TeamId = teamId, OrganizationUserId = employee.Id });
+        db.Workstreams.Add(new Workstream { Id = workstreamId, OrganizationId = setup.OrganizationId,
+            Name = "Game", ProfileKey = "test", ProfileVersion = 1, ProfileDefinitionDigest = "test-digest" });
+        db.WorkstreamProfileDefinitions.Add(new WorkstreamProfileDefinitionRecord { Id = Guid.NewGuid(),
+            Key = "test", Version = 1, DefinitionDigest = "test-digest", DefaultBoardProfileKey = "general" });
+        db.WorkstreamTeamAssignments.Add(new WorkstreamTeamAssignmentRecord { Id = Guid.NewGuid(),
+            OrganizationId = setup.OrganizationId, TeamId = teamId, WorkstreamId = workstreamId,
+            StartsAt = now.AddDays(-1) });
+        if (scenario != "unsupervised")
+            db.WorkstreamSupervisionAssignments.Add(new WorkstreamSupervisionAssignment { Id = Guid.NewGuid(),
+                OrganizationId = setup.OrganizationId, WorkstreamId = workstreamId,
+                SupervisorOrganizationUserId = directorId, RoleKey = "game-director", StartsAt = now.AddDays(-1) });
+        db.WorkBoards.Add(new WorkBoard { Id = earlyBoardId, OrganizationId = setup.OrganizationId,
+            TeamId = scenario == "other-team" ? Guid.NewGuid() : teamId, ManagerOrganizationUserId = directorId,
+            Key = "EARLY", Name = "Early game board", CreatedAt = now, UpdatedAt = now });
+        if (scenario == "two-candidates")
+            db.WorkBoards.Add(new WorkBoard { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+                TeamId = teamId, ManagerOrganizationUserId = directorId, Key = "EARLY2", Name = "Second early board",
+                CreatedAt = now, UpdatedAt = now });
+        if (scenario == "has-work")
+            db.CoreWorkTasks.Add(new WorkTask { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+                BoardId = earlyBoardId, Title = "Existing work" });
+        Grant(db, setup, WorkBoardActions.Create, GrantScopeKind.Team, teamId);
+        await db.SaveChangesAsync();
+        var existingBoards = db.WorkBoards.Count();
+        var handler = CreateHandler(db, new TestAuditEventWriter());
+        var session = Session(setup, WorkBoardActions.Create);
+        var request = new { name = "Production", teamId, workstreamId, profileKey = "general", idempotencyKey = "project-board" };
+
+        var result = await InvokeAsync(handler, session, WorkBoardActions.Create, request);
+        var replay = await InvokeAsync(handler, session, WorkBoardActions.Create, request);
+
+        Assert.True(result.Succeeded, result.Error);
+        Assert.True(replay.Succeeded, replay.Error);
+        using var resultJson = JsonDocument.Parse(result.Payload.ToByteArray());
+        using var replayJson = JsonDocument.Parse(replay.Payload.ToByteArray());
+        var returnedId = resultJson.RootElement.GetProperty("id").GetGuid();
+        Assert.Equal(returnedId, replayJson.RootElement.GetProperty("id").GetGuid());
+        var early = db.WorkBoards.Single(x => x.Id == earlyBoardId);
+        if (adopted)
+        {
+            // The one empty board the supervising lead opened becomes the project board; no second board appears.
+            Assert.Equal(existingBoards, db.WorkBoards.Count());
+            Assert.Equal(earlyBoardId, returnedId);
+            Assert.Equal(workstreamId, early.WorkstreamId);
+            Assert.Equal(employee.Id, early.ManagerOrganizationUserId);
+            Assert.Equal("general", early.ProfileKey);
+            Assert.Equal("Production", early.Name);
+            Assert.Equal("EARLY", early.Key);
+        }
+        else
+        {
+            Assert.Equal(existingBoards + 1, db.WorkBoards.Count());
+            Assert.NotEqual(earlyBoardId, returnedId);
+            Assert.Null(early.WorkstreamId);
+            Assert.Equal(directorId, early.ManagerOrganizationUserId);
+        }
+    }
+
     [Fact]
     public async Task CreateBoardIsScopedAndIdempotent()
     {

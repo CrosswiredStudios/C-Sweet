@@ -125,3 +125,52 @@ Live continuation remains pending publication/installation and the matching
 platform restart. Source changes, local packages and successful tests do not update
 approved installed payloads. No live database record, manifest or artifact digest
 was patched during this correction.
+
+## 2026-11-09: staffing authority narrowed by the model (Qwen Games)
+
+Producer 6.4.1 submitted the Prism Break proposal with `game-producer` removed from
+`authorityEnvelope.authorizedStaffingRoleKeys`. `ProposePlanAsync` rejected it: "The authority
+envelope must include every active profile staffing role: game-producer." The Director's template
+contained the role. The Producer prompt asked the model to narrow the list, `ValidProjectDraft`
+only checked for a subset, and the draft was cached under `accepted-v2` and frozen under
+`project-foundation-command:{session}:initial`, so retries replayed it.
+
+Producer 6.4.2 (prepared, not yet compiled, tested or published):
+
+- The model no longer returns staffing authority. The submitted envelope is always the template's.
+- Cached drafts and frozen commands have the template envelope restored before dispatch. The
+  idempotency key is unchanged.
+- The model returns a key and a name per milestone; other milestone fields are merged in code.
+- A platform `ValidationFailed` is returned to the model once as `evidence.platformRejection`
+  under `{cacheKey}:platform-corrected` and a `:platform-corrected` command key. A second
+  rejection blocks and quotes the platform message.
+
+Recovery of the blocked collaboration is not automatic:
+
+- The session is `Blocked`. `RecoverTransientFailuresAsync` only resumes `Failed` sessions.
+- The Director's automatic contract-recovery window (above) only opens for a rejection that names
+  an unknown root schema field. This rejection does not match, so the Director keeps its
+  `ProjectProposalWait`.
+- An authorized human can retry the session (`POST …/coordination-sessions/{id}/retry`,
+  `canRetry: true`). The session's source kind is `Chat`, so `ResumeAsync` gives the next turn to
+  the Director, which must hand it back to the Producer. Not verified against Director source.
+
+Open gap: each proposal-contract incident has needed its own recovery rule. A rule that opens one
+recovery window when a participating package version, the tool schema digest or the template
+digest has changed since the blocked turn would cover this incident and the previous one. See
+[model output contracts](agent-model-output-contracts.md).
+
+## 2026-11-10: one board per game, opened before the project (increment 1)
+
+Built and unit-tested on 2026-11-10, not yet verified on a live company: platform change in `WorkManagementCapabilityHandler`, Director 0.6.0.
+
+- Director 0.6.0 `EnsureGameBoardAsync` (`GameBoard.cs`) opens an unbound team board when the staffing plan's team is approved and stores its id in `GameDirectorOperatingState.BoardId`. It needs team-scoped `work.board.create`.
+- With a board, `EnsureProjectFoundationAsync` starts the proposal with `StartBoardCoordinationAsync` (idempotency key `project-foundation-board:{board}:{visionDigest}`, team-scoped `communication.coordination.start-board.v1`). The session is `SourceKind == "Board"`, so `ResumeAsync` returns a blocked, artifact-less Producer turn to the Producer. A denied, conflicting or invalid board start falls back to the chat collaboration and its existing key.
+- `WorkManagementCapabilityHandler.AdoptPreProjectBoardAsync`: a `work.board.create` request that names a Workstream and a team adopts the team's single unbound, empty, standard board whose manager actively supervises that Workstream. It binds the Workstream, applies the Workstream's board profile and requested key, makes the caller manager, reconciles project board access and records the create receipt. Zero or several candidates, an unsupervised manager, or any existing work item fall through to normal creation. `ProjectBoardRequestAdoptsTheSupervisorsEmptyPreProjectTeamBoard` covers each case. The Producer's `EnsureProductionBoardAsync` is unchanged.
+
+Limits of this increment:
+
+- The board holds no cards before the project exists. A pre-project board uses `general-work.v1`; the game board profile comes from the Workstream profile, and a board that already holds work is not adopted. Leadership cards need the game board profile to be available without a Workstream.
+- Automatic resume after a specialist update (`RecoverBlockedCoordinationCommitmentsAsync`) needs the Director's waiting commitment to carry `BoardId` and the session id or request key in its `PersonalTodoWorkContext`. It does not yet.
+- The board opens at team approval, after pitch approval. A team does not exist when the owner first gives a direction.
+

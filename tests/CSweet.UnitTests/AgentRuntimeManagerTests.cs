@@ -1300,6 +1300,7 @@ public sealed partial class AgentRuntimeManagerTests
             IsolationWorkloadState.Running, IsolationTerminationReason.None, null, null, null, null, null);
         public Exception? StartException { get; init; }
         public Func<RuntimeWorkloadSpecification, Task>? BeforeStart { get; init; }
+        public Func<IsolationWorkloadHandle, Task>? BeforeStop { get; init; }
         public Exception? StopException { get; set; }
         public Exception? DestroyException { get; set; }
         public Exception? InspectException { get; set; }
@@ -1321,12 +1322,12 @@ public sealed partial class AgentRuntimeManagerTests
                 workload, runtime.Id, runtime.TickId, runtime.AgentInstallationId, workload.BrokerLease.BootToken));
             return new IsolationWorkloadHandle("test-vm", workload.WorkloadId, "vm-1", WorkloadKind.Runtime);
         }
-        public Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default)
+        public async Task StopAsync(IsolationWorkloadHandle handle, TimeSpan gracePeriod, CancellationToken cancellationToken = default)
         {
             Stops.Add(handle.ProviderInstanceId);
+            if (BeforeStop is not null) await BeforeStop(handle);
             if (StopException is not null) throw StopException;
             if (ConfirmStop) stopped.Add(handle.ProviderInstanceId);
-            return Task.CompletedTask;
         }
         public Task<IsolationWorkloadStatus?> InspectAsync(IsolationWorkloadHandle handle, CancellationToken cancellationToken = default)
         {

@@ -587,10 +587,10 @@ public sealed partial class AgentRuntimeManager(
             }
         }
 
-        var idleRelease = instance.Reason == OnDemandIdleTimeoutReason;
+        var idleRelease = instance.Reason is OnDemandIdleTimeoutReason or OnDemandCapacityReleaseReason;
         var resourceHandoff = instance.Reason?.StartsWith("runtime.resources.handoff:", StringComparison.Ordinal) == true;
         var officeUpdate = instance.Reason == "office-update-interrupted";
-        var recoveryReason = officeUpdate ? "office-update-interrupted" : resourceHandoff ? "runtime.resources.handoff: old VM stopped; checkpointed operation is queued for replacement." : idleRelease ? OnDemandIdleTimeoutReason :
+        var recoveryReason = officeUpdate ? "office-update-interrupted" : resourceHandoff ? "runtime.resources.handoff: old VM stopped; checkpointed operation is queued for replacement." : idleRelease ? instance.Reason! :
             "Recovered a runtime interrupted while stopping; a fresh attempt can now start.";
         var outcome = instance.MemoryResetRequestedAt is not null || idleRelease || resourceHandoff || officeUpdate ? AgentRuntimeStatus.Cancelled :
             instance.Reason?.StartsWith(StartupCleanupReasonPrefix, StringComparison.Ordinal) == true
@@ -798,6 +798,10 @@ public sealed partial class AgentRuntimeManager(
                 Transition(instance, AgentRuntimeStatus.Queued, now, capacityReason);
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
+            if (installationCount < settings.PerInstallationMaxActiveWorkloads)
+                await ReleaseIdleCapacityAsync(instance, now,
+                    sameBusiness: settings.PerBusinessMaxActiveWorkloads > 0 && businessCount >= settings.PerBusinessMaxActiveWorkloads,
+                    samePool: false, cancellationToken);
             return false;
         }
         var codingRuntime = AgentRuntimeGuestSelection.ReadRequest(package.ManifestJson).EnvironmentProfile == "software-development-polyglot-v1";
@@ -926,6 +930,9 @@ public sealed partial class AgentRuntimeManager(
             instance.IsolationProviderId = null;
             instance.ProviderInstanceId = null;
             Transition(instance, AgentRuntimeStatus.Queued, DateTimeOffset.UtcNow, exception.Message);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await ReleaseIdleCapacityAsync(instance, DateTimeOffset.UtcNow,
+                sameBusiness: false, samePool: true, cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
