@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "Найм, модели, критерии и общие входные данные",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "Не удалось загрузить бенчмарки. Попробуйте обновить страницу.",
   "Benchmarks.EnterTheBusinessGoalAnd": "Введите цель бизнеса и выберите хотя бы одного начального агента.",
-  "Benchmarks.SelectAProviderAndModel": "Выберите поставщика и модель для каждого варианта."
+  "Benchmarks.SelectAProviderAndModel": "Выберите поставщика и модель для каждого варианта.",
+  "LinkedCommitments.Title": "Работа руководства",
+  "LinkedCommitments.Help": "Работа по этой доске, которая ведётся на личной доске участника команды.",
+  "LinkedCommitments.OpenConversation": "Открыть беседу",
+  "LinkedCommitments.Blocked": "Заблокировано",
+  "LinkedCommitments.Waiting": "Ожидание",
+  "LinkedCommitments.InProgress": "В работе",
+  "LinkedCommitments.ToDo": "К выполнению",
+  "LinkedCommitments.Done": "Готово",
+  "LinkedCommitments.Retry": "Повторить",
+  "LinkedCommitments.Stop": "Остановить",
+  "LinkedCommitments.RetryQueued": "Повтор запрошен. Совместная работа скоро продолжится.",
+  "LinkedCommitments.Stopped": "Совместная работа остановлена.",
+  "LinkedCommitments.Changed": "Эта совместная работа изменилась. Доска обновлена; повторите попытку, если это всё ещё нужно.",
+  "LinkedCommitments.NotAllowed": "У вас нет прав на это действие.",
+  "LinkedCommitments.Failed": "Не удалось выполнить запрос. Повторите попытку."
 }

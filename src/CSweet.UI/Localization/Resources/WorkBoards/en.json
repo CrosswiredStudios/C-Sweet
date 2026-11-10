@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "Hiring, models, criteria, and shared inputs",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "Benchmarks could not be loaded. Try refreshing.",
   "Benchmarks.EnterTheBusinessGoalAnd": "Enter the business goal and choose at least one initial agent.",
-  "Benchmarks.SelectAProviderAndModel": "Select a provider and model for each variant."
+  "Benchmarks.SelectAProviderAndModel": "Select a provider and model for each variant.",
+  "LinkedCommitments.Title": "Leadership work",
+  "LinkedCommitments.Help": "Work for this board that is tracked on a team member's own board.",
+  "LinkedCommitments.OpenConversation": "Open conversation",
+  "LinkedCommitments.Blocked": "Blocked",
+  "LinkedCommitments.Waiting": "Waiting",
+  "LinkedCommitments.InProgress": "In progress",
+  "LinkedCommitments.ToDo": "To do",
+  "LinkedCommitments.Done": "Done",
+  "LinkedCommitments.Retry": "Retry",
+  "LinkedCommitments.Stop": "Stop",
+  "LinkedCommitments.RetryQueued": "Retry requested. The collaboration will continue shortly.",
+  "LinkedCommitments.Stopped": "The collaboration was stopped.",
+  "LinkedCommitments.Changed": "This collaboration has changed. The board was refreshed; try again if it is still needed.",
+  "LinkedCommitments.NotAllowed": "You do not have permission to do this.",
+  "LinkedCommitments.Failed": "The request could not be completed. Try again."
 }

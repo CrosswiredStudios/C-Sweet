@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "التوظيف والنماذج والمعايير والمدخلات المشتركة",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "تعذّر تحميل معايير الأداء. جرّب التحديث.",
   "Benchmarks.EnterTheBusinessGoalAnd": "أدخل هدف الشركة واختر وكيلًا أوليًا واحدًا على الأقل.",
-  "Benchmarks.SelectAProviderAndModel": "اختر موفّرًا ونموذجًا لكل متغير."
+  "Benchmarks.SelectAProviderAndModel": "اختر موفّرًا ونموذجًا لكل متغير.",
+  "LinkedCommitments.Title": "عمل القيادة",
+  "LinkedCommitments.Help": "عمل يخص هذه اللوحة ويُتابَع على اللوحة الخاصة بأحد أعضاء الفريق.",
+  "LinkedCommitments.OpenConversation": "فتح المحادثة",
+  "LinkedCommitments.Blocked": "محظور",
+  "LinkedCommitments.Waiting": "قيد الانتظار",
+  "LinkedCommitments.InProgress": "قيد التنفيذ",
+  "LinkedCommitments.ToDo": "للتنفيذ",
+  "LinkedCommitments.Done": "تم",
+  "LinkedCommitments.Retry": "إعادة المحاولة",
+  "LinkedCommitments.Stop": "إيقاف",
+  "LinkedCommitments.RetryQueued": "تم طلب إعادة المحاولة. سيستمر التعاون قريبًا.",
+  "LinkedCommitments.Stopped": "تم إيقاف التعاون.",
+  "LinkedCommitments.Changed": "تغيّر هذا التعاون. تم تحديث اللوحة؛ حاول مرة أخرى إذا كان ذلك لا يزال مطلوبًا.",
+  "LinkedCommitments.NotAllowed": "ليس لديك إذن للقيام بهذا.",
+  "LinkedCommitments.Failed": "تعذّر إكمال الطلب. حاول مرة أخرى."
 }

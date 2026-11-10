@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "Contratación, modelos, criterios y entradas compartidas",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "No se pudieron cargar las pruebas comparativas. Intenta actualizar.",
   "Benchmarks.EnterTheBusinessGoalAnd": "Ingresa el objetivo de la empresa y elige al menos un agente inicial.",
-  "Benchmarks.SelectAProviderAndModel": "Selecciona un proveedor y un modelo para cada variante."
+  "Benchmarks.SelectAProviderAndModel": "Selecciona un proveedor y un modelo para cada variante.",
+  "LinkedCommitments.Title": "Trabajo de dirección",
+  "LinkedCommitments.Help": "Trabajo de este tablero cuyo seguimiento se hace en el tablero propio de un miembro del equipo.",
+  "LinkedCommitments.OpenConversation": "Abrir conversación",
+  "LinkedCommitments.Blocked": "Bloqueado",
+  "LinkedCommitments.Waiting": "En espera",
+  "LinkedCommitments.InProgress": "En curso",
+  "LinkedCommitments.ToDo": "Por hacer",
+  "LinkedCommitments.Done": "Hecho",
+  "LinkedCommitments.Retry": "Reintentar",
+  "LinkedCommitments.Stop": "Detener",
+  "LinkedCommitments.RetryQueued": "Reintento solicitado. La colaboración continuará en breve.",
+  "LinkedCommitments.Stopped": "La colaboración se detuvo.",
+  "LinkedCommitments.Changed": "Esta colaboración ha cambiado. El tablero se actualizó; inténtalo de nuevo si aún es necesario.",
+  "LinkedCommitments.NotAllowed": "No tienes permiso para hacer esto.",
+  "LinkedCommitments.Failed": "No se pudo completar la solicitud. Inténtalo de nuevo."
 }

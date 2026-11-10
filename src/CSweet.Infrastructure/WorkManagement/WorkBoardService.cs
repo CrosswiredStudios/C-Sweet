@@ -1182,7 +1182,90 @@ public sealed partial class WorkBoardService(
                 .Select(x => new WorkBoardColumnResponse(
                     x.Id, x.Name, x.Category.ToString(), x.Position, x.WipPolicy.ToString(), x.WipLimit))
                 .ToList(),
-            items);
+            items)
+        {
+            LinkedCommitments = await LinkedCommitmentsAsync(board, memberId, cancellationToken)
+        };
+    }
+
+    /// <summary>
+    /// Reads the personal commitments bound to this team board through their work context. Personal boards are
+    /// private to the reporting chain, so only a human manager or owner receives them here. The result is a
+    /// read-only projection; it grants nothing and changes no card.
+    /// </summary>
+    private async Task<IReadOnlyList<WorkBoardLinkedCommitmentResponse>> LinkedCommitmentsAsync(
+        WorkBoard board, Guid memberId, CancellationToken cancellationToken)
+    {
+        if (board.Kind != WorkBoardKind.Standard) return [];
+        var viewer = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.Id == memberId && x.OrganizationId == board.OrganizationId && x.IsActive, cancellationToken);
+        if (viewer is null || viewer.EmployeeType != EmployeeType.Human ||
+            viewer.PermissionLevel < OrganizationPermissionLevel.Manager) return [];
+        // The stored context is JSON. The substring narrows discovery; parsed equality below binds the board.
+        var marker = board.Id.ToString("D");
+        var rows = await db.CoreWorkTasks.AsNoTracking().Where(x =>
+                x.OrganizationId == board.OrganizationId && x.ArchivedAt == null &&
+                x.Status != WorkTaskStatus.Cancelled &&
+                x.PersonalWorkContextJson != null && x.PersonalWorkContextJson.Contains(marker) &&
+                x.Board != null && x.Board.Kind == WorkBoardKind.Personal && x.Board.ArchivedAt == null)
+            .OrderByDescending(x => x.UpdatedAt).Take(50).ToListAsync(cancellationToken);
+        var linked = new List<(WorkTask Item, Guid? SessionId)>();
+        foreach (var row in rows)
+        {
+            try
+            {
+                using var context = JsonDocument.Parse(row.PersonalWorkContextJson!);
+                if (ContextGuid(context.RootElement, "boardId") != board.Id) continue;
+                linked.Add((row, ContextGuid(context.RootElement, "coordinationSessionId")));
+            }
+            catch (JsonException) { }
+        }
+        if (linked.Count == 0) return [];
+        var ownerIds = linked.Where(x => x.Item.AssignedEmployeeId.HasValue)
+            .Select(x => x.Item.AssignedEmployeeId!.Value).Distinct().ToArray();
+        var owners = await db.CoreOrganizationUsers.AsNoTracking()
+            .Where(x => x.OrganizationId == board.OrganizationId && ownerIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
+        var sessionIds = linked.Where(x => x.SessionId.HasValue).Select(x => x.SessionId!.Value).Distinct().ToArray();
+        var sessions = sessionIds.Length == 0
+            ? new List<CSweet.Domain.Communications.AgentCoordinationSession>()
+            : await db.AgentCoordinationSessions.AsNoTracking()
+                .Where(x => x.OrganizationId == board.OrganizationId && sessionIds.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+        var conversations = sessions.ToDictionary(x => x.Id, x => x.ConversationId);
+        var collaborations = sessions.ToDictionary(x => x.Id);
+        return linked.Select(x => new WorkBoardLinkedCommitmentResponse(
+            x.Item.Id,
+            x.Item.AssignedEmployeeId,
+            x.Item.AssignedEmployeeId is { } ownerId && owners.TryGetValue(ownerId, out var name) ? name : string.Empty,
+            x.Item.Title,
+            x.Item.Status.ToString(),
+            x.Item.WaitingReason,
+            x.Item.BlockReason,
+            x.Item.NextReviewAt,
+            x.SessionId,
+            x.SessionId is { } sessionId && conversations.TryGetValue(sessionId, out var conversation) ? conversation : null,
+            x.Item.UpdatedAt)
+        {
+            // The viewer is a human manager (checked above), which is what the retry and stop endpoints require.
+            CoordinationRevision = x.SessionId is { } revisionOf && collaborations.TryGetValue(revisionOf, out var known)
+                ? known.Revision : null,
+            CanRetry = x.SessionId is { } retryOf && collaborations.TryGetValue(retryOf, out var stopped) &&
+                stopped.Status is CSweet.Domain.Communications.AgentCoordinationStatus.Blocked
+                    or CSweet.Domain.Communications.AgentCoordinationStatus.Failed,
+            CanStop = x.SessionId is { } stopOf && collaborations.TryGetValue(stopOf, out var running) &&
+                running.Status is CSweet.Domain.Communications.AgentCoordinationStatus.Active
+                    or CSweet.Domain.Communications.AgentCoordinationStatus.Summarizing
+        }).ToList();
+    }
+
+    private static Guid? ContextGuid(JsonElement context, string name)
+    {
+        if (context.ValueKind != JsonValueKind.Object) return null;
+        foreach (var property in context.EnumerateObject())
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                return property.Value.ValueKind == JsonValueKind.String && property.Value.TryGetGuid(out var value) ? value : null;
+        return null;
     }
 
     private static WorkBoardSummaryResponse ToSummary(

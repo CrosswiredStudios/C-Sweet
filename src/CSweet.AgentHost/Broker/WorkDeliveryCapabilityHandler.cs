@@ -40,10 +40,14 @@ public sealed class WorkDeliveryCapabilityHandler(IWorkDeliveryService service) 
         }
         catch (UnauthorizedAccessException error) { return Error(request, PlatformCapabilityErrorCode.Denied, error.Message); }
         catch (KeyNotFoundException error) { return Error(request, PlatformCapabilityErrorCode.NotFound, error.Message); }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or JsonException or Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
-        { return Error(request, PlatformCapabilityErrorCode.Conflict, error.Message); }
+        // Both stay Conflict so existing SDKs keep handling them. Only a revision race can succeed when
+        // retried after a re-read; a rejected request fails the same way until its inputs change.
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException error)
+        { return Error(request, PlatformCapabilityErrorCode.Conflict, error.Message, retryable: true); }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or JsonException)
+        { return Error(request, PlatformCapabilityErrorCode.Conflict, error.Message, retryable: false); }
     }
-    private static CapabilityResult Error(RequestCapability request, PlatformCapabilityErrorCode code, string message) => new()
-    { RequestId = request.RequestId, Succeeded = false, ContentType = "application/json", Error = message,
+    private static CapabilityResult Error(RequestCapability request, PlatformCapabilityErrorCode code, string message, bool? retryable = null) => new()
+    { RequestId = request.RequestId, Succeeded = false, ContentType = "application/json", Error = message, Retryable = retryable,
       Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(new PlatformCapabilityError(code, message), Json)) };
 }

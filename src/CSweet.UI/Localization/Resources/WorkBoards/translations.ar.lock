@@ -346,5 +346,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "32d71f866aec",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "55a123fc9b27",
   "Benchmarks.EnterTheBusinessGoalAnd": "8f16fb456a62",
-  "Benchmarks.SelectAProviderAndModel": "d7d5587345c7"
+  "Benchmarks.SelectAProviderAndModel": "d7d5587345c7",
+  "LinkedCommitments.Title": "78a59adab7c0",
+  "LinkedCommitments.Help": "dbd1a66f23c0",
+  "LinkedCommitments.OpenConversation": "c1e01db47d9c",
+  "LinkedCommitments.Blocked": "99613c74ce01",
+  "LinkedCommitments.Waiting": "33d30632848d",
+  "LinkedCommitments.InProgress": "b6bd42e4e730",
+  "LinkedCommitments.ToDo": "8665aed3624f",
+  "LinkedCommitments.Done": "e9b450d14bc2",
+  "LinkedCommitments.Retry": "9f5cd8a2e880",
+  "LinkedCommitments.Stop": "9e253470c876",
+  "LinkedCommitments.RetryQueued": "79c9938f3d25",
+  "LinkedCommitments.Stopped": "d8a605560e17",
+  "LinkedCommitments.Changed": "8e2b636b2594",
+  "LinkedCommitments.NotAllowed": "b0b3e4d3c613",
+  "LinkedCommitments.Failed": "acab81ad0355"
 }

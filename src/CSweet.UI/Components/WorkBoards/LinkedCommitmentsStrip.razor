@@ -1,0 +1,140 @@
+@using CSweet.Contracts.Communications
+@using CSweet.Contracts.WorkManagement
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+@* Personal commitments bound to this board. Each card is managed on its owner's own board; a manager can
+   retry or stop the collaboration a card owns from here. *@
+@if (Commitments.Count > 0)
+{
+    <section class="linked-commitments" aria-label="@L["LinkedCommitments.Title"]">
+        <header>
+            <h3>@L["LinkedCommitments.Title"]</h3>
+            <p>@L["LinkedCommitments.Help"]</p>
+        </header>
+        @if (_notice is not null)
+        {
+            <p class="linked-notice" role="status">@_notice</p>
+        }
+        <ul>
+            @foreach (var commitment in Ordered)
+            {
+                <li class="linked-card @StateClass(commitment)">
+                    <span class="linked-status">@StatusLabel(commitment)</span>
+                    <div class="linked-body">
+                        <strong>@commitment.Title</strong>
+                        @if (!string.IsNullOrWhiteSpace(commitment.OwnerDisplayName))
+                        {
+                            <span class="linked-owner">@commitment.OwnerDisplayName</span>
+                        }
+                        @if (Reason(commitment) is { } reason)
+                        {
+                            <p>@reason</p>
+                        }
+                    </div>
+                    @if (commitment.ConversationId is { } conversation)
+                    {
+                        <div class="linked-actions">
+                            <a class="linked-open" href="@ConversationLink(commitment, conversation)">@L["LinkedCommitments.OpenConversation"]</a>
+                            @if (commitment.CanRetry && CanAct(commitment))
+                            {
+                                <button type="button" class="linked-action" disabled="@_busy.Contains(commitment.Id)"
+                                        @onclick="() => ActAsync(commitment, retry: true)">@L["LinkedCommitments.Retry"]</button>
+                            }
+                            @if (commitment.CanStop && CanAct(commitment))
+                            {
+                                <button type="button" class="linked-action" disabled="@_busy.Contains(commitment.Id)"
+                                        @onclick="() => ActAsync(commitment, retry: false)">@L["LinkedCommitments.Stop"]</button>
+                            }
+                        </div>
+                    }
+                </li>
+            }
+        </ul>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<WorkBoardLinkedCommitmentResponse> Commitments { get; set; } = [];
+    [Parameter] public Guid OrganizationId { get; set; }
+
+    /// <summary>Raised after a retry or stop request, so the board reloads the cards' current state.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private readonly HashSet<Guid> _busy = [];
+    private string? _notice;
+
+    private static bool CanAct(WorkBoardLinkedCommitmentResponse commitment) =>
+        commitment.CoordinationSessionId.HasValue && commitment.ConversationId.HasValue &&
+        commitment.CoordinationRevision.HasValue;
+
+    // Retry asks the specialist for a fresh response; the platform then returns the blocked card to To Do.
+    // Stop cancels the running collaboration; the card's owner reports that on its next review.
+    private async Task ActAsync(WorkBoardLinkedCommitmentResponse commitment, bool retry)
+    {
+        if (commitment.CoordinationSessionId is not { } session || commitment.ConversationId is not { } conversation ||
+            commitment.CoordinationRevision is not { } revision || !_busy.Add(commitment.Id)) return;
+        _notice = null;
+        try
+        {
+            var path = $"api/organizations/{OrganizationId:D}/communications/hub/chats/{conversation:D}" +
+                       $"/coordination-sessions/{session:D}/{(retry ? "retry" : "stop")}";
+            using var response = retry
+                ? await Http.PostAsJsonAsync(path, new RetryAgentCoordinationRequest(revision,
+                    "Retry requested by a manager from the team board.", $"board-retry:{session:N}:{revision}"))
+                : await Http.PostAsJsonAsync(path, new StopAgentCoordinationRequest(revision,
+                    "Stopped by a manager from the team board.", $"board-stop:{session:N}:{revision}"));
+            _notice = response.StatusCode switch
+            {
+                _ when response.IsSuccessStatusCode => retry ? L["LinkedCommitments.RetryQueued"] : L["LinkedCommitments.Stopped"],
+                System.Net.HttpStatusCode.Conflict or System.Net.HttpStatusCode.NotFound => L["LinkedCommitments.Changed"],
+                System.Net.HttpStatusCode.Forbidden => L["LinkedCommitments.NotAllowed"],
+                _ => L["LinkedCommitments.Failed"]
+            };
+        }
+        catch (Exception error) when (error is HttpRequestException or OperationCanceledException)
+        {
+            _notice = L["LinkedCommitments.Failed"];
+        }
+        finally { _busy.Remove(commitment.Id); }
+        await OnChanged.InvokeAsync();
+    }
+
+    // Work that needs attention first, finished work last.
+    private IEnumerable<WorkBoardLinkedCommitmentResponse> Ordered => Commitments
+        .OrderBy(x => State(x) switch { "blocked" => 0, "waiting" => 1, "active" => 2, "todo" => 3, _ => 4 })
+        .ThenByDescending(x => x.UpdatedAt);
+
+    private static string State(WorkBoardLinkedCommitmentResponse commitment) => commitment.Status switch
+    {
+        "Blocked" or "Failed" => "blocked",
+        "Completed" => "done",
+        "Running" => "active",
+        _ when !string.IsNullOrWhiteSpace(commitment.WaitingReason) || commitment.NextReviewAt.HasValue ||
+               commitment.Status == "WaitingForApproval" => "waiting",
+        _ => "todo"
+    };
+
+    private static string StateClass(WorkBoardLinkedCommitmentResponse commitment) => "is-" + State(commitment);
+
+    private string StatusLabel(WorkBoardLinkedCommitmentResponse commitment) => State(commitment) switch
+    {
+        "blocked" => L["LinkedCommitments.Blocked"],
+        "waiting" => L["LinkedCommitments.Waiting"],
+        "active" => L["LinkedCommitments.InProgress"],
+        "done" => L["LinkedCommitments.Done"],
+        _ => L["LinkedCommitments.ToDo"]
+    };
+
+    private static string? Reason(WorkBoardLinkedCommitmentResponse commitment) => State(commitment) switch
+    {
+        "blocked" when !string.IsNullOrWhiteSpace(commitment.BlockReason) => commitment.BlockReason,
+        "waiting" when !string.IsNullOrWhiteSpace(commitment.WaitingReason) => commitment.WaitingReason,
+        _ => null
+    };
+
+    private string ConversationLink(WorkBoardLinkedCommitmentResponse commitment, Guid conversation) =>
+        commitment.OwnerOrganizationUserId is { } owner
+            ? $"/organizations/{OrganizationId:D}/communications/{conversation:D}?perspective={owner:D}"
+            : $"/organizations/{OrganizationId:D}/communications/{conversation:D}";
+}

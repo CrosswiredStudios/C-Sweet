@@ -417,3 +417,35 @@ current stage.
 ## Imported projects before staffing
 
 `ProjectRepositoryAssociation` binds imported source identity independently of `ProjectDeliveryBinding`. Proposed imports render as Setup pending with nullable manager/team responses. `ImportedProjectAdoption.RequireAsync` and `WorkstreamManagedActionExecutor.CreateAsync` adopt the reviewed ExistingProjectId/ExpectedProjectRevision through ordinary approval, staffing, membership, repository and execution gates. `ProjectSetupService.ReserveManagerAsync` retains one imported project per PM/Producer. See [business-first creation and imports](../personal-assistant-repository-onboarding.md).
+
+## Linked commitments on team boards
+
+A personal commitment whose `PersonalTodoWorkContext.BoardId` names a team board is shown on that board as
+"Leadership work". Nothing is copied: the card stays on its owner's personal board and keeps its own
+workflow, claim and recovery.
+
+- `WorkBoardService.LinkedCommitmentsAsync` builds `WorkBoardDetailResponse.LinkedCommitments`
+  (`WorkBoardLinkedCommitmentResponse`) inside `ToDetailAsync`. It reads non-archived, non-cancelled cards on
+  personal boards whose stored context parses to this board id, newest first, at most 50, and resolves the owner
+  name and the coordination session's conversation.
+- Only an active human with `OrganizationPermissionLevel.Manager` or higher receives them. Personal boards are
+  private to the reporting chain, so team members and agents get an empty list.
+- `LinkedCommitmentsStrip.razor` renders them above the board content in `WorkBoardWorkspace.razor`, ordered
+  Blocked, Waiting, In progress, To do, Done, with the block or wait reason and a link to the conversation in the
+  owner's perspective. Strings are `LinkedCommitments.*` in `Localization/Resources/WorkBoards`, translated for
+  every supported culture through `tools/localization/stage.py`.
+- A card that owns a collaboration carries `CoordinationRevision`, `CanRetry` (session Blocked or Failed) and
+  `CanStop` (session Active or Summarizing). The strip shows **Retry** and **Stop** and posts to the existing
+  `…/communications/hub/chats/{conversation}/coordination-sessions/{session}/retry` and `/stop` endpoints, which
+  enforce the human-manager rule themselves. No new endpoint or authority. After a retry the session is active
+  again and `RecoverBlockedCoordinationCommitmentsAsync` returns the blocked card to Ready; after a stop the
+  card's owner reports the cancellation on its next review. The strip then asks the workspace to refresh.
+  `LinkedCommitmentOffersRetryAndStopFromItsCollaborationState` covers the flags.
+- `WorkBoardServiceTests.BoardReadShowsPersonalCommitmentsBoundToItForHumanManagers` covers binding, the
+  other-board, archived, cancelled and non-personal exclusions, and that a commitment never appears as a ticket.
+
+This is how leadership work reaches a game board before its project exists. The pre-project board uses
+`general-work.v1`, the game board profile only exists with the Workstream, and
+`WorkManagementCapabilityHandler.AdoptPreProjectBoardAsync` refuses a board that already holds items, so typed
+items are not created on it. The Video Game Director binds its proposal collaboration card
+(`QueueProposalCollaborationCardAsync`) and its pre-project agenda cards (`TodoContext`) to the board.

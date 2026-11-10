@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "Contratação, modelos, critérios e entradas compartilhadas",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "Não foi possível carregar os benchmarks. Tente atualizar.",
   "Benchmarks.EnterTheBusinessGoalAnd": "Informe o objetivo da empresa e escolha pelo menos um agente inicial.",
-  "Benchmarks.SelectAProviderAndModel": "Selecione um provedor e um modelo para cada variante."
+  "Benchmarks.SelectAProviderAndModel": "Selecione um provedor e um modelo para cada variante.",
+  "LinkedCommitments.Title": "Trabalho da liderança",
+  "LinkedCommitments.Help": "Trabalho deste quadro acompanhado no quadro pessoal de um membro da equipe.",
+  "LinkedCommitments.OpenConversation": "Abrir conversa",
+  "LinkedCommitments.Blocked": "Bloqueado",
+  "LinkedCommitments.Waiting": "Aguardando",
+  "LinkedCommitments.InProgress": "Em andamento",
+  "LinkedCommitments.ToDo": "A fazer",
+  "LinkedCommitments.Done": "Concluído",
+  "LinkedCommitments.Retry": "Tentar novamente",
+  "LinkedCommitments.Stop": "Parar",
+  "LinkedCommitments.RetryQueued": "Nova tentativa solicitada. A colaboração continuará em breve.",
+  "LinkedCommitments.Stopped": "A colaboração foi interrompida.",
+  "LinkedCommitments.Changed": "Esta colaboração mudou. O quadro foi atualizado; tente novamente se ainda for necessário.",
+  "LinkedCommitments.NotAllowed": "Você não tem permissão para fazer isso.",
+  "LinkedCommitments.Failed": "Não foi possível concluir a solicitação. Tente novamente."
 }

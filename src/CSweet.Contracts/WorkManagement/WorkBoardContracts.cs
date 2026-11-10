@@ -169,7 +169,41 @@ public sealed record WorkBoardSummaryResponse(
 public sealed record WorkBoardDetailResponse(
     WorkBoardSummaryResponse Board,
     IReadOnlyList<WorkBoardColumnResponse> Columns,
-    IReadOnlyList<WorkBoardItemResponse> Items);
+    IReadOnlyList<WorkBoardItemResponse> Items)
+{
+    /// <summary>
+    /// Personal commitments whose work context names this board: leadership and coordination work tracked on an
+    /// employee's own agenda. Empty unless the reader is a human manager or owner.
+    /// </summary>
+    public IReadOnlyList<WorkBoardLinkedCommitmentResponse> LinkedCommitments { get; init; } = [];
+}
+
+/// <summary>
+/// A personal commitment bound to a team board, shown on that board for oversight. The card itself is read-only
+/// here; a manager can retry or stop the collaboration it owns through the communication endpoints.
+/// </summary>
+public sealed record WorkBoardLinkedCommitmentResponse(
+    Guid Id,
+    Guid? OwnerOrganizationUserId,
+    string OwnerDisplayName,
+    string Title,
+    string Status,
+    string? WaitingReason,
+    string? BlockReason,
+    DateTimeOffset? NextReviewAt,
+    Guid? CoordinationSessionId,
+    Guid? ConversationId,
+    DateTimeOffset UpdatedAt)
+{
+    /// <summary>The owned collaboration's revision, required by the retry and stop requests.</summary>
+    public long? CoordinationRevision { get; init; }
+
+    /// <summary>True while the owned collaboration is blocked or failed.</summary>
+    public bool CanRetry { get; init; }
+
+    /// <summary>True while the owned collaboration is running.</summary>
+    public bool CanStop { get; init; }
+}
 
 public sealed record WorkBoardDirectoryResponse(
     IReadOnlyList<WorkBoardSummaryResponse> Boards,

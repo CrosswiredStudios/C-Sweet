@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "Einstellungen, Modelle, Kriterien und gemeinsame Eingaben",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "Benchmarks konnten nicht geladen werden. Versuchen Sie, die Seite zu aktualisieren.",
   "Benchmarks.EnterTheBusinessGoalAnd": "Geben Sie das Unternehmensziel ein und wählen Sie mindestens einen anfänglichen Agenten.",
-  "Benchmarks.SelectAProviderAndModel": "Wählen Sie für jede Variante einen Anbieter und ein Modell."
+  "Benchmarks.SelectAProviderAndModel": "Wählen Sie für jede Variante einen Anbieter und ein Modell.",
+  "LinkedCommitments.Title": "Führungsaufgaben",
+  "LinkedCommitments.Help": "Arbeit für dieses Board, die auf dem eigenen Board eines Teammitglieds verfolgt wird.",
+  "LinkedCommitments.OpenConversation": "Unterhaltung öffnen",
+  "LinkedCommitments.Blocked": "Blockiert",
+  "LinkedCommitments.Waiting": "Wartet",
+  "LinkedCommitments.InProgress": "In Arbeit",
+  "LinkedCommitments.ToDo": "Zu erledigen",
+  "LinkedCommitments.Done": "Erledigt",
+  "LinkedCommitments.Retry": "Erneut versuchen",
+  "LinkedCommitments.Stop": "Stoppen",
+  "LinkedCommitments.RetryQueued": "Erneuter Versuch angefordert. Die Zusammenarbeit wird in Kürze fortgesetzt.",
+  "LinkedCommitments.Stopped": "Die Zusammenarbeit wurde gestoppt.",
+  "LinkedCommitments.Changed": "Diese Zusammenarbeit hat sich geändert. Das Board wurde aktualisiert; versuchen Sie es erneut, falls es noch nötig ist.",
+  "LinkedCommitments.NotAllowed": "Sie haben keine Berechtigung für diese Aktion.",
+  "LinkedCommitments.Failed": "Die Anfrage konnte nicht abgeschlossen werden. Versuchen Sie es erneut."
 }

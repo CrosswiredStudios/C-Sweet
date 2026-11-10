@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "Recrutement, modèles, critères et entrées communes",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "Impossible de charger les benchmarks. Essayez d’actualiser.",
   "Benchmarks.EnterTheBusinessGoalAnd": "Saisissez l’objectif de l’entreprise et choisissez au moins un agent initial.",
-  "Benchmarks.SelectAProviderAndModel": "Sélectionnez un fournisseur et un modèle pour chaque variante."
+  "Benchmarks.SelectAProviderAndModel": "Sélectionnez un fournisseur et un modèle pour chaque variante.",
+  "LinkedCommitments.Title": "Travail de direction",
+  "LinkedCommitments.Help": "Travail lié à ce tableau, suivi sur le tableau personnel d’un membre de l’équipe.",
+  "LinkedCommitments.OpenConversation": "Ouvrir la conversation",
+  "LinkedCommitments.Blocked": "Bloqué",
+  "LinkedCommitments.Waiting": "En attente",
+  "LinkedCommitments.InProgress": "En cours",
+  "LinkedCommitments.ToDo": "À faire",
+  "LinkedCommitments.Done": "Terminé",
+  "LinkedCommitments.Retry": "Réessayer",
+  "LinkedCommitments.Stop": "Arrêter",
+  "LinkedCommitments.RetryQueued": "Nouvelle tentative demandée. La collaboration reprendra sous peu.",
+  "LinkedCommitments.Stopped": "La collaboration a été arrêtée.",
+  "LinkedCommitments.Changed": "Cette collaboration a changé. Le tableau a été actualisé ; réessayez si c'est toujours nécessaire.",
+  "LinkedCommitments.NotAllowed": "Vous n'avez pas l'autorisation d'effectuer cette action.",
+  "LinkedCommitments.Failed": "La demande n'a pas pu aboutir. Réessayez."
 }

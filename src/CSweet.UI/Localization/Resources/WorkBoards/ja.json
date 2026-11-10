@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "採用、モデル、基準、共通の入力",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "ベンチマークを読み込めませんでした。更新してみてください。",
   "Benchmarks.EnterTheBusinessGoalAnd": "ビジネスの目標を入力し、初期エージェントを 1 つ以上選択してください。",
-  "Benchmarks.SelectAProviderAndModel": "各バリアントのプロバイダーとモデルを選択してください。"
+  "Benchmarks.SelectAProviderAndModel": "各バリアントのプロバイダーとモデルを選択してください。",
+  "LinkedCommitments.Title": "リーダーシップ業務",
+  "LinkedCommitments.Help": "このボードに関する作業のうち、チームメンバー個人のボードで管理されているものです。",
+  "LinkedCommitments.OpenConversation": "会話を開く",
+  "LinkedCommitments.Blocked": "ブロック中",
+  "LinkedCommitments.Waiting": "待機中",
+  "LinkedCommitments.InProgress": "進行中",
+  "LinkedCommitments.ToDo": "未着手",
+  "LinkedCommitments.Done": "完了",
+  "LinkedCommitments.Retry": "再試行",
+  "LinkedCommitments.Stop": "停止",
+  "LinkedCommitments.RetryQueued": "再試行をリクエストしました。まもなくコラボレーションが再開されます。",
+  "LinkedCommitments.Stopped": "コラボレーションを停止しました。",
+  "LinkedCommitments.Changed": "このコラボレーションは変更されました。ボードを更新しました。必要な場合はもう一度お試しください。",
+  "LinkedCommitments.NotAllowed": "この操作を行う権限がありません。",
+  "LinkedCommitments.Failed": "リクエストを完了できませんでした。もう一度お試しください。"
 }

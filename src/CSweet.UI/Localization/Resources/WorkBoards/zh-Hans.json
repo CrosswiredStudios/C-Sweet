@@ -347,5 +347,20 @@
   "Benchmarks.HiringModelsCriteriaAndShared": "雇用、模型、标准和共享输入",
   "Benchmarks.BenchmarksCouldNotBeLoaded": "无法加载基准测试。请尝试刷新。",
   "Benchmarks.EnterTheBusinessGoalAnd": "请输入企业目标并至少选择一个初始智能体。",
-  "Benchmarks.SelectAProviderAndModel": "请为每个变体选择提供商和模型。"
+  "Benchmarks.SelectAProviderAndModel": "请为每个变体选择提供商和模型。",
+  "LinkedCommitments.Title": "领导层工作",
+  "LinkedCommitments.Help": "与此看板相关、在团队成员个人看板上跟踪的工作。",
+  "LinkedCommitments.OpenConversation": "打开对话",
+  "LinkedCommitments.Blocked": "已阻塞",
+  "LinkedCommitments.Waiting": "等待中",
+  "LinkedCommitments.InProgress": "进行中",
+  "LinkedCommitments.ToDo": "待办",
+  "LinkedCommitments.Done": "已完成",
+  "LinkedCommitments.Retry": "重试",
+  "LinkedCommitments.Stop": "停止",
+  "LinkedCommitments.RetryQueued": "已请求重试。协作将很快继续。",
+  "LinkedCommitments.Stopped": "协作已停止。",
+  "LinkedCommitments.Changed": "此协作已发生变化。看板已刷新；如仍有需要，请重试。",
+  "LinkedCommitments.NotAllowed": "您没有执行此操作的权限。",
+  "LinkedCommitments.Failed": "无法完成请求。请重试。"
 }

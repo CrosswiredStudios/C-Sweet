@@ -11,6 +11,10 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed partial class WorkDeliveryService
 {
+    /// <summary>Longest delivery plan name accepted. The Agent SDK shortens generated names to this length.</summary>
+    internal const int MaxPlanNameLength = 160;
+    internal const int MaxTicketWorkflows = 500;
+
     private static readonly HashSet<string> TicketHandlers = new(StringComparer.Ordinal)
         { "review", "source-review", "quality", "build-readiness", "compute-test", "acceptance", "completion" };
 
@@ -38,9 +42,16 @@ public sealed partial class WorkDeliveryService
         var manager = await db.CoreOrganizationUsers.SingleAsync(u => u.Id == request.ManagerOrganizationUserId && u.OrganizationId == org && u.IsActive, ct);
         if (!await db.ProjectParticipants.AnyAsync(p => p.OrganizationId == org && p.WorkstreamId == project.Id && p.OrganizationUserId == manager.Id && p.RemovedAt == null, ct))
             throw new UnauthorizedAccessException("The workflow manager must participate in the project.");
-        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 160 || request.TicketWorkflows.Count > 500 ||
-            request.TicketWorkflows.Select(w => w.TicketId).Distinct().Count() != request.TicketWorkflows.Count)
-            throw new ArgumentException("Provide a name and distinct workflow tickets.");
+        // One message per rule, with the limit and the submitted value, so a caller can correct it.
+        if (string.IsNullOrWhiteSpace(request.Name))
+            throw new ArgumentException("Provide a delivery plan name.");
+        if (request.Name.Length > MaxPlanNameLength)
+            throw new ArgumentException($"The delivery plan name is {request.Name.Length} characters; the limit is {MaxPlanNameLength}.");
+        if (request.TicketWorkflows.Count > MaxTicketWorkflows)
+            throw new ArgumentException($"The delivery plan declares {request.TicketWorkflows.Count} workflow tickets; the limit is {MaxTicketWorkflows}.");
+        var repeatedTickets = request.TicketWorkflows.GroupBy(w => w.TicketId).Where(g => g.Count() > 1).Select(g => g.Key).ToArray();
+        if (repeatedTickets.Length > 0)
+            throw new ArgumentException("Each workflow ticket may appear once; repeated: " + string.Join(", ", repeatedTickets.Take(10)) + ".");
         var plan = request.PlanId is { } id ? await Load().SingleAsync(p => p.Id == id && p.OrganizationId == org, ct) :
             new WorkDeliveryPlan { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = project.Id, CreatedAt = clock.GetUtcNow() };
         if (plan.WorkstreamId != project.Id || request.PlanId.HasValue && plan.Revision != request.ExpectedRevision || plan.Status is "Completed" or "Cancelled")

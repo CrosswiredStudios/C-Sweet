@@ -174,3 +174,30 @@ Limits of this increment:
 - Automatic resume after a specialist update (`RecoverBlockedCoordinationCommitmentsAsync`) needs the Director's waiting commitment to carry `BoardId` and the session id or request key in its `PersonalTodoWorkContext`. It does not yet.
 - The board opens at team approval, after pitch approval. A team does not exist when the owner first gives a direction.
 
+## 2026-11-10: live result on QFN Games
+
+- Producer 6.4.2 verified live. The proposal for "Shatterwave" was submitted at 10:39:14 PST on the first attempt and approved at 10:39:47; the collaboration completed in three turns. Project approval came 11 minutes after the company was created.
+- The board-first increment was **not exercised**: the Director was still running 0.5.1, so no game board was opened and the proposal ran as a chat collaboration. Director 0.6.0 must be published and installed, with its two new grants approved, before a new company can verify it.
+- The Producer's proposal call used 4,694 input and 16,678 output tokens, more output than the 10,410 on 2026-11-09 despite the smaller reply contract. Reasoning length, not the reply, is the cost; see `agent-token-budgets.md`.
+
+## 2026-11-10: live result on Super Awesome Games (Director 0.6.0)
+
+Board-first increment, verified live up to project approval:
+
+- 10:48:25 PST the Director created the team board (`work.board.create` completed) 5 minutes after the company was created and before either hire arrived.
+- 10:49:24 `start_board_coordination` completed; the proposal ran as a board collaboration (empty source conversation) and completed in three turns. The Director is a team member and its team grants bind, so the fallback was not used.
+- The board is named `Game Pitch — "Prism Break"` with key `GAMEPI`. `ExtractWorkingTitle` returns the pitch heading before project identity inference has run. The Producer's adoption renames it to the project name.
+- Adoption is **not yet observed**. The board was still unbound and Director-managed at 10:57.
+
+New defect found, Producer 6.4.2 (not caused by the board change):
+
+- After approval every Producer attention review failed at `read_delivery_plans` with "The project delivery grant is required: work.delivery.read.v1" and was dead-lettered: 10:51:11, 10:54:32, 10:55:02, 10:55:17.
+- `SpecialistAgent.HandleAttentionReviewAsync` calls `ReconcileDeliveryCorrectionAsync` for each accountable project before it reaches `EnsureProductionBoardAsync`. The delivery grant is only added by `ProjectSetupService.ReconcileProjectBoardAccessAsync` when the project board is created, so the review can never reach the step that would grant it.
+- Producer 6.4.3 (prepared, not compiled): a `Denied` delivery-plan read in `ReconcileDeliveryCorrectionAsync` is treated as nothing to reconcile.
+
+Follow-up at 11:07 PST, same run:
+
+- **Adoption verified.** The board the Director opened (`bf708b9f…`) is now `Prism Break`, key `VG28CBAD13D1`, profile `video-game-production-board.v2`, bound to the project and managed by the Producer. The company has one game board.
+- The dead-lettered reviews stopped by 11:00:52, when `read_delivery_plans` began to succeed, while the Producer was still on 6.4.2. The board was reached through the Producer's planning path (`EnsureProductionBoardAsync` from the planning cycle), not through the attention review. Producer 6.4.3 removes the roughly nine minutes of failed reviews before that point; it was installed after the run had already recovered, so it is not yet verified live.
+- Technical Director, Engineer and QA were hired at 11:00–11:01, 17 minutes after the company was created.
+
