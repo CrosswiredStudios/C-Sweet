@@ -1188,6 +1188,8 @@ public sealed partial class WorkBoardService(
         };
     }
 
+    private const int LinkedCommitmentScanLimit = 500;
+
     /// <summary>
     /// Reads the personal commitments bound to this team board through their work context. Personal boards are
     /// private to the reporting chain, so only a human manager or owner receives them here. The result is a
@@ -1201,14 +1203,13 @@ public sealed partial class WorkBoardService(
             x.Id == memberId && x.OrganizationId == board.OrganizationId && x.IsActive, cancellationToken);
         if (viewer is null || viewer.EmployeeType != EmployeeType.Human ||
             viewer.PermissionLevel < OrganizationPermissionLevel.Manager) return [];
-        // The stored context is JSON. The substring narrows discovery; parsed equality below binds the board.
-        var marker = board.Id.ToString("D");
+        // The stored context is a jsonb column, so it cannot be searched as text in the database. Read a bounded,
+        // newest-first set of personal cards that carry a context; parsed equality below binds the board.
         var rows = await db.CoreWorkTasks.AsNoTracking().Where(x =>
                 x.OrganizationId == board.OrganizationId && x.ArchivedAt == null &&
-                x.Status != WorkTaskStatus.Cancelled &&
-                x.PersonalWorkContextJson != null && x.PersonalWorkContextJson.Contains(marker) &&
+                x.Status != WorkTaskStatus.Cancelled && x.PersonalWorkContextJson != null &&
                 x.Board != null && x.Board.Kind == WorkBoardKind.Personal && x.Board.ArchivedAt == null)
-            .OrderByDescending(x => x.UpdatedAt).Take(50).ToListAsync(cancellationToken);
+            .OrderByDescending(x => x.UpdatedAt).Take(LinkedCommitmentScanLimit).ToListAsync(cancellationToken);
         var linked = new List<(WorkTask Item, Guid? SessionId)>();
         foreach (var row in rows)
         {
@@ -1217,6 +1218,7 @@ public sealed partial class WorkBoardService(
                 using var context = JsonDocument.Parse(row.PersonalWorkContextJson!);
                 if (ContextGuid(context.RootElement, "boardId") != board.Id) continue;
                 linked.Add((row, ContextGuid(context.RootElement, "coordinationSessionId")));
+                if (linked.Count == 50) break;
             }
             catch (JsonException) { }
         }

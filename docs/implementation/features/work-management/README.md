@@ -428,6 +428,10 @@ workflow, claim and recovery.
   (`WorkBoardLinkedCommitmentResponse`) inside `ToDetailAsync`. It reads non-archived, non-cancelled cards on
   personal boards whose stored context parses to this board id, newest first, at most 50, and resolves the owner
   name and the coordination session's conversation.
+- `WorkTask.PersonalWorkContextJson` is a `jsonb` column. It cannot be searched as text in a query: a
+  `Contains` filter passes on the in-memory test provider and fails on PostgreSQL, which made every board read
+  return 500 on 2026-11-10. The service reads a bounded newest-first set (`LinkedCommitmentScanLimit`, 500) of
+  personal cards that carry a context and matches the board id after parsing.
 - Only an active human with `OrganizationPermissionLevel.Manager` or higher receives them. Personal boards are
   private to the reporting chain, so team members and agents get an empty list.
 - `LinkedCommitmentsStrip.razor` renders them above the board content in `WorkBoardWorkspace.razor`, ordered
