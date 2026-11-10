@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "既定のメモリ (MB)",
   "AgentRuntimeSettings.MaximumMemory": "最大メモリ (MB)",
   "AgentRuntimeSettings.CodingInitialMemory": "コーディング用の初期メモリ (MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "プログラマーのプロセス/スレッド上限",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "新しいプログラマー用 VM に適用されます。Linux ではスレッドもこの上限に数えられます。既存の VM は、置き換えられるまで署名済みの上限を維持します。",
   "AgentRuntimeSettings.CodingMaximumMemory": "コーディング用の最大メモリ (MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "コーディング用 VM の最大置き換え回数",
   "AgentRuntimeSettings.DefaultCpu": "既定の CPU (%)",

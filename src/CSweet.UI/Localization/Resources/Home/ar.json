@@ -17,6 +17,7 @@
   "NewBusinessDialog.BeginWithANameA": "ابدأ باسم ورسالة وفكرة.",
   "NewBusinessDialog.StartFresh": "البدء من الصفر",
   "NewBusinessDialog.BusinessFromCodebases": "شركة من قواعد التعليمات البرمجية",
+  "NewBusinessDialog.ExistingBusiness": "نشاط تجاري موجود",
   "NewBusinessDialog.BringAnAppGameOr": "أحضِر تطبيقًا أو لعبة أو موقعًا إلكترونيًا تعمل على بنائه بالفعل.",
   "NewBusinessDialog.ConnectGitHubOrUploadZIPs": "اربط GitHub أو ارفع ملفات ZIP",
   "NewBusinessDialog.YourAssistantHelpsPrepareThe": "يساعدك مساعدك في تحضير السياق. تراجعه أنت، ثم تختار رئيس الأركان.",

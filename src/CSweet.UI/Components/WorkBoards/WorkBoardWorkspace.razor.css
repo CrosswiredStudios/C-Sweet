@@ -147,3 +147,4 @@ h3 { margin: 0; font-size: 14px; font-weight: 600; }
     .ticket-drag { width: 32px; height: 44px; top: 0; right: 0; }
     .ticket-top { padding-right: 22px; }
 }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

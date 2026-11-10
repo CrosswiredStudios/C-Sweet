@@ -11,9 +11,9 @@
 <main class="auth-shell">
     <section class="auth-brand-panel">
         <img class="auth-mark" src="images/icon_dark.svg" alt="C-Sweet" />
-        <div>
+        <div class="auth-brand-copy">
             <MudText Typo="Typo.h3">C-Sweet</MudText>
-            <MudText>@L["AnonymousLayout.Tagline"]</MudText>
+            <MudText Class="auth-brand-tagline">@L["AnonymousLayout.Tagline"]</MudText>
         </div>
         <div class="auth-language">
             <select class="auth-language-select" aria-label="@L["Layout.LanguagePicker"]" value="@Culture.CurrentCode" @onchange="OnLanguageChanged">

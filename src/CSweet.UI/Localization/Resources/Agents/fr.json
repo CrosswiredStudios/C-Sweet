@@ -248,6 +248,8 @@
   "AgentRuntimeSettings.DefaultMemory": "Mémoire par défaut (MB)",
   "AgentRuntimeSettings.MaximumMemory": "Mémoire maximale (MB)",
   "AgentRuntimeSettings.CodingInitialMemory": "Mémoire initiale pour le code (MiB)",
+  "AgentRuntimeSettings.CodingProcessLimit": "Limite de processus/threads du programmeur",
+  "AgentRuntimeSettings.CodingProcessLimitHelper": "S’applique aux nouvelles VM de programmeur. Linux compte les threads dans cette limite. Les VM existantes conservent leurs limites signées jusqu’à leur remplacement.",
   "AgentRuntimeSettings.CodingMaximumMemory": "Mémoire maximale pour le code (MiB)",
   "AgentRuntimeSettings.CodingMaximumReplacements": "Nombre maximal de remplacements de VM de code",
   "AgentRuntimeSettings.DefaultCpu": "CPU par défaut (%)",

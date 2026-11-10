@@ -41,7 +41,7 @@ else
                     <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.ProjectBrief"]" Value="project.Summary" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Summary = value }))" MaxLength="6000" Lines="3" Variant="Variant.Outlined" />
                     <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.Technology"]" Value="project.Technology" ValueChanged="@(value => EditProject(project.SourceId, p => p with { Technology = value }))" MaxLength="512" Variant="Variant.Outlined" />
                     <MudTextField T="string" Label="@L["RepositoryBusinessOnboarding.CurrentState"]" Value="project.CurrentState" ValueChanged="@(value => EditProject(project.SourceId, p => p with { CurrentState = value }))" MaxLength="2048" Lines="2" Variant="Variant.Outlined" />
-                    @if (project.Evidence.Count > 0) { <details><summary>Source evidence · @project.Evidence.Count files</summary>@foreach (var evidence in project.Evidence) { <p><code>@evidence.Path</code> · <code>@ShortSnapshot(evidence.Snapshot)</code></p> }</details> }
+                    @if (project.Evidence.Count > 0) { <details><summary>Source evidence · @project.Evidence.Count @(project.Evidence.Count == 1 ? "file" : "files")</summary>@foreach (var evidence in project.Evidence) { <p><code>@evidence.Path</code> · <code>@ShortSnapshot(evidence.Snapshot)</code></p> }</details> }
                 </article>
             }
             @if (_review.OpenQuestions.Count > 0) { <aside class="onboarding-open-questions"><h4>@L["RepositoryBusinessOnboarding.StillToClarify"]</h4>@foreach (var question in _review.OpenQuestions) { <p>@question</p> }</aside> }

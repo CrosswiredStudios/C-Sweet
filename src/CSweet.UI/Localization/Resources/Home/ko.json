@@ -17,6 +17,7 @@
   "NewBusinessDialog.BeginWithANameA": "이름, 미션, 그리고 아이디어로 시작하세요.",
   "NewBusinessDialog.StartFresh": "새로 시작",
   "NewBusinessDialog.BusinessFromCodebases": "코드베이스로 비즈니스 만들기",
+  "NewBusinessDialog.ExistingBusiness": "기존 비즈니스",
   "NewBusinessDialog.BringAnAppGameOr": "이미 만들고 있던 앱, 게임 또는 웹사이트를 가져오세요.",
   "NewBusinessDialog.ConnectGitHubOrUploadZIPs": "GitHub 연결 또는 ZIP 업로드",
   "NewBusinessDialog.YourAssistantHelpsPrepareThe": "비서가 컨텍스트 준비를 돕습니다. 검토한 다음 비서실장을 선택하세요.",

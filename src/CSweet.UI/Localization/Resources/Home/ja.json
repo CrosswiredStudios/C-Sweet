@@ -17,6 +17,7 @@
   "NewBusinessDialog.BeginWithANameA": "名前、ミッション、アイデアから始めましょう。",
   "NewBusinessDialog.StartFresh": "ゼロから始める",
   "NewBusinessDialog.BusinessFromCodebases": "コードベースからビジネスを作成",
+  "NewBusinessDialog.ExistingBusiness": "既存のビジネス",
   "NewBusinessDialog.BringAnAppGameOr": "これまで開発してきたアプリ、ゲーム、Web サイトを持ち込みます。",
   "NewBusinessDialog.ConnectGitHubOrUploadZIPs": "GitHub を接続するか ZIP をアップロード",
   "NewBusinessDialog.YourAssistantHelpsPrepareThe": "アシスタントがコンテキストの準備を手伝います。内容を確認してから、チーフ・オブ・スタッフを選びます。",

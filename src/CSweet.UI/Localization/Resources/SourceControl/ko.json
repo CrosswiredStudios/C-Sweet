@@ -1,5 +1,7 @@
 {
   "_": "SourceControl area, ko. Edit freely; tools/localization re-translate only keys whose English changed.",
+  "SourceControlPlatformSetupWizard.BackToRepositories": "리포지토리로 돌아가기",
+  "SourceControlPlatformSetupWizard.ConnectAccountForBusiness": "이 비즈니스의 리포지토리를 선택하려면 GitHub 계정을 연결하세요.",
   "SourceControl.PageTitle": "소스 제어",
   "SourceControl.SourceControl": "소스 제어",
   "SourceControl.YourRepositoriesTheLatestWork": "리포지토리, 최신 작업, 그리고 액세스 권한이 있는 사람을 확인하세요.",

@@ -919,6 +919,7 @@
     private bool _scrollToBottomPending;
     private Guid? _observedChatId;
     private Guid? _observedPerspectiveId;
+    private Guid? _pinnedChatId;
     private Guid? _firstMessageCatchUpChatId;
     private Guid _loadedOrganizationId;
     private Guid? _loadedPerspectiveAgentId;
@@ -1058,11 +1059,13 @@
         if (DecisionId is null) _focusedDecisionId = null;
         if (!_scrollToBottomPending) return;
         _scrollToBottomPending = false;
+        var forceBottom = _scrollToBottomForce;
+        _scrollToBottomForce = false;
 
         try
         {
             var module = await GetCommunicationsModuleAsync();
-            await module.InvokeVoidAsync("scrollToBottom", _messageList);
+            await module.InvokeVoidAsync("scrollToBottom", _messageList, forceBottom);
         }
         catch (JSDisconnectedException) { }
         catch (ObjectDisposedException) { }
@@ -1290,7 +1293,12 @@
             _firstMessageCatchUpChatId = _selected.Id;
             _ = ObserveFirstMessageAsync(_selected.Id, token);
         }
-        RequestScrollToBottom();
+        // Pin only when the conversation actually changed. LoadMessagesAsync also
+        // serves realtime refreshes of the same chat, and those must not yank a
+        // reader who has scrolled back through history.
+        var conversationChanged = _pinnedChatId != _selected.Id;
+        _pinnedChatId = _selected.Id;
+        RequestScrollToBottom(force: conversationChanged);
         if (markRead && _hub?.IsReadOnlyPerspective != true && items.LastOrDefault() is { } last)
         {
             var response = await Http.PostAsJsonAsync($"{BasePath}/chats/{_selected.Id}/read",
@@ -2051,7 +2059,12 @@
     private async Task<IJSObjectReference> GetCommunicationsModuleAsync() =>
         _communicationsModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/communications.js");
 
-    private void RequestScrollToBottom() => _scrollToBottomPending = true;
+    private bool _scrollToBottomForce;
+    private void RequestScrollToBottom(bool force = false)
+    {
+        _scrollToBottomPending = true;
+        _scrollToBottomForce |= force;
+    }
 
     private int ChatUnread(CommunicationChatResponse chat) =>
         _hub?.IsReadOnlyPerspective == true

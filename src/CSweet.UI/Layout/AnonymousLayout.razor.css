@@ -17,3 +17,41 @@
 .auth-language-select option {
     color: #0b2e53;
 }
+
+/* Narrow screens: a one-row brand bar, so the sign-in form and its submit button stay in the first
+   viewport (and in the visible accessibility tree) instead of below a full-height brand panel. */
+@media (max-width: 860px) {
+    .auth-brand-panel {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-start;
+        gap: .75rem;
+        padding: .75rem 1rem;
+    }
+
+    .auth-mark {
+        width: 2.25rem;
+        height: 2.25rem;
+    }
+
+    .auth-brand-copy ::deep .mud-typography-h3 {
+        font-size: 1.35rem;
+        line-height: 1.2;
+    }
+
+    .auth-brand-copy ::deep .auth-brand-tagline {
+        display: none;
+    }
+
+    .auth-language {
+        margin-top: 0;
+        margin-inline-start: auto;
+        padding-top: 0;
+    }
+
+    .auth-content {
+        padding: 1rem;
+        place-items: start center;
+    }
+}
