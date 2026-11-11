@@ -1,13 +1,15 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject AppearanceState Appearance
+@inject AppCulture Culture
 @inject IAppLocalizer L
 
-<MudThemeProvider />
+<MudThemeProvider Theme="Appearance.MudTheme" IsDarkMode="Appearance.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
+<MudRTLProvider RightToLeft="@Culture.IsRightToLeft">
 <div class="setup-appearance" data-appearance="@Appearance.Theme">
     <div class="registration-shell aurora-page">
         <header class="registration-header">
@@ -17,6 +19,7 @@
         <main class="registration-content">@Body</main>
     </div>
 </div>
+</MudRTLProvider>
 
 @code {
     protected override void OnInitialized() => Appearance.Changed += OnAppearanceChanged;

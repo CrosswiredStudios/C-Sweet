@@ -66,8 +66,8 @@
 }
 
 .provider-roster {
-    padding-right: clamp(1.5rem, 4vw, 3rem);
-    border-right: 1px solid var(--cs-border);
+    padding-inline-end: clamp(1.5rem, 4vw, 3rem);
+    border-inline-end: 1px solid var(--cs-border);
 }
 
 .provider-section-heading {
@@ -293,7 +293,7 @@
     border-radius: 9px;
     background: transparent;
     color: var(--activity-muted, #62788a);
-    text-align: left;
+    text-align: start;
     cursor: pointer;
     transition: color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease;
 }
@@ -358,7 +358,7 @@
     border-radius: 12px;
     background: var(--activity-raised, #fff);
     color: var(--cs-navy);
-    text-align: left;
+    text-align: start;
     cursor: pointer;
     transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
@@ -553,7 +553,7 @@
     border-radius: 8px;
     background: transparent;
     color: var(--cs-navy);
-    text-align: left;
+    text-align: start;
     cursor: pointer;
 }
 
@@ -663,9 +663,9 @@
     }
 
     .provider-roster {
-        padding-right: 0;
+        padding-inline-end: 0;
         padding-bottom: 1.5rem;
-        border-right: 0;
+        border-inline-end: 0;
         border-bottom: 1px solid var(--cs-border);
     }
 

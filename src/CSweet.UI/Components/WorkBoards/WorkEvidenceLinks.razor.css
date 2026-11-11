@@ -1,6 +1,6 @@
 .work-evidence { min-width: 0; font-size: 12px; }
 summary { display: flex; align-items: center; gap: 5px; padding: 3px 0; color: var(--mud-palette-primary); cursor: pointer; overflow-wrap: anywhere; }
-summary::after { content: "+"; margin-left: auto; }
+summary::after { content: "+"; margin-inline-start: auto; }
 details[open] > summary::after { content: "−"; }
 summary:focus-visible, a:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
 .evidence-list { list-style: none; padding: 0; margin: 6px 0 0; min-width: 0; }

@@ -97,7 +97,7 @@ public sealed class SettingsWorkspaceRenderingTests
         var html = await RenderAsync(typeof(Appearance), new SettingsApi(), "gold");
         Assert.Contains("aria-pressed=\"true\"", html);
         Assert.Contains("appearance-option selected", html);
-        Assert.Contains("Black &amp; Gold", html);
+        Assert.Contains("Night Glass", html);
     }
 
     [Theory]

@@ -14,7 +14,7 @@ p { margin: 10px 0; overflow-wrap: anywhere; }
 dt { font-size: .8rem; color: var(--mud-palette-text-secondary); }
 dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 600; }
 .approval-scope { padding: 4px 18px 12px; background: var(--mud-palette-background-grey); border-radius: 8px; margin-bottom: 20px; }
-ul { padding-left: 20px; }
+ul { padding-inline-start: 20px; }
 li { margin: 6px 0; overflow-wrap: anywhere; }
 details { padding: 14px 0; border-top: 1px solid var(--mud-palette-lines-default); }
 summary { cursor: pointer; font-weight: 600; }
