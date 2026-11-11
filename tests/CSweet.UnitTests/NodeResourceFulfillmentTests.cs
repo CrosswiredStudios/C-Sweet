@@ -54,7 +54,7 @@ public sealed class NodeResourceFulfillmentTests
             DisplayName = "Owner", IsActive = true, EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner });
         await db.SaveChangesAsync();
         var installCount = 0;
-        var installer = DispatchProxy.Create<IAgentInstallationService, Installer>();
+        var installer = DispatchProxy.Create<IPluginInstallationService, Installer>();
         ((Installer)(object)installer).Install = async (packageId, input) => {
             installCount++; Assert.Equal(organization.ToString("D"), input.BusinessId); Assert.Equal("OnDemand", input.ActivationMode);
             Assert.Equal(4, input.GrantedRequestedCapabilities.Count); Assert.Equal(package.PackageDigest, input.ExpectedPackageDigest);

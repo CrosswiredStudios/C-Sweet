@@ -15,7 +15,7 @@ namespace CSweet.Infrastructure.Core;
 
 /// <summary>Downloads published artifacts, uses normal installation, and proves exact Office build capacity.</summary>
 public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubAgentRepositoryClient repository,
-    IAgentImportPreviewService previews, PrebuiltBundleInstallService bundles, IAgentInstallationService installations,
+    IAgentImportPreviewService previews, PrebuiltBundleInstallService bundles, IPluginInstallationService installations,
     IExecutionWorkloadOrchestrator workloads, IGuestImageRegistry images, TimeProvider clock) : IResourceFulfillmentHandler
 {
     public const string ProviderId = "com.csweet.toolchain.node-typescript";

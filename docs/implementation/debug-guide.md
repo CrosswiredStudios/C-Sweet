@@ -561,6 +561,18 @@ rejection, service lifecycle, and the PowerShell service arguments.
 
 ## Linux preparation fails at compute installation validation
 
+If preparation stops at **Checking the compute service** with `compute_checks_build_failed`, the unit-test project did
+not compile. This phase builds `tests/CSweet.UnitTests` in Release before running the compute tests, so a compile error in
+any test file stops compute for the business. `installation.log` names the file and line. On 2026-11-10 one line in
+`TicketWorkflowTests.cs` (`new(...)` passed alone to a `params` array) blocked Linux compute for Super Awesome Games; before
+the separate build step it was reported as `compute_checks_failed`.
+
+The compute checks run about 720 tests on the host while it may be busy with agents, virtual machines and a local model.
+A test with a short real-time limit can fail there without a product defect. On 2026-11-10
+`ComputeGuestExecutionTests.Parent_exit_stops_descendants_before_waiting_for_their_output_handles` timed out at its
+one-second limit (723 of 724 passed) and blocked preparation; its limit is now 30 seconds. `acceptance\compute.trx` lists
+the failed test by name.
+
 If preparation stops at **Checking the compute service** with `compute_checks_failed`,
 inspect `%LocalAppData%\CSweet\ComputeSetup\<setup-id>\installation.log` and the
 `acceptance\compute.trx` beside it. This phase runs the compute acceptance tests before

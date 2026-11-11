@@ -25,7 +25,10 @@ public sealed class ComputeGuestExecutionTests
         var pipe = new HeldOutput();
         var process = new Process { StandardOutput = pipe, OnStop = () => pipe.Complete() };
         var runner = new ComputeGuestExecution("linux", _ => process);
-        var result = await runner.ExecuteAsync(Command(), default);
+        // This test is about order, not speed: stopping must release the held output. The default one-second
+        // limit turned a slow thread-pool continuation on a busy host into a false timeout, and this suite gates
+        // compute preparation. A regression still fails here, at the longer limit.
+        var result = await runner.ExecuteAsync(Command() with { TimeoutSeconds = 30 }, default);
         Assert.False(result.TimedOut); Assert.Equal(7, result.ExitCode); Assert.Equal(1, process.Stops);
     }
 

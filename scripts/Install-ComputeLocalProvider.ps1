@@ -60,8 +60,16 @@ try {
             # to certify this release while retaining the enrolled image and all durable state.
             if (@($installedCatalog.templates).Count -ne 1) { throw 'Runtime update requires one retained Linux template.' }
             $acceptanceRoot = Join-Path $logRoot 'recovery-acceptance'
+            # Compile first, so a source error anywhere in the test project is reported as a build
+            # failure and not as failed compute checks.
+            $failureCode = 'compute_checks_build_failed'
+            dotnet build (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release `
+                --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false `
+                -p:UseLocalCSweetAgentSdk=false -p:UseLocalCSweetMemory=false -p:UseLocalCSweetWorkManagementContracts=false `
+                -p:UseLocalOfficeContracts=false -p:UseLocalIsolation=false --verbosity quiet
+            if ($LASTEXITCODE -ne 0) { throw 'The compute component checks could not be compiled.' }
             $failureCode = 'compute_checks_failed'
-            dotnet test (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release `
+            dotnet test (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release --no-build `
                 --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false `
                 -p:UseLocalCSweetAgentSdk=false -p:UseLocalCSweetMemory=false -p:UseLocalCSweetWorkManagementContracts=false `
                 -p:UseLocalOfficeContracts=false -p:UseLocalIsolation=false `
@@ -108,8 +116,14 @@ try {
     $publishRoot = Join-Path $logRoot 'provider'
     $acceptanceRoot = Join-Path $logRoot 'acceptance'
     Write-ComputeSetupProgress -Path $setupProgress -Phase 'check-service' -Message 'Checking the compute service.' -AttemptId $preparationAttempt
+    # Compile first, so a source error anywhere in the test project is reported as a build failure
+    # and not as failed compute checks.
+    $failureCode = 'compute_checks_build_failed'
+    dotnet build (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release `
+        --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false --verbosity quiet
+    if ($LASTEXITCODE -ne 0) { throw 'The compute component checks could not be compiled.' }
     $failureCode = 'compute_checks_failed'
-    dotnet test (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release `
+    dotnet test (Join-Path $repositoryRoot 'tests\CSweet.UnitTests\CSweet.UnitTests.csproj') -c Release --no-build `
         --disable-build-servers -m:1 -p:UseSharedCompilation=false -nr:false `
         --filter 'FullyQualifiedName~Compute&FullyQualifiedName!~Postgres' `
         --logger 'trx;LogFileName=compute.trx' --results-directory $acceptanceRoot --verbosity quiet

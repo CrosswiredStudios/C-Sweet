@@ -115,7 +115,13 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         var row = await db.PluginOperationalStates.SingleAsync(x => x.OrganizationId == actor.OrganizationId && x.Kind == StateKind && x.Id == decision.RequestId, token);
         await db.Entry(row).ReloadAsync(token);
         var state = Read(row);
-        await RequireApproverAsync(actor, state, token);
+        // The business owner may restart setup that stopped after an agent approved it. A retry re-runs the same
+        // reviewed plan (the plan hash and revision are still checked below) and decides nothing new. Without this
+        // a stopped request has no one who can restart it: the approving agent has no retry path.
+        var ownerRetry = decision.Decision == "Retry" && actor.IsActive && actor.ArchivedAt is null &&
+            actor.EmployeeType == EmployeeType.Human && actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
+            state.Status is "Failed" or "NeedsAttention";
+        if (!ownerRetry) await RequireApproverAsync(actor, state, token);
         var commandKey = $"decision:{decision.RequestId:N}:{decision.IdempotencyKey}";
         var command = JsonSerializer.Serialize(new { actorId = actor.Id, decision }, Json);
         var previous = await db.PluginOperationalStates.SingleOrDefaultAsync(x => x.OrganizationId == actor.OrganizationId && x.Kind == CommandKind && x.ExternalKey == commandKey, token);

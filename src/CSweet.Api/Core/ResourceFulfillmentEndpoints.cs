@@ -41,7 +41,9 @@ public static class ResourceFulfillmentEndpoints
             var response = states.Select(state => {
                 var value = JsonSerializer.SerializeToNode(state, json)!.AsObject();
                 value["canDecide"] = state.ApproverId == actor.Id && state.Status == "PendingApproval";
-                value["canRetry"] = state.ApproverId == actor.Id && state.Status is "Failed" or "NeedsAttention" or "Revoked";
+                value["canRetry"] = state.ApproverId == actor.Id && state.Status is "Failed" or "NeedsAttention" or "Revoked" ||
+                    actor.EmployeeType == CSweet.Domain.Core.EmployeeType.Human && actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
+                    state.Status is "Failed" or "NeedsAttention";
                 return value;
             }).ToArray();
             return Results.Ok(response);

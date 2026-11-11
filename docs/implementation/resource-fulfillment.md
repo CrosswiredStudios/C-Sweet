@@ -190,3 +190,19 @@ parent re-render alone does not refetch.
 First seen on 2026-11-10: a fresh database had no Node/TypeScript provider and the release repository was private, so the
 request sat in `WaitingDependency` behind warning toasts while the overview showed 0 pending. The first-party provider
 repository must be readable by the deployment (public, or `GitHubAgentRepository:AccessToken` configured).
+
+## Provider installation uses the plugin installer
+
+`NodeToolchainFulfillmentHandler` installs the approved provider through `IPluginInstallationService`. It previously took
+`IAgentInstallationService`, whose `InstallAsync` accepts agent packages only, so the first real installation (2026-11-10,
+Super Awesome Games) stopped in `NeedsAttention` with "Communication providers must be installed through the plugin API."
+`NodeResourceFulfillmentTests` used a proxy of the agent interface and could not see this; it now proxies the plugin interface.
+
+## Owner retry
+
+`ResourceFulfillmentService.DecideAsync` lets an active human business Owner send `Retry` for a request in `Failed` or
+`NeedsAttention`, in addition to the assigned approver. The revision and plan hash are still required, so the retry re-runs the
+same reviewed plan. `ResourceFulfillmentEndpoints` sets `canRetry` to match, which shows "Retry approved setup" to the owner.
+Reason: when an agent manager approved the plan and setup then stopped, no one could restart it. The approving agent has no
+retry path and the Video Game Director stops while the request is in that state. Approve, reject and revision decisions remain
+approver-only. This change has no unit test yet.

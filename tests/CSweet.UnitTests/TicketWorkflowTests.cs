@@ -78,7 +78,7 @@ public sealed class TicketWorkflowTests
         // 2026-11-10: a 204-character generated name was rejected as "Provide a name and distinct workflow tickets."
         await using var f = await HierarchicalDeliveryServiceTests.Fixture.Create(false);
         var ticket = await Ticket(f);
-        var request = Request(f,new(ticket.Id,[Step("assess",f.Technical.Id)])) with { Name = new string('n',204) };
+        var request = Request(f,new WorkDeliveryTicketWorkflow(ticket.Id,[Step("assess",f.Technical.Id)])) with { Name = new string('n',204) };
         var error = await Assert.ThrowsAsync<ArgumentException>(()=>f.Service.ConfigureAsync(f.Org,f.Manager.Id,request));
         Assert.Contains("204",error.Message); Assert.Contains("160",error.Message);
         Assert.Empty(await f.Db.WorkDeliveryPlans.ToListAsync());
