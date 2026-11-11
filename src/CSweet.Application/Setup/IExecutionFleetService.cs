@@ -61,6 +61,18 @@ public interface IExecutionFleetService
         SelectLocalOfficeRecoveryRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Relaunches a setup that stopped for a Windows restart, with a fresh one-use handoff.</summary>
+    Task<LocalOfficeSetupActionResponse> ContinueLocalSetupAfterRestartAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Safely abandons the creator's stuck local setup so a fresh one can start.</summary>
+    Task<LocalOfficeSetupActionResponse> CancelLocalSetupSessionAsync(
+        Guid sessionId,
+        Guid createdByUserId,
+        CancellationToken cancellationToken = default);
+
     Task<AssistedOfficePreflightResponse> PreflightLocalSetupSessionAsync(
         AssistedOfficePreflightRequest request,
         CancellationToken cancellationToken = default);

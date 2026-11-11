@@ -98,7 +98,9 @@ public sealed record LocalOfficeSetupSessionResponse(
     bool CanCancelUpdate = false,
     string? StorageVolumeId = null,
     string? InstallRoot = null,
-    string? DataRoot = null);
+    string? DataRoot = null,
+    bool CanContinueAfterRestart = false,
+    bool CanStartOver = false);
 
 public sealed record OfficeUpdateJobResponse(Guid AssignmentId, string Name, string Kind, string State);
 

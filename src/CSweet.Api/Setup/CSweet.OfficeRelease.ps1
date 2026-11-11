@@ -172,17 +172,37 @@ function Expand-CSweetOfficeArchive([string] $Archive, [string] $Destination) {
     [IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Destination)
 }
 
-function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800) {
+function Test-CSweetCachedOfficeArchive([string] $Path, [object] $Asset) {
+    # A cached archive is reused only when its size and SHA-256 still equal the HTTPS release metadata.
+    if ([String]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    if ((Get-Item -LiteralPath $Path).Length -ne [long]$Asset.size) { return $false }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $Asset.sha256
+}
+
+function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800, [string] $CacheRoot) {
     if ($Asset.name -cnotmatch '^csweet-office-([0-9]+\.[0-9]+\.[0-9]+)-(windows-support|windows-x64)\.zip$') { throw 'Office download asset name is invalid.' }
     Assert-CSweetOfficeAsset $Asset $Matches[1] $Matches[2] $true
     if ($TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 1800) { throw 'Office download timeout is invalid.' }
+    if (Test-Path -LiteralPath $Destination) { throw 'Office extraction requires a new directory.' }
+    $cachedArchive = $null
+    if (-not [String]::IsNullOrWhiteSpace($CacheRoot)) {
+        # The caller supplies an administrator-only directory. Keyed by the verified digest, so a
+        # reassign, repair or retry of the same release extracts locally instead of downloading again.
+        New-Item -ItemType Directory -Path $CacheRoot -Force | Out-Null
+        $cachedArchive = Join-Path $CacheRoot "$($Asset.sha256).zip"
+        if (Test-CSweetCachedOfficeArchive -Path $cachedArchive -Asset $Asset) {
+            (Get-Item -LiteralPath $cachedArchive).LastWriteTimeUtc = [DateTime]::UtcNow
+            Expand-CSweetOfficeArchive -Archive $cachedArchive -Destination $Destination
+            return [IO.Path]::GetFullPath($Destination)
+        }
+        if (Test-Path -LiteralPath $cachedArchive) { Remove-Item -LiteralPath $cachedArchive -Force }
+    }
     $archive = "$Destination.zip"
     $partPath = "$Destination.part-$([guid]::NewGuid().ToString('N'))"
     $ownedArchive = $false
     $output = $null
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     try {
-        if (Test-Path -LiteralPath $Destination) { throw 'Office extraction requires a new directory.' }
         $output = [IO.File]::Open($archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
         $ownedArchive = $true
         $downloads = if ($null -ne $Asset.PSObject.Properties['parts']) { @($Asset.parts) } else { @($Asset) }
@@ -205,6 +225,17 @@ function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int]
             throw 'The Office release download failed its size or SHA-256 check. Retry the release download.'
         }
         Expand-CSweetOfficeArchive -Archive $archive -Destination $Destination
+        if ($null -ne $cachedArchive) {
+            # Best effort: a cache failure must not fail an already verified and extracted download.
+            try {
+                Move-Item -LiteralPath $archive -Destination $cachedArchive -Force
+                $ownedArchive = $false
+                # Keep the two most recently used releases; older archives are never needed again.
+                Get-ChildItem -LiteralPath $CacheRoot -File -Filter '*.zip' |
+                    Sort-Object LastWriteTimeUtc -Descending | Select-Object -Skip 2 |
+                    Remove-Item -Force -ErrorAction SilentlyContinue
+            } catch { }
+        }
         return [IO.Path]::GetFullPath($Destination)
     } finally {
         if ($null -ne $output) { $output.Dispose() }
