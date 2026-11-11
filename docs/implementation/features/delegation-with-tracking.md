@@ -84,7 +84,8 @@ Unfollowing and cancelling tracking do not cancel execution, including requests 
 acknowledgement or a queued execution turn. `TrackingCancelledAt` closes reporting commitments
 and delegation subscriptions while preserving the execution lifecycle. Snapshots expose
 `TrackingCancelled` and `ExecutionStatus` separately; cancelled tracking cannot reactivate
-subscriptions, publish further reports or produce stale-progress attention.
+subscriptions, publish further reports, produce stale-progress attention or raise
+responsibility-unavailable attention and manager notifications (`TrackedDelegationService.ReconcileAsync`).
 
 The limited tracking view contains explicitly shared acknowledgement/progress/result summaries
 and stable work identity. It excludes private task bodies, execution receipts and case memory.

@@ -1082,7 +1082,7 @@ public sealed class AgentInstallationServiceTests
     }
 
     [Fact]
-    public async Task RemoveAsync_RejectsRemovalWhilePackageIsBuilding()
+    public async Task RemoveAsync_CancelsInFlightBuildAndDefersPackageDeletion()
     {
         await using var dbContext = CreateDbContext();
         var package = await SeedAsync(dbContext);
@@ -1095,8 +1095,91 @@ public sealed class AgentInstallationServiceTests
         var exception = await Assert.ThrowsAsync<AgentInstallationException>(
             () => service.RemoveAsync(installation.Id));
 
-        Assert.Contains("currently building", exception.Message);
+        // The running build is durably cancelled (the worker observes it at its next fenced step),
+        // but rows are not deleted under a possibly running builder.
+        Assert.Contains("build was cancelled", exception.Message);
+        dbContext.ChangeTracker.Clear();
+        Assert.Equal(AgentBuildStatus.Cancelled, (await dbContext.AgentBuildJobs.SingleAsync()).Status);
         Assert.Single(await dbContext.AgentInstallations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task UpdateTwiceThenApproveBoth_LeavesExactlyOneActiveRevision()
+    {
+        await using var dbContext = CreateDbContext();
+        var current = await SeedAsync(dbContext);
+        var service = CreateService(dbContext);
+        var installed = await service.InstallAsync(current.Id, ValidRequest());
+        current.Status = AgentPackageVersionStatus.Built;
+        AgentPackageVersion Version(string version, char digest)
+        {
+            var manifest = JsonNode.Parse(current.ManifestJson)!.AsObject();
+            manifest["version"] = version;
+            return new AgentPackageVersion
+            {
+                Id = Guid.NewGuid(), PackageSourceId = current.PackageSourceId,
+                CommitSha = new string(digest, 40), ManifestDigest = new string(digest, 64),
+                ManifestJson = manifest.ToJsonString(), ManifestFileName = "csweet-plugin.json",
+                AgentId = current.AgentId, AgentName = current.AgentName, Version = version,
+                PublisherId = current.PublisherId, PublisherName = current.PublisherName,
+                RuntimeType = current.RuntimeType, Status = AgentPackageVersionStatus.Built,
+                ImportedAt = DateTimeOffset.UtcNow
+            };
+        }
+        var v2 = Version("2.0.0", 'b');
+        var v3 = Version("3.0.0", 'c');
+        dbContext.AgentPackageVersions.AddRange(v2, v3);
+        await dbContext.SaveChangesAsync();
+
+        // update A -> v2 (stages B), update A -> v3 (stages C), approve B, approve C.
+        var stagedB = await service.UpdateAsync(installed.Id, new UpdateAgentInstallationRequest(v2.Id));
+        var stagedC = await service.UpdateAsync(installed.Id, new UpdateAgentInstallationRequest(v3.Id));
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ApproveUpdateAsync(stagedB.Id, ValidRequest()));
+        await Assert.ThrowsAsync<AgentInstallationException>(() =>
+            service.UpdateAsync(stagedC.Id, new UpdateAgentInstallationRequest(v3.Id)));
+        var approved = await service.ApproveUpdateAsync(stagedC.Id, ValidRequest());
+
+        dbContext.ChangeTracker.Clear();
+        var revisions = await dbContext.AgentInstallations.AsNoTracking().ToListAsync();
+        var active = Assert.Single(revisions, x => x.RevisionStatus == PluginRevisionStatus.Active);
+        Assert.Equal(approved.Id, active.Id);
+        Assert.Equal(v3.Id, active.PackageVersionId);
+        Assert.Equal(PluginRevisionStatus.Retired, revisions.Single(x => x.Id == stagedB.Id).RevisionStatus);
+        Assert.Equal(PluginRevisionStatus.Retired, revisions.Single(x => x.Id == installed.Id).RevisionStatus);
+    }
+
+    [Fact]
+    public async Task ApproveUpdateAsync_RefusesWhenSupersededRevisionIsNoLongerActive()
+    {
+        await using var dbContext = CreateDbContext();
+        var current = await SeedAsync(dbContext);
+        var service = CreateService(dbContext);
+        var installed = await service.InstallAsync(current.Id, ValidRequest());
+        current.Status = AgentPackageVersionStatus.Built;
+        var manifest = JsonNode.Parse(current.ManifestJson)!.AsObject();
+        manifest["version"] = "2.0.0";
+        var v2 = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = current.PackageSourceId,
+            CommitSha = new string('e', 40), ManifestDigest = new string('e', 64),
+            ManifestJson = manifest.ToJsonString(), ManifestFileName = "csweet-plugin.json",
+            AgentId = current.AgentId, AgentName = current.AgentName, Version = "2.0.0",
+            PublisherId = current.PublisherId, PublisherName = current.PublisherName,
+            RuntimeType = current.RuntimeType, Status = AgentPackageVersionStatus.Built,
+            ImportedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AgentPackageVersions.Add(v2);
+        await dbContext.SaveChangesAsync();
+        var staged = await service.UpdateAsync(installed.Id, new UpdateAgentInstallationRequest(v2.Id));
+        // A sibling approval (manifest without accounts) already retired the superseded revision.
+        (await dbContext.AgentInstallations.SingleAsync(x => x.Id == installed.Id)).RevisionStatus = PluginRevisionStatus.Retired;
+        await dbContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<AgentInstallationException>(() => service.ApproveUpdateAsync(staged.Id, ValidRequest()));
+
+        dbContext.ChangeTracker.Clear();
+        Assert.Equal(PluginRevisionStatus.Staged, (await dbContext.AgentInstallations.SingleAsync(x => x.Id == staged.Id)).RevisionStatus);
+        Assert.DoesNotContain(await dbContext.AgentInstallations.ToListAsync(), x => x.RevisionStatus == PluginRevisionStatus.Active);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Plugins;
 using CSweet.Domain.Setup;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Setup;
 
@@ -15,12 +16,14 @@ public sealed partial class AgentBuildService
     private async Task VerifyConnectorAsync(AgentBuildJob job, CancellationToken ct)
     {
         var package = job.PackageVersion!;
-        job.ExecutionPoolId = null;
-        job.StepsJson = AgentBuildStepStore.CreateConnectorInitialJson(job.QueuedAt);
+        // The job was read without a claim: fence every transition on the stored status so a
+        // cancellation committed after the read is never overwritten.
         if (package.Status != AgentPackageVersionStatus.Approved)
         {
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Cancelled, ct)) return;
+            job.ExecutionPoolId = null;
+            job.StepsJson = AgentBuildStepStore.CreateConnectorInitialJson(job.QueuedAt);
             job.FailureMessage = $"Verification cancelled because the package version is {package.Status}.";
-            job.TransitionTo(AgentBuildStatus.Cancelled, DateTimeOffset.UtcNow);
             await _dbContext.SaveChangesAsync(ct);
             await WriteAuditAsync(job, "connector-package.cancelled", job.FailureMessage, ct);
             return;
@@ -28,7 +31,9 @@ public sealed partial class AgentBuildService
 
         try
         {
-            job.TransitionTo(AgentBuildStatus.Cloning, DateTimeOffset.UtcNow);
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Cloning, ct)) return;
+            job.ExecutionPoolId = null;
+            job.StepsJson = AgentBuildStepStore.CreateConnectorInitialJson(job.QueuedAt);
             await _dbContext.SaveChangesAsync(ct);
             await AgentBuildStepStore.ApplyAsync(_dbContext, job,
                 new(AgentBuildStepKeys.Queued, AgentBuildStepStatuses.Succeeded), ct);
@@ -36,7 +41,11 @@ public sealed partial class AgentBuildService
                 new(AgentBuildStepKeys.Verify, AgentBuildStepStatuses.InProgress), ct);
 
             var digest = VerifyConnectorDeclarations(package);
-            job.TransitionTo(AgentBuildStatus.Building, DateTimeOffset.UtcNow);
+            await using var publish = _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction is null
+                ? await _dbContext.Database.BeginTransactionAsync(ct) : null;
+            if (!await TryTransitionAsync(job, AgentBuildStatus.Building, ct) ||
+                !await TryTransitionAsync(job, AgentBuildStatus.Succeeded, ct))
+                return;
             await AgentBuildStepStore.CompleteRemainingAsync(_dbContext, job, ct);
             package.PackageDigest = digest;
             package.PackagePath = null;
@@ -44,13 +53,13 @@ public sealed partial class AgentBuildService
             package.ArtifactFormatVersion = ConnectorArtifactFormat;
             package.ArtifactOperatingSystem = "none";
             package.ArtifactArchitecture = "none";
-            package.BuiltAt = DateTimeOffset.UtcNow;
+            package.BuiltAt = job.CompletedAt ?? DateTimeOffset.UtcNow;
             package.Status = AgentPackageVersionStatus.Built;
             job.PackageDigest = digest;
             job.PackagePath = null;
             job.FailureMessage = null;
-            job.TransitionTo(AgentBuildStatus.Succeeded, package.BuiltAt.Value);
             await _dbContext.SaveChangesAsync(ct);
+            if (publish is not null) await publish.CommitAsync(ct);
             await WriteAuditAsync(job, "connector-package.verified",
                 $"Verified reviewed connector declarations {digest}; no plugin code was built or executed.", ct);
         }

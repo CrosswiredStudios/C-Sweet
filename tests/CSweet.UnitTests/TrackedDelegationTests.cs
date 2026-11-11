@@ -70,6 +70,28 @@ public sealed class TrackedDelegationTests
     }
 
     [Fact]
+    public async Task CancelledTrackingDoesNotRaiseResponsibilityAttentionOrNotifyManagers()
+    {
+        await using var f = await Fixture.Create();
+        var d = await f.Service.CreateAsync(f.Org, f.Naomi.Id, f.Request());
+        d = await f.Service.RespondAsync(f.Org, f.Gabriel.Id, new(d.Id, d.Revision, "Accepted", "Recheck staffing.", "accept"));
+        d = (await f.Service.ReadAsync(f.Org, f.Naomi.Id, new(d.Id))).Single();
+        d = await f.Service.CancelAsync(f.Org, f.Naomi.Id, new(d.Id, d.Revision, "stop-tracking"));
+        Assert.True(d.TrackingCancelled);
+        var notificationsBefore = await f.Db.UserNotifications.CountAsync();
+
+        // Responsibility becomes unavailable after the requester stopped tracking.
+        f.Gabriel.IsActive = false; await f.Db.SaveChangesAsync();
+        await f.Service.ReconcileAsync();
+
+        Assert.Equal(notificationsBefore, await f.Db.UserNotifications.CountAsync());
+        Assert.Empty(await f.Db.UserNotifications.Where(x => x.DeduplicationKey == $"delegation-attention:{d.Id:N}").ToListAsync());
+        var saved = await f.Db.TrackedDelegations.SingleAsync();
+        Assert.NotEqual("AttentionRequired", saved.Status);
+        Assert.Equal("Active", saved.Status); // execution lifecycle is preserved by design
+    }
+
+    [Fact]
     public async Task CompletedBeforeBindingIsRecoverableAndCancelledWorkCannotBeReportedSuccessful()
     {
         await using var f = await Fixture.Create();

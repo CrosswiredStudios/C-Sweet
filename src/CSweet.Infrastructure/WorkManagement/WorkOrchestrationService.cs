@@ -263,8 +263,11 @@ public sealed partial class WorkOrchestrationService(
                             if (attempt.AgentWorkItemId.HasValue)
                             {
                                 var work = await db.AgentWorkItems.SingleOrDefaultAsync(x => x.Id == attempt.AgentWorkItemId, cancellationToken);
-                                if (work is not null && work.Status is AgentWorkStatus.Pending or AgentWorkStatus.Leased)
-                                    work.Status = AgentWorkStatus.Cancelled;
+                                // Same path as AgentWorkInbox.CancelAsync: closes the open delivery attempt and
+                                // settles the Chief card, saved atomically with the sprint cancellation below.
+                                if (work is not null)
+                                    await CSweet.Infrastructure.Setup.AgentWorkInbox.MarkCancelledAsync(
+                                        db, work, "The sprint execution was cancelled.", now, cancellationToken);
                             }
                         }
                     }
