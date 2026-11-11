@@ -10,9 +10,10 @@ public sealed partial class AgentWorkspaceBroker
     public async Task<AgentBrokerWorkspaceOperationResult> ExecuteAsync(AgentBrokerWorkspaceOperationRequest request,
         string publicBaseUrl, CancellationToken cancellationToken = default)
     {
-        if (request.Operation is not ("inspect" or "publish" or "refresh" or "cleanup" or "snapshot-pull" or "snapshot-push") ||
+        if (request.Operation is not ("inspect" or "publish" or "refresh" or "cleanup" or "snapshot-pull" or "snapshot-push" or "verify-pushed") ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160 ||
-            request.PushedCommitSha is not null && request.Operation != "publish")
+            request.PushedCommitSha is not null && request.Operation is not ("publish" or "verify-pushed" or "inspect") ||
+            request.PushedCommitSha is null && request.Operation == "verify-pushed")
             throw new ArgumentException("Invalid workspace operation.");
         var workspace = await AuthorizeWorkspaceOperationAsync(request, cancellationToken);
         if (request.HistoryOffset is < 0 or > 10000 || request.HistoryLimit is < 1 or > 100 ||
@@ -43,7 +44,13 @@ public sealed partial class AgentWorkspaceBroker
             var pushed = await gitHost.PublishInternalPushedAsync(new(workspace.OrganizationId, workspace.RepositoryId, workspace.Id,
                 workspace.BaseCommitSha, workspace.BranchName,
                 string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch,
-                request.IdempotencyKey, pushedCommit, lockOwner), cancellationToken);
+                request.IdempotencyKey, pushedCommit, lockOwner, VerifyOnly: request.Operation != "publish"), cancellationToken);
+            if (request.Operation == "inspect")
+                return new(pushed.ChangedFiles.Count == 0 ? "Clean" : "Modified", pushed.BaseSha, pushed.ChangedFiles, pushed.DiffSummary,
+                    Provider: repository.Connection.Provider.ToString())
+                {
+                    History = request.IncludeHistory ? await ReadAssignmentHistoryAsync(workspace, request, cancellationToken) : null
+                };
             var review = pushed.Status == "Published"
                 ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control/{repository.Id:D}?reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
                 : null;
@@ -171,7 +178,7 @@ public sealed partial class AgentWorkspaceBroker
         var qaReview = await db.TaskDeliveryReviews.AsNoTracking().AnyAsync(x => x.OrganizationId == workspace.OrganizationId &&
             x.TaskId == workspace.WorkItemId && x.QaInstallationId == workspace.AgentInstallationId && x.Status == "Testing" &&
             x.CommitSha == workspace.BaseCommitSha && x.RepositoryId == workspace.RepositoryId, cancellationToken);
-        if (qaReview && request.Operation == "publish") throw new UnauthorizedAccessException("QA cannot publish source changes.");
+        if (qaReview && request.Operation is ("publish" or "verify-pushed")) throw new UnauthorizedAccessException("QA cannot publish source changes.");
         var canonical = await new CanonicalWorkspaceAuthorization(db).AuthorizeAsync(workspace, action ?? WorkspaceAction(request.Operation), workspace.BaseCommitSha, cancellationToken);
         if ((!qaReview && !canonical && !await db.CoreWorkTasks.AsNoTracking().AnyAsync(w => w.Id == workspace.WorkItemId && w.OrganizationId == workspace.OrganizationId &&
             w.AssignmentRevision == workspace.AssignmentRevision && w.AssignedAgentInstallationId == workspace.AgentInstallationId, cancellationToken)) ||

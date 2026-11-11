@@ -78,10 +78,13 @@ internal static partial class WorkOrchestrationBoardState
 
         var item = stage.ItemExecution!.WorkItem!;
         var definition = policy.Stages.Single(x => x.Key == stage.StageKey);
-        var computeContinuation = stage.LastOutcomeCode == "awaiting-compute" && stage.LastError is null;
+        var preparationWait = stage.LastOutcomeCode == WorkOrchestrator.ComputePreparationWait && stage.LastError is null;
+        var computeContinuation = (stage.LastOutcomeCode == "awaiting-compute" || preparationWait) && stage.LastError is null;
         var running = stage.Status == WorkStageExecutionStatus.Running || computeContinuation;
         var waitingReason = computeContinuation && stage.Status != WorkStageExecutionStatus.Running
-            ? stage.Status == WorkStageExecutionStatus.Backoff ? "Waiting for browser compute" : "Continuing QA after browser compute"
+            ? stage.Status == WorkStageExecutionStatus.Backoff
+                ? preparationWait ? "Waiting for browser compute preparation" : "Waiting for browser compute"
+                : "Continuing QA after browser compute"
             : null;
         // Queue successors stay queued until claimed. Later review stages retain their
         // own columns, so waiting for QA does not look like new development.

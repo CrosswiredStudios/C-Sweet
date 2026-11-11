@@ -541,7 +541,9 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         return await gitHost.InspectAsync(
             Operation(context, $"inspect:{context.Workspace.Revision}") with
             {
-                IncludeHistory = input.IncludeHistory, HistoryOffset = input.HistoryOffset, HistoryLimit = input.HistoryLimit
+                IncludeHistory = input.IncludeHistory, HistoryOffset = input.HistoryOffset, HistoryLimit = input.HistoryLimit,
+                // Git delivery: inspect the commit the agent pushed instead of the uploaded snapshot.
+                PushedCommitSha = input.PushedCommitSha is null ? null : ValidateCommitSha(input.PushedCommitSha)
             }, cancellationToken);
     }
 
@@ -1106,7 +1108,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             context.Workspace.AssignmentRevision,
             idempotencyKey);
 
-    private static GitWorkspaceResult ToWorkspaceResult(
+    private GitWorkspaceResult ToWorkspaceResult(
         SourceControlWorkspace workspace,
         AssignmentContext context,
         string path,
@@ -1125,7 +1127,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         {
             // Only internal repositories serve Git to a runtime. Without a branch name the SDK
             // keeps using snapshots, so a GitHub-connected workspace is unaffected.
-            BranchName = context.Repository.Connection?.Provider is SourceControlProvider.InternalGit
+            BranchName = _transferLimits.AgentGitDelivery &&
+                         context.Repository.Connection?.Provider is SourceControlProvider.InternalGit
                 ? workspace.BranchName
                 : null
         };

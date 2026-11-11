@@ -1749,6 +1749,7 @@ public sealed partial class WorkManagementCapabilityHandler(
         ValidateIdempotencyKey(input.IdempotencyKey);
         if (string.IsNullOrWhiteSpace(input.Title))
             throw new ArgumentException("Work item title is required.");
+        ValidateDeclaredVerifications(input.Planning);
         if (!Enum.TryParse<WorkTaskPriority>(input.Priority, true, out var priority) ||
             !Enum.IsDefined(priority))
             throw new ArgumentException("Work item priority is invalid.");
@@ -2206,6 +2207,7 @@ public sealed partial class WorkManagementCapabilityHandler(
             }
             item.AccountableOrganizationUserId = input.AccountableOrganizationUserId;
         }
+        ValidateDeclaredVerifications(input.Planning);
         item.Title = input.Title.Trim();
         item.Description = input.Description?.Trim() ?? string.Empty;
         item.ParentWorkTaskId = input.ParentItemId;
@@ -3974,4 +3976,11 @@ public sealed partial class WorkManagementCapabilityHandler(
                 new PlatformCapabilityError(code, message), JsonOptions))
         };
 
+
+    /// <summary>A ticket's declared verification is read by the author, the reviewer and QA, so reject malformed ones.</summary>
+    internal static void ValidateDeclaredVerifications(Wire.WorkItemPlanningSpecification? planning)
+    {
+        var issues = Wire.WorkItemVerifications.Validate(planning?.Verifications);
+        if (issues.Count > 0) throw new ArgumentException(string.Join(" ", issues));
+    }
 }

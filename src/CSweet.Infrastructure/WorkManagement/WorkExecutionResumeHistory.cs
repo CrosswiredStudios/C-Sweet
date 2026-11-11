@@ -11,7 +11,7 @@ internal static class WorkExecutionResumeHistory
         // Compute callbacks are replaceable checkpoints, not independent review findings.
         // Keep their latest binding only while it is current. All attempts remain in the
         // audit store, and substantive outcomes remain available for rework and recovery.
-        return history.Where(x => x.OutcomeCode != "awaiting-compute" ||
+        return history.Where(x => !WorkOrchestrator.IsComputeWait(x.OutcomeCode) ||
             ReferenceEquals(x, latest[x.StageExecutionId])).ToArray();
     }
 }

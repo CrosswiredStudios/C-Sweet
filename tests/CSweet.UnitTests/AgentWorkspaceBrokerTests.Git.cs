@@ -56,12 +56,48 @@ public sealed partial class AgentWorkspaceBrokerTests
         Assert.Null(host.Operation); Assert.Null(volumes.Lease);
     }
 
+    [Fact]
+    public async Task InspectingAPushedCommitReportsItsChangesWithoutReadingASnapshot()
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, "inspect");
+        var host = new FakeHost(); var volumes = new FakeVolumes();
+
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value)
+            .ExecuteAsync(request with { PushedCommitSha = new string('c', 40) }, "http://localhost");
+
+        Assert.Equal("Clean", result.Status);
+        Assert.Null(result.CommitSha); Assert.Null(result.ReviewUrl);
+        Assert.True(host.PushedPublication!.VerifyOnly);
+        Assert.Null(host.Operation); Assert.Null(volumes.Lease);
+    }
+
+    [Fact]
+    public async Task VerifyingAPushedCommitNeedsPublishAuthorityAndRecordsNoPublication()
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, "publish");
+        var host = new FakeHost(); var volumes = new FakeVolumes();
+        var pushed = new string('c', 40);
+        var broker = new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value);
+
+        var result = await broker.ExecuteAsync(request with { Operation = "verify-pushed", PushedCommitSha = pushed }, "http://localhost");
+
+        var workspace = await db.SourceControlWorkspaces.AsNoTracking().SingleAsync();
+        Assert.Equal(("Verified", pushed), (result.Status, result.CommitSha));
+        Assert.Null(result.ReviewUrl);
+        Assert.True(host.PushedPublication!.VerifyOnly);
+        Assert.Equal((workspace.BranchName, pushed), (host.PushedPublication.Branch, host.PushedPublication.PushedSha));
+        Assert.Null(host.Operation); Assert.Null(volumes.Lease);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            broker.ExecuteAsync(request with { Operation = "verify-pushed", PushedCommitSha = null }, "http://localhost"));
+    }
+
     [Theory]
-    [InlineData("inspect")]
     [InlineData("refresh")]
     [InlineData("cleanup")]
     [InlineData("snapshot-pull")]
-    public async Task APushedCommitIsAcceptedOnlyForPublication(string operation)
+    public async Task APushedCommitIsAcceptedOnlyForPublicationVerificationAndInspection(string operation)
     {
         await using var db = CreateDb();
         var request = await SeedOperationAsync(db, operation);

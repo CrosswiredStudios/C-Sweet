@@ -10,6 +10,7 @@ public sealed partial class AgentWorkspaceBroker
         "cleanup" => GitWorkspaceCapabilities.Cleanup,
         "snapshot-pull" => GitWorkspaceCapabilities.Prepare,
         "snapshot-push" => GitWorkspaceCapabilities.Publish,
+        "verify-pushed" => GitWorkspaceCapabilities.Publish,
         _ => throw new ArgumentException("Unsupported workspace operation.")
     };
 }

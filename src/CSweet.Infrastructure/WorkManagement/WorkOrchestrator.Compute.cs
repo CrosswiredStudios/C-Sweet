@@ -9,12 +9,47 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed partial class WorkOrchestrator
 {
+    /// <summary>QA is waiting for the project's browser compute to be prepared. Infrastructure, not a verdict.</summary>
+    public const string ComputePreparationWait = "awaiting-compute-preparation";
+    internal static readonly TimeSpan MaximumComputePreparationWait = TimeSpan.FromMinutes(15);
+
+    internal static bool IsComputeWait(string? outcomeCode) => outcomeCode is "awaiting-compute" or ComputePreparationWait;
+
     internal static int RetryAttemptCount(WorkStageExecution stage) => stage.Attempts.Count(attempt =>
     {
         if (attempt.Status != WorkExecutionAttemptStatus.Completed || attempt.ResultJson is null) return true;
-        try { return JsonSerializer.Deserialize<WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions)?.OutcomeCode != "awaiting-compute"; }
+        try { return !IsComputeWait(JsonSerializer.Deserialize<WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions)?.OutcomeCode); }
         catch (JsonException) { return true; }
     });
+
+    internal sealed record QaComputePreparationWait(string Reason, DateTimeOffset RetryAt);
+
+    /// <summary>
+    /// Super Awesome Games (2026-11-10): QA failed Prism Break #20 back to engineering three times because the project's
+    /// browser compute was not prepared. QA now reports that as a bounded wait: the stage backs off without consuming a
+    /// retry, shows the reason, and is re-dispatched; preparation reaching Ready wakes it early.
+    /// </summary>
+    internal string? AcceptComputePreparationWait(WorkSprintExecution execution, WorkStageExecution stage,
+        WorkExecutionAttempt attempt, WorkExecutionOutcomeV1 outcome, DateTimeOffset now)
+    {
+        if (stage.StageKey is not ("quality" or "specialist-execution") || stage.AgentInstallationId is null ||
+            outcome.Disposition != WorkExecutionDispositions.Completed || outcome.StageExecutionId != stage.Id || outcome.AttemptId != attempt.Id)
+            return "Only the assigned QA attempt can wait for browser compute preparation.";
+        QaComputePreparationWait? wait;
+        try { wait = outcome.Output.Deserialize<QaComputePreparationWait>(JsonOptions); }
+        catch (JsonException) { return "The compute preparation wait is invalid."; }
+        if (wait is null || string.IsNullOrWhiteSpace(wait.Reason) || wait.Reason.Length > 2000 ||
+            wait.RetryAt <= now || wait.RetryAt > now.Add(MaximumComputePreparationWait))
+            return "A compute preparation wait needs a reason and a retry time within 15 minutes.";
+        attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.CompletedAt = now;
+        attempt.ResultJson = JsonSerializer.Serialize(outcome, JsonOptions);
+        stage.Status = WorkStageExecutionStatus.Backoff; stage.LastOutcomeCode = outcome.OutcomeCode;
+        stage.LastSummary = outcome.Summary; stage.LastError = null; stage.UpdatedAt = now; stage.RetryAt = wait.RetryAt;
+        stage.ItemExecution!.Status = WorkItemExecutionStatus.Pending;
+        execution.Revision++; execution.UpdatedAt = now;
+        AddEvent(execution, stage.ItemExecutionId, stage.Id, attempt.Id, "qa.compute-preparation.waiting", new { wait.Reason, wait.RetryAt });
+        return null;
+    }
 
     internal async Task<string?> AcceptComputeWaitAsync(WorkSprintExecution execution, WorkStageExecution stage,
         WorkExecutionAttempt attempt, WorkExecutionOutcomeV1 outcome, DateTimeOffset now, CancellationToken token)

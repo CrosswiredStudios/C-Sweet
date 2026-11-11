@@ -79,7 +79,14 @@ public sealed partial class WorkDeliveryService
         {
             await RequireCandidateCurrentAsync(plan, execution, ct);
             var retained = Decode<WorkExecutionOutcomeV1>(CurrentDeliveryStage(execution).Attempts.MaxBy(x => x.Attempt)!.ResultJson!);
-            if (retained.OutcomeCode == "awaiting-compute")
+            if (retained.OutcomeCode == WorkOrchestrator.ComputePreparationWait)
+            {
+                // QA reported missing browser compute: re-request the same review after its bounded recheck time.
+                var wait = retained.Output.Deserialize<WorkOrchestrator.QaComputePreparationWait>(Json)!;
+                if (wait.RetryAt > clock.GetUtcNow()) return;
+                await CreateReviewAsync(plan, execution, scope, execution.CurrentStageKey, ct);
+            }
+            else if (retained.OutcomeCode == "awaiting-compute")
             {
                 var wait = retained.Output.Deserialize<WorkDeliveryComputePending>(Json)!;
                 var operations = await db.Set<CSweet.Domain.Compute.ComputeOperation>().AsNoTracking()
@@ -137,6 +144,19 @@ public sealed partial class WorkDeliveryService
             var outcome = value.Deserialize<WorkExecutionOutcomeV1>(Json) ?? throw new InvalidOperationException("The delivery result is missing.");
             if (outcome.StageExecutionId != stage.Id || outcome.AttemptId != attempt.Id || outcome.Disposition != WorkExecutionDispositions.Completed)
                 throw new InvalidOperationException(outcome.Summary.Length > 0 ? outcome.Summary : "The result does not match its authoritative attempt.");
+            if (Handler(scope, stage.StageKey) == "quality" && outcome.OutcomeCode == WorkOrchestrator.ComputePreparationWait)
+            {
+                // Missing browser compute is infrastructure, not a QA verdict; never route it back to the author.
+                var now = clock.GetUtcNow();
+                var wait = outcome.Output.Deserialize<WorkOrchestrator.QaComputePreparationWait>(Json);
+                if (wait is null || string.IsNullOrWhiteSpace(wait.Reason) || wait.Reason.Length > 2000 ||
+                    wait.RetryAt <= now || wait.RetryAt > now.Add(WorkOrchestrator.MaximumComputePreparationWait))
+                    throw new InvalidOperationException("A compute preparation wait needs a reason and a retry time within 15 minutes.");
+                attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.ResultJson = Encode(outcome); attempt.CompletedAt = now;
+                stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = outcome.OutcomeCode; stage.LastSummary = outcome.Summary;
+                execution.Status = "WaitingForEvidence"; execution.BlockedReason = outcome.Summary; execution.Revision++;
+                return;
+            }
             if (Handler(scope, stage.StageKey) is "build-readiness" or "compute-test" or "quality" && outcome.OutcomeCode == "awaiting-compute")
             {
                 var pending = outcome.Output.Deserialize<WorkDeliveryComputePending>(Json)!;

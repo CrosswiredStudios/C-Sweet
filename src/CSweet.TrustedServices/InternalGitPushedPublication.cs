@@ -34,7 +34,7 @@ public sealed partial class InternalGitRepositoryStore
         if (source is null) throw new InvalidOperationException("The work branch has not been pushed.");
         if (!string.Equals(source, pushed, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The work branch is not at the commit named for publication. Push, then publish the pushed commit.");
-        if (pushed == baseSha) throw new InvalidOperationException("The work branch holds no commits to publish.");
+        if (!request.VerifyOnly && pushed == baseSha) throw new InvalidOperationException("The work branch holds no commits to publish.");
         string ancestor;
         try { ancestor = (await RunAsync(repository, ["merge-base", baseSha, pushed], ct)).Trim(); }
         catch (InvalidOperationException) { ancestor = ""; }
@@ -42,6 +42,15 @@ public sealed partial class InternalGitRepositoryStore
             throw new InvalidOperationException("The work branch does not descend from its assigned base commit.");
         var tree = (await RunAsync(repository, ["rev-parse", pushed + "^{tree}"], ct)).Trim();
         ValidateSha(tree);
+        if (request.VerifyOnly)
+        {
+            // Proof that the named commit is what the platform holds, with the same change list and
+            // summary an inspection of an uploaded snapshot reports. Nothing is recorded.
+            var inspected = (await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSha, tree, "--"], ct))
+                .Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            return new("Verified", baseSha, pushed, inspected,
+                await RunAsync(repository, ["diff", "--no-ext-diff", "--no-textconv", "--stat", baseSha, tree, "--"], ct), target);
+        }
         await RequireResolvedIntegrationAsync(repository, baseSha, tree, ct);
 
         // Review the complete proposal against the integration target, as snapshot publication does.

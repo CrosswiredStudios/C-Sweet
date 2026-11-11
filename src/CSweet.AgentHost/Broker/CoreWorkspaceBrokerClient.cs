@@ -26,6 +26,13 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
         return result;
     }
 
+    public async Task VerifyPushedAsync(TrustedWorkspaceOperationRequest request, string commitSha, CancellationToken ct)
+    {
+        var result = await ExecuteAsync(request, "verify-pushed", ct, pushedCommitSha: commitSha);
+        if (result.Status != "Verified" || !string.Equals(result.CommitSha, commitSha, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Core did not confirm the pushed commit.");
+    }
+
     public async Task<CSweet.Agent.SDK.GitWorkspaceSyncResult> SyncAsync(TrustedWorkspaceOperationRequest request, string direction, byte[]? archive, CancellationToken ct)
     {
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
@@ -110,7 +117,7 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
 
     public async Task<CSweet.Agent.SDK.GitWorkspaceInspection> InspectAsync(TrustedWorkspaceOperationRequest request, CancellationToken ct)
     {
-        var result = await ExecuteAsync(request, "inspect", ct);
+        var result = await ExecuteAsync(request, "inspect", ct, pushedCommitSha: request.PushedCommitSha);
         return new(request.WorkspaceId, result.Status, result.ChangedFiles.Count > 0, result.ChangedFiles, [])
         {
             HasTrackedChanges = result.ChangedFiles.Count > 0, TrackedChangedFiles = result.ChangedFiles, DiffSummary = result.DiffSummary,

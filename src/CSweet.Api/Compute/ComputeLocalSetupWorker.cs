@@ -120,6 +120,7 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             var completed = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync(x => x.Id == setup.Id, token);
             if (completed.State != "Ready") await FailAsync(db, setup,
                 ComputeSetupObservation.Read(completed, directory).FailureCode ?? "local_setup_failed", token);
+            else await WakeComputePreparationWaitsAsync(db, setup.OrganizationId, token);
         }
         catch (System.ComponentModel.Win32Exception)
         {
@@ -167,4 +168,14 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             s.SetProperty(x => x.State, "Failed").SetProperty(x => x.ErrorCode, code)
                 .SetProperty(x => x.HandoffHash, (string?)null).SetProperty(x => x.HandoffExpiresAt, (DateTimeOffset?)null)
                 .SetProperty(x => x.Revision, x => x.Revision + 1).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);
+
+    /// <summary>
+    /// QA stages waiting for browser compute preparation resume as soon as an installation completes, instead of at
+    /// their next bounded recheck. Runs once per completed installation, so it cannot cause a dispatch loop.
+    /// </summary>
+    internal static Task<int> WakeComputePreparationWaitsAsync(CSweetDbContext db, Guid organizationId, CancellationToken token) =>
+        db.WorkStageExecutions.Where(stage => stage.Status == CSweet.Domain.WorkManagement.WorkStageExecutionStatus.Backoff &&
+                stage.LastOutcomeCode == CSweet.Infrastructure.WorkManagement.WorkOrchestrator.ComputePreparationWait &&
+                stage.ItemExecution!.SprintExecution!.OrganizationId == organizationId)
+            .ExecuteUpdateAsync(update => update.SetProperty(stage => stage.RetryAt, (DateTimeOffset?)DateTimeOffset.UtcNow), token);
 }

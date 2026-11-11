@@ -205,7 +205,8 @@ public sealed partial class GitWorkspaceCapabilityHandler
         }
         // Queue revision and claim disposition remain owned by the personal-task SDK callback.
         await db.SaveChangesAsync(ct);
-        return await PrepareAsync(business, installation, new(item.Id, item.AssignmentRevision, input.IdempotencyKey), ct);
+        // Personal work keeps snapshot delivery: its review refresh has no Git equivalent yet.
+        return (await PrepareAsync(business, installation, new(item.Id, item.AssignmentRevision, input.IdempotencyKey), ct)) with { BranchName = null };
     }
 
     private async Task RequirePersonalOwnerAsync(Guid business, Guid installation, WorkTask item, WorkBoard? board, CancellationToken ct)
@@ -307,7 +308,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
                 PersonalSourceCommitSha = legacyCheckpoint ?? (hasMergedTask ? null : project.PersonalSourceCommitSha) }, JsonOptions);
             await db.SaveChangesAsync(ct);
         }
-        return await PrepareAsync(business, installation, new(task.Id, task.AssignmentRevision, input.IdempotencyKey), ct);
+        return (await PrepareAsync(business, installation, new(task.Id, task.AssignmentRevision, input.IdempotencyKey), ct)) with { BranchName = null };
     }
 
     private async Task<WorkTask> RequirePersonalSourceTaskAsync(Guid business, Guid installation,

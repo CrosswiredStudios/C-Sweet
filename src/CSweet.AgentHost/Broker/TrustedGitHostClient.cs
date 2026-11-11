@@ -11,6 +11,9 @@ public interface ITrustedGitHostClient
     Task<CSweet.TrustedServices.AgentBrokerWorkspaceGitResult> GitAsync(TrustedWorkspaceOperationRequest request,
         string service, bool advertise, byte[] body, CancellationToken ct) =>
         throw new InvalidOperationException("Workspace Git access is unavailable.");
+    /// <summary>Confirms that the workspace's work branch tip is exactly this commit and descends from its base.</summary>
+    Task VerifyPushedAsync(TrustedWorkspaceOperationRequest request, string commitSha, CancellationToken ct) =>
+        throw new InvalidOperationException("Workspace Git access is unavailable.");
     Task<GitWorkspaceSyncResult> SyncAsync(TrustedWorkspaceOperationRequest request, string direction, byte[]? archive, CancellationToken ct) =>
         throw new InvalidOperationException("Workspace snapshot transfer is unavailable.");
     Task CreatePersonalRepositoryAsync(CSweet.TrustedServices.AgentBrokerPersonalRepositoryRequest request, CancellationToken ct) =>
@@ -67,6 +70,7 @@ public sealed record TrustedWorkspaceOperationRequest(
     public bool IncludeHistory { get; init; }
     public int HistoryOffset { get; init; }
     public int HistoryLimit { get; init; } = 20;
+    public string? PushedCommitSha { get; init; }
 }
 
 public sealed record TrustedWorkspaceRefresh(

@@ -405,7 +405,9 @@ public sealed partial class AgentWorkspaceBrokerTests
         public Task<InternalGitSnapshotResult> PublishInternalPushedAsync(InternalGitPushedPublication request, CancellationToken cancellationToken = default)
         {
             PushedPublication = request;
-            return Task.FromResult(new InternalGitSnapshotResult("Published", request.BaseSha, request.PushedSha, ["README.md"], "1 file changed"));
+            return Task.FromResult(request.VerifyOnly
+                ? new InternalGitSnapshotResult("Verified", request.BaseSha, request.PushedSha, [], "")
+                : new InternalGitSnapshotResult("Published", request.BaseSha, request.PushedSha, ["README.md"], "1 file changed"));
         }
         public InternalGitSnapshotOperation? Operation { get; private set; }
         public bool CleanAtLatest { get; set; }

@@ -94,11 +94,27 @@ public sealed class AgentGitPushRuleTests
         var empty = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request));
         Assert.Contains("no commits to publish", empty.Message);
 
+        // A checkpoint may name the base: nothing has changed yet, and nothing is recorded.
+        Assert.Equal(("Verified", fixture.Base), await VerifyAsync(request));
+
         await fixture.CommitFileAsync(clone, "one.txt", "one");
         await fixture.GitOkAsync("-C", clone, "push", "origin", target);
         var first = (await fixture.GitAsync("-C", clone, "rev-parse", "HEAD")).Output.Trim();
         var stale = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request));
         Assert.Contains("not at the commit named", stale.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => VerifyAsync(request));
+        // Verification leaves no receipt, so the same key still publishes afterwards.
+        Assert.Equal(("Verified", first), await VerifyAsync(request with { PushedSha = first }));
+        // The same call serves inspection: it reports what changed since the base.
+        var inspected = await fixture.Store.PublishPushedAsync(request with { PushedSha = first, VerifyOnly = true });
+        Assert.Equal(new[] { "one.txt" }, inspected.ChangedFiles);
+        Assert.Contains("one.txt", inspected.DiffSummary);
+
+        async Task<(string Status, string? Commit)> VerifyAsync(InternalGitPushedPublication verify)
+        {
+            var verified = await fixture.Store.PublishPushedAsync(verify with { VerifyOnly = true });
+            return (verified.Status, verified.CommitSha);
+        }
 
         var published = await fixture.Store.PublishPushedAsync(request with { PushedSha = first });
         Assert.Equal(("Published", first), (published.Status, published.CommitSha));

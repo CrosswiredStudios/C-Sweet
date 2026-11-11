@@ -33,9 +33,12 @@ public sealed record InternalGitRefRequest(string Operation, string Ref, string 
 public sealed record InternalGitSnapshotOperation(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     string Operation, string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey,
     byte[] Archive, string ArchiveManifestSha, int FileCount, long TotalBytes, string? CommitMessage = null, bool AllowLfs = true, Guid? LockOwnerId = null);
-/// <summary>Publish commits an agent already pushed to its work branch. No commit is created.</summary>
+/// <summary>Publish commits an agent already pushed to its work branch. No commit is created.
+/// With <c>VerifyOnly</c> nothing is recorded: the result only confirms that the work branch tip is the named
+/// commit and descends from the base, which is what a source checkpoint needs.</summary>
 public sealed record InternalGitPushedPublication(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
-    string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey, string PushedSha, Guid? LockOwnerId = null);
+    string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey, string PushedSha, Guid? LockOwnerId = null,
+    bool VerifyOnly = false);
 public sealed record InternalGitSnapshotResult(string Status, string BaseSha, string? CommitSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? LatestTargetSha = null);
 public sealed record InternalGitMergeRequest(Guid OrganizationId, Guid RepositoryId, Guid PublicationId,

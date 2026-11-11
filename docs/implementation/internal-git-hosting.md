@@ -218,6 +218,24 @@ Headquarters now exposes this through `AgentWorkspaceGitEndpoints` at `/git/work
 
 Tests: `AgentGitPushRuleTests` drives a native Git client against `ExchangeAsync` in agent mode; `AgentWorkspaceBrokerTests` covers `GitAsync` authorization. Its tests in `AgentWorkspaceBrokerTests.GitEntryPoint.cs` exercise the session-authenticated AgentHost route through the signed Core endpoint, current grants/assignment/membership checks, Core revalidation, runtime fencing, protocol validation and decompression limits, plus native Git clone/push and hook rejection propagation. `AgentHostBrokerOperationHandlerTests` covers the `git.runtime` forwarding allow-list and binary responses.
 
+## Turning on Git delivery (2026-11-10)
+
+Git delivery is off by default. Setting `CSweet:SourceControl:WorkspaceSync:AgentGitDelivery` to `true` for AgentHost makes a prepared team workspace on an internal repository carry its work branch name (`GitWorkspaceResult.BranchName`). An agent built on SDK 5.20.0 or later then delivers with git through its existing calls: `MaterializeAsync` clones, `UploadAsync` and `UploadCheckpointAsync` commit, push and record a checkpoint, `InspectAsync` and `PublishAsync` name the commit at the local branch head. No agent code changes. With the setting off, or for an older SDK, GitHub-connected repositories and personal work, delivery stays on snapshots.
+
+Inspection of a pushed commit: `InspectGitWorkspaceRequest.PushedCommitSha` travels to Core's `inspect` operation, which asks GitHost to verify the commit (`PublishPushedAsync` with `VerifyOnly`) and reports the files changed since the base and a `--stat` summary, as snapshot inspection does. No snapshot is read.
+
+Not supported in Git delivery yet: refreshing a workspace onto a newer base (`RefreshAsync`). Personal work uses it, which is why personal workspaces never receive a branch name.
+
+## Git checkpoints (2026-11-10)
+
+A runtime that is about to be replaced saves its source as a pushed commit instead of an uploaded archive. The SDK (5.19.0, `PushCheckpointAsync`) commits, pushes the work branch, then calls `git.workspace.sync.v1` with direction `checkpoint` and the pushed commit. `GitWorkspaceCapabilityHandler.SyncWorkspaceCoreAsync` requires publication authority, runs under `RuntimeCheckpointGate` like a snapshot push, and asks GitHost to confirm the commit through Core's `verify-pushed` operation (`PublishPushedAsync` with `VerifyOnly`: the work branch tip must be exactly that commit and descend from the base; nothing is recorded in the repository). Only then does it store the commit as `SourceControlWorkspace.CheckpointDigest`, with the runtime, time, command class, input fingerprint and resume summary, exactly as for a snapshot. `AgentWorkInbox.StageResourceHandoffAsync` is unchanged: it compares the receipt digest with the stored one.
+
+Direction `resume` returns the repository's memory profiles and the stored resume summary without any source transfer; the SDK calls it after `CloneAsync`. It needs preparation authority.
+
+Checkpoint commits stay on the work branch (decision of 2026-11-10) and are merged with it.
+
+Tests: the verify-only cases in `AgentGitPushRuleTests`, `AgentWorkspaceBrokerTests.VerifyingAPushedCommit...`. The AgentHost sync handler changes have no direct test yet.
+
 ## Publishing pushed commits (2026-11-10)
 
 An agent that delivered with git publishes by naming the commit it pushed (`PublishGitWorkspaceRequest.PushedCommitSha`, SDK 5.18.0). AgentHost validates the value and passes it through Core (`AgentBrokerWorkspaceOperationRequest.PushedCommitSha`) to GitHost (`POST /internal/v3/workspaces/publish-pushed`, `InternalGitRepositoryStore.PublishPushedAsync`). Core reads no workspace snapshot on this path. It is available for internal repositories only, and only for the `publish` operation; QA still cannot publish.

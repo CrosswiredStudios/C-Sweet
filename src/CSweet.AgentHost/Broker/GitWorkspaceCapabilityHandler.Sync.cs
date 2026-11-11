@@ -6,7 +6,7 @@ namespace CSweet.AgentHost.Broker;
 public sealed partial class GitWorkspaceCapabilityHandler
 {
     private Task<GitWorkspaceSyncResult> SyncWorkspaceAsync(Guid organization, Guid installation, GitWorkspaceSyncRequest input, CancellationToken ct, Guid runtimeId, long grantRevision) =>
-        input.Direction == "push" ? CSweet.Infrastructure.Setup.RuntimeCheckpointGate.ExecuteAsync(db, installation, organization.ToString(), runtimeId, grantRevision,
+        input.Direction is "push" or "checkpoint" ? CSweet.Infrastructure.Setup.RuntimeCheckpointGate.ExecuteAsync(db, installation, organization.ToString(), runtimeId, grantRevision,
             () => SyncWorkspaceCoreAsync(organization, installation, input, ct, runtimeId), ct)
             : SyncWorkspaceCoreAsync(organization, installation, input, ct, runtimeId);
 
@@ -20,9 +20,16 @@ public sealed partial class GitWorkspaceCapabilityHandler
             input.InputFingerprint is not null && (input.InputFingerprint.Length != 64 || !input.InputFingerprint.All(Uri.IsHexDigit)) ||
             (input.CommandClass is null) != (input.InputFingerprint is null)) throw new ArgumentException("Invalid resource profile inputs.");
         if (input.AssignmentRevision < 1) throw new ArgumentException("A current assignment revision is required.");
-        if (input.Direction is not ("pull" or "push") || input.Direction == "pull" && input.Archive is not null ||
+        // Git delivery: "checkpoint" records a pushed commit and "resume" returns what a snapshot pull returns
+        // besides the source. Neither carries an archive.
+        var git = input.Direction is "checkpoint" or "resume";
+        if (git && input.Archive is not null || (input.Direction == "checkpoint") != (input.PushedCommitSha is not null))
+            throw new ArgumentException("A pushed commit is required for a checkpoint and accepted nowhere else.");
+        var pushedCommitSha = input.PushedCommitSha is null ? null : ValidateCommitSha(input.PushedCommitSha);
+        if (pushedCommitSha is { Length: not 40 }) throw new ArgumentException("The commit SHA is invalid.");
+        if (!git && (input.Direction is not ("pull" or "push") || input.Direction == "pull" && input.Archive is not null ||
             input.Direction == "push" && (input.Archive is not { Length: > 0 } ||
-                                           input.Archive.Length > _transferLimits.MaximumArchiveBytes))
+                                           input.Archive.Length > _transferLimits.MaximumArchiveBytes)))
             throw new ArgumentException("A bounded pull or push snapshot transfer is required.");
         // The sync declaration does not expand repository rights: reads require preparation
         // authority and writes require publication authority for this exact assignment.
@@ -32,9 +39,19 @@ public sealed partial class GitWorkspaceCapabilityHandler
                 workspace.Id == input.WorkspaceId && workspace.AgentInstallationId == installation && workspace.OrganizationId == organization
             select review.Id).AnyAsync(ct);
         var context = await RequireWorkspaceContextAsync(organization, installation, input.WorkspaceId, input.AssignmentRevision,
-            qa ? GitWorkspaceCapabilities.Sync : input.Direction == "pull" ? GitWorkspaceCapabilities.Prepare : GitWorkspaceCapabilities.Publish, ct);
-        var result = await gitHost.SyncAsync(Operation(context, input.IdempotencyKey), input.Direction, input.Archive, ct);
-        if (input.Direction != "push")
+            input.Direction == "checkpoint" ? GitWorkspaceCapabilities.Publish
+                : qa ? GitWorkspaceCapabilities.Sync
+                : input.Direction is "pull" or "resume" ? GitWorkspaceCapabilities.Prepare : GitWorkspaceCapabilities.Publish, ct);
+        GitWorkspaceSyncResult result;
+        if (input.Direction == "checkpoint")
+        {
+            // The digest recorded below is only trusted because GitHost confirms the branch tip is this commit.
+            await gitHost.VerifyPushedAsync(Operation(context, input.IdempotencyKey), pushedCommitSha!, ct);
+            result = new GitWorkspaceSyncResult();
+        }
+        else result = git ? new GitWorkspaceSyncResult()
+            : await gitHost.SyncAsync(Operation(context, input.IdempotencyKey), input.Direction, input.Archive, ct);
+        if (input.Direction is "pull" or "resume")
         {
             var repositoryId = await db.SourceControlWorkspaces.Where(x => x.Id == input.WorkspaceId).Select(x => x.RepositoryId).SingleAsync(ct);
             var organizationKey = organization.ToString();
@@ -44,7 +61,7 @@ public sealed partial class GitWorkspaceCapabilityHandler
             return result with { ResourceProfiles = profiles, ResumeSummary = retainedSummary is null ? null : System.Text.Json.JsonSerializer.Deserialize<WorkspaceResumeSummary>(retainedSummary, JsonOptions) };
         }
         var workspaceRecord = await db.SourceControlWorkspaces.SingleAsync(x => x.Id == input.WorkspaceId, ct);
-        workspaceRecord.CheckpointDigest = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(input.Archive!));
+        workspaceRecord.CheckpointDigest = pushedCommitSha ?? Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(input.Archive!));
         workspaceRecord.CheckpointRuntimeId = runtimeId;
         workspaceRecord.CheckpointAt = DateTimeOffset.UtcNow;
         if (input.ResumeSummary is not null) workspaceRecord.CheckpointSummaryJson = System.Text.Json.JsonSerializer.Serialize(input.ResumeSummary, JsonOptions);

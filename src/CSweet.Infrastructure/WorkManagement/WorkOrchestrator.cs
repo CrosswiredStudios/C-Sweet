@@ -285,6 +285,15 @@ public sealed partial class WorkOrchestrator(
             error = await AcceptComputeWaitAsync(execution, stage, attempt, outcome, now, cancellationToken);
             if (error is null) return;
         }
+        else if (outcome?.OutcomeCode == ComputePreparationWait)
+        {
+            error = AcceptComputePreparationWait(execution, stage, attempt, outcome, now);
+            if (error is null)
+            {
+                await RevokeAttemptGrantsAsync(execution, stage, now, cancellationToken);
+                return;
+            }
+        }
         else error = ValidateOutcome(policy, stage, attempt, outcome);
         if (error is null)
             error = await RecordQualityValidationAsync(
