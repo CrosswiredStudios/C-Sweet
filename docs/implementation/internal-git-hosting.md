@@ -204,6 +204,16 @@ Run `./scripts/Test-InternalGitFilesystem.ps1 -StorageParent '<absolute director
 
 The test passed on the user's network-backed `Z:\` drive in about 20 seconds, and cleanup left no test directories. A local run under a longer workspace path exposed Git for Windows rejecting an absolute restore staging `GIT_DIR`; Git commands now execute with the repository as their working directory and `--git-dir .`, including backup object enumeration. The long-path local regression passed after that change. The NAS result covers this Windows client and mounted share during normal operation; it does not establish multi-client locking, power-loss durability, or unattended service-account access to a mapped drive. Configure a service-visible UNC/mount path for deployment and verify access under the GitHost service identity.
 
+## Agent Git push rules (2026-11-10)
+
+`InternalGitHttpRequest.AgentBranch`, `AgentBaseCommitSha` and `AgentMaximumBlobBytes` put `InternalGitRepositoryStore.ExchangeAsync` in agent mode. The trusted pre-receive hook then accepts a push only for `refs/heads/<AgentBranch>`, never as a deletion, only when the new tip descends from the assigned base commit, with no symbolic link or submodule entry added or changed between the previous tip (or the base) and the new tip, and with no new blob above the limit anywhere in the pushed history. Protected-branch rules for people are skipped in this mode because the allow-list is stricter; file locks still apply. Non-fast-forward updates stay refused by `receive.denyNonFastForwards`. The values reach the hook as validated environment variables, never as script text. A rejection travels back through the Git protocol, so the pusher sees the reason.
+
+`AgentWorkspaceBroker.GitAsync` authorizes one exchange through `AuthorizeWorkspaceOperationAsync`. `git-upload-pack` requires the `snapshot-pull` operation (preparation authority) and `git-receive-pack` requires `publish` (publication authority), so QA and revoked assignments are refused exactly as they are for snapshots. It supplies the workspace branch, `BaseCommitSha` and `WorkspaceSyncTransferOptions.MaximumGitBlobBytes` (default 10 MiB; larger files must use Git LFS). Internal repositories only.
+
+Agents cannot reach this yet. No Core endpoint, AgentHost capability or guest route calls `GitAsync`, so the statements in this document that guests receive snapshots and no Git access remain true in practice. Still to do: the route with streamed bodies, publication of a pushed commit (`InternalGitPublication` currently rejects a work branch that moved), read-only clone for QA and reviewers, GitHub-connected repositories, audit events for agent pushes, and streaming in place of the in-memory transfer limits.
+
+Tests: `AgentGitPushRuleTests` drives a native Git client against `ExchangeAsync` in agent mode; `AgentWorkspaceBrokerTests` covers `GitAsync` authorization.
+
 ## Remaining implementation
 
 - Empty personal-account repository creation without an approved template and guided provider migration remain outstanding. Managed personal-account creation from approved templates and GitHub LFS asset transfer are implemented with automated provider-boundary tests; live account verification is deferred at the user’s request.

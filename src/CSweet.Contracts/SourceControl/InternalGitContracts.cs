@@ -49,7 +49,17 @@ public sealed record InternalGitProvisioningJob(Guid Id, string Name, string Sta
 public sealed record UpdateInternalGitProvisioningSettings(bool Enabled, bool RequiresApproval, int MaximumRepositories,
     Guid? DefaultTeamId, string NamePrefix, string DefaultBranch, long ExpectedRevision);
 public sealed record InternalGitHttpRequest(Guid OrganizationId, Guid RepositoryId, string Service, bool Advertise,
-    byte[] Body, IReadOnlyList<string> ProtectedBranches, Guid? ActorId = null);
+    byte[] Body, IReadOnlyList<string> ProtectedBranches, Guid? ActorId = null)
+{
+    /// <summary>
+    /// Set for an agent runtime. A push is then accepted only for this branch, never as a deletion, only as a
+    /// descendant of <see cref="AgentBaseCommitSha"/>, without new symbolic links or submodules, and with no
+    /// new blob larger than <see cref="AgentMaximumBlobBytes"/>. Protected-branch rules for people do not apply.
+    /// </summary>
+    public string? AgentBranch { get; init; }
+    public string? AgentBaseCommitSha { get; init; }
+    public long AgentMaximumBlobBytes { get; init; }
+}
 public sealed record InternalGitHttpResponse(string ContentType, byte[] Body);
 public sealed record CreateInternalGitAccessRequest(string Name, bool CanPush = false, bool AllowDefaultBranchWrites = false, int LifetimeDays = 30);
 public sealed record InternalGitAccessSummary(Guid Id, string Name, bool CanPush, bool AllowDefaultBranchWrites, DateTimeOffset ExpiresAt, bool Revoked);

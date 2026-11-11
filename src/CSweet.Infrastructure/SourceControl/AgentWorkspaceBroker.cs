@@ -9,6 +9,7 @@ namespace CSweet.Infrastructure.SourceControl;
 
 public interface IAgentWorkspaceBroker
 {
+    Task<AgentBrokerWorkspaceGitResult> GitAsync(AgentBrokerWorkspaceGitRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Workspace Git access is unavailable.");
     Task<AgentBrokerWorkspaceLockResult> LocksAsync(AgentBrokerWorkspaceLockRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Workspace locks are unavailable.");
     Task<AgentBrokerWorkspaceOperationResult> ExecuteAsync(AgentBrokerWorkspaceOperationRequest request,
         string publicBaseUrl, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Workspace operation is unavailable.");

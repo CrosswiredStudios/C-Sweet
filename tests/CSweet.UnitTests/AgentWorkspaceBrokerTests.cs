@@ -350,6 +350,8 @@ public sealed partial class AgentWorkspaceBrokerTests
         db.OrganizationTeams.Add(new() { Id = workspace.TeamId, OrganizationId = workspace.OrganizationId, Name = "Development" });
         db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId, TeamId = workspace.TeamId, OrganizationUserId = employee.Id });
         db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = workspace.OrganizationId, TeamId = workspace.TeamId, RepositoryId = workspace.RepositoryId });
+        // WorkspaceVolumeBridge admits storage writes only for a business that exists and is not being deleted.
+        db.CoreOrganizations.Add(new CSweet.Domain.Core.Organization { Id = organizationId, Name = "Example", Status = CSweet.Domain.Core.OrganizationStatus.Active });
         db.AddRange(connection, repository, installation, workItem, workspace);
         await db.SaveChangesAsync();
         return new Seeded(new AgentBrokerWorkspacePrepareRequest(
@@ -379,6 +381,12 @@ public sealed partial class AgentWorkspaceBrokerTests
         public Task<GitHistoryPage> ReadGitHubHistoryAsync(GitHubHistoryReadRequest request, CancellationToken cancellationToken = default) =>
             ReadInternalHistoryAsync(request.History, cancellationToken);
         public InternalGitRepositoryStore? NativeStore { get; set; }
+        public InternalGitHttpRequest? GitRequest { get; private set; }
+        public Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken cancellationToken = default)
+        {
+            GitRequest = request;
+            return Task.FromResult(new InternalGitHttpResponse($"application/x-{request.Service}-result", [9]));
+        }
         public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken cancellationToken = default) => NativeStore!.LocksAsync(request, cancellationToken);
         public async Task<TrustedWorkspaceSnapshot> PrepareInternalWorkspaceAsync(InternalGitWorkspaceRequest request, CancellationToken cancellationToken = default)
         {

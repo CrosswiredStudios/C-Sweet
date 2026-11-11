@@ -14,6 +14,14 @@ public sealed partial class InternalGitRepositoryStore
         if (request.Service is not ("git-upload-pack" or "git-receive-pack") || request.Body.Length > MaximumGitRequestBytes || request.ProtectedBranches.Count > 10000)
             throw new ArgumentException("Unsupported Git request.");
         foreach (var branch in request.ProtectedBranches) ValidateBranch(branch);
+        if (request.AgentBranch is not null)
+        {
+            ValidateBranch(request.AgentBranch);
+            ValidateSha(request.AgentBaseCommitSha);
+            if (request.AgentMaximumBlobBytes < 1) throw new ArgumentException("Unsupported Git request.");
+        }
+        else if (request.AgentBaseCommitSha is not null || request.AgentMaximumBlobBytes != 0)
+            throw new ArgumentException("Unsupported Git request.");
         using var businessLease = EnterBusinessStorage(request.OrganizationId);
         var repository = RepositoryPath(request.OrganizationId, request.RepositoryId);
         if (!Directory.Exists(repository)) throw new KeyNotFoundException("Repository does not exist.");
@@ -28,7 +36,7 @@ public sealed partial class InternalGitRepositoryStore
         await File.WriteAllTextAsync(lockedPaths, string.Join("\n", locks.Where(l => l.OwnerId != request.ActorId).Select(l => l.Path)) + "\n", new UTF8Encoding(false), ct);
         var hook = Path.Combine(hooks, "pre-receive");
         // This is trusted host code, never sourced from a repository tree. Values enter through a data file.
-        const string script = "#!/bin/sh\nzero=0000000000000000000000000000000000000000\nwhile read old new ref; do\n case \"$ref\" in refs/heads/*|refs/tags/*) ;; *) echo 'Unsupported ref namespace' >&2; exit 1 ;; esac\n while IFS= read -r protected; do\n  if [ \"$ref\" = \"$protected\" ]; then echo 'C-Sweet protects this branch' >&2; exit 1; fi\n done < \"$CSWEET_PROTECTED_REFS\"\n while IFS= read -r locked; do\n  [ -n \"$locked\" ] || continue\n  before=\"$old\"\n  after=\"$new\"\n  if [ \"$old\" = \"$zero\" ]; then\n   before=$(\"$CSWEET_GIT_EXECUTABLE\" merge-base HEAD \"$new\" 2>/dev/null) || before=$(\"$CSWEET_GIT_EXECUTABLE\" hash-object -t tree --stdin </dev/null) || exit 1\n  fi\n  if [ \"$new\" = \"$zero\" ]; then\n   after=$(\"$CSWEET_GIT_EXECUTABLE\" hash-object -t tree --stdin </dev/null) || exit 1\n  fi\n  if ! \"$CSWEET_GIT_EXECUTABLE\" -c core.longpaths=true diff --quiet --no-ext-diff --no-textconv --no-renames \"$before\" \"$after\" -- \":(literal)$locked\"; then\n   echo \"C-Sweet rejects changes to locked file: $locked\" >&2\n   exit 1\n  fi\n done < \"$CSWEET_LOCKED_PATHS\"\ndone\nexit 0\n";
+        const string script = "#!/bin/sh\nzero=0000000000000000000000000000000000000000\nwhile read old new ref; do\n case \"$ref\" in refs/heads/*|refs/tags/*) ;; *) echo 'Unsupported ref namespace' >&2; exit 1 ;; esac\n if [ -n \"$CSWEET_AGENT_REF\" ]; then\n  if [ \"$ref\" != \"$CSWEET_AGENT_REF\" ]; then echo 'C-Sweet accepts agent pushes only to the assigned work branch' >&2; exit 1; fi\n  if [ \"$new\" = \"$zero\" ]; then echo 'C-Sweet does not let agents delete branches' >&2; exit 1; fi\n  if ! \"$CSWEET_GIT_EXECUTABLE\" merge-base --is-ancestor \"$CSWEET_AGENT_BASE\" \"$new\"; then echo 'C-Sweet requires the work branch to descend from its assigned base commit' >&2; exit 1; fi\n  first=\"$old\"\n  if [ \"$old\" = \"$zero\" ]; then first=\"$CSWEET_AGENT_BASE\"; fi\n  changed=$(\"$CSWEET_GIT_EXECUTABLE\" -c core.longpaths=true diff-tree -r --no-renames --diff-filter=AMT \"$first\" \"$new\") || exit 1\n  link=$(printf '%s\\n' \"$changed\" | while read before after rest; do case \"$after\" in 120000|160000) echo found; break ;; esac; done)\n  if [ -n \"$link\" ]; then echo 'C-Sweet rejects symbolic links and submodules' >&2; exit 1; fi\n  objects=$(\"$CSWEET_GIT_EXECUTABLE\" rev-list --objects \"$first..$new\") || exit 1\n  sizes=$(printf '%s\\n' \"$objects\" | \"$CSWEET_GIT_EXECUTABLE\" cat-file --batch-check='%(objecttype) %(objectsize) %(rest)') || exit 1\n  large=$(printf '%s\\n' \"$sizes\" | while read type size path; do if [ \"$type\" = blob ] && [ \"$size\" -gt \"$CSWEET_AGENT_MAXIMUM_BLOB_BYTES\" ]; then printf '%s\\n' \"$path\"; break; fi; done)\n  if [ -n \"$large\" ]; then echo \"C-Sweet requires Git LFS for files over the size limit: $large\" >&2; exit 1; fi\n else\n  while IFS= read -r protected; do\n   if [ \"$ref\" = \"$protected\" ]; then echo 'C-Sweet protects this branch' >&2; exit 1; fi\n  done < \"$CSWEET_PROTECTED_REFS\"\n fi\n while IFS= read -r locked; do\n  [ -n \"$locked\" ] || continue\n  before=\"$old\"\n  after=\"$new\"\n  if [ \"$old\" = \"$zero\" ]; then\n   before=$(\"$CSWEET_GIT_EXECUTABLE\" merge-base HEAD \"$new\" 2>/dev/null) || before=$(\"$CSWEET_GIT_EXECUTABLE\" hash-object -t tree --stdin </dev/null) || exit 1\n  fi\n  if [ \"$new\" = \"$zero\" ]; then\n   after=$(\"$CSWEET_GIT_EXECUTABLE\" hash-object -t tree --stdin </dev/null) || exit 1\n  fi\n  if ! \"$CSWEET_GIT_EXECUTABLE\" -c core.longpaths=true diff --quiet --no-ext-diff --no-textconv --no-renames \"$before\" \"$after\" -- \":(literal)$locked\"; then\n   echo \"C-Sweet rejects changes to locked file: $locked\" >&2\n   exit 1\n  fi\n done < \"$CSWEET_LOCKED_PATHS\"\ndone\nexit 0\n";
         await File.WriteAllTextAsync(hook, script, new UTF8Encoding(false), ct);
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(hook, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         var start = new ProcessStartInfo(_options.GitExecutable) { UseShellExecute = false, CreateNoWindow = true,
@@ -40,6 +48,14 @@ public sealed partial class InternalGitRepositoryStore
         start.Environment["CSWEET_GIT_EXECUTABLE"] = _options.GitExecutable.Replace('\\', '/');
         start.Environment["CSWEET_LOCKED_PATHS"] = lockedPaths.Replace('\\', '/');
         start.Environment["CSWEET_PROTECTED_REFS"] = protectedRefs.Replace('\\', '/');
+        foreach (var key in new[] { "CSWEET_AGENT_REF", "CSWEET_AGENT_BASE", "CSWEET_AGENT_MAXIMUM_BLOB_BYTES" }) start.Environment.Remove(key);
+        if (request.AgentBranch is not null)
+        {
+            // Validated scalars reach the hook as data. They are never interpolated into its text.
+            start.Environment["CSWEET_AGENT_REF"] = "refs/heads/" + request.AgentBranch;
+            start.Environment["CSWEET_AGENT_BASE"] = request.AgentBaseCommitSha!.ToLowerInvariant();
+            start.Environment["CSWEET_AGENT_MAXIMUM_BLOB_BYTES"] = request.AgentMaximumBlobBytes.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         foreach (var config in new[] { "core.hooksPath=" + hooks.Replace('\\', '/'), "core.longpaths=true", "protocol.allow=never",
             "uploadpack.hideRefs=refs/csweet", "receive.hideRefs=refs/csweet", "receive.fsckObjects=true", "receive.denyNonFastForwards=true", "receive.advertiseAtomic=true" })
         { start.ArgumentList.Add("-c"); start.ArgumentList.Add(config); }
